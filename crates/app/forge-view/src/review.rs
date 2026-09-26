@@ -8,7 +8,7 @@ use forge::{Op, ReviewDraft, Verdict};
 impl Forge {
     // -------------------------------------------------------- the review
 
-    fn review_key(&self) -> Option<String> {
+    pub(crate) fn review_key(&self) -> Option<String> {
         Some(change_key(self.nav().repo.as_deref()?, self.nav().change?))
     }
 

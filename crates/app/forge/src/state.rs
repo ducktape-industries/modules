@@ -288,6 +288,7 @@ mod tests {
             merge_oid: None,
             closed_by: None,
             merged_by: None,
+            merged_heads: None,
             channel: String::new(),
             system_seq: 1,
         }

@@ -185,17 +185,14 @@ impl Forge {
             n,
             page: PAGE,
         }];
-        let Some((change, source_head, _, _)) = self.change() else {
+        let (Some((_, source_head, _, _)), Some((from, into))) = (self.change(), self.endpoints())
+        else {
             return wanted;
         };
         wanted.extend(self.compare_query());
         if self.nav.change_tab == ChangeTab::Commits {
             // the change's own commits: what its target does not reach
-            wanted.push(crate::ui::commits::query(
-                self,
-                change.from.clone(),
-                Some(Revision::Ref(change.into.clone())),
-            ));
+            wanted.push(crate::ui::commits::query(self, from, Some(into)));
         }
         if let (ChangeTab::Files, Some(head), Some(comparison)) =
             (self.nav.change_tab, source_head.clone(), self.compare())

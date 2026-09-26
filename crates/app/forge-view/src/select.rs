@@ -221,12 +221,25 @@ impl Forge {
         }
     }
 
-    pub(crate) fn compare_query(&self) -> Option<Query> {
+    /// What the open change compares: its source and target, or, once
+    /// merged, the two heads the merge joined (the refs move on after).
+    pub(crate) fn endpoints(&self) -> Option<(Revision, Revision)> {
         let (change, _, _, _) = self.change()?;
+        Some(match &change.merged_heads {
+            Some(heads) => (
+                Revision::Oid(heads.source.clone()),
+                Revision::Oid(heads.target.clone()),
+            ),
+            None => (change.from.clone(), Revision::Ref(change.into.clone())),
+        })
+    }
+
+    pub(crate) fn compare_query(&self) -> Option<Query> {
+        let (from, into) = self.endpoints()?;
         Some(Query::Compare {
             repo: self.nav.repo.clone()?,
-            from: change.from.clone(),
-            into: Revision::Ref(change.into.clone()),
+            from,
+            into,
         })
     }
 

@@ -335,12 +335,16 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
 
     cx.simulate_click("forge-finish-review");
     cx.run_until_parked();
-    assert!(
-        matches!(
-            cx.find("forge-review-body"),
-            Some(ducktape_view_guest::wire::Node::Editor { .. })
-        ),
-        "the review body is the host's multi-line editor"
+    let Some(ducktape_view_guest::wire::Node::Editor { document, .. }) =
+        cx.find("forge-review-body")
+    else {
+        panic!("the review body is the host's multi-line editor");
+    };
+    let key = view.read(|forge| forge.review_key().unwrap());
+    assert_eq!(
+        document.document,
+        format!("forge-review-body-{key}"),
+        "a document per change, so the host never carries one change's body into another"
     );
     view.update(&mut cx, |forge, _, cx| {
         forge.review_mut().unwrap().body = ducktape_view_guest::Editor::new("one batch, one op");
@@ -520,6 +524,31 @@ fn a_change_lists_its_own_commits() {
         asked.iter().any(|query| matches!(
             query,
             forge::Query::Log { exclude: Some(forge::Revision::Ref(target)), .. } if *target == into
+        )),
+        "{asked:?}"
+    );
+}
+
+/// A merged change's Commits read between the two heads the merge joined,
+/// not its refs, which move on after the merge.
+#[test]
+fn a_merged_change_lists_the_commits_it_merged() {
+    let (cx, view) = change_screen("merged", ChangeTab::Commits);
+    let heads = view.read(|forge| {
+        forge
+            .change()
+            .and_then(|(change, ..)| change.merged_heads.clone())
+    });
+    let heads = heads.expect("the merge recorded its heads");
+    let asked = cx.host().requests::<crate::api::Ask>();
+    assert!(
+        asked.iter().any(|query| matches!(
+            query,
+            forge::Query::Log {
+                from: forge::Revision::Oid(source),
+                exclude: Some(forge::Revision::Oid(target)),
+                ..
+            } if *source == heads.source && *target == heads.target
         )),
         "{asked:?}"
     );

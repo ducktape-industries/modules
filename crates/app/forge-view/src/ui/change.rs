@@ -45,17 +45,16 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     }
     let body: AnyElement = match forge.nav().change_tab {
         ChangeTab::Conversation => crate::ui::conversation::render(forge, cx, theme),
-        ChangeTab::Commits => commits::log(
-            forge,
-            &commits::query(
+        ChangeTab::Commits => match forge.endpoints() {
+            Some((from, into)) => commits::log(
                 forge,
-                change.from.clone(),
-                Some(forge::Revision::Ref(change.into.clone())),
+                &commits::query(forge, from, Some(into)),
+                "forge-change-log",
+                cx,
+                theme,
             ),
-            "forge-change-log",
-            cx,
-            theme,
-        ),
+            None => div().into_any_element(),
+        },
         ChangeTab::Files => files(forge, cx, theme),
     };
     column.child(body).into_any_element()
@@ -393,17 +392,23 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
     if !review.finishing {
         return bar.into_any_element();
     }
-    bar.child(review_body(&review.body, theme))
+    // a document per change: the host keeps a document by its name, and
+    // one name across changes would carry one change's body into another's
+    let document = format!(
+        "forge-review-body-{}",
+        forge.review_key().unwrap_or_default()
+    );
+    bar.child(review_body(&review.body, document, theme))
         .child(verdict_buttons(forge, cx, theme))
         .into_any_element()
 }
 
 /// What the review says overall, typed while finishing.
-fn review_body(body: &Editor, theme: &Theme) -> impl IntoElement + use<> {
+fn review_body(body: &Editor, document: String, theme: &Theme) -> impl IntoElement + use<> {
     EditorElement::plain(
         id("forge-review-body"),
         body,
-        "forge-review-body",
+        document,
         |forge: &mut Forge| forge.review_mut().map(|review| &mut review.body),
     )
     .min_h(design::size::CONTROL * 3.)

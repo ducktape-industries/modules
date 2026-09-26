@@ -175,6 +175,10 @@ fn heads(
     repo: &str,
     change: &Change,
 ) -> Result<(Option<String>, Option<String>), Error> {
+    // a merged change keeps the heads it merged; later pushes move the refs
+    if let Some(MergedHeads { source, target }) = &change.merged_heads {
+        return Ok((Some(source.clone()), Some(target.clone())));
+    }
     let hash = repo_hash(&load_repo(ctx, repo)?);
     let source = match &change.from {
         Revision::Ref(name) => load_ref(ctx, repo, name, hash)?.map(|oid| oid.to_hex()),

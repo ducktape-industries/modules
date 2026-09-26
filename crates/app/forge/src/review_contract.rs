@@ -72,8 +72,17 @@ pub struct Change {
     pub closed_by: Option<Principal>,
     /// Who merged the change; set once, by a merge linked to it.
     pub merged_by: Option<Principal>,
+    /// The source and target heads the merge joined; set once, by a merge
+    /// linked to it. A merged change reads these, not its live refs.
+    pub merged_heads: Option<MergedHeads>,
     pub channel: String,
     pub system_seq: u64,
+}
+/// A merged change's two heads as the merge found them.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct MergedHeads {
+    pub source: String,
+    pub target: String,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ReviewCounts {
