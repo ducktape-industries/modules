@@ -87,7 +87,7 @@ impl Draft {
 const TEXT_INSET: f32 = design::spacing::MD as f32;
 const CONTROL_INSET: f32 = design::spacing::XXS as f32;
 
-/// Dresses a mark's sign as what it does: bold, italic, code.
+/// Dresses a mark's sign as what it does: bold, italic, code, quote, list.
 type Face = fn(crate::Div) -> crate::Div;
 
 #[derive(IntoElement)]
@@ -313,7 +313,7 @@ pub fn view<V: View + 'static>(
         .flex()
         .items_center()
         .gap(px(2.));
-    let faces: [(&str, &str, &str, Face); 4] = [
+    let faces: [(&str, &str, &str, Face); 5] = [
         ("B", "Bold", "bold", |sign| {
             sign.font_weight(crate::FontWeight::BOLD)
         }),
@@ -323,6 +323,7 @@ pub fn view<V: View + 'static>(
                 .text_size(crate::design::text::CAPTION)
         }),
         ("“", "Quote", "quote", |sign| sign.text_size(px(16.))),
+        ("•", "List", "list", |sign| sign.text_size(px(16.))),
     ];
     for (sign, label, tag, face) in faces {
         toolbar = toolbar.child(Mark {
