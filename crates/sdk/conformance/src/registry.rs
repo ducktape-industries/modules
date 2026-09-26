@@ -72,10 +72,13 @@ fn founded<F: Fixture>(fixture: &F) -> MockHost {
     host
 }
 
-/// What `At(height)` answers, by program.
+/// What `At(height)` answers, by program. Asked a block ahead, as the
+/// kernel asks, so an answer read off the env's height instead of the
+/// asked one does not pass.
 fn at<F: Fixture>(host: &MockHost, height: u64) -> Vec<Entry> {
     let asked = Query::At(height);
-    let mut entries = match ask::<F::Module, Reply>(host, &module(), height, &asked) {
+    let from = height.saturating_sub(1).max(1);
+    let mut entries = match ask::<F::Module, Reply>(host, &module(), from, &asked) {
         Ok(Reply::Programs(entries)) => entries,
         other => panic!("registry: At({height}) answers Programs, not {other:?}"),
     };
@@ -133,7 +136,10 @@ pub fn a_set_lands_at_its_height_and_not_before<F: Fixture>(fixture: &F) {
     }
     assert_eq!(
         at::<F>(&host, 4),
-        at::<F>(&host, 1),
+        [
+            entry("a", BlobId::Sha256([1; 32])),
+            entry("b", BlobId::Sha256([2; 32]))
+        ],
         "registry: nothing scheduled at 5 runs at 4"
     );
     for height in [5, 6] {

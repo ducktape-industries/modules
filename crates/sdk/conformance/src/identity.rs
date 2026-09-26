@@ -272,11 +272,16 @@ pub fn an_unknown_key_or_module_holds_nothing<F: Fixture>(fixture: &F) {
 pub fn a_held_key_resolves_to_an_acting_account<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     let number = fixture.account(&host, b"held key");
-    assert_eq!(
-        account_of::<F>(&host, Query::Account(b"held key".to_vec())),
-        Some(number),
-        "identity: Account(key) answers the account the key holds"
-    );
+    // a second holder, so an answer that ignores the key cannot pass
+    let other = fixture.account(&host, b"other held key");
+    assert_ne!(number, other, "identity: two keys, two accounts");
+    for (key, holder) in [(&b"held key"[..], number), (&b"other held key"[..], other)] {
+        assert_eq!(
+            account_of::<F>(&host, Query::Account(key.to_vec())),
+            Some(holder),
+            "identity: Account(key) answers the account that key holds"
+        );
+    }
     let kind = profile::<F>(&host, number).map(|p| p.kind);
     assert!(
         matches!(
@@ -417,7 +422,16 @@ pub fn module_profiles_agree_with_of_module<F: Fixture>(fixture: &F) {
             .unwrap_or_else(|e| panic!("identity: the system registers {name}: {e:?}"));
     }
     fixture.account(&host, b"person");
-    for listed in every_profile::<F>(&host, 50) {
+    let listed = every_profile::<F>(&host, 50);
+    for name in ["probe", "other"] {
+        assert!(
+            listed
+                .iter()
+                .any(|p| matches!(&p.kind, Kind::Module(id) if id == name)),
+            "identity: Profiles lists the registered module {name}"
+        );
+    }
+    for listed in listed {
         if let Kind::Module(id) = &listed.kind {
             assert_eq!(
                 account_of::<F>(&host, Query::OfModule(id.clone())),
