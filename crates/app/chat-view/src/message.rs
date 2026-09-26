@@ -170,7 +170,9 @@ pub fn mark_message_groups(messages: &mut [ChatMessage], boundary: Option<u64>) 
                 || above.from != this.from
                 || unread == Some(this.seq)
                 || this.time.saturating_sub(above.time) > GROUP_GAP_MS
+                // a pending row (no time yet) runs on under its author
                 || (above.time > 0
+                    && this.time > 0
                     && design::local(above.time) / DAY_MS != design::local(this.time) / DAY_MS)
         });
         messages[index].show_author = opens;
@@ -322,6 +324,27 @@ mod tests {
         mark_message_groups(&mut messages, None);
         let heads: Vec<bool> = messages.iter().map(|m| m.show_author).collect();
         assert_eq!(heads, [true, false, false, true]);
+    }
+
+    #[test]
+    fn a_pending_row_runs_on_under_its_authors_served_row() {
+        let names = Names::empty();
+        let at = |seq: u64, time: u64| {
+            chat_message(
+                MsgRow {
+                    seq,
+                    time,
+                    blocks: vec![Block::paragraph("hi")],
+                    ..MsgRow::by(Principal::Account(7))
+                },
+                &names,
+            )
+        };
+        // 24 Sep 2026, 15:42 UTC, then a pending post (seq 0, no time yet)
+        let mut messages = vec![at(1, 1_790_264_527_000), at(0, 0)];
+        mark_message_groups(&mut messages, None);
+        let heads: Vec<bool> = messages.iter().map(|m| m.show_author).collect();
+        assert_eq!(heads, [true, false]);
     }
 
     #[test]
