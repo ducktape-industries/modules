@@ -70,7 +70,9 @@ impl Explorer {
             // the reader's zone, for the dates a block and a tx read
             cx.for_each(offset, |_, offset, _, cx| match offset {
                 Ok(minutes) => design::set_utc_offset(minutes),
-                Err(refusal) => cx.host().log_refused("explorer", "the UTC offset", &refusal),
+                Err(refusal) => cx
+                    .host()
+                    .log_refused("explorer", "the UTC offset", &refusal),
             }),
         ];
     }
