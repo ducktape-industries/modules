@@ -376,3 +376,30 @@ fn a_dms_details_show_its_two_people_and_nothing_to_reshape() {
     assert!(cx.find("chat-details-member-input").is_none());
     assert!(!cx.has_text("Remove"));
 }
+
+/// A room opened around a landing seq (a notification, a link) re-reads its
+/// window on a chat write, so an edit or a reaction shows there too.
+#[test]
+fn a_landed_room_rereads_its_window() {
+    let (mut cx, view) = opened();
+    cx.host().handle::<Ask<ChatApi>>(|query| {
+        Ok(match query {
+            Query::MessagesAround {
+                channel_id, seq, ..
+            } => {
+                assert_eq!((channel_id.as_str(), seq), ("general", 2), "its middle row");
+                Reply::Messages(vec![row(1, 7, "hello"), row(2, 8, "edited since")])
+            }
+            Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 3)])),
+            Query::Members { .. } => Reply::Members(page(Vec::new())),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+    view.update(&mut cx, |chat, _, cx| {
+        chat.room.as_mut().unwrap().landed = true;
+        cx.notify();
+        chat.refresh(cx);
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("edited since"), "{:?}", cx.texts());
+}

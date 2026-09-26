@@ -151,6 +151,21 @@ impl Chat {
                     room.settle();
                 }
             });
+        } else if let Some(seq) = room
+            .messages
+            .ready()
+            .and_then(|rows| rows.get(rows.len() / 2))
+            .map(|row| row.seq)
+        {
+            // a landed window re-reads around its middle row, so reactions,
+            // edits and reply counts land there too
+            let rows = queries::around(cx.host(), id.clone(), seq, viewer.clone());
+            cx.refresh(rows, |chat, rows, _| {
+                if let Some(room) = chat.room.as_mut() {
+                    room.messages = Loadable::Ready(rows);
+                    room.settle();
+                }
+            });
         }
         let roster = queries::members(cx.host(), id.clone());
         cx.refresh(roster, |chat, members, _| {

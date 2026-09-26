@@ -43,6 +43,9 @@ impl Forge {
     pub(crate) fn submit(&mut self, op: Op, scope: String, label: &str, cx: &mut Context<Self>) {
         self.next_pending += 1;
         let id = self.next_pending;
+        // a landed review is done: its session goes, or it stays pinned at
+        // the old head and Finish would send it again
+        let review = matches!(op, Op::ReviewSubmit { .. }).then(|| scope.clone());
         self.pending.push(Pending {
             id,
             scope,
@@ -61,6 +64,9 @@ impl Forge {
                 match result {
                     Ok(_) => {
                         op.progress = Progress::Accepted;
+                        if let Some(key) = &review {
+                            forge.reviews.remove(key);
+                        }
                         forge.refresh(cx);
                     }
                     Err(refusal) => op.progress = Progress::Refused(refusal.message),

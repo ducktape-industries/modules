@@ -179,7 +179,9 @@ pub(crate) fn require_writer(
 ) -> Result<(), Error> {
     let may_write = repo.owner == *actor || is_writer(ctx, name, actor);
     if !may_write {
-        return Err(unauthorized("only the owner and its writers push"));
+        return Err(unauthorized(
+            "only the owner and its writers push, merge and close",
+        ));
     }
     Ok(())
 }

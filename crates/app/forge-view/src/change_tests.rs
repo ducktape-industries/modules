@@ -1,6 +1,6 @@
 //! The Change screens: the list, the detail header, the conversation, the
 //! reviewer's Files tab, and the one operation a review becomes.
-use super::{booted, change_screen, opened};
+use super::{booted, change_screen, change_screen_as, opened};
 use crate::api::{ChatApi, SubmitForge};
 use crate::state::ChangeTab;
 use ducktape_view_guest::view::Submit;
@@ -35,7 +35,7 @@ fn the_change_list_shows_the_plans_row_and_its_filters() {
 
 #[test]
 fn the_change_header_carries_its_endpoints_and_a_merge_the_program_allows() {
-    let (cx, view) = change_screen("default", ChangeTab::Conversation);
+    let (cx, view) = change_screen_as("default", ChangeTab::Conversation, 9);
     view.read(|forge| assert_eq!(forge.nav().change, Some(1)));
     assert!(cx.has_text("#1 Review this change"), "{:?}", cx.texts());
     assert!(cx.has_text("feature → main · Ada"));
@@ -70,7 +70,7 @@ fn a_diverged_comparison_says_why_it_cannot_merge() {
 
 #[test]
 fn merging_submits_the_client_computed_fast_forward() {
-    let (mut cx, _) = change_screen("default", ChangeTab::Conversation);
+    let (mut cx, _) = change_screen_as("default", ChangeTab::Conversation, 9);
     cx.simulate_click("forge-merge");
     cx.run_until_parked();
     assert!(
@@ -97,7 +97,7 @@ fn merging_submits_the_client_computed_fast_forward() {
 
 #[test]
 fn an_operation_shows_its_submission_then_a_refusal_reverts_it_with_the_reason() {
-    let (mut cx, _) = change_screen("default", ChangeTab::Conversation);
+    let (mut cx, _) = change_screen_as("default", ChangeTab::Conversation, 9);
     cx.host()
         .refuse::<SubmitForge>("unauthorized", "this key may not close that change");
     cx.simulate_click("forge-close-change");
@@ -391,6 +391,12 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
         ]
     );
     assert!(cx.has_text("Submitting this review") || cx.has_text("Waiting for the next block"));
+    view.read(|forge| {
+        assert!(
+            forge.review().is_none(),
+            "a landed review ends its session: no second Finish at the old pin"
+        )
+    });
 }
 
 #[test]
@@ -517,4 +523,17 @@ fn a_change_lists_its_own_commits() {
         )),
         "{asked:?}"
     );
+}
+
+/// A reader who neither owns nor writes the repository sees Close and Merge
+/// off: forge refuses both to them.
+#[test]
+fn a_reader_without_write_gets_no_close_or_merge() {
+    let (cx, _) = change_screen("default", ChangeTab::Conversation);
+    for id in ["forge-close-change", "forge-merge"] {
+        let Some(ducktape_view_guest::wire::Node::Container(node)) = cx.find(id) else {
+            panic!("{id} is a native container");
+        };
+        assert_eq!(node.interactivity.aria.disabled, Some(true), "{id}");
+    }
 }

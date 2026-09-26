@@ -127,7 +127,7 @@ fn flags(
         .child(
             button(id("forge-settings-save"), "Save", theme, save)
                 .kind(design::Kind::Primary)
-                .enabled(forge.may_write()),
+                .enabled(forge.owns_repo()),
         )
 }
 
@@ -164,7 +164,7 @@ fn grant_field(
                 .label("Grant write access")
                 .on_input(typed),
         )
-        .child(button(id("forge-settings-grant"), "Grant", theme, grant).enabled(forge.may_write()))
+        .child(button(id("forge-settings-grant"), "Grant", theme, grant).enabled(forge.owns_repo()))
 }
 
 /// One row per writer with its Revoke, or the owner-only empty state.

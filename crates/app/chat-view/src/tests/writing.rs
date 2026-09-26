@@ -168,3 +168,21 @@ fn search_hits_in_two_channels_at_one_seq_are_two_rows() {
     // the host's sanitizer refuses duplicate typed identities among siblings
     cx.frame_bytes();
 }
+
+#[test]
+fn a_first_post_to_a_dm_opens_it_and_a_listed_one_does_not() {
+    let (mut cx, view) = opened();
+    cx.run_until_parked();
+    let post = |channel: &str| crate::composer::Target::Post {
+        channel: channel.into(),
+        thread: None,
+    };
+    view.read(|chat| {
+        assert!(matches!(
+            chat.dm_to_open(&post("dm-7-9")),
+            Some(Op::CreateDmChannel { counterpart: 9, .. })
+        ));
+        assert!(chat.dm_to_open(&post("dm-7-8")).is_none(), "already open");
+        assert!(chat.dm_to_open(&post("general")).is_none(), "not a dm");
+    });
+}

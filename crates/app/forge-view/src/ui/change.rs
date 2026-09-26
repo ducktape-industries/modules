@@ -144,12 +144,13 @@ fn title_line(
         top = top
             .child(button(id("forge-edit-change"), "Edit", theme, edit).enabled(mine))
             .child(
-                button(id("forge-close-change"), "Close", theme, close).enabled(forge.may_write()),
+                button(id("forge-close-change"), "Close", theme, close)
+                    .enabled(forge.writes_repo()),
             )
             .child(
                 button(id("forge-merge"), "Merge", theme, merge)
                     .kind(design::Kind::Primary)
-                    .enabled(mergeable && forge.may_write()),
+                    .enabled(mergeable && forge.writes_repo()),
             );
     }
     top

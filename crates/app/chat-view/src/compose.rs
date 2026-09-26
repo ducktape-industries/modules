@@ -122,9 +122,13 @@ impl Chat {
 
     fn send(&mut self, key: String, send: Send, target: Target, cx: &mut Context<Self>) {
         let me = self.me();
+        let open_dm = self.dm_to_open(&target);
         cx.spawn(async move |this, cx| {
             let host = cx.host();
             let result = async {
+                if let Some(open) = open_dm {
+                    host.ask::<Submit<ChatApi>>(open).await?;
+                }
                 let id = host.ask::<HostId>("message".into()).await?;
                 let op = crate::composer::op(id, &send, &target)?;
                 let pending = me.and_then(|me| pending_row(&op, me));
@@ -137,6 +141,7 @@ impl Chat {
                 draft.complete_send(&send);
                 match result {
                     Ok(pending) => {
+                        draft.note.clear();
                         if let (Some(row), Some(room)) = (pending, chat.room.as_mut())
                             && room.id == target.channel()
                         {
@@ -160,5 +165,28 @@ impl Chat {
             });
         })
         .detach();
+    }
+
+    /// A post into a dm room the channel list doesn't hold yet: the op that
+    /// opens it first. A dm id opens only through `CreateDmChannel`, named
+    /// for the other person (a no-op once it is open).
+    pub(crate) fn dm_to_open(&self, target: &Target) -> Option<chat::Op> {
+        let Target::Post { channel, .. } = target else {
+            return None;
+        };
+        if self.info(channel).is_some() {
+            return None;
+        }
+        let peer = crate::names::dm_peer_of(self.my_account()?, channel)?;
+        let name = self
+            .names
+            .ready()
+            .and_then(|names| names.name(&chat::Principal::Account(peer)))
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("account {peer}"));
+        Some(chat::Op::CreateDmChannel {
+            counterpart: peer,
+            name,
+        })
     }
 }

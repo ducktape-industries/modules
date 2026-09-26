@@ -213,6 +213,12 @@ pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
 
 /// Boots the view, seats a reader and waits for the first reads to land.
 pub(crate) fn booted(mode: &'static str) -> (TestAppContext, Entity<Forge>) {
+    booted_as(mode, 2)
+}
+
+/// Boots seated as `account`: 2 (Rae) reviews and holds no write; 1 (Ada)
+/// owns `project`; 9 (Wren) is its granted writer.
+pub(crate) fn booted_as(mode: &'static str, account: u64) -> (TestAppContext, Entity<Forge>) {
     let mut cx = TestAppContext::new();
     configure(&mut cx, mode);
     let props = cx.host().stream::<HostSession>();
@@ -222,7 +228,7 @@ pub(crate) fn booted(mode: &'static str) -> (TestAppContext, Entity<Forge>) {
     cx.run_until_parked();
     props.send(Session {
         signer: abi::hex(b"reviewer"),
-        account: Some(2),
+        account: Some(account),
         connected: true,
         chain_id: "testnet#0a1b2c3d".into(),
         ..Session::default()
@@ -233,7 +239,11 @@ pub(crate) fn booted(mode: &'static str) -> (TestAppContext, Entity<Forge>) {
 
 /// Boots and opens `project`.
 pub(crate) fn opened(mode: &'static str) -> (TestAppContext, Entity<Forge>) {
-    let (mut cx, view) = booted(mode);
+    opened_as(mode, 2)
+}
+
+pub(crate) fn opened_as(mode: &'static str, account: u64) -> (TestAppContext, Entity<Forge>) {
+    let (mut cx, view) = booted_as(mode, account);
     cx.simulate_click("forge-repo-project");
     cx.run_until_parked();
     (cx, view)
@@ -461,7 +471,7 @@ fn an_empty_program_explains_how_a_repository_begins() {
     assert!(
         cx.texts()
             .iter()
-            .any(|text| text.contains("git push duck://"))
+            .any(|text| text.contains("Create one with + New"))
     );
 }
 
@@ -841,7 +851,7 @@ fn refs_carry_their_distance_from_the_default_head_and_open_a_draft() {
 
 #[test]
 fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
-    let (mut cx, _) = opened("default");
+    let (mut cx, _) = opened_as("default", 1);
     cx.simulate_click("forge-tab-settings");
     cx.run_until_parked();
     assert!(cx.has_text("Allow force pushes"));
@@ -948,7 +958,15 @@ fn an_empty_judgment_says_nothing_waits_on_you() {
 
 /// Opens change #1 of `project` on one of its tabs.
 pub(crate) fn change_screen(mode: &'static str, tab: ChangeTab) -> (TestAppContext, Entity<Forge>) {
-    let (mut cx, view) = opened(mode);
+    change_screen_as(mode, tab, 2)
+}
+
+pub(crate) fn change_screen_as(
+    mode: &'static str,
+    tab: ChangeTab,
+    account: u64,
+) -> (TestAppContext, Entity<Forge>) {
+    let (mut cx, view) = opened_as(mode, account);
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
     cx.simulate_click("forge-change-1");

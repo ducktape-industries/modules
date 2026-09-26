@@ -45,6 +45,26 @@ impl Forge {
         self.session.connected && self.me_principal().is_some()
     }
 
+    /// Whether the reader may push, merge and close in the open repository:
+    /// its owner or a writer, as forge's `require_writer` checks.
+    // ponytail: reads the writers' first page only; a reader granted past it
+    // sees Merge and Close off until the page walks further
+    pub(crate) fn writes_repo(&self) -> bool {
+        let (Some(me), Some((info, _, writers))) = (self.me_principal(), self.repo()) else {
+            return false;
+        };
+        self.may_write() && (info.repo.owner == me || writers.items.contains(&me))
+    }
+
+    /// Whether the reader owns the open repository: only the owner changes
+    /// its settings and writers.
+    pub(crate) fn owns_repo(&self) -> bool {
+        let (Some(me), Some((info, _, _))) = (self.me_principal(), self.repo()) else {
+            return false;
+        };
+        self.may_write() && info.repo.owner == me
+    }
+
     /// Whether a list on this screen stopped at its page budget: a read
     /// with a cursor left over, or a change's conversation cut short.
     pub(crate) fn cut_short(&self) -> bool {

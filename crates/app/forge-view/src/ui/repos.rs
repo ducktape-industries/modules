@@ -240,7 +240,7 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                     "Nothing matches"
                 },
                 if forge.search.trim().is_empty() {
-                    "Push one into existence: `git push duck://<network>/forge/<name> main`, or create it here."
+                    "Create one with + New, then push to it."
                 } else {
                     "No repository here reads like that."
                 },
