@@ -74,6 +74,9 @@ pub struct MockState {
     /// The last query's response.
     pub response: Vec<u8>,
     pub emissions: Vec<Message>,
+    /// The number the next emit gets: 0 after a [`MockHost::take_emissions`];
+    /// a [`MockChain`](crate::MockChain) carries it across a frame.
+    pub next_message: u64,
     pub events: Vec<Vec<u8>>,
     pub siblings: BTreeMap<ModuleId, Sibling>,
     pub verifier: Option<Verifier>,
@@ -81,6 +84,14 @@ pub struct MockState {
 
 #[derive(Clone, Default)]
 pub struct MockHost(Rc<RefCell<MockState>>);
+
+/// What a write leaves on a host: its state, its blobs and what it sent
+/// (output, emissions, events).
+pub(crate) struct Written {
+    state: BTreeMap<Vec<u8>, Vec<u8>>,
+    blobs: BTreeMap<BlobId, Blob>,
+    sent: (Vec<u8>, Vec<Message>, Vec<Vec<u8>>),
+}
 
 impl MockHost {
     /// The roles as the suite's genesis binds them, for a native test's
@@ -154,7 +165,9 @@ impl MockHost {
     }
 
     pub fn take_emissions(&self) -> Vec<Message> {
-        std::mem::take(&mut self.borrow_mut().emissions)
+        let mut mock = self.borrow_mut();
+        mock.next_message = 0;
+        std::mem::take(&mut mock.emissions)
     }
 
     /// The last query's response, as [`crate::query`] handed it over.
@@ -172,9 +185,9 @@ impl MockHost {
         let result = write();
         if result.is_err() {
             let after = self.written();
-            assert_eq!(after.0, before.0, "a refused write changed state");
-            assert_eq!(after.1, before.1, "a refused write stored a blob");
-            assert_eq!(after.2, before.2, "a refused write sent something");
+            assert_eq!(after.state, before.state, "a refused write changed state");
+            assert_eq!(after.blobs, before.blobs, "a refused write stored a blob");
+            assert_eq!(after.sent, before.sent, "a refused write sent something");
         }
         result
     }
@@ -185,24 +198,26 @@ impl MockHost {
         self.attempt(write).expect_err("the write was refused")
     }
 
-    #[allow(clippy::type_complexity)]
-    fn written(
-        &self,
-    ) -> (
-        BTreeMap<Vec<u8>, Vec<u8>>,
-        BTreeMap<BlobId, Blob>,
-        (Vec<u8>, Vec<Message>, Vec<Vec<u8>>),
-    ) {
+    /// Everything a write leaves on this host, copied.
+    pub(crate) fn written(&self) -> Written {
         let mock = self.borrow();
-        (
-            mock.state.clone(),
-            mock.blobs.clone(),
-            (
+        Written {
+            state: mock.state.clone(),
+            blobs: mock.blobs.clone(),
+            sent: (
                 mock.output.clone(),
                 mock.emissions.clone(),
                 mock.events.clone(),
             ),
-        )
+        }
+    }
+
+    /// Puts back what [`written`](MockHost::written) copied: the undo.
+    pub(crate) fn restore(&self, written: Written) {
+        let mut mock = self.borrow_mut();
+        mock.state = written.state;
+        mock.blobs = written.blobs;
+        (mock.output, mock.emissions, mock.events) = written.sent;
     }
 
     /// One host call from a context whose env is `env`, as the real host
@@ -286,7 +301,8 @@ impl MockHost {
                 Err(error) => HostReply::Refused(crate::kernel::refusal_from(error)),
             },
             HostOp::Emit(message) => {
-                let item = mock.emissions.len() as u64;
+                let item = mock.next_message;
+                mock.next_message += 1;
                 mock.emissions.push(message);
                 HostReply::Item(abi::ItemRef {
                     source: env.module.clone(),

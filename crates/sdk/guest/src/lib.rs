@@ -5,7 +5,9 @@
 //! state (`get`, `set`, `delete`, `scan`), blobs, `event`, `set_return_data`,
 //! `sha256` and `verify`, and the two ways to another module: `emit` (a write
 //! it runs in this frame, replying or not) and `query` (a read). On wasm32
-//! they are host calls; natively the same contexts run over a [`MockHost`].
+//! they are host calls; natively the same contexts run over a [`MockHost`],
+//! and several modules run together, a submission as one frame with its
+//! messages and replies as the kernel runs it, on a [`MockChain`].
 //! [`Env`] adds the origin checks (`signer`, `sending_module`, `sent_by`) and
 //! `authority`, a stub that admits anyone for now.
 //! A message emitted with [`Reply::Wanted`] comes back to its emitter in
@@ -38,6 +40,8 @@
 //!
 //! `store` is the optional typed layer on top (`Map`/`Set`/`Item`, pages).
 
+#[cfg(not(target_arch = "wasm32"))]
+mod chain;
 mod ctx;
 mod identity;
 pub mod kernel;
@@ -51,6 +55,8 @@ pub use abi;
 pub use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, Message, Root, Scheme,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use chain::{MAX_DEPTH, MockChain, Roster};
 pub use ctx::{ExecCtx, QueryCtx, Reply};
 pub use kernel::{
     AccountNumber, Cause, Env, Error, MessageId, ModuleId, Order, Origin, Outcome, Principal,
