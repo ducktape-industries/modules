@@ -351,7 +351,7 @@ impl Element for Input {
             id,
             placeholder: this.placeholder,
             value: this.value,
-            on_input: on_input.unwrap_or(u32::MAX),
+            on_input,
             on_submit,
             secure: this.secure,
             style: this.style,

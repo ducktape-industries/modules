@@ -205,7 +205,7 @@ pub enum Node {
         placeholder: String,
         /// Copied document state, adopted by reset and host observation revision.
         value: String,
-        on_input: u32,
+        on_input: Option<u32>,
         on_submit: Option<u32>,
         secure: bool,
         style: gpui::StyleRefinement,

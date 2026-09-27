@@ -135,7 +135,7 @@ pub fn every_node() -> Node {
             id: id("input"),
             placeholder: "Name".into(),
             value: "x".into(),
-            on_input: 20,
+            on_input: Some(20),
             on_submit: Some(21),
             secure: false,
             style: style(),

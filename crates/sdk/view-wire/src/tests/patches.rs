@@ -286,7 +286,7 @@ fn every_shaped_string_spends_the_same_budget() {
             id: ElementIdWire::Name("App/i".into()),
             placeholder: long.clone(),
             value: long.clone(),
-            on_input: 0,
+            on_input: Some(0),
             on_submit: None,
             secure: false,
             style: gpui::StyleRefinement::default(),

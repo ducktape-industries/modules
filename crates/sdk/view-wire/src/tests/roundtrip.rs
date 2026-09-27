@@ -177,7 +177,7 @@ fn a_frame_round_trips() {
                 id: ElementIdWire::Name("App/i".into()),
                 placeholder: "Name".into(),
                 value: "x".into(),
-                on_input: 0,
+                on_input: Some(0),
                 on_submit: Some(4),
                 secure: false,
                 style: gpui::StyleRefinement::default(),

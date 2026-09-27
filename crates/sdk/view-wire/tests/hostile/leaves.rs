@@ -62,7 +62,7 @@ pub(super) fn gen_input(rng: &mut Rng) -> Node {
         id: gen_id(rng),
         placeholder: gen_string(rng),
         value: gen_string(rng),
-        on_input: rng.next_u64() as u32,
+        on_input: rng.next_bool().then(|| rng.next_u64() as u32),
         on_submit: rng.next_bool().then(|| rng.next_u64() as u32),
         secure: rng.next_bool(),
         style: gpui::StyleRefinement::default(),

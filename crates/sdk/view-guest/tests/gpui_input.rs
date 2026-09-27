@@ -45,7 +45,7 @@ fn input(frame: &wire::Frame) -> (&wire::ElementIdWire, u32, u32, &gpui::StyleRe
     };
     let wire::Node::Input {
         id,
-        on_input,
+        on_input: Some(on_input),
         on_submit: Some(on_submit),
         style,
         ..

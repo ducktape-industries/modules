@@ -146,8 +146,11 @@ pub(crate) fn type_into(frame: &Frame, name: &str, text: &str) -> Vec<Event> {
     let Some(Node::Input { on_input, .. }) = input(frame, name) else {
         panic!("no input {name:?} in {:?}", texts(frame));
     };
+    let Some(handler) = on_input else {
+        panic!("input {name:?} has no input route");
+    };
     vec![Event::Input {
-        handler: *on_input,
+        handler: *handler,
         text: text.to_string(),
     }]
 }
