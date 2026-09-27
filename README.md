@@ -127,16 +127,20 @@ The tree vocabulary, manifests, and five-function Wasm ABI are unchanged.
 3. `kit build NAME && kit up NAME` in qa packs and founds these artifacts,
    then the app opens on them.
 4. Where a view's bytes go: `make wasm-why V=members-view` (`twiggy top`, `cargo install twiggy`).
-5. A new module: `make new-module NAME=x`, then `make new-view NAME=x-view`;
-   each prints what to do next. `make test` runs everything; the founding
-   suite builds the boot set itself.
+5. A new module: `make new-module NAME=x` (valset's shape: types and
+   `describe` in `lib.rs`, the module in `program.rs`, rules in `rules.rs`,
+   the view marker in `view.rs`, a `MockHost` test in `tests.rs`), then
+   `make new-view NAME=x-view`; each prints what to do next, down to the
+   `founding.toml` entry and kit's pack lists in qa. `make scaffold-check`
+   proves both still build, gate and test. `make test` runs everything; the
+   founding suite builds the boot set itself.
 
 ## Building
 
 `make test` (`cargo test --workspace`; the founding suite runs `make
 wasm-programs` itself), clippy, `make module-wasm-check`,
-`make view-wasm-check`, `make wasm-views` and `make wasm-reproducible` are
-what CI runs. The toolchain is pinned in `rust-toolchain.toml`.
+`make view-wasm-check`, `make wasm-views`, `make scaffold-check` and
+`make wasm-reproducible` are what CI runs. The toolchain is pinned in `rust-toolchain.toml`.
 
 Every wasm artifact is a build output: `make wasm-modules` builds every
 module and every view under `$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/`;
