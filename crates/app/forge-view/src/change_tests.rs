@@ -103,6 +103,12 @@ fn an_operation_shows_its_submission_then_a_refusal_reverts_it_with_the_reason()
     cx.simulate_click("forge-close-change");
     cx.run_until_parked();
     assert!(
+        cx.has_text("Close for good") && !cx.has_text("Closing this change"),
+        "the first press only asks"
+    );
+    cx.simulate_click("forge-close-change");
+    cx.run_until_parked();
+    assert!(
         cx.has_text("Refused: this key may not close that change"),
         "{:?}",
         cx.texts()

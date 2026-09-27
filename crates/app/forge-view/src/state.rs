@@ -55,6 +55,9 @@ pub struct Forge {
     pub(crate) tree_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) next_pending: u64,
+    /// the change whose Close waits for a second press: closing is final
+    #[serde(skip)]
+    pub(crate) closing: Option<String>,
     #[serde(skip)]
     pub(crate) blob_cache: crate::ui::code::BlobCache,
 }

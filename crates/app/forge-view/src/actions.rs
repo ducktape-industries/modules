@@ -188,10 +188,17 @@ impl Forge {
         self.submit(op, scope, &label, cx);
     }
 
+    /// Closes the open change on the second press: the first only asks.
     pub(crate) fn close_change(&mut self, cx: &mut Context<Self>) {
         let (Some(repo), Some(n)) = (self.nav().repo.clone(), self.nav().change) else {
             return;
         };
+        let key = change_key(&repo, n);
+        if self.closing.take() != Some(key.clone()) {
+            self.closing = Some(key);
+            cx.notify();
+            return;
+        }
         self.submit(
             Op::ChangeClose {
                 repo: repo.clone(),

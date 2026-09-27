@@ -83,6 +83,15 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
             cx,
             theme,
         ));
+    if closing(forge, change) {
+        column = column.child(
+            div()
+                .id(id("forge-close-warning"))
+                .text_size(design::text::SECONDARY)
+                .text_color(theme.muted)
+                .child("Closing is final: a closed change cannot be reopened."),
+        );
+    }
     if let Some(blocked) = blocked {
         column = column.child(
             div()
@@ -93,6 +102,11 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         );
     }
     column.child(tabs(forge, cx, theme)).into_any_element()
+}
+
+/// Whether this change's Close waits for its second press.
+fn closing(forge: &Forge, change: &Change) -> bool {
+    forge.closing == Some(crate::state::change_key(&forge.repo_name(), change.n))
 }
 
 /// The change's number, title, state, endpoints and author, and what an
@@ -112,6 +126,7 @@ fn title_line(
     let author = forge.principal_name(&change.author);
     let open = change.state == ChangeState::Open;
     let mine = forge.me_principal().as_ref() == Some(&change.author);
+    let closing = closing(forge, change);
     let mut top = div()
         .id(id("forge-change-head"))
         .flex()
@@ -143,8 +158,13 @@ fn title_line(
         top = top
             .child(button(id("forge-edit-change"), "Edit", theme, edit).enabled(mine))
             .child(
-                button(id("forge-close-change"), "Close", theme, close)
-                    .enabled(forge.writes_repo()),
+                button(
+                    id("forge-close-change"),
+                    if closing { "Close for good" } else { "Close" },
+                    theme,
+                    close,
+                )
+                .enabled(forge.writes_repo()),
             )
             .child(
                 button(id("forge-merge"), "Merge", theme, merge)
