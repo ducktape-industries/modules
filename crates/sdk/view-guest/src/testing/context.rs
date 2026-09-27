@@ -1,8 +1,8 @@
-use super::{assert_accessible, find, texts, FakeHost};
+use super::{FakeHost, assert_accessible, find, texts};
 use crate::{
+    App, Capabilities, Driver, Entity, View,
     host::Host,
     wire::{Event, Frame, Node},
-    App, Capabilities, Driver, Entity, View,
 };
 
 trait TestDriver {
@@ -181,8 +181,8 @@ mod tests {
     use super::*;
     use crate::methods::Capability;
     use crate::{
-        methods::Changes, testing::Probe, Context, InteractiveElement, ParentElement, Render, Task,
-        Window,
+        Context, InteractiveElement, ParentElement, Render, Task, Window, methods::Changes,
+        testing::Probe,
     };
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};

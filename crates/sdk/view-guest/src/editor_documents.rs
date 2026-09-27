@@ -1,5 +1,5 @@
 //! Document delivery is routed through the generated mutable Editor binding.
-use crate::{slots, wire, Editor};
+use crate::{Editor, slots, wire};
 use wire::editor_document::{EditorDocumentMessage, EditorDocumentRef, EditorTransferError};
 
 #[derive(Clone)]

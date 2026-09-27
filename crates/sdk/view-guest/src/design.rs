@@ -11,7 +11,7 @@ use crate::{Div, FontWeight, Hsla, Pixels, Stateful};
 
 /// [`type_scale`] as sizes an element takes.
 pub mod text {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const TITLE: Pixels = px(::design::type_scale::TITLE as f32);
     pub const SECTION: Pixels = px(::design::type_scale::SECTION as f32);
@@ -23,7 +23,7 @@ pub mod text {
 
 /// [`height`] as sizes an element takes.
 pub mod size {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const ROW: Pixels = px(::design::height::ROW as f32);
     pub const CONTROL: Pixels = px(::design::height::CONTROL as f32);
@@ -37,7 +37,7 @@ pub mod size {
 
 /// [`spacing`] as gaps and insets an element takes.
 pub mod space {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const HAIR: Pixels = px(::design::spacing::HAIR as f32);
     pub const XXS: Pixels = px(::design::spacing::XXS as f32);

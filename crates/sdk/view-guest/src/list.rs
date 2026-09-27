@@ -1,5 +1,5 @@
-use crate::{wire, AnyElement, App, Element, IntoElement, Lowering, Window};
-use gpui::{px, Pixels, StyleRefinement, Styled};
+use crate::{AnyElement, App, Element, IntoElement, Lowering, Window, wire};
+use gpui::{Pixels, StyleRefinement, Styled, px};
 use std::{
     cell::RefCell,
     ops::Range,
@@ -369,8 +369,8 @@ fn from_wire_offset(v: wire::ListOffset) -> ListOffset {
 mod tests {
     use super::*;
     use crate::{
-        div, Context, Driver, InteractiveElement, ParentElement, Render,
-        StatefulInteractiveElement, View,
+        Context, Driver, InteractiveElement, ParentElement, Render, StatefulInteractiveElement,
+        View, div,
     };
     use serde::{Deserialize, Serialize};
 

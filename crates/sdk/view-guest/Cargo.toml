@@ -2,8 +2,8 @@
 # primitives and typed tests. The host half lives in the app repo.
 [package]
 name = "view-guest"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 publish = false
 license = "MIT"
 description = "Renderer-independent WASM view execution and host protocol"

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use view_guest::prelude::*;
-use view_guest::{testing::TestAppContext, wire, Driver, View};
+use view_guest::{Driver, View, testing::TestAppContext, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Counter {

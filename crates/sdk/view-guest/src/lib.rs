@@ -3,13 +3,13 @@ pub use gpui::prelude::FluentBuilder;
 extern crate self as ducktape_view_guest;
 
 pub use gpui::{
-    hsla, px, rems, rgb, Anchor, AnchoredFitMode, AnchoredPositionMode, ClickEvent, CursorStyle,
-    Edges, ElementId, FileDropEvent, FontStyle, FontWeight, Global, HighlightStyle,
-    HoverListenerMode, Hsla, KeyDownEvent, KeyUpEvent, ListHorizontalSizingBehavior,
-    ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent,
-    MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point,
-    Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString, StrikethroughStyle,
-    StyleRefinement, Styled, TextRun, TextStyle, UnderlineStyle, WindowControlArea,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId,
+    FileDropEvent, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode, Hsla,
+    KeyDownEvent, KeyUpEvent, ListHorizontalSizingBehavior, ListSizingBehavior,
+    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+    MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, Resource, Role,
+    ScrollStrategy, ScrollWheelEvent, SharedString, StrikethroughStyle, StyleRefinement, Styled,
+    TextRun, TextStyle, UnderlineStyle, WindowControlArea, hsla, px, rems, rgb,
 };
 pub use view_guest_derive::IntoElement;
 pub use view_wire as wire;
@@ -23,36 +23,36 @@ mod primitives;
 mod rich_text;
 mod surface;
 mod view_element;
-pub use behavior::{modal_overlay, resize_handle, sensor, ModalOverlay, ResizeHandle, Sensor};
+pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
 pub use element::{
-    div, uniform_list, AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement,
-    RenderOnce, UniformList, UniformListScrollHandle,
+    AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, UniformList,
+    UniformListScrollHandle, div, uniform_list,
 };
 pub use interactivity::{
     FocusHandle, InteractiveElement, Interactivity, Stateful, StatefulInteractiveElement,
 };
-pub use list::{list, FollowMode, List, ListAlignment, ListOffset, ListScrollEvent, ListState};
+pub use list::{FollowMode, List, ListAlignment, ListOffset, ListScrollEvent, ListState, list};
 pub use primitives::{
-    anchored, canvas, deferred, img, svg, Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img,
-    StyledImage, Svg, Transformation,
+    Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img, StyledImage, Svg, Transformation,
+    anchored, canvas, deferred, img, svg,
 };
 pub use rich_text::{InteractiveText, StyledText};
-pub use surface::{surface, Surface};
+pub use surface::{Surface, surface};
 pub use view_element::{AnyView, ViewElement};
 
 /// Traits and primitives used to compose guest GPUI elements.
 pub mod prelude {
     pub use crate::{
-        anchored, canvas, deferred, div, hsla, img, list, modal_overlay, px, rems, resize_handle,
-        rgb, sensor, surface, svg, uniform_list, AnyElement, AnyView, App, ClickEvent, Context,
-        Element, ElementId, FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global,
-        HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText, IntoElement,
-        KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
-        ListScrollEvent, ListSizingBehavior, ListState, ModifiersChangedEvent, MouseButton,
-        MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent,
-        ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollStrategy,
-        ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-        StyledText, Theme, UniformListScrollHandle, Window, WindowControlArea,
+        AnyElement, AnyView, App, ClickEvent, Context, Element, ElementId, FileDropEvent,
+        FluentBuilder, FocusHandle, FollowMode, Global, HoverListenerMode, Hsla, Input,
+        InteractiveElement, InteractiveText, IntoElement, KeyDownEvent, KeyUpEvent, List,
+        ListAlignment, ListHorizontalSizingBehavior, ListOffset, ListScrollEvent,
+        ListSizingBehavior, ListState, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+        MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ParentElement,
+        PinchEvent, Pixels, Render, RenderOnce, Role, ScrollStrategy, ScrollWheelEvent,
+        SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Theme,
+        UniformListScrollHandle, Window, WindowControlArea, anchored, canvas, deferred, div, hsla,
+        img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, surface, svg, uniform_list,
     };
 }
 mod editor;
@@ -244,7 +244,7 @@ pub mod exports {
     use std::any::Any;
     use std::cell::RefCell;
 
-    use crate::{wire, Driver, View};
+    use crate::{Driver, View, wire};
 
     #[link(wasm_import_module = "ducktape_view")]
     unsafe extern "C" {

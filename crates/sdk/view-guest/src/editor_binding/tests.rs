@@ -72,10 +72,10 @@ fn a_large_caret_commit_borrows_one_canonical_text_for_both_history_views() {
                 panic!("expected caret commit");
             };
             assert_eq!(
-                    before.text.as_ptr(),
-                    after.text.as_ptr(),
-                    "metadata-only commit must borrow the same canonical text, not copy/compare one MiB"
-                );
+                before.text.as_ptr(),
+                after.text.as_ptr(),
+                "metadata-only commit must borrow the same canonical text, not copy/compare one MiB"
+            );
             assert_ne!(
                 before.cursor, after.cursor,
                 "before/after selection metadata stays distinct"

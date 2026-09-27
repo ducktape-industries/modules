@@ -7,7 +7,7 @@
 //! data once per frame.
 
 use crate::interactivity::{ClickListener, Interactivity};
-use crate::{slots, wire, App, Window};
+use crate::{App, Window, slots, wire};
 use gpui::{
     ElementId, ListHorizontalSizingBehavior, ListSizingBehavior, Overflow, ScrollStrategy,
     SharedString, StyleRefinement, Styled,
@@ -454,7 +454,7 @@ pub trait RenderOnce: 'static {
 
 mod uniform_list;
 pub(crate) use uniform_list::UniformListScrollState;
-pub use uniform_list::{uniform_list, UniformList, UniformListScrollHandle};
+pub use uniform_list::{UniformList, UniformListScrollHandle, uniform_list};
 
 #[cfg(test)]
 mod tests;

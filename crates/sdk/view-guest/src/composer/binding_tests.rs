@@ -1,10 +1,10 @@
-use super::super::editing;
 use super::super::Send;
+use super::super::editing;
 use super::binding_editor::editor;
 use super::key_tag;
 use super::*;
 use crate::{
-    wire, App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, Theme, View, Window,
+    App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, Theme, View, Window, wire,
 };
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
@@ -244,10 +244,12 @@ fn restored_editor_presentation_keeps_mention_highlights_and_document_routes() {
         unreachable!()
     };
     assert_eq!(document.document, "c");
-    assert!(options
-        .binding
-        .as_ref()
-        .is_some_and(|binding| binding.authored));
+    assert!(
+        options
+            .binding
+            .as_ref()
+            .is_some_and(|binding| binding.authored)
+    );
     let presentation = options.presentation.as_ref().expect("editor presentation");
     assert_eq!(presentation.formats.len(), 1);
     assert_eq!(presentation.spans.len(), 1);

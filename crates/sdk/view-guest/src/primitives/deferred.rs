@@ -1,4 +1,4 @@
-use crate::{wire, AnyElement, Element, IntoElement, Lowering};
+use crate::{AnyElement, Element, IntoElement, Lowering, wire};
 
 /// A native deferred draw. It is not the guest subtree cache represented by `Node::Lazy`.
 pub struct Deferred {

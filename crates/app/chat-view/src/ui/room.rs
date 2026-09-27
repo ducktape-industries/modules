@@ -439,7 +439,7 @@ pub fn composer(
             })) as crate::composer::Click),
         ),
     };
-    crate::composer::view::<Chat>(
+    crate::composer::view(
         draft,
         &key,
         hint,

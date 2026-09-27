@@ -1,5 +1,5 @@
 //! State transfer into a fresh root entity without replaying construction.
-use crate::{slots, Driver, View};
+use crate::{Driver, View, slots};
 impl<V: View> Driver<V> {
     pub fn snapshot(&self) -> Result<Vec<u8>, String> {
         if slots::editor_pending(&self.app.inner.slots)

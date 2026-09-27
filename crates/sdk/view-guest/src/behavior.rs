@@ -2,7 +2,7 @@
 use crate::Element;
 
 use crate::element::wire_id;
-use crate::{wire, AnyElement, App, ElementId, IntoElement, Lowering, Window};
+use crate::{AnyElement, App, ElementId, IntoElement, Lowering, Window, wire};
 use gpui::{CursorStyle, Hsla, Pixels, StyleRefinement, Styled};
 
 type SizeListener = Box<dyn Fn(&(Pixels, Pixels), &mut Window, &mut App)>;

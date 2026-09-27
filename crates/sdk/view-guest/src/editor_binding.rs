@@ -1,5 +1,5 @@
 //! Guest-local decisions borrow the canonical document owned by application state.
-use crate::{slots, wire, Editor};
+use crate::{Editor, slots, wire};
 use std::rc::Rc;
 
 pub use wire::EditorDecision;
@@ -232,20 +232,20 @@ impl<M: 'static> EditorTransaction<M> {
                     return None;
                 }
                 if editor.document_reference(request.id.document.clone()) != request.state {
-                    if request.state.reset == editor.reset_revision() {
-                        if let Err(reason) = slots::request_editor_mirror(context, &request) {
-                            slots::editor_document_failure(
-                                context,
-                                wire::editor_document::EditorTransferId {
-                                    instance: request.id.instance,
-                                    document: request.id.document.clone(),
-                                    reset: request.id.reset,
-                                    serial: request.id.sequence,
-                                    attempt: request.id.attempt,
-                                },
-                                reason,
-                            );
-                        }
+                    if request.state.reset == editor.reset_revision()
+                        && let Err(reason) = slots::request_editor_mirror(context, &request)
+                    {
+                        slots::editor_document_failure(
+                            context,
+                            wire::editor_document::EditorTransferId {
+                                instance: request.id.instance,
+                                document: request.id.document.clone(),
+                                reset: request.id.reset,
+                                serial: request.id.sequence,
+                                attempt: request.id.attempt,
+                            },
+                            reason,
+                        );
                     }
                     return None;
                 }

@@ -1,5 +1,5 @@
 //! Contexts and handles for the single root entity.
-use crate::{executor, slots, FocusHandle, Host, Task, View, Window};
+use crate::{FocusHandle, Host, Task, View, Window, executor, slots};
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -115,10 +115,10 @@ impl App {
         let count = count.min(crate::wire::MAX_UNIFORM_LIST_COUNT);
         let mut lists = self.inner.uniform_lists.borrow_mut();
         if !lists.contains_key(path) {
-            if lists.len() == MAX_UNIFORM_LISTS {
-                if let Some(old) = lists.keys().next().cloned() {
-                    lists.remove(&old);
-                }
+            if lists.len() == MAX_UNIFORM_LISTS
+                && let Some(old) = lists.keys().next().cloned()
+            {
+                lists.remove(&old);
             }
             let route = self.inner.next_uniform_route.get();
             self.inner
@@ -391,10 +391,10 @@ impl<V> Context<'_, V> {
     }
 }
 impl<V: View + 'static> Context<'_, V> {
-    pub fn listener<E: ?Sized>(
+    pub fn listener<E: ?Sized, F: Fn(&mut V, &E, &mut Window, &mut Context<V>) + 'static>(
         &self,
-        f: impl Fn(&mut V, &E, &mut Window, &mut Context<V>) + 'static,
-    ) -> impl Fn(&E, &mut Window, &mut App) + 'static {
+        f: F,
+    ) -> impl Fn(&E, &mut Window, &mut App) + 'static + use<E, F, V> {
         let entity = self.weak_entity();
         move |event, window, app| {
             if let Some(entity) = entity.upgrade() {
@@ -402,10 +402,10 @@ impl<V: View + 'static> Context<'_, V> {
             }
         }
     }
-    pub fn processor<E, R>(
+    pub fn processor<E, R, F: Fn(&mut V, E, &mut Window, &mut Context<V>) -> R + 'static>(
         &self,
-        f: impl Fn(&mut V, E, &mut Window, &mut Context<V>) -> R + 'static,
-    ) -> impl Fn(E, &mut Window, &mut App) -> R + 'static {
+        f: F,
+    ) -> impl Fn(E, &mut Window, &mut App) -> R + 'static + use<E, F, R, V> {
         let entity = self.entity();
         move |event, window, app| {
             entity.update_in_window(app, window, |view, window, cx| f(view, event, window, cx))

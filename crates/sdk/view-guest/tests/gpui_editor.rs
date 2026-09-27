@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use view_guest::{
-    wire, Context, Driver, Editor, EditorBinding, EditorElement, EditorElementEvent, ElementId,
-    Render, Styled, View, Window,
+    Context, Driver, Editor, EditorBinding, EditorElement, EditorElementEvent, ElementId, Render,
+    Styled, View, Window, wire,
 };
 
 #[derive(Serialize, Deserialize)]

@@ -3,8 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 use view_guest::{
-    div, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, View, Window,
+    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, View, Window, div,
 };
 
 #[derive(Serialize, Deserialize, Default)]

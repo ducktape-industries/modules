@@ -2,8 +2,8 @@
 
 use crate::context::Callback;
 use crate::{
-    wire, Editor, EditorBinding, EditorDocumentUpdate, EditorTransaction, Element, IntoElement,
-    Lowering,
+    Editor, EditorBinding, EditorDocumentUpdate, EditorTransaction, Element, IntoElement, Lowering,
+    wire,
 };
 use gpui::{ElementId, StyleRefinement, Styled};
 use std::rc::Rc;

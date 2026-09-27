@@ -2,7 +2,7 @@
 #[cfg(test)]
 mod tests {
     use crate::methods::{HostWidget, Method};
-    use crate::{host, wire, Context, Driver, ElementId, Host, Input, Render, View, Window};
+    use crate::{Context, Driver, ElementId, Host, Input, Render, View, Window, host, wire};
     use serde::{Deserialize, Serialize};
 
     fn target(name: &str) -> wire::WidgetTarget {

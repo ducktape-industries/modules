@@ -1,7 +1,7 @@
 use crate::interactivity::{
     InteractiveElement, Interactivity, Stateful, StatefulInteractiveElement,
 };
-use crate::{wire, AnyElement, Element, IntoElement, Lowering};
+use crate::{AnyElement, Element, IntoElement, Lowering, wire};
 use gpui::{
     ImageSource as GpuiImageSource, ObjectFit, RenderImage, Resource, StyleRefinement, Styled,
 };

@@ -127,7 +127,7 @@ impl Host {
     pub fn ask<D: Method>(
         &self,
         request: D::Request,
-    ) -> impl Future<Output = Result<D::Reply, Error>> + 'static {
+    ) -> impl Future<Output = Result<D::Reply, Error>> + 'static + use<D> {
         let response = self.request(D::KIND, &D::encode_request(&request));
         self.remember(response.id, &request);
         async move { D::decode_reply(&response.await?).map_err(malformed) }
@@ -136,7 +136,7 @@ impl Host {
     pub fn subscribe<D: Method>(
         &self,
         request: D::Request,
-    ) -> impl Stream<Item = Result<D::Reply, Error>> + Unpin + 'static {
+    ) -> impl Stream<Item = Result<D::Reply, Error>> + Unpin + 'static + use<D> {
         let subscription = self.raw_subscribe(D::KIND, &D::encode_request(&request));
         self.remember(subscription.id, &request);
         subscription
@@ -324,7 +324,7 @@ impl Host {
 
 #[cfg(test)]
 mod pages_tests {
-    use super::{pages, Page};
+    use super::{Page, pages};
 
     /// A listing of 0..10 served three rows a page.
     fn listing(after: Option<Vec<u8>>) -> std::future::Ready<Result<Page<u8>, super::Error>> {

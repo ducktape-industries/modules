@@ -1,7 +1,7 @@
 use crate::interactivity::{InteractiveElement, Interactivity, StatefulInteractiveElement};
-use crate::{wire, Element, IntoElement, Lowering};
+use crate::{Element, IntoElement, Lowering, wire};
 use gpui::{
-    point, px, radians, size, Pixels, Point, Radians, SharedString, Size, StyleRefinement, Styled,
+    Pixels, Point, Radians, SharedString, Size, StyleRefinement, Styled, point, px, radians, size,
 };
 
 enum Source {

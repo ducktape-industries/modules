@@ -4,7 +4,7 @@ use super::{Draft, MentionChoice};
 use crate::context::Callback;
 use crate::prelude::*;
 use crate::{
-    wire, App, EditorDocumentUpdate, EditorElement, EditorElementEvent, EditorTransaction, View,
+    App, EditorDocumentUpdate, EditorElement, EditorElementEvent, EditorTransaction, View, wire,
 };
 use std::rc::Rc;
 
@@ -223,7 +223,7 @@ fn press<V: View + 'static>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn view<V: View + 'static>(
+pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context<V>) + 'static>(
     draft: &Draft,
     key: &str,
     hint: &str,
@@ -236,8 +236,8 @@ pub fn view<V: View + 'static>(
     editable: bool,
     choices: &[MentionChoice],
     cx: &mut Context<V>,
-    handle: impl Fn(&mut V, Event<V>, &mut Window, &mut Context<V>) + 'static,
-) -> impl IntoElement {
+    handle: F,
+) -> impl IntoElement + use<V, F> {
     let handle: Handle<V> = Rc::new(handle);
     let editor = editor(
         draft,

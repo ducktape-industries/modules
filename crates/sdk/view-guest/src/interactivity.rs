@@ -1,7 +1,7 @@
 //! GPUI-shaped interaction recipes lowered into driver-owned frame routes.
 
 use crate::{
-    wire, AnyElement, AnyView, App, Div, Element, IntoElement, Lowering, ParentElement, Window,
+    AnyElement, AnyView, App, Div, Element, IntoElement, Lowering, ParentElement, Window, wire,
 };
 use gpui::{
     ClickEvent, ElementId, FileDropEvent, MouseButton, SharedString, StyleRefinement, Styled,

@@ -1,7 +1,7 @@
 //! A typed guest recipe for a host-painted surface.
 use crate::Element;
 
-use crate::{wire, App, ElementId, IntoElement, Lowering, Window};
+use crate::{App, ElementId, IntoElement, Lowering, Window, wire};
 
 type SurfaceListener = Box<dyn Fn(&wire::SurfaceValue, &mut Window, &mut App)>;
 
