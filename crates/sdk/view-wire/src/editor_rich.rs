@@ -1,6 +1,7 @@
-//! Toolkit-independent rich editing projection. The guest owns serialization
-//! into its canonical document; the host renders blocks and submits snapshots
-//! through the same revision-checked editor transaction lane.
+//! The rich-editing projection: the blocks, marks, presentation and edit
+//! payloads a rich editor would exchange over the editor transaction lane.
+//! No host renders it and no guest lowers it today; whether it stays is
+//! owner item B16.
 use crate::{
     EditorCursor,
     editor_presentation::{EditorMenuItem, MAX_EDITOR_MENU_ITEMS},
@@ -20,6 +21,7 @@ const MAX_RICH_ATTRIBUTES: usize = 64;
 pub struct RichBlock {
     #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub kind: String,
+    // B10: decoded as a name, so a paragraph past MAX_EDITOR_NAME_BYTES is refused.
     #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub text: String,
     pub indent: u32,
