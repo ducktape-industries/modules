@@ -113,11 +113,7 @@ impl<'a> Lowering<'a> {
         }
     }
 
-    pub fn window(&mut self) -> &mut Window {
-        self.window
-    }
-
-    pub fn app(&mut self) -> &mut App {
+    pub(crate) fn app(&mut self) -> &mut App {
         self.app
     }
 
@@ -125,8 +121,7 @@ impl<'a> Lowering<'a> {
         (self.window, self.app)
     }
 
-    #[doc(hidden)]
-    pub fn render_once(&mut self, component: impl RenderOnce) -> wire::Node {
+    pub(crate) fn render_once(&mut self, component: impl RenderOnce) -> wire::Node {
         let element = component.render(self.window, self.app).into_element();
         self.lower_element(element)
     }
