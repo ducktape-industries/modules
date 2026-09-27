@@ -6,26 +6,7 @@ use view_guest::{
 
 #[derive(Serialize, Deserialize)]
 struct EditorView {
-    #[serde(with = "editor_snapshot")]
     editor: Editor,
-}
-
-mod editor_snapshot {
-    use super::*;
-
-    pub fn serialize<S: serde::Serializer>(
-        editor: &Editor,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bytes(&editor.snapshot())
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Editor, D::Error> {
-        let bytes = Vec::<u8>::deserialize(deserializer)?;
-        Editor::restore(&bytes).ok_or_else(|| serde::de::Error::custom("invalid editor"))
-    }
 }
 
 impl View for EditorView {
