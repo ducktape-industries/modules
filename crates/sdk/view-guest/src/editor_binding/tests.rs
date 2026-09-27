@@ -124,7 +124,7 @@ fn cancellation_after_reset_notifies_without_replacing_the_new_document() {
     let state = editor.document_reference(current.document.clone());
     let calls = Rc::new(Cell::new(0));
     let map = observer(&context, calls.clone());
-    editor.replace(Editor::new("new"), 0);
+    editor.replace(Editor::new("new"));
     transaction(
         &context,
         wire::EditorTransactionEvent::Cancelled { id: current, state },

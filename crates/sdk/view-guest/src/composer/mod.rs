@@ -83,8 +83,7 @@ impl Draft {
             remaining = &remaining[end + 1..];
         }
         text.push_str(remaining);
-        self.editor
-            .replace(Editor::new(text), self.editor.reset_revision());
+        self.editor.replace(Editor::new(text));
         self.mentions = mentions;
         self.undo.clear();
         self.redo.clear();
@@ -197,9 +196,7 @@ mod tests {
             };
             let after = wire::patched_editor_text(&before, &patches, next).unwrap();
             draft.committed(&before, &after, cursor, tag, &choices);
-            draft
-                .editor
-                .replace(Editor::new(after), draft.editor.reset_revision());
+            draft.editor.replace(Editor::new(after));
             assert_eq!(draft.body(), body);
         }
     }
@@ -247,9 +244,7 @@ mod tests {
             selection: None,
         };
         draft.committed("@literal @Ada", "@literal ", cursor, "backspace", &choices);
-        draft
-            .editor
-            .replace(Editor::new("@literal "), draft.editor.reset_revision());
+        draft.editor.replace(Editor::new("@literal "));
         let wire::EditorDecision::Apply {
             patches,
             cursor: next,
@@ -260,9 +255,7 @@ mod tests {
         };
         let after = wire::patched_editor_text("@literal ", &patches, next).unwrap();
         draft.committed("@literal ", &after, draft.editor.cursor(), "undo", &choices);
-        draft
-            .editor
-            .replace(Editor::new(after), draft.editor.reset_revision());
+        draft.editor.replace(Editor::new(after));
         assert_eq!(draft.body(), "@literal <@7>");
     }
 
@@ -291,9 +284,7 @@ mod tests {
         };
         let after = wire::patched_editor_text(&before, &patches, cursor).unwrap();
         draft.committed(&before, &after, old_cursor, "paste-ready", &choices);
-        draft
-            .editor
-            .replace(Editor::new(after), draft.editor.reset_revision());
+        draft.editor.replace(Editor::new(after));
         assert_eq!(draft.body(), "new typing hello <@7>");
         assert!(draft.paste.is_none());
     }
@@ -317,9 +308,7 @@ mod tests {
         let before = draft.editor.text();
         draft.committed(&before, "", draft.editor.cursor(), "send", &[]);
         let sent = draft.submitted.take().unwrap();
-        draft
-            .editor
-            .replace(Editor::new(""), draft.editor.reset_revision());
+        draft.editor.replace(Editor::new(""));
         assert_eq!(sent.body, "first");
         assert!(draft.editor.text().is_empty());
         draft.seed("second", &[]);
@@ -336,10 +325,7 @@ mod tests {
         }];
         let mut draft = Draft::from_body("<@7> and <@7>", &roster);
         draft.observed("@Ada and @Ada", " and @Ada");
-        draft.editor.replace(
-            crate::Editor::new(" and @Ada"),
-            draft.editor.reset_revision(),
-        );
+        draft.editor.replace(crate::Editor::new(" and @Ada"));
         assert_eq!(draft.body(), " and <@7>");
     }
 }

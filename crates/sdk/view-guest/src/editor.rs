@@ -60,9 +60,12 @@ impl Editor {
     pub fn reset_revision(&self) -> u64 {
         self.0.reset
     }
-    /// An authoritative assignment, including an identical-text document replacement.
-    pub fn replace(&mut self, mut next: Self, previous_reset: u64) {
-        Rc::make_mut(&mut next.0).reset = previous_reset
+    /// An authoritative assignment, including an identical-text document
+    /// replacement: the reset fence advances past this document's.
+    pub fn replace(&mut self, mut next: Self) {
+        Rc::make_mut(&mut next.0).reset = self
+            .0
+            .reset
             .checked_add(1)
             .expect("editor reset revisions exhausted");
         assert!(
@@ -238,7 +241,7 @@ mod tests {
         let mut editor = Editor::new("a");
         editor.move_to(wire::EditorCursor::default());
         assert_eq!(editor.reset_revision(), 1);
-        editor.replace(Editor::new("한글"), editor.reset_revision());
+        editor.replace(Editor::new("한글"));
         assert_eq!(editor.reset_revision(), 2);
         assert_eq!(editor.cursor(), wire::EditorCursor::default());
         assert_eq!(Editor::restore(&editor.snapshot()), Some(editor.clone()));

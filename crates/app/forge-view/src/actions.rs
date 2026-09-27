@@ -333,8 +333,7 @@ impl Forge {
             return;
         };
         let channel = change.channel.clone();
-        self.reply
-            .replace(Editor::default(), self.reply.reset_revision());
+        self.reply.replace(Editor::default());
         cx.notify();
         cx.spawn(async move |this, cx| {
             let host = cx.host();
