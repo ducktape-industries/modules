@@ -139,18 +139,6 @@ impl ElementIdWire {
     pub fn to_gpui(&self) -> Result<ElementId, &'static str> {
         self.validate_host()?;
         match self {
-            Self::View(id) => Ok(ElementId::View(EntityId::from(*id))),
-            Self::Integer(id) => Ok(ElementId::Integer(*id)),
-            Self::Name(name) => Ok(ElementId::Name(name.clone())),
-            Self::Uuid(id) => Ok(ElementId::Uuid(Uuid::from_bytes(*id))),
-            Self::FocusHandle(id) => Ok(ElementId::FocusHandle(FocusId::from(
-                slotmap::KeyData::from_ffi(*id),
-            ))),
-            Self::NamedInteger(name, id) => Ok(ElementId::NamedInteger(name.clone(), *id)),
-            Self::Path(path) => Ok(ElementId::Path(Arc::from(PathBuf::from(
-                std::str::from_utf8(path).map_err(|_| "element path is not UTF-8")?,
-            )))),
-            Self::CodeLocation { .. } => Err("code-location element IDs cannot cross the wire"),
             Self::NamedChild { base, names } => {
                 let mut id = base.to_gpui()?;
                 for name in names {
@@ -158,29 +146,13 @@ impl ElementIdWire {
                 }
                 Ok(id)
             }
-            Self::OpaqueId(id) => Ok(ElementId::OpaqueId(*id)),
+            _ => self.atom().expect("an atom").to_gpui(),
         }
     }
 
     /// Reject host-unsupported IDs before the renderer can invent a fallback.
     pub fn validate_host(&self) -> Result<(), &'static str> {
         match self {
-            Self::FocusHandle(_) => Err("focus-handle element IDs are host-local"),
-            Self::Name(name) | Self::NamedInteger(name, _)
-                if name.len() > crate::MAX_STRING_BYTES =>
-            {
-                Err("element identity name is too long")
-            }
-            Self::CodeLocation { file, .. } if file.len() > crate::MAX_STRING_BYTES => {
-                Err("element identity source path is too long")
-            }
-            Self::Path(path) if path.len() > crate::MAX_STRING_BYTES => {
-                Err("element path is too long")
-            }
-            Self::CodeLocation { .. } => Err("code-location element IDs cannot cross the wire"),
-            Self::Path(path) if std::str::from_utf8(path).is_err() => {
-                Err("element path is not UTF-8")
-            }
             Self::NamedChild { base, names } => {
                 if names.is_empty() || names.len() > MAX_ELEMENT_ID_DEPTH {
                     return Err("named-child identity has an invalid depth");
@@ -193,8 +165,28 @@ impl ElementIdWire {
                 }
                 base.validate_host()
             }
-            _ => Ok(()),
+            _ => self.atom().expect("an atom").validate_host(),
         }
+    }
+
+    /// The inverse of [`Self::from_atom`]: every variant but `NamedChild`.
+    fn atom(&self) -> Option<ElementIdAtom> {
+        Some(match self {
+            Self::View(id) => ElementIdAtom::View(*id),
+            Self::Integer(id) => ElementIdAtom::Integer(*id),
+            Self::Name(name) => ElementIdAtom::Name(name.clone()),
+            Self::Uuid(id) => ElementIdAtom::Uuid(*id),
+            Self::FocusHandle(id) => ElementIdAtom::FocusHandle(*id),
+            Self::NamedInteger(name, id) => ElementIdAtom::NamedInteger(name.clone(), *id),
+            Self::Path(path) => ElementIdAtom::Path(path.clone()),
+            Self::CodeLocation { file, line, column } => ElementIdAtom::CodeLocation {
+                file: file.clone(),
+                line: *line,
+                column: *column,
+            },
+            Self::OpaqueId(id) => ElementIdAtom::OpaqueId(*id),
+            Self::NamedChild { .. } => return None,
+        })
     }
 
     /// The string key used only by legacy callers that explicitly need names.
