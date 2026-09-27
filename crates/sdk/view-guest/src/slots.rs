@@ -197,15 +197,6 @@ pub(crate) fn take_tooltip_responses(context: &Context) -> Vec<crate::wire::Tool
     std::mem::take(&mut context.0.borrow_mut().tooltip_responses)
 }
 
-pub(crate) fn take_message<M: Clone + 'static>(context: &Context, index: u32) -> Option<M> {
-    let tables = context.tables();
-    let message = {
-        let tables = tables.borrow();
-        tables.messages.get(index)?
-    };
-    message.downcast_ref::<M>().cloned()
-}
-
 pub(crate) fn run_handler<A: 'static, M: 'static>(
     context: &Context,
     index: u32,

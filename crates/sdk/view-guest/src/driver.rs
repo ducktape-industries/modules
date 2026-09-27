@@ -105,11 +105,8 @@ impl<V: View> Driver<V> {
             wire::Event::Message(index) => {
                 let slots = self.app.inner.slots.clone();
                 let mut window = self.app.window();
-                if slots::run_message_route(&slots, index, &mut window, &mut self.app) {
-                    None
-                } else {
-                    slots::take_message::<Callback<V>>(&slots, index)
-                }
+                slots::run_message_route(&slots, index, &mut window, &mut self.app);
+                None
             }
             wire::Event::Click { handler, event } | wire::Event::AuxClick { handler, event } => {
                 let slots = self.app.inner.slots.clone();
