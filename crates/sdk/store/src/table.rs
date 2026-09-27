@@ -10,6 +10,10 @@ use guest::{ExecCtx, QueryCtx, corrupt};
 use crate::key::KeyCodec;
 use crate::page::{Listing, PageRequest, PageResponse};
 
+/// A table of `V` rows keyed by `K`, every key under one `prefix` of this
+/// module's state. Declare it once as a `const`; each method takes the
+/// context. Two tables' prefixes must not be prefixes of each other
+/// (`"m/"` beside `"m/x/"` would read each other's rows).
 pub struct Map<K, V> {
     prefix: &'static str,
     _types: PhantomData<fn() -> (K, V)>,
@@ -43,6 +47,7 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
         Range::new(self.prefix.as_bytes().to_vec(), Some(hi))
     }
 
+    /// The row at `key`; a row that does not decode is `code::CORRUPT`.
     pub fn get(&self, ctx: &QueryCtx, key: &K) -> Result<Option<V>, Error> {
         let bytes = self.key(key);
         ctx.get(&bytes)
@@ -50,14 +55,17 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
             .transpose()
     }
 
+    /// Whether a row is at `key`, without decoding it.
     pub fn has(&self, ctx: &QueryCtx, key: &K) -> bool {
         ctx.get(self.key(key)).is_some()
     }
 
+    /// Writes the row at `key`, replacing any.
     pub fn put(&self, ctx: &ExecCtx, key: &K, value: &V) {
         ctx.set(self.key(key), abi::encode(value));
     }
 
+    /// Removes the row at `key` (a missing row is no error).
     pub fn remove(&self, ctx: &ExecCtx, key: &K) {
         ctx.delete(self.key(key));
     }
@@ -75,6 +83,8 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
             .collect()
     }
 
+    /// Every row, in key order. Unbounded: a query a client asks answers a
+    /// page instead ([`Map::range`]).
     pub fn all(&self, ctx: &QueryCtx) -> Result<Vec<(K, V)>, Error> {
         self.scan(ctx, Range::prefix(self.prefix))
     }
@@ -127,6 +137,7 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
     }
 }
 
+/// A [`Map`] with no values: which keys are present.
 pub struct Set<K> {
     map: Map<K, ()>,
 }
@@ -204,6 +215,8 @@ impl<K: KeyCodec> Set<K> {
     }
 }
 
+/// One value at one key of this module's state: a counter, the params
+/// genesis gave.
 pub struct Item<T> {
     key: &'static str,
     _type: PhantomData<fn() -> T>,
@@ -217,6 +230,7 @@ impl<T: BorshSerialize + BorshDeserialize> Item<T> {
         }
     }
 
+    /// The value, if one was put.
     pub fn get(&self, ctx: &QueryCtx) -> Result<Option<T>, Error> {
         ctx.get(self.key)
             .map(|value| decode_value(self.key, b"", &value))
