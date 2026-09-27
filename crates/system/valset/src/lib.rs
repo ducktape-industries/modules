@@ -67,10 +67,7 @@ pub fn role(ctx: &guest::QueryCtx, key: &[u8]) -> Result<Option<Role>, guest::Er
     let validators = &ctx.env().roles.validators;
     match ctx.query::<Query, Reply>(validators, &Query::Membership { key: key.to_vec() })? {
         Reply::Membership(membership) => Ok(membership.map(|membership| membership.role)),
-        other => Err(guest::Error::new(
-            guest::code::UNEXPECTED_REPLY,
-            format!("valset answered Membership with {other:?}"),
-        )),
+        other => Err(guest::unexpected_reply(validators, "Membership", &other)),
     }
 }
 

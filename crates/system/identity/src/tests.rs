@@ -1,6 +1,6 @@
 // The module natively over `guest::MockHost`: what the founding suite checks on the host, without the host.
 
-use guest::{Cause, Env, Origin, Principal, Scheme, code};
+use guest::{Env, Origin, Principal, Scheme, code};
 use guest::{MockHost, Module};
 use store::PageRequest;
 
@@ -16,14 +16,11 @@ const BOT: &[u8] = b"bot-key";
 
 fn env(origin: Origin, sender: Option<Principal>, time: u64) -> Env {
     Env {
-        chain_id: b"net".to_vec(),
         height: 7,
         time,
-        module: crate::MODULE.into(),
         origin,
         sender,
-        roles: guest::MockHost::roles(),
-        cause: Cause::Direct,
+        ..MockHost::env(crate::MODULE)
     }
 }
 
@@ -340,7 +337,7 @@ fn a_card_is_edited_by_its_person_its_manager_or_its_module() {
         // the agent does not edit its own card: its manager answers for it
         (signed(&store, BOT), agent),
         (forge.clone(), 1),
-        (forge.clone(), agent),
+        (forge, agent),
         (signed(&store, ALICE), forge_account),
         (signed(&store, BOT), forge_account),
     ] {
@@ -540,10 +537,7 @@ fn lists_page_in_number_order_and_managed_lists_one_manager() {
     assert_eq!(first.height, 7);
     assert_eq!(first.items.len(), 10);
     let rest = list(Query::List {
-        page: PageRequest {
-            after: first.next,
-            limit: Some(10),
-        },
+        page: PageRequest::resume(first.next, 10),
     });
     assert_eq!(
         rest.items.iter().map(|a| a.number).collect::<Vec<_>>(),
@@ -560,10 +554,7 @@ fn lists_page_in_number_order_and_managed_lists_one_manager() {
     );
     let more = list(Query::Managed {
         by: 2,
-        page: PageRequest {
-            after: managed.next,
-            limit: Some(2),
-        },
+        page: PageRequest::resume(managed.next, 2),
     });
     assert_eq!(
         (

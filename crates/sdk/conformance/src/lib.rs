@@ -19,7 +19,7 @@
 //! ```
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{Cause, Env, Error, MockHost, Module, Origin, Principal};
+use guest::{Env, Error, MockHost, Module, Origin, Principal};
 
 pub mod identity;
 pub mod registry;
@@ -30,12 +30,9 @@ pub fn env(module: &str, height: u64, origin: Origin, sender: Option<Principal>)
     Env {
         chain_id: b"conformance".to_vec(),
         height,
-        time: 0,
-        module: module.into(),
         origin,
         sender,
-        roles: MockHost::roles(),
-        cause: Cause::Direct,
+        ..MockHost::env(module)
     }
 }
 
@@ -65,7 +62,7 @@ fn ask<M: Module, R: BorshDeserialize + std::fmt::Debug>(
 ) -> Result<R, Error> {
     let ctx = host.query(env(module, height, Origin::Root, None));
     guest::query::<M>(&ctx, &abi::encode(query))?;
-    let bytes = std::mem::take(&mut host.borrow_mut().response);
+    let bytes = host.take_response();
     Ok(abi::decode(&bytes).unwrap_or_else(|e| {
         panic!("{module}: the answer to {query:?} is not the role's reply: {e}")
     }))

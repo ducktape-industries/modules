@@ -142,7 +142,7 @@ macro_rules! export {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::{MockHost, Origin, Principal, code};
+    use crate::{MockHost, code};
 
     /// A module whose op, a `u64`, never decodes from a reply's empty
     /// payload, and which keeps the replies it gets.
@@ -175,17 +175,11 @@ mod tests {
         };
         let outcome = Outcome::Rejected(Error::new(code::NOT_FOUND, "no such thing"));
         let env = crate::Env {
-            chain_id: b"n".to_vec(),
-            height: 1,
-            time: 2,
-            module: "asker".into(),
-            origin: Origin::Module("target".into()),
-            sender: Some(Principal::Account(7)),
-            roles: MockHost::roles(),
             cause: Cause::Reply {
                 id: id.clone(),
                 outcome: outcome.clone(),
             },
+            ..MockHost::env("asker").from_module("target", Some(7))
         };
         let host = MockHost::default();
         execute::<Asker>(&host.exec(env.clone()), &[]).unwrap();

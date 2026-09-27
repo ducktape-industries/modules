@@ -2,7 +2,7 @@
 
 use abi::role::identity::{Kind, Query, Reply, Standing};
 
-use crate::{AccountNumber, Error, QueryCtx, code, invalid, wrong_state};
+use crate::{AccountNumber, Error, QueryCtx, invalid, unexpected_reply, wrong_state};
 
 impl QueryCtx {
     /// Refused unless the identity role profiles `number` as a person or
@@ -10,13 +10,9 @@ impl QueryCtx {
     /// account suspended or revoked.
     pub fn require_person_or_agent(&self, number: AccountNumber) -> Result<(), Error> {
         let asked = Query::Profile(number);
-        let Reply::Profile(profile) =
-            self.query::<Query, Reply>(&self.env().roles.identity, &asked)?
-        else {
-            return Err(Error::new(
-                code::UNEXPECTED_REPLY,
-                "identity answered Profile with something else",
-            ));
+        let identity = &self.env().roles.identity;
+        let Reply::Profile(profile) = self.query::<Query, Reply>(identity, &asked)? else {
+            return Err(unexpected_reply(identity, "Profile", &"another reply"));
         };
         let Some(profile) = profile else {
             return Err(invalid(format!("there is no account {number}")));

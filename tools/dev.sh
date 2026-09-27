@@ -62,5 +62,5 @@ if [ -n "$stale" ]; then
     # shellcheck disable=SC2086
     $CARGO test $stale
 else
-    echo "tests  unchanged"
+    echo "tests  unchanged (cargo rebuilt no test binary; cargo test -p NAME runs them anyway)"
 fi

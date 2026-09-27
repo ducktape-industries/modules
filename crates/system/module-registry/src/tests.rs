@@ -1,22 +1,17 @@
 // The module natively over `guest::MockHost`: what the founding suite checks on the host, without the host.
 
-use guest::{BlobId, Cause, Env, Origin, code};
-use guest::{MockHost, Module};
+use guest::{BlobId, Env, MockHost, Module, Origin, code};
 use store::PageRequest;
 
 use crate::{Change, Entry, Genesis, Modules, Op, Query, Reply, Scheduled, View};
 
 fn env(height: u64, origin: Origin) -> Env {
     Env {
-        chain_id: b"net".to_vec(),
         height,
-        time: 0,
-        module: crate::MODULE.into(),
         origin,
         // these rules read the origin alone
         sender: None,
-        roles: guest::MockHost::roles(),
-        cause: Cause::Direct,
+        ..MockHost::env(crate::MODULE)
     }
 }
 
