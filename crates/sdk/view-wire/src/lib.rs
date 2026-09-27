@@ -74,11 +74,11 @@ pub use snapshot::{MAX_SNAPSHOT_BYTES, Snapshot, SnapshotValue};
 mod aria;
 pub mod click;
 pub use aria::Aria;
+mod element_id;
+pub use element_id::{ElementIdAtom, ElementIdWire, MAX_ELEMENT_ID_DEPTH};
 mod style;
 mod style_sanitize;
-pub use style::{
-    ElementIdAtom, ElementIdWire, GroupRefinement, Interactivity, MAX_ELEMENT_ID_DEPTH,
-};
+pub use style::{GroupRefinement, Interactivity};
 
 mod combo;
 pub use combo::{ComboIcon, ComboOptions};
