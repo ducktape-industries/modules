@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use abi::reason;
 use abi::{BlobId, HostOp, Message, Origin, Outcome, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -107,11 +105,15 @@ fn block_id(height: u64) -> BlockId {
 struct Net {
     host: Host<Ctx>,
     height: u64,
-    sequences: BTreeMap<Vec<u8>, u64>,
 }
 
 impl Net {
     async fn found(context: Ctx, dir: &std::path::Path) -> Net {
+        Net::found_with(context, dir, Vec::new()).await
+    }
+
+    /// The system set and the probe, then `apps`.
+    async fn found_with(context: Ctx, dir: &std::path::Path, apps: Vec<Founding>) -> Net {
         let genesis = Genesis {
             network: NETWORK.to_vec(),
             roles: Roles {
@@ -125,7 +127,10 @@ impl Net {
                 founding(valset::MODULE, &program("valset")),
                 founding(identity::MODULE, &program("identity")),
                 probe("probe"),
-            ],
+            ]
+            .into_iter()
+            .chain(apps)
+            .collect(),
             views: vec![FoundingView {
                 name: "lens".into(),
                 view: b"a view".to_vec(),
@@ -145,11 +150,7 @@ impl Net {
                 receipt.outcome
             );
         }
-        Net {
-            host,
-            height: 0,
-            sequences: BTreeMap::new(),
-        }
+        Net { host, height: 0 }
     }
 
     fn time(&self) -> u64 {
@@ -182,24 +183,26 @@ impl Net {
     fn submission(&self, signer: &[u8], target: &str, payload: Vec<u8>) -> Submission {
         Submission {
             signer: signer.to_vec(),
-            seq: self.sequences.get(signer).copied().unwrap_or_default(),
+            seq: self.next_seq(signer),
             target: target.to_owned(),
             payload,
         }
     }
 
-    fn consumed(&mut self, signer: &[u8], receipt: &Receipt) {
-        if let Outcome::Applied { .. } = receipt.outcome {
-            *self.sequences.entry(signer.to_vec()).or_default() += 1;
-        }
+    /// The signer's next sequence as the host keeps it: an admitted frame
+    /// consumes one whether its run applied or was rejected.
+    fn next_seq(&self, signer: &[u8]) -> u64 {
+        self.host
+            .view(Layer::Confirmed)
+            .get("$signers", signer)
+            .unwrap()
+            .map_or(0, |bytes| abi::decode(&bytes).unwrap())
     }
 
     async fn submit<T: BorshSerialize>(&mut self, signer: &[u8], target: &str, op: &T) -> Receipt {
         let submission = self.submission(signer, target, abi::encode(op));
         let applied = self.block(vec![submission]).await;
-        let receipt = applied.submissions.into_iter().next().unwrap();
-        self.consumed(signer, &receipt);
-        receipt
+        applied.submissions.into_iter().next().unwrap()
     }
 
     async fn apply<T: BorshSerialize>(&mut self, signer: &[u8], target: &str, op: &T) -> Vec<u8> {
@@ -227,17 +230,12 @@ impl Net {
         let signer = public(PROBE_SIGNER);
         let submission = self.submission(&signer, program, abi::encode(&script));
         let applied = self.block(vec![submission]).await;
-        self.consumed(&signer, &applied.submissions[0]);
-        match &applied.submissions[0].outcome {
-            Outcome::Applied { .. } => {}
-            Outcome::Rejected(refusal) => panic!("{program} rejected the script: {refusal}"),
-        }
-        let applied = self.tick().await;
-        applied
-            .deliveries
-            .into_iter()
-            .map(|delivered| delivered.receipt)
+        // the message ran in the probe's frame; its refusal is the frame's
+        applied.submissions[0]
+            .nested
+            .iter()
             .find(|receipt| receipt.program == target)
+            .cloned()
             .unwrap()
     }
 
@@ -313,6 +311,8 @@ fn refusal_of(receipt: &Receipt) -> &str {
     }
 }
 
+#[path = "system/discussion.rs"]
+mod discussion_tests;
 #[path = "system/founding.rs"]
 mod founding_tests;
 #[path = "system/identity.rs"]

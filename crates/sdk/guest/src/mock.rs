@@ -155,8 +155,9 @@ impl MockHost {
         )
     }
 
-    /// One host call, as the real host answers it.
-    pub(crate) fn serve(&self, op: HostOp) -> HostReply {
+    /// One host call by `me`, as the real host answers it. An emitted
+    /// message is kept, numbered from 0, for the test to run.
+    pub(crate) fn serve(&self, me: &str, op: HostOp) -> HostReply {
         if let HostOp::Query { program, request } = op {
             // The sibling leaves the map while it answers, so it may use
             // this host itself.
@@ -227,10 +228,11 @@ impl MockHost {
                 Err(error) => HostReply::Refused(crate::kernel::refusal_from(error)),
             },
             HostOp::Emit(message) => {
+                let item = mock.emissions.len() as u64;
                 mock.emissions.push(message);
                 HostReply::Item(abi::ItemRef {
-                    source: String::new(),
-                    item: mock.emissions.len() as u64,
+                    source: me.to_owned(),
+                    item,
                 })
             }
             HostOp::Event(payload) => {
