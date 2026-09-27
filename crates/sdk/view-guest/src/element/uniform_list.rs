@@ -247,7 +247,4 @@ impl IntoElement for UniformList {
     }
 }
 
-impl gpui::prelude::FluentBuilder for Div {}
-impl gpui::prelude::FluentBuilder for Input {}
-impl gpui::prelude::FluentBuilder for AnyElement {}
 impl gpui::prelude::FluentBuilder for UniformList {}

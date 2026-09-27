@@ -90,6 +90,8 @@ impl IntoElement for AnyElement {
     }
 }
 
+impl gpui::prelude::FluentBuilder for AnyElement {}
+
 /// The explicit lowering context for one driver frame.
 pub struct Lowering<'a> {
     window: &'a mut Window,
@@ -257,6 +259,8 @@ impl IntoElement for Div {
     }
 }
 
+impl gpui::prelude::FluentBuilder for Div {}
+
 /// Construct an empty guest container.
 pub fn div() -> Div {
     Div::default()
@@ -364,6 +368,8 @@ impl IntoElement for Input {
         self
     }
 }
+
+impl gpui::prelude::FluentBuilder for Input {}
 
 /// Add children to an element recipe.
 pub trait ParentElement {
