@@ -16,6 +16,8 @@ mod hostile {
 
     mod rng;
     use rng::*;
+    mod leaves;
+    use leaves::*;
     mod generation;
     use generation::*;
     mod checks;

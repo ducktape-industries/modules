@@ -1,4 +1,6 @@
-//! Bounds on a sanitized `StyleRefinement`, field by field.
+//! A hostile `StyleRefinement`, and the bounds a sanitized one meets, field
+//! by field.
+use super::*;
 use gpui::{AbsoluteLength, DefiniteLength, Hsla, Length, StyleRefinement};
 use view_wire::MAX_PIXELS;
 
@@ -157,5 +159,125 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
         if let Some(color) = strike.color {
             color_in(color);
         }
+    }
+}
+
+/// A whole hostile refinement: every field `sanitize` bounds, drawn from
+/// [`gen_f32`], so a tree exercises each clamp on every styled node.
+pub(super) fn gen_native_style(rng: &mut Rng) -> gpui::StyleRefinement {
+    use gpui::{AbsoluteLength, DefiniteLength, px, rems};
+    let number = gen_f32;
+    let absolute = |rng: &mut Rng| -> AbsoluteLength {
+        if rng.next_bool() {
+            px(number(rng)).into()
+        } else {
+            rems(number(rng)).into()
+        }
+    };
+    let definite = |rng: &mut Rng| -> DefiniteLength {
+        if rng.next_bool() {
+            absolute(rng).into()
+        } else {
+            DefiniteLength::Fraction(number(rng))
+        }
+    };
+    let mut style = gpui::StyleRefinement::default();
+    for value in [
+        &mut style.inset.top,
+        &mut style.inset.right,
+        &mut style.inset.bottom,
+        &mut style.inset.left,
+        &mut style.size.width,
+        &mut style.size.height,
+        &mut style.min_size.width,
+        &mut style.min_size.height,
+        &mut style.max_size.width,
+        &mut style.max_size.height,
+        &mut style.margin.top,
+        &mut style.margin.right,
+        &mut style.margin.bottom,
+        &mut style.margin.left,
+        &mut style.flex_basis,
+    ] {
+        *value = Some(definite(rng).into());
+    }
+    for value in [
+        &mut style.padding.top,
+        &mut style.padding.right,
+        &mut style.padding.bottom,
+        &mut style.padding.left,
+        &mut style.gap.width,
+        &mut style.gap.height,
+    ] {
+        *value = Some(definite(rng));
+    }
+    for value in [
+        &mut style.border_widths.top,
+        &mut style.border_widths.right,
+        &mut style.border_widths.bottom,
+        &mut style.border_widths.left,
+        &mut style.corner_radii.top_left,
+        &mut style.corner_radii.top_right,
+        &mut style.corner_radii.bottom_left,
+        &mut style.corner_radii.bottom_right,
+        &mut style.scrollbar_width,
+    ] {
+        *value = Some(absolute(rng));
+    }
+    style.flex_grow = Some(gen_f32(rng));
+    style.flex_shrink = Some(gen_f32(rng));
+    style.aspect_ratio = Some(gen_f32(rng));
+    style.opacity = Some(gen_f32(rng));
+    style.border_color = Some(gen_color(rng));
+    style.background = Some(gen_color(rng).into());
+    style.box_shadow = Some(
+        (0..rng.next_range(20))
+            .map(|_| gpui::BoxShadow {
+                color: gen_color(rng),
+                offset: gpui::point(px(gen_f32(rng)), px(gen_f32(rng))),
+                blur_radius: px(gen_f32(rng)),
+                spread_radius: px(gen_f32(rng)),
+                inset: false,
+            })
+            .collect(),
+    );
+    style.grid_cols = Some(gpui::GridTemplate {
+        repeat: rng.next_u64() as u16,
+        ..Default::default()
+    });
+    style.grid_rows = Some(gpui::GridTemplate {
+        repeat: rng.next_u64() as u16,
+        ..Default::default()
+    });
+    style.grid_location = Some(gpui::GridLocation {
+        row: gpui::GridPlacement::Line(rng.next_u64() as i16)
+            ..gpui::GridPlacement::Span(rng.next_u64() as u16),
+        column: gpui::GridPlacement::Span(rng.next_u64() as u16)
+            ..gpui::GridPlacement::Line(rng.next_u64() as i16),
+    });
+    style.text.color = Some(gen_color(rng));
+    style.text.background_color = Some(gen_color(rng));
+    style.text.font_size = Some(absolute(rng));
+    style.text.line_height = Some(definite(rng));
+    style.text.font_weight = Some(gpui::FontWeight(gen_f32(rng)));
+    style.text.line_clamp = Some(rng.next_u64() as usize);
+    style.text.underline = Some(gpui::UnderlineStyle {
+        thickness: px(gen_f32(rng)),
+        color: Some(gen_color(rng)),
+        wavy: true,
+    });
+    style.text.strikethrough = Some(gpui::StrikethroughStyle {
+        thickness: px(gen_f32(rng)),
+        color: Some(gen_color(rng)),
+    });
+    style
+}
+
+pub(super) fn gen_color(rng: &mut Rng) -> gpui::Hsla {
+    gpui::Hsla {
+        h: gen_f32(rng),
+        s: gen_f32(rng),
+        l: gen_f32(rng),
+        a: gen_f32(rng),
     }
 }
