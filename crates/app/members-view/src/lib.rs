@@ -15,9 +15,10 @@
 mod activity;
 mod ui;
 
+use ducktape_view_guest::design;
 use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::{Error, malformed};
-use ducktape_view_guest::methods::{Changes, HostSession, Query};
+use ducktape_view_guest::methods::{Changes, HostOffset, HostSession, Query};
 use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, View, Window};
 use module_registry::PageRequest;
@@ -151,6 +152,13 @@ impl View for Members {
                     .log_refused("members", "identity's live heads", &refusal),
             }
         }));
+        // the reader's zone, for the day a key was added
+        let offset = cx.host().subscribe::<HostOffset>(());
+        self.watches
+            .push(cx.for_each(offset, |_, offset, _, cx| match offset {
+                Ok(minutes) => design::set_utc_offset(minutes),
+                Err(refusal) => cx.host().log_refused("members", "the UTC offset", &refusal),
+            }));
         self.read(cx);
         self.read_activity(cx);
     }

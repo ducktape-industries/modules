@@ -87,7 +87,7 @@ impl Draft {
 const TEXT_INSET: f32 = design::spacing::MD as f32;
 const CONTROL_INSET: f32 = design::spacing::XXS as f32;
 
-/// Dresses a mark's sign as what it does: bold, italic, code.
+/// Dresses a mark's sign as what it does: bold, italic, code, quote.
 type Face = fn(crate::Div) -> crate::Div;
 
 #[derive(IntoElement)]
