@@ -146,41 +146,41 @@ impl<'a> Lowering<'a> {
         &self.authored_path
     }
 
-    pub(crate) fn click(&mut self, listener: EventListener<gpui::ClickEvent>) -> u32 {
+    pub(crate) fn click(&self, listener: EventListener<gpui::ClickEvent>) -> u32 {
         slots::click(&self.app.inner.slots, listener)
     }
 
     pub(crate) fn route<A: 'static>(
-        &mut self,
+        &self,
         listener: impl Fn(&A, &mut Window, &mut App) + 'static,
     ) -> u32 {
         slots::route(&self.app.inner.slots, listener)
     }
 
-    pub(crate) fn enter_row(&mut self, key: u64) -> Option<slots::Row> {
+    pub(crate) fn enter_row(&self, key: u64) -> Option<slots::Row> {
         slots::enter_row(&self.app.inner.slots, key)
     }
 
-    pub(crate) fn leave_row(&mut self, outer: Option<slots::Row>) {
+    pub(crate) fn leave_row(&self, outer: Option<slots::Row>) {
         slots::leave_row(&self.app.inner.slots, outer)
     }
 
     pub(crate) fn message_route(
-        &mut self,
+        &self,
         listener: impl Fn(&(), &mut Window, &mut App) + 'static,
     ) -> u32 {
         slots::message_route(&self.app.inner.slots, listener)
     }
 
-    pub(crate) fn picture(&mut self, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u8>>) {
+    pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u8>>) {
         slots::picture(&self.app.inner.slots, bytes)
     }
 
-    pub(crate) fn tooltip(&mut self, build: slots::TooltipBuilder) -> u32 {
+    pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
         slots::tooltip(&self.app.inner.slots, build)
     }
 
-    pub(crate) fn rich_text_tooltip(&mut self, build: slots::RichTextTooltipBuilder) -> u32 {
+    pub(crate) fn rich_text_tooltip(&self, build: slots::RichTextTooltipBuilder) -> u32 {
         slots::rich_text_tooltip(&self.app.inner.slots, build)
     }
 }

@@ -250,7 +250,7 @@ impl<V: View> Driver<V> {
         }
     }
 
-    fn handle<H: 'static>(&mut self, handler: u32, value: H) -> Option<Callback<V>> {
+    fn handle<H: 'static>(&self, handler: u32, value: H) -> Option<Callback<V>> {
         slots::run_handler::<H, Callback<V>>(&self.app.inner.slots, handler, value)
     }
 
@@ -276,7 +276,7 @@ impl<V: View> Driver<V> {
     }
 
     fn editor_document(
-        &mut self,
+        &self,
         handler: u32,
         message: wire::editor_document::EditorDocumentMessage,
     ) -> Option<Callback<V>> {
@@ -292,7 +292,7 @@ impl<V: View> Driver<V> {
     }
 
     fn editor_transaction(
-        &mut self,
+        &self,
         handler: u32,
         event: wire::EditorTransactionEvent,
     ) -> Option<Callback<V>> {

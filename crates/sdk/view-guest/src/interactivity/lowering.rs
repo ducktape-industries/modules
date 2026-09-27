@@ -3,7 +3,7 @@ use super::*;
 impl Interactivity {
     pub(crate) fn into_wire(
         self,
-        lowering: &mut Lowering<'_>,
+        lowering: &Lowering<'_>,
     ) -> (Option<wire::ElementIdWire>, wire::Interactivity) {
         let id = self.id.map(crate::element::wire_id);
         let tooltip = self.tooltip.map(|tooltip| {
@@ -86,7 +86,7 @@ impl Interactivity {
 
 fn route_plain<E: 'static>(
     listeners: Vec<EventListener<E>>,
-    lowering: &mut Lowering<'_>,
+    lowering: &Lowering<'_>,
 ) -> Option<u32> {
     (!listeners.is_empty()).then(|| {
         lowering.route(move |event: &E, window, app| {
@@ -101,7 +101,7 @@ fn route_plain<E: 'static>(
 /// for any button when it names none.
 fn route_buttons<E: 'static>(
     listeners: Vec<ButtonBinding<E>>,
-    lowering: &mut Lowering<'_>,
+    lowering: &Lowering<'_>,
     button: fn(&E) -> MouseButton,
 ) -> Option<u32> {
     (!listeners.is_empty()).then(|| {
