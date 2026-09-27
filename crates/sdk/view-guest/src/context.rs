@@ -318,7 +318,7 @@ impl<V: View> Entity<V> {
         let mut value = self.value.borrow_mut();
         let view = value.as_mut().expect("entity initialized");
         #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        let before = serde_json::to_vec(view).ok();
+        let before = crate::wire::encode(view);
         let notified = app.inner.generation.get();
         let mut cx = Context {
             app,
@@ -326,12 +326,10 @@ impl<V: View> Entity<V> {
         };
         let result = f(view, window, &mut cx);
         #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        if let (Some(before), Ok(after)) = (before, serde_json::to_vec(view)) {
-            assert!(
-                before == after || notified != cx.app.inner.generation.get(),
-                "state changed without cx.notify()"
-            );
-        }
+        assert!(
+            before == crate::wire::encode(view) || notified != cx.app.inner.generation.get(),
+            "state changed without cx.notify()"
+        );
         #[cfg(not(all(debug_assertions, not(target_arch = "wasm32"))))]
         let _ = notified;
         result
