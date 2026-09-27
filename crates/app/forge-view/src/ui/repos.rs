@@ -547,16 +547,11 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                         .items_start()
                         .gap(design::space::XS)
                         .child(caption("Object format"))
-                        .child(formats)
-                        .child(
-                            caption("Pick SHA-1 to push an existing Git project.")
-                                .whitespace_nowrap(),
-                        ),
+                        .child(formats),
                 ),
         )
         .child(caption(
-            "SHA-1 works with every git client. SHA-256 needs a git that reads SHA-256 \
-             repositories. The format is fixed once created.",
+            "Pick SHA-1 to push an existing Git project. The format is fixed once created.",
         ));
     if !form.error.is_empty() {
         card = card.child(

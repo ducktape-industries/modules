@@ -5,19 +5,15 @@ use abi::hex;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::view::Loadable;
-use ducktape_view_guest::{Div, FontWeight};
+use ducktape_view_guest::{Div, FontWeight, Stateful};
 use valset::{Membership, Role as Standing};
 
 use crate::Nodes;
 
-/// The validator's place in the set, before its key.
-const PLACE_W: Pixels = px(28.);
-/// The widest a member's address runs before it is clipped.
-const ADDRESS_W: Pixels = px(220.);
-/// A status row's label column.
+/// A row's label column.
 const LABEL_W: Pixels = px(180.);
-/// The widest the status rows run.
-const STATUS_W: Pixels = px(720.);
+/// The widest the rows run: status, validators and members alike.
+const ROWS_W: Pixels = px(720.);
 
 pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
@@ -66,7 +62,7 @@ fn status(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     match &view.status {
         Loadable::Ready(s) => div()
             .id("nodes-status")
-            .max_w(STATUS_W)
+            .max_w(ROWS_W)
             .flex()
             .flex_col()
             .children([
@@ -109,33 +105,49 @@ fn status(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     }
 }
 
-/// One status row: the label on the left, the value (mono for numbers and
-/// hashes) beside it, a hairline under.
+/// One status row: the label, and the value (mono for numbers and hashes).
 fn fact(key: &str, label: &str, value: String, mono: bool, theme: &Theme) -> AnyElement {
+    let value = match mono {
+        true => design::mono(value).truncate().into_any_element(),
+        false => div().child(value).into_any_element(),
+    };
+    row(
+        format!("nodes-status-{key}").into(),
+        div().text_color(theme.muted).child(label.to_owned()),
+        value,
+        theme,
+    )
+    .into_any_element()
+}
+
+/// The one row every block of this screen uses: a label column, the value
+/// beside it, a hairline under.
+fn row(
+    id: ElementId,
+    label: impl IntoElement,
+    value: impl IntoElement,
+    theme: &Theme,
+) -> Stateful<Div> {
     div()
-        .id(format!("nodes-status-{key}"))
+        .id(id)
         .flex()
         .items_center()
         .gap_2()
         .min_h(design::size::CONTROL + design::space::SM)
         .pl_2()
+        .pr_2()
         .border_b_1()
         .border_color(theme.border)
+        .child(div().w(LABEL_W).flex_none().min_w(px(0.)).child(label))
         .child(
             div()
-                .w(LABEL_W)
-                .flex_none()
-                .text_color(theme.muted)
-                .child(label.to_owned()),
-        )
-        .child(match mono {
-            true => design::mono(value)
+                .flex_1()
                 .min_w(px(0.))
-                .truncate()
-                .into_any_element(),
-            false => div().child(value).into_any_element(),
-        })
-        .into_any_element()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(value),
+        )
 }
 
 fn count(view: &Nodes) -> String {
@@ -206,23 +218,18 @@ fn validators(validators: &[Vec<u8>], theme: &Theme) -> AnyElement {
     }
     div()
         .id("nodes-validators")
+        .max_w(ROWS_W)
         .flex()
         .flex_col()
-        .gap_2()
         .children(validators.iter().enumerate().map(|(index, key)| {
-            div()
-                .id(ElementId::named_usize("nodes-validator", index))
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .w(PLACE_W)
-                        .text_size(design::text::SECONDARY)
-                        .text_color(theme.muted)
-                        .child((index + 1).to_string()),
-                )
-                .child(key_text(key).flex_1())
+            row(
+                ElementId::named_usize("nodes-validator", index),
+                div()
+                    .text_color(theme.muted)
+                    .child(format!("Validator {}", index + 1)),
+                key_text(key),
+                theme,
+            )
         }))
         .into_any_element()
 }
@@ -230,24 +237,28 @@ fn validators(validators: &[Vec<u8>], theme: &Theme) -> AnyElement {
 fn members(members: &[Membership], theme: &Theme) -> impl IntoElement {
     div()
         .id("nodes-members")
+        .max_w(ROWS_W)
         .flex()
         .flex_col()
-        .gap_2()
         .children(members.iter().enumerate().map(|(index, member)| {
-            div()
-                .id(ElementId::named_usize("nodes-member", index))
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(key_text(&member.key).flex_1())
-                .child(
-                    div()
-                        .max_w(ADDRESS_W)
-                        .truncate()
-                        .text_size(design::text::SECONDARY)
-                        .child(member.address.clone()),
-                )
-                .child(standing(index, member.role, theme))
+            row(
+                ElementId::named_usize("nodes-member", index),
+                key_text(&member.key),
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        design::mono(member.address.clone())
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate(),
+                    )
+                    .child(standing(index, member.role, theme)),
+                theme,
+            )
         }))
 }
 

@@ -499,7 +499,11 @@ fn creating_a_repository_validates_its_name_then_shows_the_submission() {
     cx.run_until_parked();
     view.read(|forge| assert!(forge.new_repo.is_none()));
     cx.simulate_click("forge-new-repo");
-    assert!(cx.has_text("Pick SHA-1 to push an existing Git project."));
+    assert!(
+        cx.has_text(
+            "Pick SHA-1 to push an existing Git project. The format is fixed once created."
+        )
+    );
     cx.simulate_input("forge-new-repo-name", "imported");
     cx.simulate_click("forge-new-repo-sha1");
     cx.simulate_click("forge-new-repo-submit");
