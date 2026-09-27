@@ -88,7 +88,6 @@ pub use window::Window;
 #[cfg(test)]
 mod behavior_tests;
 mod slots;
-use context::Callback;
 
 mod driver;
 pub use driver::Driver;
