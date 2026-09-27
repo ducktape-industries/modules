@@ -199,10 +199,12 @@ impl<V: View> Driver<V> {
                 start,
                 end,
             } => {
-                if self
-                    .app
-                    .request_uniform_list_range(path, route, start as usize, end as usize)
-                {
+                if self.app.inner.uniform_lists.request_range(
+                    path,
+                    route,
+                    start as usize,
+                    end as usize,
+                ) {
                     self.app.notify();
                 }
                 None
@@ -214,7 +216,7 @@ impl<V: View> Driver<V> {
                 scrollable,
                 scrolled_to_end,
             } => {
-                self.app.update_uniform_list_state(
+                self.app.inner.uniform_lists.update_state(
                     &path,
                     route,
                     top_index as usize,

@@ -452,7 +452,7 @@ pub trait RenderOnce: 'static {
 }
 
 mod uniform_list;
-pub(crate) use uniform_list::UniformListScrollState;
+pub(crate) use uniform_list::UniformLists;
 pub use uniform_list::{UniformList, UniformListScrollHandle, uniform_list};
 
 #[cfg(test)]
