@@ -335,6 +335,31 @@ pub fn divider<V: crate::View>(
     crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border)).on_drag(dragged)
 }
 
+/// Whether a side pane `side` wide fits in `width` beside what the screen
+/// `keeps` (its list and its body's narrowest). When it does not, the pane
+/// floats over the body ([`over`]) and the body keeps its whole width.
+pub fn docks(width: f32, keeps: f32, side: f32) -> bool {
+    width >= keeps + side
+}
+
+/// A side pane that does not [`docks`]: over the body at the right edge,
+/// full height, a hairline on its left; a click on it stops there. Its
+/// parent is `relative`, and the pane carries its own close control.
+pub fn over(id: impl Into<ElementId>, pane: impl IntoElement, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id(id)
+        .absolute()
+        .top_0()
+        .right_0()
+        .bottom_0()
+        .max_w_full()
+        .flex()
+        .border_l_1()
+        .border_color(theme.border_strong)
+        .occlude()
+        .child(pane)
+}
+
 /// A small tag: a state, a role, a count, in its own colours.
 pub fn badge(
     id: impl Into<ElementId>,
@@ -497,6 +522,14 @@ mod tests {
         assert_eq!(super::grouped(1_048_576), "1,048,576");
         assert_eq!(super::plural(1, "block", "blocks"), "1 block");
         assert_eq!(super::plural(1200, "block", "blocks"), "1,200 blocks");
+    }
+
+    #[test]
+    fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
+        assert!(super::docks(1000., 576., 320.));
+        assert!(super::docks(896., 576., 320.));
+        assert!(!super::docks(895., 576., 320.));
+        assert!(!super::docks(720., 400., 440.));
     }
 
     #[test]

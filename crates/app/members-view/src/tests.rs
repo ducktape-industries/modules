@@ -448,3 +448,20 @@ fn a_kind_with_no_one_in_it_says_so_without_quoting_an_empty_filter() {
     cx.simulate_input("members-filter", "zz");
     assert!(cx.has_text("No account reads like “zz”."));
 }
+
+#[test]
+fn a_narrow_pane_floats_the_detail_over_the_whole_list_with_a_close() {
+    let (mut cx, _) = ready();
+    cx.simulate_measure("members-viewport", 1000., 640.);
+    cx.simulate_click("members-row-7");
+    assert!(cx.find("members-detail-over").is_none());
+    assert!(cx.find("members-detail-close").is_none());
+
+    cx.simulate_measure("members-viewport", 720., 640.);
+    assert!(cx.find("members-detail-over").is_some());
+    cx.simulate_click("members-detail-close");
+    assert!(cx.find("members-detail-over").is_none());
+    assert!(cx.find("members-detail").is_none(), "the list alone");
+    cx.simulate_click("members-row-7");
+    assert!(cx.find("members-detail-over").is_some());
+}

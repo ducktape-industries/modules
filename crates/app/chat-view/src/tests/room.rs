@@ -116,6 +116,7 @@ fn viewport_and_pane_dividers_keep_their_behavior_routes() {
     cx.simulate_drag("chat-sidebar-resize", 18., 0.);
     view.read(|chat| assert_eq!(chat.layout.sidebar, sidebar + 18.));
 
+    cx.simulate_measure("chat-viewport", 1280., 800.);
     cx.simulate_click("chat-room-details");
     assert!(matches!(
         cx.find("chat-details-resize"),
@@ -124,6 +125,15 @@ fn viewport_and_pane_dividers_keep_their_behavior_routes() {
             ..
         })
     ));
+    assert!(cx.find("chat-side-over").is_none());
+
+    // too narrow for the room beside it: the details float over the room,
+    // with their close, and nothing to drag
+    cx.simulate_measure("chat-viewport", 720., 480.);
+    assert!(cx.find("chat-details-resize").is_none());
+    assert!(cx.find("chat-side-over").is_some());
+    cx.simulate_click("chat-details-close");
+    assert!(cx.find("chat-side-over").is_none());
 }
 
 #[test]

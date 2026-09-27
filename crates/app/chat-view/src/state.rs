@@ -172,6 +172,12 @@ impl Layout {
         let (lo, hi) = THREAD_W;
         self.thread = self.thread.clamp(lo, side.clamp(lo, hi));
     }
+
+    /// Whether a side pane `side` wide fits beside the sidebar and the
+    /// room's narrowest; else it floats over the room.
+    pub(crate) fn docks(&self, side: f32) -> bool {
+        ducktape_view_guest::design::docks(self.viewport.0, self.sidebar + ROOM_KEEPS_W, side)
+    }
 }
 
 /// What the reader has read: per room, the head seq when they last had it on

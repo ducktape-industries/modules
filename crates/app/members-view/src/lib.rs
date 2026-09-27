@@ -50,6 +50,9 @@ pub struct Members {
     activity: Loadable<Recent>,
     #[serde(skip)]
     watches: Vec<Task<()>>,
+    /// the pane's measured width; `None` until the first measure
+    #[serde(skip)]
+    width: Option<f32>,
 }
 
 /// The list's three groups, in the order they are drawn.

@@ -123,8 +123,9 @@ fn with_create(
 }
 
 fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
-    let mut panes = div()
+    let panes = div()
         .id("chat-panes")
+        .relative()
         .flex()
         .size_full()
         .child(sidebar::render(chat, cx, theme))
@@ -138,30 +139,32 @@ fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEle
             },
         ))
         .child(room::render(chat, cx, theme));
-    if chat.details.is_some() && chat.room.is_some() {
-        panes = panes
-            .child(design::divider(
-                "chat-details-resize",
-                theme,
-                cx,
-                |chat, dx| {
-                    chat.layout.details -= dx;
-                    chat.layout.clamp();
-                },
-            ))
-            .child(side::details(chat, cx, theme));
-    } else if chat.room.as_ref().is_some_and(|room| room.thread.is_some()) {
-        panes = panes
-            .child(design::divider(
-                "chat-thread-resize",
-                theme,
-                cx,
-                |chat, dx| {
-                    chat.layout.thread -= dx;
-                    chat.layout.clamp();
-                },
-            ))
-            .child(side::thread(chat, cx, theme));
+    let details = chat.details.is_some() && chat.room.is_some();
+    let thread = chat.room.as_ref().is_some_and(|room| room.thread.is_some());
+    let (pane, width) = match (details, thread) {
+        (true, _) => (
+            side::details(chat, cx, theme).into_any_element(),
+            chat.layout.details,
+        ),
+        (false, true) => (
+            side::thread(chat, cx, theme).into_any_element(),
+            chat.layout.thread,
+        ),
+        (false, false) => return panes,
+    };
+    // too narrow for the room beside it: the pane floats over the room
+    if !chat.layout.docks(width) {
+        return panes.child(design::over("chat-side-over", pane, theme));
     }
-    panes
+    let divider = match details {
+        true => design::divider("chat-details-resize", theme, cx, |chat, dx| {
+            chat.layout.details -= dx;
+            chat.layout.clamp();
+        }),
+        false => design::divider("chat-thread-resize", theme, cx, |chat, dx| {
+            chat.layout.thread -= dx;
+            chat.layout.clamp();
+        }),
+    };
+    panes.child(divider).child(pane)
 }

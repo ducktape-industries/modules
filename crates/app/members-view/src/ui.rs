@@ -16,33 +16,77 @@ use crate::{Group, Members, Row};
 
 /// The list pane's width.
 const LIST: Pixels = px(400.);
+/// The detail's narrowest beside the list: the head and a device row with
+/// its [`KEY_COLUMN`]. Narrower, it floats over the list at this width.
+const DETAIL_MIN: Pixels = px(440.);
 /// A detail row's first column: a device's label, an agent's name. It
 /// gives way first when the pane is narrow.
 const KEY_COLUMN: Pixels = px(180.);
 
 pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    div()
+    // too narrow for the detail beside the list: the list takes the pane
+    // and the chosen account floats over it
+    let docked = view
+        .width
+        .is_none_or(|width| design::docks(width, LIST.into(), DETAIL_MIN.into()));
+    let screen = div()
         .id("members")
+        .relative()
         .flex()
         .size_full()
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_size(text::BODY)
-        .child(list_pane(view, cx, &theme))
-        .child(
-            div()
-                .id("members-detail")
-                .flex_1()
-                .min_w(px(0.))
-                .overflow_y_scroll()
-                .flex()
-                .flex_col()
-                .child(detail(view, cx, &theme)),
-        )
+        .child(list_pane(view, docked, cx, &theme));
+    let screen = match (docked, view.selected_row().is_some()) {
+        (true, _) => screen.child(detail_pane(view, false, cx, &theme).flex_1()),
+        (false, true) => screen.child(design::over(
+            "members-detail-over",
+            detail_pane(view, true, cx, &theme)
+                .w(DETAIL_MIN)
+                .bg(theme.background),
+            &theme,
+        )),
+        (false, false) => screen,
+    };
+    let measured = cx.listener(|view, size: &(Pixels, Pixels), _, cx| {
+        view.width = Some(size.0.into());
+        cx.notify();
+    });
+    let resized = cx.listener(|view, size: &(Pixels, Pixels), _, cx| {
+        view.width = Some(size.0.into());
+        cx.notify();
+    });
+    ducktape_view_guest::sensor("members-viewport", screen)
+        .size_full()
+        .on_show(measured)
+        .on_resize(resized)
 }
 
-fn list_pane(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoElement {
+/// The chosen account, scrolling on its own; `over` the list it carries
+/// its close.
+fn detail_pane(
+    view: &Members,
+    over: bool,
+    cx: &mut Context<Members>,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id("members-detail")
+        .min_w(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .child(detail(view, over, cx, theme))
+}
+
+fn list_pane(
+    view: &Members,
+    docked: bool,
+    cx: &mut Context<Members>,
+    theme: &Theme,
+) -> impl IntoElement {
     let typed = cx.listener(|view, text: &String, _, cx| {
         view.filter = text.clone();
         cx.notify();
@@ -53,8 +97,10 @@ fn list_pane(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl I
     };
     div()
         .id("members-list-pane")
-        .w(LIST)
-        .flex_shrink_0()
+        .map(|pane| match docked {
+            true => pane.w(LIST).flex_shrink_0(),
+            false => pane.flex_1().min_w(px(0.)),
+        })
         .flex()
         .flex_col()
         .border_r_1()
@@ -332,7 +378,7 @@ fn pad(inner: impl IntoElement) -> Div {
     div().px(space::BLOCK).py(space::SM).child(inner)
 }
 
-fn detail(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement {
+fn detail(view: &Members, over: bool, cx: &mut Context<Members>, theme: &Theme) -> AnyElement {
     let (Some(rows), Some(row)) = (view.rows.ready(), view.selected_row()) else {
         return div()
             .id("members-none")
@@ -344,7 +390,7 @@ fn detail(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElemen
     let mut detail = div()
         .flex()
         .flex_col()
-        .child(head(view, row, rows, cx, theme))
+        .child(head(view, row, rows, over, cx, theme))
         .child(devices(row, theme));
     let managed: Vec<&Row> = rows
         .iter()
@@ -378,6 +424,7 @@ fn head(
     view: &Members,
     row: &Row,
     rows: &[Row],
+    over: bool,
     cx: &mut Context<Members>,
     theme: &Theme,
 ) -> impl IntoElement {
@@ -474,6 +521,8 @@ fn head(
                 .child(
                     div()
                         .id("members-detail-title")
+                        // one line: a long name ends in an ellipsis
+                        .truncate()
                         .text_size(text::TITLE)
                         .font_weight(FontWeight::SEMIBOLD)
                         .role(Role::Heading)
@@ -510,6 +559,7 @@ fn head(
         .child(
             div()
                 .flex()
+                .flex_shrink_0()
                 .gap(space::XS)
                 .when_some(dm, |buttons, link| {
                     buttons.child(outline_button("members-open-dm", "Open DM", link, theme))
@@ -519,7 +569,20 @@ fn head(
                     "Explorer",
                     explorer,
                     theme,
-                )),
+                ))
+                .when(over, |buttons| {
+                    let close = cx.listener(|view, _: &ClickEvent, _, cx| {
+                        view.selected = None;
+                        view.activity = Loadable::Idle;
+                        cx.notify();
+                    });
+                    buttons.child(design::button(
+                        "members-detail-close",
+                        "Close",
+                        theme,
+                        close,
+                    ))
+                }),
         )
 }
 
