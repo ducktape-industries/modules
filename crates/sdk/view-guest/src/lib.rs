@@ -210,7 +210,7 @@ macro_rules! export_view {
             }
 
             #[unsafe(export_name = "init")]
-            extern "C" fn init(_macos: u32) {
+            extern "C" fn init() {
                 $crate::exports::init::<$app>()
             }
 
@@ -225,7 +225,7 @@ macro_rules! export_view {
             }
 
             #[unsafe(export_name = "restore")]
-            extern "C" fn restore(ptr: u32, len: u32, _macos: u32) -> u64 {
+            extern "C" fn restore(ptr: u32, len: u32) -> u64 {
                 $crate::exports::restore::<$app>(ptr, len)
             }
         }
