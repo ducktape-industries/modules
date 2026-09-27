@@ -62,7 +62,7 @@ pub fn person(key: &[u8]) -> Principal {
 /// resolved to its account, then the typed execute and what it emitted, in
 /// one frame. forge's output.
 pub fn signed_op(
-    sandbox: &MemorySandbox,
+    sandbox: &mut MemorySandbox,
     actor: &[u8],
     height: u64,
     op: &Op,
@@ -73,13 +73,15 @@ pub fn signed_op(
 /// `actor`'s op; a refusal left forge's store as it was.
 #[track_caller]
 pub fn act(sandbox: &mut MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, guest::Error> {
-    sandbox.forge.attempt(|| signed_op(sandbox, actor, 1, op))
+    let forge = sandbox.forge.clone();
+    forge.attempt(|| signed_op(sandbox, actor, 1, op))
 }
 
 /// The refusal of `actor`'s op, which left forge's store as it was.
 #[track_caller]
 pub fn refused(sandbox: &mut MemorySandbox, actor: &[u8], op: &Op) -> guest::Error {
-    sandbox.forge.refused(|| signed_op(sandbox, actor, 1, op))
+    let forge = sandbox.forge.clone();
+    forge.refused(|| signed_op(sandbox, actor, 1, op))
 }
 
 pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, guest::Error> {

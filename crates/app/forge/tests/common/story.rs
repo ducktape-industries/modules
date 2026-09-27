@@ -12,7 +12,7 @@ pub const TESTER: &[u8] = b"tester";
 /// talker in chat is 4. Every other key holds no account.
 pub const HELD: [(&[u8], u64); 3] = [(TESTER, 1), (b"reviewer", 2), (b"talker", 4)];
 
-/// One module over `MemorySandbox` with the kernel's height discipline: an
+/// forge over `MemorySandbox` with the kernel's height discipline: an
 /// op lands in a new block, and what it emits to chat runs in its frame; a
 /// chat write is a block of its own; a query moves nothing.
 pub struct Rig {
@@ -58,9 +58,8 @@ impl Rig {
     pub fn execute(&mut self, op: &Op) -> Result<Vec<u8>, guest::Error> {
         self.advance();
         let (actor, height) = (self.actor.clone(), self.height);
-        self.sandbox
-            .forge
-            .attempt(|| signed_op(&self.sandbox, &actor, height, op))
+        let forge = self.sandbox.forge.clone();
+        forge.attempt(|| signed_op(&mut self.sandbox, &actor, height, op))
     }
 
     /// The refusal of the actor's op, which left forge's store as it was.
@@ -68,9 +67,8 @@ impl Rig {
     pub fn refused(&mut self, op: &Op) -> guest::Error {
         self.advance();
         let (actor, height) = (self.actor.clone(), self.height);
-        self.sandbox
-            .forge
-            .refused(|| signed_op(&self.sandbox, &actor, height, op))
+        let forge = self.sandbox.forge.clone();
+        forge.refused(|| signed_op(&mut self.sandbox, &actor, height, op))
     }
 
     pub fn query(&self, query: &Query) -> Result<Vec<u8>, guest::Error> {
@@ -85,8 +83,9 @@ impl Rig {
             Principal::Account(number) => match sandbox::module_of(number) {
                 Some(module) => Origin::Module(module.into()),
                 None => {
-                    let accounts = self.sandbox.accounts.borrow();
-                    let (key, _) = accounts
+                    let roster = self.sandbox.chain.roster();
+                    let (key, _) = roster
+                        .keys
                         .iter()
                         .find(|(_, held)| **held == number)
                         .expect("a key holds the account");

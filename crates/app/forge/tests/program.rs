@@ -3,7 +3,7 @@ use common::*;
 
 #[test]
 fn founding_requires_bounds_and_ops_require_a_signer() {
-    let sandbox = MemorySandbox::default();
+    let mut sandbox = MemorySandbox::default();
     let unfounded = Forge::init(&sandbox.exec(1), b"").unwrap_err();
     assert_eq!(unfounded.code, code::INVALID_INPUT);
     assert!(
@@ -19,10 +19,8 @@ fn founding_requires_bounds_and_ops_require_a_signer() {
         hash: HashKind::Sha1,
     };
     for origin in [Origin::Root, Origin::Module("chat".into())] {
-        let ctx = sandbox.forge.exec(sandbox.env_at(origin, 1, TIME));
-        let refusal = sandbox
-            .forge
-            .refused(|| Forge::execute(&ctx, create.clone()));
+        let forge = sandbox.forge.clone();
+        let refusal = forge.refused(|| sandbox.frame(origin, 1, TIME, &create));
         assert_eq!(refusal.code, code::UNAUTHORIZED);
     }
 }
@@ -441,10 +439,11 @@ fn a_forge_write_at_the_answering_height_restarts_the_walk() {
     assert_eq!(page.items[0].oid, story.feature);
     // no advance: the same height the page was answered at
     rig.sandbox.hold(b"ninth", 9);
+    let (actor, height) = (rig.actor.clone(), rig.height);
     signed_op(
-        &rig.sandbox,
-        &rig.actor,
-        rig.height,
+        &mut rig.sandbox,
+        &actor,
+        height,
         &Op::Grant {
             repo: REPO.into(),
             principal: Principal::Account(9),
