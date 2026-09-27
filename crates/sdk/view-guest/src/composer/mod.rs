@@ -89,8 +89,8 @@ impl Draft {
         self.redo.clear();
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn body(&self) -> String {
+    #[cfg(test)]
+    fn body(&self) -> String {
         self.body_of(self.editor.state_view().text)
     }
 
