@@ -69,8 +69,7 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
 }
 
 /// Panics listing each node assistive technology cannot name or place, by
-/// its key path and fault. `ops/build-views.sh` runs every test whose name
-/// holds `accessibility` before it builds a component.
+/// its key path and fault.
 pub(crate) fn assert_accessible(tree: &Node) {
     let faults = crate::wire::accessibility_faults(tree);
     assert!(

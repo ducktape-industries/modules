@@ -1,4 +1,5 @@
-//! Document delivery is routed through the generated mutable Editor binding.
+//! Document transfers for an EditorElement's Editor: requests, chunks and
+//! acknowledgments.
 use crate::context::Callback;
 use crate::{Editor, slots, wire};
 use wire::editor_document::{EditorDocumentMessage, EditorDocumentRef, EditorTransferError};
@@ -55,8 +56,8 @@ impl EditorDocumentUpdate {
 }
 
 impl Editor {
-    /// Generated code calls this for every projection. The mirror stays owned
-    /// by application state; routes and transfer progress retain only identity.
+    /// EditorElement::lower calls this every frame. The mirror stays owned by
+    /// application state; routes and transfer progress retain only identity.
     pub(crate) fn document<V: 'static>(
         &self,
         context: &slots::Context,
