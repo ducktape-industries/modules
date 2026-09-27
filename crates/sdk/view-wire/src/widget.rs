@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 /// Full authored typed ancestry of one mounted element, including the target.
 pub type WidgetTarget = Vec<crate::ElementIdWire>;
 
-/// Payload of `host.widget`. Mutation requests return an encoded unit;
-/// `Focused` returns an encoded bool. Targets are the tree's qualified keys.
+/// Payload of `host.widget`: a mutation of the mounted tree, answered with
+/// an encoded unit. Targets are the tree's qualified keys.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum WidgetCommand {
     /// Queue a guest-defined action after native edits on this editor settle.
@@ -22,9 +22,6 @@ pub enum WidgetCommand {
     },
     FocusHandle {
         handle: u64,
-    },
-    Focused {
-        target: WidgetTarget,
     },
     CursorFront {
         target: WidgetTarget,
@@ -75,7 +72,6 @@ impl WidgetCommand {
             Self::FocusPrevious | Self::FocusNext | Self::FocusHandle { .. } => return Ok(()),
             Self::EditorAction { target, .. }
             | Self::Focus { target }
-            | Self::Focused { target }
             | Self::CursorFront { target }
             | Self::CursorEnd { target }
             | Self::Cursor { target, .. }

@@ -38,24 +38,15 @@ mod tests {
             let host = cx.host();
             cx.spawn(async move |this, cx| {
                 perform(
-                    host.clone(),
+                    host,
                     wire::WidgetCommand::Focus {
                         target: target("App/draft"),
                     },
                 )
                 .await
                 .unwrap();
-                let bytes = perform(
-                    host,
-                    wire::WidgetCommand::Focused {
-                        target: target("App/draft"),
-                    },
-                )
-                .await
-                .unwrap();
-                let focused = wire::decode(&bytes).unwrap();
                 this.update(cx, |view, cx| {
-                    view.0 = focused;
+                    view.0 = true;
                     cx.notify();
                 })
                 .unwrap();
@@ -73,7 +64,7 @@ mod tests {
     }
 
     #[test]
-    fn widget_futures_wait_for_mutations_before_querying_focus() {
+    fn widget_futures_wait_for_the_hosts_acknowledgment() {
         let mut driver = Driver::<WidgetView>::new();
         let frame = driver.tick(vec![]);
         let [focus] = frame.requests.as_slice() else {
@@ -86,27 +77,13 @@ mod tests {
                 target: target("App/draft")
             }
         );
-        assert!(
-            driver.tick(vec![]).requests.is_empty(),
-            "query must wait for focus acknowledgment"
-        );
-        let frame = driver.tick(vec![wire::Event::Response {
+        driver.tick(vec![]);
+        driver
+            .entity()
+            .read(|view| assert!(!view.0, "the future waits for the answer"));
+        driver.tick(vec![wire::Event::Response {
             id: focus.id,
             result: Ok(wire::encode(&())),
-            done: true,
-        }]);
-        let [query] = frame.requests.as_slice() else {
-            panic!("one focused query: {:?}", frame.requests)
-        };
-        assert_eq!(
-            wire::decode::<wire::WidgetCommand>(&query.payload).unwrap(),
-            wire::WidgetCommand::Focused {
-                target: target("App/draft")
-            }
-        );
-        driver.tick(vec![wire::Event::Response {
-            id: query.id,
-            result: Ok(wire::encode(&true)),
             done: true,
         }]);
         driver.entity().read(|view| assert!(view.0));
