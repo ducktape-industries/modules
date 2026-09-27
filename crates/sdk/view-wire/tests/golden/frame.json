@@ -505,31 +505,6 @@
                 }
               ]
             }
-          },
-          {
-            "Surface": {
-              "id": {
-                "Name": "surface"
-              },
-              "style": {},
-              "name": "forge_code",
-              "args": [
-                {
-                  "Record": {
-                    "name": "Preview",
-                    "fields": [
-                      [
-                        "text",
-                        {
-                          "Str": "x"
-                        }
-                      ]
-                    ]
-                  }
-                }
-              ],
-              "on_event": 31
-            }
           }
         ]
       }
@@ -946,19 +921,6 @@
       "TooltipRequest": {
         "request": 17,
         "character_index": 3
-      }
-    },
-    {
-      "Surface": {
-        "handler": 18,
-        "value": {
-          "List": [
-            {
-              "Bool": true
-            },
-            "Unit"
-          ]
-        }
       }
     },
     {

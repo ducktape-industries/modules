@@ -97,11 +97,6 @@ pub enum Event {
         /// Native InteractiveText byte index; ordinary tooltips use None.
         character_index: Option<u32>,
     },
-    /// A registered host surface emitted its declared result value.
-    Surface {
-        handler: u32,
-        value: SurfaceValue,
-    },
     /// A text field's content changed. `handler` indexes the guest's
     /// per-frame input-handler table; `text` is the whole value the host now
     /// holds.

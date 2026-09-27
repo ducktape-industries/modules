@@ -16,7 +16,7 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
   `Task` (`src/executor.rs`), `Window` (`src/window.rs`): the entity graph
   and the tick loop run inside the guest, so the host never sees a closure.
 - `div`, `uniform_list`, `list`, `Input`, `Editor`, `img`/`Img`, `svg`/`Svg`,
-  `canvas`/`Canvas`, `surface`, `InteractiveText`/`StyledText`, `sensor`,
+  `canvas`/`Canvas`, `InteractiveText`/`StyledText`, `sensor`,
   `resize_handle`, `modal_overlay` (`src/element.rs`, `src/list.rs`,
   `src/editor.rs`, `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and

@@ -141,10 +141,6 @@ pub fn every_event() -> Vec<Event> {
             request: 17,
             character_index: Some(3),
         },
-        Event::Surface {
-            handler: 18,
-            value: SurfaceValue::List(vec![SurfaceValue::Bool(true), SurfaceValue::Unit]),
-        },
         Event::Input {
             handler: 19,
             text: "xy".into(),
@@ -332,7 +328,6 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::FileDropExit { .. } => "FileDropExit",
         Event::AuxClick { .. } => "AuxClick",
         Event::TooltipRequest { .. } => "TooltipRequest",
-        Event::Surface { .. } => "Surface",
         Event::Input { .. } => "Input",
         Event::EditorDocument { .. } => "EditorDocument",
         Event::EditorRequest { .. } => "EditorRequest",

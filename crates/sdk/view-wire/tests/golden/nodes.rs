@@ -170,16 +170,6 @@ pub fn every_node() -> Node {
                 stroke: None,
             }],
         },
-        Node::Surface {
-            id: id("surface"),
-            style: style(),
-            name: "forge_code".into(),
-            args: vec![SurfaceValue::Record {
-                name: "Preview".into(),
-                fields: vec![("text".into(), SurfaceValue::Str("x".into()))],
-            }],
-            on_event: Some(31),
-        },
     ];
     Node::Container(ContainerNode {
         id: Some(id("root")),
@@ -207,6 +197,5 @@ pub fn node_variant(node: &Node) -> &'static str {
         Node::Space { .. } => "Space",
         Node::Overlay { .. } => "Overlay",
         Node::Canvas { .. } => "Canvas",
-        Node::Surface { .. } => "Surface",
     }
 }

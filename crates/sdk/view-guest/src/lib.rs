@@ -23,7 +23,6 @@ mod interactivity;
 mod list;
 mod primitives;
 mod rich_text;
-mod surface;
 mod view_element;
 pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
 pub use element::{
@@ -39,7 +38,6 @@ pub use primitives::{
     anchored, canvas, deferred, img, svg,
 };
 pub use rich_text::{InteractiveText, StyledText};
-pub use surface::{Surface, surface};
 pub use view_element::{AnyView, ViewElement};
 
 /// Traits and primitives used to compose guest GPUI elements.
@@ -54,7 +52,7 @@ pub mod prelude {
         PinchEvent, Pixels, Render, RenderOnce, Role, ScrollStrategy, ScrollWheelEvent,
         SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Theme,
         UniformListScrollHandle, Window, WindowControlArea, anchored, canvas, deferred, div, hsla,
-        img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, surface, svg, uniform_list,
+        img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
     };
 }
 mod editor;

@@ -180,7 +180,6 @@ pub fn encoded_size<T: Serialize>(value: &T) -> u64 {
 
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, String> {
     budget::reset();
-    surface::reset_decode_budget();
     editor_transaction::reset_decode_budget();
     canvas::reset_decode_budget();
     let mut deserializer = rmp_serde::Deserializer::new(std::io::Cursor::new(bytes));

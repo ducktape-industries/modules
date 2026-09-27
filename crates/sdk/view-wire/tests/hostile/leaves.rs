@@ -186,32 +186,18 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
     }
 }
 
-pub(super) fn gen_surface(rng: &mut Rng) -> Node {
-    Node::Surface {
-        id: gen_id(rng),
-        name: gen_string(rng),
-        args: vec![
-            view_wire::SurfaceValue::Str(gen_string(rng)),
-            view_wire::SurfaceValue::F64(f64::NAN),
-        ],
-        on_event: Some(0),
-        style: gpui::StyleRefinement::default(),
-    }
-}
-
 /// A leaf with no children, for filling out a wide container: every leaf
 /// variant except `Space` carries a string, a colour or a number worth
 /// pulling into range.
 pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
-    match rng.next_range(6) {
+    match rng.next_range(5) {
         0 => gen_text(rng),
         1 => Node::Space {
             style: gen_native_style(rng),
         },
         2 => gen_input(rng),
         3 => gen_svg(rng),
-        4 => gen_editor(rng),
-        _ => gen_surface(rng),
+        _ => gen_editor(rng),
     }
 }
 

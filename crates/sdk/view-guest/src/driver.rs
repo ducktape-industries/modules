@@ -150,9 +150,6 @@ impl<V: View> Driver<V> {
                 self.tooltip(request, character_index);
                 None
             }
-            wire::Event::Surface { handler, value } => {
-                self.route_or_handle(handler, value, |value| value)
-            }
             wire::Event::Input { handler, text } => {
                 self.route_or_handle(handler, text, |text| text)
             }

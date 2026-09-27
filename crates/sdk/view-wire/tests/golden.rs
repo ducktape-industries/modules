@@ -28,17 +28,16 @@ use view_wire::{
     EditorRequest, EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId,
     ElementIdWire, Error, Event, Frame, ImageData, ImageObjectFit, ImageStyle, Interactivity,
     ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node, Patch,
-    Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, SurfaceValue, SvgSource,
-    SvgTransformation, TextNode, TooltipResponse, WidgetCommand, click, interactivity, keyboard,
-    mouse,
+    Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource, SvgTransformation,
+    TextNode, TooltipResponse, WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str = "the wire changed: bump WIRE_EPOCH and regenerate with WIRE_GOLDEN_WRITE=1";
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 17;
-const EVENT_VARIANTS: usize = 35;
+const NODE_VARIANTS: usize = 16;
+const EVENT_VARIANTS: usize = 34;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

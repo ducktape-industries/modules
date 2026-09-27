@@ -25,8 +25,7 @@ impl Node {
             | Self::UniformList { id, .. }
             | Self::ResizeHandle { id, .. }
             | Self::Sensor { id, .. }
-            | Self::Overlay { id, .. }
-            | Self::Surface { id, .. } => Some(id),
+            | Self::Overlay { id, .. } => Some(id),
             Self::List { .. }
             | Self::Space { .. }
             | Self::Anchored { .. }
@@ -59,8 +58,7 @@ impl Node {
             | Self::Input { .. }
             | Self::Editor { .. }
             | Self::Space { .. }
-            | Self::Canvas { .. }
-            | Self::Surface { .. } => &[],
+            | Self::Canvas { .. } => &[],
         }
     }
 
@@ -92,8 +90,7 @@ impl Node {
             | Self::Editor { .. }
             | Self::Space { .. }
             | Self::Svg { .. }
-            | Self::Canvas { .. }
-            | Self::Surface { .. } => &mut [],
+            | Self::Canvas { .. } => &mut [],
         }
     }
 
@@ -120,8 +117,7 @@ impl Node {
             | Self::Editor { .. }
             | Self::Space { .. }
             | Self::Svg { .. }
-            | Self::Canvas { .. }
-            | Self::Surface { .. } => None,
+            | Self::Canvas { .. } => None,
         }
     }
 

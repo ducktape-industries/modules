@@ -30,33 +30,6 @@ fn actual_display_truncation_report_survives_encoding_and_resanitizing() {
 }
 
 #[test]
-fn text_passed_to_a_host_surface_reports_actual_loss() {
-    let mut frame = Frame {
-        root: Some(Node::Surface {
-            id: ElementIdWire::Name("preview".into()),
-            style: Default::default(),
-            name: "forge_code".into(),
-            args: vec![SurfaceValue::Record {
-                name: "Preview".into(),
-                fields: vec![(
-                    "text".into(),
-                    SurfaceValue::Option(Some(Box::new(SurfaceValue::List(vec![
-                        SurfaceValue::Str("x".repeat(MAX_STRING_BYTES)),
-                    ])))),
-                )],
-            }],
-            on_event: None,
-        }),
-        ..Default::default()
-    };
-    assert!(
-        sanitize(&mut frame).unwrap().display_text_truncated,
-        "surface text spends the same frame budget and its loss must be reported"
-    );
-    assert!(!sanitize(&mut frame).unwrap().display_text_truncated);
-}
-
-#[test]
 fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
     let rich = Node::RichText {
         id: Some(ElementIdWire::Name("rich".into())),
@@ -102,84 +75,6 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
         !report.display_text_truncated,
         "intentional removal precedes the measured sanitizer pass"
     );
-}
-
-#[test]
-fn sanitized_surfaces_share_the_decoders_value_budget() {
-    let mut frame = Frame {
-        root: Some(column(
-            (0..20)
-                .map(|i| Node::Surface {
-                    id: ElementIdWire::Name(format!("surface-{i}").into()),
-                    style: Default::default(),
-                    name: "many".into(),
-                    args: vec![SurfaceValue::Unit; MAX_SURFACE_ARGS],
-                    on_event: None,
-                })
-                .collect(),
-        )),
-        ..Frame::default()
-    };
-    sanitize(&mut frame).unwrap();
-    let decoded = decode::<Frame>(&encode(&frame));
-    assert!(decoded.is_ok(), "sanitized frame must decode: {decoded:?}");
-}
-
-#[test]
-fn surfaces_round_trip_patch_and_bound_their_arguments() {
-    use SurfaceValue as V;
-    let values = vec![
-        V::Unit,
-        V::Bool(true),
-        V::I64(i64::MAX),
-        V::F64(1.25),
-        V::Str("link".into()),
-    ];
-    let node = Node::Surface {
-        id: ElementIdWire::Name("view".into()),
-        style: Default::default(),
-        name: "preview".into(),
-        args: values.clone(),
-        on_event: Some(4),
-    };
-    assert_eq!(decode::<Node>(&encode(&node)).unwrap(), node);
-    for value in values {
-        let event = Event::Surface { handler: 4, value };
-        assert_eq!(decode::<Event>(&encode(&event)).unwrap(), event);
-    }
-    let mut changed = node.clone();
-    if let Node::Surface { args, on_event, .. } = &mut changed {
-        args[1] = V::Bool(false);
-        *on_event = Some(9);
-    }
-    let patches = diff(&mut node.clone(), &mut changed.clone());
-    let mut applied = node;
-    apply(&mut applied, patches).unwrap();
-    assert_eq!(applied, changed);
-    let Node::Surface { name, args, .. } = sanitized_root(Node::Surface {
-        id: ElementIdWire::Name("view".into()),
-        style: Default::default(),
-        name: "preview".into(),
-        args: std::iter::once(V::F64(f64::NAN))
-            .chain(std::iter::repeat_n(
-                V::Str("é".repeat(MAX_STRING_BYTES)),
-                MAX_SURFACE_ARGS + 1,
-            ))
-            .collect(),
-        on_event: None,
-    }) else {
-        unreachable!()
-    };
-    assert_eq!(args.len(), MAX_SURFACE_ARGS);
-    assert_eq!(args[0], V::F64(0.0));
-    let bytes = args
-        .iter()
-        .map(|value| match value {
-            V::Str(text) => text.len(),
-            _ => 0,
-        })
-        .sum::<usize>();
-    assert!(bytes + name.len() <= MAX_TEXT_BYTES_PER_FRAME);
 }
 
 #[test]

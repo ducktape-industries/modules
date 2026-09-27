@@ -244,20 +244,6 @@ pub enum Node {
         #[serde(deserialize_with = "canvas::decode_parts")]
         commands: Vec<CanvasCommand>,
     },
-    /// A region the host paints itself: `name` picks a surface the
-    /// embedding host registered, `args` are the typed values the guest
-    /// hands it; `on_event` routes a returned value to its handler. The guest
-    /// never sees what is drawn there, and the host repaints it on its own clock — a live video tile, a sweeping hand —
-    /// without a guest tick. A name the host has not registered renders as
-    /// a visible placeholder. It takes the size its parent gives it: wrap it
-    /// in a sized [`Node::Container`] to set one.
-    Surface {
-        id: ElementIdWire,
-        style: gpui::StyleRefinement,
-        name: String,
-        args: Vec<SurfaceValue>,
-        on_event: Option<u32>,
-    },
 }
 
 mod impls;

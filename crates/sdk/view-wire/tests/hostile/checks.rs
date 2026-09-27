@@ -250,16 +250,6 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
                 "{ctx}: canvas command budget"
             );
         }
-        Node::Surface { name, args, .. } => {
-            check_string(name, ctx, "surface name");
-            for value in args {
-                match value {
-                    view_wire::SurfaceValue::Str(text) => check_string(text, ctx, "surface arg"),
-                    view_wire::SurfaceValue::F64(number) => assert!(number.is_finite()),
-                    _ => {}
-                }
-            }
-        }
         Node::Editor {
             placeholder,
             label,

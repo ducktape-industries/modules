@@ -267,13 +267,6 @@ fn sanitize_fields(
                 spend_text(label, budgets);
             }
         }
-        Node::Surface {
-            name, args, style, ..
-        } => {
-            spend_text(name, budgets);
-            style_sanitize::sanitize(style);
-            surface_args(args, budgets);
-        }
     }
     Ok(())
 }
@@ -337,23 +330,6 @@ fn list_commands(commands: &mut Vec<ListCommand>, item_count: usize) {
             | ListCommand::PauseFollowingTail => {}
         }
     }
-}
-
-/// A surface's arguments: at most [`MAX_SURFACE_ARGS`], cut where the frame's
-/// surface values run out, and a value past its own bounds made `Unit`.
-fn surface_args(args: &mut Vec<SurfaceValue>, budgets: &mut Budgets) {
-    args.truncate(MAX_SURFACE_ARGS);
-    let mut kept = 0;
-    for value in args.iter_mut() {
-        if budgets.surface_values == 0 {
-            break;
-        }
-        if !value.bound(0, budgets) {
-            *value = SurfaceValue::Unit;
-        }
-        kept += 1;
-    }
-    args.truncate(kept);
 }
 
 /// The children, in tree order, on what is left of the node budget.
