@@ -169,7 +169,7 @@ impl ViewerOptions {
 }
 
 /// Converts viewer scale bounds to a finite, positive, ordered `f32` range.
-pub fn viewer_scale_bounds(min: f64, max: f64) -> (f32, f32) {
+fn viewer_scale_bounds(min: f64, max: f64) -> (f32, f32) {
     let positive = |value: f64| {
         let value = value as f32;
         if value.is_nan() {

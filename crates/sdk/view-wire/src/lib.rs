@@ -66,7 +66,7 @@ pub use editor_transaction::{
 pub use editor::{EditorCursor, EditorPosition, EditorState, editor_lines};
 
 mod image;
-pub use image::{ImageData, ViewerOptions, viewer_scale_bounds};
+pub use image::{ImageData, ViewerOptions};
 
 mod snapshot;
 pub use snapshot::{MAX_SNAPSHOT_BYTES, Snapshot, SnapshotValue};
@@ -90,9 +90,7 @@ pub use tooltip::TooltipPosition;
 mod qr;
 pub use qr::{MAX_QR_CODES, MAX_QR_PAYLOAD_BYTES, Qr, QrCorrection, QrSize, QrVersion};
 mod rich_text;
-pub use rich_text::{
-    HighlightStyle as RichTextHighlightStyle, Runs as RichTextRuns, TextRun as RichTextRun,
-};
+pub use rich_text::{HighlightStyle as RichTextHighlightStyle, Runs as RichTextRuns};
 mod canvas;
 pub mod list;
 pub use canvas::{
@@ -107,13 +105,13 @@ mod query;
 pub use query::{ContainerQuery, MAX_QUERY_OPS, QueryOp};
 
 mod window;
-pub use window::{WindowCommand, WindowControlArea};
+pub use window::WindowControlArea;
 
 mod widget;
 pub use widget::{WidgetCommand, WidgetTarget};
 
 mod surface;
-pub use surface::{MAX_SURFACE_DEPTH, MAX_SURFACE_VALUES, SurfaceValue, sanitize_surface_event};
+pub use surface::{MAX_SURFACE_DEPTH, MAX_SURFACE_VALUES, SurfaceValue};
 
 mod styled_nodes;
 pub use styled_nodes::{ContainerNode, TextNode};
@@ -148,7 +146,7 @@ mod codec;
 #[cfg(test)]
 pub(crate) use codec::MAX_DECODED_NODES;
 pub(crate) use codec::{budget, decode_child, decode_children};
-pub use codec::{decode, encode, encoded_size, encoded_size_exceeds};
+pub use codec::{decode, encode, encoded_size};
 
 #[cfg(test)]
 mod tests;

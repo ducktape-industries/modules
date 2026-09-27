@@ -5,7 +5,7 @@
 //! windows, or action objects: those stay on the host side of the wire.
 
 use crate::{click, keyboard, mouse};
-use gpui::{Bounds, Pixels, Point};
+use gpui::{Pixels, Point};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_KEY_CONTEXT_ENTRIES: usize = 64;
@@ -180,13 +180,6 @@ pub struct RichTextTooltip {
 
 pub fn point(x: f32, y: f32) -> Point<Pixels> {
     gpui::point(gpui::px(x), gpui::px(y))
-}
-
-pub fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
-    Bounds {
-        origin: point(x, y),
-        size: gpui::size(gpui::px(width), gpui::px(height)),
-    }
 }
 
 fn button(value: click::MouseButton) -> gpui::MouseButton {

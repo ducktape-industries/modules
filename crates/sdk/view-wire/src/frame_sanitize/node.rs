@@ -134,7 +134,7 @@ fn sanitize_fields(
         } => {
             style_sanitize::sanitize(style);
             if let Some(value) = reset
-                && !value.bound(0, budgets, false)
+                && !value.bound(0, budgets)
             {
                 *reset = None;
             }
@@ -509,7 +509,7 @@ fn surface_args(args: &mut Vec<SurfaceValue>, budgets: &mut Budgets) {
         if budgets.surface_values == 0 {
             break;
         }
-        if !value.bound(0, budgets, false) {
+        if !value.bound(0, budgets) {
             *value = SurfaceValue::Unit;
         }
         kept += 1;

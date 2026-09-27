@@ -8,26 +8,6 @@ impl Node {
         }
     }
 
-    /// Hashes the current copied subtree without allocating an encoded buffer.
-    /// A host uses this after sanitization: shared frame budgets may change
-    /// content even when a guest memo generation stays the same.
-    pub fn fingerprint(&self) -> u64 {
-        use std::hash::Hasher;
-        struct Sink(std::hash::DefaultHasher);
-        impl std::io::Write for Sink {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                self.0.write(bytes);
-                Ok(bytes.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        let mut sink = Sink(std::hash::DefaultHasher::new());
-        crate::codec::write(self, &mut sink);
-        sink.0.finish()
-    }
-
     pub fn key(&self) -> Option<&str> {
         self.identity().and_then(ElementIdWire::name)
     }

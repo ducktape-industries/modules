@@ -114,43 +114,26 @@ fn spend_name(name: &str, budgets: &mut super::Budgets) -> bool {
     true
 }
 
-/// Bound a provider's event before routing it. Invalid numeric values or
-/// structural limits reject the whole event; strings retain the scalar
-/// contract's UTF-8 truncation and share one total text budget.
-pub fn sanitize_surface_event(value: &mut SurfaceValue) -> bool {
-    value.bound(0, &mut super::Budgets::frame(), true)
-}
-
 impl SurfaceValue {
-    /// `event` rejects nonfinite values; guest frame arguments sanitize them
-    /// to zero like scalar arguments. A failed argument is discarded by the
-    /// caller rather than delivered as a partially truncated record/list.
-    pub(super) fn bound(
-        &mut self,
-        depth: usize,
-        budgets: &mut super::Budgets,
-        event: bool,
-    ) -> bool {
+    /// Nonfinite numbers become zero like scalar arguments; strings share the
+    /// frame's text budget. A failed argument is discarded by the caller
+    /// rather than delivered as a partially truncated record or list.
+    pub(super) fn bound(&mut self, depth: usize, budgets: &mut super::Budgets) -> bool {
         if depth >= MAX_SURFACE_DEPTH || budgets.surface_values == 0 {
             return false;
         }
         budgets.surface_values -= 1;
         match self {
-            Self::F64(v) if !v.is_finite() => {
-                if event {
-                    return false;
-                }
-                *v = 0.0;
-            }
+            Self::F64(v) if !v.is_finite() => *v = 0.0,
             Self::Str(v) => super::spend_text(v, budgets),
             Self::List(items) => {
                 for item in items {
-                    if !item.bound(depth + 1, budgets, event) {
+                    if !item.bound(depth + 1, budgets) {
                         return false;
                     }
                 }
             }
-            Self::Option(Some(item)) => return item.bound(depth + 1, budgets, event),
+            Self::Option(Some(item)) => return item.bound(depth + 1, budgets),
             Self::Record { name, fields } => {
                 if !spend_name(name, budgets) {
                     return false;
@@ -159,7 +142,7 @@ impl SurfaceValue {
                     if !spend_name(name, budgets) {
                         return false;
                     }
-                    if !item.bound(depth + 1, budgets, event) {
+                    if !item.bound(depth + 1, budgets) {
                         return false;
                     }
                 }
@@ -238,7 +221,7 @@ mod tests {
                 ("notex".into(), SurfaceValue::Option(None)),
             ],
         };
-        assert!(!sanitize_surface_event(&mut value));
+        assert!(!value.bound(0, &mut crate::Budgets::frame()));
         let SurfaceValue::Record { fields, .. } = value else {
             unreachable!()
         };
@@ -246,12 +229,13 @@ mod tests {
     }
 
     #[test]
-    fn nested_events_bound_text_and_reject_nonfinite_numbers() {
+    fn nested_values_bound_text_and_zero_nonfinite_numbers() {
         let mut value = SurfaceValue::List(vec![SurfaceValue::F64(f64::NAN)]);
-        assert!(!sanitize_surface_event(&mut value));
+        assert!(value.bound(0, &mut crate::Budgets::frame()));
+        assert_eq!(value, SurfaceValue::List(vec![SurfaceValue::F64(0.0)]));
         let mut value =
             SurfaceValue::List(vec![SurfaceValue::Str("é".repeat(crate::MAX_STRING_BYTES))]);
-        assert!(sanitize_surface_event(&mut value));
+        assert!(value.bound(0, &mut crate::Budgets::frame()));
         let SurfaceValue::List(values) = value else {
             unreachable!()
         };
