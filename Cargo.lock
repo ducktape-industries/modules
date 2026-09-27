@@ -6436,7 +6436,6 @@ dependencies = [
  "borsh",
  "describe",
  "error",
- "futures",
  "gpui-pre",
  "memchr",
  "rmp-serde",
