@@ -344,9 +344,9 @@ fn an_absent_account_and_an_idle_agent_are_neither_reviewer_nor_writer() {
     };
     assert_eq!(rig.refused(&grant(404)).code, code::INVALID_INPUT);
     for (agent, standing) in [(31, Standing::Suspended), (32, Standing::Revoked)] {
-        rig.sandbox.agents.borrow_mut().insert(agent, standing);
+        rig.sandbox.agent(agent, standing);
         assert_eq!(rig.refused(&grant(agent)).code, code::WRONG_STATE);
     }
-    rig.sandbox.agents.borrow_mut().insert(33, Standing::Active);
+    rig.sandbox.agent(33, Standing::Active);
     rig.execute(&grant(33)).unwrap();
 }

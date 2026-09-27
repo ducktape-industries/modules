@@ -47,7 +47,7 @@ fn admit_stores_a_closed_pack() {
     )
     .unwrap();
     let expected = oid_list(fixture!("base.oids"), Hash::Sha1);
-    let mut sorted = stored.clone();
+    let mut sorted = stored;
     sorted.sort();
     assert_eq!(sorted, expected);
     assert_eq!(store.count(), expected.len());

@@ -41,8 +41,14 @@ impl PageRequest {
     pub const MAX_LIMIT: u64 = 256;
 
     pub const fn first(limit: u64) -> PageRequest {
+        PageRequest::resume(None, limit)
+    }
+
+    /// The page after the one that answered `next`
+    /// ([`PageResponse::next`]; `None` asks the first page again).
+    pub const fn resume(next: Option<Vec<u8>>, limit: u64) -> PageRequest {
         PageRequest {
-            after: None,
+            after: next,
             limit: Some(limit),
         }
     }
@@ -55,10 +61,7 @@ impl PageRequest {
 
     /// The same page, its limit capped at `max` (a module's own bound).
     pub fn bounded(&self, max: u64) -> PageRequest {
-        PageRequest {
-            after: self.after.clone(),
-            limit: Some(self.limit().min(max.max(1))),
-        }
+        PageRequest::resume(self.after.clone(), self.limit().min(max.max(1)))
     }
 
     /// The scope a listing binds its cursors to: the borsh of the query's
@@ -234,10 +237,7 @@ mod tests {
             (b"p/4".to_vec(), 4),
             (b"p/5".to_vec(), 5),
         ]);
-        let page = PageRequest {
-            after: first.next.clone(),
-            limit: Some(2),
-        };
+        let page = PageRequest::resume(first.next, 2);
         let scan = listing(&page).scan(b"p/");
         assert!(!scan.admits(b"p/4"));
         assert!(scan.admits(b"p/5"));
@@ -255,10 +255,7 @@ mod tests {
             (b"p/4".to_vec(), 4),
             (b"p/5".to_vec(), 5),
         ]);
-        let page = PageRequest {
-            after: pinned.next,
-            limit: Some(2),
-        };
+        let page = PageRequest::resume(pinned.next, 2);
         assert_eq!(listing(&page).cursor_pin, Some(3));
         assert_eq!(pinned.height, 7);
         let garbage = PageRequest {

@@ -14,7 +14,7 @@ crates/lib/     gitcore
 |---|---|
 | `crates/sdk/abi` | the borsh bytes ABI a module and the host share: `GuestCall`, `HostOp`/`HostReply`, `Env`, `Refusal`, `Principal`, `Roles`, and the `role::registry`, `role::validators` and `role::identity` interfaces the kernel calls, under the kernel's names. A copy of ducktape's `crates/kernel/abi`, plus what only a view needs (`unhex`, `preview`, and `Kind::badge`/`note`, an account's badge) |
 | `crates/sdk/error` | `Error { code, message }` and its `code` tokens, the one error type a module, the host and a view share (borsh; serde behind a feature). Depends on no ducktape crate; `guest` re-exports it and `view-wire` carries it |
-| `crates/sdk/guest` | the minimal module SDK, enough alone: the `Module` trait, the `ExecCtx` and `QueryCtx` contexts its entry points receive (env, raw state, blobs, events, `set_return_data`, `verify`, and `emit` (a write another module runs in this frame) and `query` (a read of one)), `ExecCtx::sender` (the `Principal` the host resolved: an account, a module's too, or `Root`), `Env.roles` (the module genesis bound to each role), the `Env` origin checks (`signer`, `sending_module`, `sent_by`) and `authority` (a stub that admits anyone), `export!`, `Error` and its constructors and `decoded` and `MockHost`, the native host the same contexts run over in a test. `src/kernel.rs` is the one place the kernel's names (`Refusal`, `ProgramId`, `ItemRef`, `Scan`, …) become the SDK's (`Error`, `ModuleId`, `MessageId`, `Range`, …), byte for byte; `kernel::error_from`/`refusal_from` convert an error. `examples/counter.rs` is a module written with it alone |
+| `crates/sdk/guest` | the minimal module SDK, enough alone: the `Module` trait, the `ExecCtx` and `QueryCtx` contexts its entry points receive (env, raw state, blobs, events, `set_return_data`, `verify`, and `emit` (a write another module runs in this frame) and `query` (a read of one)), `ExecCtx::sender` (the `Principal` the host resolved: an account, a module's too, or `Root`), `Env.roles` (the module genesis bound to each role), the `Env` origin checks (`signer`, `sending_module`, `sent_by`) and `authority` (a stub that admits anyone), `export!`, `Error` and its constructors and `decoded` and `MockHost`, the native host the same contexts run over in a test, and `MockChain`, which seats several modules over their own `MockHost`s and runs a submission as one frame, its messages and replies as the kernel runs them. `src/kernel.rs` is the one place the kernel's names (`Refusal`, `ProgramId`, `ItemRef`, `Scan`, …) become the SDK's (`Error`, `ModuleId`, `MessageId`, `Range`, …), byte for byte; `kernel::error_from`/`refusal_from` convert an error. `examples/counter.rs` is a module written with it alone |
 | `crates/sdk/store` | optional typed storage over `guest`'s contexts: the `Map`/`Set`/`Item` descriptors with `KeyCodec`, and `PageRequest`/`PageResponse`. A read takes `&QueryCtx` (an `&ExecCtx` serves it), a write `&ExecCtx`. A view links it and calls none of it |
 | `crates/sdk/conformance` | proof that a module fills a role the kernel calls (`registry`, `validators`, `identity`), native over `MockHost`: a module takes it as a dev-dependency, implements the role's `Fixture` and calls its `run` in a test; see its [README](crates/sdk/conformance/README.md) |
 | `crates/sdk/describe` | what an op means to a person: the pure wasm module a program ships in its `ducktape.describe` section, and the sandbox that runs it |
@@ -23,7 +23,7 @@ crates/lib/     gitcore
 | `crates/system/module-registry` | the boot set's root: the registry module (its `Op`, `Query`, `Reply`). Its `tests/system.rs` founds ducktape's host over the bytes `make wasm-programs` built and drives every system module |
 | `crates/system/valset`, `identity` | the other two boot modules, the same shape: types always built, the wasm exports behind `module`. identity holds every account that acts, `Account { number, card, control }`: a person's, an agent's (managed by a person, who suspends, resumes and revokes it) and each module's (registered by the kernel as it admits the module) |
 | `crates/app/chat`, `chat-view` | the reference app module: `chat` is one crate whose types, rules and `Chat` module are always built (native, tested over `MockHost`), and whose wasm exports sit behind its `module` feature. `chat-view` links `chat` with the feature off: the types, no host import, no module export |
-| `crates/app/forge`, `forge-view` | the git server as a module, the same shape as `chat`: a push is one op whose input is the receive-pack body a client sent, a merge is an op that lands the commit the client built, fetch and the ref advertisement are queries; a git object's blob id is its oid. it links `gitcore` for the git; merging is the client's. The module runs natively over `MemorySandbox` (forge's and chat's `MockHost`), which is where `fixtures/` comes from; `forge-view` links `forge` with `module` off |
+| `crates/app/forge`, `forge-view` | the git server as a module, the same shape as `chat`: a push is one op whose input is the receive-pack body a client sent, a merge is an op that lands the commit the client built, fetch and the ref advertisement are queries; a git object's blob id is its oid. it links `gitcore` for the git; merging is the client's. The module runs natively over `MemorySandbox` (forge and chat seated on a `MockChain`), which is where `fixtures/` comes from; `forge-view` links `forge` with `module` off |
 | `crates/app/members-view`, `node-view`, `explorer-view`, `settings-view` | the system views, which link the system crates with `module` off |
 | `crates/lib/gitcore` | git as a library over one `Objects` trait: objects, packs (read, delta, write), walks, diffs, and the server side of the wire (receive-pack verification, upload-pack); no merging, that is the git client's. `forge` links it into its wasm |
 
@@ -82,18 +82,17 @@ guest::export!(Counter);
 An entry point receives its context (`ExecCtx` reads, writes, sends and
 sets return data; `QueryCtx` reads) and nothing else: `ctx.env()` is the call's
 `Env`, and nothing reaches the host by any other path. `ctx.sender()` is who
-the write acts as, the account the host resolved (`Principal::Account`) or
-the chain (`Principal::Root`); it refuses a frame whose key holds no account. `export!` only emits
-the `alloc`/`call` exports, which decode the invocation and encode the
-answer through `guest::execute`/`guest::query`. The same contexts run over a
+the write acts as, the account the host resolved or the chain. `export!`
+only emits the `alloc`/`call` exports. The same contexts run over a
 `MockHost` natively, so a module's test runs its real code
-(`crates/sdk/guest/examples/counter.rs`).
+(`crates/sdk/guest/examples/counter.rs`); modules that emit to each other run
+together on a `MockChain`, a submission as one frame as the kernel runs it.
 
-An app module is one crate: its types, rules and module are always built,
-and its `export!` sits behind a cargo feature `module`, off by default.
-`make wasm-programs` builds the crate with `--features module`; its view
-links the same crate with the feature off and gets the types with no host
-import and no export, which `make wasm-views` checks.
+[`docs/modules.md`](docs/modules.md) is the walk from `make new-module` to
+a module founded in qa: the crate and its features, `Op`/`Query`/`Reply`
+and the append-only rule, tables and pages over `store`, errors and codes,
+sender and identity, queries, emits and replies, `describe`, the native
+tests, the edit loop and founding.
 
 ## A view
 
@@ -127,15 +126,17 @@ The tree vocabulary, manifests, and five-function Wasm ABI are unchanged.
    then the app opens on them.
 4. Where a view's bytes go: `make wasm-why V=members-view` (`twiggy top`, `cargo install twiggy`).
 5. A new module: `make new-module NAME=x`, then `make new-view NAME=x-view`;
-   each prints what to do next. `make test` runs everything; the founding
-   suite builds the boot set itself.
+   each prints what to do next, down to the `founding.toml` entry and kit's
+   pack lists in qa ([`docs/modules.md`](docs/modules.md) walks it).
+   `make scaffold-check` proves both still build, gate and test. `make test`
+   runs everything; the founding suite builds the boot set itself.
 
 ## Building
 
 `make test` (`cargo test --workspace`; the founding suite runs `make
 wasm-programs` itself), clippy, `make module-wasm-check`,
-`make view-wasm-check`, `make wasm-views` and `make wasm-reproducible` are
-what CI runs. The toolchain is pinned in `rust-toolchain.toml`.
+`make view-wasm-check`, `make wasm-views`, `make scaffold-check` and
+`make wasm-reproducible` are what CI runs. The toolchain is pinned in `rust-toolchain.toml`.
 
 Every wasm artifact is a build output: `make wasm-modules` builds every
 module and every view under `$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/`;

@@ -1,7 +1,7 @@
 //! The module's own path, run natively: the sender the host resolved, a
 //! the identity role's profiles paged through chat. Each
 //! refusal leaves the store as it was.
-use guest::{Cause, Env, Origin};
+use guest::{Env, Origin};
 
 use super::*;
 use crate::{Category, Kind, Profile, Standing};
@@ -11,14 +11,14 @@ const ADA_KEY: [u8; 32] = [1; 32];
 /// Bo's key: it holds account 2 once identity seats it.
 const LONE_KEY: [u8; 32] = [2; 32];
 
-/// The identity role over three accounts, the third an agent Ada manages.
-fn identity() -> guest::Sibling {
+/// The identity role's roster: three accounts, the third an agent Ada manages.
+fn identity() -> Vec<Profile> {
     let profile = |number: u64, kind| Profile {
         number,
         name: format!("user{number}"),
         kind,
     };
-    let roster = vec![
+    vec![
         profile(1, Kind::Person),
         profile(2, Kind::Person),
         profile(
@@ -29,40 +29,32 @@ fn identity() -> guest::Sibling {
                 standing: Standing::Active,
             },
         ),
-    ];
-    Box::new(move |request| guest::identity_role(&roster, request))
+    ]
 }
 
 /// A store with identity beside it.
 fn store() -> MockHost {
     let store = MockHost::default();
-    store
-        .borrow_mut()
-        .siblings
-        .insert(guest::MockHost::roles().identity, identity());
+    store.identity(identity());
     store
 }
 
 fn env(origin: Origin, sender: Option<Principal>) -> Env {
     Env {
-        chain_id: vec![],
-        height: 1,
         time: 1000,
-        module: crate::MODULE.into(),
         origin,
         sender,
-        roles: guest::MockHost::roles(),
-        cause: Cause::Direct,
+        ..MockHost::env(crate::MODULE)
     }
 }
 
 /// A frame signed by `key`, acting as the account it holds (if any), as the
 /// host resolves it.
 fn key(key: &[u8], account: Option<u64>) -> Env {
-    env(
-        Origin::Signed(key.to_vec()),
-        account.map(Principal::Account),
-    )
+    Env {
+        time: 1000,
+        ..MockHost::env(crate::MODULE).signed(key, account)
+    }
 }
 
 fn ada() -> Env {
