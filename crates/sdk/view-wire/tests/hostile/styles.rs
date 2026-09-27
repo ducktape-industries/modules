@@ -1,5 +1,6 @@
 //! Bounds on a sanitized `StyleRefinement`, field by field.
 use gpui::{AbsoluteLength, DefiniteLength, Hsla, Length, StyleRefinement};
+use view_wire::MAX_PIXELS;
 
 fn in_range(value: f32, min: f32, max: f32) {
     assert!(
@@ -48,7 +49,7 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
     .flatten()
     {
         if let Length::Definite(value) = value {
-            definite_in(value, 8192., 1.);
+            definite_in(value, MAX_PIXELS, 1.);
         }
     }
     for value in [
@@ -62,7 +63,7 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
     .into_iter()
     .flatten()
     {
-        definite_in(value, 8192., 1.);
+        definite_in(value, MAX_PIXELS, 1.);
     }
     for value in [
         style.border_widths.top,
@@ -78,7 +79,7 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
     .into_iter()
     .flatten()
     {
-        absolute_in(value, 8192.);
+        absolute_in(value, MAX_PIXELS);
     }
     for (value, min, max) in [
         (style.flex_grow, 0., 1024.),

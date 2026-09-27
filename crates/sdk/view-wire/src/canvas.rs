@@ -1,5 +1,5 @@
 //! Declarative geometry. Commands contain copied values, never host callbacks.
-use crate::Budgets;
+use crate::{Budgets, MAX_PIXELS};
 use gpui::Hsla;
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
@@ -175,7 +175,7 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 angle(rotate);
                 let parent = *scales.last().unwrap();
                 for value in scale.iter_mut() {
-                    *value = finite(*value).clamp(0.0, (8192.0 / parent).min(8192.0));
+                    *value = finite(*value).clamp(0.0, (MAX_PIXELS / parent).min(MAX_PIXELS));
                 }
                 scales.push(if clip.is_some() {
                     1.0
@@ -210,7 +210,7 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                     stroke.dash.truncate(budgets.canvas_parts.min(256));
                     budgets.canvas_parts -= stroke.dash.len();
                     for value in &mut stroke.dash {
-                        *value = finite(*value).clamp(0.01, 8192.0);
+                        *value = finite(*value).clamp(0.01, MAX_PIXELS);
                     }
                     if !stroke.dash.is_empty() {
                         stroke.dash_offset %= stroke.dash.len() as u32;
@@ -305,10 +305,10 @@ fn finite(value: f32) -> f32 {
     if value.is_finite() { value } else { 0.0 }
 }
 fn coordinate(value: &mut f32) {
-    *value = finite(*value).clamp(-8192.0, 8192.0);
+    *value = finite(*value).clamp(-MAX_PIXELS, MAX_PIXELS);
 }
 fn size(value: &mut f32) {
-    *value = finite(*value).clamp(0.0, 8192.0);
+    *value = finite(*value).clamp(0.0, MAX_PIXELS);
 }
 fn angle(value: &mut f32) {
     *value = finite(*value).clamp(-std::f32::consts::TAU * 16.0, std::f32::consts::TAU * 16.0);

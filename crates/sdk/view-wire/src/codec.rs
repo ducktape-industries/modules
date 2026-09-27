@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// [`sanitize`]'s truncation still shapes any tree a real view sends, and
 /// few enough that a hostile one cannot make the host allocate its way
 /// through a frame's worth of nodes every tick.
-pub(crate) const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
+pub const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
 
 /// Bounds what a decode may descend into, since decoding is recursive: a
 /// [`Node`] holds its children and serde builds them from the inside out, so

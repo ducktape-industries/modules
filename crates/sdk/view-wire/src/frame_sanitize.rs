@@ -45,7 +45,7 @@ pub const MAX_UNIFORM_LIST_ROWS: usize = 256;
 /// Maximum positional values supplied to one host surface.
 pub const MAX_SURFACE_ARGS: usize = 256;
 /// Text and spacing sizes are pixels; nothing on a screen needs more.
-pub(crate) const MAX_PIXELS: f32 = 8192.0;
+pub const MAX_PIXELS: f32 = 8192.0;
 /// A text size, which is not a length: every glyph at it is rasterized and
 /// cached, so a screenful of 8192 px text is an atlas no screen asked for.
 pub(crate) const MAX_TEXT_PIXELS: f32 = 512.0;

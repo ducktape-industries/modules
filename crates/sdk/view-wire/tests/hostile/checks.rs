@@ -40,8 +40,8 @@ pub(super) fn check_finite(value: f32, ctx: &str, field: &str) {
 pub(super) fn check_pixels(value: &Option<f32>, ctx: &str, field: &str) {
     if let Some(value) = value {
         assert!(
-            value.is_finite() && (0.0..=PIXEL_BOUND).contains(value),
-            "{ctx}: {field} {value} outside 0..={PIXEL_BOUND}"
+            value.is_finite() && (0.0..=MAX_PIXELS).contains(value),
+            "{ctx}: {field} {value} outside 0..={MAX_PIXELS}"
         );
     }
 }
@@ -138,7 +138,7 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             content,
             ..
         } => {
-            assert!(scale.is_finite() && (f32::EPSILON..=PIXEL_BOUND).contains(scale));
+            assert!(scale.is_finite() && (f32::EPSILON..=MAX_PIXELS).contains(scale));
             check_native_style(style);
             check_bounds(content, depth + 1, svg_bytes, ctx);
         }
@@ -316,7 +316,7 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
                 .chain(transformation.translate)
                 .chain([transformation.rotate])
             {
-                assert!(value.is_finite() && (-PIXEL_BOUND..=PIXEL_BOUND).contains(&value));
+                assert!(value.is_finite() && (-MAX_PIXELS..=MAX_PIXELS).contains(&value));
             }
         }
         Node::Anchored {
@@ -326,7 +326,7 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             ..
         } => {
             for value in position.iter().chain(offset).flatten() {
-                assert!(value.is_finite() && (-PIXEL_BOUND..=PIXEL_BOUND).contains(value));
+                assert!(value.is_finite() && (-MAX_PIXELS..=MAX_PIXELS).contains(value));
             }
             for child in children {
                 check_bounds(child, depth + 1, svg_bytes, ctx);

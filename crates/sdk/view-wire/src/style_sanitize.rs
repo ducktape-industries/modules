@@ -1,12 +1,11 @@
 //! Bounds applied before a guest refinement reaches native layout or painting.
 //! The host still clips the entire view slot: local clipping cannot contain a
 //! deferred or anchored element on its own.
+use crate::{MAX_PIXELS, MAX_TEXT_PIXELS};
 use gpui::{
     AbsoluteLength, DefiniteLength, Fill, GridPlacement, Hsla, Length, StyleRefinement, px,
 };
 
-const MAX_PIXELS: f32 = 8192.;
-const MAX_FONT_PIXELS: f32 = 512.;
 const MAX_REMS: f32 = 256.;
 const MAX_GRID: u16 = 64;
 const MAX_SHADOWS: usize = 4;
@@ -180,11 +179,11 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
         sanitize_hsla(value);
     }
     if let Some(value) = &mut text.font_size {
-        absolute(value, MAX_FONT_PIXELS);
+        absolute(value, MAX_TEXT_PIXELS);
     }
     if let Some(value) = &mut text.line_height {
         match value {
-            DefiniteLength::Absolute(value) => absolute(value, MAX_FONT_PIXELS),
+            DefiniteLength::Absolute(value) => absolute(value, MAX_TEXT_PIXELS),
             DefiniteLength::Fraction(value) => finite(value, 0., 8.),
         }
     }
@@ -352,7 +351,7 @@ mod tests {
             column: GridPlacement::Auto..GridPlacement::Auto,
         });
         sanitize(&mut style);
-        assert_eq!(style.text.font_size, Some(px(MAX_FONT_PIXELS).into()));
+        assert_eq!(style.text.font_size, Some(px(MAX_TEXT_PIXELS).into()));
         assert_eq!(style.grid_cols.unwrap().repeat, MAX_GRID);
         assert_eq!(
             style.grid_location.unwrap().row.start,
