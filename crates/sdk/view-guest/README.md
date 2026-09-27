@@ -7,7 +7,7 @@ data through a fixed table of methods. This page is the whole surface.
 ## What is gpui and what is ours
 
 The rule: we re-implement only what touches the host or the wire; everything
-else is the gpui fork `Cargo.toml` pins (`gpui-pre`, rev `5545e01`),
+else is the gpui fork `Cargo.toml` pins (`gpui-pre`, at the rev it names),
 re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
 `Hsla`, `StyleRefinement`, `Styled`, `ElementId`, `SharedString`, the
 `*Event` types, `Role`, ...). Ours, defined in this crate:

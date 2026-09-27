@@ -1,4 +1,5 @@
-//! Renderer-independent execution of dynamically loaded WASM views.
+//! The guest half of the view wire: gpui-shaped contexts and elements lowered
+//! to `view_wire::Node`, and the host methods a wasm view asks through.
 pub use gpui::prelude::FluentBuilder;
 extern crate self as ducktape_view_guest;
 

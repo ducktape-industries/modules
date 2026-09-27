@@ -6,7 +6,7 @@ version.workspace = true
 edition.workspace = true
 publish = false
 license = "MIT"
-description = "Renderer-independent WASM view execution and host protocol"
+description = "The guest half of the view wire: gpui-shaped contexts, elements and host methods for a wasm view"
 
 [dependencies]
 error = { workspace = true }
