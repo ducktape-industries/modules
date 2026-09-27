@@ -105,103 +105,6 @@ pub enum EditorInteraction {
     MenuDismiss,
 }
 
-impl EditorAffordances {
-    pub fn hit(&self, position: crate::EditorPosition) -> Option<EditorInteraction> {
-        self.hits
-            .iter()
-            .find(|hit| {
-                hit.line == position.line
-                    && hit.start <= position.column
-                    && position.column < hit.end
-            })
-            .map(|hit| EditorInteraction::LinePress {
-                tag: hit.tag,
-                position,
-            })
-    }
-
-    fn validate_limits(&self) -> Result<(), PresentationError> {
-        if [
-            self.gutters.len(),
-            self.drop_boundaries.len(),
-            self.margins.len(),
-            self.hits.len(),
-        ]
-        .into_iter()
-        .try_fold(0usize, |count, next| count.checked_add(next))
-        .is_none_or(|count| count > MAX_EDITOR_SPANS)
-            || self.margin_label.len() > 1024
-        {
-            return Err(PresentationError::Limit);
-        }
-        Ok(())
-    }
-
-    fn validate(&self, line_count: usize) -> Result<(), PresentationError> {
-        if self.menu.is_none()
-            && self.gutters.is_empty()
-            && self.drop_boundaries.is_empty()
-            && self.margins.is_empty()
-            && self.hits.is_empty()
-        {
-            return Ok(());
-        }
-        if let Some(menu) = &self.menu {
-            if menu.items.len() > MAX_EDITOR_MENU_ITEMS
-                || menu
-                    .items
-                    .iter()
-                    .any(|item| item.tag.len() > 1024 || item.label.len() > 1024)
-                || menu
-                    .items
-                    .iter()
-                    .map(|item| item.tag.len() + item.label.len())
-                    .sum::<usize>()
-                    > crate::MAX_STRING_BYTES
-            {
-                return Err(PresentationError::Limit);
-            }
-            if menu.selected as usize >= menu.items.len()
-                || matches!(menu.anchor, EditorMenuAnchor::Line(line) if line as usize >= line_count)
-                || menu.items.iter().enumerate().any(|(index, item)| {
-                    item.tag.is_empty()
-                        || menu.items[..index]
-                            .iter()
-                            .any(|earlier| earlier.tag == item.tag)
-                })
-            {
-                return Err(PresentationError::Range);
-            }
-        }
-        if self.gutters.iter().any(|g| g.line as usize >= line_count)
-            || self
-                .gutters
-                .windows(2)
-                .any(|pair| pair[0].line >= pair[1].line)
-            || self.margins.iter().any(|m| m.line as usize >= line_count)
-            || self
-                .margins
-                .windows(2)
-                .any(|pair| pair[0].line >= pair[1].line)
-        {
-            return Err(PresentationError::Range);
-        }
-        if self
-            .drop_boundaries
-            .iter()
-            .any(|line| *line as usize > line_count)
-            || self
-                .drop_boundaries
-                .windows(2)
-                .any(|pair| pair[0] >= pair[1])
-            || self.hits.iter().any(|hit| hit.start == hit.end)
-        {
-            return Err(PresentationError::Range);
-        }
-        Ok(())
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EditorFormat {
     pub style: gpui::StyleRefinement,
@@ -233,15 +136,8 @@ pub struct EditorPresentation {
     pub affordances: EditorAffordances,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PresentationError {
-    Limit,
-    Format,
-    Range,
-}
-
 impl EditorPresentation {
-    pub(super) fn sanitize(&mut self, _budgets: &mut crate::Budgets) {
+    pub(super) fn sanitize(&mut self) {
         crate::style_sanitize::sanitize(&mut self.style);
         for format in &mut self.formats {
             crate::style_sanitize::sanitize(&mut format.style);
@@ -261,87 +157,6 @@ impl EditorPresentation {
         // Over-limit metadata is rejected by the bounded decoder, preserving
         // the previous healthy frame instead of publishing partial controls.
     }
-
-    /// Validate against the exact resident document before any source is hidden.
-    pub fn validate(&self, text: &str) -> Result<(), PresentationError> {
-        self.affordances.validate_limits()?;
-        if self.formats.len() > MAX_EDITOR_FORMATS || self.spans.len() > MAX_EDITOR_SPANS {
-            return Err(PresentationError::Limit);
-        }
-        for span in &self.spans {
-            if usize::from(span.format) >= self.formats.len() {
-                return Err(PresentationError::Format);
-            }
-        }
-        let count_lines = self.affordances.menu.is_some()
-            || !self.affordances.gutters.is_empty()
-            || !self.affordances.drop_boundaries.is_empty()
-            || !self.affordances.margins.is_empty();
-        let line_count = validate_ranges(
-            crate::editor_lines(text),
-            self.spans
-                .iter()
-                .map(|span| (span.line, span.start, span.end)),
-            self.affordances
-                .hits
-                .iter()
-                .map(|hit| (hit.line, hit.start, hit.end)),
-            count_lines,
-        )?;
-        self.affordances.validate(line_count)
-    }
-}
-
-// Both ordered range streams share one forward scan of the document. Their
-// overlap rules remain independent: a clickable hit may overlap styled text.
-fn validate_ranges<'a>(
-    lines: impl Iterator<Item = &'a str>,
-    spans: impl Iterator<Item = (u32, u32, u32)>,
-    hits: impl Iterator<Item = (u32, u32, u32)>,
-    count_lines: bool,
-) -> Result<usize, PresentationError> {
-    let mut lines = lines.enumerate();
-    let mut spans = spans.peekable();
-    let mut hits = hits.peekable();
-    let mut current = None;
-    let mut previous: [Option<(u32, u32)>; 2] = [None, None];
-    while spans.peek().is_some() || hits.peek().is_some() {
-        let stream = match (spans.peek(), hits.peek()) {
-            (Some(span), Some(hit)) => usize::from(hit.0 < span.0),
-            (Some(_), None) => 0,
-            _ => 1,
-        };
-        let (span_line, start, end) = if stream == 0 {
-            spans.next()
-        } else {
-            hits.next()
-        }
-        .unwrap();
-        if start > end
-            || previous[stream]
-                .is_some_and(|(line, end)| span_line < line || (span_line == line && start < end))
-        {
-            return Err(PresentationError::Range);
-        }
-        if current.is_none() {
-            current = lines.next();
-        }
-        while current.is_some_and(|(line, _)| line < span_line as usize) {
-            current = lines.next();
-        }
-        let Some((line, source)) = current else {
-            return Err(PresentationError::Range);
-        };
-        if line != span_line as usize
-            || !source.is_char_boundary(start as usize)
-            || !source.is_char_boundary(end as usize)
-        {
-            return Err(PresentationError::Range);
-        }
-        previous[stream] = Some((span_line, end));
-    }
-    let consumed = current.map_or(0, |(line, _)| line + 1);
-    Ok(consumed + if count_lines { lines.count() } else { 0 })
 }
 
 /// Presentation entries share the decoder's node budget: a frame cannot
@@ -383,4 +198,82 @@ fn decode_hits<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorHit>,
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use gpui::Styled as _;
+
+    fn presentation(spans: Vec<EditorSpan>) -> EditorPresentation {
+        EditorPresentation {
+            formats: vec![EditorFormat::default()],
+            spans,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn overflow_is_rejected_instead_of_silently_truncating_interactions() {
+        let mut value = EditorPresentation::default();
+        value.affordances.menu = Some(EditorMenu {
+            anchor: EditorMenuAnchor::Caret,
+            items: (0..=MAX_EDITOR_MENU_ITEMS)
+                .map(|index| EditorMenuItem {
+                    tag: index.to_string(),
+                    label: format!("Action {index}"),
+                })
+                .collect(),
+            selected: 0,
+        });
+        value.sanitize();
+        assert!(
+            crate::decode::<EditorPresentation>(&crate::encode(&value)).is_err(),
+            "over-budget action lists must reject the frame, not publish a different menu"
+        );
+    }
+
+    #[test]
+    fn native_span_and_line_styles_bound_untrusted_padding() {
+        let mut value = EditorPresentation::default();
+        value.formats.push(EditorFormat {
+            style: gpui::StyleRefinement::default()
+                .pt(gpui::px(-4.5))
+                .pr(gpui::px(2.0))
+                .pb(gpui::px(-1e9))
+                .pl(gpui::px(f32::NAN)),
+            line_style: gpui::StyleRefinement::default()
+                .pt(gpui::px(-4.5))
+                .pr(gpui::px(2.0))
+                .pb(gpui::px(-1e9))
+                .pl(gpui::px(f32::NAN)),
+            ..Default::default()
+        });
+        value.sanitize();
+        let format = &value.formats[0];
+        for style in [&format.style, &format.line_style] {
+            assert_eq!(style.padding.top, Some(gpui::px(0.).into()));
+            assert_eq!(style.padding.right, Some(gpui::px(2.).into()));
+            assert_eq!(style.padding.bottom, Some(gpui::px(0.).into()));
+            assert_eq!(style.padding.left, Some(gpui::px(0.).into()));
+        }
+    }
+
+    #[test]
+    fn decoder_rejects_oversized_collections() {
+        let valid = EditorPresentation::default();
+        assert!(crate::decode::<EditorPresentation>(&crate::encode(&valid)).is_ok());
+        let oversized = EditorPresentation {
+            formats: vec![EditorFormat::default(); MAX_EDITOR_FORMATS + 1],
+            spans: vec![],
+            ..Default::default()
+        };
+        let bytes = crate::encode(&oversized);
+        assert!(crate::decode::<EditorPresentation>(&bytes).is_err());
+        let span = EditorSpan {
+            line: 0,
+            start: 0,
+            end: 0,
+            format: 0,
+        };
+        let bytes = crate::encode(&presentation(vec![span; MAX_EDITOR_SPANS + 1]));
+        assert!(crate::decode::<EditorPresentation>(&bytes).is_err());
+    }
+}

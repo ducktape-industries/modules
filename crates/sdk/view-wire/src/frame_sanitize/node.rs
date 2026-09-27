@@ -323,7 +323,7 @@ fn sanitize_fields(
         } => {
             style_sanitize::sanitize(style);
             if let Some(presentation) = &mut options.presentation {
-                presentation.sanitize(budgets);
+                presentation.sanitize();
             }
             if let Some(rich) = &mut options.rich {
                 for item in &mut rich.toolbar {

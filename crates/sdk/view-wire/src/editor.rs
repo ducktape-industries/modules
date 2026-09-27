@@ -23,7 +23,7 @@ pub fn editor_lines(text: &str) -> impl Iterator<Item = &str> {
     std::iter::from_fn(move || {
         let text = remaining.take()?;
         // ASCII delimiters are UTF-8 boundaries. The portable byte search skips
-        // whole words of ordinary prose on repeated presentation validations.
+        // whole words of ordinary prose on repeated line scans.
         let end = memchr::memchr2(b'\r', b'\n', text.as_bytes()).unwrap_or(text.len());
         if end < text.len() {
             let ending = &text[end..];
