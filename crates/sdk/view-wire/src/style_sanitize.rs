@@ -10,7 +10,8 @@ const MAX_REMS: f32 = 256.;
 const MAX_GRID: u16 = 64;
 const MAX_SHADOWS: usize = 4;
 
-fn finite(value: &mut f32, min: f32, max: f32) {
+/// Clamps in place; a non-finite value becomes `min`.
+pub(crate) fn clamp_finite(value: &mut f32, min: f32, max: f32) {
     *value = if value.is_finite() {
         value.clamp(min, max)
     } else {
@@ -21,16 +22,16 @@ fn absolute(value: &mut AbsoluteLength, max: f32) {
     match value {
         AbsoluteLength::Pixels(value) => {
             let mut number = f32::from(*value);
-            finite(&mut number, 0., max);
+            clamp_finite(&mut number, 0., max);
             *value = px(number);
         }
-        AbsoluteLength::Rems(value) => finite(&mut value.0, 0., (max / 32.).min(MAX_REMS)),
+        AbsoluteLength::Rems(value) => clamp_finite(&mut value.0, 0., (max / 32.).min(MAX_REMS)),
     }
 }
 fn definite(value: &mut DefiniteLength, max: f32) {
     match value {
         DefiniteLength::Absolute(value) => absolute(value, max),
-        DefiniteLength::Fraction(value) => finite(value, 0., 1.),
+        DefiniteLength::Fraction(value) => clamp_finite(value, 0., 1.),
     }
 }
 fn length(value: &mut Length) {
@@ -40,7 +41,7 @@ fn length(value: &mut Length) {
 }
 pub(crate) fn sanitize_hsla(value: &mut Hsla) {
     for number in [&mut value.h, &mut value.s, &mut value.l, &mut value.a] {
-        finite(number, 0., 1.);
+        clamp_finite(number, 0., 1.);
     }
 }
 fn grid(value: &mut GridPlacement) {
@@ -112,13 +113,13 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
         .into_iter()
         .flatten()
     {
-        finite(value, 0., 1024.);
+        clamp_finite(value, 0., 1024.);
     }
     if let Some(value) = &mut style.aspect_ratio {
-        finite(value, 1. / 1024., 1024.);
+        clamp_finite(value, 1. / 1024., 1024.);
     }
     if let Some(value) = &mut style.opacity {
-        finite(value, 0., 1.);
+        clamp_finite(value, 0., 1.);
     }
     if let Some(value) = &mut style.border_color {
         sanitize_hsla(value);
@@ -138,12 +139,12 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
             sanitize_hsla(&mut shadow.color);
             for offset in [&mut shadow.offset.x, &mut shadow.offset.y] {
                 let mut number = f32::from(*offset);
-                finite(&mut number, -128., 128.);
+                clamp_finite(&mut number, -128., 128.);
                 *offset = px(number);
             }
             for radius in [&mut shadow.blur_radius, &mut shadow.spread_radius] {
                 let mut number = f32::from(*radius);
-                finite(&mut number, 0., 128.);
+                clamp_finite(&mut number, 0., 128.);
                 *radius = px(number);
             }
         }
@@ -177,11 +178,11 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     if let Some(value) = &mut text.line_height {
         match value {
             DefiniteLength::Absolute(value) => absolute(value, MAX_TEXT_PIXELS),
-            DefiniteLength::Fraction(value) => finite(value, 0., 8.),
+            DefiniteLength::Fraction(value) => clamp_finite(value, 0., 8.),
         }
     }
     if let Some(value) = &mut text.font_weight {
-        finite(&mut value.0, 1., 1000.);
+        clamp_finite(&mut value.0, 1., 1000.);
     }
     if let Some(value) = &mut text.line_clamp {
         *value = (*value).clamp(1, 1024);
@@ -213,7 +214,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     }
     if let Some(value) = &mut text.underline {
         let mut thickness = f32::from(value.thickness);
-        finite(&mut thickness, 0., 32.);
+        clamp_finite(&mut thickness, 0., 32.);
         value.thickness = px(thickness);
         if let Some(value) = &mut value.color {
             sanitize_hsla(value);
@@ -221,7 +222,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     }
     if let Some(value) = &mut text.strikethrough {
         let mut thickness = f32::from(value.thickness);
-        finite(&mut thickness, 0., 32.);
+        clamp_finite(&mut thickness, 0., 32.);
         value.thickness = px(thickness);
         if let Some(value) = &mut value.color {
             sanitize_hsla(value);

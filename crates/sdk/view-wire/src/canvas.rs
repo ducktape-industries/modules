@@ -1,4 +1,5 @@
 //! Declarative geometry. Commands contain copied values, never host callbacks.
+use crate::style_sanitize::{clamp_finite, sanitize_hsla};
 use crate::{Budgets, MAX_PIXELS};
 use gpui::Hsla;
 use serde::{Deserialize, Serialize};
@@ -175,7 +176,8 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 angle(rotate);
                 let parent = *scales.last().unwrap();
                 for value in scale.iter_mut() {
-                    *value = finite(*value).clamp(0.0, (MAX_PIXELS / parent).min(MAX_PIXELS));
+                    *value =
+                        finite_or_zero(*value).clamp(0.0, (MAX_PIXELS / parent).min(MAX_PIXELS));
                 }
                 scales.push(if clip.is_some() {
                     1.0
@@ -202,15 +204,15 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 ..
             } => {
                 if let Some(color) = fill {
-                    hsla(color);
+                    sanitize_hsla(color);
                 }
                 if let Some(stroke) = stroke {
-                    hsla(&mut stroke.color);
+                    sanitize_hsla(&mut stroke.color);
                     size(&mut stroke.width);
                     stroke.dash.truncate(budgets.canvas_parts.min(256));
                     budgets.canvas_parts -= stroke.dash.len();
                     for value in &mut stroke.dash {
-                        *value = finite(*value).clamp(0.01, MAX_PIXELS);
+                        *value = finite_or_zero(*value).clamp(0.01, MAX_PIXELS);
                     }
                     if !stroke.dash.is_empty() {
                         stroke.dash_offset %= stroke.dash.len() as u32;
@@ -301,26 +303,21 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
         true
     });
 }
-fn finite(value: f32) -> f32 {
+fn finite_or_zero(value: f32) -> f32 {
     if value.is_finite() { value } else { 0.0 }
 }
 fn coordinate(value: &mut f32) {
-    *value = finite(*value).clamp(-MAX_PIXELS, MAX_PIXELS);
+    *value = finite_or_zero(*value).clamp(-MAX_PIXELS, MAX_PIXELS);
 }
 fn size(value: &mut f32) {
-    *value = finite(*value).clamp(0.0, MAX_PIXELS);
+    clamp_finite(value, 0.0, MAX_PIXELS);
 }
 fn angle(value: &mut f32) {
-    *value = finite(*value).clamp(-std::f32::consts::TAU * 16.0, std::f32::consts::TAU * 16.0);
+    *value =
+        finite_or_zero(*value).clamp(-std::f32::consts::TAU * 16.0, std::f32::consts::TAU * 16.0);
 }
 fn point(value: &mut [f32; 2]) {
     value.iter_mut().for_each(coordinate);
-}
-fn hsla(value: &mut Hsla) {
-    value.h = finite(value.h).clamp(0.0, 1.0);
-    value.s = finite(value.s).clamp(0.0, 1.0);
-    value.l = finite(value.l).clamp(0.0, 1.0);
-    value.a = finite(value.a).clamp(0.0, 1.0);
 }
 
 #[cfg(test)]
