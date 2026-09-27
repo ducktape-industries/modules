@@ -255,20 +255,10 @@ fn decode_value<V: BorshDeserialize>(table: &str, key: &[u8], value: &[u8]) -> R
 mod tests {
     use super::*;
     use guest::MockHost;
-    use guest::{Cause, Env, Origin};
 
     /// A context over a fresh host.
     fn exec() -> ExecCtx {
-        MockHost::default().exec(Env {
-            chain_id: vec![],
-            height: 0,
-            time: 0,
-            module: "test".into(),
-            origin: Origin::Root,
-            sender: Some(guest::Principal::Root),
-            roles: guest::MockHost::roles(),
-            cause: Cause::Direct,
-        })
+        MockHost::default().exec(MockHost::env("test"))
     }
 
     const NUMBERS: Map<u64, String> = Map::new("n/");

@@ -1,6 +1,6 @@
 // The module natively over `guest::MockHost`: what the founding suite checks on the host, without the host.
 
-use guest::{Cause, Env, Origin, Principal, Scheme, code};
+use guest::{Env, Origin, Principal, Scheme, code};
 use guest::{MockHost, Module};
 use store::PageRequest;
 
@@ -16,14 +16,11 @@ const BOT: &[u8] = b"bot-key";
 
 fn env(origin: Origin, sender: Option<Principal>, time: u64) -> Env {
     Env {
-        chain_id: b"net".to_vec(),
         height: 7,
         time,
-        module: crate::MODULE.into(),
         origin,
         sender,
-        roles: guest::MockHost::roles(),
-        cause: Cause::Direct,
+        ..MockHost::env(crate::MODULE)
     }
 }
 

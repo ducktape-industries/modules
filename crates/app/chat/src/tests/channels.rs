@@ -112,10 +112,7 @@ fn a_dm_stays_open_once_its_counterpart_is_suspended() {
             *standing = crate::Standing::Suspended;
         }
     }
-    chat.store.borrow_mut().siblings.insert(
-        MockHost::roles().identity,
-        Box::new(move |request| guest::identity_role(&roster, request)),
-    );
+    chat.store.identity(roster);
     assert_eq!(chat.refused(&CY, open_dm(AGENT)), code::WRONG_STATE);
     chat.ok(&BO, open_dm(AGENT));
     assert!(is_member(&chat, &dm, Principal::Account(AGENT)));

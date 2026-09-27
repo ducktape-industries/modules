@@ -1,7 +1,6 @@
 // The module natively over `guest::MockHost`: what the founding suite checks on the host, without the host.
 
-use guest::{Cause, Env, Origin, code};
-use guest::{MockHost, Module};
+use guest::{Env, MockHost, Module, Origin, code};
 use store::PageRequest;
 
 use crate::{Genesis, Member, Membership, Op, Query, Reply, Role, Valset};
@@ -12,15 +11,11 @@ fn key(n: u8) -> Vec<u8> {
 
 fn env(origin: Origin) -> Env {
     Env {
-        chain_id: b"net".to_vec(),
         height: 3,
-        time: 0,
-        module: crate::MODULE.into(),
         origin,
         // these rules read the origin alone
         sender: None,
-        roles: guest::MockHost::roles(),
-        cause: Cause::Direct,
+        ..MockHost::env(crate::MODULE)
     }
 }
 
@@ -145,17 +140,7 @@ fn memberships_page_in_key_order_at_the_answering_height() {
 #[test]
 fn role_asks_the_program_bound_to_the_validators_role() {
     let store = founded();
-    let valset = store.clone();
-    store.borrow_mut().siblings.insert(
-        "third-party-valset".into(),
-        Box::new(move |request| {
-            let reply = Valset::query(
-                &valset.query(env(Origin::Root)),
-                abi::decode(request).unwrap(),
-            )?;
-            Ok(abi::encode(&reply))
-        }),
-    );
+    store.sibling::<Valset>("third-party-valset", &store);
     let mut bound = env(Origin::Root);
     bound.roles = guest::Roles {
         validators: "third-party-valset".into(),

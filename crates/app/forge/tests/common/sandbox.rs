@@ -55,23 +55,12 @@ impl Default for MemorySandbox {
         let accounts = Rc::new(RefCell::new(BTreeMap::from(held)));
         let chat = MockHost::default();
         let forge = MockHost::default();
-        let sibling = chat.clone();
-        forge.borrow_mut().siblings.insert(
-            "chat".into(),
-            Box::new(move |request| {
-                let reads = sibling.query(env("chat", Origin::Root, None, 0, 0));
-                let reply = chat::Chat::query(
-                    &reads,
-                    abi::decode(request).map_err(guest::kernel::error_from)?,
-                )?;
-                Ok(abi::encode(&reply))
-            }),
-        );
+        forge.sibling::<chat::Chat>("chat", &chat);
         let agents = Rc::new(RefCell::new(BTreeMap::new()));
         let (roster, standing) = (accounts.clone(), agents.clone());
         forge.borrow_mut().siblings.insert(
             guest::MockHost::roles().identity,
-            Box::new(move |request| {
+            Box::new(move |_, request| {
                 guest::identity_role(&profiles(&roster.borrow(), &standing.borrow()), request)
             }),
         );

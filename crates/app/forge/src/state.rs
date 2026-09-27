@@ -266,7 +266,6 @@ mod tests {
     use super::*;
     use crate::contract::{ChangeState, ReviewCounts};
     use guest::MockHost;
-    use guest::{Cause, Env, Origin};
 
     fn change(n: u64) -> Change {
         Change {
@@ -307,16 +306,7 @@ mod tests {
     /// name length, and one repository's prefix never reaches a longer name.
     #[test]
     fn changes_across_repositories_list_by_name() {
-        let ctx = MockHost::default().exec(Env {
-            chain_id: vec![],
-            height: 1,
-            time: 1,
-            module: crate::MODULE.into(),
-            origin: Origin::Root,
-            sender: Some(guest::Principal::Root),
-            roles: guest::MockHost::roles(),
-            cause: Cause::Direct,
-        });
+        let ctx = MockHost::default().exec(MockHost::env(crate::MODULE));
         for (repo, n) in [("zz", 1), ("abc", 2), ("ab", 1), ("abc", 1)] {
             save_change(&ctx, repo, &change(n)).unwrap();
         }

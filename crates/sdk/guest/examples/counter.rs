@@ -37,21 +37,13 @@ guest::export!(Counter);
 
 #[cfg(test)]
 mod tests {
-    use guest::{Cause, Env, MockHost, Origin, Principal, code};
+    use guest::{Env, MockHost, code};
 
     use super::*;
 
+    /// Signed by account 1's key.
     fn env() -> Env {
-        Env {
-            chain_id: vec![],
-            height: 1,
-            time: 0,
-            module: "counter".into(),
-            origin: Origin::Signed(vec![1; 32]),
-            sender: Some(Principal::Account(1)),
-            roles: guest::MockHost::roles(),
-            cause: Cause::Direct,
-        }
+        MockHost::env("counter").signed([1; 32], Some(1))
     }
 
     #[test]
@@ -68,7 +60,7 @@ mod tests {
         // The bytes path `export!`'s `call` takes: decode, run, respond.
         guest::execute::<Counter>(&host.exec(env()), &guest::abi::encode(&1u64)).unwrap();
         guest::query::<Counter>(&host.query(env()), &guest::abi::encode(&())).unwrap();
-        assert_eq!(host.borrow().response, guest::abi::encode(&6u64));
+        assert_eq!(host.take_response(), guest::abi::encode(&6u64));
         let garbage = guest::execute::<Counter>(&host.exec(env()), &[1]).unwrap_err();
         assert_eq!(garbage.code, code::INVALID_INPUT);
     }

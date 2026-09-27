@@ -1,9 +1,10 @@
 //! The host a native test runs a module over: maps for state and blobs, and
 //! what the module sent (`output`, `response`, `emissions`, `events`) kept
-//! for the test to read. Sibling modules answer through `siblings`;
-//! signatures verify through `verifier` (none set: verification is refused).
-//! A `MockHost` is a shared handle: the contexts made over it and the test
-//! see one host.
+//! for the test to read. Sibling modules answer through `siblings`
+//! ([`MockHost::sibling`] seats a module there); signatures verify through
+//! `verifier` (none set: verification is refused). A `MockHost` is a shared
+//! handle: the contexts made over it and the test see one host.
+//! [`MockHost::env`] is the env a test starts from.
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::BTreeMap;
@@ -16,9 +17,15 @@ use abi::{
 };
 use sha1::Digest as _;
 
-use crate::{Env, Error, ExecCtx, ModuleId, Order, QueryCtx, Range, Roles, code};
+use crate::{
+    AccountNumber, Cause, Env, Error, ExecCtx, Module, ModuleId, Order, Origin, Principal,
+    QueryCtx, Range, Roles, code,
+};
 
-pub type Sibling = Box<dyn Fn(&[u8]) -> Result<Vec<u8>, Error>>;
+/// A module another one queries: the env the host hands the answering
+/// module (the asker's chain, height, time and roles; `module` the one
+/// asked, `origin` the asker, no sender) and the request's bytes.
+pub type Sibling = Box<dyn Fn(Env, &[u8]) -> Result<Vec<u8>, Error>>;
 
 /// The identity role over a fixed roster, for a native test of a module
 /// that names accounts: `Profile` and `Profiles` (paged by number) out of
@@ -86,6 +93,44 @@ impl MockHost {
         }
     }
 
+    /// A direct call to `module` by the chain itself: chain `net`, height
+    /// 1, time 0, the suite's [`roles`](MockHost::roles). Change what a
+    /// test cares about with [`Env::signed`], [`Env::from_module`] or
+    /// struct update: `Env { height: 7, ..MockHost::env("chat") }`.
+    pub fn env(module: impl Into<ModuleId>) -> Env {
+        Env {
+            chain_id: b"net".to_vec(),
+            height: 1,
+            time: 0,
+            module: module.into(),
+            origin: Origin::Root,
+            sender: Some(Principal::Root),
+            roles: MockHost::roles(),
+            cause: Cause::Direct,
+        }
+    }
+
+    /// Seats the identity role over a fixed roster ([`identity_role`]), as
+    /// the sibling at [`roles`](MockHost::roles)`().identity`.
+    pub fn identity(&self, profiles: Vec<Profile>) {
+        let answer: Sibling = Box::new(move |_, request| identity_role(&profiles, request));
+        self.borrow_mut()
+            .siblings
+            .insert(MockHost::roles().identity, answer);
+    }
+
+    /// Seats `M`, over `host` (its own state), as the module `module`
+    /// another one queries here: the request goes through `M`'s own
+    /// decoding and the answer through its encoding, as on the host.
+    pub fn sibling<M: Module>(&self, module: impl Into<ModuleId>, host: &MockHost) {
+        let host = host.clone();
+        let answer: Sibling = Box::new(move |env, request| {
+            crate::query::<M>(&host.query(env), request)?;
+            Ok(host.take_response())
+        });
+        self.borrow_mut().siblings.insert(module.into(), answer);
+    }
+
     /// An execute's context over this host.
     pub fn exec(&self, env: Env) -> ExecCtx {
         ExecCtx::over(self.clone(), env)
@@ -110,6 +155,11 @@ impl MockHost {
 
     pub fn take_emissions(&self) -> Vec<Message> {
         std::mem::take(&mut self.borrow_mut().emissions)
+    }
+
+    /// The last query's response, as [`crate::query`] handed it over.
+    pub fn take_response(&self) -> Vec<u8> {
+        std::mem::take(&mut self.borrow_mut().response)
     }
 
     /// Runs `write` and, when it refuses, checks it left this host as it
@@ -155,16 +205,24 @@ impl MockHost {
         )
     }
 
-    /// One host call by `me`, as the real host answers it. An emitted
-    /// message is kept, numbered from 0, for the test to run.
-    pub(crate) fn serve(&self, me: &str, op: HostOp) -> HostReply {
+    /// One host call from a context whose env is `env`, as the real host
+    /// answers it. An emitted message is kept, numbered from 0, for the
+    /// test to run.
+    pub(crate) fn serve(&self, env: &Env, op: HostOp) -> HostReply {
         if let HostOp::Query { program, request } = op {
             // The sibling leaves the map while it answers, so it may use
             // this host itself.
             let sibling = self.borrow_mut().siblings.remove(&program);
             return HostReply::Query(match sibling {
                 Some(sibling) => {
-                    let answer = sibling(&request).map_err(crate::kernel::refusal_from);
+                    let asked = Env {
+                        module: program.clone(),
+                        origin: Origin::Module(env.module.clone()),
+                        sender: None,
+                        cause: Cause::Direct,
+                        ..env.clone()
+                    };
+                    let answer = sibling(asked, &request).map_err(crate::kernel::refusal_from);
                     self.borrow_mut().siblings.insert(program, sibling);
                     answer
                 }
@@ -231,7 +289,7 @@ impl MockHost {
                 let item = mock.emissions.len() as u64;
                 mock.emissions.push(message);
                 HostReply::Item(abi::ItemRef {
-                    source: me.to_owned(),
+                    source: env.module.clone(),
                     item,
                 })
             }
@@ -274,6 +332,30 @@ impl MockState {
     }
 }
 
+/// The origins a test sends from, each with the sender the host would
+/// resolve for it (an account, or `None` when the key or module holds none).
+impl Env {
+    /// Signed by `key`, acting as `account`: the account identity says the
+    /// key holds, or `None` for a key that holds none (a write refuses it).
+    pub fn signed(self, key: impl Into<Vec<u8>>, account: Option<AccountNumber>) -> Env {
+        Env {
+            origin: Origin::Signed(key.into()),
+            sender: account.map(Principal::Account),
+            ..self
+        }
+    }
+
+    /// Sent by `module` (a message it emitted), acting as `account`, the
+    /// account identity registered for it.
+    pub fn from_module(self, module: impl Into<ModuleId>, account: Option<AccountNumber>) -> Env {
+        Env {
+            origin: Origin::Module(module.into()),
+            sender: account.map(Principal::Account),
+            ..self
+        }
+    }
+}
+
 /// The host's framing: `<kind> <len>\0<body>`, hashed whole.
 pub fn blob_id(hash: HashKind, kind: &str, body: &[u8]) -> Result<BlobId, Error> {
     let kind_is_a_word = !kind.is_empty() && !kind.contains([' ', '\0']);
@@ -289,4 +371,40 @@ pub fn blob_id(hash: HashKind, kind: &str, body: &[u8]) -> Result<BlobId, Error>
         HashKind::Sha256 => BlobId::Sha256(sha2::Sha256::digest(&framed).into()),
         HashKind::Sha1 => BlobId::Sha1(sha1::Sha1::digest(&framed).into()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Answers who asked it, and at what height.
+    struct Echo;
+
+    impl Module for Echo {
+        type Op = ();
+        type Query = ();
+        type Response = (Origin, u64);
+
+        fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn query(ctx: &QueryCtx, (): ()) -> Result<(Origin, u64), Error> {
+            Ok((ctx.env().origin.clone(), ctx.env().height))
+        }
+    }
+
+    #[test]
+    fn a_sibling_answers_as_the_host_asks_it() {
+        let (asker, echo) = (MockHost::default(), MockHost::default());
+        asker.sibling::<Echo>("echo", &echo);
+        let ctx = asker.query(Env {
+            height: 5,
+            ..MockHost::env("chat")
+        });
+        let answer: (Origin, u64) = ctx.query("echo", &()).unwrap();
+        assert_eq!(answer, (Origin::Module("chat".into()), 5));
+        let unknown = ctx.query_raw("nobody", Vec::new()).unwrap_err();
+        assert_eq!(unknown.code, code::UNKNOWN_MODULE);
+    }
 }

@@ -46,18 +46,12 @@ impl Env {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Cause, Env, Origin, code};
+    use crate::{Env, MockHost, Origin, code};
 
     fn env(origin: Origin) -> Env {
         Env {
-            chain_id: Vec::new(),
-            height: 0,
-            time: 0,
-            module: "m".into(),
             origin,
-            sender: None,
-            roles: crate::MockHost::roles(),
-            cause: Cause::Direct,
+            ..MockHost::env("m")
         }
     }
 

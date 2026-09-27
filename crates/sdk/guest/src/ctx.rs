@@ -116,7 +116,7 @@ impl QueryCtx {
         #[cfg(target_arch = "wasm32")]
         return ffi::host(&op);
         #[cfg(not(target_arch = "wasm32"))]
-        return self.host.serve(&self.env.module, op);
+        return self.host.serve(&self.env, op);
     }
 
     fn done(&self, op: HostOp) {
@@ -336,22 +336,12 @@ mod tests {
     use abi::Message;
 
     use super::*;
-    use crate::{Cause, MessageId, MockHost, Origin};
+    use crate::{MessageId, MockHost};
 
     #[test]
     fn emit_hands_the_host_the_message_and_names_it_in_this_frame() {
         let host = MockHost::default();
-        let env = Env {
-            chain_id: b"n".to_vec(),
-            height: 1,
-            time: 2,
-            module: "forge".into(),
-            origin: Origin::Root,
-            sender: None,
-            roles: MockHost::roles(),
-            cause: Cause::Direct,
-        };
-        let ctx = host.exec(env);
+        let ctx = host.exec(MockHost::env("forge"));
         let first = ctx.emit("chat", b"a".to_vec(), Reply::None);
         let second = ctx.emit("chat", b"b".to_vec(), Reply::Wanted);
         let id = |seq| MessageId {

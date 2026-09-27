@@ -2,7 +2,7 @@
 //! store exactly as it was. The harness is the [`crate::Chat`] module over a
 //! [`MockHost`], and the principals that act on it, each the sender of the
 //! env it signs.
-use guest::{Cause, Env, Origin, code};
+use guest::{Env, Origin, code};
 use guest::{ExecCtx, MockHost, Module, QueryCtx};
 
 use crate::{Op, PageRequest, PostPolicy, Principal, Query, Reply, parse_message};
@@ -80,11 +80,7 @@ impl Default for Chat {
     fn default() -> Chat {
         let store = MockHost::default();
         store.borrow_mut().verifier = Some(Box::new(|_, _, _, _, _| true));
-        let roster = roster();
-        store.borrow_mut().siblings.insert(
-            MockHost::roles().identity,
-            Box::new(move |request| guest::identity_role(&roster, request)),
-        );
+        store.identity(roster());
         Chat { store, height: 0 }
     }
 }
@@ -111,14 +107,11 @@ impl Chat {
 
     fn env(&self, origin: Origin, sender: Option<Principal>) -> Env {
         Env {
-            chain_id: vec![],
             height: self.height,
             time: self.height * 1000,
-            module: crate::MODULE.into(),
             origin,
             sender,
-            roles: guest::MockHost::roles(),
-            cause: Cause::Direct,
+            ..MockHost::env(crate::MODULE)
         }
     }
 
