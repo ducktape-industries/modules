@@ -72,7 +72,6 @@ design = { path = "crates/sdk/design" }
 view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }
 conformance = { path = "crates/sdk/conformance" }
-view-guest = { path = "crates/sdk/view-guest" }
 ducktape-view-guest = { path = "crates/sdk/view-guest", package = "view-guest" }
 gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "79bdf74455094b943794cc32aa136a48f445cdb9", default-features = false }
 module-registry = { path = "crates/system/module-registry" }
