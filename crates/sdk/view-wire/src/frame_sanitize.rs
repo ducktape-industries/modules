@@ -110,19 +110,11 @@ pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> 
                 }
             }
             Node::Editor {
-                placeholder,
-                label,
-                options,
-                ..
+                placeholder, label, ..
             } => {
                 add(placeholder);
                 if let Some(label) = label {
                     add(label);
-                }
-                if let Some(rich) = &options.rich {
-                    for item in &rich.toolbar {
-                        add(&item.label);
-                    }
                 }
             }
             Node::Image { label, .. } | Node::Svg { label, .. } | Node::Overlay { label, .. } => {
@@ -132,16 +124,7 @@ pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> 
             }
             _ => {}
         }
-        if let Node::Editor {
-            document, options, ..
-        } = node
-        {
-            if let Some(rich) = &options.rich {
-                rich.document.validate()?;
-                if rich.toolbar.len() > editor_presentation::MAX_EDITOR_MENU_ITEMS {
-                    return Err("rich toolbar limit");
-                }
-            }
+        if let Node::Editor { document, .. } = node {
             references.push(document);
         }
         pending.extend(node.children());

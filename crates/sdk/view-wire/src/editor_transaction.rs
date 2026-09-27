@@ -134,9 +134,6 @@ pub struct EditorRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditorRequestInput {
-    RichEdit {
-        edit: Box<crate::editor_rich::RichEdit>,
-    },
     Key {
         key: crate::keyboard::KeyState,
         repeat: bool,

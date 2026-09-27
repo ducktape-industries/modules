@@ -221,7 +221,6 @@ impl<V: 'static> EditorTransaction<V> {
                 }
                 let state = EditorStateView::new(editor.text_ref(), &request.state);
                 let decision = match &request.input {
-                    wire::EditorRequestInput::RichEdit { .. } => EditorDecision::Noop,
                     wire::EditorRequestInput::Key { key, repeat } => {
                         (callbacks.decide)(EditorKeyRequest {
                             id: &request.id,

@@ -156,7 +156,6 @@ impl<P: 'static, V: 'static> Element for EditorElement<P, V> {
         );
         wire::Node::Editor {
             options: Box::new(wire::EditorOptions {
-                rich: None,
                 binding: Some(Box::new(binding)),
                 presentation,
             }),

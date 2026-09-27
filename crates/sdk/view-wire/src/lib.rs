@@ -50,7 +50,6 @@ pub use task::Task;
 mod editor;
 pub mod editor_document;
 pub mod editor_presentation;
-pub mod editor_rich;
 pub mod editor_transaction;
 pub use editor_transaction::{
     EditorBinding, EditorDecision, EditorEditKind, EditorFault, EditorHistoryEffect,

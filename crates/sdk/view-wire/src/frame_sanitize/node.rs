@@ -257,11 +257,6 @@ fn sanitize_fields(
             if let Some(presentation) = &mut options.presentation {
                 presentation.sanitize();
             }
-            if let Some(rich) = &mut options.rich {
-                for item in &mut rich.toolbar {
-                    spend_text(&mut item.label, budgets);
-                }
-            }
             spend_text(placeholder, budgets);
             if let Some(label) = label {
                 spend_text(label, budgets);
