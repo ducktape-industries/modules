@@ -13,7 +13,7 @@ pub trait Render: 'static + Sized {
 /// The capabilities a view's manifest declares. `export_view!` implements
 /// it from its list, so `TestAppContext` refuses what the app would refuse.
 pub trait Capabilities {
-    const CAPABILITIES: &'static [&'static str];
+    const CAPABILITIES: &'static [crate::methods::Capability];
 }
 pub trait View: Render + Serialize + DeserializeOwned {
     const PREFERRED_WINDOW_SIZE: &'static str = "none";
@@ -181,7 +181,7 @@ impl<V: View> Context<'_, V> {
 }
 #[macro_export]
 macro_rules! export_view {
-    ($view:ty, $name:expr, $description:expr, [$($capability:literal),* $(,)?]) => {
+    ($view:ty, $name:expr, $description:expr, [$($capability:ident),* $(,)?]) => {
         $crate::export_driver!($view, $name, $description, [$($capability),*]);
     };
 }
@@ -211,7 +211,10 @@ mod follow_tests {
         }
     }
     impl crate::Capabilities for Heads {
-        const CAPABILITIES: &'static [&'static str] = &["module", "host"];
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[
+            crate::methods::Capability::Module,
+            crate::methods::Capability::Host,
+        ];
     }
     impl Render for Heads {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

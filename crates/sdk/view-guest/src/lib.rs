@@ -100,72 +100,109 @@ const fn digits(number: u32) -> usize {
     }
 }
 
-/// The length of [`manifest_bytes`] over `text` and `preferred_size`.
-pub const fn manifest_len(text: &str, preferred_size: &str) -> usize {
-    text.len()
+const MANIFEST_HEADER: &str = "ducktape.view.manifest.v2\n";
+
+/// The length of [`manifest_bytes`] over the same arguments.
+pub const fn manifest_len(
+    name: &str,
+    description: &str,
+    capabilities: &[wire::methods::Capability],
+    preferred_size: &str,
+) -> usize {
+    let mut len = MANIFEST_HEADER.len()
+        + name.len()
+        + 1
+        + description.len()
+        + 1
+        + 1
         + preferred_size.len()
         + 1
         + digits(wire::WIRE_EPOCH)
         + 1
-        + digits(wire::methods::METHODS_REVISION)
-}
-
-/// Appends the preferred window size, the current wire epoch and the methods
-/// revision at compile time.
-pub const fn manifest_bytes<const N: usize>(text: &str, preferred_size: &str) -> [u8; N] {
-    let bytes = text.as_bytes();
-    let size = preferred_size.as_bytes();
-    assert!(N == manifest_len(text, preferred_size));
-    let mut out = [0u8; N];
+        + digits(wire::methods::METHODS_REVISION);
     let mut i = 0;
-    while i < bytes.len() + size.len() {
-        out[i] = if i < bytes.len() {
-            bytes[i]
-        } else {
-            size[i - bytes.len()]
-        };
+    while i < capabilities.len() {
+        len += capabilities[i].as_str().len() + 1;
         i += 1;
     }
-    let mut end = N;
-    let mut number = wire::methods::METHODS_REVISION;
-    let mut last = digits(number);
-    let mut line = 0;
-    while line < 2 {
-        let mut left = last;
-        while left > 0 {
-            end -= 1;
-            out[end] = b'0' + (number % 10) as u8;
-            number /= 10;
-            left -= 1;
-        }
-        end -= 1;
-        out[end] = b'\n';
-        number = wire::WIRE_EPOCH;
-        last = digits(number);
-        line += 1;
+    len
+}
+
+/// The `v2` manifest text, with the current wire epoch and methods revision,
+/// at compile time.
+pub const fn manifest_bytes<const N: usize>(
+    name: &str,
+    description: &str,
+    capabilities: &[wire::methods::Capability],
+    preferred_size: &str,
+) -> [u8; N] {
+    let mut out = [0u8; N];
+    let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
+    at = put(&mut out, at, name.as_bytes());
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, description.as_bytes());
+    at = put(&mut out, at, b"\n");
+    let mut i = 0;
+    while i < capabilities.len() {
+        at = put(&mut out, at, capabilities[i].as_str().as_bytes());
+        at = put(&mut out, at, b",");
+        i += 1;
     }
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, preferred_size.as_bytes());
+    at = put(&mut out, at, b"\n");
+    at = put_number(&mut out, at, wire::WIRE_EPOCH);
+    at = put(&mut out, at, b"\n");
+    at = put_number(&mut out, at, wire::methods::METHODS_REVISION);
+    assert!(at == N);
     out
 }
 
+const fn put(out: &mut [u8], at: usize, bytes: &[u8]) -> usize {
+    let mut i = 0;
+    while i < bytes.len() {
+        out[at + i] = bytes[i];
+        i += 1;
+    }
+    at + bytes.len()
+}
+
+const fn put_number(out: &mut [u8], at: usize, mut number: u32) -> usize {
+    let end = at + digits(number);
+    let mut i = end;
+    while i > at {
+        i -= 1;
+        out[i] = b'0' + (number % 10) as u8;
+        number /= 10;
+    }
+    end
+}
+
 /// The manifest section and the wasm32 exports ([`wire::abi`]) for a view. `export_view!` invokes this internally.
-/// Each capability must be one of [`wire::methods::CAPABILITIES`], the
+/// Each capability is a [`wire::methods::Capability`] variant, the
 /// `<capability>` half of the method kinds the view asks through.
 #[macro_export]
 macro_rules! export_driver {
-    ($app:ty, $name:expr, $description:expr, [$($capability:literal),* $(,)?]) => {
-        $(const _: () = assert!(
-            $crate::wire::methods::is_capability($capability),
-            concat!("`", $capability, "` is not a method capability: see view_wire::methods::CAPABILITIES")
-        );)*
+    ($app:ty, $name:expr, $description:expr, [$($capability:ident),* $(,)?]) => {
         impl $crate::Capabilities for $app {
-            const CAPABILITIES: &'static [&'static str] = &[$($capability),*];
+            const CAPABILITIES: &'static [$crate::wire::methods::Capability] =
+                &[$($crate::wire::methods::Capability::$capability),*];
         }
-        const MANIFEST: &str = concat!("ducktape.view.manifest.v2\n", $name, "\n", $description, "\n" $(, $capability, ",")*, "\n");
+        const MANIFEST_LEN: usize = $crate::manifest_len(
+            $name,
+            $description,
+            <$app as $crate::Capabilities>::CAPABILITIES,
+            <$app as $crate::View>::PREFERRED_WINDOW_SIZE,
+        );
 
         #[cfg_attr(target_arch = "wasm32", unsafe(link_section = "ducktape.view.manifest"))]
         #[used]
-        static MANIFEST_SECTION: [u8; $crate::manifest_len(MANIFEST, <$app as $crate::View>::PREFERRED_WINDOW_SIZE)] =
-            $crate::manifest_bytes(MANIFEST, <$app as $crate::View>::PREFERRED_WINDOW_SIZE);
+        static MANIFEST_SECTION: [u8; MANIFEST_LEN] = $crate::manifest_bytes(
+            $name,
+            $description,
+            <$app as $crate::Capabilities>::CAPABILITIES,
+            <$app as $crate::View>::PREFERRED_WINDOW_SIZE,
+        );
 
         #[cfg(target_arch = "wasm32")]
         mod wasm_exports {

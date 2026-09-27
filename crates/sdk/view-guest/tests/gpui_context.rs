@@ -7,7 +7,7 @@ struct Counter {
     clicks: usize,
 }
 impl view_guest::Capabilities for Counter {
-    const CAPABILITIES: &'static [&'static str] = &[];
+    const CAPABILITIES: &'static [view_guest::methods::Capability] = &[];
 }
 impl View for Counter {
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
@@ -335,7 +335,7 @@ struct GlobalReader {
 struct Configuration(usize);
 impl Global for Configuration {}
 impl view_guest::Capabilities for GlobalReader {
-    const CAPABILITIES: &'static [&'static str] = &[];
+    const CAPABILITIES: &'static [view_guest::methods::Capability] = &[];
 }
 impl View for GlobalReader {
     fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {

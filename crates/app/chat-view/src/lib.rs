@@ -81,15 +81,7 @@ export_view!(
     Chat,
     "Chat",
     "Channels, direct messages, threads, search and the live call of this workspace.",
-    [
-        "module",
-        "op",
-        "host",
-        "link",
-        "clipboard",
-        "notify",
-        "store"
-    ]
+    [Module, Op, Host, Link, Clipboard, Notify, Store]
 );
 
 #[cfg(test)]

@@ -231,7 +231,7 @@ mod view_tests {
 
     // the forge view's own manifest, so the doc reaches only what it does
     impl ducktape_view_guest::Capabilities for Doc {
-        const CAPABILITIES: &'static [&'static str] =
+        const CAPABILITIES: &'static [ducktape_view_guest::methods::Capability] =
             <crate::Forge as ducktape_view_guest::Capabilities>::CAPABILITIES;
     }
 

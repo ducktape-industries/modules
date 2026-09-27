@@ -375,7 +375,7 @@ export_view!(
     Members,
     "Members",
     "Every account of this network: who it is, what it runs and what it signed lately.",
-    ["chain", "module", "host", "link"]
+    [Chain, Module, Host, Link]
 );
 
 #[cfg(test)]
