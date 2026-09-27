@@ -34,6 +34,7 @@ register() { # <Makefile list> <name>
 
 module() {
     anchor Makefile '^PROGRAMS := '
+    anchor Makefile '^VIEW_LINKABLE := '
     anchor Cargo.toml "$MEMBERS"
     anchor Cargo.toml "$DEPS"
     # The module type: TitleCase of the module name.
@@ -61,6 +62,7 @@ describe = []
 
 [dependencies]
 ducktape-view-guest = { workspace = true, optional = true }
+abi = { workspace = true }
 borsh = { workspace = true }
 describe = { workspace = true }
 guest = { workspace = true }
@@ -112,13 +114,7 @@ pub fn describe(op: &Op) -> describe::Description {
     let (title, fields) = match op {
         Op::Bump { by } => (
             format!("Bump by {by}"),
-            vec![field(
-                "by",
-                Value::Amount {
-                    value: u128::from(*by),
-                    decimals: 0,
-                },
-            )],
+            vec![field("by", Value::count(*by))],
         ),
     };
     describe::Description { title, fields }
@@ -231,9 +227,10 @@ fn a_key_that_holds_no_account_writes_nothing() {
 }
 EOF
     register PROGRAMS "$name"
+    sed -i "s/^VIEW_LINKABLE := .*/& $name/" Makefile
     sed -i "s|$DEPS|&\n$name = { path = \"$dir\" }|" Cargo.toml
     cat <<EOF
-$dir/{Cargo.toml,src/{lib,program,rules,view,tests}.rs}, PROGRAMS, workspace members and dependencies.
+$dir/{Cargo.toml,src/{lib,program,rules,view,tests}.rs}, PROGRAMS, VIEW_LINKABLE, workspace members and dependencies.
 Next:
   1. write the contract (Op/Query/Reply and describe() in lib.rs, the module in program.rs, its rules in rules.rs); \`make dev P=$name\` builds and tests it
   2. \`make new-view NAME=$name-view\` for its screen
@@ -419,11 +416,12 @@ fn the_ready_screen_shows_the_count() {
 }
 EOF
     register VIEWS "$name"
+    grep -q 'Count' "crates/app/$program/src/lib.rs" || echo "note: $program has no Query::Count; the screen's count() in $dir/src/lib.rs asks it, so step 1 comes before step 2"
     cat <<EOF
 $dir/{Cargo.toml,src/lib.rs,src/tests.rs}, VIEWS and workspace members.
 Next:
-  1. \`make dev P=$program V=$name\` builds both, gates the view (ABI) and tests them
-  2. replace the screen in src/lib.rs with what the module's Query answers
+  1. replace the screen in src/lib.rs with what the module's Query answers (it asks \`Query::Count\` until then)
+  2. \`make dev P=$program V=$name\` builds both, gates the view (ABI) and tests them
   3. pack it into its module in qa: ("$program_snake", "$snake") in kit's view list (crates/kit/src/main.rs, \`pack\`); then \`kit build NAME && kit up NAME\`
 EOF
 }

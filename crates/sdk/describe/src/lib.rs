@@ -90,6 +90,15 @@ impl Value {
     pub fn text(text: impl Into<String>) -> Value {
         Value::Text(text.into())
     }
+
+    /// A plain count (an index, a size): an [`Value::Amount`] with no
+    /// decimals, which is how a reader shows an integer.
+    pub fn count(n: u64) -> Value {
+        Value::Amount {
+            value: u128::from(n),
+            decimals: 0,
+        }
+    }
 }
 
 pub fn field(label: &str, value: Value) -> Field {

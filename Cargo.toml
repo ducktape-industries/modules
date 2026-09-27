@@ -14,7 +14,7 @@
 #                   suite under module-registry/tests founds ducktape's host
 #                   over the bytes `make wasm-programs` built
 #   crates/app/     the app modules: chat and forge (each one crate: types and
-#                   rules always, the wasm exports behind the `program`
+#                   rules always, the wasm exports behind the `module`
 #                   feature), chat-view and forge-view (which link their
 #                   program crate with the feature off) and the system views
 #   crates/lib/     libraries a program links: gitcore (git objects, packs,
