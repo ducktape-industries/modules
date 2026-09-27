@@ -1,7 +1,7 @@
 //! Bounds applied before a guest refinement reaches native layout or painting.
 //! The host still clips the entire view slot: local clipping cannot contain a
 //! deferred or anchored element on its own.
-use crate::{MAX_PIXELS, MAX_TEXT_PIXELS};
+use crate::{MAX_PIXELS, MAX_TEXT_PIXELS, truncate_to};
 use gpui::{
     AbsoluteLength, DefiniteLength, Fill, GridPlacement, Hsla, Length, StyleRefinement, px,
 };
@@ -42,13 +42,6 @@ pub(crate) fn sanitize_hsla(value: &mut Hsla) {
     for number in [&mut value.h, &mut value.s, &mut value.l, &mut value.a] {
         finite(number, 0., 1.);
     }
-}
-fn truncate(value: &mut String, max: usize) {
-    let mut end = value.len().min(max);
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value.truncate(end);
 }
 fn grid(value: &mut GridPlacement) {
     match value {
@@ -195,14 +188,14 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     }
     if let Some(value) = &mut text.font_family {
         let mut name = value.to_string();
-        truncate(&mut name, 256);
+        truncate_to(&mut name, 256);
         *value = name.into();
     }
     if let Some(fallbacks) = &mut text.font_fallbacks {
         let fonts = std::sync::Arc::make_mut(&mut fallbacks.0);
         fonts.truncate(16);
         for name in fonts {
-            truncate(name, 256);
+            truncate_to(name, 256);
         }
     }
     if let Some(features) = &mut text.font_features {
@@ -215,7 +208,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
         | gpui::TextOverflow::TruncateStart(value)
         | gpui::TextOverflow::TruncateMiddle(value)) = overflow;
         let mut string = value.to_string();
-        truncate(&mut string, 32);
+        truncate_to(&mut string, 32);
         *value = string.into();
     }
     if let Some(value) = &mut text.underline {

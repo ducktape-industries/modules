@@ -8,7 +8,8 @@ pub fn truncate_string(text: &mut String) {
     truncate_to(text, MAX_STRING_BYTES);
 }
 
-pub(super) fn truncate_to(text: &mut String, limit: usize) {
+/// Cuts `text` down to `limit` bytes on a char boundary, in place.
+pub(crate) fn truncate_to(text: &mut String, limit: usize) {
     if text.len() <= limit {
         return;
     }
