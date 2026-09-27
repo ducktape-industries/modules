@@ -1,9 +1,10 @@
-//! Plain document state; the host retains its native editor between observations.
+//! The text and caret a view owns for a host editor: commits patch it,
+//! transfers mirror it, and a reset fences off what came before.
 use crate::wire;
 use std::rc::Rc;
 
-/// Editor snapshot record: canonical text, caret, reset fence and observation
-/// revision. Field names and order are the snapshot bytes.
+/// Editor snapshot record: text, caret, reset fence and the host's revision.
+/// Field names and order are the snapshot bytes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct EditorState {
     text: String,
@@ -56,19 +57,8 @@ impl Editor {
     pub fn cursor(&self) -> wire::EditorCursor {
         self.0.cursor
     }
-    pub fn observation_revision(&self) -> u64 {
-        self.0.revision
-    }
     pub fn reset_revision(&self) -> u64 {
         self.0.reset
-    }
-    pub fn line_count(&self) -> usize {
-        wire::editor_lines(&self.0.text).count()
-    }
-    pub fn line(&self, line: usize) -> Option<String> {
-        wire::editor_lines(&self.0.text)
-            .nth(line)
-            .map(str::to_owned)
     }
     /// An authoritative assignment, including an identical-text document replacement.
     pub fn replace(&mut self, mut next: Self, previous_reset: u64) {
@@ -83,23 +73,6 @@ impl Editor {
         state.cursor.clamp(&state.text);
         next.1 = 0;
         *self = next;
-    }
-    /// Observations from a previous document cannot overwrite a replacement.
-    #[cfg(test)]
-    fn accept(&mut self, mut state: EditorState) {
-        if state.reset == self.0.reset
-            && state.revision > self.0.revision
-            && state.text.len() <= wire::editor_document::MAX_EDITOR_DOCUMENT_BYTES
-        {
-            state.cursor.clamp(&state.text);
-            if state.text != self.0.text {
-                self.1 = self
-                    .1
-                    .checked_add(1)
-                    .expect("editor text revisions exhausted");
-            }
-            self.0 = Rc::new(state);
-        }
     }
     pub(crate) fn install_mirror(
         &mut self,
@@ -202,43 +175,50 @@ impl<'de> serde::Deserialize<'de> for Editor {
 mod tests {
     use super::*;
 
+    fn caret(column: u32) -> wire::EditorCursor {
+        wire::EditorCursor {
+            position: wire::EditorPosition { line: 0, column },
+            selection: None,
+        }
+    }
+
     #[test]
     fn frame_snapshot_shares_immutable_text_and_detaches_before_mutation() {
         let mut editor = Editor::new("before");
         let frame = editor.clone();
         assert!(Rc::ptr_eq(&editor.0, &frame.0));
 
-        editor.accept(EditorState {
-            text: "after".into(),
-            revision: 1,
-            ..Default::default()
-        });
+        editor.move_to(caret(3));
 
-        assert_eq!(frame.text_ref(), "before");
-        assert_eq!(editor.text_ref(), "after");
+        assert_eq!(frame.cursor(), caret(0));
+        assert_eq!(editor.cursor(), caret(3));
         assert!(!Rc::ptr_eq(&editor.0, &frame.0));
     }
 
     #[test]
-    fn document_references_separate_text_revisions_from_caret_observations() {
+    fn document_references_separate_text_revisions_from_caret_commits() {
         let mut editor = Editor::new("a");
-        editor.accept(EditorState {
-            text: "ab".into(),
-            revision: 4,
-            ..Default::default()
-        });
+        let before = editor.document_reference("app:draft".into());
+        let mut after = before.clone();
+        after.revision = 4;
+        after.text_revision = 1;
+        after.byte_len = 2;
+        let patches = [wire::EditorPatch {
+            start_byte: 1,
+            end_byte: 1,
+            replacement: "b".into(),
+        }];
+        assert!(editor.accept_patch(&before, &after, &patches).is_some());
         let typed = editor.document_reference("app:draft".into());
         assert_eq!(
             (typed.text_revision, typed.revision, typed.byte_len),
             (1, 4, 2)
         );
-        editor.accept(EditorState {
-            text: "ab".into(),
-            revision: 5,
-            ..Default::default()
-        });
-        let caret = editor.document_reference("app:draft".into());
-        assert_eq!((caret.text_revision, caret.revision), (1, 5));
+        let mut moved = typed.clone();
+        moved.revision = 5;
+        assert!(editor.accept_patch(&typed, &moved, &[]).is_some());
+        let moved = editor.document_reference("app:draft".into());
+        assert_eq!((moved.text_revision, moved.revision), (1, 5));
         assert_eq!(Editor::restore(&editor.snapshot()), Some(editor.clone()));
         editor.move_to(wire::EditorCursor::default());
         assert_eq!(
@@ -248,60 +228,20 @@ mod tests {
     }
 
     #[test]
-    fn oversized_initial_and_observed_documents_never_become_prefixes() {
+    fn an_oversized_document_is_refused() {
         let oversized = "x".repeat(wire::editor_document::MAX_EDITOR_DOCUMENT_BYTES + 1);
-        assert!(std::panic::catch_unwind(|| Editor::new(oversized.clone())).is_err());
-        let mut editor = Editor::new("preserved");
-        editor.accept(EditorState {
-            text: oversized,
-            revision: 1,
-            ..Default::default()
-        });
-        assert_eq!(editor.text(), "preserved");
-        assert_eq!(editor.observation_revision(), 0);
+        assert!(std::panic::catch_unwind(|| Editor::new(oversized)).is_err());
     }
 
     #[test]
-    fn observations_do_not_reset_and_old_document_events_cannot_replace_new_state() {
+    fn a_caret_move_and_a_replacement_each_fence_the_document() {
         let mut editor = Editor::new("a");
-        let observed = EditorState {
-            text: "한글".into(),
-            cursor: wire::EditorCursor {
-                position: wire::EditorPosition { line: 0, column: 6 },
-                selection: Some(wire::EditorPosition { line: 0, column: 0 }),
-            },
-            reset: 0,
-            revision: 100,
-        };
-        editor.accept(observed.clone());
-        assert_eq!(editor.text(), "한글");
-        assert_eq!(editor.reset_revision(), 0);
-        assert_eq!(editor.cursor().selection.unwrap().column, 0);
-        let mut stale = observed.clone();
-        stale.revision = 99;
-        stale.text = "old".into();
-        editor.accept(stale);
-        assert_eq!(editor.text(), "한글");
-        assert_eq!(Editor::restore(&editor.snapshot()), Some(editor.clone()));
-        let mut positioned = editor.clone();
-        positioned.move_to(wire::EditorCursor::default());
-        assert_eq!(positioned.reset_revision(), 1);
-        positioned.accept(observed.clone());
-        assert_eq!(
-            positioned.cursor(),
-            wire::EditorCursor::default(),
-            "caret commands fence old observations and clear selection"
-        );
-
-        editor.replace(Editor::new("한글"), editor.reset_revision());
+        editor.move_to(wire::EditorCursor::default());
         assert_eq!(editor.reset_revision(), 1);
-        assert_eq!(editor.cursor().selection, None);
-        editor.accept(observed);
-        assert_eq!(
-            editor.cursor().position.column,
-            0,
-            "late old-document cursor stays rejected"
-        );
+        editor.replace(Editor::new("한글"), editor.reset_revision());
+        assert_eq!(editor.reset_revision(), 2);
+        assert_eq!(editor.cursor(), wire::EditorCursor::default());
+        assert_eq!(Editor::restore(&editor.snapshot()), Some(editor.clone()));
     }
 }
 
