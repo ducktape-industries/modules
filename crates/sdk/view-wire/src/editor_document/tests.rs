@@ -1,4 +1,5 @@
 use super::*;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[test]
 fn frames_allow_one_document_message_and_reject_a_second_before_delivery() {
@@ -413,4 +414,35 @@ fn decoder_rejects_advertised_oversized_chunks_before_reading_their_payload() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("editor chunk byte limit"), "{error}");
+}
+
+#[test]
+fn direct_queries_match_native_boundaries_for_context_sensitive_unicode() {
+    for text in [
+        "",
+        "a\r\nb\n\rc",
+        "e\u{301}",
+        "🇰🇷🇨🇦🇺🇸🇬",
+        "👩🏽‍👩‍👧‍👦",
+        "\u{600}a",
+        "क्‍ष",
+    ] {
+        let expected: Vec<_> = text
+            .grapheme_indices(true)
+            .map(|(at, _)| at)
+            .chain(std::iter::once(text.len()))
+            .filter(|at| {
+                !(*at > 0
+                    && *at < text.len()
+                    && matches!(&text.as_bytes()[at - 1..=*at], b"\r\n" | b"\n\r"))
+            })
+            .collect();
+        for at in 0..=text.len() + 1 {
+            assert_eq!(
+                native_editor_boundary(text, at),
+                expected.contains(&at),
+                "{text:?} byte {at}"
+            );
+        }
+    }
 }

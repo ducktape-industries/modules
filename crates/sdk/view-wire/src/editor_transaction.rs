@@ -1,4 +1,5 @@
-//! Atomic editor patch validation shared by native and guest transaction lanes.
+//! Editor transaction protocol: patches, key claims, requests, decisions and
+//! their bounded decoders.
 use serde::{Deserialize, Serialize};
 
 use crate::EditorCursor;
@@ -76,120 +77,6 @@ pub fn patched_editor_text(
         return Err(EditorPatchError::Cursor);
     }
     Ok(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::EditorPosition;
-
-    fn patch(start: u32, end: u32, replacement: &str) -> EditorPatch {
-        EditorPatch {
-            start_byte: start,
-            end_byte: end,
-            replacement: replacement.into(),
-        }
-    }
-
-    #[test]
-    fn one_mib_undo_replacement_uses_the_document_budget() {
-        let text = "x".repeat(crate::editor_document::MAX_EDITOR_DOCUMENT_BYTES);
-        let result = patched_editor_text("", &[patch(0, 0, &text)], EditorCursor::default());
-        assert!(
-            matches!(&result, Ok(restored) if restored == &text),
-            "a valid one-MiB Undo replacement must be accepted: {:?}",
-            result.as_ref().err()
-        );
-        let unchanged = patched_editor_text(&text, &[], EditorCursor::default());
-        assert!(
-            matches!(&unchanged, Ok(restored) if restored == &text),
-            "caret-only transactions must preserve a large document"
-        );
-    }
-
-    #[test]
-    fn a_batch_uses_original_offsets_and_preserves_unicode_cursor() {
-        let text = "1. 한글\n2. next";
-        let cursor = EditorCursor {
-            position: EditorPosition { line: 0, column: 7 },
-            selection: Some(EditorPosition { line: 1, column: 4 }),
-        };
-        assert_eq!(
-            patched_editor_text(text, &[patch(0, 1, "10"), patch(10, 11, "11")], cursor),
-            Ok("10. 한글\n11. next".into())
-        );
-        assert_eq!(text, "1. 한글\n2. next");
-    }
-
-    #[test]
-    fn endpoints_cannot_split_native_graphemes_or_line_terminators() {
-        for (text, at) in [("a\r\nb", 2), ("a\n\rb", 2), ("e\u{301}", 1), ("👍🏽", 4)] {
-            assert_eq!(
-                patched_editor_text(text, &[patch(at, at, "X")], EditorCursor::default()),
-                Err(EditorPatchError::Range),
-                "{text:?} at {at}"
-            );
-        }
-    }
-
-    #[test]
-    fn malformed_late_patch_rejects_the_entire_batch() {
-        for (case, text, patches) in [
-            (
-                "second patch splits a grapheme",
-                "한글",
-                [patch(0, 3, "A"), patch(4, 6, "B")],
-            ),
-            (
-                "ranges overlap",
-                "abc",
-                [patch(0, 2, "A"), patch(1, 3, "B")],
-            ),
-            (
-                "ranges run backwards",
-                "abc",
-                [patch(2, 3, "A"), patch(0, 1, "B")],
-            ),
-        ] {
-            assert_eq!(
-                patched_editor_text(text, &patches, EditorCursor::default()),
-                Err(EditorPatchError::Range),
-                "{case}"
-            );
-        }
-    }
-
-    #[test]
-    fn final_cursor_must_be_valid_without_silent_clamping() {
-        let cursor = EditorCursor {
-            position: EditorPosition { line: 0, column: 1 },
-            selection: None,
-        };
-        assert_eq!(
-            patched_editor_text("", &[patch(0, 0, "e\u{301}")], cursor),
-            Err(EditorPatchError::Cursor)
-        );
-    }
-
-    #[test]
-    fn transaction_limits_reject_instead_of_truncating() {
-        for (case, patches) in [
-            (
-                "one over-long replacement",
-                vec![patch(0, 0, &"x".repeat(MAX_EDITOR_PATCH_BYTES + 1))],
-            ),
-            (
-                "one patch too many",
-                vec![patch(0, 0, ""); MAX_EDITOR_PATCHES + 1],
-            ),
-        ] {
-            assert_eq!(
-                patched_editor_text("", &patches, EditorCursor::default()),
-                Err(EditorPatchError::Limit),
-                "{case}"
-            );
-        }
-    }
 }
 
 /// Explicit claims are evaluated by the native host after IME processing.
@@ -415,8 +302,117 @@ fn decode_text<'de, D: serde::Deserializer<'de>>(
 }
 
 #[cfg(test)]
-mod protocol_tests {
+mod tests {
     use super::*;
+    use crate::EditorPosition;
+
+    fn patch(start: u32, end: u32, replacement: &str) -> EditorPatch {
+        EditorPatch {
+            start_byte: start,
+            end_byte: end,
+            replacement: replacement.into(),
+        }
+    }
+
+    #[test]
+    fn one_mib_undo_replacement_uses_the_document_budget() {
+        let text = "x".repeat(crate::editor_document::MAX_EDITOR_DOCUMENT_BYTES);
+        let result = patched_editor_text("", &[patch(0, 0, &text)], EditorCursor::default());
+        assert!(
+            matches!(&result, Ok(restored) if restored == &text),
+            "a valid one-MiB Undo replacement must be accepted: {:?}",
+            result.as_ref().err()
+        );
+        let unchanged = patched_editor_text(&text, &[], EditorCursor::default());
+        assert!(
+            matches!(&unchanged, Ok(restored) if restored == &text),
+            "caret-only transactions must preserve a large document"
+        );
+    }
+
+    #[test]
+    fn a_batch_uses_original_offsets_and_preserves_unicode_cursor() {
+        let text = "1. 한글\n2. next";
+        let cursor = EditorCursor {
+            position: EditorPosition { line: 0, column: 7 },
+            selection: Some(EditorPosition { line: 1, column: 4 }),
+        };
+        assert_eq!(
+            patched_editor_text(text, &[patch(0, 1, "10"), patch(10, 11, "11")], cursor),
+            Ok("10. 한글\n11. next".into())
+        );
+        assert_eq!(text, "1. 한글\n2. next");
+    }
+
+    #[test]
+    fn endpoints_cannot_split_native_graphemes_or_line_terminators() {
+        for (text, at) in [("a\r\nb", 2), ("a\n\rb", 2), ("e\u{301}", 1), ("👍🏽", 4)] {
+            assert_eq!(
+                patched_editor_text(text, &[patch(at, at, "X")], EditorCursor::default()),
+                Err(EditorPatchError::Range),
+                "{text:?} at {at}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_late_patch_rejects_the_entire_batch() {
+        for (case, text, patches) in [
+            (
+                "second patch splits a grapheme",
+                "한글",
+                [patch(0, 3, "A"), patch(4, 6, "B")],
+            ),
+            (
+                "ranges overlap",
+                "abc",
+                [patch(0, 2, "A"), patch(1, 3, "B")],
+            ),
+            (
+                "ranges run backwards",
+                "abc",
+                [patch(2, 3, "A"), patch(0, 1, "B")],
+            ),
+        ] {
+            assert_eq!(
+                patched_editor_text(text, &patches, EditorCursor::default()),
+                Err(EditorPatchError::Range),
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn final_cursor_must_be_valid_without_silent_clamping() {
+        let cursor = EditorCursor {
+            position: EditorPosition { line: 0, column: 1 },
+            selection: None,
+        };
+        assert_eq!(
+            patched_editor_text("", &[patch(0, 0, "e\u{301}")], cursor),
+            Err(EditorPatchError::Cursor)
+        );
+    }
+
+    #[test]
+    fn transaction_limits_reject_instead_of_truncating() {
+        for (case, patches) in [
+            (
+                "one over-long replacement",
+                vec![patch(0, 0, &"x".repeat(MAX_EDITOR_PATCH_BYTES + 1))],
+            ),
+            (
+                "one patch too many",
+                vec![patch(0, 0, ""); MAX_EDITOR_PATCHES + 1],
+            ),
+        ] {
+            assert_eq!(
+                patched_editor_text("", &patches, EditorCursor::default()),
+                Err(EditorPatchError::Limit),
+                "{case}"
+            );
+        }
+    }
 
     fn response(replacement: String) -> EditorResponse {
         EditorResponse {
