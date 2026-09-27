@@ -54,10 +54,9 @@ pub fn list(chat: &Chat, pane: Pane, cx: &mut Context<Chat>, theme: &Theme) -> i
         .when(timeline && !messages.is_empty(), |el| {
             el.when_some(jump_to_latest(chat, cx, theme), |el, jump| el.child(jump))
         })
-        .when_some(
-            super::menu::editing(chat, pane, cx, theme),
-            |el, editing| el.child(editing),
-        )
+        .when_some(super::menu::editing(chat, pane, cx), |el, editing| {
+            el.child(editing)
+        })
 }
 
 /// What an empty pane says: loading, refused, no replies yet, or the

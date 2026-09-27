@@ -428,15 +428,23 @@ pub fn composer(
     let empty = crate::composer::Draft::default();
     let draft = chat.drafts.get(&key).unwrap_or(&empty);
     let choices = chat.mention_choices();
-    let commit = match target {
-        Target::Post { .. } => "Send",
-        Target::Edit { .. } => "Save",
+    let (commit, cancel) = match target {
+        Target::Post { .. } => ("Send", None),
+        // an edit's way out sits beside its Save, as Send's row lays out
+        Target::Edit { .. } => (
+            "Save",
+            Some(Box::new(cx.listener(|chat, _: &ClickEvent, _, cx| {
+                chat.close_menu();
+                cx.notify();
+            })) as crate::composer::Click),
+        ),
     };
     crate::composer::view::<Chat>(
         draft,
         &key,
         hint,
         commit,
+        cancel,
         editable,
         &choices,
         cx,

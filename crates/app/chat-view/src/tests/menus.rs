@@ -178,4 +178,13 @@ fn the_edit_field_saves() {
     cx.run_until_parked();
     assert!(cx.find("chat-message-editing").is_some());
     assert!(cx.has_text("Save"));
+    // Cancel sits on Save's row, and leaves the edit
+    let key = crate::composer::Target::Edit {
+        channel: view.read(|chat| chat.room_id()),
+        seq: 1,
+        base_rev: 0,
+    }
+    .key();
+    cx.simulate_click(&format!("{key}/cancel"));
+    assert!(cx.find("chat-message-editing").is_none());
 }

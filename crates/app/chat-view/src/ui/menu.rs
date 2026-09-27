@@ -22,8 +22,6 @@ const COLUMNS: u16 = 8;
 const GRID_ROWS: f32 = emoji::PER_TAB.div_ceil(COLUMNS as usize) as f32;
 const SEARCH: f32 = design::height::CONTROL as f32;
 const CAPTION: f32 = 14.;
-/// The edit menu's Cancel column: wide enough for its label.
-const CANCEL_W: f32 = 96.;
 /// A menu row's glyph column: one glyph, centred.
 const GLYPH_W: f32 = 20.;
 const TABS: f32 = design::height::CONTROL as f32;
@@ -113,12 +111,7 @@ fn popup_geometry(menu: &Menu, items: usize) -> Option<(Pair, Option<Pair>)> {
     Some((menu.at, size))
 }
 
-pub fn editing(
-    chat: &Chat,
-    pane: Pane,
-    cx: &mut Context<Chat>,
-    theme: &Theme,
-) -> Option<AnyElement> {
+pub fn editing(chat: &Chat, pane: Pane, cx: &mut Context<Chat>) -> Option<AnyElement> {
     let menu = chat.menu.as_ref()?;
     if menu.mode != Mode::Editing || menu.pane != pane {
         return None;
@@ -128,43 +121,19 @@ pub fn editing(
         seq: menu.seq,
         base_rev: menu.rev,
     };
-    let close = cx.listener(|chat, _: &ClickEvent, _, cx| {
-        chat.close_menu();
-        cx.notify();
-    });
+    // laid out as the composer under the stream: Cancel beside Save
     Some(
         div()
             .id("chat-message-editing")
             .px_4()
             .py_1()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.background)
-                    .child(crate::ui::room::composer(
-                        chat,
-                        target,
-                        "Edit message",
-                        true,
-                        cx,
-                    ))
-                    .child(
-                        div()
-                            .flex()
-                            .justify_end()
-                            .child(div().w(px(CANCEL_W)).child(Item::text(
-                                "chat-message-edit-cancel",
-                                "Cancel edit",
-                                Some(Box::new(close)),
-                                *theme,
-                            ))),
-                    ),
-            )
+            .child(crate::ui::room::composer(
+                chat,
+                target,
+                "Edit message",
+                true,
+                cx,
+            ))
             .into_any_element(),
     )
 }

@@ -3,7 +3,7 @@
 mod binding;
 mod editing;
 
-pub use binding::{view, Event, Outcome};
+pub use binding::{view, Click, Event, Outcome};
 
 use crate::{wire, Editor};
 use serde::{Deserialize, Serialize};
