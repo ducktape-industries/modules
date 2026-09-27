@@ -52,7 +52,7 @@ impl Forge {
         for query in self.data.keys().cloned().collect::<Vec<_>>() {
             let landing = query.clone();
             cx.refresh(queries::fetch(cx.host(), query), move |forge, reply, _| {
-                forge.data.insert(landing.clone(), Loadable::Ready(reply));
+                forge.data.insert(landing, Loadable::Ready(reply));
             });
         }
         for channel in self.messages.keys().cloned().collect::<Vec<_>>() {
@@ -60,9 +60,7 @@ impl Forge {
             cx.refresh(
                 queries::conversation(cx.host(), channel.clone(), viewer),
                 move |forge, rows, _| {
-                    forge
-                        .messages
-                        .insert(channel.clone(), Loadable::Ready(rows));
+                    forge.messages.insert(channel, Loadable::Ready(rows));
                 },
             );
         }
