@@ -275,8 +275,6 @@ fn a_frame_round_trips() {
         editor_decisions: Vec::new(),
         editor_documents: Vec::new(),
         tooltip_responses: Vec::new(),
-        mouse_interest: true,
-        event_interest: Default::default(),
         root: Some(column(vec![
             text("hello"),
             Node::Button {

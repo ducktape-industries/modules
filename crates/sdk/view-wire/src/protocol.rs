@@ -12,21 +12,6 @@ pub struct RichTextHover {
 /// Something the host tells the guest.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Event {
-    /// Observation only: widgets already handled this event once.
-    Observation {
-        event: events::Event,
-        captured: bool,
-    },
-    /// A mouse interaction in logical coordinates local to the guest surface.
-    Mouse {
-        event: mouse::Event,
-        captured: bool,
-    },
-    /// A keyboard interaction after the mounted native widgets handled it.
-    Keyboard {
-        event: keyboard::Event,
-        captured: bool,
-    },
     /// The user activated the widget the guest gave this message index to
     /// (a button press, an input submit). Indices are per frame: they name
     /// entries in the table the guest filled while building the tree it
@@ -291,10 +276,6 @@ pub struct Frame {
     pub editor_documents: Vec<editor_document::EditorDocumentMessage>,
     /// Tooltip subtrees built only after a native hover request.
     pub tooltip_responses: Vec<TooltipResponse>,
-    /// The current subscription requests guest-local mouse observations.
-    pub mouse_interest: bool,
-    /// Live subscriptions opt into each copied event category.
-    pub event_interest: events::Interest,
     /// The tree to show. `None` with `unchanged` set means "what you have";
     /// `None` otherwise means "what you have, with `patches` applied".
     pub root: Option<Node>,

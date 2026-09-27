@@ -483,16 +483,6 @@ pub struct KeyState {
     pub location: Location,
     pub modifiers: Modifiers,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Event {
-    Press {
-        state: KeyState,
-        text: Option<String>,
-        repeat: bool,
-    },
-    Release(KeyState),
-    Modifiers(Modifiers),
-}
 
 #[cfg(test)]
 mod tests {

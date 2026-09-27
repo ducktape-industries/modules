@@ -60,13 +60,6 @@
         }
       }
     ],
-    "mouse_interest": true,
-    "event_interest": {
-      "focus": true,
-      "close": false,
-      "files": true,
-      "input_method": false
-    },
     "root": {
       "Container": {
         "id": {
@@ -989,63 +982,6 @@
     "busy": true
   },
   [
-    {
-      "Observation": {
-        "event": {
-          "Window": {
-            "FileHovered": "a.txt"
-          }
-        },
-        "captured": false
-      }
-    },
-    {
-      "Mouse": {
-        "event": {
-          "WheelScrolled": {
-            "delta": {
-              "Lines": {
-                "x": 0.0,
-                "y": 1.0
-              }
-            }
-          }
-        },
-        "captured": true
-      }
-    },
-    {
-      "Keyboard": {
-        "event": {
-          "Press": {
-            "state": {
-              "key": {
-                "Named": "Enter"
-              },
-              "modified_key": {
-                "Character": "\n"
-              },
-              "physical_key": {
-                "Unidentified": {
-                  "MacOS": 36
-                }
-              },
-              "location": "Standard",
-              "modifiers": {
-                "shift": true,
-                "control": false,
-                "alt": false,
-                "logo": false,
-                "function": false
-              }
-            },
-            "text": "\n",
-            "repeat": false
-          }
-        },
-        "captured": false
-      }
-    },
     {
       "Message": 3
     },

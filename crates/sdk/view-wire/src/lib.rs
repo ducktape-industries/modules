@@ -28,7 +28,7 @@
 /// `tests/golden.rs` holds the bytes of every node, event and method: it fails on
 /// any change and says to bump this and regenerate with `WIRE_GOLDEN_WRITE=1`.
 /// Within an epoch the methods only grow; a moved or dropped method is a new epoch.
-pub const WIRE_EPOCH: u32 = 1;
+pub const WIRE_EPOCH: u32 = 2;
 
 /// For `skip_serializing_if`: a value that says nothing is left out.
 pub(crate) fn is_default<T: Default + PartialEq>(value: &T) -> bool {
@@ -120,7 +120,6 @@ pub use accessibility::{Fault, FaultKind, accessibility_faults};
 mod patch;
 pub use patch::{MAX_PATCHES, Patch, apply, diff};
 
-pub mod events;
 pub mod interactivity;
 pub mod keyboard;
 pub mod mouse;

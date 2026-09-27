@@ -202,8 +202,6 @@ fn bytes_a_hostile_guest_could_write_are_answered_not_survived() {
         editor_decisions: Vec::new(),
         editor_documents: Vec::new(),
         tooltip_responses: Vec::new(),
-        mouse_interest: false,
-        event_interest: Default::default(),
         root: Some(column(vec![text("hello"), Node::empty()])),
         requests: vec![Request {
             id: 7,

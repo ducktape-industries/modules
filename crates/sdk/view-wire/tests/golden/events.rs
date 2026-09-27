@@ -4,24 +4,6 @@ use super::*;
 pub fn every_event() -> Vec<Event> {
     let modifiers = keyboard::Modifiers::default();
     vec![
-        Event::Observation {
-            event: events::Event::Window(events::Window::FileHovered("a.txt".into())),
-            captured: false,
-        },
-        Event::Mouse {
-            event: mouse::Event::WheelScrolled {
-                delta: mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
-            },
-            captured: true,
-        },
-        Event::Keyboard {
-            event: keyboard::Event::Press {
-                state: key_state(),
-                text: Some("\n".into()),
-                repeat: false,
-            },
-            captured: false,
-        },
         Event::Message(3),
         Event::Click {
             handler: 1,
@@ -313,13 +295,6 @@ pub fn every_frame() -> Frame {
             character_index: Some(3),
             content: Some(boxed("the tip")),
         }],
-        mouse_interest: true,
-        event_interest: events::Interest {
-            focus: true,
-            close: false,
-            files: true,
-            input_method: false,
-        },
         root: Some(every_node()),
         patches: vec![
             Patch::Replace {
@@ -358,9 +333,6 @@ pub fn every_frame() -> Frame {
 
 pub fn event_variant(event: &Event) -> &'static str {
     match event {
-        Event::Observation { .. } => "Observation",
-        Event::Mouse { .. } => "Mouse",
-        Event::Keyboard { .. } => "Keyboard",
         Event::Message(_) => "Message",
         Event::Click { .. } => "Click",
         Event::MouseDown { .. } => "MouseDown",

@@ -30,8 +30,6 @@ struct Tables {
     editor_receiver: Option<EditorReceiver>,
     editor_pending: Vec<crate::wire::EditorTransactionId>,
     host: crate::Host,
-    mouse_interest: bool,
-    event_interest: crate::wire::events::Interest,
     messages: Routes<Rc<dyn Any>>,
     handlers: Routes<Rc<dyn Any>>,
     clicks: Routes<ClickRoute>,
@@ -254,14 +252,6 @@ pub(crate) fn run_message_route(
     let Some(route) = route else { return false };
     route(&(), window, app);
     true
-}
-
-pub(crate) fn event_interest(context: &Context) -> crate::wire::events::Interest {
-    context.0.borrow().event_interest
-}
-
-pub(crate) fn mouse_interest(context: &Context) -> bool {
-    context.0.borrow().mouse_interest
 }
 
 pub(crate) fn click(

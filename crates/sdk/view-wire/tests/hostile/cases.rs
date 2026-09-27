@@ -246,6 +246,17 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                 }
             };
             let outcome = view_wire::apply(&mut root, decoded.patches);
+            // Each patch was drawn against the tree `apply` had sanitized so
+            // far; the batch sanitizes once, at the end, so a well-behaved
+            // sequence can still collide in it. `apply` leaves the tree it
+            // refused as the batch made it, collision included.
+            if outcome == Err("duplicate typed element identity among siblings") {
+                assert!(
+                    has_duplicate_typed_siblings(&root),
+                    "{ctx}: missing collision"
+                );
+                return;
+            }
             assert!(
                 hostile
                     || outcome.is_ok()

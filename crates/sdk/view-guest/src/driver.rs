@@ -96,9 +96,6 @@ impl<V: View> Driver<V> {
     /// back for the view to run; everything else has already happened.
     fn dispatch(&mut self, event: wire::Event) -> Option<Callback<V>> {
         match event {
-            wire::Event::Observation { .. }
-            | wire::Event::Mouse { .. }
-            | wire::Event::Keyboard { .. } => None,
             wire::Event::Message(index) => {
                 let slots = self.app.inner.slots.clone();
                 let mut window = self.app.window();
@@ -358,8 +355,6 @@ impl<V: View> Driver<V> {
             editor_decisions,
             editor_documents: slots::take_editor_documents(&self.app.inner.slots),
             tooltip_responses: slots::take_tooltip_responses(&self.app.inner.slots),
-            mouse_interest: slots::mouse_interest(&self.app.inner.slots),
-            event_interest: slots::event_interest(&self.app.inner.slots),
             root,
             patches,
             requests: self.app.host().drain_outbox(),
