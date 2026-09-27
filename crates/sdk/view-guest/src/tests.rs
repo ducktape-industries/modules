@@ -465,6 +465,7 @@ fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
         .read(|view| assert_eq!(view.received.len(), 40));
 }
 
+mod lifecycle;
 mod primitive_tests;
 
 #[test]

@@ -235,3 +235,6 @@ fn wire_cursor(cursor: CursorStyle) -> wire::mouse::Cursor {
 impl gpui::prelude::FluentBuilder for Sensor {}
 impl gpui::prelude::FluentBuilder for ResizeHandle {}
 impl gpui::prelude::FluentBuilder for ModalOverlay {}
+
+#[cfg(test)]
+mod tests;

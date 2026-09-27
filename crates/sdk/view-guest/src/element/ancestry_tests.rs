@@ -90,10 +90,6 @@ fn named(name: &'static str) -> wire::ElementIdWire {
     wire_id(ElementId::Name(name.into()))
 }
 
-fn wire_id(id: ElementId) -> wire::ElementIdWire {
-    wire::ElementIdWire::from_gpui(id).unwrap()
-}
-
 #[test]
 fn equal_local_ids_have_distinct_typed_parent_paths() {
     let paths = Rc::new(RefCell::new(Vec::new()));

@@ -74,7 +74,6 @@ pub mod design;
 pub mod host;
 pub mod store;
 pub mod testing;
-pub mod widget;
 mod window;
 
 mod snapshot;
@@ -87,8 +86,6 @@ mod executor;
 pub use executor::Task;
 pub use host::Host;
 pub use window::Window;
-#[cfg(test)]
-mod behavior_tests;
 mod slots;
 
 mod driver;
@@ -365,6 +362,3 @@ pub mod exports {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod lifecycle_tests;
