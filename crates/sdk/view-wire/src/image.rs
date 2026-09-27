@@ -71,40 +71,6 @@ fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec
     )
 }
 
-/// Copied native viewer settings; absent values retain the host's defaults.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct ViewerOptions {
-    pub padding: Option<f32>,
-    pub scale_bounds: Option<(f32, f32)>,
-    pub scale_step: Option<f32>,
-}
-impl ViewerOptions {
-    pub(crate) fn sanitize(&mut self) {
-        super::bound_optional(&mut self.padding);
-        if let Some((min, max)) = &mut self.scale_bounds {
-            (*min, *max) = viewer_scale_bounds(f64::from(*min), f64::from(*max));
-        }
-        if let Some(step) = &mut self.scale_step {
-            *step = viewer_scale_bounds(f64::from(*step), f64::from(*step)).0;
-        }
-    }
-}
-
-/// Converts viewer scale bounds to a finite, positive, ordered `f32` range.
-fn viewer_scale_bounds(min: f64, max: f64) -> (f32, f32) {
-    let positive = |value: f64| {
-        let value = value as f32;
-        if value.is_nan() {
-            f32::EPSILON
-        } else {
-            value.clamp(f32::EPSILON, f32::MAX)
-        }
-    };
-    let min = positive(min);
-    let max = positive(max);
-    (min.min(max), min.max(max))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,20 +126,5 @@ mod tests {
         let mut excess = Some(ImageData::Encoded(vec![1]));
         ImageData::sanitize(&mut excess, &mut budget);
         assert_eq!(excess, None);
-    }
-    #[test]
-    fn viewer_options_keep_native_positive_ordered_finite_bounds() {
-        let mut options = ViewerOptions {
-            padding: Some(f32::NAN),
-            scale_bounds: Some((f32::INFINITY, f32::NAN)),
-            scale_step: Some(f32::NEG_INFINITY),
-        };
-        options.sanitize();
-        assert_eq!(options.padding, Some(0.0));
-        assert_eq!(options.scale_bounds, Some((f32::EPSILON, f32::MAX)));
-        assert_eq!(options.scale_step, Some(f32::EPSILON));
-        options.scale_bounds = Some((4.0, 0.5));
-        options.sanitize();
-        assert_eq!(options.scale_bounds, Some((0.5, 4.0)));
     }
 }

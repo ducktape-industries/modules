@@ -128,18 +128,7 @@ pub enum Event {
     Theme {
         dark: bool,
     },
-    /// A checkbox or toggler flipped. `handler` indexes the guest's
-    /// per-frame handler table; `on` is the state it now shows.
-    Toggle {
-        handler: u32,
-        on: bool,
-    },
-    /// A slider moved to `value`.
-    Slide {
-        handler: u32,
-        value: f32,
-    },
-    /// A rich text's clickable range (or a pick list's option) at `index`.
+    /// A rich text's clickable range at `index`.
     Select {
         handler: u32,
         index: u32,
@@ -165,32 +154,11 @@ pub enum Event {
         width: f32,
         height: f32,
     },
-    /// The pointer is at (`x`, `y`) inside a [`Node::MouseArea`], in the
-    /// area's own coordinates — the DOM's `offsetX`/`offsetY`, never the
-    /// window's. Carries a move (`on_move`) or a left press (`on_press_at`).
-    ///
-    /// A host sends at most ONE move per handler per redraw frame, the last
-    /// position it saw, as a browser delivers one `pointermove` per frame:
-    /// the pointer crosses a thousand pixels a second and every event is a
-    /// guest tick. A press is never coalesced.
-    Pointer {
-        handler: u32,
-        x: f32,
-        y: f32,
-    },
     /// Accumulated logical-pixel movement of a grabbed resize handle.
     Drag {
         handler: u32,
         dx: f64,
         dy: f64,
-    },
-    /// The wheel turned over a [`Node::MouseArea`] by (`dx`, `dy`), in
-    /// pixels when `pixels` is set and in lines otherwise.
-    Scroll {
-        handler: u32,
-        dx: f32,
-        dy: f32,
-        pixels: bool,
     },
     /// A scrollable's content offset in logical pixels and anchor-relative
     /// fractions, emitted only when its native viewport changes. No window
@@ -297,19 +265,6 @@ pub struct Frame {
     pub busy: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Axis {
-    Column,
-    Row,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ScrollDirection {
-    Vertical,
-    Horizontal,
-    Both,
-}
-
 /// Copied input accessibility and native layout options.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InputOptions {
@@ -324,29 +279,4 @@ pub struct EditorOptions {
     pub rich: Option<Box<editor_rich::RichPresentation>>,
     pub binding: Option<Box<EditorBinding>>,
     pub presentation: Option<Box<editor_presentation::EditorPresentation>>,
-}
-
-/// Where a scroll's offset is measured from. `Keep` rests at the start and
-/// holds the visible rows still when content lands above them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub enum ScrollAnchor {
-    #[default]
-    Start,
-    End,
-    Keep,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ContentFit {
-    Contain,
-    Cover,
-    Fill,
-    None,
-    ScaleDown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ToggleKind {
-    Checkbox,
-    Switch,
 }

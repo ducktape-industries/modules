@@ -1,40 +1,19 @@
 use super::*;
 
-/// A button holding a node is the third way the tree recurses, and the
-/// only one that hangs off an enum's field rather than a struct's.
+/// A sensor recurses like a container, is diffed as a node with one
+/// fixed child, and keeps typed identity exact.
 #[test]
-fn a_button_holding_a_node_round_trips_and_counts_as_a_child() {
+fn a_sensor_round_trips_diffs_by_props_and_claims_its_key() {
     let frame = Frame {
-        root: Some(button(ButtonContent::Child(Box::new(text("inside"))))),
-        ..Frame::default()
-    };
-    assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
-
-    let mut nested = Node::empty();
-    for _ in 0..MAX_DEPTH + 1 {
-        nested = button(ButtonContent::Child(Box::new(nested)));
-    }
-    let bytes = encode(&Frame {
-        root: Some(nested),
-        ..Frame::default()
-    });
-    assert!(decode::<Frame>(&bytes).is_err());
-}
-
-/// A mouse area recurses like a container, is diffed as a node with
-/// one fixed child, and keeps typed identity exact.
-#[test]
-fn a_mouse_area_round_trips_diffs_by_props_and_claims_its_key() {
-    let frame = Frame {
-        root: Some(mouse_area("App/m", Some(0), text("inside"))),
+        root: Some(sensor("App/m", Some(0), text("inside"))),
         ..Frame::default()
     };
     assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
     assert_eq!(frame.root.as_ref().unwrap().count(), 2);
 
     // A changed route index is a `Props` patch that keeps the child.
-    let mut old = mouse_area("App/m", Some(0), text("inside"));
-    let mut new = mouse_area("App/m", Some(7), text("inside"));
+    let mut old = sensor("App/m", Some(0), text("inside"));
+    let mut new = sensor("App/m", Some(7), text("inside"));
     let patches = diff(&mut old, &mut new);
     assert!(
         matches!(patches.as_slice(), [Patch::Props { path, .. }] if path.is_empty()),
@@ -46,8 +25,8 @@ fn a_mouse_area_round_trips_diffs_by_props_and_claims_its_key() {
     // Typed duplicates are rejected rather than renamed into a different target.
     let mut duplicate = Frame {
         root: Some(column(vec![
-            mouse_area("App/m", None, text("a")),
-            mouse_area("App/m", None, text("b")),
+            sensor("App/m", None, text("a")),
+            sensor("App/m", None, text("b")),
         ])),
         ..Frame::default()
     };
@@ -55,66 +34,6 @@ fn a_mouse_area_round_trips_diffs_by_props_and_claims_its_key() {
         sanitize(&mut duplicate).unwrap_err(),
         "duplicate typed element identity among siblings"
     );
-}
-
-#[test]
-fn a_combo_boxs_label_round_trips() {
-    let frame = Frame {
-        root: Some(Node::ComboBox {
-            id: ElementIdWire::Name("App/c".into()),
-            state_key: "App/c".into(),
-            options: vec!["Serif".into()],
-            selected: None,
-            reset: 0,
-            placeholder: String::new(),
-            label: Some("Font".into()),
-            on_select: 2,
-            style: Default::default(),
-            settings: Box::default(),
-        }),
-        ..Frame::default()
-    };
-    assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
-}
-
-#[test]
-fn a_mouse_areas_role_name_and_state_round_trip() {
-    let mut area = mouse_area("App/m", None, text("inside"));
-    let Node::MouseArea {
-        role,
-        label,
-        expanded,
-        selected,
-        checked,
-        ..
-    } = &mut area
-    else {
-        unreachable!()
-    };
-    *role = Some(Role::Checkbox);
-    *label = Some("Wrap lines".into());
-    *expanded = Some(false);
-    *selected = Some(true);
-    *checked = Some(true);
-    let frame = Frame {
-        root: Some(area),
-        ..Frame::default()
-    };
-    assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
-}
-
-#[test]
-fn a_buttons_role_round_trips() {
-    let mut link = button(ButtonContent::Label("Docs".into()));
-    let Node::Button { role, .. } = &mut link else {
-        unreachable!()
-    };
-    *role = Some(Role::Link);
-    let frame = Frame {
-        root: Some(link),
-        ..Frame::default()
-    };
-    assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
 }
 
 #[test]

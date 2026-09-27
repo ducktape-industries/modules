@@ -189,14 +189,6 @@ pub fn every_event() -> Vec<Event> {
             },
         },
         Event::Theme { dark: true },
-        Event::Toggle {
-            handler: 23,
-            on: true,
-        },
-        Event::Slide {
-            handler: 24,
-            value: 0.5,
-        },
         Event::Select {
             handler: 25,
             index: 1,
@@ -215,21 +207,10 @@ pub fn every_event() -> Vec<Event> {
             width: 100.0,
             height: 50.0,
         },
-        Event::Pointer {
-            handler: 28,
-            x: 12.5,
-            y: 3.0,
-        },
         Event::Drag {
             handler: 29,
             dx: 4.0,
             dy: -2.0,
-        },
-        Event::Scroll {
-            handler: 30,
-            dx: 0.0,
-            dy: -1.0,
-            pixels: false,
         },
         Event::ScrollOffset {
             handler: 31,
@@ -357,14 +338,10 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::EditorRequest { .. } => "EditorRequest",
         Event::EditorTransaction { .. } => "EditorTransaction",
         Event::Theme { .. } => "Theme",
-        Event::Toggle { .. } => "Toggle",
-        Event::Slide { .. } => "Slide",
         Event::Select { .. } => "Select",
         Event::RichTextHover { .. } => "RichTextHover",
         Event::Size { .. } => "Size",
-        Event::Pointer { .. } => "Pointer",
         Event::Drag { .. } => "Drag",
-        Event::Scroll { .. } => "Scroll",
         Event::ScrollOffset { .. } => "ScrollOffset",
         Event::UniformListRange { .. } => "UniformListRange",
         Event::UniformListState { .. } => "UniformListState",

@@ -57,12 +57,8 @@ impl Element for Sensor {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         wire::Node::Sensor {
             id: wire_id(self.id),
-            reset: None,
             on_show: self.on_show.map(|listener| lowering.route(listener)),
             on_resize: self.on_resize.map(|listener| lowering.route(listener)),
-            on_hide: None,
-            anticipate: None,
-            delay: None,
             child: Box::new(lowering.lower(self.child)),
             style: self.style,
         }

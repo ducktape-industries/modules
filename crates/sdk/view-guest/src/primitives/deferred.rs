@@ -1,6 +1,6 @@
 use crate::{AnyElement, Element, IntoElement, Lowering, wire};
 
-/// A native deferred draw. It is not the guest subtree cache represented by `Node::Lazy`.
+/// A native deferred draw: painted after everything in the frame that is not.
 pub struct Deferred {
     child: AnyElement,
     priority: usize,

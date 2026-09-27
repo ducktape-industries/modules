@@ -9,40 +9,16 @@ use super::*;
 pub(super) fn tree_depth(node: &Node) -> usize {
     match node {
         Node::Sensor { child: content, .. }
-        | Node::MouseArea { content, .. }
         | Node::ResizeHandle { content, .. }
-        | Node::Float { content, .. }
-        | Node::Responsive { content, .. }
-        | Node::Lazy { content, .. }
-        | Node::Scroll { content, .. } => 1 + tree_depth(content),
+        | Node::Deferred { content, .. } => 1 + tree_depth(content),
         Node::Container(view_wire::ContainerNode { children, .. })
         | Node::Anchored { children, .. }
         | Node::Image {
             state_children: children,
             ..
         }
-        | Node::Tooltip { children, .. }
-        | Node::Overlay { children, .. }
-        | Node::When { children, .. } => 1 + children.iter().map(tree_depth).max().unwrap_or(0),
-        Node::Button {
-            content: ButtonContent::Child(child),
-            ..
-        } => 1 + tree_depth(child),
+        | Node::Overlay { children, .. } => 1 + children.iter().map(tree_depth).max().unwrap_or(0),
         _ => 0,
-    }
-}
-
-/// A slider or progress number: finite, and nothing more is promised.
-pub(super) fn check_finite(value: f32, ctx: &str, field: &str) {
-    assert!(value.is_finite(), "{ctx}: {field} {value} is not finite");
-}
-
-pub(super) fn check_pixels(value: &Option<f32>, ctx: &str, field: &str) {
-    if let Some(value) = value {
-        assert!(
-            value.is_finite() && (0.0..=MAX_PIXELS).contains(value),
-            "{ctx}: {field} {value} outside 0..={MAX_PIXELS}"
-        );
     }
 }
 
@@ -132,87 +108,12 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
                 check_bounds(child, depth + 1, svg_bytes, ctx);
             }
         }
-        Node::Float {
-            scale,
-            style,
-            content,
-            ..
-        } => {
-            assert!(scale.is_finite() && (f32::EPSILON..=MAX_PIXELS).contains(scale));
+        Node::Sensor { style, child, .. } => {
             check_native_style(style);
-            check_bounds(content, depth + 1, svg_bytes, ctx);
-        }
-        Node::Tooltip {
-            delay_ms,
-            style,
-            children,
-            ..
-        } => {
-            assert!(*delay_ms <= 60_000);
-            check_native_style(style);
-            assert!(children.len() <= 2);
-            for child in children {
-                check_bounds(child, depth + 1, svg_bytes, ctx);
-            }
-        }
-        Node::Sensor {
-            anticipate,
-            delay,
-            child,
-            ..
-        } => {
-            check_pixels(anticipate, ctx, "sensor anticipate");
-            if let Some(delay) = delay {
-                assert!(
-                    delay.is_finite() && *delay >= 0.0,
-                    "{ctx}: sensor delay {delay} is not a finite non-negative number"
-                );
-            }
             check_bounds(child, depth + 1, svg_bytes, ctx);
-        }
-        Node::Scroll {
-            style,
-            bar_width,
-            bar_margin,
-            scroller_width,
-            bar_spacing,
-            content,
-            ..
-        } => {
-            check_native_style(style);
-            for (value, field) in [
-                (bar_width, "bar width"),
-                (bar_margin, "bar margin"),
-                (scroller_width, "scroller width"),
-                (bar_spacing, "bar spacing"),
-            ] {
-                check_pixels(value, ctx, field);
-            }
-            check_bounds(content, depth + 1, svg_bytes, ctx);
-        }
-        Node::MouseArea { label, content, .. } => {
-            if let Some(label) = label {
-                check_string(label, ctx, "accessible label");
-            }
-            check_bounds(content, depth + 1, svg_bytes, ctx);
         }
         Node::ResizeHandle { content, .. } => {
             check_bounds(content, depth + 1, svg_bytes, ctx);
-        }
-        Node::Qr { code, .. } => {
-            if let Some(payload) = &code.payload {
-                assert!(payload.len() <= view_wire::MAX_QR_PAYLOAD_BYTES);
-            }
-            for color in [code.cell, code.background].into_iter().flatten() {
-                for value in [color.h, color.s, color.l, color.a] {
-                    assert!(value.is_finite() && (0.0..=1.0).contains(&value));
-                }
-            }
-            if let Some(view_wire::QrSize::Cell(value) | view_wire::QrSize::Total(value)) =
-                code.size
-            {
-                check_pixels(&Some(value), ctx, "QR size");
-            }
         }
         Node::RichText {
             text,
@@ -251,27 +152,6 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
                 heading.is_none_or(|level| (1..=6).contains(&level)),
                 "{ctx}: heading level {heading:?} outside 1..=6"
             );
-        }
-        Node::ImageViewer {
-            data,
-            label,
-            options,
-            ..
-        } => {
-            if let Some(data) = data {
-                *svg_bytes += data.byte_len();
-                assert!(data.valid_rgba(), "{ctx}: invalid viewer RGBA");
-            }
-            if let Some(label) = label {
-                check_string(label, ctx, "viewer label");
-            }
-            check_pixels(&options.padding, ctx, "viewer padding");
-            if let Some((min, max)) = options.scale_bounds {
-                assert!(min.is_finite() && max.is_finite() && min > 0.0 && max >= min);
-            }
-            if let Some(step) = options.scale_step {
-                assert!(step.is_finite() && step > 0.0);
-            }
         }
         Node::Image {
             data,
@@ -351,108 +231,7 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
                 check_string(value, ctx, "input description");
             }
         }
-        Node::Button {
-            content,
-            label,
-            description,
-            ..
-        } => {
-            match content {
-                ButtonContent::Label(text) => check_string(text, ctx, "button label"),
-                ButtonContent::Child(child) => check_bounds(child, depth + 1, svg_bytes, ctx),
-            }
-            if let Some(label) = label {
-                check_string(label, ctx, "accessible label");
-            }
-            if let Some(description) = description {
-                check_string(description, ctx, "button description");
-            }
-        }
-        Node::Space { style } | Node::Rule { style, .. } => check_native_style(style),
-        Node::Toggle { label, .. } => {
-            check_string(label, ctx, "control label");
-        }
-        Node::Radio { label, .. } => {
-            check_string(label, ctx, "control label");
-        }
-        Node::Slider {
-            label,
-            value,
-            min,
-            max,
-            step,
-            ..
-        } => {
-            if let Some(label) = label {
-                check_string(label, ctx, "accessible label");
-            }
-            for (number, field) in [(value, "value"), (min, "min"), (max, "max"), (step, "step")] {
-                check_finite(*number, ctx, field);
-            }
-        }
-        Node::ComboBox {
-            state_key,
-            options,
-            selected,
-            placeholder,
-            label,
-            settings,
-            ..
-        } => {
-            check_string(state_key, ctx, "combo state identity");
-            check_string(placeholder, ctx, "combo placeholder");
-            if let Some(label) = label {
-                check_string(label, ctx, "accessible label");
-            }
-            assert!(options.len() <= MAX_OPTIONS, "{ctx}: combo option budget");
-            for option in options {
-                check_string(option, ctx, "combo option");
-            }
-            if let Some(index) = selected {
-                assert!((*index as usize) < options.len());
-            }
-            check_pixels(
-                &settings.icon.as_ref().map(|icon| icon.spacing),
-                ctx,
-                "combo icon spacing",
-            );
-        }
-        Node::PickList {
-            options,
-            selected,
-            placeholder,
-            label,
-            ..
-        } => {
-            if let Some(label) = label {
-                check_string(label, ctx, "accessible label");
-            }
-            assert!(
-                options.len() <= MAX_OPTIONS,
-                "{ctx}: {} options, over MAX_OPTIONS",
-                options.len()
-            );
-            for option in options {
-                check_string(option, ctx, "option");
-            }
-            if let Some(index) = selected {
-                assert!(
-                    (*index as usize) < options.len(),
-                    "{ctx}: selected option {index} past {} options",
-                    options.len()
-                );
-            }
-            if let Some(placeholder) = placeholder {
-                check_string(placeholder, ctx, "placeholder");
-            }
-        }
-        Node::Progress {
-            value, min, max, ..
-        } => {
-            for (number, field) in [(value, "value"), (min, "min"), (max, "max")] {
-                check_finite(*number, ctx, field);
-            }
-        }
+        Node::Space { style } => check_native_style(style),
         Node::Overlay {
             label, children, ..
         } => {
@@ -463,16 +242,6 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             for child in children {
                 check_bounds(child, depth + 1, svg_bytes, ctx);
             }
-        }
-        Node::Lazy { content, .. } => check_bounds(content, depth + 1, svg_bytes, ctx),
-        Node::Responsive { content, .. } => {
-            check_bounds(content, depth + 1, svg_bytes, ctx);
-        }
-        Node::When { condition, .. } => {
-            assert!(
-                condition.ops.len() <= view_wire::MAX_QUERY_OPS,
-                "{ctx}: condition budget"
-            );
         }
         Node::Canvas { style, commands } => {
             check_native_style(style);

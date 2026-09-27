@@ -36,10 +36,6 @@ pub const MAX_TEXT_BYTES_PER_FRAME: usize = MAX_STRING_BYTES;
 /// picture once, so this bounds what a frame can make the host parse, not
 /// what an app can show over its life; an icon is a few kilobytes.
 pub const MAX_PICTURE_BYTES_PER_FRAME: usize = 1 << 20;
-/// The most options one [`Node::PickList`] may offer: a menu, not a table.
-/// Each option is shaped text and spends the frame's text budget too.
-pub const MAX_OPTIONS: usize = 256;
-
 /// A uniform list may describe a large logical list without allocating rows.
 pub const MAX_UNIFORM_LIST_COUNT: usize = 65_536;
 /// A frame and one host range request carry at most this many uniform rows.
@@ -132,12 +128,7 @@ pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> 
                     }
                 }
             }
-            Node::Image { label, .. }
-            | Node::ImageViewer { label, .. }
-            | Node::Svg { label, .. }
-            | Node::MouseArea { label, .. }
-            | Node::Slider { label, .. }
-            | Node::Overlay { label, .. } => {
+            Node::Image { label, .. } | Node::Svg { label, .. } | Node::Overlay { label, .. } => {
                 if let Some(label) = label {
                     add(label);
                 }
@@ -146,53 +137,6 @@ pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> 
             Node::Surface { name, args, .. } => {
                 add(name);
                 surface_values.extend(args);
-            }
-            Node::Button {
-                content,
-                label,
-                description,
-                ..
-            } => {
-                if let ButtonContent::Label(text) = content {
-                    add(text);
-                }
-                if let Some(label) = label {
-                    add(label);
-                }
-                if let Some(description) = description {
-                    add(description);
-                }
-            }
-            Node::Toggle { label, .. } | Node::Radio { label, .. } => add(label),
-            Node::ComboBox {
-                options,
-                placeholder,
-                label,
-                ..
-            } => {
-                for option in options {
-                    add(option);
-                }
-                add(placeholder);
-                if let Some(label) = label {
-                    add(label);
-                }
-            }
-            Node::PickList {
-                options,
-                placeholder,
-                label,
-                ..
-            } => {
-                for option in options {
-                    add(option);
-                }
-                if let Some(placeholder) = placeholder {
-                    add(placeholder);
-                }
-                if let Some(label) = label {
-                    add(label);
-                }
             }
             _ => {}
         }
@@ -282,7 +226,6 @@ fn finish_typed_scope(scopes: &mut IdentityScopes, started: bool) {
 /// What is left of a frame's per-frame budgets while its tree is walked.
 pub(crate) struct Budgets {
     pub(crate) nodes: usize,
-    pub(crate) qr_codes: usize,
     pub(crate) canvas_parts: usize,
     pub(crate) surface_values: usize,
     pub(crate) text: usize,
@@ -299,7 +242,6 @@ impl Budgets {
             list_items: MAX_LIST_ITEMS,
             surface_values: MAX_SURFACE_VALUES,
             canvas_parts: MAX_CANVAS_PARTS,
-            qr_codes: MAX_QR_CODES,
         }
     }
 }
@@ -325,9 +267,7 @@ mod node;
 use node::sanitize_node;
 
 mod numbers;
-pub(crate) use numbers::{
-    bound_optional, bounded, finite, signed_bounded, truncate_string, truncate_to,
-};
+pub(crate) use numbers::{bounded, finite, signed_bounded, truncate_string, truncate_to};
 
 mod interactivity;
 use interactivity::sanitize_interactivity;

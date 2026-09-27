@@ -24,26 +24,9 @@ impl Node {
             | Self::Editor { id, .. }
             | Self::UniformList { id, .. }
             | Self::ResizeHandle { id, .. }
-            | Self::MouseArea { id, .. }
             | Self::Sensor { id, .. }
-            | Self::Responsive { id, .. }
-            | Self::Scroll { id, .. }
             | Self::Overlay { id, .. }
-            | Self::ImageViewer { id, .. }
-            | Self::Slider { id, .. }
-            | Self::PickList { id, .. }
-            | Self::ComboBox { id, .. }
-            | Self::Surface { id, .. }
-            | Self::Float { id, .. }
-            | Self::Lazy { id, .. }
-            | Self::When { id, .. }
-            | Self::Qr { id, .. }
-            | Self::Button { id, .. }
-            | Self::Rule { id, .. }
-            | Self::Toggle { id, .. }
-            | Self::Radio { id, .. }
-            | Self::Progress { id, .. }
-            | Self::Tooltip { id, .. } => Some(id),
+            | Self::Surface { id, .. } => Some(id),
             Self::List { .. }
             | Self::Space { .. }
             | Self::Anchored { .. }
@@ -59,44 +42,23 @@ impl Node {
     pub fn children(&self) -> &[Node] {
         match self {
             Self::Container(crate::ContainerNode { children, .. })
-            | Self::Tooltip { children, .. }
             | Self::Overlay { children, .. }
             | Self::List { children, .. }
             | Self::UniformList { children, .. }
-            | Self::When { children, .. }
             | Self::Anchored { children, .. }
             | Self::Image {
                 state_children: children,
                 ..
             } => children,
-            Self::Float { content, .. }
-            | Self::Responsive { content, .. }
-            | Self::Lazy { content, .. }
-            | Self::Deferred { content, .. }
+            Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
-            | Self::ResizeHandle { content, .. }
-            | Self::MouseArea { content, .. }
-            | Self::Scroll { content, .. } => std::slice::from_ref(content),
-            Self::Button {
-                content: ButtonContent::Child(child),
-                ..
-            } => std::slice::from_ref(child),
-            Self::Button { .. }
-            | Self::Qr { .. }
-            | Self::RichText { .. }
+            | Self::ResizeHandle { content, .. } => std::slice::from_ref(content),
+            Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Svg { .. }
-            | Self::ImageViewer { .. }
             | Self::Input { .. }
             | Self::Editor { .. }
             | Self::Space { .. }
-            | Self::Rule { .. }
-            | Self::Toggle { .. }
-            | Self::Radio { .. }
-            | Self::Slider { .. }
-            | Self::PickList { .. }
-            | Self::ComboBox { .. }
-            | Self::Progress { .. }
             | Self::Canvas { .. }
             | Self::Surface { .. } => &[],
         }
@@ -113,44 +75,23 @@ impl Node {
     pub fn children_mut(&mut self) -> &mut [Node] {
         match self {
             Self::Container(crate::ContainerNode { children, .. })
-            | Self::Tooltip { children, .. }
             | Self::Overlay { children, .. }
             | Self::List { children, .. }
             | Self::UniformList { children, .. }
-            | Self::When { children, .. }
             | Self::Anchored { children, .. }
             | Self::Image {
                 state_children: children,
                 ..
             } => children,
-            Self::Float { content, .. }
-            | Self::Responsive { content, .. }
-            | Self::Lazy { content, .. }
-            | Self::Deferred { content, .. }
+            Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
-            | Self::ResizeHandle { content, .. }
-            | Self::MouseArea { content, .. }
-            | Self::Scroll { content, .. } => std::slice::from_mut(content),
-            Self::Button {
-                content: ButtonContent::Child(child),
-                ..
-            } => std::slice::from_mut(child),
-            Self::Button { .. }
-            | Self::Qr { .. }
-            | Self::RichText { .. }
+            | Self::ResizeHandle { content, .. } => std::slice::from_mut(content),
+            Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Input { .. }
             | Self::Editor { .. }
             | Self::Space { .. }
-            | Self::Rule { .. }
-            | Self::Toggle { .. }
-            | Self::Radio { .. }
-            | Self::Slider { .. }
-            | Self::PickList { .. }
-            | Self::ComboBox { .. }
-            | Self::Progress { .. }
             | Self::Svg { .. }
-            | Self::ImageViewer { .. }
             | Self::Canvas { .. }
             | Self::Surface { .. } => &mut [],
         }
@@ -164,38 +105,21 @@ impl Node {
             Self::Container(crate::ContainerNode { children, .. })
             | Self::List { children, .. }
             | Self::UniformList { children, .. }
-            | Self::When { children, .. }
-            | Self::Tooltip { children, .. }
             | Self::Anchored { children, .. }
             | Self::Image {
                 state_children: children,
                 ..
             }
             | Self::Overlay { children, .. } => Some(children),
-            Self::Float { .. }
-            | Self::Responsive { .. }
-            | Self::Lazy { .. }
-            | Self::Deferred { .. }
+            Self::Deferred { .. }
             | Self::Sensor { .. }
             | Self::ResizeHandle { .. }
-            | Self::MouseArea { .. }
-            | Self::Scroll { .. }
-            | Self::Button { .. }
-            | Self::Qr { .. }
             | Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Input { .. }
             | Self::Editor { .. }
             | Self::Space { .. }
-            | Self::Rule { .. }
-            | Self::Toggle { .. }
-            | Self::Radio { .. }
-            | Self::Slider { .. }
-            | Self::PickList { .. }
-            | Self::ComboBox { .. }
-            | Self::Progress { .. }
             | Self::Svg { .. }
-            | Self::ImageViewer { .. }
             | Self::Canvas { .. }
             | Self::Surface { .. } => None,
         }

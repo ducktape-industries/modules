@@ -1,10 +1,10 @@
 //! Helpers for a guest's own tests: build events the host would send, and
 //! read the tree a frame carries.
 
-use crate::wire::{ButtonContent, Event, Frame, Node};
+use crate::wire::{Event, Frame, Node};
 
-/// Every text the tree shows, depth first: text nodes, button labels, and
-/// the value or placeholder of an input or editor.
+/// Every text the tree shows, depth first: text nodes and the value or
+/// placeholder of an input or editor.
 pub(crate) fn texts(frame: &Frame) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(root) = &frame.root {
@@ -36,31 +36,6 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
                 out.push(placeholder.clone());
             }
         }
-        Node::Button {
-            content: ButtonContent::Label(label),
-            ..
-        } => out.push(label.clone()),
-        Node::Toggle { label, .. } | Node::Radio { label, .. } => out.push(label.clone()),
-        Node::ComboBox {
-            options,
-            selected,
-            placeholder,
-            ..
-        } => out.push(
-            selected
-                .and_then(|index| options.get(index as usize))
-                .cloned()
-                .unwrap_or_else(|| placeholder.clone()),
-        ),
-        Node::PickList {
-            options,
-            selected,
-            placeholder,
-            ..
-        } => out.push(match selected {
-            Some(index) => options[*index as usize].clone(),
-            None => placeholder.clone().unwrap_or_default(),
-        }),
         _ => node
             .children()
             .iter()
@@ -136,13 +111,6 @@ fn button<'a>(frame: &'a Frame, name: &str) -> Option<&'a Node> {
                 || interactivity.aria.label.as_deref() == Some(name)
                 || labels.iter().any(|label| label == name)
         }
-        Node::Button {
-            id, content, label, ..
-        } => {
-            id.name() == Some(name)
-                || label.as_deref() == Some(name)
-                || matches!(content, ButtonContent::Label(label) if label == name)
-        }
         _ => false,
     })
 }
@@ -168,11 +136,6 @@ pub(crate) fn press(frame: &Frame, name: &str) -> Vec<Event> {
                 event: (&gpui::ClickEvent::default()).into(),
             }]
         }
-        Some(Node::Button {
-            on_press: Some(message),
-            ..
-        }) => vec![Event::Message(*message)],
-        Some(Node::Button { on_press: None, .. }) => panic!("button {name:?} is disabled"),
         _ => panic!("no button {name:?} in {:?}", texts(frame)),
     }
 }

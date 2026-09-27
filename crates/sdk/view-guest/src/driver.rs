@@ -174,15 +174,6 @@ impl<V: View> Driver<V> {
             wire::Event::EditorTransaction { handler, event } => {
                 self.editor_transaction(handler, event)
             }
-            wire::Event::Toggle { handler, on } => self.handle(handler, on),
-            wire::Event::Slide { handler, value } => self.handle(handler, value),
-            wire::Event::Pointer { handler, x, y } => self.handle(handler, (x, y)),
-            wire::Event::Scroll {
-                handler,
-                dx,
-                dy,
-                pixels,
-            } => self.handle(handler, (dx, dy, pixels)),
             wire::Event::ScrollOffset {
                 handler,
                 x,
@@ -418,7 +409,7 @@ impl<V: View> Driver<V> {
                 source: wire::SvgSource::Data { bytes, .. },
                 ..
             } => *bytes = None,
-            wire::Node::Image { data, .. } | wire::Node::ImageViewer { data, .. } => *data = None,
+            wire::Node::Image { data, .. } => *data = None,
             _ => {}
         });
         self.last_root = Some(kept);

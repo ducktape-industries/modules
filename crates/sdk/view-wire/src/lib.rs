@@ -61,7 +61,7 @@ pub use editor_transaction::{
 pub use editor::{EditorCursor, EditorPosition, editor_lines, editor_offset, editor_position};
 
 mod image;
-pub use image::{ImageData, ViewerOptions};
+pub use image::ImageData;
 
 mod snapshot;
 pub use snapshot::MAX_SNAPSHOT_BYTES;
@@ -75,15 +75,8 @@ mod style;
 mod style_sanitize;
 pub use style::{GroupRefinement, Interactivity};
 
-mod combo;
-pub use combo::{ComboIcon, ComboOptions};
-mod pick;
-pub use pick::{PickHandle, PickIcon, PickOptions};
-
-mod tooltip;
-pub use tooltip::TooltipPosition;
 mod qr;
-pub use qr::{MAX_QR_CODES, MAX_QR_PAYLOAD_BYTES, Qr, QrCorrection, QrSize, QrVersion};
+pub use qr::{Qr, QrCorrection, QrSize, QrVersion};
 mod rich_text;
 pub use rich_text::{HighlightStyle as RichTextHighlightStyle, Runs as RichTextRuns};
 mod canvas;
@@ -96,9 +89,6 @@ pub use list::{
     ListAlignment, ListCommand, ListKey, ListOffset, ListRequest, ListScroll, ListSizingBehavior,
     MAX_LIST_COMMANDS, MAX_LIST_ITEMS, MAX_LIST_ROWS,
 };
-mod query;
-pub use query::{ContainerQuery, MAX_QUERY_OPS, QueryOp};
-
 mod window;
 pub use window::WindowControlArea;
 
@@ -112,8 +102,8 @@ mod styled_nodes;
 pub use styled_nodes::{ContainerNode, TextNode};
 mod node;
 pub use node::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, ButtonContent, ImageObjectFit, ImageStyle, Live,
-    Node, Role, SvgSource, SvgTransformation,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Live, Node,
+    SvgSource, SvgTransformation,
 };
 mod accessibility;
 pub use accessibility::{Fault, FaultKind, accessibility_faults};
@@ -129,16 +119,13 @@ pub use interactivity::{
 
 mod protocol;
 pub use protocol::{
-    Axis, ContentFit, EditorOptions, Error, Event, Frame, InputOptions, Request, RichTextHover,
-    ScrollAnchor, ScrollDirection, ToggleKind, code,
+    EditorOptions, Error, Event, Frame, InputOptions, Request, RichTextHover, code,
 };
 
 mod frame_sanitize;
-pub(crate) use frame_sanitize::{
-    Budgets, bound_optional, bounded, finite, sanitize_tree, spend_text, truncate_to,
-};
+pub(crate) use frame_sanitize::{Budgets, finite, sanitize_tree, spend_text, truncate_to};
 pub use frame_sanitize::{
-    MAX_DEPTH, MAX_FRAME_BYTES, MAX_NODES, MAX_OPTIONS, MAX_PICTURE_BYTES_PER_FRAME, MAX_PIXELS,
+    MAX_DEPTH, MAX_FRAME_BYTES, MAX_NODES, MAX_PICTURE_BYTES_PER_FRAME, MAX_PIXELS,
     MAX_STRING_BYTES, MAX_SURFACE_ARGS, MAX_TEXT_BYTES_PER_FRAME, MAX_TEXT_PIXELS,
     MAX_UNIFORM_LIST_COUNT, MAX_UNIFORM_LIST_ROWS, sanitize,
 };

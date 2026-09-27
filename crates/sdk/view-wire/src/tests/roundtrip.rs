@@ -277,18 +277,6 @@ fn a_frame_round_trips() {
         tooltip_responses: Vec::new(),
         root: Some(column(vec![
             text("hello"),
-            Node::Button {
-                checked: None,
-                expanded: None,
-                selected: None,
-                role: None,
-                description: None,
-                id: ElementIdWire::Name("App/b".into()),
-                content: ButtonContent::Label("Go".into()),
-                label: None,
-                on_press: Some(3),
-                style: gpui::StyleRefinement::default(),
-            },
             Node::Input {
                 options: Default::default(),
                 id: ElementIdWire::Name("App/i".into()),
@@ -355,28 +343,9 @@ fn a_frame_round_trips() {
                 input_time_ms: 42,
             },
         },
-        Event::Toggle {
-            handler: 1,
-            on: true,
-        },
-        Event::Slide {
-            handler: 2,
-            value: 0.5,
-        },
         Event::Select {
             handler: 3,
             index: 1,
-        },
-        Event::Pointer {
-            handler: 4,
-            x: 12.5,
-            y: 3.0,
-        },
-        Event::Scroll {
-            handler: 5,
-            dx: 0.0,
-            dy: -1.0,
-            pixels: false,
         },
         Event::ScrollOffset {
             handler: 6,

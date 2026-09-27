@@ -1,7 +1,7 @@
 //! The one rule for what assistive technology cannot name: the views' test
 //! gate (`view-guest` testing) asks [`accessibility_faults`].
 
-use crate::{ButtonContent, Node};
+use crate::Node;
 
 /// A node assistive technology cannot name or place.
 #[derive(Clone, Debug, PartialEq)]
@@ -13,11 +13,11 @@ pub struct Fault {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FaultKind {
-    /// A button, a mouse area with a role, or an overlay that nothing names.
+    /// A clickable container with a role, or an overlay, that nothing names.
     Unnamed,
-    /// A mouse area that answers a click without saying what it is.
+    /// A container that answers a click without saying what it is.
     NoRole,
-    /// A text field, editor, slider, combo box or pick list without a label.
+    /// A text field or editor without a label.
     UnlabeledInput,
     /// An earlier sibling already holds this `key`.
     DuplicateKey,
@@ -25,13 +25,12 @@ pub enum FaultKind {
 
 /// Every fault in the tree, depth first. An empty string is no name.
 ///
-/// A mouse area answers a click when `on_press`, `on_release` or
-/// `on_double_click` is set; it is named by its `label` or by any non-empty
-/// [`Node::Text`] inside it. A button is named by a non-empty label content
-/// or `label`, and an overlay by its `label` alone: the text inside a dialog
-/// is what it says, not what it is. [`Node::Image`], [`Node::ImageViewer`]
-/// and [`Node::Svg`] are skipped: they carry no handler, so whatever makes
-/// them interactive is the node that names them.
+/// A container answers a click when its interactivity has `on_click`; it
+/// is named by its aria label or by any non-empty [`Node::Text`] inside
+/// it. An overlay is named by its `label` alone: the text inside a dialog
+/// is what it says, not what it is. [`Node::Image`] and [`Node::Svg`] are
+/// skipped: they carry no handler, so whatever makes them interactive is
+/// the node that names them.
 pub fn accessibility_faults(root: &Node) -> Vec<Fault> {
     let mut faults = Vec::new();
     walk(root, None, &mut faults);
@@ -108,25 +107,7 @@ fn fault(node: &Node) -> Option<FaultKind> {
             .label
             .is_empty()
             .then_some(FaultKind::UnlabeledInput),
-        Node::Editor { label, .. }
-        | Node::Slider { label, .. }
-        | Node::ComboBox { label, .. }
-        | Node::PickList { label, .. } => (!named(label)).then_some(FaultKind::UnlabeledInput),
-        Node::Button { content, label, .. } => {
-            let plain = matches!(content, ButtonContent::Label(text) if !text.is_empty());
-            (!plain && !named(label)).then_some(FaultKind::Unnamed)
-        }
-        Node::MouseArea {
-            role: None,
-            on_press,
-            on_release,
-            on_double_click,
-            ..
-        } => (on_press.is_some() || on_release.is_some() || on_double_click.is_some())
-            .then_some(FaultKind::NoRole),
-        Node::MouseArea { label, content, .. } => {
-            (!named(label) && !has_text(content)).then_some(FaultKind::Unnamed)
-        }
+        Node::Editor { label, .. } => (!named(label)).then_some(FaultKind::UnlabeledInput),
         Node::Overlay { label, .. } => (!named(label)).then_some(FaultKind::Unnamed),
         _ => None,
     }
@@ -144,7 +125,7 @@ fn has_text(node: &Node) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ElementIdWire, Interactivity, Role};
+    use crate::{ElementIdWire, Interactivity};
     use gpui::StyleRefinement;
 
     fn text(key: &str, content: &str) -> Node {
@@ -166,36 +147,25 @@ mod tests {
         })
     }
 
-    fn area(key: &str, role: Option<Role>, on_press: Option<u32>, content: Node) -> Node {
-        Node::MouseArea {
-            id: ElementIdWire::Name(key.into()),
-            role,
-            label: None,
-            expanded: None,
-            selected: None,
-            checked: None,
-            on_press,
-            on_release: None,
-            on_double_click: None,
-            on_right_press: None,
-            on_right_release: None,
-            on_middle_press: None,
-            on_middle_release: None,
-            on_enter: None,
-            on_exit: None,
-            on_move: None,
-            on_press_at: None,
-            on_scroll: None,
-            content: Box::new(content),
-        }
+    fn clickable(key: &str, role: Option<gpui::Role>, content: Node) -> Node {
+        Node::Container(crate::ContainerNode {
+            id: Some(ElementIdWire::Name(key.into())),
+            style: StyleRefinement::default(),
+            interactivity: Interactivity {
+                role,
+                on_click: Some(1),
+                ..Default::default()
+            },
+            children: vec![content],
+        })
     }
 
     #[test]
-    fn named_trees_pass_and_unlabeled_mouse_areas_are_reported() {
+    fn named_trees_pass_and_unlabeled_clickables_are_reported() {
         let faulty = column(
             "App",
             vec![
-                area("App/open", None, Some(1), text("App/open/t", "Open")),
+                clickable("App/open", None, text("App/open/t", "Open")),
                 text("App/dup", "a"),
                 text("App/dup", "b"),
                 Node::Overlay {
@@ -217,12 +187,16 @@ mod tests {
                 .iter()
                 .any(|fault| fault.kind == FaultKind::DuplicateKey)
         );
+        assert!(
+            accessibility_faults(&faulty)
+                .iter()
+                .any(|fault| fault.kind == FaultKind::Unnamed)
+        );
         let named = column(
             "App",
-            vec![area(
+            vec![clickable(
                 "App/open",
-                Some(Role::Link),
-                Some(1),
+                Some(gpui::Role::Link),
                 text("App/open/t", "Open"),
             )],
         );

@@ -17,10 +17,6 @@ pub(super) fn gen_f32(rng: &mut Rng) -> f32 {
     }
 }
 
-pub(super) fn gen_opt_f32(rng: &mut Rng) -> Option<f32> {
-    rng.next_bool().then(|| gen_f32(rng))
-}
-
 /// A node's typed id; from a [`Rng::poisoning_ids`] generator, one in
 /// eight is a focus handle, which never crosses the wire.
 pub(super) fn gen_id(rng: &mut Rng) -> ElementIdWire {
@@ -54,47 +50,6 @@ pub(super) fn gen_string(rng: &mut Rng) -> String {
         s.push(*rng.choose(&POOL));
     }
     s
-}
-
-pub(super) fn gen_opt_role(rng: &mut Rng) -> Option<Role> {
-    rng.next_bool().then(|| {
-        *rng.choose(&[
-            Role::Button,
-            Role::Link,
-            Role::Tab,
-            Role::MenuItem,
-            Role::Row,
-            Role::Checkbox,
-            Role::Switch,
-        ])
-    })
-}
-
-pub(super) fn gen_axis(rng: &mut Rng) -> Axis {
-    if rng.next_bool() {
-        Axis::Column
-    } else {
-        Axis::Row
-    }
-}
-
-pub(super) fn gen_anchor(rng: &mut Rng) -> ScrollAnchor {
-    *rng.choose(&[ScrollAnchor::Start, ScrollAnchor::End, ScrollAnchor::Keep])
-}
-
-pub(super) fn gen_button_label(rng: &mut Rng) -> Node {
-    Node::Button {
-        checked: rng.next_bool().then(|| rng.next_bool()),
-        expanded: rng.next_bool().then(|| rng.next_bool()),
-        selected: rng.next_bool().then(|| rng.next_bool()),
-        role: gen_opt_role(rng),
-        description: rng.next_bool().then(|| gen_string(rng)),
-        id: gen_id(rng),
-        content: ButtonContent::Label(gen_string(rng)),
-        label: rng.next_bool().then(|| gen_string(rng)),
-        on_press: rng.next_bool().then(|| rng.next_u64() as u32),
-        style: gen_native_style(rng),
-    }
 }
 
 pub(super) fn gen_input(rng: &mut Rng) -> Node {
@@ -156,14 +111,6 @@ pub(super) fn gen_editor(rng: &mut Rng) -> Node {
     }
 }
 
-pub(super) fn gen_rule(rng: &mut Rng) -> Node {
-    Node::Rule {
-        id: gen_id(rng),
-        axis: gen_axis(rng),
-        style: gen_native_style(rng),
-    }
-}
-
 pub(super) fn gen_text(rng: &mut Rng) -> Node {
     Node::Text(view_wire::TextNode {
         id: None,
@@ -203,21 +150,6 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
                 }
             }
         });
-        if rng.next_bool() {
-            return Node::ImageViewer {
-                id: gen_id(rng),
-                hash: rng.next_u64(),
-                data,
-                label: rng.next_bool().then(|| gen_string(rng)),
-                fit: None,
-                options: ViewerOptions {
-                    padding: gen_opt_f32(rng),
-                    scale_bounds: rng.next_bool().then(|| (gen_f32(rng), gen_f32(rng))),
-                    scale_step: gen_opt_f32(rng),
-                },
-                style: gpui::StyleRefinement::default(),
-            };
-        }
         return Node::Image {
             id: Some(gen_id(rng)),
             hash: rng.next_u64(),
@@ -254,74 +186,6 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
     }
 }
 
-pub(super) fn gen_toggle(rng: &mut Rng) -> Node {
-    Node::Toggle {
-        id: gen_id(rng),
-        kind: *rng.choose(&[ToggleKind::Checkbox, ToggleKind::Switch]),
-        label: gen_string(rng),
-        checked: rng.next_bool(),
-        on_toggle: rng.next_bool().then(|| rng.next_u64() as u32),
-        style: gpui::StyleRefinement::default(),
-    }
-}
-
-pub(super) fn gen_radio(rng: &mut Rng) -> Node {
-    Node::Radio {
-        id: gen_id(rng),
-        label: gen_string(rng),
-        selected: rng.next_bool(),
-        on_select: rng.next_u64() as u32,
-        style: gpui::StyleRefinement::default(),
-    }
-}
-
-pub(super) fn gen_slider(rng: &mut Rng) -> Node {
-    Node::Slider {
-        id: gen_id(rng),
-        label: rng.next_bool().then(|| gen_string(rng)),
-        value: gen_f32(rng),
-        min: gen_f32(rng),
-        max: gen_f32(rng),
-        step: gen_f32(rng),
-        on_change: rng.next_u64() as u32,
-        on_release: rng.next_bool().then(|| rng.next_u64() as u32),
-        axis: gen_axis(rng),
-        style: gpui::StyleRefinement::default(),
-    }
-}
-
-/// A pick list whose option count crosses `MAX_OPTIONS` about one time in
-/// eight, and whose selection points anywhere, including past the list.
-pub(super) fn gen_pick_list(rng: &mut Rng) -> Node {
-    let count = match rng.next_range(8) {
-        0 => MAX_OPTIONS + 1 + rng.next_range(64),
-        _ => rng.skewed(16, 2),
-    };
-    Node::PickList {
-        settings: Default::default(),
-        id: gen_id(rng),
-        options: (0..count).map(|_| gen_string(rng)).collect(),
-        selected: rng
-            .next_bool()
-            .then(|| rng.next_range(2 * MAX_OPTIONS) as u32),
-        placeholder: rng.next_bool().then(|| gen_string(rng)),
-        label: rng.next_bool().then(|| gen_string(rng)),
-        on_select: rng.next_u64() as u32,
-        style: gpui::StyleRefinement::default(),
-    }
-}
-
-pub(super) fn gen_progress(rng: &mut Rng) -> Node {
-    Node::Progress {
-        id: gen_id(rng),
-        value: gen_f32(rng),
-        min: gen_f32(rng),
-        max: gen_f32(rng),
-        axis: gen_axis(rng),
-        style: gpui::StyleRefinement::default(),
-    }
-}
-
 pub(super) fn gen_surface(rng: &mut Rng) -> Node {
     Node::Surface {
         id: gen_id(rng),
@@ -339,22 +203,15 @@ pub(super) fn gen_surface(rng: &mut Rng) -> Node {
 /// variant except `Space` carries a string, a colour or a number worth
 /// pulling into range.
 pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
-    match rng.next_range(12) {
+    match rng.next_range(6) {
         0 => gen_text(rng),
-        10 => gen_svg(rng),
-        11 => gen_editor(rng),
         1 => Node::Space {
             style: gen_native_style(rng),
         },
         2 => gen_input(rng),
-        3 => gen_rule(rng),
-        4 => gen_toggle(rng),
-        5 => gen_radio(rng),
-        6 => gen_slider(rng),
-        7 => gen_pick_list(rng),
-        8 => gen_progress(rng),
-        9 => gen_surface(rng),
-        _ => gen_button_label(rng),
+        3 => gen_svg(rng),
+        4 => gen_editor(rng),
+        _ => gen_surface(rng),
     }
 }
 

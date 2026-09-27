@@ -23,22 +23,22 @@ use view_wire::list::{
 };
 use view_wire::methods::{self, Method, Module};
 use view_wire::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, Axis, ButtonContent, CanvasCommand, CanvasShape,
-    ContainerNode, ContentFit, DispatchPhase, EditorCursor, EditorDecision, EditorEditKind,
-    EditorHistoryEffect, EditorPatch, EditorRequest, EditorRequestInput, EditorResponse,
-    EditorTransactionEvent, EditorTransactionId, ElementIdWire, Error, Event, Frame, ImageData,
-    ImageObjectFit, ImageStyle, Interactivity, ListAlignment, ListOffset, ListRequest, ListScroll,
-    ListSizingBehavior, Live, Node, Patch, Qr, Request, RichTextHighlightStyle, RichTextHover,
-    RichTextRuns, Role, ScrollAnchor, ScrollDirection, SurfaceValue, SvgSource, SvgTransformation,
-    TextNode, ToggleKind, TooltipResponse, WidgetCommand, click, interactivity, keyboard, mouse,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, CanvasCommand, CanvasShape, ContainerNode,
+    DispatchPhase, EditorCursor, EditorDecision, EditorEditKind, EditorHistoryEffect, EditorPatch,
+    EditorRequest, EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId,
+    ElementIdWire, Error, Event, Frame, ImageData, ImageObjectFit, ImageStyle, Interactivity,
+    ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node, Patch,
+    Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, SurfaceValue, SvgSource,
+    SvgTransformation, TextNode, TooltipResponse, WidgetCommand, click, interactivity, keyboard,
+    mouse,
 };
 
 const MESSAGE: &str = "the wire changed: bump WIRE_EPOCH and regenerate with WIRE_GOLDEN_WRITE=1";
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 34;
-const EVENT_VARIANTS: usize = 39;
+const NODE_VARIANTS: usize = 17;
+const EVENT_VARIANTS: usize = 35;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

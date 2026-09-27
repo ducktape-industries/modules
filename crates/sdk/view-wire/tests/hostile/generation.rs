@@ -16,8 +16,8 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
             node = gen_list(rng, children);
             continue;
         }
-        node = match rng.next_range(8) {
-            7 => Node::ResizeHandle {
+        node = match rng.next_range(5) {
+            4 => Node::ResizeHandle {
                 id: gen_id(rng),
                 on_press: rng.next_bool().then(|| rng.next_u64() as u32),
                 on_release: rng.next_bool().then(|| rng.next_u64() as u32),
@@ -26,80 +26,19 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
                 content: Box::new(node),
                 style: gpui::StyleRefinement::default(),
             },
-            6 => Node::Tooltip {
+            3 => Node::Sensor {
                 id: gen_id(rng),
-                position: TooltipPosition::Bottom,
-                delay_ms: rng.next_u64(),
-                snap: rng.next_bool(),
-                style: gen_native_style(rng),
-                children: vec![node, gen_leaf(rng)],
-            },
-            4 => Node::Sensor {
-                id: gen_id(rng),
-                reset: None,
                 on_show: rng.next_bool().then(|| rng.next_u64() as u32),
                 on_resize: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_hide: rng.next_bool().then(|| rng.next_u64() as u32),
-                anticipate: gen_opt_f32(rng),
-                delay: gen_opt_f32(rng),
                 child: Box::new(node),
-                style: gpui::StyleRefinement::default(),
+                style: gen_native_style(rng),
             },
-            5 => Node::MouseArea {
-                id: gen_id(rng),
-                role: gen_opt_role(rng),
-                label: rng.next_bool().then(|| gen_string(rng)),
-                expanded: rng.next_bool().then(|| rng.next_bool()),
-                selected: rng.next_bool().then(|| rng.next_bool()),
-                checked: rng.next_bool().then(|| rng.next_bool()),
-                on_press: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_release: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_double_click: None,
-                on_right_press: None,
-                on_right_release: None,
-                on_middle_press: None,
-                on_middle_release: None,
-                on_enter: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_exit: None,
-                on_move: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_press_at: None,
-                on_scroll: rng.next_bool().then(|| rng.next_u64() as u32),
+            2 => Node::Deferred {
+                priority: rng.next_range(64),
                 content: Box::new(node),
             },
             0 => gen_container(rng, vec![node]),
-            1 => gen_list(rng, vec![node]),
-            2 => Node::Scroll {
-                on_scroll: Some(7),
-                virtual_rows: rng.next_bool(),
-                id: gen_id(rng),
-                direction: *rng.choose(&[
-                    ScrollDirection::Vertical,
-                    ScrollDirection::Horizontal,
-                    ScrollDirection::Both,
-                ]),
-                style: gen_native_style(rng),
-                bar_hidden: rng.next_bool(),
-                bar_width: gen_opt_f32(rng),
-                bar_margin: gen_opt_f32(rng),
-                scroller_width: gen_opt_f32(rng),
-                bar_spacing: gen_opt_f32(rng),
-                anchor_x: gen_anchor(rng),
-                anchor_y: gen_anchor(rng),
-                auto_scroll: rng.next_bool(),
-                content: Box::new(node),
-            },
-            _ => Node::Button {
-                checked: rng.next_bool().then(|| rng.next_bool()),
-                expanded: rng.next_bool().then(|| rng.next_bool()),
-                selected: rng.next_bool().then(|| rng.next_bool()),
-                role: gen_opt_role(rng),
-                description: rng.next_bool().then(|| gen_string(rng)),
-                id: gen_id(rng),
-                content: ButtonContent::Child(Box::new(node)),
-                label: rng.next_bool().then(|| gen_string(rng)),
-                on_press: rng.next_bool().then(|| rng.next_u64() as u32),
-                style: gpui::StyleRefinement::default(),
-            },
+            _ => gen_list(rng, vec![node]),
         };
     }
     node
@@ -181,9 +120,7 @@ pub(super) fn is_list_node(node: &Node) -> bool {
     matches!(
         node,
         Node::Container(view_wire::ContainerNode { .. })
-            | Node::Tooltip { .. }
             | Node::Overlay { .. }
-            | Node::When { .. }
             | Node::Anchored { .. }
             | Node::Image { .. }
             | Node::UniformList { .. }
