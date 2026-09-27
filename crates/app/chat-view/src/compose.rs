@@ -1,7 +1,7 @@
 //! The composer's events for one target, run through its draft: sends,
 //! edits, pastes and copies.
 use ducktape_view_guest::Context;
-use ducktape_view_guest::view::Submit;
+use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::wire;
 
 use crate::api::{ChatApi, ClipboardRead, ClipboardWrite, HostId};

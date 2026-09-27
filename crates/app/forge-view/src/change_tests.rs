@@ -3,7 +3,7 @@
 use super::{booted, change_screen, change_screen_as, opened};
 use crate::api::{ChatApi, SubmitForge};
 use crate::state::ChangeTab;
-use ducktape_view_guest::view::Submit;
+use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::wire;
 use forge::{LineComment, Op, Side, Verdict};
 

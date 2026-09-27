@@ -26,7 +26,7 @@ mod watch;
 
 pub use state::*;
 
-use ducktape_view_guest::view::View;
+use ducktape_view_guest::View;
 use ducktape_view_guest::{Context, IntoElement, Render, Window, export_view};
 
 /// Rows asked per page.

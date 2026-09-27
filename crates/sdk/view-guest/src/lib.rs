@@ -75,10 +75,10 @@ pub mod host;
 pub mod store;
 pub mod testing;
 pub mod widget;
-pub mod window;
+mod window;
 
 mod snapshot;
-pub mod view;
+mod view;
 pub use view::{Capabilities, Loadable, Render, View};
 pub use wire::methods;
 mod context;

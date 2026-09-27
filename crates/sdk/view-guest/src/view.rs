@@ -1,6 +1,5 @@
 //! A serializable root view and small loading conveniences.
 use crate::host::Error;
-pub use crate::methods::{Method, Module, Query, Submit};
 use crate::{Context, IntoElement, Task, Window};
 use futures::{Stream, StreamExt};
 use serde::de::DeserializeOwned;

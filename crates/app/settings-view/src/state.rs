@@ -1,6 +1,6 @@
 //! The state Settings keeps: what it read, and each form as typed.
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::Task;
-use ducktape_view_guest::view::Loadable;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

@@ -9,7 +9,7 @@ use ducktape_view_guest::{
 };
 
 use ducktape_view_guest::AnyElement;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 
 use crate::message::{ChatMessage, new_day, unread_seq};
 use crate::ui::room::selection_bar;

@@ -1,8 +1,8 @@
 //! The explorer's pages. Square corners, rows split by one-pixel rules,
 //! hashes and numbers in the data face.
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::decode::{ago, clip, date, grouped, plural, short};

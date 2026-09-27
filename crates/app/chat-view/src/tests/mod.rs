@@ -2,8 +2,8 @@
 //! each test drives the frame the way a person would.
 use super::*;
 use chat::{ChannelInfo, MessageHits, MsgRow, Op, PostPolicy, Principal, Query, Reply};
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::testing::TestAppContext;
-use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::wire;
 use ducktape_view_guest::{Entity, StyleRefinement, Styled};
 

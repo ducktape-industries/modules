@@ -15,11 +15,11 @@
 mod activity;
 mod ui;
 
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::{Error, malformed};
 use ducktape_view_guest::methods::{Changes, HostOffset, HostSession, Query};
-use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, View, Window};
 use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};

@@ -1,8 +1,8 @@
 //! The state Explorer keeps: where it is, and what it read. Rows are the
 //! programs' own types, worded only when drawn (`ui/`).
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::borsh_bytes;
 use ducktape_view_guest::methods::NodeStatus;
-use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Task, design};
 use module_registry as registry;
 use serde::{Deserialize, Serialize};

@@ -6,8 +6,8 @@
 //!
 //! The rows are valset's own types (`queries.rs`), kept as they land and
 //! worded only when drawn (`ui.rs`); valset's live heads re-read them.
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::methods::{ChainStatus, Changes, ClockTicks, NodeStatus};
-use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Context, IntoElement, Render, Task, View, Window, export_view};
 use serde::{Deserialize, Serialize};
 use valset::view::Valset;

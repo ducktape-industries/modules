@@ -2,8 +2,8 @@
 //! Colour is kept for what it says: the agent tint on an agent's avatar, and
 //! the badges of a standing. Everything else is the window, grey captions
 //! and hairlines.
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design::{self, size, space, text};
-use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{
     AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, ParentElement, Pixels, Role, SharedString, Stateful, StatefulInteractiveElement,

@@ -5,7 +5,7 @@ use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{AnyElement, ClickEvent, Context, ParentElement, Styled, Theme, div, px};
 
 use chat::MsgRow;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 
 use super::timeline;
 use crate::composer::Target;

@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use ducktape_view_guest::Context;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 
 use crate::api::Session;
 use crate::queries::{self, PAGE};

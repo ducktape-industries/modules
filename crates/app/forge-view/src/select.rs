@@ -1,7 +1,7 @@
 //! What the screens read out of the view: the replies that have landed,
 //! picked by the query that asked them, and the reader's own identity.
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::view::Loadable;
 
 use crate::queries::PAGE;
 use crate::state::{self, ChangeTab, Forge, Nav, change_key};

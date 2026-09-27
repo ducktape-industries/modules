@@ -3,7 +3,7 @@
 //! navigation and drafts, never wire records.
 use std::collections::{BTreeMap, BTreeSet};
 
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::{Editor, Task, UniformListScrollHandle};
 use serde::{Deserialize, Serialize};
 

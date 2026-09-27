@@ -1,8 +1,8 @@
 //! Where the reader goes: a tab or a row, a search, a link opened into the
 //! explorer, and a page's link copied out of it.
 use ducktape_view_guest::Context;
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::methods::{BlockRef, ChainBlock, ClipboardWrite};
-use ducktape_view_guest::view::Loadable;
 
 use crate::Explorer;
 use crate::chain::rows;

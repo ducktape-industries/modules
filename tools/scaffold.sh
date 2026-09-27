@@ -178,7 +178,7 @@ EOF
 use ducktape_view_guest::methods::{Changes, Module, Query};
 use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::{
     Context, Host, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Task, Theme, View, Window, div, px,

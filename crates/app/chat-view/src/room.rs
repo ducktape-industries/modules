@@ -2,8 +2,8 @@
 //! what the reader has read.
 use chat::{ChannelInfo, MsgRow, Principal};
 use ducktape_view_guest::Context;
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::wire;
 
 use crate::composer::Target;

@@ -3,10 +3,10 @@
 //! says it does (`module.describe`). Each first read is `cx.load`; a
 //! re-read is `cx.refresh`, which keeps what is on screen.
 use ducktape_view_guest::Context;
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::methods::{
     BlockPage, ChainBlocks, ChainStatus, ClockTicks, Head, ModuleDescribe,
 };
-use ducktape_view_guest::view::Loadable;
 
 use crate::chain::{BlockRow, TxRow};
 use crate::{Explorer, PAGE, TICK, WINDOW, decode, queries};
