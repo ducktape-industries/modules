@@ -1,215 +1,258 @@
-//! The Settings screen: Node, Account, Network and App sections, each in
-//! its own card. `render` reads the state and changes nothing; presses land
-//! in `actions.rs`.
+//! The Account screen: a left menu (Account, Agents, Invites) and the one
+//! pane it has open. `render` reads the state and changes nothing; presses
+//! land in `actions.rs`.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::Settings;
-use crate::state::{Form, Problem, TTL};
+use crate::queries::Seat;
+use crate::state::{Form, Problem, Section, TTL};
 
 mod account;
 
-/// The widest a form or a note runs.
-const FORM_W: Pixels = px(420.);
+/// The left menu's width.
+const NAV_W: Pixels = px(200.);
+/// The widest a pane's rows run.
+const PANE_W: Pixels = px(720.);
+/// A field beside its button in a setting row.
+const FIELD_W: Pixels = px(220.);
 
 pub(crate) fn render(view: &Settings, cx: &mut Context<Settings>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let node = node(view, cx, &theme);
-    let account = account::account(view, cx, &theme);
-    let network = network(view, cx, &theme);
-    let sections = div()
-        .id("settings/sections")
-        .flex()
-        .flex_col()
-        .gap_2()
-        .w_full()
-        .child(section("node", "Node", node, &theme))
-        .child(section("account", "Account", account, &theme))
-        .child(section("network", "Network", network, &theme))
-        .child(section("app", "App", app(view, &theme), &theme));
+    let section = shown(view);
+    let body = match section {
+        Section::Account => account::account(view, cx, &theme),
+        Section::Agents => account::agents_pane(view, cx, &theme),
+        Section::Invites => invites(view, cx, &theme),
+    };
     div()
         .id("settings")
         .flex()
-        .flex_col()
-        .gap_3()
-        .p_5()
         .size_full()
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_size(design::text::BODY)
-        .child(design::heading("settings/title", "Settings", 1, &theme))
+        .child(nav(view, section, cx, &theme))
         .child(
             div()
                 .id("settings/scroll")
                 .flex_1()
+                .min_w(px(0.))
                 .overflow_y_scroll()
-                .child(sections),
+                .px(design::space::XL + design::space::SM)
+                .py(design::space::XL)
+                .child(
+                    column("settings/pane")
+                        .max_w(PANE_W)
+                        .gap_0()
+                        .child(eyebrow("settings/title", section.label(), &theme))
+                        .child(body),
+                ),
         )
 }
 
-fn node(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
-    match &view.status {
-        Loadable::Ready(s) => column("settings/node/data")
-            .children([
-                line("network", "Network", &s.chain_id),
-                line(
-                    "height",
-                    "Height / epoch",
-                    &format!("{} / {}", s.height, s.epoch),
-                ),
-                line("block", "Block time", &format!("{} ms", s.block_time_ms)),
-                line("tip", "Tip", &abi::hex(&s.tip)),
-                line(
-                    "identity",
-                    "Node identity",
-                    &design::short_hex(&abi::hex(&s.identity)),
-                ),
-                line("contract", "Contract version", &s.contract.to_string()),
-            ])
-            .into_any_element(),
-        Loadable::Failed(refusal) => {
-            let retry = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.read_status(cx));
-            design::refused("settings/node", refusal.message.clone(), theme, retry)
-                .into_any_element()
-        }
-        Loadable::Idle | Loadable::Loading(_) => {
-            secondary("settings/node/loading", "Reading node status…", theme).into_any_element()
-        }
+/// The panes the menu lists: Agents only for an account that manages them.
+fn sections(view: &Settings) -> Vec<Section> {
+    let manages = matches!(view.account.ready(), Some(Some(Seat::Account(a))) if a.manages);
+    [Section::Account, Section::Agents, Section::Invites]
+        .into_iter()
+        .filter(|section| *section != Section::Agents || manages)
+        .collect()
+}
+
+/// The pane on screen: the picked one, or Account once it is not listed.
+fn shown(view: &Settings) -> Section {
+    match sections(view).contains(&view.section) {
+        true => view.section,
+        false => Section::Account,
     }
 }
 
-fn network(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> impl IntoElement {
-    let choices = div()
-        .id("settings/ttl")
+fn nav(
+    view: &Settings,
+    shown: Section,
+    cx: &mut Context<Settings>,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let theme = *theme;
+    div()
+        .id("settings/nav")
+        .w(NAV_W)
+        .flex_none()
         .flex()
-        .items_center()
-        .gap_2()
-        .w_full()
-        .children(TTL.into_iter().enumerate().map(|(i, days)| {
-            let mark = if view.ttl == i { "✓ " } else { "" };
-            button(
-                format!("settings/ttl/{days}"),
-                format!("{mark}{}", design::plural(days, "day", "days")),
-                theme,
-            )
-            .on_click(cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
+        .flex_col()
+        .gap(design::space::HAIR)
+        .px(design::space::SM)
+        .py(design::space::LG)
+        .border_r_1()
+        .border_color(theme.border)
+        .role(Role::TabList)
+        .children(sections(view).into_iter().map(|section| {
+            let on = section == shown;
+            let pick = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
+                v.select_section(section, cx)
+            });
+            div()
+                .id(format!("settings/nav/{}", section.slug()))
+                .h(px(30.))
+                .px(design::space::LG)
+                .flex()
+                .items_center()
+                .text_color(if on { theme.foreground } else { theme.muted })
+                .when(on, |item| item.bg(theme.surface_raised))
+                .when(!on, |item| {
+                    item.hover(move |style| style.text_color(theme.foreground))
+                })
+                .role(Role::Tab)
+                .aria_selected(on)
+                .focusable()
+                .on_click(pick)
+                .child(section.label())
+        }))
+}
+
+fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
+    let network = match view.session.chain_id.split('#').next() {
+        Some(name) if !name.is_empty() => name.to_owned(),
+        _ => "this network".to_owned(),
+    };
+    let choices = design::segmented(
+        "settings/ttl",
+        theme,
+        TTL.into_iter().enumerate().map(|(i, days)| {
+            let pick = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
                 v.ttl = i;
                 cx.notify();
-            }))
-        }));
+            });
+            design::segment(
+                format!("settings/ttl/{days}"),
+                design::plural(days, "day", "days"),
+                view.ttl == i,
+                theme,
+                pick,
+            )
+        }),
+    );
     let mint = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.mint_invite(cx));
     let minting = view.invite.is_loading();
     let body = column("settings/network/body")
-        .child(secondary(
-            "settings/invite/help",
-            "Invite people · expires after",
+        .gap_0()
+        .child(design::setting_row(
+            "settings/invite/ttl",
+            "Expires after",
+            format!("An invite lets one person join {network}."),
+            choices,
             theme,
         ))
-        .child(choices)
-        .child(
-            button("settings/invite/mint", "Mint invite", theme)
-                .aria_disabled(minting)
-                .when(minting, |button| button.opacity(0.5).tab_stop(false))
-                .when(!minting, |button| button.on_click(mint)),
-        );
-    let body = match &view.invite {
-        Loadable::Ready(invite) => {
-            let copy = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.copy_invite(cx));
-            body.child(
-                div()
-                    .id("settings/invite/blob")
-                    .w_full()
-                    .font_family(design::fonts::FAMILY_MONO)
-                    .text_size(design::text::SECONDARY)
-                    .child(invite.invite.clone()),
-            )
-            .children(invite.notes.iter().enumerate().map(|(i, note)| {
-                secondary(format!("settings/invite/note/{i}"), &note.message, theme)
-            }))
-            .child(button("settings/invite/copy", "Copy invite", theme).on_click(copy))
-        }
-        Loadable::Failed(refusal) => body.child(refusal_line("invite", &refusal.message, theme)),
-        Loadable::Loading(_) => body.child(secondary(
-            "settings/invite/loading",
-            "Minting invite…",
-            theme,
-        )),
-        Loadable::Idle => body.child(secondary(
-            "settings/invite/empty",
-            "No invite minted yet.",
-            theme,
-        )),
-    };
-    let copied = match &view.copied {
-        Loadable::Ready(()) => "Copied".to_owned(),
-        Loadable::Failed(refusal) => refusal.message.clone(),
-        Loadable::Idle | Loadable::Loading(_) => String::new(),
-    };
-    body.child(secondary("settings/invite/copied", copied, theme))
-}
-
-fn app(view: &Settings, theme: &Theme) -> impl IntoElement {
-    let endpoint = match view.session.endpoint.as_str() {
-        "" => "Not connected",
-        endpoint => endpoint,
-    };
-    column("settings/app/body")
-        .child(secondary(
-            "settings/theme",
-            format!(
-                "Appearance follows the host theme · {}",
-                if theme.dark { "Dark" } else { "Light" }
+        .child(design::setting_row(
+            "settings/invite/help",
+            "Mint an invite",
+            "Send it to them any way you like.",
+            submit(
+                "settings/invite/mint",
+                "Mint invite",
+                "Minting…",
+                minting,
+                true,
+                theme,
+                mint,
             ),
             theme,
-        ))
-        .child(line("endpoint", "Endpoint", endpoint))
-        .child(secondary(
-            "settings/native",
-            "Endpoint and keystore are managed by the host app.",
-            theme,
-        ))
+        ));
+    let minted = match &view.invite {
+        Loadable::Ready(invite) => {
+            let copy = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.copy_invite(cx));
+            let (copied, tone) = match &view.copied {
+                Loadable::Ready(()) => ("Copied".to_owned(), theme.success),
+                Loadable::Failed(refusal) => (refusal.message.clone(), theme.danger),
+                Loadable::Idle | Loadable::Loading(_) => (String::new(), theme.muted),
+            };
+            column("settings/invite/minted")
+                .py(design::space::MD)
+                .border_b_1()
+                .border_color(theme.border)
+                .child(eyebrow("settings/invite/minted-label", "Minted", theme).mb_0())
+                .children(invite.notes.iter().enumerate().map(|(i, note)| {
+                    secondary(format!("settings/invite/note/{i}"), &note.message, theme)
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap(design::space::SM)
+                        .child(
+                            div()
+                                .id("settings/invite/blob")
+                                .flex_1()
+                                .min_w(px(0.))
+                                .p(design::space::LG)
+                                .bg(theme.surface)
+                                .border_1()
+                                .border_color(theme.border)
+                                .font_family(design::fonts::FAMILY_MONO)
+                                .text_size(design::text::SECONDARY)
+                                .child(invite.invite.clone()),
+                        )
+                        .child(button("settings/invite/copy", "Copy invite", theme).on_click(copy)),
+                )
+                .child(secondary("settings/invite/copied", copied, theme).text_color(tone))
+                .into_any_element()
+        }
+        Loadable::Failed(refusal) => refusal_line("invite", &refusal.message, theme)
+            .mt(design::space::MD)
+            .into_any_element(),
+        Loadable::Loading(_) => secondary("settings/invite/loading", "Minting invite…", theme)
+            .py(design::space::MD)
+            .into_any_element(),
+        Loadable::Idle => secondary("settings/invite/empty", "No invite minted yet.", theme)
+            .py(design::space::MD)
+            .into_any_element(),
+    };
+    body.child(minted).into_any_element()
 }
 
-fn section(key: &str, title: &str, body: impl IntoElement, theme: &Theme) -> impl IntoElement {
-    let heading = div()
-        .id(format!("settings/{key}/heading"))
-        .h(design::size::CONTROL)
-        .flex()
-        .items_center()
-        .gap_1()
-        .pl_2()
-        .pr_1()
-        .w_full()
-        .child(
-            secondary(format!("settings/{key}/heading/label"), title, theme)
-                .font_weight(FontWeight::MEDIUM)
-                .w_full(),
-        );
+/// A pane's small mono label above its rows.
+fn eyebrow(id: impl Into<String>, text: &str, theme: &Theme) -> Stateful<Div> {
     div()
-        .id(format!("settings/{key}/card"))
-        .bg(theme.background)
-        .border_1()
+        .id(id.into())
+        .mb(design::space::BLOCK)
+        .font_family(design::fonts::FAMILY_MONO)
+        .text_size(design::text::CAPTION)
+        .text_color(theme.muted)
+        .child(text.to_owned())
+}
+
+/// A group's heading inside a pane, a hairline under it.
+fn group(id: impl Into<String>, title: &str, count: Option<usize>, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id(id.into())
+        .flex()
+        .items_baseline()
+        .gap(design::space::SM)
+        .pt(design::space::XL)
+        .pb(design::space::XXS)
+        .border_b_1()
         .border_color(theme.border)
-        .p_3()
-        .child(
-            column(format!("settings/{key}/section"))
-                .child(heading)
-                .child(body),
-        )
+        .text_size(design::text::SECONDARY)
+        .font_weight(FontWeight::SEMIBOLD)
+        .role(Role::Heading)
+        .aria_level(2)
+        .child(title.to_owned())
+        .children(count.map(|count| {
+            div()
+                .font_family(design::fonts::FAMILY_MONO)
+                .text_size(design::text::CAPTION)
+                .text_color(theme.muted)
+                .font_weight(FontWeight::NORMAL)
+                .child(count.to_string())
+        }))
 }
 
 /// A full-width column of rows.
 fn column(id: impl Into<String>) -> Stateful<Div> {
     div().id(id.into()).flex().flex_col().gap_2().w_full()
-}
-
-fn line(key: &str, label: &str, value: &str) -> Stateful<Div> {
-    div()
-        .id(format!("settings/{key}"))
-        .w_full()
-        .child(format!("{label}: {value}"))
 }
 
 /// What stopped a form, as the form words it; `empty` says what to type.
@@ -224,7 +267,7 @@ fn problem_text(problem: &Problem, empty: &str) -> String {
 /// A form's problem, if it has one, in the refusal box under it.
 fn problem(key: &str, form: &Form, empty: &str, theme: &Theme) -> Option<Stateful<Div>> {
     let problem = form.problem.as_ref()?;
-    Some(refusal_line(key, &problem_text(problem, empty), theme))
+    Some(refusal_line(key, &problem_text(problem, empty), theme).my(design::space::SM))
 }
 
 /// A refused write or mint, under the control that sent it.
@@ -252,7 +295,7 @@ fn secondary(id: impl Into<String>, text: impl Into<String>, theme: &Theme) -> S
         .child(text.into())
 }
 
-/// A labelled text field over `form`.
+/// A text field over `form`, named by its placeholder.
 fn field(
     id: &str,
     label: &str,
@@ -262,11 +305,11 @@ fn field(
 ) -> Input {
     Input::new(id.to_owned())
         .h(design::size::CONTROL)
+        .w(FIELD_W)
         .px_2()
-        .py_1()
         .border_1()
         .border_color(theme.border_strong)
-        .bg(theme.surface)
+        .bg(theme.background)
         .value(form.text.clone())
         .placeholder(label.to_owned())
         .label(label.to_owned())
@@ -280,25 +323,46 @@ fn submit(
     label: &str,
     busy_label: &str,
     busy: bool,
+    primary: bool,
     theme: &Theme,
     pressed: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    button(id.to_owned(), if busy { busy_label } else { label }, theme)
+) -> Stateful<Div> {
+    let button = match primary {
+        true => self::primary(id.to_owned(), if busy { busy_label } else { label }, theme),
+        false => self::button(id.to_owned(), if busy { busy_label } else { label }, theme),
+    };
+    button
         .aria_disabled(busy)
         .when(busy, |b| b.opacity(0.5).tab_stop(false))
         .when(!busy, |b| b.on_click(pressed))
 }
 
+/// A bordered button on the window's own ground.
 fn button(id: impl Into<String>, label: impl Into<String>, theme: &Theme) -> Stateful<Div> {
+    let theme = *theme;
     div()
         .id(id.into())
-        .px_2()
-        .py_1()
-        .bg(theme.surface)
+        .h(design::size::CONTROL)
+        .px(design::space::MD)
+        .flex()
+        .flex_none()
+        .items_center()
+        .whitespace_nowrap()
+        .text_size(design::text::SECONDARY)
+        .bg(theme.background)
         .border_1()
-        .border_color(theme.border)
-        .hover(|style| style.bg(theme.surface_raised))
+        .border_color(theme.border_strong)
+        .hover(move |style| style.bg(theme.surface))
         .role(Role::Button)
         .focusable()
         .child(label.into())
+}
+
+/// The one button a pane leads with: the ink fill.
+fn primary(id: impl Into<String>, label: impl Into<String>, theme: &Theme) -> Stateful<Div> {
+    button(id, label, theme)
+        .bg(theme.primary)
+        .border_color(theme.primary)
+        .text_color(theme.primary_foreground)
+        .hover(|style| style.opacity(0.9))
 }

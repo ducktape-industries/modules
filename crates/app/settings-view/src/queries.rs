@@ -27,6 +27,9 @@ pub enum Seat {
 pub struct Account {
     pub number: u64,
     pub name: String,
+    /// what identity says it is: a person, an agent, a module
+    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    pub kind: Kind,
     pub keys: Vec<Key>,
     /// a person's account manages agents; an agent's or a module's none
     pub manages: bool,
@@ -108,6 +111,7 @@ pub(crate) async fn account(
     };
     Ok(Some(Seat::Account(Account {
         number,
+        kind: account.kind(),
         name: account.card.name,
         keys,
         manages,

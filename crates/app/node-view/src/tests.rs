@@ -1,5 +1,5 @@
 use super::*;
-use ducktape_view_guest::methods::Query;
+use ducktape_view_guest::methods::{ChainStatus, ClockTicks, NodeStatus, Query};
 use ducktape_view_guest::testing::TestAppContext;
 
 #[test]
@@ -27,6 +27,72 @@ fn the_root_tracks_the_shared_theme() {
         Some(dark.background)
     );
     assert_eq!(style.text.color, Some(dark.foreground));
+}
+
+fn status() -> NodeStatus {
+    NodeStatus {
+        chain_id: "Workshop".into(),
+        time: 100,
+        block_time_ms: 1000,
+        epoch_length: 100,
+        height: 4200,
+        tip: [0xab; 32],
+        root: [0xcd; 32],
+        epoch: 3,
+        identity: vec![0xef; 32],
+        contract: 7,
+    }
+}
+
+/// The node itself: its status, and the clock it is re-read on.
+fn node(cx: &TestAppContext) {
+    cx.host().stream::<ClockTicks>();
+    cx.host().handle::<ChainStatus>(|()| Ok(status()));
+}
+
+/// The connected node's own numbers stand above the set, re-read on
+/// the clock, and a refusal retries.
+#[test]
+fn the_node_status_stands_above_the_set() {
+    let mut cx = TestAppContext::new();
+    cx.host().stream::<Changes<Valset>>();
+    let ticks = cx.host().stream::<ClockTicks>();
+    cx.host()
+        .refuse::<ChainStatus>("unavailable", "The node is unavailable. Try again.");
+    respond(&mut cx);
+    cx.open::<Nodes>();
+    cx.run_until_parked();
+    assert!(cx.has_text("The node is unavailable. Try again."));
+    cx.host().handle::<ChainStatus>(|()| Ok(status()));
+    cx.simulate_click("nodes-status-retry");
+    cx.run_until_parked();
+    let tip = abi::hex(&[0xab; 32]);
+    for text in [
+        "Network",
+        "Workshop",
+        "Height",
+        "4,200",
+        "Epoch",
+        "3",
+        "Block time",
+        "1,000 ms",
+        tip.as_str(),
+        "efefefef…efef",
+        "Contract version",
+        "7",
+    ] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    cx.host().handle::<ChainStatus>(|()| {
+        Ok(NodeStatus {
+            height: 4201,
+            ..status()
+        })
+    });
+    ticks.send(());
+    cx.run_until_parked();
+    assert!(cx.has_text("4,201"));
+    cx.assert_accessible();
 }
 
 fn membership(key: &[u8], address: &str, role: valset::Role) -> valset::Membership {
@@ -68,6 +134,7 @@ fn respond(cx: &mut TestAppContext) {
 
 fn ready() -> TestAppContext {
     let mut cx = TestAppContext::new();
+    node(&cx);
     cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
     cx.open::<Nodes>();
@@ -121,6 +188,7 @@ fn the_set_shows_its_validators_memberships_and_counts() {
 #[test]
 fn loading_waits_for_the_host() {
     let mut cx = TestAppContext::new();
+    node(&cx);
     cx.host().stream::<Changes<Valset>>();
     cx.host().never::<Query<Valset>>();
     cx.open::<Nodes>();
@@ -131,6 +199,7 @@ fn loading_waits_for_the_host() {
 #[test]
 fn an_empty_set_says_so() {
     let mut cx = TestAppContext::new();
+    node(&cx);
     cx.host().stream::<Changes<Valset>>();
     cx.host().handle::<Query<Valset>>(|query| {
         Ok(match query {
@@ -147,6 +216,7 @@ fn an_empty_set_says_so() {
 #[test]
 fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     let mut cx = TestAppContext::new();
+    node(&cx);
     cx.host().stream::<Changes<Valset>>();
     cx.host()
         .refuse::<Query<Valset>>("unavailable", "valset is not running here");
@@ -173,6 +243,7 @@ fn a_refusal_shows_its_sentence_and_retry_asks_again() {
 #[test]
 fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
     let mut cx = TestAppContext::new();
+    node(&cx);
     let feed = cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
     cx.open::<Nodes>();
@@ -202,6 +273,7 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
 
     let bytes = cx.snapshot().unwrap();
     let mut restored = TestAppContext::new();
+    node(&restored);
     restored.host().stream::<Changes<Valset>>();
     restored.host().never::<Query<Valset>>();
     restored.restore::<Nodes>(&bytes).unwrap();
@@ -219,6 +291,7 @@ fn the_ready_set_is_accessible() {
 #[test]
 fn a_refused_live_head_is_logged_and_the_set_stays() {
     let mut cx = TestAppContext::new();
+    node(&cx);
     cx.host()
         .refuse::<Changes<Valset>>("unavailable", "no live heads here");
     respond(&mut cx);

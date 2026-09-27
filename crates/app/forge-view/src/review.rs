@@ -110,6 +110,13 @@ impl Forge {
         cx.notify();
     }
 
+    pub(crate) fn pick_verdict(&mut self, verdict: Verdict, cx: &mut Context<Self>) {
+        if let Some(review) = self.review_mut() {
+            review.verdict = Some(verdict);
+        }
+        cx.notify();
+    }
+
     pub(crate) fn finishing(&mut self, on: bool, cx: &mut Context<Self>) {
         let Some(key) = self.review_key() else { return };
         if let Some(review) = self.reviews.get_mut(&key) {

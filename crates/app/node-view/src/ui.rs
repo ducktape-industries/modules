@@ -1,5 +1,6 @@
-//! The Nodes screen: a header with the counts, then the set in one of its
-//! four states. `render` reads the state and changes nothing.
+//! The Nodes screen: a header with the counts, the connected node's
+//! status, then the set in one of its four states. `render` reads the
+//! state and changes nothing.
 use abi::hex;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
@@ -13,6 +14,10 @@ use crate::Nodes;
 const PLACE_W: Pixels = px(28.);
 /// The widest a member's address runs before it is clipped.
 const ADDRESS_W: Pixels = px(220.);
+/// A status row's label column.
+const LABEL_W: Pixels = px(180.);
+/// The widest the status rows run.
+const STATUS_W: Pixels = px(720.);
 
 pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
@@ -40,7 +45,97 @@ pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement 
                         .child(count(view)),
                 ),
         )
-        .child(body(view, cx, &theme))
+        .child(
+            div()
+                .id("nodes-scroll")
+                .flex_1()
+                .min_h(px(0.))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(section("nodes-status-header", "Node", &theme))
+                .child(status(view, cx, &theme))
+                .child(body(view, cx, &theme)),
+        )
+}
+
+/// The connected node's own numbers, one row each, or why they are not
+/// here.
+fn status(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
+    match &view.status {
+        Loadable::Ready(s) => div()
+            .id("nodes-status")
+            .max_w(STATUS_W)
+            .flex()
+            .flex_col()
+            .children([
+                fact("network", "Network", s.chain_id.clone(), false, theme),
+                fact("height", "Height", design::grouped(s.height), true, theme),
+                fact("epoch", "Epoch", design::grouped(s.epoch), true, theme),
+                fact(
+                    "block-time",
+                    "Block time",
+                    format!("{} ms", design::grouped(s.block_time_ms)),
+                    true,
+                    theme,
+                ),
+                fact("tip", "Tip", hex(&s.tip), true, theme),
+                fact(
+                    "identity",
+                    "Node identity",
+                    design::short_hex(&hex(&s.identity)),
+                    true,
+                    theme,
+                ),
+                fact(
+                    "contract",
+                    "Contract version",
+                    s.contract.to_string(),
+                    true,
+                    theme,
+                ),
+            ])
+            .into_any_element(),
+        Loadable::Failed(refusal) => {
+            let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read_status(cx));
+            design::refused("nodes-status", refusal.message.clone(), theme, retry)
+                .into_any_element()
+        }
+        Loadable::Idle | Loadable::Loading(_) => design::quiet("Reading node status…", theme)
+            .id("nodes-status-loading")
+            .pl_2()
+            .into_any_element(),
+    }
+}
+
+/// One status row: the label on the left, the value (mono for numbers and
+/// hashes) beside it, a hairline under.
+fn fact(key: &str, label: &str, value: String, mono: bool, theme: &Theme) -> AnyElement {
+    div()
+        .id(format!("nodes-status-{key}"))
+        .flex()
+        .items_center()
+        .gap_2()
+        .min_h(design::size::CONTROL + design::space::SM)
+        .pl_2()
+        .border_b_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .w(LABEL_W)
+                .flex_none()
+                .text_color(theme.muted)
+                .child(label.to_owned()),
+        )
+        .child(match mono {
+            true => design::mono(value)
+                .min_w(px(0.))
+                .truncate()
+                .into_any_element(),
+            false => div().child(value).into_any_element(),
+        })
+        .into_any_element()
 }
 
 fn count(view: &Nodes) -> String {
@@ -75,8 +170,6 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
         }
         Loadable::Ready(set) => div()
             .id("nodes-list")
-            .flex_1()
-            .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap_2()

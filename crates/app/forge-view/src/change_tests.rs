@@ -12,7 +12,15 @@ fn the_change_list_shows_the_plans_row_and_its_filters() {
     let (mut cx, view) = opened("default");
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
-    for filter in crate::state::Filter::ALL {
+    use crate::state::Filter;
+    for filter in [
+        Filter::Open,
+        Filter::Merged,
+        Filter::Closed,
+        Filter::Judgment,
+        Filter::Authored,
+        Filter::Involves,
+    ] {
         assert!(
             cx.find(&format!("forge-filter-{}", filter.slug()))
                 .is_some(),
@@ -21,9 +29,12 @@ fn the_change_list_shows_the_plans_row_and_its_filters() {
         );
     }
     assert!(cx.has_text("Review this change"), "{:?}", cx.texts());
-    assert!(cx.has_text("open"));
-    assert!(cx.has_text("feature → main"));
-    assert!(cx.has_text("Ada"), "the author key resolves");
+    assert!(cx.find("forge-change-state-1").is_some(), "the state dot");
+    assert!(
+        cx.has_text("feature → main · Ada"),
+        "the author key resolves: {:?}",
+        cx.texts()
+    );
     cx.simulate_click("forge-filter-closed");
     cx.run_until_parked();
     assert!(cx.has_text("Close this change"), "{:?}", cx.texts());
@@ -37,8 +48,9 @@ fn the_change_list_shows_the_plans_row_and_its_filters() {
 fn the_change_header_carries_its_endpoints_and_a_merge_the_program_allows() {
     let (cx, view) = change_screen_as("default", ChangeTab::Conversation, 9);
     view.read(|forge| assert_eq!(forge.nav().change, Some(1)));
-    assert!(cx.has_text("#1 Review this change"), "{:?}", cx.texts());
-    assert!(cx.has_text("feature → main · Ada"));
+    assert!(cx.has_text("Review this change"), "{:?}", cx.texts());
+    assert!(cx.has_text("#1") && cx.has_text("open"));
+    assert!(cx.has_text("Ada wants feature → main · head 26607f52…a84d"));
     // `compare` says FastForward, so the merge is offered.
     let Some(ducktape_view_guest::wire::Node::Container(node)) = cx.find("forge-merge") else {
         panic!("the merge button is a native container");
@@ -57,7 +69,9 @@ fn the_change_header_carries_its_endpoints_and_a_merge_the_program_allows() {
 fn a_diverged_comparison_says_why_it_cannot_merge() {
     let (cx, _view) = change_screen("diverged", ChangeTab::Conversation);
     assert!(
-        cx.has_text("The endpoints diverged: merge with git and push the result"),
+        cx.has_text(
+            "The endpoints diverged. Merge with git and push the result, then Merge turns on."
+        ),
         "{:?}",
         cx.texts()
     );
@@ -190,7 +204,11 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
         assert_eq!(reviews.items.len(), 3, "the review cursor was followed");
     });
     assert!(cx.has_text("approved") && cx.has_text("requested changes"));
-    assert!(cx.has_text("2 line comments"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("src/lib.rs:2 — Context is commentable"),
+        "a line comment is quoted under its review: {:?}",
+        cx.texts()
+    );
     // the change is still open: forge's last line has no ending to name yet
     assert!(
         !cx.texts()
@@ -234,7 +252,7 @@ fn a_review_pinned_before_a_push_reads_as_outdated() {
 fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
     assert!(cx.has_text("src/lib.rs"), "{:?}", cx.texts());
-    assert!(cx.has_text("+2 −1"));
+    assert!(cx.has_text("+2") && cx.has_text("−1"));
     assert!(
         cx.find("forge-file-comments-src/lib.rs").is_some(),
         "published line comments mark the file"
@@ -242,7 +260,7 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     cx.simulate_click("forge-viewed-src/lib.rs");
     cx.run_until_parked();
     view.read(|forge| assert!(forge.viewed.contains("project#1:src/lib.rs")));
-    assert!(cx.has_text("✓ viewed"));
+    assert!(cx.has_text("✓"));
     cx.simulate_click("forge-file-src/lib.rs");
     cx.run_until_parked();
     view.read(|forge| {
@@ -299,7 +317,7 @@ fn the_gutter_of_a_drawn_line_is_the_comment_button() {
     cx.simulate_click("forge-start-review");
     cx.run_until_parked();
     assert!(
-        cx.has_text("Review pinned at 26607f52…a84d · 0 pending"),
+        cx.has_text("pinned at 26607f52…a84d · 0 line comments pending"),
         "{:?}",
         cx.texts()
     );
@@ -358,6 +376,8 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
     });
     cx.run_until_parked();
     cx.simulate_click("forge-verdict-request-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-submit-review");
     cx.run_until_parked();
 
     let submitted = cx.host().requests::<SubmitForge>();
@@ -427,6 +447,8 @@ fn a_refused_review_keeps_every_draft() {
     cx.run_until_parked();
     cx.simulate_click("forge-verdict-approve");
     cx.run_until_parked();
+    cx.simulate_click("forge-submit-review");
+    cx.run_until_parked();
     assert!(
         cx.has_text("Refused: this operation exceeds its bound"),
         "{:?}",
@@ -449,6 +471,8 @@ fn an_empty_comment_verdict_is_refused_before_it_reaches_the_program() {
     cx.run_until_parked();
     cx.simulate_click("forge-verdict-comment");
     cx.run_until_parked();
+    cx.simulate_click("forge-submit-review");
+    cx.run_until_parked();
     assert_eq!(cx.host().requests::<SubmitForge>().len(), before);
     assert!(
         cx.has_text("A comment review needs a body or a line comment"),
@@ -458,36 +482,44 @@ fn an_empty_comment_verdict_is_refused_before_it_reaches_the_program() {
     view.read(|forge| assert!(forge.review().is_some()));
 }
 
+/// Wide, a change's details stand beside its conversation: its reviews,
+/// its merge status, every line comment (each opening its file in Files)
+/// and its channel. Narrow, one "Details" toggle lays them over the screen.
 #[test]
-fn the_docked_panels_show_one_at_a_time_and_jump_to_a_line() {
-    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
-    cx.simulate_click("forge-dock-merge-status");
-    cx.run_until_parked();
-    view.read(|forge| assert_eq!(forge.nav().dock, Some(crate::state::Dock::MergeStatus)));
+fn the_details_sidebar_holds_reviews_merge_status_and_line_comments() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Conversation);
+    for section in [
+        "forge-reviews",
+        "forge-merge-status",
+        "forge-comments",
+        "forge-channel",
+    ] {
+        assert!(cx.find(section).is_some(), "{section}: {:?}", cx.texts());
+    }
     assert!(cx.has_text("fast-forward"), "{:?}", cx.texts());
-    assert!(
-        cx.texts()
-            .iter()
-            .any(|text| text.contains("Approvals are advisory"))
-    );
-    cx.simulate_click("forge-dock-comments");
-    cx.run_until_parked();
-    assert!(
-        cx.has_text("Rae · src/lib.rs:2 — Context is commentable"),
-        "{:?}",
-        cx.texts()
-    );
+    assert!(cx.has_text("advisory"));
+    assert!(cx.has_text("src/lib.rs:2 · Rae"), "{:?}", cx.texts());
     cx.simulate_click("forge-comment-1-src/lib.rs-2");
     cx.run_until_parked();
     view.read(|forge| {
+        assert_eq!(forge.nav().change_tab, ChangeTab::Files);
         assert_eq!(
             forge.nav().diff_path.as_deref(),
             Some(b"src/lib.rs".as_slice())
         )
     });
-    cx.simulate_click("forge-dock-comments");
+    // the Files tab keeps its width for the diff
+    assert!(cx.find("forge-dock").is_none());
+    view.update(&mut cx, |forge, _, cx| {
+        forge.open_change_tab(ChangeTab::Conversation, cx);
+        forge.measured(720., 760., cx);
+    });
     cx.run_until_parked();
-    view.read(|forge| assert!(forge.nav().dock.is_none()));
+    assert!(cx.find("forge-dock").is_none(), "narrow folds the details");
+    cx.simulate_click("forge-toggle-dock");
+    cx.run_until_parked();
+    assert!(cx.find("forge-details-over").is_some());
+    assert!(cx.find("forge-merge-status").is_some());
 }
 
 /// The edit form's body is a multi-line editor: a body of paragraphs comes

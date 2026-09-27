@@ -265,7 +265,7 @@ fn an_agent_names_its_manager_its_standing_and_its_devices() {
         "1 device",
         "sandbox",
         "Post 5 in chat",
-        "Suspend, revoke, rename and keys live in Settings → Account, for the manager.",
+        "Suspend, revoke, rename and keys live in Account → Agents, for the manager.",
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }

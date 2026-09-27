@@ -1,15 +1,12 @@
-//! What Settings follows while it is open: the session, the live heads of
-//! identity and valset, and the clock the node status is re-read on.
-//! Every follower says what a refusal means to it; none ends on one.
+//! What Account follows while it is open: the session, and the live heads
+//! of identity and valset. Every follower says what a refusal means to it;
+//! none ends on one.
 use ducktape_view_guest::Context;
-use ducktape_view_guest::methods::{Changes, ClockTicks};
+use ducktape_view_guest::methods::Changes;
 use ducktape_view_guest::view::Loadable;
 
 use crate::Settings;
 use crate::api::{HostSession, Identity, Valset};
-
-/// How often the node status is re-read, in milliseconds.
-const STATUS_TICK: i64 = 1_000;
 
 impl Settings {
     /// Subscribes every follower; the ones before are dropped with them.
@@ -18,7 +15,6 @@ impl Settings {
         let session = host.subscribe::<HostSession>(());
         let identity = host.subscribe::<Changes<Identity>>(());
         let valset = host.subscribe::<Changes<Valset>>(());
-        let ticks = host.subscribe::<ClockTicks>(STATUS_TICK);
         self.followers = vec![
             cx.for_each(session, |view, session, _, cx| match session {
                 Ok(session) => view.session_changed(session, cx),
@@ -38,10 +34,6 @@ impl Settings {
                 Err(refusal) => cx
                     .host()
                     .log_refused("settings", "valset's live heads", &refusal),
-            }),
-            cx.for_each(ticks, |view, tick, _, cx| match tick {
-                Ok(()) => view.read_status(cx),
-                Err(refusal) => cx.host().log_refused("settings", "the clock", &refusal),
             }),
         ];
     }

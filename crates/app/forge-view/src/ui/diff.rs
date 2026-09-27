@@ -312,20 +312,21 @@ fn paint_row(
         Kind::File => div()
             .id(id(format!("forge-diff-file-{}", path_text(&row.path))))
             .w_full()
-            .px_2()
-            .py_1()
-            .bg(theme.surface_raised)
-            .text_size(design::text::SECONDARY)
-            .child(crate::ui::bold(row.text.clone()))
+            .px(design::space::BLOCK)
+            .pt(design::space::LG)
+            .pb(design::space::XS)
+            .font_family(design::fonts::FAMILY_MONO)
+            .text_size(design::text::CAPTION)
+            .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+            .child(row.text.clone())
             .into_any_element(),
         Kind::Hunk => div()
             .id(id(format!("forge-diff-hunk-{index}")))
             .w_full()
-            .px_2()
+            .px(design::space::BLOCK)
             .font_family(design::fonts::FAMILY_MONO)
             .text_size(design::text::CAPTION)
-            .text_color(theme.accent)
-            .bg(theme.surface)
+            .text_color(theme.faint)
             .child(row.text.clone())
             .into_any_element(),
         Kind::Line => line_row(row, index, reviewable, comment, theme),
@@ -349,13 +350,13 @@ fn line_row(
         LineKind::Deleted => "−",
         LineKind::Context => " ",
     };
-    let mut body = div()
+    let body = div()
         .id(id(format!("forge-diff-line-{index}")))
         .w_full()
         .flex()
         .items_center()
         .gap_1()
-        .px_1()
+        .px(design::space::BLOCK)
         .bg(background)
         .child(gutter(row, false, reviewable, comment, theme))
         .child(gutter(row, true, reviewable, comment, theme))
@@ -373,15 +374,7 @@ fn line_row(
                 .min_w(px(0.))
                 .text_color(colour),
         );
-    if let Some(draft) = &row.draft {
-        body = body.child(badge(
-            id(format!("forge-diff-draft-{index}")),
-            format!("pending: {draft}"),
-            theme.accent_foreground,
-            theme.accent_soft,
-        ));
-    }
-    if row.published.is_empty() {
+    if row.published.is_empty() && row.draft.is_none() {
         return body.into_any_element();
     }
     div()
@@ -398,6 +391,15 @@ fn line_row(
                     published_comment(index, at, author, text, *outdated, theme)
                 }),
         )
+        .children(row.draft.as_ref().map(|draft| {
+            comment_box(
+                id(format!("forge-diff-draft-{index}")),
+                "Your pending comment".to_owned(),
+                draft,
+                None,
+                theme,
+            )
+        }))
         .into_any_element()
 }
 
@@ -410,25 +412,62 @@ fn published_comment(
     outdated: bool,
     theme: &Theme,
 ) -> AnyElement {
+    let tag = outdated.then(|| {
+        badge(
+            id(format!("forge-diff-outdated-{index}-{at}")),
+            "outdated",
+            theme.warning,
+            theme.warning_soft,
+        )
+        .into_any_element()
+    });
+    comment_box(
+        id(format!("forge-diff-comment-{index}-{at}")),
+        author.to_owned(),
+        text,
+        tag,
+        theme,
+    )
+}
+
+/// A comment boxed under the line it is on: who (or whose draft) over
+/// what it says.
+fn comment_box(
+    element_id: ElementId,
+    who: String,
+    text: &str,
+    tag: Option<AnyElement>,
+    theme: &Theme,
+) -> AnyElement {
     div()
-        .id(id(format!("forge-diff-comment-{index}-{at}")))
+        .id(element_id)
         .w_full()
-        .flex()
-        .gap_2()
-        .px_6()
-        .py_1()
-        .bg(theme.surface)
-        .text_size(design::text::SECONDARY)
-        .child(crate::ui::bold(author.to_owned()))
-        .child(div().flex_1().child(text.to_owned()))
-        .when(outdated, |element| {
-            element.child(badge(
-                id(format!("forge-diff-outdated-{index}-{at}")),
-                "outdated",
-                theme.warning,
-                theme.warning_soft,
-            ))
-        })
+        .pl(GUTTER_W * 2. + MARKER_W + design::space::BLOCK + design::space::SM)
+        .pr(design::space::BLOCK)
+        .py(design::space::XS)
+        .child(
+            div()
+                .max_w(px(520.))
+                .flex()
+                .flex_col()
+                .gap(design::space::HAIR)
+                .px(design::space::MD)
+                .py(design::space::SM)
+                .border_1()
+                .border_color(theme.border_strong)
+                .bg(theme.background)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(design::space::SM)
+                        .text_size(design::text::SECONDARY)
+                        .text_color(theme.muted)
+                        .child(who)
+                        .children(tag),
+                )
+                .child(div().child(text.to_owned())),
+        )
         .into_any_element()
 }
 

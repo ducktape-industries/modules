@@ -1,6 +1,8 @@
-//! Settings: the node this app talks to, who the seated key is (its
-//! account, its keys, the agents it manages), invites to the network, and
-//! the app's own preferences.
+//! Account: who the seated key is (its account, its keys, the agents it
+//! manages) and invites to the network, one pane each behind a left menu.
+//! The program is still `settings` (module-registry's view); only its name
+//! on screen is Account. The node's own status is the Nodes view's, and
+//! the app's preferences the host's gear.
 //!
 //! The state is one struct (`state.rs`). Reads are typed asks of identity
 //! and valset (`queries.rs`), re-read on their live heads (`watch.rs`);
@@ -31,7 +33,6 @@ impl View for Settings {
 
     fn restored(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.watch(cx);
-        self.read_status(cx);
     }
 }
 
@@ -43,17 +44,9 @@ impl Render for Settings {
 
 export_view!(
     Settings,
-    "Settings",
-    "Node, account, invites and app preferences.",
-    [
-        "chain",
-        "module",
-        "op",
-        "invite",
-        "host",
-        "clock",
-        "clipboard"
-    ]
+    "Account",
+    "Your account, its keys, the agents it manages, and invites.",
+    ["module", "op", "invite", "host", "clipboard"]
 );
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ use ducktape_view_guest::view::Loadable;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::api::{Invite, NodeStatus, Session};
+use crate::api::{Invite, Session};
 use crate::queries::Seat;
 
 /// The invite lifetimes offered, in days.
@@ -13,7 +13,8 @@ pub(crate) const TTL: [u64; 3] = [1, 7, 30];
 #[derive(Default, Serialize, Deserialize)]
 pub struct Settings {
     pub(crate) session: Session,
-    pub(crate) status: Loadable<NodeStatus>,
+    /// the pane the left menu has open
+    pub(crate) section: Section,
     pub(crate) account: Loadable<Option<Seat>>,
     pub(crate) invite: Loadable<Invite>,
     /// which of [`TTL`] the next invite lasts
@@ -32,6 +33,33 @@ pub struct Settings {
     /// What the view follows (`watch.rs`); dropping them unsubscribes.
     #[serde(skip)]
     pub(crate) followers: Vec<Task<()>>,
+}
+
+/// The panes of the left menu. Agents is listed only for an account that
+/// manages agents.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Section {
+    #[default]
+    Account,
+    Agents,
+    Invites,
+}
+
+impl Section {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Account => "Account",
+            Self::Agents => "Agents",
+            Self::Invites => "Invites",
+        }
+    }
+    pub(crate) fn slug(self) -> &'static str {
+        match self {
+            Self::Account => "account",
+            Self::Agents => "agents",
+            Self::Invites => "invites",
+        }
+    }
 }
 
 /// A one-field form: what was typed, whether its submit is in flight, and

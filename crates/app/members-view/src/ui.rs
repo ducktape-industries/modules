@@ -429,7 +429,7 @@ fn detail(view: &Members, over: bool, cx: &mut Context<Members>, theme: &Theme) 
                 .text_size(text::SECONDARY)
                 .text_color(theme.muted)
                 .child(
-                    "Suspend, revoke, rename and keys live in Settings → Account, for the manager.",
+                    "Suspend, revoke, rename and keys live in Account → Agents, for the manager.",
                 ),
         );
     }

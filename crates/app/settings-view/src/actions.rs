@@ -4,8 +4,8 @@ use ducktape_view_guest::Context;
 use ducktape_view_guest::methods::ClipboardWrite;
 use ducktape_view_guest::view::Loadable;
 
-use crate::api::{ChainStatus, CreateInvite, Identity, InviteCreate, Session, Submit};
-use crate::state::{Form, Problem, TTL};
+use crate::api::{CreateInvite, Identity, InviteCreate, Session, Submit};
+use crate::state::{Form, Problem, Section, TTL};
 use crate::{Settings, queries};
 
 impl Settings {
@@ -17,16 +17,9 @@ impl Settings {
         self.read_account(cx);
     }
 
-    /// The node status: read, or re-read with what is on screen kept.
-    pub(crate) fn read_status(&mut self, cx: &mut Context<Self>) {
-        let work = cx.host().ask::<ChainStatus>(());
-        if self.status.ready().is_some() {
-            cx.refresh(work, |view, status, _| {
-                view.status = Loadable::Ready(status)
-            });
-        } else if !self.status.is_loading() {
-            self.status = cx.load(work, |view| &mut view.status);
-        }
+    pub(crate) fn select_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        self.section = section;
+        self.revoking = None;
         cx.notify();
     }
 
@@ -91,7 +84,21 @@ impl Settings {
         .detach();
     }
 
+    /// Rename's first press turns the agent's name into a field holding
+    /// it; the next submits it.
     pub(crate) fn submit_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
+        if !self.rename_agent.contains_key(&number) {
+            let name = self.agent_name(number).unwrap_or_default();
+            self.rename_agent.insert(
+                number,
+                Form {
+                    text: name,
+                    ..Form::default()
+                },
+            );
+            cx.notify();
+            return;
+        }
         let form = self.rename_agent.entry(number).or_default();
         let name = form.text.trim().to_string();
         if name.is_empty() {
@@ -104,6 +111,22 @@ impl Settings {
             name,
         };
         self.submit_agent_op(op, move |v| v.rename_agent.entry(number).or_default(), cx);
+    }
+
+    pub(crate) fn cancel_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
+        self.rename_agent.remove(&number);
+        cx.notify();
+    }
+
+    fn agent_name(&self, number: u64) -> Option<String> {
+        match self.account.ready() {
+            Some(Some(queries::Seat::Account(account))) => account
+                .agents
+                .iter()
+                .find(|agent| agent.number == number)
+                .map(|agent| agent.name.clone()),
+            _ => None,
+        }
     }
 
     pub(crate) fn submit_create_agent(&mut self, cx: &mut Context<Self>) {
@@ -183,6 +206,9 @@ impl Settings {
                     Ok(_) => form.text.clear(),
                     Err(refusal) => form.problem = Some(Problem::Refused(refusal.message)),
                 }
+                // a rename that landed closes its field
+                view.rename_agent
+                    .retain(|_, form| form.busy || form.problem.is_some() || !form.text.is_empty());
                 view.refresh_account(cx);
                 cx.notify();
             });
