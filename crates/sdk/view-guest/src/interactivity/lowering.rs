@@ -33,12 +33,6 @@ impl Interactivity {
             focus_handle: self.focus_handle.map(|handle| handle.id),
             occlude: self.occlude,
             block_mouse_except_scroll: self.block_mouse_except_scroll,
-            window_control_area: self.window_control_area.map(|area| match area {
-                WindowControlArea::Drag => wire::WindowControlArea::Drag,
-                WindowControlArea::Close => wire::WindowControlArea::Close,
-                WindowControlArea::Max => wire::WindowControlArea::Max,
-                WindowControlArea::Min => wire::WindowControlArea::Min,
-            }),
             hover_listener_mode: match self.hover_listener_mode {
                 gpui::HoverListenerMode::InputModalityAware => {
                     wire::HoverListenerMode::InputModalityAware

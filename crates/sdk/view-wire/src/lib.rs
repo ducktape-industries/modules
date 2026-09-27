@@ -89,9 +89,6 @@ pub use list::{
     ListAlignment, ListCommand, ListKey, ListOffset, ListRequest, ListScroll, ListSizingBehavior,
     MAX_LIST_COMMANDS, MAX_LIST_ITEMS, MAX_LIST_ROWS,
 };
-mod window;
-pub use window::WindowControlArea;
-
 mod widget;
 pub use widget::{WidgetCommand, WidgetTarget};
 

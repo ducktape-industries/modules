@@ -6,7 +6,6 @@ use crate::{
 };
 use gpui::{
     ClickEvent, ElementId, FileDropEvent, MouseButton, SharedString, StyleRefinement, Styled,
-    WindowControlArea,
 };
 use std::time::Duration;
 
@@ -68,7 +67,6 @@ pub struct Interactivity {
     tooltip_show_delay: Option<Duration>,
     occlude: bool,
     block_mouse_except_scroll: bool,
-    window_control_area: Option<WindowControlArea>,
     pub(crate) base_style: StyleRefinement,
     pub(crate) id: Option<ElementId>,
 }
@@ -338,11 +336,6 @@ pub trait InteractiveElement: Sized {
 
     fn occlude(mut self) -> Self {
         self.interactivity().occlude = true;
-        self
-    }
-
-    fn window_control_area(mut self, area: WindowControlArea) -> Self {
-        self.interactivity().window_control_area = Some(area);
         self
     }
 

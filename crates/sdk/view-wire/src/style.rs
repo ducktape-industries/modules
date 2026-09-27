@@ -33,8 +33,6 @@ pub struct Interactivity {
     pub occlude: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub block_mouse_except_scroll: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub window_control_area: Option<crate::WindowControlArea>,
     #[serde(skip_serializing_if = "crate::is_default")]
     pub hover_listener_mode: crate::HoverListenerMode,
     #[serde(skip_serializing_if = "Option::is_none")]

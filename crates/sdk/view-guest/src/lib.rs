@@ -10,8 +10,8 @@ pub use gpui::{
     ListScrollEvent, ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent,
     MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent,
     Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
-    StrikethroughStyle, StyleRefinement, Styled, TextRun, TextStyle, UnderlineStyle,
-    WindowControlArea, hsla, px, rems, rgb,
+    StrikethroughStyle, StyleRefinement, Styled, TextRun, TextStyle, UnderlineStyle, hsla, px,
+    rems, rgb,
 };
 pub use view_guest_derive::IntoElement;
 pub use view_wire as wire;
@@ -51,8 +51,8 @@ pub mod prelude {
         MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ParentElement,
         PinchEvent, Pixels, Render, RenderOnce, Role, ScrollStrategy, ScrollWheelEvent,
         SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Theme,
-        UniformListScrollHandle, Window, WindowControlArea, anchored, canvas, deferred, div, hsla,
-        img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
+        UniformListScrollHandle, Window, anchored, canvas, deferred, div, hsla, img, list,
+        modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
     };
 }
 mod editor;
