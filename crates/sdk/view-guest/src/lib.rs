@@ -178,11 +178,11 @@ const fn put_number(out: &mut [u8], at: usize, mut number: u32) -> usize {
     end
 }
 
-/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view. `export_view!` invokes this internally.
+/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view.
 /// Each capability is a [`wire::methods::Capability`] variant, the
 /// `<capability>` half of the method kinds the view asks through.
 #[macro_export]
-macro_rules! export_driver {
+macro_rules! export_view {
     ($app:ty, $name:expr, $description:expr, [$($capability:ident),* $(,)?]) => {
         impl $crate::Capabilities for $app {
             const CAPABILITIES: &'static [$crate::wire::methods::Capability] =
@@ -236,7 +236,7 @@ macro_rules! export_driver {
     };
 }
 
-/// The guest's half of [`wire::abi`]: what `export_driver!` builds the five
+/// The guest's half of [`wire::abi`]: what `export_view!` builds the five
 /// exports from. A module runs one app, so its driver lives here.
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]

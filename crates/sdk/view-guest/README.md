@@ -59,7 +59,7 @@ pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
 
 ## Exporting
 
-`export_view!(View, "Name", "description", [Module, Host])` (`src/view.rs`)
+`export_view!(View, "Name", "description", [Module, Host])` (`src/lib.rs`)
 writes the five wasm exports and the manifest section `ducktape.view.manifest`
 (`view-wire/src/manifest.rs`: header, name, description, capabilities,
 preferred size, `WIRE_EPOCH`). Each capability is a `methods::Capability`

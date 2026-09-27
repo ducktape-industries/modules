@@ -179,12 +179,6 @@ impl<V: View> Context<'_, V> {
         .detach();
     }
 }
-#[macro_export]
-macro_rules! export_view {
-    ($view:ty, $name:expr, $description:expr, [$($capability:ident),* $(,)?]) => {
-        $crate::export_driver!($view, $name, $description, [$($capability),*]);
-    };
-}
 
 #[cfg(test)]
 mod follow_tests {
