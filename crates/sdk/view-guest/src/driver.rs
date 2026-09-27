@@ -312,19 +312,12 @@ impl<V: View> Driver<V> {
         handler: u32,
         event: wire::EditorTransactionEvent,
     ) -> Option<Callback<V>> {
-        if let wire::EditorTransactionEvent::Fault { id, .. }
-        | wire::EditorTransactionEvent::Cancelled { id, .. } = &event
-        {
-            slots::finish_editor_transfer(
-                &self.app.inner.slots,
-                &wire::editor_document::EditorTransferId {
-                    instance: id.instance,
-                    document: id.document.clone(),
-                    reset: id.reset,
-                    serial: id.sequence,
-                    attempt: id.attempt,
-                },
-            );
+        if matches!(
+            event,
+            wire::EditorTransactionEvent::Fault { .. }
+                | wire::EditorTransactionEvent::Cancelled { .. }
+        ) {
+            slots::finish_editor_transfer(&self.app.inner.slots, &event.id().into());
         }
         if let wire::EditorTransactionEvent::Cancelled { id, .. } = &event {
             if !slots::editor_matches_pending(&self.app.inner.slots, id) {

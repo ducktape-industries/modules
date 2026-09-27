@@ -1,14 +1,24 @@
 use super::*;
+use crate::wire::EditorTransactionId;
+
+/// The same pending slot: one instance, document and sequence; the attempt
+/// and the revisions may differ.
+fn same_slot(a: &EditorTransactionId, b: &EditorTransactionId) -> bool {
+    a.instance == b.instance && a.document == b.document && a.sequence == b.sequence
+}
+
+/// `id` takes its slot's place among the pending transactions.
+fn replace_pending(tables: &mut Tables, id: &EditorTransactionId) {
+    tables
+        .editor_pending
+        .retain(|pending| !same_slot(pending, id));
+    tables.editor_pending.push(id.clone());
+}
 
 pub(crate) fn editor_response(context: &Context, response: crate::wire::EditorResponse) {
     let tables = context.tables();
     let mut tables = tables.borrow_mut();
-    tables.editor_pending.retain(|id| {
-        !(id.instance == response.id.instance
-            && id.document == response.id.document
-            && id.sequence == response.id.sequence)
-    });
-    tables.editor_pending.push(response.id.clone());
+    replace_pending(&mut tables, &response.id);
     tables.editor_responses.push(response);
 }
 /// A native commit may have no decision, but an outstanding decision must
@@ -17,32 +27,26 @@ pub(crate) fn editor_request_current(
     context: &Context,
     id: &crate::wire::EditorTransactionId,
 ) -> bool {
-    context.0.borrow().editor_pending.iter().all(|pending| {
-        pending.instance != id.instance
-            || pending.document != id.document
-            || pending.sequence != id.sequence
-            || pending.attempt <= id.attempt
-    })
+    context
+        .0
+        .borrow()
+        .editor_pending
+        .iter()
+        .all(|pending| !same_slot(pending, id) || pending.attempt <= id.attempt)
 }
 pub(crate) fn editor_matches_pending(
     context: &Context,
     id: &crate::wire::EditorTransactionId,
 ) -> bool {
-    context.0.borrow().editor_pending.iter().all(|pending| {
-        pending.instance != id.instance
-            || pending.document != id.document
-            || pending.sequence != id.sequence
-            || pending == id
-    })
+    context
+        .0
+        .borrow()
+        .editor_pending
+        .iter()
+        .all(|pending| !same_slot(pending, id) || pending == id)
 }
 pub(crate) fn editor_acknowledge(context: &Context, event: &crate::wire::EditorTransactionEvent) {
-    use crate::wire::EditorTransactionEvent;
-    let id = match event {
-        EditorTransactionEvent::Interaction { id, .. }
-        | EditorTransactionEvent::Commit { id, .. }
-        | EditorTransactionEvent::Fault { id, .. }
-        | EditorTransactionEvent::Cancelled { id, .. } => id,
-    };
+    let id = event.id();
     let tables = context.tables();
     let mut tables = tables.borrow_mut();
     tables.editor_pending.retain(|pending| pending != id);
@@ -57,13 +61,7 @@ pub(crate) fn request_editor_mirror(
     use crate::wire::editor_document::{
         EditorDocumentMessage, EditorTransferError, EditorTransferId, EditorTransferReceiver,
     };
-    let id = EditorTransferId {
-        instance: request.id.instance,
-        document: request.id.document.clone(),
-        reset: request.id.reset,
-        serial: request.id.sequence,
-        attempt: request.id.attempt,
-    };
+    let id = EditorTransferId::from(&request.id);
     let tables = context.tables();
     let mut tables = tables.borrow_mut();
     if tables.editor_sender.is_some() || !tables.editor_documents.is_empty() {
@@ -78,12 +76,7 @@ pub(crate) fn request_editor_mirror(
     }
     let receiver = EditorTransferReceiver::new(id.clone(), request.state.clone())?;
     tables.editor_receiver = Some((id.clone(), request.state.clone(), receiver));
-    tables.editor_pending.retain(|pending| {
-        !(pending.instance == request.id.instance
-            && pending.document == request.id.document
-            && pending.sequence == request.id.sequence)
-    });
-    tables.editor_pending.push(request.id.clone());
+    replace_pending(&mut tables, &request.id);
     tables
         .editor_documents
         .push(EditorDocumentMessage::Request {

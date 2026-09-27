@@ -161,6 +161,20 @@ pub struct EditorTransferId {
     pub attempt: u32,
 }
 
+/// A transaction's transfer: the same slot, the transaction's sequence as
+/// the transfer serial.
+impl From<&crate::EditorTransactionId> for EditorTransferId {
+    fn from(id: &crate::EditorTransactionId) -> Self {
+        Self {
+            instance: id.instance,
+            document: id.document.clone(),
+            reset: id.reset,
+            serial: id.sequence,
+            attempt: id.attempt,
+        }
+    }
+}
+
 impl EditorTransferId {
     /// The target validates and names this id's document and reset.
     fn check_target(&self, target: &EditorDocumentRef) -> Result<(), EditorTransferError> {

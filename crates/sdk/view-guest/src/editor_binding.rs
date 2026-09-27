@@ -217,17 +217,7 @@ impl<V: 'static> EditorTransaction<V> {
                     if request.state.reset == editor.reset_revision()
                         && let Err(reason) = slots::request_editor_mirror(context, &request)
                     {
-                        slots::editor_document_failure(
-                            context,
-                            wire::editor_document::EditorTransferId {
-                                instance: request.id.instance,
-                                document: request.id.document.clone(),
-                                reset: request.id.reset,
-                                serial: request.id.sequence,
-                                attempt: request.id.attempt,
-                            },
-                            reason,
-                        );
+                        slots::editor_document_failure(context, (&request.id).into(), reason);
                     }
                     return None;
                 }
@@ -265,12 +255,7 @@ impl<V: 'static> EditorTransaction<V> {
                 None
             }
             Transaction::Event(event) => {
-                let id = match &event {
-                    wire::EditorTransactionEvent::Interaction { id, .. }
-                    | wire::EditorTransactionEvent::Commit { id, .. }
-                    | wire::EditorTransactionEvent::Fault { id, .. }
-                    | wire::EditorTransactionEvent::Cancelled { id, .. } => id,
-                };
+                let id = event.id();
                 if !slots::editor_matches_pending(context, id) {
                     return None;
                 }

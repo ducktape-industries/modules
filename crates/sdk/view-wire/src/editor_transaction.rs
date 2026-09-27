@@ -230,6 +230,17 @@ pub enum EditorTransactionEvent {
     },
 }
 
+impl EditorTransactionEvent {
+    pub fn id(&self) -> &EditorTransactionId {
+        match self {
+            Self::Interaction { id, .. }
+            | Self::Commit { id, .. }
+            | Self::Fault { id, .. }
+            | Self::Cancelled { id, .. } => id,
+        }
+    }
+}
+
 pub const MAX_EDITOR_CLAIMS: usize = 32;
 pub const MAX_EDITOR_RESPONSES: usize = 128;
 
