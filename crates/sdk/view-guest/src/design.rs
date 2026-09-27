@@ -30,6 +30,9 @@ pub mod size {
     pub const AVATAR_SM: Pixels = px(::design::height::AVATAR_SM as f32);
     pub const AVATAR: Pixels = px(::design::height::AVATAR as f32);
     pub const AVATAR_LG: Pixels = px(::design::height::AVATAR_LG as f32);
+    /// The host's vertical scroll bar, its hover width and insets: a
+    /// scroller keeps this much of its right edge clear.
+    pub const SCROLLBAR: Pixels = px(16.);
 }
 
 /// [`spacing`] as gaps and insets an element takes.
