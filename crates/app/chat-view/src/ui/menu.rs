@@ -28,6 +28,9 @@ const CANCEL_W: f32 = 96.;
 const GLYPH_W: f32 = 20.;
 const TABS: f32 = design::height::CONTROL as f32;
 const STACK_GAP: f32 = design::spacing::XS as f32;
+/// From a press on the action strip to past its edge, either way: the
+/// strip is 22 tall, and a gap keeps the menu off it.
+const STRIP_CLEAR: f32 = 22. + design::spacing::XS as f32;
 type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 mod picker;
@@ -75,18 +78,26 @@ pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<An
         // `self.menu` before this popup's own handler gets to read it.
         .occlude()
         .child(content);
-    Some(
-        anchored()
-            .anchor(Anchor::TopLeft)
-            .position(Point {
-                x: px(at.0),
-                y: px(at.1),
-            })
-            .position_mode(AnchoredPositionMode::Window)
-            .snap_to_window_with_margin(Edges::all(design::space::SM))
-            .child(frame)
-            .into_any_element(),
-    )
+    let popup = anchored()
+        .position(Point {
+            x: px(at.0),
+            y: px(at.1),
+        })
+        .position_mode(AnchoredPositionMode::Window)
+        .snap_to_window_with_margin(Edges::all(design::space::SM));
+    let popup = match menu.mode {
+        // More opens from the action strip: below the strip, right-aligned
+        // to the press, or above it where the window ends; never over it
+        Mode::More => popup
+            .anchor(Anchor::TopRight)
+            // the host mirrors the offset when it flips the menu above
+            .offset(Point {
+                x: px(0.),
+                y: px(STRIP_CLEAR),
+            }),
+        _ => popup.anchor(Anchor::TopLeft),
+    };
+    Some(popup.child(frame).into_any_element())
 }
 
 /// A width and height, or a point, in pixels.
