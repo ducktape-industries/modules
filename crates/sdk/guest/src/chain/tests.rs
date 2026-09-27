@@ -35,6 +35,11 @@ impl Module for Bot {
     type Query = String;
     type Response = Option<Vec<u8>>;
 
+    /// Genesis runs a script too.
+    fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
+        Bot::execute(ctx, crate::decoded("bot", "init", params)?)
+    }
+
     fn execute(ctx: &ExecCtx, steps: Vec<Step>) -> Result<(), Error> {
         log(ctx)?;
         for step in steps {
@@ -440,7 +445,8 @@ fn a_submission_acts_as_the_account_its_key_holds_or_as_no_one() {
     let refused = chain
         .submit_raw(Origin::Signed(b"agent-key".to_vec()), "a", &nothing)
         .unwrap_err();
-    assert_eq!(refused.code, code::WRONG_STATE);
+    // identity's own refusal of a key whose account does not act
+    assert_eq!(refused.code, code::UNAUTHORIZED);
     // the chain's own conveniences: a message by hand, a root call
     chain
         .submit_raw(Origin::Module("b".into()), "a", &nothing)
@@ -562,4 +568,38 @@ impl Module for Wrong {
     fn query(_: &QueryCtx, _: Asked) -> Result<Answer, Error> {
         Ok(Answer::Profile(None))
     }
+}
+
+#[test]
+fn init_is_a_frame_its_messages_run_after_it_and_a_refusal_undoes_it() {
+    let chain = chain();
+    let script = vec![
+        put("init", "wrote"),
+        emit("b", vec![put("from", "a")], false),
+    ];
+    chain.init("a", &script).unwrap();
+    assert_eq!(logged(&chain, "a")[0].origin, Origin::Root);
+    assert_eq!(logged(&chain, "b")[0].origin, Origin::Module("a".into()));
+    let before = (left(&chain, "a"), left(&chain, "b"));
+    let refused = vec![put("again", "x"), emit("b", vec![Step::Refuse], false)];
+    assert_eq!(
+        chain.init("a", &refused).unwrap_err().code,
+        code::WRONG_STATE
+    );
+    assert_eq!((left(&chain, "a"), left(&chain, "b")), before);
+}
+
+#[test]
+fn a_module_queries_itself() {
+    let chain = chain();
+    chain.submit(ada(), "a", &vec![put("k", "v")]).unwrap();
+    let peek = vec![Step::Peek("a".into(), "k".into())];
+    chain.submit(ada(), "a", &peek).unwrap();
+    let peeked = chain
+        .host("a")
+        .borrow()
+        .state
+        .get(b"peek:k".as_slice())
+        .cloned();
+    assert_eq!(peeked, Some(b"v".to_vec()));
 }

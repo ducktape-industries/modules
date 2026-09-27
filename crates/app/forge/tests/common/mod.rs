@@ -41,7 +41,7 @@ pub fn bounds() -> Bounds {
 
 pub fn founded() -> MemorySandbox {
     let sandbox = MemorySandbox::default();
-    sandbox.chain.init::<Forge>("forge", &bounds()).unwrap();
+    sandbox.chain.init("forge", &bounds()).unwrap();
     sandbox
 }
 

@@ -25,7 +25,7 @@ writes `crates/app/poll/` in valset's shape, registers it (`PROGRAMS` and
 | `src/program.rs` | `pub struct Poll; impl guest::Module for Poll`: one match over every op, one over every query, `reply` if it emits with a reply wanted; `guest::export!` behind `module` |
 | `src/rules.rs` | the tables (`store`), and what each op checks and writes |
 | `src/view.rs` | behind `view`: the marker a view names this module by |
-| `src/tests.rs` | the module natively, over `MockHost` and on a `MockChain` |
+| `src/tests.rs` | the module natively over `MockHost` (add a `MockChain` test once it talks to another module) |
 
 `Cargo.toml` declares three features, all off by default:
 
@@ -248,7 +248,7 @@ themselves (`abi::role::identity::{Profile, Kind, Standing}`) are what a
 view shows beside a name.
 
 `Env::authority()` is the stub that admits anyone until the chain has an
-authority; the system modules call it before a write.
+authority; valset and the registry call it before a write.
 
 ## 6. Talking to other modules
 
@@ -424,7 +424,9 @@ let reply: Reply = chain.query(MODULE, &Query::Poll { poll_id: "lunch".into() })
 With no identity module seated, the chain's roster answers as the role
 would (`hold`, `register`, `profile` for an agent and its standing); seat
 `identity::Identity` at `MockHost::roles().identity` and the chain asks it
-instead. `chain.init::<M>(module, &params)` runs `init` as founding does;
+instead, and the roster's edits do nothing (identity's own ops seat keys
+then). `chain.init(module, &params)` runs `init` as the kernel admits a
+module: one frame, what it emits run after it, a refusal undoing it all;
 `chain.height`/`time` are fields a test moves. The two tests that matter
 for poll: the announcement lands in the frame that opened the poll, and a
 room that refuses the line still gets its poll while a refused closing

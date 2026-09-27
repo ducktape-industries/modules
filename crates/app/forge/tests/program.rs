@@ -12,7 +12,7 @@ fn founding_requires_bounds_and_ops_require_a_signer() {
             .starts_with("forge: Bounds did not decode:"),
         "{unfounded}"
     );
-    sandbox.chain.init::<Forge>("forge", &bounds()).unwrap();
+    sandbox.chain.init("forge", &bounds()).unwrap();
 
     let create = Op::Create {
         repo: "r".into(),

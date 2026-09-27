@@ -10,10 +10,11 @@
 //! blob rostering (a blob put stays put), state roots (`ctx.root` is
 //! `None`), committed reads (they read the same map as a plain read), the
 //! signer's sequence number (a submission is never out of sequence), and
-//! the query stack's cycle check (a module asking itself, through others,
-//! is refused as unknown rather than as a cycle), and receipts (a
-//! submission is its output or its refusal; what ran nested is read off
-//! the hosts).
+//! the query stack's cycle check (a module asked again while a query of it
+//! is being answered is refused as unknown rather than as a cycle), and
+//! receipts (a submission is its output or its refusal; what ran nested is
+//! read off the hosts, and a rejected run's events go with its writes,
+//! where the kernel's receipt would keep them).
 
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::BTreeMap;
@@ -24,7 +25,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
     AccountNumber, Cause, Env, Error, ExecCtx, MessageId, MockHost, Module, ModuleId, Origin,
-    Outcome, Principal, QueryCtx, code, identity_role, unexpected_reply,
+    Outcome, Principal, QueryCtx, code, identity_role, unauthorized, unexpected_reply,
 };
 
 /// How deep messages nest in one frame: a submission runs at depth 0 and
@@ -36,12 +37,21 @@ pub const MAX_DEPTH: u32 = 8;
 /// [`crate::query`] of one `Module`, over the context the chain makes.
 type Entry<Ctx> = Rc<dyn Fn(Ctx, &[u8]) -> Result<(), Error>>;
 
-/// A module seated on the chain: its host and its two entry points, typed
-/// away so the chain holds any module.
+/// A module seated on the chain: its host and its entry points, typed away
+/// so the chain holds any module.
 struct Seat {
     host: MockHost,
+    init: Entry<ExecCtx>,
     execute: Entry<ExecCtx>,
     query: Entry<QueryCtx>,
+}
+
+/// What a run of a frame calls: the module's init with its params (the
+/// kernel's admission) or its execute with a payload.
+#[derive(Clone, Copy)]
+enum Call<'a> {
+    Init(&'a [u8]),
+    Execute(&'a [u8]),
 }
 
 /// Who holds what, for a chain with no identity module seated: each key
@@ -80,10 +90,8 @@ impl Roster {
             && let Kind::Managed { standing, .. } = profile.kind
             && standing != Standing::Active
         {
-            return Err(Error::new(
-                code::WRONG_STATE,
-                format!("account {number} does not act: it is {standing:?}"),
-            ));
+            // identity's own words (`of_key`), revoked or suspended
+            return Err(unauthorized(format!("account {number} is suspended")));
         }
         Ok(number)
     }
@@ -107,7 +115,7 @@ impl Roster {
 /// chain.seat::<Chat>("chat");
 /// chain.register("forge", 900);
 /// chain.hold(b"ada-key", 1);
-/// chain.init::<Forge>("forge", &bounds())?;
+/// chain.init("forge", &bounds())?;
 /// // forge's op, and what it emitted to chat, as one frame
 /// let output = chain.submit(Origin::Signed(b"ada-key".to_vec()), "forge", &op)?;
 /// let reply: chat::Reply = chain.query("chat", &chat::Query::Roots { .. })?;
@@ -143,6 +151,7 @@ impl MockChain {
         let host = MockHost::default();
         let seat = Seat {
             host: host.clone(),
+            init: Rc::new(|ctx, params| M::init(&ctx, params)),
             execute: Rc::new(|ctx, payload| crate::execute::<M>(&ctx, payload)),
             query: Rc::new(|ctx, request| crate::query::<M>(&ctx, request)),
         };
@@ -151,6 +160,10 @@ impl MockChain {
             MockHost::roles().identity,
             Box::new(move |_, request| identity_role(&roster.borrow().profiles(), request)),
         );
+        // a module may query itself, as the kernel answers it
+        host.borrow_mut()
+            .siblings
+            .insert(module.clone(), seat.sibling());
         for (name, other) in &self.seats {
             other
                 .host
@@ -188,7 +201,8 @@ impl MockChain {
     }
 
     /// Seats `key` in `account`, as identity would; an account no profile
-    /// names yet is a person.
+    /// names yet is a person. The roster answers only while no module is
+    /// seated at the identity role: then identity's own ops seat keys.
     pub fn hold(&self, key: impl Into<Vec<u8>>, account: AccountNumber) {
         let mut roster = self.roster_mut();
         roster.keys.insert(key.into(), account);
@@ -200,7 +214,7 @@ impl MockChain {
     }
 
     /// Adds or replaces an account's profile: a module's account, an agent
-    /// and its standing.
+    /// and its standing (the roster's, like [`hold`](MockChain::hold)).
     pub fn profile(&self, profile: Profile) {
         self.roster_mut().profiles.insert(profile.number, profile);
     }
@@ -215,17 +229,19 @@ impl MockChain {
         }
     }
 
-    /// `M`'s [`init`](Module::init) with `params` (borsh), as founding runs
-    /// it: by the chain itself, at this height, over `module`'s host.
-    pub fn init<M: Module>(&self, module: &str, params: &impl BorshSerialize) -> Result<(), Error> {
-        M::init(
-            &self.host(module).exec(self.env(module)),
-            &abi::encode(params),
-        )
+    /// `module`'s [`init`](Module::init) with `params` (borsh), as the
+    /// kernel admits a module: one frame run by the chain itself at this
+    /// height, what init emits run after it, and a refusal undoing it all.
+    pub fn init(&self, module: &str, params: &impl BorshSerialize) -> Result<(), Error> {
+        self.next_message.set(0);
+        let params = abi::encode(params);
+        self.run_frame(self.env(module), Call::Init(&params), 0)
+            .map(drop)
     }
 
     /// Gives `module` the account `number`, as identity does when the
-    /// kernel admits a module: what its messages act as.
+    /// kernel admits a module: what its messages act as (the roster's,
+    /// like [`hold`](MockChain::hold)).
     pub fn register(&self, module: &str, number: AccountNumber) {
         self.profile(Profile {
             number,
@@ -269,7 +285,7 @@ impl MockChain {
             ..self.env(module)
         };
         self.next_message.set(0);
-        self.run_frame(env, payload.as_ref(), 0)
+        self.run_frame(env, Call::Execute(payload.as_ref()), 0)
     }
 
     /// `module`'s answer to `request`, asked by the chain itself (origin
@@ -329,7 +345,7 @@ impl MockChain {
     /// rejected message without a reply, or a rejected reply run. A message
     /// with a reply wanted comes back as a [`Cause::Reply`] run of the
     /// emitter, the target's writes undone when it was rejected.
-    fn run_frame(&self, env: Env, payload: &[u8], depth: u32) -> Result<Vec<u8>, Error> {
+    fn run_frame(&self, env: Env, call: Call, depth: u32) -> Result<Vec<u8>, Error> {
         if depth > MAX_DEPTH {
             return Err(Error::new(
                 code::CAPACITY,
@@ -341,7 +357,10 @@ impl MockChain {
         let host = seat.host.clone();
         let first = self.next_message.get();
         host.borrow_mut().next_message = first;
-        let ran = (seat.execute)(host.exec(env.clone()), payload);
+        let ran = match call {
+            Call::Init(params) => (seat.init)(host.exec(env.clone()), params),
+            Call::Execute(payload) => (seat.execute)(host.exec(env.clone()), payload),
+        };
         // this run's output and messages, before a nested run of the same
         // module (a reply) overwrites them
         let output = host.take_output();
@@ -378,7 +397,7 @@ impl MockChain {
                         sender,
                         Cause::Message(id.clone()),
                     );
-                    self.run_frame(env, &message.payload, depth + 1)
+                    self.run_frame(env, Call::Execute(&message.payload), depth + 1)
                 }
             };
             let refusal = match (ran, message.reply) {
@@ -394,7 +413,7 @@ impl MockChain {
                         Ok(sender) => {
                             let cause = Cause::Reply { id, outcome };
                             let env = nested(&env.module, &message.target, sender, cause);
-                            self.run_frame(env, &[], depth + 1)
+                            self.run_frame(env, Call::Execute(&[]), depth + 1)
                         }
                     };
                     match replied {
