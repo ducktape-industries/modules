@@ -66,16 +66,6 @@ impl EditorCursor {
     }
 }
 
-/// A complete host observation, fenced by the guest's authoritative reset revision.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditorState {
-    pub text: String,
-    pub cursor: EditorCursor,
-    pub reset: u64,
-    /// Monotonic host observation order within the instance.
-    pub revision: u64,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

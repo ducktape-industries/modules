@@ -2,11 +2,21 @@
 use crate::wire;
 use std::rc::Rc;
 
+/// Editor snapshot record: canonical text, caret, reset fence and observation
+/// revision. Field names and order are the snapshot bytes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct EditorState {
+    text: String,
+    cursor: wire::EditorCursor,
+    reset: u64,
+    revision: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Editor(Rc<wire::EditorState>, u64);
+pub struct Editor(Rc<EditorState>, u64);
 impl Editor {
     pub fn new(text: impl Into<String>) -> Self {
-        let mut state = wire::EditorState {
+        let mut state = EditorState {
             text: text.into(),
             ..Default::default()
         };
@@ -75,7 +85,8 @@ impl Editor {
         *self = next;
     }
     /// Observations from a previous document cannot overwrite a replacement.
-    pub fn accept(&mut self, mut state: wire::EditorState) {
+    #[cfg(test)]
+    fn accept(&mut self, mut state: EditorState) {
         if state.reset == self.0.reset
             && state.revision > self.0.revision
             && state.text.len() <= wire::editor_document::MAX_EDITOR_DOCUMENT_BYTES
@@ -163,7 +174,7 @@ impl Editor {
         wire::encode(&(&*self.0, self.1))
     }
     pub fn restore(bytes: &[u8]) -> Option<Self> {
-        let (state, text_revision): (wire::EditorState, u64) = wire::decode(bytes).ok()?;
+        let (state, text_revision): (EditorState, u64) = wire::decode(bytes).ok()?;
         if state.text.len() > wire::editor_document::MAX_EDITOR_DOCUMENT_BYTES {
             return None;
         }
@@ -197,7 +208,7 @@ mod tests {
         let frame = editor.clone();
         assert!(Rc::ptr_eq(&editor.0, &frame.0));
 
-        editor.accept(wire::EditorState {
+        editor.accept(EditorState {
             text: "after".into(),
             revision: 1,
             ..Default::default()
@@ -211,7 +222,7 @@ mod tests {
     #[test]
     fn document_references_separate_text_revisions_from_caret_observations() {
         let mut editor = Editor::new("a");
-        editor.accept(wire::EditorState {
+        editor.accept(EditorState {
             text: "ab".into(),
             revision: 4,
             ..Default::default()
@@ -221,7 +232,7 @@ mod tests {
             (typed.text_revision, typed.revision, typed.byte_len),
             (1, 4, 2)
         );
-        editor.accept(wire::EditorState {
+        editor.accept(EditorState {
             text: "ab".into(),
             revision: 5,
             ..Default::default()
@@ -241,7 +252,7 @@ mod tests {
         let oversized = "x".repeat(wire::editor_document::MAX_EDITOR_DOCUMENT_BYTES + 1);
         assert!(std::panic::catch_unwind(|| Editor::new(oversized.clone())).is_err());
         let mut editor = Editor::new("preserved");
-        editor.accept(wire::EditorState {
+        editor.accept(EditorState {
             text: oversized,
             revision: 1,
             ..Default::default()
@@ -253,7 +264,7 @@ mod tests {
     #[test]
     fn observations_do_not_reset_and_old_document_events_cannot_replace_new_state() {
         let mut editor = Editor::new("a");
-        let observed = wire::EditorState {
+        let observed = EditorState {
             text: "한글".into(),
             cursor: wire::EditorCursor {
                 position: wire::EditorPosition { line: 0, column: 6 },
