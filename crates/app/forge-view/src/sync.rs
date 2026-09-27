@@ -14,7 +14,7 @@ use forge::{ChangeFilter, ChangeState, Query, Revision};
 /// How many branches the Refs screen compares against the default head in
 /// one pass. Beyond that the screen says so rather than walking a fleet of
 /// refs through the program's compare budget.
-const COMPARED_REFS: usize = 20;
+pub(crate) const COMPARED_REFS: usize = 20;
 
 impl Forge {
     pub(crate) fn session_changed(&mut self, next: Session, cx: &mut Context<Self>) {

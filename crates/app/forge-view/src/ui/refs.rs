@@ -146,6 +146,14 @@ fn standing(forge: &Forge, name: &[u8], head: &[u8], theme: &Theme) -> AnyElemen
     if name == head {
         return quiet("browsing", theme);
     }
+    // only the first branches are compared (a tag never is): the rest say nothing
+    let mut compared = forge
+        .branches()
+        .into_iter()
+        .take(crate::sync::COMPARED_REFS);
+    if !compared.any(|branch| branch == name) {
+        return div().into_any_element();
+    }
     let query = Query::Compare {
         repo: forge.repo_name(),
         from: Revision::Ref(name.to_vec()),
