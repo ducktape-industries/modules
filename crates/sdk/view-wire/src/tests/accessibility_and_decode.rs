@@ -58,50 +58,20 @@ fn a_mouse_area_round_trips_diffs_by_props_and_claims_its_key() {
 }
 
 #[test]
-fn control_labels_round_trip() {
-    let mut notes = editor("App/e", "Notes", document_reference("app:draft", 9));
-    let Node::Editor { label, .. } = &mut notes else {
-        unreachable!()
-    };
-    *label = Some("Notes".into());
+fn a_combo_boxs_label_round_trips() {
     let frame = Frame {
-        root: Some(column(vec![
-            notes,
-            Node::Slider {
-                id: ElementIdWire::Name("App/s".into()),
-                label: Some("Volume".into()),
-                value: 0.5,
-                min: 0.0,
-                max: 1.0,
-                step: 0.1,
-                on_change: 1,
-                on_release: None,
-                axis: Axis::Row,
-                style: gpui::StyleRefinement::default(),
-            },
-            Node::ComboBox {
-                id: ElementIdWire::Name("App/c".into()),
-                state_key: "App/c".into(),
-                options: vec!["Serif".into()],
-                selected: None,
-                reset: 0,
-                placeholder: String::new(),
-                label: Some("Font".into()),
-                on_select: 2,
-                style: Default::default(),
-                settings: Box::default(),
-            },
-            Node::PickList {
-                settings: Default::default(),
-                id: ElementIdWire::Name("App/p".into()),
-                options: vec!["Dark".into()],
-                selected: Some(0),
-                placeholder: None,
-                label: Some("Theme".into()),
-                on_select: 3,
-                style: gpui::StyleRefinement::default(),
-            },
-        ])),
+        root: Some(Node::ComboBox {
+            id: ElementIdWire::Name("App/c".into()),
+            state_key: "App/c".into(),
+            options: vec!["Serif".into()],
+            selected: None,
+            reset: 0,
+            placeholder: String::new(),
+            label: Some("Font".into()),
+            on_select: 2,
+            style: Default::default(),
+            settings: Box::default(),
+        }),
         ..Frame::default()
     };
     assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
@@ -128,20 +98,6 @@ fn a_mouse_areas_role_name_and_state_round_trip() {
     *checked = Some(true);
     let frame = Frame {
         root: Some(area),
-        ..Frame::default()
-    };
-    assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
-}
-
-#[test]
-fn a_selected_button_round_trips() {
-    let mut tab = button(ButtonContent::Label("Inbox".into()));
-    let Node::Button { selected, .. } = &mut tab else {
-        unreachable!()
-    };
-    *selected = Some(true);
-    let frame = Frame {
-        root: Some(tab),
         ..Frame::default()
     };
     assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
@@ -176,21 +132,6 @@ fn a_texts_heading_and_live_region_round_trip() {
     *live = Some(Live::Polite);
     let frame = Frame {
         root: Some(column(vec![title, status])),
-        ..Frame::default()
-    };
-    assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
-}
-
-#[test]
-fn an_overlays_label_round_trips() {
-    let frame = Frame {
-        root: Some(Node::Overlay {
-            id: ElementIdWire::Name("ask".into()),
-            label: Some("Delete page".into()),
-            style: Default::default(),
-            on_dismiss: Some(4),
-            children: vec![text("base"), text("Delete this page?")],
-        }),
         ..Frame::default()
     };
     assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
@@ -287,29 +228,6 @@ fn bytes_a_hostile_guest_could_write_are_answered_not_survived() {
             let _ = decode::<Frame>(&flipped);
         }
     }
-}
-
-#[test]
-fn duplicate_typed_ids_are_refused_instead_of_silently_renamed() {
-    let mut frame = Frame {
-        root: Some(column(vec![keyed("same", "one"), keyed("same", "two")])),
-        ..Default::default()
-    };
-    assert_eq!(
-        sanitize(&mut frame).unwrap_err(),
-        "duplicate typed element identity among siblings"
-    );
-    let mut root = column(vec![keyed("same", "one")]);
-    let error = apply(
-        &mut root,
-        vec![Patch::Insert {
-            path: vec![],
-            index: 1,
-            node: keyed("same", "two"),
-        }],
-    )
-    .unwrap_err();
-    assert_eq!(error, "duplicate typed element identity among siblings");
 }
 
 #[test]

@@ -325,7 +325,7 @@ fn a_frame_past_the_picture_budget_drops_whole_pictures_from_its_tail() {
 }
 
 #[test]
-fn gpui_text_keeps_style_refinement_on_the_wire() {
+fn a_text_with_no_heading_or_live_region_round_trips() {
     let text = Node::Text(crate::TextNode {
         id: Some(ElementIdWire::Name("text".into())),
         style: gpui::StyleRefinement::default(),
