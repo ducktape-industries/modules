@@ -148,11 +148,9 @@ fn form_controls_are_pulled_into_range() {
     assert!(label.len() <= MAX_STRING_BYTES);
 }
 
-/// A grid is bounded like a linear layout: its numbers are pulled into
-/// the pixel range and children past the node budget are dropped, not
-/// stood in for.
+/// Children past the node budget are dropped, not stood in for.
 #[test]
-fn a_container_is_pulled_into_range_and_cut_like_a_layout() {
+fn a_container_is_cut_at_the_node_budget() {
     let root = sanitized_root(Node::Container(crate::ContainerNode {
         id: Some(ElementIdWire::Name("App/cells".into())),
         style: gpui::StyleRefinement::default(),

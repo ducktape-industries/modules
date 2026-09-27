@@ -126,6 +126,8 @@ fn mouse_area(key: &str, on_move: Option<u32>, content: Node) -> Node {
     }
 }
 
+/// Building and encoding a chain this deep recurses as far as decoding
+/// it would, so the hostile frame is made where there is stack for it.
 fn deep_chain_bytes(depth: usize) -> Vec<u8> {
     std::thread::Builder::new()
         .stack_size(512 << 20)

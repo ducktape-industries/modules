@@ -104,9 +104,6 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
     );
 }
 
-/// The tree a host is left holding. Most tests here want only that —
-/// the `Frame` around it is scaffolding, and the report is the business
-
 #[test]
 fn sanitized_surfaces_share_the_decoders_value_budget() {
     let mut frame = Frame {

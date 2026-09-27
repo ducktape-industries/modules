@@ -1,5 +1,11 @@
 use super::*;
 
+/// Builds one random tree of exactly `depth` levels of nesting with `width`
+/// extra siblings injected at one random level, entirely with an
+/// iterative loop rather than recursion — the wire's own stress test
+/// (`deep_chain_bytes` in `src/tests.rs`) builds a deep chain the same way,
+/// because a recursive builder would blow its own stack before `decode`
+/// ever got a chance to refuse anything.
 fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
     let mut node = gen_leaf(rng);
     let width_level = if depth == 0 { 0 } else { rng.next_range(depth) };
@@ -169,11 +175,6 @@ pub(super) fn gen_patch_tree(rng: &mut Rng) -> Node {
     gen_tree(rng, depth, width)
 }
 
-/// One random patch against `root` as it stands. A `hostile` sender's
-/// indices are sometimes past the list, its list edits sometimes aimed at
-/// a node with no list, and its `Props` sometimes a whole subtree; the
-/// other kind of sender is what a real diff emits, so a whole sequence of
-/// its patches applies and the invariant is checked on the result.
 /// A node whose children are a list the host can insert into, remove from
 /// and reorder — as opposed to a fixed set of slots. Written out here rather
 /// than routed through `Node::child_list_mut`, so a variant that gains or
@@ -191,6 +192,11 @@ pub(super) fn is_list_node(node: &Node) -> bool {
     )
 }
 
+/// One random patch against `root` as it stands. A `hostile` sender's
+/// indices are sometimes past the list, its list edits sometimes aimed at
+/// a node with no list, and its `Props` sometimes a whole subtree; the
+/// other kind of sender is what a real diff emits, so a whole sequence of
+/// its patches applies and the invariant is checked on the result.
 pub(super) fn gen_patch(rng: &mut Rng, root: &Node, hostile: bool) -> Patch {
     let path = gen_path(rng, root, hostile);
     let mut node = Some(root);

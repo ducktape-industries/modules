@@ -36,7 +36,7 @@ use view_wire::{
 
 const MESSAGE: &str = "the wire changed: bump WIRE_EPOCH and regenerate with WIRE_GOLDEN_WRITE=1";
 
-/// Bumped by hand with the enum: `variant` below fails to compile until
+/// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
 const NODE_VARIANTS: usize = 34;
 const EVENT_VARIANTS: usize = 42;
@@ -148,7 +148,7 @@ fn at(x: f32, y: f32) -> gpui::Point<Pixels> {
 #[path = "golden/events.rs"]
 mod events_fixture;
 /// Every `Node` variant once, in one tree. Exhaustive by construction: a
-/// variant added to `Node` must be added here, or `variant` will not build.
+/// variant added to `Node` must be added here, or `node_variant` will not build.
 #[path = "golden/nodes.rs"]
 mod nodes;
 use events_fixture::{event_variant, every_event, every_frame};

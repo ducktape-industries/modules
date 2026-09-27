@@ -512,9 +512,6 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
     }
 }
 
-/// Every post-condition `sanitize` promises about a whole frame: the tree's
-/// node count and every bound `check_bounds` covers, plus every request's
-/// `kind`.
 /// Every editor document reference in the tree, in one fixed walk order, so
 /// the same tree before and after `sanitize` compares element for element.
 pub(super) fn document_refs(root: &Node) -> Vec<editor_document::EditorDocumentRef> {
@@ -529,6 +526,9 @@ pub(super) fn document_refs(root: &Node) -> Vec<editor_document::EditorDocumentR
     references
 }
 
+/// Every post-condition `sanitize` promises about a whole frame: the tree's
+/// node count and every bound `check_bounds` covers, plus every request's
+/// `kind`.
 pub(super) fn check_frame(frame: &Frame, ctx: &str) {
     if let Some(root) = &frame.root {
         assert!(

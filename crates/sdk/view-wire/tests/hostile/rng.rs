@@ -502,9 +502,6 @@ pub(super) fn gen_progress(rng: &mut Rng) -> Node {
     }
 }
 
-/// A leaf with no children, for filling out a wide container: every leaf
-/// variant except `Space` carries a string, a colour or a number worth
-/// pulling into range.
 pub(super) fn gen_surface(rng: &mut Rng) -> Node {
     Node::Surface {
         id: gen_id(rng),
@@ -518,6 +515,9 @@ pub(super) fn gen_surface(rng: &mut Rng) -> Node {
     }
 }
 
+/// A leaf with no children, for filling out a wide container: every leaf
+/// variant except `Space` carries a string, a colour or a number worth
+/// pulling into range.
 pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
     match rng.next_range(12) {
         0 => gen_text(rng),
@@ -538,12 +538,6 @@ pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
     }
 }
 
-/// Builds one random tree of exactly `depth` levels of nesting with `width`
-/// extra siblings injected at one random level, entirely with an
-/// iterative loop rather than recursion — the wire's own stress test
-/// (`deep_chain_bytes` in `src/tests.rs`) builds a deep chain the same way,
-/// because a recursive builder would blow its own stack before `decode`
-/// ever got a chance to refuse anything.
 /// A current wire node holding a child list, around `children`. One in
 /// eight carries a hostile base style and every conditional refinement, so
 /// the bounds are exercised on the node kind views style most.

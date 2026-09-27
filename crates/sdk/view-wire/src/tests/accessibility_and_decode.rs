@@ -158,9 +158,6 @@ fn a_heading_level_outside_1_to_6_is_no_heading() {
     }
 }
 
-/// Building and encoding a chain this deep recurses as far as decoding
-/// it would, so the hostile frame is made where there is stack for it.
-
 #[test]
 fn a_tree_the_host_would_not_walk_is_refused_before_it_is_built() {
     assert!(decode::<Frame>(&deep_chain_bytes(MAX_DEPTH - 1)).is_ok());
