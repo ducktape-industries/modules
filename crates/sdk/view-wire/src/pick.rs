@@ -1,5 +1,6 @@
 //! Copied native pick-list metrics and handles. Fonts remain host-owned.
-use super::*;
+use crate::{Budgets, MAX_TEXT_PIXELS, bounded, style_sanitize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PickOptions {

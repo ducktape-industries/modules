@@ -49,8 +49,6 @@ pub mod task;
 pub use subscription::{Recipe, Subscription};
 pub use task::Task;
 
-use serde::{Deserialize, Serialize};
-
 mod editor;
 pub mod editor_document;
 pub mod editor_presentation;
@@ -59,8 +57,7 @@ pub mod editor_transaction;
 pub use editor_transaction::{
     EditorBinding, EditorDecision, EditorEditKind, EditorFault, EditorHistoryEffect,
     EditorKeyClaim, EditorPatch, EditorPatchError, EditorRequest, EditorRequestInput,
-    EditorResponse, EditorTransactionEvent, EditorTransactionId, MAX_EDITOR_PATCHES,
-    patched_editor_text,
+    EditorResponse, EditorTransactionEvent, EditorTransactionId, patched_editor_text,
 };
 
 pub use editor::{EditorCursor, EditorPosition, EditorState, editor_lines};
@@ -134,13 +131,21 @@ pub use interactivity::{
 };
 
 mod protocol;
-pub use protocol::*;
+pub use protocol::{
+    Axis, ContentFit, EditorOptions, Error, Event, Frame, InputOptions, Request, RichTextHover,
+    ScrollAnchor, ScrollDirection, ToggleKind, code,
+};
 
 mod frame_sanitize;
-#[cfg(test)]
-pub(crate) use frame_sanitize::text_amounts;
-pub use frame_sanitize::*;
-pub(crate) use frame_sanitize::{bound_optional, bounded, finite};
+pub(crate) use frame_sanitize::{
+    Budgets, MAX_TEXT_PIXELS, bound_optional, bounded, finite, sanitize_tree, spend_text,
+    truncate_to,
+};
+pub use frame_sanitize::{
+    MAX_DEPTH, MAX_FRAME_BYTES, MAX_NODES, MAX_OPTIONS, MAX_PICTURE_BYTES_PER_FRAME, MAX_PIXELS,
+    MAX_STRING_BYTES, MAX_SURFACE_ARGS, MAX_TEXT_BYTES_PER_FRAME, MAX_UNIFORM_LIST_COUNT,
+    MAX_UNIFORM_LIST_ROWS, sanitize,
+};
 
 mod codec;
 pub use codec::{MAX_DECODED_NODES, decode, encode, encoded_size};

@@ -1,5 +1,6 @@
 //! Copied combo presentation and routes; the host retains native search state.
-use super::*;
+use crate::{Budgets, bounded, style_sanitize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ComboOptions {
@@ -28,6 +29,9 @@ impl ComboOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        ElementIdWire, Frame, MAX_OPTIONS, MAX_STRING_BYTES, MAX_TEXT_PIXELS, Node, sanitize,
+    };
     #[test]
     fn combo_hostile_options_and_indices_are_bounded() {
         let node = Node::ComboBox {

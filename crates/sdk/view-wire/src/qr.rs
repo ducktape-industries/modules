@@ -1,5 +1,6 @@
 //! Data for a host-encoded QR code. Payloads are never truncated into another code.
-use super::*;
+use crate::{Budgets, MAX_PIXELS, bounded, style_sanitize};
+use serde::{Deserialize, Serialize};
 
 pub const MAX_QR_PAYLOAD_BYTES: usize = 8192;
 pub const MAX_QR_CODES: usize = 32;
@@ -68,6 +69,10 @@ impl Qr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        ElementIdWire, Frame, Interactivity, MAX_TEXT_BYTES_PER_FRAME, Node, decode, encode,
+        sanitize,
+    };
     #[test]
     fn limits_drop_whole_payloads_and_bound_encoding_work() {
         let mut code = Qr {

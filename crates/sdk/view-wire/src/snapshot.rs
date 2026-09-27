@@ -271,11 +271,6 @@ mod tests {
             "failed decoding releases the depth budget"
         );
     }
-}
-
-#[cfg(test)]
-mod byte_blob_tests {
-    use super::*;
     #[test]
     fn byte_blob_codec_keeps_its_exact_length_and_bytes_representation() {
         let value = SnapshotValue::Bytes(vec![0x41, 0x42]);
