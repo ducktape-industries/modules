@@ -1,7 +1,10 @@
 //! Toolkit-independent rich editing projection. The guest owns serialization
 //! into its canonical document; the host renders blocks and submits snapshots
 //! through the same revision-checked editor transaction lane.
-use crate::{EditorCursor, editor_presentation::EditorMenuItem};
+use crate::{
+    EditorCursor,
+    editor_presentation::{EditorMenuItem, MAX_EDITOR_MENU_ITEMS},
+};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_RICH_BLOCKS: usize = 32_768;
@@ -10,17 +13,19 @@ pub const MAX_RICH_MARKS: usize = 32_768;
 pub const MAX_RICH_BYTES: usize = 4 * crate::editor_document::MAX_EDITOR_DOCUMENT_BYTES;
 /// Base and successor projections spend one bounded native request queue.
 pub const MAX_RICH_QUEUE_BYTES: usize = 16 * crate::editor_document::MAX_EDITOR_DOCUMENT_BYTES;
+const MAX_RICH_INDENT: u32 = 64;
+const MAX_RICH_ATTRIBUTES: usize = 64;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RichBlock {
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub kind: String,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub text: String,
     pub indent: u32,
     pub level: u8,
     pub checked: bool,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub language: String,
     #[serde(deserialize_with = "decode_marks")]
     pub marks: Vec<RichMark>,
@@ -31,9 +36,9 @@ pub struct RichBlock {
 /// Renderer attribute names and values; the host validates its capability set.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RichAttribute {
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub name: String,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub value: String,
 }
 
@@ -41,9 +46,9 @@ pub struct RichAttribute {
 pub struct RichMark {
     pub start: u32,
     pub end: u32,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub kind: String,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub value: String,
 }
 
@@ -71,7 +76,7 @@ pub struct RichEdit {
     pub interaction: Option<crate::editor_presentation::EditorInteraction>,
     pub document: RichDocument,
     /// Empty for native typing; otherwise the guest's toolbar action tag.
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub action: String,
 }
 
@@ -84,7 +89,7 @@ impl RichDocument {
         let mut marks = 0usize;
         let mut depth = 0;
         for block in &self.blocks {
-            if block.indent > depth || block.indent > 64 {
+            if block.indent > depth || block.indent > MAX_RICH_INDENT {
                 return Err("rich block depth");
             }
             depth = block.indent + 1;
@@ -92,7 +97,7 @@ impl RichDocument {
                 .saturating_add(block.text.len())
                 .saturating_add(block.kind.len())
                 .saturating_add(block.language.len());
-            if block.attributes.len() > 64 {
+            if block.attributes.len() > MAX_RICH_ATTRIBUTES {
                 return Err("rich attribute count");
             }
             let mut names = std::collections::HashSet::new();
@@ -140,13 +145,13 @@ fn decode_blocks<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<RichBlock
 fn decode_attributes<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Vec<RichAttribute>, D::Error> {
-    crate::bounded_vec(d, 64, "rich attribute limit")
+    crate::bounded_vec(d, MAX_RICH_ATTRIBUTES, "rich attribute limit")
 }
 fn decode_marks<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<RichMark>, D::Error> {
     crate::bounded_vec(d, MAX_RICH_MARKS, "rich mark limit")
 }
 fn decode_toolbar<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorMenuItem>, D::Error> {
-    crate::bounded_vec(d, 64, "rich toolbar limit")
+    crate::bounded_vec(d, MAX_EDITOR_MENU_ITEMS, "rich toolbar limit")
 }
 
 #[cfg(test)]

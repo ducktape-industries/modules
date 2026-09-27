@@ -12,7 +12,7 @@ pub enum WidgetCommand {
     /// The host sends EditorInteraction::Action through its transaction lane.
     EditorAction {
         target: WidgetTarget,
-        #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+        #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
         tag: String,
     },
     FocusPrevious,

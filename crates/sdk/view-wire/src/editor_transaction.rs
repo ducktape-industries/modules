@@ -228,7 +228,7 @@ pub struct EditorBinding {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorTransactionId {
     pub instance: u64,
-    #[serde(deserialize_with = "decode_document")]
+    #[serde(deserialize_with = "decode_name")]
     pub document: String,
     pub reset: u64,
     pub sequence: u64,
@@ -367,8 +367,10 @@ pub(crate) fn reset_decode_budget() {
 fn decode_replacement<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     decode_text(d, MAX_EDITOR_PATCH_BYTES, true)
 }
-pub(crate) fn decode_document<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-    decode_text(d, 1024, false)
+/// A document id, tag, label, kind or attribute: a name, not a document.
+pub(crate) const MAX_EDITOR_NAME_BYTES: usize = 1024;
+pub(crate) fn decode_name<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    decode_text(d, MAX_EDITOR_NAME_BYTES, false)
 }
 fn decode_text<'de, D: serde::Deserializer<'de>>(
     d: D,

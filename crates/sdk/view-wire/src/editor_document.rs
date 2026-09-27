@@ -121,7 +121,7 @@ pub fn editor_changed_span(
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorDocumentRef {
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub document: String,
     pub reset: u64,
     pub text_revision: u64,
@@ -133,7 +133,7 @@ pub struct EditorDocumentRef {
 impl EditorDocumentRef {
     pub fn validate(&self) -> Result<(), EditorTransferError> {
         if self.document.is_empty()
-            || self.document.len() > 1024
+            || self.document.len() > crate::editor_transaction::MAX_EDITOR_NAME_BYTES
             || self.byte_len as usize > MAX_EDITOR_DOCUMENT_BYTES
         {
             return Err(EditorTransferError::Limit);
@@ -163,7 +163,7 @@ impl EditorDocumentRef {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorTransferId {
     pub instance: u64,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub document: String,
     pub reset: u64,
     pub serial: u64,
@@ -241,7 +241,9 @@ impl EditorDocumentMessage {
 
     pub fn validate(&self) -> Result<(), EditorTransferError> {
         let id = self.id();
-        if id.document.is_empty() || id.document.len() > 1024 {
+        if id.document.is_empty()
+            || id.document.len() > crate::editor_transaction::MAX_EDITOR_NAME_BYTES
+        {
             return Err(EditorTransferError::Identity);
         }
         let target = match self {

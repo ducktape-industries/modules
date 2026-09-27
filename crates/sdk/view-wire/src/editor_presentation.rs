@@ -14,9 +14,9 @@ pub enum EditorMenuAnchor {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorMenuItem {
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub tag: String,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub label: String,
 }
 
@@ -65,7 +65,7 @@ pub struct EditorAffordances {
     pub drop_boundaries: Vec<u32>,
     #[serde(deserialize_with = "decode_margins")]
     pub margins: Vec<EditorMargin>,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub margin_label: String,
     #[serde(deserialize_with = "decode_hits")]
     pub hits: Vec<EditorHit>,
@@ -77,7 +77,7 @@ pub struct EditorAffordances {
 pub enum EditorInteraction {
     /// A guest-authored control action ordered after pending native input.
     Action {
-        #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+        #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
         tag: String,
     },
     LinePress {
@@ -99,7 +99,7 @@ pub enum EditorInteraction {
         index: u32,
     },
     MenuPick {
-        #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+        #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
         tag: String,
     },
     MenuDismiss,
