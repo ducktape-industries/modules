@@ -1,5 +1,7 @@
 //! The conversions between these payloads and the gpui events and keystrokes
-//! they describe: lossless in both directions.
+//! they describe. Key names and modifiers round-trip; `key_char` is carried
+//! only when gpui sent one, else the key itself stands in, so a chord
+//! (`cmd-s`, `key_char: None`) comes back with `key_char: Some("s")`.
 use super::*;
 
 impl From<gpui::Modifiers> for keyboard::Modifiers {
@@ -50,6 +52,8 @@ fn key_name(value: &keyboard::Key) -> String {
             keyboard::Named::Shift => "shift",
             keyboard::Named::Super => "platform",
             keyboard::Named::Fn => "function",
+            keyboard::Named::BrowserBack => "back",
+            keyboard::Named::BrowserForward => "forward",
             value => return format!("{value:?}").to_ascii_lowercase(),
         }
         .into(),
@@ -116,6 +120,8 @@ fn wire_key(value: &str) -> keyboard::Key {
         "alt" => Named::Alt,
         "platform" => Named::Super,
         "function" => Named::Fn,
+        "back" => Named::BrowserBack,
+        "forward" => Named::BrowserForward,
         "f1" => Named::F1,
         "f2" => Named::F2,
         "f3" => Named::F3,
@@ -421,16 +427,19 @@ mod tests {
         .chain([
             "up", "down", "left", "right", "home", "end", "pageup", "pagedown",
         ])
-        .chain(["shift", "control", "alt", "platform", "function", "a", "é"])
+        .chain([
+            "shift", "control", "alt", "platform", "function", "back", "forward",
+        ])
+        .chain(["a", "é"])
         .map(str::to_owned)
         .chain((1..=35).map(|n| format!("f{n}")));
         for name in names {
-            // gpui fills `key_char` for a printable key and leaves it empty
-            // for a named one.
+            // gpui fills `key_char` for a printable key outside a chord and
+            // leaves it empty for a named one.
             let printable = name.chars().count() == 1;
             let keystroke = gpui::Keystroke {
                 modifiers: gpui::Modifiers {
-                    platform: true,
+                    platform: !printable,
                     ..Default::default()
                 },
                 key: name.clone(),
