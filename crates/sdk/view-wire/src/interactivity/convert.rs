@@ -4,6 +4,10 @@
 //! (`cmd-s`, `key_char: None`) comes back with `key_char: Some("s")`.
 use super::*;
 
+fn point(x: f32, y: f32) -> Point<Pixels> {
+    gpui::point(gpui::px(x), gpui::px(y))
+}
+
 impl From<gpui::Modifiers> for keyboard::Modifiers {
     fn from(value: gpui::Modifiers) -> Self {
         Self {

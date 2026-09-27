@@ -178,8 +178,4 @@ pub struct RichTextTooltip {
     pub content: Option<Box<crate::Node>>,
 }
 
-pub fn point(x: f32, y: f32) -> Point<Pixels> {
-    gpui::point(gpui::px(x), gpui::px(y))
-}
-
 mod convert;
