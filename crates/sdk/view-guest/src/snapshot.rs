@@ -1,5 +1,5 @@
 //! State transfer into a fresh root entity without replaying construction.
-use crate::{Driver, View, slots};
+use crate::{App, Driver, View, slots};
 impl<V: View> Driver<V> {
     pub fn snapshot(&self) -> Result<Vec<u8>, String> {
         if slots::editor_pending(&self.app.inner.slots)
@@ -14,7 +14,10 @@ impl<V: View> Driver<V> {
             .read(|view| serde_json::to_vec(view).map_err(|error| error.to_string()))
     }
     pub fn from_snapshot(bytes: &[u8]) -> Result<Self, String> {
+        Self::from_snapshot_in(App::for_driver(), bytes)
+    }
+    pub(crate) fn from_snapshot_in(app: App, bytes: &[u8]) -> Result<Self, String> {
         let view = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        Ok(Self::initialize(Some(view)))
+        Ok(Self::initialize_in(app, Some(view)))
     }
 }

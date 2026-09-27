@@ -24,10 +24,7 @@ impl<V: View> Default for Driver<V> {
 }
 impl<V: View> Driver<V> {
     pub fn new() -> Self {
-        Self::initialize(None)
-    }
-    pub(crate) fn initialize(restored: Option<V>) -> Self {
-        Self::initialize_in(App::for_driver(), restored)
+        Self::initialize_in(App::for_driver(), None)
     }
     pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Self {
         let entity = Entity::reserve(&app);

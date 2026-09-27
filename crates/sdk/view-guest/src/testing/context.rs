@@ -58,8 +58,7 @@ impl TestAppContext {
     }
     pub fn restore<V: View + Capabilities>(&mut self, bytes: &[u8]) -> Result<Entity<V>, String> {
         self.host.declare(V::CAPABILITIES);
-        let value = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        let driver = Driver::<V>::initialize_in(self.fresh_app(), Some(value));
+        let driver = Driver::<V>::from_snapshot_in(self.fresh_app(), bytes)?;
         let entity = driver.entity();
         self.host.reset_connection();
         self.driver = Some(Box::new(driver));
