@@ -54,10 +54,6 @@ pub enum WidgetCommand {
         x: f32,
         y: f32,
     },
-    ScrollToKey {
-        target: WidgetTarget,
-        key: u64,
-    },
     ScrollBy {
         target: WidgetTarget,
         x: f32,
@@ -80,8 +76,7 @@ impl WidgetCommand {
             | Self::Snap { target, .. }
             | Self::SnapEnd { target }
             | Self::ScrollTo { target, .. }
-            | Self::ScrollBy { target, .. }
-            | Self::ScrollToKey { target, .. } => target,
+            | Self::ScrollBy { target, .. } => target,
         };
         if target.is_empty() || target.len() > crate::MAX_DEPTH {
             return Err("widget target path is empty or too deep".into());

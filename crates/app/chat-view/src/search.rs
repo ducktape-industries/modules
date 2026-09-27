@@ -78,15 +78,9 @@ impl Chat {
     }
 
     /// A hit opens its room around the message.
-    pub(crate) fn open_hit(
-        &mut self,
-        channel_id: String,
-        seq: u64,
-        window: &mut ducktape_view_guest::Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn open_hit(&mut self, channel_id: String, seq: u64, cx: &mut Context<Self>) {
         self.search_clear();
         self.create = None;
-        self.open_at(channel_id, seq, window, cx);
+        self.open_at(channel_id, seq, cx);
     }
 }

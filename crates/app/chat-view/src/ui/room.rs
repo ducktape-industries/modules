@@ -351,9 +351,9 @@ fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyE
     let seq = row.seq;
     // seq is per channel: two channels' hits at one seq are two rows
     let key = format!("chat-search-hit-{id}-{seq}");
-    let open = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let open = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
-        chat.open_hit(id.clone(), seq, window, cx)
+        chat.open_hit(id.clone(), seq, cx)
     });
     div()
         .id(key)

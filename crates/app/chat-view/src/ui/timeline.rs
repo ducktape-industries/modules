@@ -230,9 +230,9 @@ fn jump_to_latest(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<
         return None;
     }
     let id = room.id.clone();
-    let latest = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let latest = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
-        chat.open(id.clone(), window, cx)
+        chat.open(id.clone(), cx)
     });
     // a strip across the list's foot that only centres the button: it has
     // no handlers, so a click beside the button still reaches the row under it

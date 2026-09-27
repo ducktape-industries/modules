@@ -402,13 +402,13 @@ impl Chat {
                 Ok::<_, Error>(channel_id)
             };
             let result = created.await;
-            let _ = this.update_in(cx, |chat, window, cx| {
+            let _ = this.update_in(cx, |chat, _, cx| {
                 cx.notify();
                 match result {
                     Ok(id) => {
                         chat.create = None;
                         chat.reread_channels(cx);
-                        chat.choose(id, window, cx);
+                        chat.choose(id, cx);
                     }
                     Err(refusal) => {
                         if let Some(create) = &mut chat.create {

@@ -168,8 +168,8 @@ fn timeline_retains_virtual_tail_anchoring_and_scroll_feedback() {
 #[test]
 fn unread_rooms_carry_a_dot_and_the_open_room_a_divider() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, window, cx| {
-        chat.open("other".into(), window, cx);
+    view.update(&mut cx, |chat, _, cx| {
+        chat.open("other".into(), cx);
         chat.channels_arrived(
             vec![
                 channel("general", "General", 9),

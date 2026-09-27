@@ -38,9 +38,9 @@ fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
     assert_eq!(posts[0].link, "duck://testnet-0a1b2c3d/chat/dm-7-8/2");
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&1));
     assert!(cx.host().requests::<NotifySeen>().is_empty());
-    view.update(&mut cx, |chat, window, cx| {
+    view.update(&mut cx, |chat, _, cx| {
         cx.notify();
-        chat.choose("dm-7-8".into(), window, cx)
+        chat.choose("dm-7-8".into(), cx)
     });
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&0));
