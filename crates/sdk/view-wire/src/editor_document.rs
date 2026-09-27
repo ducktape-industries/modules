@@ -272,8 +272,8 @@ impl EditorDocumentMessage {
 pub(crate) fn decode_messages<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<EditorDocumentMessage>, D::Error> {
-    let messages =
-        crate::editor_transaction::decode_bounded::<D, EditorDocumentMessage, 1>(deserializer)?;
+    let messages: Vec<EditorDocumentMessage> =
+        crate::bounded_vec(deserializer, 1, "one editor document message per frame")?;
     for message in &messages {
         message
             .validate()
@@ -511,27 +511,7 @@ impl EditorTransferReceiver {
 }
 
 fn decode_chunk<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-    struct Chunk;
-    impl<'de> serde::de::Visitor<'de> for Chunk {
-        type Value = Vec<u8>;
-        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("at most 64 KiB of raw editor bytes")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<u8>, A::Error> {
-            if seq.size_hint().is_some_and(|n| n > MAX_EDITOR_CHUNK_BYTES) {
-                return Err(serde::de::Error::custom("editor chunk byte limit"));
-            }
-            let mut bytes = Vec::with_capacity(seq.size_hint().unwrap_or(0));
-            while let Some(byte) = seq.next_element()? {
-                if bytes.len() == MAX_EDITOR_CHUNK_BYTES {
-                    return Err(serde::de::Error::custom("editor chunk byte limit"));
-                }
-                bytes.push(byte);
-            }
-            Ok(bytes)
-        }
-    }
-    d.deserialize_seq(Chunk)
+    crate::bounded_vec(d, MAX_EDITOR_CHUNK_BYTES, "editor chunk byte limit")
 }
 
 #[cfg(test)]

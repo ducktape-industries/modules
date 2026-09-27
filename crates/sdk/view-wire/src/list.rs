@@ -95,45 +95,13 @@ pub struct ListScroll {
 pub(super) fn decode_commands<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<ListCommand>, D::Error> {
-    bounded_vec(deserializer, MAX_LIST_COMMANDS, "too many list commands")
+    crate::bounded_vec(deserializer, MAX_LIST_COMMANDS, "too many list commands")
 }
 
 pub(super) fn decode_path<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<crate::ElementIdWire>, D::Error> {
-    bounded_vec(deserializer, crate::MAX_DEPTH, "list ancestry is too deep")
-}
-
-fn bounded_vec<'de, D, T>(
-    deserializer: D,
-    limit: usize,
-    message: &'static str,
-) -> Result<Vec<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    struct Values<T>(usize, &'static str, std::marker::PhantomData<T>);
-    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Values<T> {
-        type Value = Vec<T>;
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str(self.1)
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut values = Vec::new();
-            while let Some(value) = seq.next_element()? {
-                if values.len() == self.0 {
-                    return Err(serde::de::Error::custom(self.1));
-                }
-                values.push(value);
-            }
-            Ok(values)
-        }
-    }
-    deserializer.deserialize_seq(Values(limit, message, std::marker::PhantomData))
+    crate::bounded_vec(deserializer, crate::MAX_DEPTH, "list ancestry is too deep")
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -183,31 +151,11 @@ impl PartialEq for ListKey {
 pub(super) fn decode_indices<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<u32>, D::Error> {
-    struct Indices;
-    impl<'de> serde::de::Visitor<'de> for Indices {
-        type Value = Vec<u32>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("bounded uniform-list row indices")
-        }
-
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut indices = Vec::new();
-            while let Some(index) = seq.next_element()? {
-                if indices.len() == super::MAX_UNIFORM_LIST_ROWS {
-                    return Err(serde::de::Error::custom(
-                        "too many uniform-list row indices",
-                    ));
-                }
-                indices.push(index);
-            }
-            Ok(indices)
-        }
-    }
-    deserializer.deserialize_seq(Indices)
+    crate::bounded_vec(
+        deserializer,
+        crate::MAX_UNIFORM_LIST_ROWS,
+        "too many uniform-list row indices",
+    )
 }
 
 #[cfg(test)]

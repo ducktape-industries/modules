@@ -125,29 +125,11 @@ impl ContainerQuery {
 }
 
 fn decode_ops<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<QueryOp>, D::Error> {
-    struct Ops;
-    impl<'de> serde::de::Visitor<'de> for Ops {
-        type Value = Vec<QueryOp>;
-        fn expecting(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            out.write_str("a bounded container condition")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut ops = Vec::new();
-            while let Some(op) = seq.next_element()? {
-                if ops.len() == MAX_QUERY_OPS {
-                    return Err(serde::de::Error::custom(
-                        "container condition budget exceeded",
-                    ));
-                }
-                ops.push(op);
-            }
-            Ok(ops)
-        }
-    }
-    deserializer.deserialize_seq(Ops)
+    crate::bounded_vec(
+        deserializer,
+        MAX_QUERY_OPS,
+        "container condition budget exceeded",
+    )
 }
 
 #[cfg(test)]

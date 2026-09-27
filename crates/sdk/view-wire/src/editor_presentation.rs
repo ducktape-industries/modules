@@ -344,40 +344,42 @@ fn validate_ranges<'a>(
     Ok(consumed + if count_lines { lines.count() } else { 0 })
 }
 
-fn decode_bounded<'de, D, T, const LIMIT: usize>(d: D) -> Result<Vec<T>, D::Error>
+/// Presentation entries share the decoder's node budget: a frame cannot
+/// spend on spans what it may not spend on nodes.
+fn decode_budgeted<'de, D, T>(d: D, limit: usize, message: &'static str) -> Result<Vec<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    let values = crate::editor_transaction::decode_bounded::<D, T, LIMIT>(d)?;
+    let values = crate::bounded_vec(d, limit, message)?;
     crate::budget::spend(values.len()).map_err(serde::de::Error::custom)?;
     Ok(values)
 }
 
 fn decode_formats<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorFormat>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_FORMATS>(d)
+    decode_budgeted(d, MAX_EDITOR_FORMATS, "editor format limit")
 }
 
 fn decode_spans<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorSpan>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_SPANS>(d)
+    decode_budgeted(d, MAX_EDITOR_SPANS, "editor span limit")
 }
 
 fn decode_menu_items<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Vec<EditorMenuItem>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_MENU_ITEMS>(d)
+    decode_budgeted(d, MAX_EDITOR_MENU_ITEMS, "editor menu item limit")
 }
 fn decode_gutters<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorGutter>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_SPANS>(d)
+    decode_budgeted(d, MAX_EDITOR_SPANS, "editor gutter limit")
 }
 fn decode_boundaries<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u32>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_SPANS>(d)
+    decode_budgeted(d, MAX_EDITOR_SPANS, "editor drop boundary limit")
 }
 fn decode_margins<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorMargin>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_SPANS>(d)
+    decode_budgeted(d, MAX_EDITOR_SPANS, "editor margin limit")
 }
 fn decode_hits<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorHit>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_SPANS>(d)
+    decode_budgeted(d, MAX_EDITOR_SPANS, "editor hit limit")
 }
 
 #[cfg(test)]

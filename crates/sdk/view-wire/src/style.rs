@@ -5,7 +5,7 @@
 //! decoding iterative and prevents attacker-controlled recursive allocation.
 
 use gpui::{ElementId, EntityId, FocusId, SharedString, StyleRefinement};
-use serde::{Deserialize, Deserializer, Serialize, de};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
@@ -101,31 +101,11 @@ fn deserialize_names<'de, D>(deserializer: D) -> Result<Vec<SharedString>, D::Er
 where
     D: Deserializer<'de>,
 {
-    struct Names;
-
-    impl<'de> de::Visitor<'de> for Names {
-        type Value = Vec<SharedString>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("at most 64 named-child components")
-        }
-
-        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            let mut names = Vec::with_capacity(MAX_ELEMENT_ID_DEPTH.min(8));
-            while let Some(name) = sequence.next_element::<SharedString>()? {
-                if names.len() == MAX_ELEMENT_ID_DEPTH {
-                    return Err(de::Error::custom("named-child identity is too deep"));
-                }
-                names.push(name);
-            }
-            Ok(names)
-        }
-    }
-
-    deserializer.deserialize_seq(Names)
+    crate::bounded_vec(
+        deserializer,
+        MAX_ELEMENT_ID_DEPTH,
+        "named-child identity is too deep",
+    )
 }
 
 impl ElementIdWire {

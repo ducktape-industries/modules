@@ -135,18 +135,18 @@ impl RichDocument {
     }
 }
 fn decode_blocks<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<RichBlock>, D::Error> {
-    crate::editor_transaction::decode_bounded::<D, _, MAX_RICH_BLOCKS>(d)
+    crate::bounded_vec(d, MAX_RICH_BLOCKS, "rich block limit")
 }
 fn decode_attributes<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Vec<RichAttribute>, D::Error> {
-    crate::editor_transaction::decode_bounded::<D, _, 64>(d)
+    crate::bounded_vec(d, 64, "rich attribute limit")
 }
 fn decode_marks<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<RichMark>, D::Error> {
-    crate::editor_transaction::decode_bounded::<D, _, MAX_RICH_MARKS>(d)
+    crate::bounded_vec(d, MAX_RICH_MARKS, "rich mark limit")
 }
 fn decode_toolbar<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorMenuItem>, D::Error> {
-    crate::editor_transaction::decode_bounded::<D, _, 64>(d)
+    crate::bounded_vec(d, 64, "rich toolbar limit")
 }
 
 #[cfg(test)]

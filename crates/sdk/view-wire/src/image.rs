@@ -64,33 +64,11 @@ impl ImageData {
 // that, dropping a picture whole rather than truncating it. A collection header
 // is refused before allocating, even when ImageData is decoded on its own.
 fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-    struct Bytes;
-    impl<'de> serde::de::Visitor<'de> for Bytes {
-        type Value = Vec<u8>;
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("bounded raster bytes")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            if seq
-                .size_hint()
-                .is_some_and(|size| size > crate::MAX_FRAME_BYTES)
-            {
-                return Err(serde::de::Error::custom("raster byte limit exceeded"));
-            }
-            let mut bytes = Vec::new();
-            while let Some(byte) = seq.next_element()? {
-                if bytes.len() == crate::MAX_FRAME_BYTES {
-                    return Err(serde::de::Error::custom("raster byte limit exceeded"));
-                }
-                bytes.push(byte);
-            }
-            Ok(bytes)
-        }
-    }
-    deserializer.deserialize_seq(Bytes)
+    crate::bounded_vec(
+        deserializer,
+        crate::MAX_FRAME_BYTES,
+        "raster byte limit exceeded",
+    )
 }
 
 #[cfg(test)]

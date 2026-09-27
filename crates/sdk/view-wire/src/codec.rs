@@ -105,6 +105,44 @@ pub(crate) fn decode_children<'de, D: serde::Deserializer<'de>>(
     deserializer.deserialize_seq(Children)
 }
 
+/// Decodes a sequence of at most `limit` elements and refuses a longer one
+/// as `message`: a length header past the limit is refused before any
+/// element is read, and nothing is reserved from the header.
+pub(crate) fn bounded_vec<'de, D, T>(
+    deserializer: D,
+    limit: usize,
+    message: &'static str,
+) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Values<T>(usize, &'static str, std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Values<T> {
+        type Value = Vec<T>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.1)
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            if seq.size_hint().is_some_and(|len| len > self.0) {
+                return Err(serde::de::Error::custom(self.1));
+            }
+            let mut values = Vec::new();
+            while let Some(value) = seq.next_element()? {
+                if values.len() == self.0 {
+                    return Err(serde::de::Error::custom(self.1));
+                }
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+    deserializer.deserialize_seq(Values(limit, message, std::marker::PhantomData))
+}
+
 pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {
     let mut bytes = Vec::new();
     write(value, &mut bytes);

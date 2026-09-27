@@ -346,48 +346,16 @@ pub enum EditorTransactionEvent {
 pub const MAX_EDITOR_CLAIMS: usize = 32;
 pub const MAX_EDITOR_RESPONSES: usize = 128;
 
-pub(crate) fn decode_bounded<'de, D, T, const LIMIT: usize>(
-    deserializer: D,
-) -> Result<Vec<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    struct Bounded<T, const LIMIT: usize>(std::marker::PhantomData<T>);
-    impl<'de, T: Deserialize<'de>, const LIMIT: usize> serde::de::Visitor<'de> for Bounded<T, LIMIT> {
-        type Value = Vec<T>;
-        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("a bounded editor transaction sequence")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            if seq.size_hint().is_some_and(|n| n > LIMIT) {
-                return Err(serde::de::Error::custom("editor transaction count limit"));
-            }
-            let mut out = Vec::new();
-            while let Some(item) = seq.next_element()? {
-                if out.len() == LIMIT {
-                    return Err(serde::de::Error::custom("editor transaction count limit"));
-                }
-                out.push(item);
-            }
-            Ok(out)
-        }
-    }
-    deserializer.deserialize_seq(Bounded::<T, LIMIT>(std::marker::PhantomData))
-}
 fn decode_claims<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorKeyClaim>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_CLAIMS>(d)
+    crate::bounded_vec(d, MAX_EDITOR_CLAIMS, "editor claim limit")
 }
 fn decode_patches<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorPatch>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_PATCHES>(d)
+    crate::bounded_vec(d, MAX_EDITOR_PATCHES, "editor patch limit")
 }
 pub(crate) fn decode_responses<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Vec<EditorResponse>, D::Error> {
-    let responses = decode_bounded::<D, _, MAX_EDITOR_RESPONSES>(d)?;
+    let responses = crate::bounded_vec(d, MAX_EDITOR_RESPONSES, "editor response limit")?;
     let bytes: usize = responses
         .iter()
         .map(|response: &EditorResponse| match &response.decision {
