@@ -237,7 +237,7 @@ mod tests {
             (b"p/4".to_vec(), 4),
             (b"p/5".to_vec(), 5),
         ]);
-        let page = PageRequest::resume(first.next.clone(), 2);
+        let page = PageRequest::resume(first.next, 2);
         let scan = listing(&page).scan(b"p/");
         assert!(!scan.admits(b"p/4"));
         assert!(scan.admits(b"p/5"));

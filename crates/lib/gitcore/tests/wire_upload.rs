@@ -402,7 +402,7 @@ fn full_fetch_flow_clone_then_incremental() {
         },
     );
     let got = read_pack(&tagged.pack);
-    let mut expected = base_objects.clone();
+    let mut expected = base_objects;
     expected.insert(tag);
     assert_eq!(got, expected);
 

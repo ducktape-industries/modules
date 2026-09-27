@@ -184,7 +184,7 @@ fn tag_round_trips_byte_exact() {
     assert_eq!(tag.serialize(), bytes);
     let untagged = Tag {
         tagger: None,
-        ..tag.clone()
+        ..tag
     };
     assert_eq!(
         Tag::parse(&untagged.serialize(), Hash::Sha1).unwrap(),

@@ -266,13 +266,13 @@ pub fn comparison(
         .log_walk
         .saturating_mul(8)
         .saturating_add(bounds.tree_walk);
-    let mut r = reading(ctx, name, bounds, reads)?;
+    let r = reading(ctx, name, bounds, reads)?;
     let from = r.commit_id(resolve(ctx, name, from, r.hash)?)?;
     let into = r.commit_id(resolve(ctx, name, into, r.hash)?)?;
-    compare(&mut r, height, from, into)
+    compare(&r, height, from, into)
 }
 
-fn compare(r: &mut Reading<'_>, height: u64, from: Oid, into: Oid) -> Result<Reply, Error> {
+fn compare(r: &Reading<'_>, height: u64, from: Oid, into: Oid) -> Result<Reply, Error> {
     let source: BTreeSet<_> = r
         .result(gitcore::walk::commits(
             &r.store,

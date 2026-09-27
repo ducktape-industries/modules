@@ -337,7 +337,7 @@ fn a_card_is_edited_by_its_person_its_manager_or_its_module() {
         // the agent does not edit its own card: its manager answers for it
         (signed(&store, BOT), agent),
         (forge.clone(), 1),
-        (forge.clone(), agent),
+        (forge, agent),
         (signed(&store, ALICE), forge_account),
         (signed(&store, BOT), forge_account),
     ] {
