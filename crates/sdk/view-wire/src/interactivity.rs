@@ -182,18 +182,6 @@ pub fn point(x: f32, y: f32) -> Point<Pixels> {
     gpui::point(gpui::px(x), gpui::px(y))
 }
 
-fn button(value: click::MouseButton) -> gpui::MouseButton {
-    match value {
-        click::MouseButton::Left => gpui::MouseButton::Left,
-        click::MouseButton::Right => gpui::MouseButton::Right,
-        click::MouseButton::Middle => gpui::MouseButton::Middle,
-        click::MouseButton::Back => gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
-        click::MouseButton::Forward => {
-            gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward)
-        }
-    }
-}
-
 fn modifiers(value: keyboard::Modifiers) -> gpui::Modifiers {
     gpui::Modifiers {
         shift: value.shift,
@@ -244,12 +232,25 @@ fn keystroke(value: &keyboard::KeyState) -> gpui::Keystroke {
     }
 }
 
-fn touch_phase(value: TouchPhase) -> gpui::TouchPhase {
-    match value {
-        TouchPhase::Started => gpui::TouchPhase::Started,
-        TouchPhase::Moved => gpui::TouchPhase::Moved,
-        TouchPhase::Ended => gpui::TouchPhase::Ended,
-        TouchPhase::Cancelled => gpui::TouchPhase::Cancelled,
+impl From<gpui::TouchPhase> for TouchPhase {
+    fn from(value: gpui::TouchPhase) -> Self {
+        match value {
+            gpui::TouchPhase::Started => Self::Started,
+            gpui::TouchPhase::Moved => Self::Moved,
+            gpui::TouchPhase::Ended => Self::Ended,
+            gpui::TouchPhase::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+impl From<TouchPhase> for gpui::TouchPhase {
+    fn from(value: TouchPhase) -> Self {
+        match value {
+            TouchPhase::Started => Self::Started,
+            TouchPhase::Moved => Self::Moved,
+            TouchPhase::Ended => Self::Ended,
+            TouchPhase::Cancelled => Self::Cancelled,
+        }
     }
 }
 
@@ -373,12 +374,7 @@ impl From<&gpui::ScrollWheelEvent> for ScrollWheel {
             position: value.position,
             delta,
             modifiers: wire_modifiers(value.modifiers),
-            touch_phase: match value.touch_phase {
-                gpui::TouchPhase::Started => TouchPhase::Started,
-                gpui::TouchPhase::Moved => TouchPhase::Moved,
-                gpui::TouchPhase::Ended => TouchPhase::Ended,
-                gpui::TouchPhase::Cancelled => TouchPhase::Cancelled,
-            },
+            touch_phase: value.touch_phase.into(),
         }
     }
 }
@@ -389,12 +385,7 @@ impl From<&gpui::PinchEvent> for Pinch {
             position: value.position,
             delta: value.delta,
             modifiers: wire_modifiers(value.modifiers),
-            phase: match value.phase {
-                gpui::TouchPhase::Started => TouchPhase::Started,
-                gpui::TouchPhase::Moved => TouchPhase::Moved,
-                gpui::TouchPhase::Ended => TouchPhase::Ended,
-                gpui::TouchPhase::Cancelled => TouchPhase::Cancelled,
-            },
+            phase: value.phase.into(),
         }
     }
 }
@@ -429,7 +420,7 @@ impl From<&gpui::ModifiersChangedEvent> for ModifiersChanged {
 impl MouseDown {
     pub fn into_gpui(self) -> gpui::MouseDownEvent {
         gpui::MouseDownEvent {
-            button: button(self.button),
+            button: self.button.into(),
             position: self.position,
             modifiers: modifiers(self.modifiers),
             click_count: self.click_count as usize,
@@ -441,7 +432,7 @@ impl MouseDown {
 impl MouseUp {
     pub fn into_gpui(self) -> gpui::MouseUpEvent {
         gpui::MouseUpEvent {
-            button: button(self.button),
+            button: self.button.into(),
             position: self.position,
             modifiers: modifiers(self.modifiers),
             click_count: self.click_count as usize,
@@ -453,7 +444,7 @@ impl MouseMove {
     pub fn into_gpui(self) -> gpui::MouseMoveEvent {
         gpui::MouseMoveEvent {
             position: self.position,
-            pressed_button: self.pressed_button.map(button),
+            pressed_button: self.pressed_button.map(Into::into),
             modifiers: modifiers(self.modifiers),
         }
     }
@@ -463,7 +454,7 @@ impl MouseExit {
     pub fn into_gpui(self) -> gpui::MouseExitEvent {
         gpui::MouseExitEvent {
             position: self.position,
-            pressed_button: self.pressed_button.map(button),
+            pressed_button: self.pressed_button.map(Into::into),
             modifiers: modifiers(self.modifiers),
         }
     }
@@ -493,7 +484,7 @@ impl ScrollWheel {
                 mouse::ScrollDelta::Lines { x, y } => gpui::ScrollDelta::Lines(gpui::point(x, y)),
             },
             modifiers: modifiers(self.modifiers),
-            touch_phase: touch_phase(self.touch_phase),
+            touch_phase: self.touch_phase.into(),
         }
     }
 }
@@ -504,7 +495,7 @@ impl Pinch {
             position: self.position,
             delta: self.delta,
             modifiers: modifiers(self.modifiers),
-            phase: touch_phase(self.phase),
+            phase: self.phase.into(),
         }
     }
 }
