@@ -238,6 +238,9 @@ fn side(view: &Explorer, account: &Account, sent: &[&TxRow], theme: &Theme) -> i
         }
     }
     used.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    // a heading over nothing says nothing: it comes with its rows
+    let used_heading =
+        (!used.is_empty()).then(|| heading("explorer-used-heading", "Programs used", None, theme));
     let programs = used.into_iter().map(|(program, count)| {
         div()
             .flex()
@@ -260,11 +263,6 @@ fn side(view: &Explorer, account: &Account, sent: &[&TxRow], theme: &Theme) -> i
             theme,
         ))
         .children(devices)
-        .child(heading(
-            "explorer-used-heading",
-            "Programs used",
-            None,
-            theme,
-        ))
+        .children(used_heading)
         .children(programs)
 }

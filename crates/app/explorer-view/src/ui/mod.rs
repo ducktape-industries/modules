@@ -211,6 +211,7 @@ fn heading(id: &str, title: &str, right: Option<AnyElement>, theme: &Theme) -> i
         .id(SharedString::from(id.to_string()))
         .flex()
         .items_center()
+        .gap_3()
         .h(BAR_H)
         .px_5()
         .border_b_1()
