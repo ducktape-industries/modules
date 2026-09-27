@@ -6,16 +6,16 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::{Block, MAX_TAG_CHARS, MAX_TAGS_PER_MESSAGE, Mark};
 
-/// The message as one line of text, blocks joined by a space.
+/// The message as one line of text, blocks joined by a space. A block's
+/// spans are runs of one text split where a mark starts or ends, so they
+/// join as they are.
 pub fn plain_text(blocks: &[Block]) -> String {
     let mut out = String::new();
     for block in blocks {
         let piece = match block {
-            Block::Paragraph(spans) | Block::Quote(spans) => spans
-                .iter()
-                .map(|s| s.text.as_str())
-                .collect::<Vec<_>>()
-                .join(" "),
+            Block::Paragraph(spans) | Block::Quote(spans) => {
+                spans.iter().map(|s| s.text.as_str()).collect::<String>()
+            }
             Block::Code { text, .. } => text.clone(),
             Block::Divider => continue,
         };

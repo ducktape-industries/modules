@@ -198,3 +198,13 @@ fn a_read_names_a_bounded_number_of_viewers() {
     let refusal = crate::Chat::query(&chat.reads(), roots(over)).unwrap_err();
     assert_eq!(refusal.code, code::CAPACITY);
 }
+
+#[test]
+fn flat_text_joins_a_paragraphs_marked_runs_as_typed() {
+    assert_eq!(
+        crate::plain_text(&crate::parse_message(
+            "the **flaky** retry in `sync`; see it"
+        )),
+        "the flaky retry in sync; see it"
+    );
+}
