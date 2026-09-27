@@ -196,7 +196,7 @@ fn the_list_groups_people_then_agents_then_modules_and_chooses_no_one() {
         "5 accounts",
         "you",
         "Person",
-        "Module · chat",
+        "Module",
         "Agent · managed by eddy",
         "Agent · managed by eddy · revoked",
         "Choose a member",
@@ -284,7 +284,7 @@ fn a_module_has_no_devices_and_no_one_to_dm() {
     let (mut cx, _) = ready();
     cx.simulate_click("members-row-8");
     cx.run_until_parked();
-    assert!(cx.has_text("Module · chat"));
+    assert!(cx.has_text("Module") && !cx.has_text("Module · chat"));
     assert!(cx.has_text("No devices"));
     assert!(!cx.has_text("Recent activity") && !cx.has_text("1 device"));
     assert!(cx.find("members-open-dm").is_none());

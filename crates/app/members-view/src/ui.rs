@@ -300,7 +300,11 @@ fn member_row(
                 .flex_shrink_0()
                 .text_size(text::CAPTION)
                 .text_color(theme.muted)
-                .child(identity::view::kind(&row.kind, name_of)),
+                .child(match &row.kind {
+                    // a module named for its program says so once
+                    identity::Kind::Module(program) if *program == row.name => "Module".into(),
+                    kind => identity::view::kind(kind, name_of),
+                }),
         )
 }
 
@@ -383,6 +387,9 @@ fn head(
     let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(format!("account {}", row.number))]];
     match &row.kind {
         identity::Kind::Person => caption.push(vec![text("Person".into())]),
+        identity::Kind::Module(program) if *program == row.name => {
+            caption.push(vec![text("Module".into())])
+        }
         identity::Kind::Module(_) => caption.push(vec![text(
             row.kind.badge(|_| String::new()).unwrap_or_default(),
         )]),
