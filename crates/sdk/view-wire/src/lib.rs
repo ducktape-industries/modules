@@ -138,13 +138,12 @@ pub use protocol::{
 
 mod frame_sanitize;
 pub(crate) use frame_sanitize::{
-    Budgets, MAX_TEXT_PIXELS, bound_optional, bounded, finite, sanitize_tree, spend_text,
-    truncate_to,
+    Budgets, bound_optional, bounded, finite, sanitize_tree, spend_text, truncate_to,
 };
 pub use frame_sanitize::{
     MAX_DEPTH, MAX_FRAME_BYTES, MAX_NODES, MAX_OPTIONS, MAX_PICTURE_BYTES_PER_FRAME, MAX_PIXELS,
-    MAX_STRING_BYTES, MAX_SURFACE_ARGS, MAX_TEXT_BYTES_PER_FRAME, MAX_UNIFORM_LIST_COUNT,
-    MAX_UNIFORM_LIST_ROWS, sanitize,
+    MAX_STRING_BYTES, MAX_SURFACE_ARGS, MAX_TEXT_BYTES_PER_FRAME, MAX_TEXT_PIXELS,
+    MAX_UNIFORM_LIST_COUNT, MAX_UNIFORM_LIST_ROWS, sanitize,
 };
 
 mod codec;

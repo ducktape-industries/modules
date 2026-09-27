@@ -51,7 +51,7 @@ pub const MAX_SURFACE_ARGS: usize = 256;
 pub const MAX_PIXELS: f32 = 8192.0;
 /// A text size, which is not a length: every glyph at it is rasterized and
 /// cached, so a screenful of 8192 px text is an atlas no screen asked for.
-pub(crate) const MAX_TEXT_PIXELS: f32 = 512.0;
+pub const MAX_TEXT_PIXELS: f32 = 512.0;
 
 /// Pulls a frame from an untrusted module into what the host is willing to
 /// lay out: the tree is truncated past [`MAX_DEPTH`] and [`MAX_NODES`],

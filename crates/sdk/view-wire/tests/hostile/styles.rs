@@ -2,7 +2,7 @@
 //! by field.
 use super::*;
 use gpui::{AbsoluteLength, DefiniteLength, Hsla, Length, StyleRefinement};
-use view_wire::MAX_PIXELS;
+use view_wire::{MAX_PIXELS, MAX_TEXT_PIXELS};
 
 fn in_range(value: f32, min: f32, max: f32) {
     assert!(
@@ -137,10 +137,10 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
         color_in(color);
     }
     if let Some(size) = style.text.font_size {
-        absolute_in(size, 512.);
+        absolute_in(size, MAX_TEXT_PIXELS);
     }
     if let Some(height) = style.text.line_height {
-        definite_in(height, 512., 8.);
+        definite_in(height, MAX_TEXT_PIXELS, 8.);
     }
     if let Some(weight) = style.text.font_weight {
         in_range(weight.0, 1., 1000.);
