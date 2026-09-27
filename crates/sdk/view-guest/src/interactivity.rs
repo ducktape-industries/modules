@@ -1,7 +1,8 @@
 //! GPUI-shaped interaction recipes lowered into driver-owned frame routes.
 
 use crate::{
-    AnyElement, AnyView, App, Div, Element, IntoElement, Lowering, ParentElement, Window, wire,
+    AnyElement, AnyView, App, Div, Element, IntoElement, Lowering, ParentElement, Window, slots,
+    wire,
 };
 use gpui::{
     ClickEvent, ElementId, FileDropEvent, MouseButton, SharedString, StyleRefinement, Styled,
@@ -10,18 +11,16 @@ use gpui::{
 use std::time::Duration;
 
 mod bindings;
-pub(crate) use bindings::ClickListener;
-use bindings::*;
+use bindings::ButtonBinding;
+pub(crate) use bindings::EventListener;
 
 mod focus;
 pub use focus::FocusHandle;
 
 struct TooltipBuilder {
-    build: ViewBuilder,
+    build: slots::TooltipBuilder,
     hoverable: bool,
 }
-
-type ViewBuilder = Box<dyn Fn(&mut Window, &mut App) -> AnyView + 'static>;
 
 /// The explicit state carried by guest interactivity until frame lowering.
 #[derive(Default)]
@@ -42,26 +41,26 @@ pub struct Interactivity {
     pub(crate) active: Option<StyleRefinement>,
     pub(crate) group_hover: Option<(SharedString, StyleRefinement)>,
     pub(crate) group_active: Option<(SharedString, StyleRefinement)>,
-    pub(crate) on_click: Option<ClickListener>,
-    pub(crate) on_aux_click: Option<ClickListener>,
-    mouse_down: Vec<MouseDownBinding>,
-    capture_mouse_down: Vec<MouseDownListener>,
-    mouse_down_out: Vec<MouseDownListener>,
-    mouse_up: Vec<MouseUpBinding>,
-    capture_mouse_up: Vec<MouseUpListener>,
-    mouse_up_out: Vec<MouseUpBinding>,
-    mouse_pressure: Vec<MousePressureListener>,
-    capture_mouse_pressure: Vec<MousePressureListener>,
-    mouse_move: Vec<MouseMoveListener>,
-    mouse_exit: Vec<MouseExitListener>,
-    scroll_wheel: Vec<ScrollWheelListener>,
-    pinch: Vec<PinchListener>,
-    capture_pinch: Vec<PinchListener>,
-    key_down: Vec<KeyDownListener>,
-    capture_key_down: Vec<KeyDownListener>,
-    key_up: Vec<KeyUpListener>,
-    capture_key_up: Vec<KeyUpListener>,
-    modifiers_changed: Vec<ModifiersChangedListener>,
+    pub(crate) on_click: Option<EventListener<ClickEvent>>,
+    pub(crate) on_aux_click: Option<EventListener<ClickEvent>>,
+    mouse_down: Vec<ButtonBinding<gpui::MouseDownEvent>>,
+    capture_mouse_down: Vec<EventListener<gpui::MouseDownEvent>>,
+    mouse_down_out: Vec<EventListener<gpui::MouseDownEvent>>,
+    mouse_up: Vec<ButtonBinding<gpui::MouseUpEvent>>,
+    capture_mouse_up: Vec<EventListener<gpui::MouseUpEvent>>,
+    mouse_up_out: Vec<ButtonBinding<gpui::MouseUpEvent>>,
+    mouse_pressure: Vec<EventListener<gpui::MousePressureEvent>>,
+    capture_mouse_pressure: Vec<EventListener<gpui::MousePressureEvent>>,
+    mouse_move: Vec<EventListener<gpui::MouseMoveEvent>>,
+    mouse_exit: Vec<EventListener<gpui::MouseExitEvent>>,
+    scroll_wheel: Vec<EventListener<gpui::ScrollWheelEvent>>,
+    pinch: Vec<EventListener<gpui::PinchEvent>>,
+    capture_pinch: Vec<EventListener<gpui::PinchEvent>>,
+    key_down: Vec<EventListener<gpui::KeyDownEvent>>,
+    capture_key_down: Vec<EventListener<gpui::KeyDownEvent>>,
+    key_up: Vec<EventListener<gpui::KeyUpEvent>>,
+    capture_key_up: Vec<EventListener<gpui::KeyUpEvent>>,
+    modifiers_changed: Vec<EventListener<gpui::ModifiersChangedEvent>>,
     on_hover: Option<EventListener<bool>>,
     hover_listener_mode: gpui::HoverListenerMode,
     on_file_drop_exit: Vec<EventListener<FileDropEvent>>,
@@ -144,7 +143,7 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_down.push(MouseDownBinding {
+        self.interactivity().mouse_down.push(ButtonBinding {
             button: Some(button),
             listener: Box::new(listener),
         });
@@ -165,7 +164,7 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_down.push(MouseDownBinding {
+        self.interactivity().mouse_down.push(ButtonBinding {
             button: None,
             listener: Box::new(listener),
         });
@@ -185,7 +184,7 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up.push(MouseUpBinding {
+        self.interactivity().mouse_up.push(ButtonBinding {
             button: Some(button),
             listener: Box::new(listener),
         });
@@ -206,7 +205,7 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up.push(MouseUpBinding {
+        self.interactivity().mouse_up.push(ButtonBinding {
             button: None,
             listener: Box::new(listener),
         });
@@ -218,7 +217,7 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up_out.push(MouseUpBinding {
+        self.interactivity().mouse_up_out.push(ButtonBinding {
             button: Some(button),
             listener: Box::new(listener),
         });

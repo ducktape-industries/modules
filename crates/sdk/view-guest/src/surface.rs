@@ -1,15 +1,14 @@
 //! A typed guest recipe for a host-painted surface.
 use crate::Element;
 
+use crate::interactivity::EventListener;
 use crate::{App, ElementId, IntoElement, Lowering, Window, wire};
-
-type SurfaceListener = Box<dyn Fn(&wire::SurfaceValue, &mut Window, &mut App)>;
 
 pub struct Surface {
     id: ElementId,
     name: String,
     args: Vec<wire::SurfaceValue>,
-    on_event: Option<SurfaceListener>,
+    on_event: Option<EventListener<wire::SurfaceValue>>,
 }
 
 pub fn surface(

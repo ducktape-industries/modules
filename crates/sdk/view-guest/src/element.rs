@@ -6,7 +6,7 @@
 //! which exists in a wasm guest. Lowering turns this small recipe into wire
 //! data once per frame.
 
-use crate::interactivity::{ClickListener, Interactivity};
+use crate::interactivity::{EventListener, Interactivity};
 use crate::{App, Window, slots, wire};
 use gpui::{
     ElementId, ListHorizontalSizingBehavior, ListSizingBehavior, Overflow, ScrollStrategy,
@@ -16,8 +16,6 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
-
-type InputListener<T> = Box<dyn Fn(&T, &mut Window, &mut App)>;
 
 /// A guest element that can be lowered by the driver.
 ///
@@ -148,7 +146,7 @@ impl<'a> Lowering<'a> {
         &self.authored_path
     }
 
-    pub(crate) fn click(&mut self, listener: ClickListener) -> u32 {
+    pub(crate) fn click(&mut self, listener: EventListener<gpui::ClickEvent>) -> u32 {
         slots::click(&self.app.inner.slots, listener)
     }
 
@@ -275,8 +273,8 @@ pub struct Input {
     options: wire::InputOptions,
     secure: bool,
     style: StyleRefinement,
-    on_input: Option<InputListener<String>>,
-    on_submit: Option<InputListener<()>>,
+    on_input: Option<EventListener<String>>,
+    on_submit: Option<EventListener<()>>,
 }
 
 impl Input {
