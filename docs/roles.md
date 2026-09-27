@@ -107,31 +107,13 @@ the chain has an authority to ask; the real check replaces that one function.
 
 ## Filling a role with another module
 
-A role is an interface, not a module, so any module that speaks it can fill
-the role at genesis. To write one:
-
-1. Depend on `abi` and match the role's types byte for byte: the role's
-   `Op`, `Query` and `Reply` variants are your enums' **first** variants, in
-   the same order and with the same fields (borsh encodes the variant index,
-   not its name). Your own variants follow. The simplest way is to reuse the
-   role's types (`pub use abi::role::identity::{Kind, Profile, ...}`).
-2. Pin it with a test that encodes each role value and your value and
-   compares the bytes, as `identity`'s
-   `the_identity_role_is_its_first_variants` does.
-3. Take the params the kernel writes: a registry's `init` receives
-   `role::registry::Genesis`, a validators module's
-   `role::validators::Genesis`. An identity module receives its own
-   founding params.
-4. Keep the kernel's contract. Identity: `RegisterModule` is idempotent
-   and only the system sends it; refusing it fails a founding, and later
-   undoes the admission until the next height. A refusal of `Account(key)`
-   or `OfModule(module)` rejects the frame or the message, so refuse only an
-   account that must not act. Registry: `At(height)` answers every module
-   that runs at that height; one it leaves out is dropped. Validators: a
-   refusal of `Members` stops the node (the host reports its state
-   corrupt).
-5. Bind it in the founding's `[roles]` and list it under `[[programs]]`.
-
-Modules and views that ask the role go through `env.roles`, so they work
-against the new module unchanged; anything that asks a system module by its
-id or by its own variants beyond the role's does not.
+A role is an interface, not a module: any module whose `Op`, `Query` and
+`Reply` start with the role's variants, byte for byte, can be bound to it
+in the founding's `[roles]`. `crates/sdk/conformance` checks one (its
+README has the steps). What the kernel does with the answers: identity's
+`RegisterModule` is idempotent and only the system sends it, and refusing
+it fails a founding or undoes a later admission; a refusal of
+`Account(key)` or `OfModule(module)` rejects the frame or the message.
+Registry's `At(height)` answers every module that runs at that height; one
+it leaves out is dropped. A refusal of validators' `Members` stops the
+node.
