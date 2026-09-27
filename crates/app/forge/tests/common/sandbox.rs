@@ -1,6 +1,5 @@
 //! forge's host with chat's beside it: the sibling forge queries, and where
-//! its emissions land, in the frame that emitted them, run as the kernel
-//! runs a frame by `chain` ([`guest::MockChain`]). `accounts` is identity's
+//! its emissions land, in the frame that emitted them. `accounts` is identity's
 //! roster: each key the account it belongs to, the harness keys
 //! ([`HOLDERS`](super::HOLDERS)) from the start, each module its account
 //! ([`MODULES`]) and each agent its standing (`agents`). A frame's sender
@@ -11,14 +10,12 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use abi::role::identity::{Category, Kind, Profile, Standing};
-use guest::{Cause, Env, Error, Origin, Outcome, Principal};
-use guest::{ExecCtx, MockChain, MockHost, Module, QueryCtx};
+use guest::{Cause, Env, Error, Origin, Principal};
+use guest::{ExecCtx, MockHost, Module, QueryCtx};
 
 pub struct MemorySandbox {
     pub forge: MockHost,
     pub chat: MockHost,
-    /// forge and chat, each acting as its [`MODULES`] account
-    pub chain: MockChain,
     pub accounts: Rc<RefCell<BTreeMap<Vec<u8>, u64>>>,
     /// the agents [`AGENT_MANAGER`] manages, each with its standing
     pub agents: Rc<RefCell<BTreeMap<u64, Standing>>>,
@@ -78,27 +75,9 @@ impl Default for MemorySandbox {
                 guest::identity_role(&profiles(&roster.borrow(), &standing.borrow()), request)
             }),
         );
-        let mut chain = MockChain::default();
-        let account = |module| {
-            let (_, number) = MODULES.iter().find(|(name, _)| *name == module).unwrap();
-            Some(Principal::Account(*number))
-        };
-        chain.seat(
-            "forge",
-            forge.clone(),
-            account("forge"),
-            guest::execute::<forge::Forge>,
-        );
-        chain.seat(
-            "chat",
-            chat.clone(),
-            account("chat"),
-            guest::execute::<chat::Chat>,
-        );
         MemorySandbox {
             forge,
             chat,
-            chain,
             accounts,
             agents,
         }
@@ -203,10 +182,28 @@ impl MemorySandbox {
         op: &forge::Op,
     ) -> Result<Vec<u8>, Error> {
         let env = self.env_at(origin, height, time);
-        match self.chain.execute(env, &abi::encode(op)) {
-            Outcome::Applied { output } => Ok(output),
-            Outcome::Rejected(error) => Err(error),
+        let hosts = [&self.forge, &self.chat];
+        let before: Vec<_> = hosts
+            .iter()
+            .map(|host| (host.borrow().state.clone(), host.borrow().blobs.clone()))
+            .collect();
+        let ran = forge::Forge::execute(&self.forge.exec(env), op.clone()).and_then(|()| {
+            // forge emits only to chat, never wanting a reply
+            for message in self.forge.take_emissions() {
+                let msg = abi::decode(&message.payload).map_err(guest::kernel::error_from)?;
+                self.chat_execute(Origin::Module("forge".into()), height, time, msg)?;
+            }
+            Ok(self.forge.take_output())
+        });
+        if ran.is_err() {
+            for (host, (state, blobs)) in hosts.into_iter().zip(before) {
+                let mut mock = host.borrow_mut();
+                (mock.state, mock.blobs) = (state, blobs);
+                mock.emissions.clear();
+                mock.output.clear();
+            }
         }
+        ran
     }
 
     pub fn blob_count(&self) -> usize {

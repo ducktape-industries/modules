@@ -189,7 +189,30 @@ mod tests {
         };
         let host = MockHost::default();
         execute::<Asker>(&host.exec(env.clone()), &[]).unwrap();
-        let kept: Option<(MessageId, Outcome)> = host.query(env).record("reply").unwrap();
-        assert_eq!(kept, Some((id, outcome)));
+        let kept: Option<(MessageId, Outcome)> = host.query(env.clone()).record("reply").unwrap();
+        assert_eq!(kept, Some((id.clone(), outcome.clone())));
+        // the default reply returns a refused message's refusal
+        let Outcome::Rejected(refusal) = &outcome else {
+            unreachable!()
+        };
+        assert_eq!(
+            <() as Module>::reply(&host.exec(env), &id, &outcome),
+            Err(refusal.clone())
+        );
+    }
+
+    /// Keeps [`Module::reply`]'s default.
+    impl Module for () {
+        type Op = ();
+        type Query = ();
+        type Response = ();
+
+        fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn query(_: &QueryCtx, (): ()) -> Result<(), Error> {
+            Ok(())
+        }
     }
 }
