@@ -342,22 +342,23 @@ pub fn docks(width: f32, keeps: f32, side: f32) -> bool {
     width >= keeps + side
 }
 
-/// A side pane that does not [`docks`]: over the body at the right edge,
-/// full height, a hairline on its left; a click on it stops there. Its
-/// parent is `relative`, and the pane carries its own close control.
-pub fn over(id: impl Into<ElementId>, pane: impl IntoElement, theme: &Theme) -> Stateful<Div> {
+/// A side pane that does not [`docks`]: it covers the whole of its
+/// `relative` parent, list and body alike, at the pane's own width no
+/// more, so nothing underneath stays half in view; a click on it stops
+/// there. The pane carries its own close control.
+pub fn over(
+    id: impl Into<ElementId>,
+    pane: impl IntoElement + Styled,
+    theme: &Theme,
+) -> Stateful<Div> {
     div()
         .id(id)
         .absolute()
-        .top_0()
-        .right_0()
-        .bottom_0()
-        .max_w_full()
+        .inset_0()
         .flex()
-        .border_l_1()
-        .border_color(theme.border_strong)
+        .bg(theme.background)
         .occlude()
-        .child(pane)
+        .child(pane.w_full().h_full())
 }
 
 /// A small tag: a state, a role, a count, in its own colours.

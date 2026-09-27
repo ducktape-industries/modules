@@ -142,17 +142,11 @@ fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEle
     let details = chat.details.is_some() && chat.room.is_some();
     let thread = chat.room.as_ref().is_some_and(|room| room.thread.is_some());
     let (pane, width) = match (details, thread) {
-        (true, _) => (
-            side::details(chat, cx, theme).into_any_element(),
-            chat.layout.details,
-        ),
-        (false, true) => (
-            side::thread(chat, cx, theme).into_any_element(),
-            chat.layout.thread,
-        ),
+        (true, _) => (side::details(chat, cx, theme), chat.layout.details),
+        (false, true) => (side::thread(chat, cx, theme), chat.layout.thread),
         (false, false) => return panes,
     };
-    // too narrow for the room beside it: the pane floats over the room
+    // too narrow for the room beside it: the pane covers the whole screen
     if !chat.layout.docks(width) {
         return panes.child(design::over("chat-side-over", pane, theme));
     }

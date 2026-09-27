@@ -5,7 +5,7 @@ use ducktape_view_guest::methods::{
 };
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::wire::{ContainerNode, Node, TextNode};
-use ducktape_view_guest::{Hsla, Theme};
+use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
 
 #[test]
 fn the_window_opens_wide_enough_for_the_list_and_the_detail() {
@@ -450,7 +450,7 @@ fn a_kind_with_no_one_in_it_says_so_without_quoting_an_empty_filter() {
 }
 
 #[test]
-fn a_narrow_pane_floats_the_detail_over_the_whole_list_with_a_close() {
+fn a_narrow_pane_covers_the_whole_screen_with_the_detail_and_its_close() {
     let (mut cx, _) = ready();
     cx.simulate_measure("members-viewport", 1000., 640.);
     cx.simulate_click("members-row-7");
@@ -458,10 +458,56 @@ fn a_narrow_pane_floats_the_detail_over_the_whole_list_with_a_close() {
     assert!(cx.find("members-detail-close").is_none());
 
     cx.simulate_measure("members-viewport", 720., 640.);
-    assert!(cx.find("members-detail-over").is_some());
+    assert!(cx.find("members-list-resize").is_none(), "nothing to drag");
+    let full = StyleRefinement::default().inset_0();
+    assert_eq!(style(&cx, "members-detail-over").inset, full.inset);
+    let whole = StyleRefinement::default().size_full();
+    assert_eq!(style(&cx, "members-detail").size, whole.size);
     cx.simulate_click("members-detail-close");
     assert!(cx.find("members-detail-over").is_none());
     assert!(cx.find("members-detail").is_none(), "the list alone");
     cx.simulate_click("members-row-7");
     assert!(cx.find("members-detail-over").is_some());
+}
+
+#[test]
+fn the_docked_list_drags_within_its_bounds_and_leaves_the_detail_its_narrowest() {
+    let (mut cx, _) = ready();
+    cx.simulate_measure("members-viewport", 1000., 640.);
+    assert!(matches!(
+        cx.find("members-list-resize"),
+        Some(Node::ResizeHandle {
+            on_drag: Some(_),
+            ..
+        })
+    ));
+    assert!(list_is(&cx, 400.));
+    cx.simulate_drag("members-list-resize", 60., 0.);
+    assert!(list_is(&cx, 460.));
+    // never past the detail's 440 in 1000
+    cx.simulate_drag("members-list-resize", 400., 0.);
+    assert!(list_is(&cx, 560.));
+    cx.simulate_drag("members-list-resize", -900., 0.);
+    assert!(list_is(&cx, 320.));
+    // the window shrinks: the list gives way before the detail floats
+    cx.simulate_drag("members-list-resize", 200., 0.);
+    cx.simulate_measure("members-viewport", 800., 640.);
+    assert!(cx.find("members-list-resize").is_some());
+    assert!(list_is(&cx, 360.));
+}
+
+fn style(cx: &TestAppContext, key: &str) -> StyleRefinement {
+    let Some(Node::Container(ContainerNode { style, .. })) = cx.find(key) else {
+        panic!("{key} is a styled container");
+    };
+    (*style).clone()
+}
+
+/// Whether the docked list is `width` wide.
+fn list_is(cx: &TestAppContext, width: f32) -> bool {
+    style(cx, "members-list-pane").size.width
+        == StyleRefinement::default()
+            .w(ducktape_view_guest::px(width))
+            .size
+            .width
 }

@@ -14,10 +14,12 @@ use ducktape_view_guest::{Input, prelude::FluentBuilder};
 use crate::activity::{self, WINDOW};
 use crate::{Group, Members, Row};
 
-/// The list pane's width.
-const LIST: Pixels = px(400.);
+/// The list pane's width until it is dragged.
+const LIST: f32 = 400.;
+/// The list's width bounds when docked; the detail keeps its [`DETAIL_MIN`].
+const LIST_W: (f32, f32) = (320., 560.);
 /// The detail's narrowest beside the list: the head and a device row with
-/// its [`KEY_COLUMN`]. Narrower, it floats over the list at this width.
+/// its [`KEY_COLUMN`]. Narrower, it covers the whole screen.
 const DETAIL_MIN: Pixels = px(440.);
 /// A detail row's first column: a device's label, an agent's name. It
 /// gives way first when the pane is narrow.
@@ -27,9 +29,10 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
     let theme = *cx.global::<Theme>();
     // too narrow for the detail beside the list: the list takes the pane
     // and the chosen account floats over it
+    let list = list_width(view);
     let docked = view
         .width
-        .is_none_or(|width| design::docks(width, LIST.into(), DETAIL_MIN.into()));
+        .is_none_or(|width| design::docks(width, list, DETAIL_MIN.into()));
     let screen = div()
         .id("members")
         .relative()
@@ -38,14 +41,22 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_size(text::BODY)
-        .child(list_pane(view, docked, cx, &theme));
+        .child(list_pane(view, docked.then_some(list), cx, &theme));
     let screen = match (docked, view.selected_row().is_some()) {
-        (true, _) => screen.child(detail_pane(view, false, cx, &theme).flex_1()),
+        (true, _) => screen
+            .child(design::divider(
+                "members-list-resize",
+                &theme,
+                cx,
+                |view, dx| {
+                    view.list = Some(list_width(view) + dx);
+                    view.list = Some(list_width(view));
+                },
+            ))
+            .child(detail_pane(view, false, cx, &theme).flex_1()),
         (false, true) => screen.child(design::over(
             "members-detail-over",
-            detail_pane(view, true, cx, &theme)
-                .w(DETAIL_MIN)
-                .bg(theme.background),
+            detail_pane(view, true, cx, &theme),
             &theme,
         )),
         (false, false) => screen,
@@ -62,6 +73,14 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
         .size_full()
         .on_show(measured)
         .on_resize(resized)
+}
+
+/// The list's width: dragged or [`LIST`], within [`LIST_W`] and never
+/// taking the detail's [`DETAIL_MIN`].
+fn list_width(view: &Members) -> f32 {
+    let (lo, hi) = LIST_W;
+    let room = view.width.map_or(hi, |width| width - f32::from(DETAIL_MIN));
+    view.list.unwrap_or(LIST).clamp(lo, room.clamp(lo, hi))
 }
 
 /// The chosen account, scrolling on its own; `over` the list it carries
@@ -83,7 +102,7 @@ fn detail_pane(
 
 fn list_pane(
     view: &Members,
-    docked: bool,
+    width: Option<f32>,
     cx: &mut Context<Members>,
     theme: &Theme,
 ) -> impl IntoElement {
@@ -97,14 +116,13 @@ fn list_pane(
     };
     div()
         .id("members-list-pane")
-        .map(|pane| match docked {
-            true => pane.w(LIST).flex_shrink_0(),
-            false => pane.flex_1().min_w(px(0.)),
+        // docked at its `width`, else the list alone takes the screen
+        .map(|pane| match width {
+            Some(list) => pane.w(px(list)).flex_shrink_0(),
+            None => pane.flex_1().min_w(px(0.)),
         })
         .flex()
         .flex_col()
-        .border_r_1()
-        .border_color(theme.border)
         .child(
             div()
                 .flex()

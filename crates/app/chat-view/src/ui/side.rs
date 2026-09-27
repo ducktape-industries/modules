@@ -3,7 +3,8 @@
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, ElementId, ParentElement, Styled, Theme, div, px,
+    AnyElement, ClickEvent, Context, Div, ElementId, ParentElement, Stateful, Styled, Theme, div,
+    px,
 };
 
 use super::timeline;
@@ -11,7 +12,7 @@ use crate::Chat;
 use crate::ui::room;
 use crate::ui::{button, empty_state};
 
-pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Div> {
     let close = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.close_thread();
         cx.notify();
@@ -86,9 +87,9 @@ pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
 /// The open channel's details: its name, archiving, and its members. A
 /// dm seats its two peers for good: it lists them, with no way to add or
 /// remove one.
-pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Div> {
     let (Some(details), Some(info)) = (chat.details.as_ref(), chat.room_info()) else {
-        return div().into_any_element();
+        return div().id("chat-details-pane");
     };
     let dm = chat::dm_peers(&info.channel.id).is_some();
     let pane = div()
@@ -121,7 +122,6 @@ pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement
             .children(member_adder(&details.member_draft, cx, theme)),
     };
     pane.children(members(chat, !dm, cx, theme))
-        .into_any_element()
 }
 
 fn details_header(title: &'static str, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {

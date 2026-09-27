@@ -127,11 +127,22 @@ fn viewport_and_pane_dividers_keep_their_behavior_routes() {
     ));
     assert!(cx.find("chat-side-over").is_none());
 
-    // too narrow for the room beside it: the details float over the room,
-    // with their close, and nothing to drag
+    // too narrow for the room beside it: the details cover the whole
+    // screen, sidebar and room alike, with their close, and nothing to drag
     cx.simulate_measure("chat-viewport", 720., 480.);
     assert!(cx.find("chat-details-resize").is_none());
-    assert!(cx.find("chat-side-over").is_some());
+    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
+        cx.find("chat-side-over")
+    else {
+        panic!("the side pane floats")
+    };
+    assert_eq!(style.inset, StyleRefinement::default().inset_0().inset);
+    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
+        cx.find("chat-details-pane")
+    else {
+        panic!("the details pane")
+    };
+    assert_eq!(style.size, full.size, "the pane's own width gives way");
     cx.simulate_click("chat-details-close");
     assert!(cx.find("chat-side-over").is_none());
 }
