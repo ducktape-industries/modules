@@ -202,9 +202,7 @@ impl<V: 'static> EditorTransaction<V> {
     }
 
     fn apply_in(self, editor: &mut Editor, context: &slots::Context) -> Option<Callback<V>> {
-        if !std::sync::Weak::ptr_eq(&self.identity, &context.identity())
-            || self.identity.upgrade().is_none()
-        {
+        if !context.owns(&self.identity) {
             return None;
         }
         let callbacks = slots::run_handler::<(), Rc<Callbacks<V>>>(context, self.map, ())?;

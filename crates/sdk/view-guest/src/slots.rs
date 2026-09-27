@@ -125,6 +125,12 @@ impl Context {
     pub(crate) fn identity(&self) -> Weak<()> {
         Arc::downgrade(&self.0.borrow().identity)
     }
+
+    /// Whether `identity` is this driver's: a route from another driver, or
+    /// from one already dropped, never runs here.
+    pub(crate) fn owns(&self, identity: &Weak<()>) -> bool {
+        Weak::ptr_eq(identity, &self.identity())
+    }
 }
 
 /// Returns a picture hash and its bytes the first time this driver sends it.

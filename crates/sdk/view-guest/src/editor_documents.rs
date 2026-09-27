@@ -13,9 +13,7 @@ pub struct EditorDocumentUpdate {
 impl EditorDocumentUpdate {
     pub fn apply(self, editor: &mut Editor, cx: &mut crate::App) {
         let context = &cx.inner.slots;
-        if !std::sync::Weak::ptr_eq(&self.identity, &context.identity())
-            || self.identity.upgrade().is_none()
-        {
+        if !context.owns(&self.identity) {
             return;
         }
         let id = self.message.id().clone();
