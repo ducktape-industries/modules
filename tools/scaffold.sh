@@ -27,9 +27,16 @@ DEPS='^forge = { path = "crates/app/forge" }$'
 anchor() { # <file> <pattern>
     test "$(grep -c "$2" "$1")" = 1 || { echo "$1: no single line matches '$2'; nothing was written. Fix the anchor in $0." >&2; exit 1; }
 }
+# <file> <sed script>: in place, the same with GNU and BSD sed (macOS has
+# no bare `-i`, nor `\n` in a replacement: a new line there is `\` and a
+# real line break).
+edit() {
+    sed -e "$2" "$1" > "$1.new" && mv "$1.new" "$1"
+}
 register() { # <Makefile list> <name>
-    sed -i "s/^$1 := .*/& $2/" Makefile
-    sed -i "s|$MEMBERS|    \"crates/app/$2\",\n&|" Cargo.toml
+    edit Makefile "s/^$1 := .*/& $2/"
+    edit Cargo.toml "s|$MEMBERS|    \"crates/app/$2\",\\
+&|"
 }
 
 module() {
@@ -227,8 +234,9 @@ fn a_key_that_holds_no_account_writes_nothing() {
 }
 EOF
     register PROGRAMS "$name"
-    sed -i "s/^VIEW_LINKABLE := .*/& $name/" Makefile
-    sed -i "s|$DEPS|&\n$name = { path = \"$dir\" }|" Cargo.toml
+    edit Makefile "s/^VIEW_LINKABLE := .*/& $name/"
+    edit Cargo.toml "s|$DEPS|&\\
+$name = { path = \"$dir\" }|"
     cat <<EOF
 $dir/{Cargo.toml,src/{lib,program,rules,view,tests}.rs}, PROGRAMS, VIEW_LINKABLE, workspace members and dependencies.
 Next:
