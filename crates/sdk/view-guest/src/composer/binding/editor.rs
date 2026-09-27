@@ -17,7 +17,7 @@ pub(super) fn matching_choices<'a>(
         .collect()
 }
 
-pub(crate) fn key_tag(
+pub(super) fn key_tag(
     draft: &Draft,
     choices: &[MentionChoice],
     state: EditorStateView<'_>,

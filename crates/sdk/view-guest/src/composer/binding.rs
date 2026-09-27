@@ -8,11 +8,8 @@ use crate::{
 };
 use std::rc::Rc;
 
-#[path = "binding_editor.rs"]
-mod binding_editor;
-#[cfg(test)]
-pub(crate) use binding_editor::key_tag;
-use binding_editor::{editor, matching_choices};
+mod editor;
+use editor::{editor, matching_choices};
 
 #[derive(Clone, Debug)]
 pub struct Change {
@@ -361,5 +358,4 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
 }
 
 #[cfg(test)]
-#[path = "binding_tests.rs"]
 mod tests;

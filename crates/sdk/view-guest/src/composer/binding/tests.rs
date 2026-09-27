@@ -1,6 +1,5 @@
 use super::super::Send;
-use super::binding_editor::editor;
-use super::key_tag;
+use super::editor::{editor, key_tag};
 use super::*;
 use crate::{
     App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, Theme, View, Window, wire,
