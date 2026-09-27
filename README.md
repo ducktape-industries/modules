@@ -82,19 +82,17 @@ guest::export!(Counter);
 An entry point receives its context (`ExecCtx` reads, writes, sends and
 sets return data; `QueryCtx` reads) and nothing else: `ctx.env()` is the call's
 `Env`, and nothing reaches the host by any other path. `ctx.sender()` is who
-the write acts as, the account the host resolved (`Principal::Account`) or
-the chain (`Principal::Root`); it refuses a frame whose key holds no account. `export!` only emits
-the `alloc`/`call` exports, which decode the invocation and encode the
-answer through `guest::execute`/`guest::query`. The same contexts run over a
+the write acts as, the account the host resolved or the chain. `export!`
+only emits the `alloc`/`call` exports. The same contexts run over a
 `MockHost` natively, so a module's test runs its real code
 (`crates/sdk/guest/examples/counter.rs`); modules that emit to each other run
 together on a `MockChain`, a submission as one frame as the kernel runs it.
 
-An app module is one crate: its types, rules and module are always built,
-and its `export!` sits behind a cargo feature `module`, off by default.
-`make wasm-programs` builds the crate with `--features module`; its view
-links the same crate with the feature off and gets the types with no host
-import and no export, which `make wasm-views` checks.
+[`docs/modules.md`](docs/modules.md) is the walk from `make new-module` to
+a module founded in qa: the crate and its features, `Op`/`Query`/`Reply`
+and the append-only rule, tables and pages over `store`, errors and codes,
+sender and identity, queries, emits and replies, `describe`, the native
+tests, the edit loop and founding.
 
 ## A view
 
@@ -127,13 +125,11 @@ The tree vocabulary, manifests, and five-function Wasm ABI are unchanged.
 3. `kit build NAME && kit up NAME` in qa packs and founds these artifacts,
    then the app opens on them.
 4. Where a view's bytes go: `make wasm-why V=members-view` (`twiggy top`, `cargo install twiggy`).
-5. A new module: `make new-module NAME=x` (valset's shape: types and
-   `describe` in `lib.rs`, the module in `program.rs`, rules in `rules.rs`,
-   the view marker in `view.rs`, a `MockHost` test in `tests.rs`), then
-   `make new-view NAME=x-view`; each prints what to do next, down to the
-   `founding.toml` entry and kit's pack lists in qa. `make scaffold-check`
-   proves both still build, gate and test. `make test` runs everything; the
-   founding suite builds the boot set itself.
+5. A new module: `make new-module NAME=x`, then `make new-view NAME=x-view`;
+   each prints what to do next, down to the `founding.toml` entry and kit's
+   pack lists in qa ([`docs/modules.md`](docs/modules.md) walks it).
+   `make scaffold-check` proves both still build, gate and test. `make test`
+   runs everything; the founding suite builds the boot set itself.
 
 ## Building
 
