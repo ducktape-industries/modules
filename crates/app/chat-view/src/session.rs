@@ -76,10 +76,7 @@ impl Chat {
         let task = cx.spawn(async move |this, cx| {
             let result = list.await;
             let _ = this.update(cx, |chat, cx| {
-                chat.channels = Loadable::from(result.map(|(rooms, more)| {
-                    chat.channels_more = more;
-                    rooms
-                }));
+                chat.channels = Loadable::from(result);
                 cx.notify();
             });
         });

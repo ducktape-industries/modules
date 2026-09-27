@@ -29,12 +29,9 @@ impl Module for Identity {
     type Reply = abi::role::identity::Reply;
 }
 
-/// How many roster pages one read follows: 64 pages of 256 accounts.
-const ROSTER_PAGES: usize = 64;
-
 /// Every account's profile, every page of it, folded into [`Names`].
 pub async fn roster(host: Host) -> Result<Names, Error> {
-    let (rows, next) = pages(None, ROSTER_PAGES, |after| {
+    let rows = pages(None, |after| {
         let ask = host.ask::<Ask<Chat>>(Query::Accounts {
             page: PageRequest {
                 after,
@@ -49,56 +46,53 @@ pub async fn roster(host: Host) -> Result<Names, Error> {
         }
     })
     .await?;
-    let mut names = Names::from_roster(rows);
-    names.more = next.is_some();
-    Ok(names)
+    Ok(Names::from_roster(rows))
 }
 
-/// A channel's roots as `viewer` sees them, oldest first: up to `max_pages`
-/// pages of `per_page` below the cursor `below` (or the newest), and whether
-/// older ones remain.
+/// A channel's roots as `viewer` sees them, oldest first: pages of
+/// `per_page` below the cursor `below` (or the newest) until at least
+/// `want` rows are read or the channel ends, and whether older ones remain.
 pub async fn roots(
     host: Host,
     channel_id: String,
     viewer: Vec<Principal>,
-    below: Option<Vec<u8>>,
-    max_pages: usize,
+    mut below: Option<Vec<u8>>,
+    want: usize,
     per_page: u64,
 ) -> Result<(Vec<MsgRow>, bool), Error> {
-    let (mut rows, next) = pages(below, max_pages, |after| {
-        let ask = host.ask::<Ask<Chat>>(Query::Roots {
+    let mut rows = Vec::new();
+    loop {
+        let page = host.ask::<Ask<Chat>>(Query::Roots {
             channel_id: channel_id.clone(),
             viewer: viewer.clone(),
             page: PageRequest {
-                after,
+                after: below,
                 limit: Some(per_page),
             },
         });
-        async move {
-            match ask.await? {
-                Reply::Roots(page) => Ok((page.items, page.next)),
-                _ => Err(wrong_reply()),
-            }
+        let Reply::Roots(page) = page.await? else {
+            return Err(wrong_reply());
+        };
+        rows.extend(page.items);
+        below = page.next;
+        if below.is_none() || rows.len() >= want {
+            break;
         }
-    })
-    .await?;
+    }
     rows.sort_by_key(|row| row.seq);
-    Ok((rows, next.is_some()))
+    Ok((rows, below.is_some()))
 }
 
 /// The roster as a view reads it: each account's profile, by number.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Names {
     profiles: BTreeMap<u64, Profile>,
-    /// the roster read stopped at its page budget: more accounts exist
-    more: bool,
 }
 
 impl Names {
     pub const fn empty() -> Self {
         Self {
             profiles: BTreeMap::new(),
-            more: false,
         }
     }
 
@@ -108,12 +102,6 @@ impl Names {
             names.profiles.insert(profile.number, profile);
         }
         names
-    }
-
-    /// Whether the roster goes on past what was read: an account beyond it
-    /// reads as its number.
-    pub fn more(&self) -> bool {
-        self.more
     }
 
     /// The accounts a person picks, as a reviewer or a mention: people and

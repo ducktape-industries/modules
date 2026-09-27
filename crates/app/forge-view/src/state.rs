@@ -41,8 +41,8 @@ pub struct Forge {
     #[serde(skip)]
     pub(crate) names: Loadable<chat::view::Names>,
     #[serde(skip)]
-    /// each change channel's rows, and whether more follow past the budget
-    pub(crate) messages: BTreeMap<String, Loadable<(Vec<chat::MsgRow>, bool)>>,
+    /// each change channel's rows
+    pub(crate) messages: BTreeMap<String, Loadable<Vec<chat::MsgRow>>>,
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
     #[serde(skip)]

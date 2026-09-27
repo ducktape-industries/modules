@@ -9,9 +9,6 @@ use ducktape_view_guest::host::{Error, pages, wrong_reply};
 use crate::api::{Ask, ChatApi};
 use crate::{PAGE, WINDOW};
 
-/// How many channel pages one read follows: 64 pages of 64 channels.
-const CHANNEL_PAGES: usize = 64;
-
 fn page(after: Option<Vec<u8>>, limit: usize) -> PageRequest {
     PageRequest {
         after,
@@ -19,9 +16,9 @@ fn page(after: Option<Vec<u8>>, limit: usize) -> PageRequest {
     }
 }
 
-/// Every room, up to [`CHANNEL_PAGES`] pages, and whether more follow.
-pub(crate) async fn channels(host: Host) -> Result<(Vec<ChannelInfo>, bool), Error> {
-    let (all, next) = pages(None, CHANNEL_PAGES, |after| {
+/// Every room.
+pub(crate) async fn channels(host: Host) -> Result<Vec<ChannelInfo>, Error> {
+    pages(None, |after| {
         let ask = host.ask::<Ask<ChatApi>>(Query::Channels {
             page: page(after, PAGE),
         });
@@ -32,8 +29,7 @@ pub(crate) async fn channels(host: Host) -> Result<(Vec<ChannelInfo>, bool), Err
             }
         }
     })
-    .await?;
-    Ok((all, next.is_some()))
+    .await
 }
 
 /// The `limit` roots below `below` (or the newest), oldest first, with
@@ -45,15 +41,7 @@ pub(crate) async fn roots(
     below: Option<Vec<u8>>,
     limit: usize,
 ) -> Result<(Vec<MsgRow>, bool), Error> {
-    ::chat::view::roots(
-        host,
-        channel_id,
-        viewer,
-        below,
-        limit.div_ceil(PAGE),
-        PAGE as u64,
-    )
-    .await
+    ::chat::view::roots(host, channel_id, viewer, below, limit, PAGE as u64).await
 }
 
 /// The rows around a landing seq, oldest first.

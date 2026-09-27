@@ -13,7 +13,7 @@ use crate::state::{Accounts, Network};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
-    let (list, _) = pages(None, usize::MAX, |after| {
+    let list = pages(None, |after| {
         let ask = host.ask::<Query<Identity>>(identity::Query::List {
             page: identity::PageRequest { after, limit: None },
         });
@@ -52,7 +52,7 @@ pub(crate) async fn network(host: Host) -> Result<Network, Error> {
         registry::Reply::Views(views) => views,
         _ => return Err(wrong_reply()),
     };
-    let (changes, _) = pages(None, usize::MAX, |after| {
+    let changes = pages(None, |after| {
         let ask = host.ask::<Query<Registry>>(registry::Query::Scheduled {
             page: registry::PageRequest { after, limit: None },
         });

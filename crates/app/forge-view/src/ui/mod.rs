@@ -107,15 +107,7 @@ fn main(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         (Some(_), Some(_)) => change::render(forge, cx, theme),
         (Some(_), None) => repo(forge, cx, theme),
     };
-    column = column.child(body);
-    if forge.cut_short() {
-        column = column.child(
-            design::more_not_shown(id("forge-more"), theme)
-                .px_4()
-                .py_2(),
-        );
-    }
-    column.into_any_element()
+    column.child(body).into_any_element()
 }
 
 /// Why every write control is off: the seated key holds no account. The

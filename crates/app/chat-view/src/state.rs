@@ -15,8 +15,6 @@ pub struct Chat {
     #[serde(skip)]
     pub(crate) names: Loadable<Names>,
     pub(crate) channels: Loadable<Vec<ChannelInfo>>,
-    /// the channel read stopped at its page budget: more rooms exist
-    pub(crate) channels_more: bool,
     pub(crate) room: Option<Room>,
     pub(crate) drafts: BTreeMap<String, Draft>,
     /// the banner over the room: the last refusal, until the reader moves on

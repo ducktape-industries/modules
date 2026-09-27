@@ -24,7 +24,7 @@ pub(crate) async fn set(host: Host) -> Result<Set, Error> {
         Reply::Validators(keys) => keys,
         _ => return Err(wrong_reply()),
     };
-    let (members, _) = pages(None, usize::MAX, |after| {
+    let members = pages(None, |after| {
         let ask = host.ask::<Query<Valset>>(Ask::Memberships {
             page: PageRequest { after, limit: None },
         });

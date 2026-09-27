@@ -141,7 +141,7 @@ async fn held_by(host: &Host, key: &[u8]) -> Result<Option<(String, &'static str
 
 /// Every agent `manager` manages.
 async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
-    let (listed, _) = pages(None, usize::MAX, |after| {
+    let listed = pages(None, |after| {
         let ask = host.ask::<Query<Identity>>(identity::Query::Managed {
             by: manager,
             page: PageRequest { after, limit: None },

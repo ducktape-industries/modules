@@ -65,20 +65,6 @@ impl Forge {
         self.may_write() && info.repo.owner == me
     }
 
-    /// Whether a list on this screen stopped at its page budget: a read
-    /// with a cursor left over, or a change's conversation cut short.
-    pub(crate) fn cut_short(&self) -> bool {
-        let reads = self.data.values().any(|loaded| match loaded {
-            Loadable::Ready(reply) => crate::queries::cut_short(reply),
-            _ => false,
-        });
-        let talk = self
-            .messages
-            .values()
-            .any(|loaded| matches!(loaded, Loadable::Ready((_, true))));
-        reads || talk
-    }
-
     pub(crate) fn stage(&self, query: &Query) -> Stage<'_> {
         match self.data.get(query) {
             Some(Loadable::Ready(reply)) => Stage::Ready(reply),
