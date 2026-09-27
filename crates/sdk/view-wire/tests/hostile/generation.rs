@@ -266,7 +266,7 @@ pub(super) fn gen_patch(rng: &mut Rng, root: &Node, hostile: bool) -> Patch {
 /// string is generated the same hostile way as everything else.
 pub(super) fn gen_frame(rng: &mut Rng, i: usize) -> Frame {
     let (depth, width) = if i == 0 {
-        // Exactly one tree per run goes just over each method, not far over
+        // Exactly one tree per run goes just over each budget, not far over
         // it, and only once. `sanitize` stops at MAX_NODES regardless of
         // how much wider the input tree claims to be, so repeating the
         // saturating case only wastes wall clock without adding coverage.
@@ -301,7 +301,7 @@ pub(super) fn gen_frame_bounded(rng: &mut Rng) -> Frame {
 /// caller — a panic keeps its original message, seed included, instead of
 /// being replaced by a generic "thread panicked" one. Building and encoding
 /// a tree recurses once per level of nesting the same way decoding does
-/// (see `lib.rs`'s own `deep_chain_bytes`), so the frames this file builds
+/// (see `deep_chain_bytes` in `src/tests.rs`), so the frames this file builds
 /// up to `2 * MAX_DEPTH` levels deep get the same headroom.
 pub(super) fn on_big_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
     let handle = std::thread::Builder::new()

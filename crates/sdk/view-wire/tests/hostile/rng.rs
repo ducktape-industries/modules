@@ -541,7 +541,7 @@ pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
 /// Builds one random tree of exactly `depth` levels of nesting with `width`
 /// extra siblings injected at one random level, entirely with an
 /// iterative loop rather than recursion — the wire's own stress test
-/// (`deep_chain_bytes` in `lib.rs`) builds a deep chain the same way,
+/// (`deep_chain_bytes` in `src/tests.rs`) builds a deep chain the same way,
 /// because a recursive builder would blow its own stack before `decode`
 /// ever got a chance to refuse anything.
 /// A current wire node holding a child list, around `children`. One in
