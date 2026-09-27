@@ -21,8 +21,6 @@ pub(super) fn gen_opt_f32(rng: &mut Rng) -> Option<f32> {
     rng.next_bool().then(|| gen_f32(rng))
 }
 
-/// A key drawn from a small fixed pool: with only five options across a
-/// whole tree, collisions are the common case rather than the exception.
 /// A node's typed id; from a [`Rng::poisoning_ids`] generator, one in
 /// eight is a focus handle, which never crosses the wire.
 pub(super) fn gen_id(rng: &mut Rng) -> ElementIdWire {
@@ -32,6 +30,8 @@ pub(super) fn gen_id(rng: &mut Rng) -> ElementIdWire {
     ElementIdWire::Name(gen_key(rng).into())
 }
 
+/// A key drawn from a small fixed pool: with only five options across a
+/// whole tree, collisions are the common case rather than the exception.
 pub(super) fn gen_key(rng: &mut Rng) -> String {
     const POOL: [&str; 5] = ["App/a", "App/b", "dup", "x", "same-key"];
     (*rng.choose(&POOL)).to_string()
