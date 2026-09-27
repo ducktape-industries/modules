@@ -3,23 +3,11 @@ use super::{Draft, Mention, MentionChoice};
 use crate::{EditorStateView, wire};
 use std::ops::Range;
 
-pub(crate) fn offset(text: &str, position: wire::EditorPosition) -> usize {
-    text.split_inclusive('\n')
-        .take(position.line as usize)
-        .map(str::len)
-        .sum::<usize>()
-        + position.column as usize
-}
-pub(crate) fn position(text: &str, at: usize) -> wire::EditorPosition {
-    let before = &text[..at];
-    wire::EditorPosition {
-        line: before.bytes().filter(|byte| *byte == b'\n').count() as u32,
-        column: before.rsplit('\n').next().unwrap_or_default().len() as u32,
-    }
-}
 pub(crate) fn selection(text: &str, cursor: wire::EditorCursor) -> Range<usize> {
-    let at = offset(text, cursor.position);
-    let anchor = cursor.selection.map_or(at, |anchor| offset(text, anchor));
+    let at = wire::editor_offset(text, cursor.position);
+    let anchor = cursor
+        .selection
+        .map_or(at, |anchor| wire::editor_offset(text, anchor));
     at.min(anchor)..at.max(anchor)
 }
 fn markers(tag: &str) -> Option<(&'static str, &'static str)> {
@@ -46,7 +34,7 @@ fn apply(
             replacement,
         }],
         cursor: wire::EditorCursor {
-            position: position(&text, caret),
+            position: wire::editor_position(&text, caret),
             selection: None,
         },
         history: wire::EditorHistoryEffect::Native,

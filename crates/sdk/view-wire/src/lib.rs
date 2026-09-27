@@ -60,7 +60,7 @@ pub use editor_transaction::{
     EditorResponse, EditorTransactionEvent, EditorTransactionId, patched_editor_text,
 };
 
-pub use editor::{EditorCursor, EditorPosition, editor_lines};
+pub use editor::{EditorCursor, EditorPosition, editor_lines, editor_offset, editor_position};
 
 mod image;
 pub use image::{ImageData, ViewerOptions};

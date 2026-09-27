@@ -1,5 +1,4 @@
 use super::super::Send;
-use super::super::editing;
 use super::binding_editor::editor;
 use super::key_tag;
 use super::*;
@@ -340,7 +339,7 @@ fn caret(body: &str, at: usize) -> Draft {
     let mut draft = Draft::from_body(body, &choices);
     let text = draft.editor.text();
     draft.editor.move_to(wire::EditorCursor {
-        position: editing::position(&text, at),
+        position: wire::editor_position(&text, at),
         selection: None,
     });
     draft
@@ -448,7 +447,7 @@ fn forward_delete_removes_what_is_ahead_of_the_caret() {
     let at = mention.mentions[0].range.start;
     let text = mention.editor.text();
     mention.editor.move_to(wire::EditorCursor {
-        position: editing::position(&text, at),
+        position: wire::editor_position(&text, at),
         selection: None,
     });
     assert_eq!(removed(&mention).as_deref(), Some("Hi  there"));

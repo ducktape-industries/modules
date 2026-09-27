@@ -38,6 +38,34 @@ pub fn editor_lines(text: &str) -> impl Iterator<Item = &str> {
     })
 }
 
+/// The byte offset of `position` in `text`: a column past the line's end
+/// lands at the end of the line, a line past the last at the end of the text.
+pub fn editor_offset(text: &str, position: EditorPosition) -> usize {
+    let Some(line) = editor_lines(text).nth(position.line as usize) else {
+        return text.len();
+    };
+    let start = line.as_ptr() as usize - text.as_ptr() as usize;
+    start + (position.column as usize).min(line.len())
+}
+
+/// The position of byte `at` in `text`, snapped back to a char boundary.
+pub fn editor_position(text: &str, mut at: usize) -> EditorPosition {
+    at = at.min(text.len());
+    while !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    let (line, source) = editor_lines(text)
+        .enumerate()
+        .take_while(|(_, line)| line.as_ptr() as usize - text.as_ptr() as usize <= at)
+        .last()
+        .expect("editor has at least one logical line");
+    let start = source.as_ptr() as usize - text.as_ptr() as usize;
+    EditorPosition {
+        line: line as u32,
+        column: (at - start).min(source.len()) as u32,
+    }
+}
+
 impl EditorPosition {
     fn clamp(&mut self, text: &str) {
         let (line, source) = editor_lines(text)
@@ -91,6 +119,25 @@ mod tests {
         ] {
             assert_eq!(editor_lines(text).collect::<Vec<_>>(), expected);
         }
+    }
+
+    #[test]
+    fn offsets_and_positions_agree_on_every_terminator() {
+        for ending in ["\n", "\r\n", "\r", "\n\r"] {
+            let text = format!("a{ending}bc");
+            let second = EditorPosition { line: 1, column: 1 };
+            let at = 1 + ending.len() + 1;
+            assert_eq!(editor_offset(&text, second), at, "{ending:?}");
+            assert_eq!(editor_position(&text, at), second, "{ending:?}");
+        }
+        assert_eq!(
+            editor_offset("a\nb", EditorPosition { line: 5, column: 9 }),
+            3
+        );
+        assert_eq!(
+            editor_position("한", 1),
+            EditorPosition { line: 0, column: 0 }
+        );
     }
 
     #[test]

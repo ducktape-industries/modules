@@ -197,10 +197,8 @@ pub(super) fn editor<V: 'static>(
         ..Default::default()
     };
     for mention in &draft.mentions {
-        let start =
-            super::super::editing::position(draft.editor.state_view().text, mention.range.start);
-        let end =
-            super::super::editing::position(draft.editor.state_view().text, mention.range.end);
+        let start = wire::editor_position(draft.editor.state_view().text, mention.range.start);
+        let end = wire::editor_position(draft.editor.state_view().text, mention.range.end);
         if start.line == end.line {
             presentation
                 .spans
