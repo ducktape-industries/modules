@@ -1,5 +1,5 @@
-//! The one rule for what assistive technology cannot name: the app host and
-//! the views' build gate both ask [`accessibility_faults`].
+//! The one rule for what assistive technology cannot name: the views' test
+//! gate (`view-guest` testing) asks [`accessibility_faults`].
 
 use crate::{ButtonContent, Node};
 

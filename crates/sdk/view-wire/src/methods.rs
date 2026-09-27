@@ -413,7 +413,7 @@ methods! {
     ClockTicks, "clock.ticks", i64, ();
     /// `host.log`: one line to the host's log.
     HostLog, "host.log", String, ();
-    /// `clipboard.read`: the clipboard's text and any files on it.
+    /// `clipboard.read`: the clipboard's text.
     ClipboardRead, "clipboard.read", (), Clipboard;
     /// `clipboard.write`: text onto the clipboard.
     ClipboardWrite, "clipboard.write", String, ();

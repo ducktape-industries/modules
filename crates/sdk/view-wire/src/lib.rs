@@ -6,15 +6,15 @@
 //! scroll. The guest never learns where anything landed, which is the point:
 //! there is nothing in it to draw with.
 //!
-//! Interaction goes back as MEANING, not input. A button carries the index of
-//! the message the guest queued for it this frame ([`Node::Button`]'s
-//! `on_press`); the host sends [`Event::Message`] with that index and the
-//! guest runs its own handler. A text field carries a handler index; the host
-//! owns the text and sends [`Event::Input`] with what it now reads; a
-//! multiline editor the same, with [`Event::EditorTransaction`]. A
-//! checkbox, slider or pick list likewise carries a handler index and the
-//! host sends the new value ([`Event::Toggle`], [`Event::Slide`],
-//! [`Event::Select`]).
+//! Interaction goes back as MEANING, not input. An element's
+//! [`Interactivity`] carries, per listener (`on_click`, `on_mouse_down`,
+//! `on_key_down`, ...), the index of the handler the guest registered this
+//! frame; the host sends [`Event::Click`], [`Event::MouseDown`],
+//! [`Event::KeyDown`] and the rest with that index and the guest runs its
+//! own handler. A text field carries a handler index; the host owns the text
+//! and sends [`Event::Input`] with what it now reads; a multiline editor the
+//! same, with [`Event::EditorTransaction`]. A rich text's clickable ranges
+//! answer with [`Event::Select`] and the index of the range clicked.
 //!
 //! The types here are the one definition of the format: the guest serializes
 //! them and the host deserializes the same code, so a field neither side can

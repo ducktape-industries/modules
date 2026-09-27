@@ -345,9 +345,9 @@ pub enum Node {
         secure: bool,
         style: gpui::StyleRefinement,
     },
-    /// A multiline text editor. The host owns the `text_editor::Content` —
-    /// native widget interaction — and the guest sees document state, unlike
-    /// [`Node::Input`]. Presentation crosses as copied data.
+    /// A multiline text editor. The host owns the native editor's text and
+    /// selection — native widget interaction — and the guest sees document
+    /// state, unlike [`Node::Input`]. Presentation crosses as copied data.
     Editor {
         options: Box<EditorOptions>,
         id: ElementIdWire,
