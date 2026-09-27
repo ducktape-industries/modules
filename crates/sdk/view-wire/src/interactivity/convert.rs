@@ -8,30 +8,6 @@ fn point(x: f32, y: f32) -> Point<Pixels> {
     gpui::point(gpui::px(x), gpui::px(y))
 }
 
-impl From<gpui::Modifiers> for keyboard::Modifiers {
-    fn from(value: gpui::Modifiers) -> Self {
-        Self {
-            shift: value.shift,
-            control: value.control,
-            alt: value.alt,
-            logo: value.platform,
-            function: value.function,
-        }
-    }
-}
-
-impl From<keyboard::Modifiers> for gpui::Modifiers {
-    fn from(value: keyboard::Modifiers) -> Self {
-        Self {
-            shift: value.shift,
-            control: value.control,
-            alt: value.alt,
-            platform: value.logo,
-            function: value.function,
-        }
-    }
-}
-
 /// The name gpui gives a key in a `Keystroke`: the inverse of [`wire_key`].
 fn key_name(value: &keyboard::Key) -> String {
     match value {
@@ -67,7 +43,7 @@ fn key_name(value: &keyboard::Key) -> String {
 impl From<&keyboard::KeyState> for gpui::Keystroke {
     fn from(value: &keyboard::KeyState) -> Self {
         Self {
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
             key: key_name(&value.key),
             key_char: match &value.modified_key {
                 keyboard::Key::Character(value) => Some(value.clone()),
@@ -180,7 +156,7 @@ impl From<&gpui::Keystroke> for keyboard::KeyState {
             modified_key,
             physical_key: keyboard::Physical::Unidentified(keyboard::NativeCode::Unidentified),
             location: keyboard::Location::Standard,
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
         }
     }
 }
@@ -190,7 +166,7 @@ impl From<&gpui::MouseDownEvent> for MouseDown {
         Self {
             button: value.button.into(),
             position: value.position,
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
             click_count: value.click_count.min(u32::MAX as usize) as u32,
             first_mouse: value.first_mouse,
         }
@@ -202,7 +178,7 @@ impl From<&gpui::MouseUpEvent> for MouseUp {
         Self {
             button: value.button.into(),
             position: value.position,
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
             click_count: value.click_count.min(u32::MAX as usize) as u32,
         }
     }
@@ -213,7 +189,7 @@ impl From<&gpui::MouseMoveEvent> for MouseMove {
         Self {
             position: value.position,
             pressed_button: value.pressed_button.map(Into::into),
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
         }
     }
 }
@@ -223,7 +199,7 @@ impl From<&gpui::MouseExitEvent> for MouseExit {
         Self {
             position: value.position,
             pressed_button: value.pressed_button.map(Into::into),
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
         }
     }
 }
@@ -238,7 +214,7 @@ impl From<&gpui::MousePressureEvent> for MousePressure {
                 gpui::PressureStage::Force => PressureStage::Force,
             },
             position: value.position,
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
         }
     }
 }
@@ -258,7 +234,7 @@ impl From<&gpui::ScrollWheelEvent> for ScrollWheel {
         Self {
             position: value.position,
             delta,
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
             touch_phase: value.touch_phase.into(),
         }
     }
@@ -269,7 +245,7 @@ impl From<&gpui::PinchEvent> for Pinch {
         Self {
             position: value.position,
             delta: value.delta,
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
             phase: value.phase.into(),
         }
     }
@@ -296,7 +272,7 @@ impl From<&gpui::KeyUpEvent> for KeyUp {
 impl From<&gpui::ModifiersChangedEvent> for ModifiersChanged {
     fn from(value: &gpui::ModifiersChangedEvent) -> Self {
         Self {
-            modifiers: value.modifiers.into(),
+            modifiers: value.modifiers,
             capslock: value.capslock.on,
         }
     }
@@ -307,7 +283,7 @@ impl MouseDown {
         gpui::MouseDownEvent {
             button: self.button.into(),
             position: self.position,
-            modifiers: self.modifiers.into(),
+            modifiers: self.modifiers,
             click_count: self.click_count as usize,
             first_mouse: self.first_mouse,
         }
@@ -319,7 +295,7 @@ impl MouseUp {
         gpui::MouseUpEvent {
             button: self.button.into(),
             position: self.position,
-            modifiers: self.modifiers.into(),
+            modifiers: self.modifiers,
             click_count: self.click_count as usize,
         }
     }
@@ -330,7 +306,7 @@ impl MouseMove {
         gpui::MouseMoveEvent {
             position: self.position,
             pressed_button: self.pressed_button.map(Into::into),
-            modifiers: self.modifiers.into(),
+            modifiers: self.modifiers,
         }
     }
 }
@@ -340,7 +316,7 @@ impl MouseExit {
         gpui::MouseExitEvent {
             position: self.position,
             pressed_button: self.pressed_button.map(Into::into),
-            modifiers: self.modifiers.into(),
+            modifiers: self.modifiers,
         }
     }
 }
@@ -355,7 +331,7 @@ impl MousePressure {
                 PressureStage::Force => gpui::PressureStage::Force,
             },
             position: self.position,
-            modifiers: self.modifiers.into(),
+            modifiers: self.modifiers,
         }
     }
 }
@@ -368,7 +344,7 @@ impl ScrollWheel {
                 mouse::ScrollDelta::Pixels { x, y } => gpui::ScrollDelta::Pixels(point(x, y)),
                 mouse::ScrollDelta::Lines { x, y } => gpui::ScrollDelta::Lines(gpui::point(x, y)),
             },
-            modifiers: self.modifiers.into(),
+            modifiers: self.modifiers,
             touch_phase: self.touch_phase.into(),
         }
     }
@@ -379,7 +355,7 @@ impl Pinch {
         gpui::PinchEvent {
             position: self.position,
             delta: self.delta,
-            modifiers: self.modifiers.into(),
+            modifiers: self.modifiers,
             phase: self.phase.into(),
         }
     }
@@ -406,7 +382,7 @@ impl KeyUp {
 impl ModifiersChanged {
     pub fn into_gpui(self) -> gpui::ModifiersChangedEvent {
         gpui::ModifiersChangedEvent {
-            modifiers: self.modifiers.into(),
+            modifiers: self.modifiers,
             capslock: gpui::Capslock { on: self.capslock },
         }
     }

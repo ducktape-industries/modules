@@ -83,8 +83,8 @@ pub fn patched_editor_text(
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorKeyClaim {
     pub key: crate::keyboard::Key,
-    pub modifiers: crate::keyboard::Modifiers,
-    /// Add the host platform's command modifier (logo on macOS, control elsewhere).
+    pub modifiers: gpui::Modifiers,
+    /// Add the host platform's command modifier (platform on macOS, control elsewhere).
     pub command: bool,
 }
 impl EditorKeyClaim {
@@ -92,7 +92,7 @@ impl EditorKeyClaim {
         let mut modifiers = self.modifiers;
         if self.command {
             if macos {
-                modifiers.logo = true;
+                modifiers.platform = true;
             } else {
                 modifiers.control = true;
             }
@@ -481,7 +481,7 @@ mod tests {
             claims: vec![
                 EditorKeyClaim {
                     key: crate::keyboard::Key::Named(crate::keyboard::Named::Tab),
-                    modifiers: crate::keyboard::Modifiers::default(),
+                    modifiers: gpui::Modifiers::default(),
                     command: false,
                 };
                 MAX_EDITOR_CLAIMS + 1

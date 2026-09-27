@@ -133,7 +133,7 @@ fn key_state() -> keyboard::KeyState {
         modified_key: keyboard::Key::Character("\n".into()),
         physical_key: keyboard::Physical::Unidentified(keyboard::NativeCode::MacOS(36)),
         location: keyboard::Location::Standard,
-        modifiers: keyboard::Modifiers {
+        modifiers: gpui::Modifiers {
             shift: true,
             ..Default::default()
         },

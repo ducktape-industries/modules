@@ -86,7 +86,7 @@ fn pointer_listener_preserves_payload_and_routes_after_frame_reset() {
     let event = wire::interactivity::MouseDown {
         button: wire::click::MouseButton::Right,
         position: gpui::point(gpui::px(12.5), gpui::px(7.0)),
-        modifiers: wire::keyboard::Modifiers {
+        modifiers: gpui::Modifiers {
             shift: true,
             ..Default::default()
         },

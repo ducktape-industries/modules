@@ -3,7 +3,8 @@
 use super::*;
 use crate::wire;
 use crate::{EditorBinding, EditorStateView, EditorTransactionEvent};
-use wire::keyboard::{Key, Modifiers, Named};
+use gpui::Modifiers;
+use wire::keyboard::{Key, Named};
 
 pub(super) fn matching_choices<'a>(
     choices: &'a [MentionChoice],
@@ -23,7 +24,7 @@ pub(super) fn key_tag(
     state: EditorStateView<'_>,
     key: &wire::keyboard::KeyState,
 ) -> String {
-    let command = key.modifiers.control || key.modifiers.logo;
+    let command = key.modifiers.control || key.modifiers.platform;
     if command {
         return match (&key.key, key.modifiers.shift) {
             (Key::Character(key), false) if key == "z" => "undo",

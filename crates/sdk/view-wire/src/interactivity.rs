@@ -67,7 +67,7 @@ pub enum TouchPhase {
 pub struct MouseDown {
     pub button: click::MouseButton,
     pub position: Point<Pixels>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub click_count: u32,
     pub first_mouse: bool,
 }
@@ -76,7 +76,7 @@ pub struct MouseDown {
 pub struct MouseUp {
     pub button: click::MouseButton,
     pub position: Point<Pixels>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub click_count: u32,
 }
 
@@ -84,14 +84,14 @@ pub struct MouseUp {
 pub struct MouseMove {
     pub position: Point<Pixels>,
     pub pressed_button: Option<click::MouseButton>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MouseExit {
     pub position: Point<Pixels>,
     pub pressed_button: Option<click::MouseButton>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -99,7 +99,7 @@ pub struct MousePressure {
     pub pressure: f32,
     pub stage: PressureStage,
     pub position: Point<Pixels>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -114,7 +114,7 @@ pub enum PressureStage {
 pub struct ScrollWheel {
     pub position: Point<Pixels>,
     pub delta: mouse::ScrollDelta,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub touch_phase: TouchPhase,
 }
 
@@ -122,7 +122,7 @@ pub struct ScrollWheel {
 pub struct Pinch {
     pub position: Point<Pixels>,
     pub delta: f32,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub phase: TouchPhase,
 }
 
@@ -140,7 +140,7 @@ pub struct KeyUp {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModifiersChanged {
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub capslock: bool,
 }
 

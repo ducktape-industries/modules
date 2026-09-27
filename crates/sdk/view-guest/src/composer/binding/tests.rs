@@ -4,9 +4,10 @@ use super::*;
 use crate::{
     App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, Theme, View, Window, wire,
 };
+use gpui::Modifiers;
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
-use wire::keyboard::{Key, Modifiers, Named};
+use wire::keyboard::{Key, Named};
 
 #[derive(Default, Serialize, Deserialize)]
 struct ComposerView {

@@ -2,7 +2,7 @@
 use super::*;
 
 pub fn every_event() -> Vec<Event> {
-    let modifiers = keyboard::Modifiers::default();
+    let modifiers = gpui::Modifiers::default();
     vec![
         Event::Message(3),
         Event::Click {

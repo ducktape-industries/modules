@@ -1,4 +1,5 @@
-//! Keyboard data, independent of a renderer or windowing backend.
+//! The keys of a keystroke, named as gpui names them; its modifiers are
+//! gpui's own.
 use serde::{Deserialize, Serialize};
 
 // Explicit variants keep host key mapping exhaustive. Tables use the authored
@@ -467,21 +468,13 @@ pub enum NativeCode {
 pub enum Physical {
     Unidentified(NativeCode),
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Modifiers {
-    pub shift: bool,
-    pub control: bool,
-    pub alt: bool,
-    pub logo: bool,
-    pub function: bool,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyState {
     pub key: Key,
     pub modified_key: Key,
     pub physical_key: Physical,
     pub location: Location,
-    pub modifiers: Modifiers,
+    pub modifiers: gpui::Modifiers,
 }
 
 #[cfg(test)]

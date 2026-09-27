@@ -1016,10 +1016,10 @@
             "y": 2.0
           },
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           },
           "click_count": 1,
@@ -1038,10 +1038,10 @@
             "y": 2.0
           },
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           },
           "click_count": 1
@@ -1058,10 +1058,10 @@
             "y": 4.0
           },
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           },
           "click_count": 2,
@@ -1079,10 +1079,10 @@
             "y": 4.0
           },
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           },
           "click_count": 1
@@ -1101,10 +1101,10 @@
             "y": 1.0
           },
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           }
         }
@@ -1121,10 +1121,10 @@
           },
           "pressed_button": "Left",
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           }
         }
@@ -1141,10 +1141,10 @@
           },
           "pressed_button": null,
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           }
         }
@@ -1166,10 +1166,10 @@
             }
           },
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           },
           "touch_phase": "Moved"
@@ -1187,10 +1187,10 @@
           },
           "delta": 1.1,
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           },
           "phase": "Started"
@@ -1216,10 +1216,10 @@
             },
             "location": "Standard",
             "modifiers": {
-              "shift": true,
               "control": false,
               "alt": false,
-              "logo": false,
+              "shift": true,
+              "platform": false,
               "function": false
             }
           },
@@ -1247,10 +1247,10 @@
             },
             "location": "Standard",
             "modifiers": {
-              "shift": true,
               "control": false,
               "alt": false,
-              "logo": false,
+              "shift": true,
+              "platform": false,
               "function": false
             }
           }
@@ -1262,10 +1262,10 @@
         "handler": 13,
         "event": {
           "modifiers": {
-            "shift": false,
             "control": false,
             "alt": false,
-            "logo": false,
+            "shift": false,
+            "platform": false,
             "function": false
           },
           "capslock": true
@@ -1419,10 +1419,10 @@
                   },
                   "location": "Standard",
                   "modifiers": {
-                    "shift": true,
                     "control": false,
                     "alt": false,
-                    "logo": false,
+                    "shift": true,
+                    "platform": false,
                     "function": false
                   }
                 },
