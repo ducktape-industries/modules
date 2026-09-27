@@ -170,6 +170,17 @@ pub struct EditorTransferId {
     pub attempt: u32,
 }
 
+impl EditorTransferId {
+    /// The target validates and names this id's document and reset.
+    fn check_target(&self, target: &EditorDocumentRef) -> Result<(), EditorTransferError> {
+        target.validate()?;
+        if self.document != target.document || self.reset != target.reset {
+            return Err(EditorTransferError::Identity);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditorTransfer {
     Begin {
@@ -262,10 +273,7 @@ impl EditorDocumentMessage {
             _ => None,
         };
         if let Some(target) = target {
-            target.validate()?;
-            if id.document != target.document || id.reset != target.reset {
-                return Err(EditorTransferError::Identity);
-            }
+            id.check_target(target)?;
         }
         Ok(())
     }
@@ -305,10 +313,7 @@ impl EditorTransferSender {
         id: EditorTransferId,
         target: EditorDocumentRef,
     ) -> Result<Self, EditorTransferError> {
-        target.validate()?;
-        if id.document != target.document || id.reset != target.reset {
-            return Err(EditorTransferError::Identity);
-        }
+        id.check_target(&target)?;
         Ok(Self {
             id,
             target,
@@ -439,10 +444,7 @@ impl EditorTransferReceiver {
         id: EditorTransferId,
         target: EditorDocumentRef,
     ) -> Result<Self, EditorTransferError> {
-        target.validate()?;
-        if id.document != target.document || id.reset != target.reset {
-            return Err(EditorTransferError::Identity);
-        }
+        id.check_target(&target)?;
         Ok(Self {
             id,
             target,
