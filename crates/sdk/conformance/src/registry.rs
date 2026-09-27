@@ -13,11 +13,6 @@ use crate::{ask, init, same_bytes};
 pub trait Fixture {
     type Module: Module<Query: BorshSerialize, Response: BorshDeserialize>;
 
-    /// A host before founding; the suite runs the module's init.
-    fn host(&self) -> MockHost {
-        MockHost::default()
-    }
-
     /// Stores `body` as code; its blob id.
     fn publish(&self, host: &MockHost, height: u64, body: &[u8]) -> Result<BlobId, Error>;
 
@@ -59,8 +54,8 @@ fn lens() -> View {
 }
 
 /// A host founded with programs `a` and `b` and the view `lens`.
-fn founded<F: Fixture>(fixture: &F) -> MockHost {
-    let host = fixture.host();
+fn founded<F: Fixture>() -> MockHost {
+    let host = MockHost::default();
     let genesis = Genesis {
         programs: vec![
             entry("b", BlobId::Sha256([2; 32])),
@@ -106,7 +101,7 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
 /// `At` answers every founding program as founded, and no view: views are
 /// listed apart.
 pub fn genesis_programs_run_and_views_are_apart<F: Fixture>(fixture: &F) {
-    let host = founded(fixture);
+    let host = founded::<F>();
     assert_eq!(
         at::<F>(&host, 1),
         [
@@ -125,7 +120,7 @@ pub fn genesis_programs_run_and_views_are_apart<F: Fixture>(fixture: &F) {
 /// Published code scheduled for a height runs from that height, not
 /// before: a new program is admitted, a running one's code swapped.
 pub fn a_set_lands_at_its_height_and_not_before<F: Fixture>(fixture: &F) {
-    let host = founded(fixture);
+    let host = founded::<F>();
     let code = fixture
         .publish(&host, 1, b"new code")
         .unwrap_or_else(|e| panic!("registry: publishing code: {e:?}"));
@@ -158,7 +153,7 @@ pub fn a_set_lands_at_its_height_and_not_before<F: Fixture>(fixture: &F) {
 /// A program scheduled to stop at a height runs until it, and not from it,
 /// even once the module has run past it.
 pub fn a_remove_drops_at_its_height<F: Fixture>(fixture: &F) {
-    let host = founded(fixture);
+    let host = founded::<F>();
     fixture
         .remove(&host, 1, 6, "b")
         .unwrap_or_else(|e| panic!("registry: scheduling b's removal at 6: {e:?}"));

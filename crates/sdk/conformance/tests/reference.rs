@@ -1,5 +1,4 @@
-// The suite run on the reference modules: each fixture below is what a
-// third-party module writes to prove it fills a role.
+// The suite run on the reference modules.
 
 use abi::role::registry::{Entry, View};
 use abi::role::validators::Member;
@@ -80,14 +79,14 @@ impl conformance::identity::Fixture for Identity {
     }
 
     /// A suspended agent holding `key`.
-    fn stopped(&self, host: &MockHost, key: &[u8]) -> Option<AccountNumber> {
-        let agent = self.managed(host, key)?;
+    fn stopped(&self, host: &MockHost, key: &[u8]) -> AccountNumber {
+        let agent = self.managed(host, key);
         Self::as_manager(host, agent, identity::Op::Suspend { account: agent });
-        Some(agent)
+        agent
     }
 
     /// A person keeps their last key: a spare joins, then `key` goes.
-    fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]) -> bool {
+    fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]) {
         let spare = [key, b"'s spare"].concat();
         Self::run(host, &spare, None, Self::add_key(key, account));
         let remove = identity::Op::RemoveKey {
@@ -95,11 +94,10 @@ impl conformance::identity::Fixture for Identity {
             key: key.to_vec(),
         };
         Self::run(host, key, Some(account), remove);
-        true
     }
 
     /// An active agent holding `key`.
-    fn managed(&self, host: &MockHost, key: &[u8]) -> Option<AccountNumber> {
+    fn managed(&self, host: &MockHost, key: &[u8]) -> AccountNumber {
         let manager_key = [key, b"'s manager"].concat();
         let manager = Self::person(host, &manager_key);
         let create = identity::Op::CreateAgent {
@@ -107,7 +105,7 @@ impl conformance::identity::Fixture for Identity {
         };
         let agent = Self::run(host, &manager_key, Some(manager), create);
         Self::as_manager(host, agent, Self::add_key(key, agent));
-        Some(agent)
+        agent
     }
 
     fn revoke(&self, host: &MockHost, account: AccountNumber) {

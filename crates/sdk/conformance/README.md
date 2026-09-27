@@ -28,14 +28,14 @@ impl conformance::identity::Fixture for Mine {
     fn host(&self) -> MockHost { MockHost::default() }
     /// `key` comes to hold a new account that acts.
     fn account(&self, host: &MockHost, key: &[u8]) -> AccountNumber { todo!() }
-    /// `key` comes to hold an account that does not act; `None` if yours always act.
-    fn stopped(&self, host: &MockHost, key: &[u8]) -> Option<AccountNumber> { None }
-    /// `account` (one `account` made) stops holding `key`; `false` if yours never drops keys.
-    fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]) -> bool { false }
-    /// `key` comes to hold an active managed account; `None` if yours has none.
-    fn managed(&self, host: &MockHost, key: &[u8]) -> Option<AccountNumber> { None }
-    /// `account` (one `managed` made) is revoked; unused while `managed` is `None`.
-    fn revoke(&self, host: &MockHost, account: AccountNumber) {}
+    /// `key` comes to hold an account that does not act.
+    fn stopped(&self, host: &MockHost, key: &[u8]) -> AccountNumber { todo!() }
+    /// `account` (one `account` made) stops holding `key`.
+    fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]) { todo!() }
+    /// `key` comes to hold an active managed account.
+    fn managed(&self, host: &MockHost, key: &[u8]) -> AccountNumber { todo!() }
+    /// `account` (one `managed` made) is revoked.
+    fn revoke(&self, host: &MockHost, account: AccountNumber) { todo!() }
 }
 
 #[test]
@@ -63,7 +63,7 @@ module's account): only the system's origin registers; `Account` of an unknown k
 acting account resolves to it (a person or an active managed account); a
 key whose account does not act is refused `unauthorized`, and its profile
 is managed and not active; a key dropped from its account (the fixture's
-`drop_key`, skipped when it answers `false`) resolves to `None`; a revoked managed account's keys (`managed`,
+`drop_key`) resolves to `None`; a revoked managed account's keys (`managed`,
 `revoke`) resolve to `None` or are refused, and its profile is `Revoked`;
 `Profile` past every account is `None`;
 `Profiles` ascends, holds at most `limit`, `next` is the last number of a

@@ -12,11 +12,6 @@ use crate::{ask, init, same_bytes};
 pub trait Fixture {
     type Module: Module<Query: BorshSerialize, Response: BorshDeserialize>;
 
-    /// A host before founding; the suite runs the module's init.
-    fn host(&self) -> MockHost {
-        MockHost::default()
-    }
-
     /// Seats `member` as a validator, by the module's own op.
     fn seat(&self, host: &MockHost, member: Member) -> Result<(), Error>;
 
@@ -43,8 +38,8 @@ fn member(n: u8) -> Member {
 }
 
 /// A host founded with validators 1 and 2.
-fn founded<F: Fixture>(fixture: &F) -> MockHost {
-    let host = fixture.host();
+fn founded<F: Fixture>() -> MockHost {
+    let host = MockHost::default();
     let genesis = Genesis {
         validators: vec![member(2), member(1)],
     };
@@ -95,8 +90,8 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
 
 /// Init with the role's genesis seats exactly its validators, each a
 /// member at its address.
-pub fn genesis_seats_the_given_set<F: Fixture>(fixture: &F) {
-    let host = founded(fixture);
+pub fn genesis_seats_the_given_set<F: Fixture>(_: &F) {
+    let host = founded::<F>();
     let (validators, members) = answers::<F>(&host);
     assert_eq!(
         validators,
@@ -114,7 +109,7 @@ pub fn genesis_seats_the_given_set<F: Fixture>(fixture: &F) {
 /// Seating and unseating through the module's update path change what
 /// Validators and Members answer.
 pub fn an_update_changes_the_answer<F: Fixture>(fixture: &F) {
-    let host = founded(fixture);
+    let host = founded::<F>();
     fixture
         .seat(&host, member(3))
         .unwrap_or_else(|e| panic!("validators: seating a validator: {e:?}"));

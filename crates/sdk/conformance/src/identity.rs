@@ -19,20 +19,17 @@ pub trait Fixture {
     fn account(&self, host: &MockHost, key: &[u8]) -> AccountNumber;
 
     /// `key` comes to hold a new account that does not act (a suspended
-    /// agent); its number. `None` for a module whose accounts always act:
-    /// that rule is skipped.
-    fn stopped(&self, host: &MockHost, key: &[u8]) -> Option<AccountNumber>;
+    /// agent); its number.
+    fn stopped(&self, host: &MockHost, key: &[u8]) -> AccountNumber;
 
     /// `account`, which `key` holds (an account [`Fixture::account`]
-    /// made), stops holding `key`; true once it has. The account may be
-    /// given another key first, if yours keeps a last one. `false` for a
-    /// module whose keys are never removed: that rule is skipped.
-    fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]) -> bool;
+    /// made), stops holding `key`. The account may be given another key
+    /// first, if yours keeps a last one.
+    fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]);
 
     /// `key` comes to hold a new managed account that acts (an active
-    /// agent); its number. `None` for a module with no managed accounts:
-    /// the revoke rule is skipped.
-    fn managed(&self, host: &MockHost, key: &[u8]) -> Option<AccountNumber>;
+    /// agent); its number.
+    fn managed(&self, host: &MockHost, key: &[u8]) -> AccountNumber;
 
     /// The managed `account` ([`Fixture::managed`]'s) is revoked, by its
     /// manager.
@@ -300,9 +297,7 @@ pub fn a_held_key_resolves_to_an_acting_account<F: Fixture>(fixture: &F) {
 /// rejects its frame; its profile says why.
 pub fn an_account_that_does_not_act_is_refused<F: Fixture>(fixture: &F) {
     let host = fixture.host();
-    let Some(number) = fixture.stopped(&host, b"stopped key") else {
-        return;
-    };
+    let number = fixture.stopped(&host, b"stopped key");
     let asked = Query::Account(b"stopped key".to_vec());
     match query::<F>(&host, asked) {
         Err(refused) => assert_eq!(
@@ -325,9 +320,7 @@ pub fn an_account_that_does_not_act_is_refused<F: Fixture>(fixture: &F) {
 pub fn a_dropped_key_holds_nothing<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     let number = fixture.account(&host, b"dropped key");
-    if !fixture.drop_key(&host, number, b"dropped key") {
-        return;
-    }
+    fixture.drop_key(&host, number, b"dropped key");
     assert_eq!(
         account_of::<F>(&host, Query::Account(b"dropped key".to_vec())),
         None,
@@ -340,9 +333,7 @@ pub fn a_dropped_key_holds_nothing<F: Fixture>(fixture: &F) {
 /// does not act), and its profile is `Revoked`.
 pub fn a_revoked_account_s_keys_stop_resolving<F: Fixture>(fixture: &F) {
     let host = fixture.host();
-    let Some(number) = fixture.managed(&host, b"agent key") else {
-        return;
-    };
+    let number = fixture.managed(&host, b"agent key");
     let asked = Query::Account(b"agent key".to_vec());
     assert_eq!(
         account_of::<F>(&host, asked.clone()),
