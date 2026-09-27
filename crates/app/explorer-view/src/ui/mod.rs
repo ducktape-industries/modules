@@ -8,6 +8,7 @@ use ducktape_view_guest::{Div, FontWeight, Stateful};
 use crate::decode::{ago, clip, date, grouped, plural, short};
 use crate::{BlockRow, Explorer, Note, Route, TxRow};
 use design::{empty_state, mono};
+use ducktape_view_guest::methods::{Outcome, Receipt};
 
 /// The most rows one list draws; the rest is reached by search.
 const LIST_ROWS: usize = 50;
@@ -28,6 +29,10 @@ const SIGNER_W: Pixels = px(180.);
 const HEIGHT_W: Pixels = px(72.);
 /// The age column: `59s`, `3h`.
 const AGE_W: Pixels = px(36.);
+/// A transaction row's outcome mark.
+const MARK: Pixels = px(6.);
+/// Each level a nested run steps in.
+const NEST_W: Pixels = px(20.);
 /// A transaction row's short hash.
 const HASH_W: Pixels = px(100.);
 /// A detail page's field labels.
@@ -394,37 +399,56 @@ fn tx_row(
     view.describe(tx, cx);
     // empty until the host answers: the program column already says whose
     let title = tx.op().map(|op| clip(&op.title)).unwrap_or_default();
-    row(
-        ElementId::Name(id),
-        title.clone(),
-        Route::Tx(tx.hash),
-        cx,
-        theme,
-    )
-    .child(mono(short(&tx.hash)).w(HASH_W).text_color(theme.muted))
-    .child(
+    let (label, mark) = match &tx.receipt {
+        Some(run) => {
+            let (word, color, _) = outcome(run, theme);
+            (format!("{title}, {word}"), Some(color))
+        }
+        None => (title.clone(), None),
+    };
+    let mark = div().size(MARK).flex_shrink_0().children(mark.map(|color| {
         div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .gap_2()
-            .overflow_hidden()
-            .child(
-                mono(tx.target.clone())
-                    .text_size(design::text::CAPTION)
-                    .text_color(theme.muted),
-            )
-            .child(div().truncate().child(title)),
-    )
-    .children(who.then(|| signer(view, &tx.signer, theme)))
-    .children(height.then(|| mono(grouped(tx.height)).text_color(theme.muted)))
-    .child(
-        mono(ago(now, tx.time))
-            .w(AGE_W)
-            .flex()
-            .justify_end()
-            .text_color(theme.faint),
-    )
+            .id(SharedString::from(format!(
+                "explorer-tx-mark-{}",
+                abi::hex(&tx.hash)
+            )))
+            .size_full()
+            .bg(color)
+    }));
+    row(ElementId::Name(id), label, Route::Tx(tx.hash), cx, theme)
+        .child(mark)
+        .child(mono(short(&tx.hash)).w(HASH_W).text_color(theme.muted))
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .gap_2()
+                .overflow_hidden()
+                .child(
+                    mono(tx.target.clone())
+                        .text_size(design::text::CAPTION)
+                        .text_color(theme.muted),
+                )
+                .child(div().truncate().child(title)),
+        )
+        .children(who.then(|| signer(view, &tx.signer, theme)))
+        .children(height.then(|| mono(grouped(tx.height)).text_color(theme.muted)))
+        .child(
+            mono(ago(now, tx.time))
+                .w(AGE_W)
+                .flex()
+                .justify_end()
+                .text_color(theme.faint),
+        )
+}
+
+/// A run's outcome in a word, its colour and its soft background.
+fn outcome(run: &Receipt, theme: &Theme) -> (&'static str, Hsla, Hsla) {
+    match run.outcome {
+        Outcome::Applied { .. } => ("Accepted", theme.success, theme.success_soft),
+        Outcome::Rejected(_) => ("Rejected", theme.danger, theme.danger_soft),
+    }
 }
 
 /// A label and its value, one row of a detail page.

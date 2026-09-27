@@ -1,6 +1,6 @@
 //! The recent window: the last [`WINDOW`] finalized blocks and the
 //! transactions they carry, folded in a page at a time.
-use ducktape_view_guest::methods::{Block, Description};
+use ducktape_view_guest::methods::{Block, Description, Receipt};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell};
@@ -31,6 +31,8 @@ pub struct TxRow {
     /// what the host answered for it (`Explorer::describe`), or its bytes
     pub(crate) op: OnceCell<Description>,
     pub(crate) asked: Cell<bool>,
+    /// how its run ended, where the node kept its receipt
+    pub receipt: Option<Receipt>,
 }
 
 impl TxRow {
@@ -56,6 +58,7 @@ struct StoredTx<'a> {
     target: Cow<'a, str>,
     op: Option<Description>,
     payload: Cow<'a, [u8]>,
+    receipt: Cow<'a, Option<Receipt>>,
 }
 
 impl Serialize for TxRow {
@@ -74,6 +77,7 @@ impl Serialize for TxRow {
             target: Cow::Borrowed(&self.target),
             op,
             payload: Cow::Borrowed(payload),
+            receipt: Cow::Borrowed(&self.receipt),
         }
         .serialize(s)
     }
@@ -92,6 +96,7 @@ impl<'de> Deserialize<'de> for TxRow {
             payload: stored.payload.into_owned(),
             op: stored.op.map(Into::into).unwrap_or_default(),
             asked: Default::default(),
+            receipt: stored.receipt.into_owned(),
         })
     }
 }
@@ -121,6 +126,7 @@ pub(crate) fn rows(block: Block) -> (BlockRow, Vec<TxRow>) {
             payload: tx.payload,
             op: Default::default(),
             asked: Default::default(),
+            receipt: tx.receipt,
         })
         .collect();
     (row, txs)
