@@ -154,7 +154,7 @@ pub enum Event {
         handler: u32,
         value: f32,
     },
-    /// A pick list chose the option at `index` in the node's `options`.
+    /// A rich text's clickable range (or a pick list's option) at `index`.
     Select {
         handler: u32,
         index: u32,
