@@ -316,7 +316,7 @@ fn hit_list(chat: &Chat, hits: &Hits, cx: &mut Context<Chat>, theme: &Theme) -> 
             .child(format!("{count} for “{}”", chat.search.query))
             .into_any_element(),
     ];
-    list.extend(hits.rows.iter().map(|row| hit(row, cx, theme)));
+    list.extend(hits.rows.iter().map(|row| hit(chat, row, cx, theme)));
     if hits.has_more {
         let more = cx.listener(|chat, _: &ClickEvent, _window, cx| {
             cx.notify();
@@ -328,7 +328,25 @@ fn hit_list(chat: &Chat, hits: &Hits, cx: &mut Context<Chat>, theme: &Theme) -> 
 }
 
 /// One hit: its text and where it sits, opening the room at it.
-fn hit(row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+    // where it sits: the room a person knows it by, and who wrote it
+    let names = chat.names.ready();
+    let room = match chat::dm_peers(&row.channel_id) {
+        Some(_) => chat
+            .my_account()
+            .and_then(|me| crate::names::dm_peer_of(me, &row.channel_id))
+            .zip(names)
+            .map(|(peer, names)| names.member(&chat::Principal::Account(peer))),
+        None => chat
+            .info(&row.channel_id)
+            .map(|info| format!("#{}", info.channel.name)),
+    };
+    let author = names.map(|names| names.member(&row.author));
+    let place = [room, author]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
     let id = row.channel_id.clone();
     let seq = row.seq;
     // seq is per channel: two channels' hits at one seq are two rows
@@ -357,7 +375,7 @@ fn hit(row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
             div()
                 .text_size(design::text::CAPTION)
                 .text_color(theme.muted)
-                .child(format!("message {}", row.seq)),
+                .child(place),
         )
         .into_any_element()
 }
