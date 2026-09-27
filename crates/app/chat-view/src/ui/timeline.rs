@@ -45,15 +45,24 @@ pub fn list(chat: &Chat, pane: Pane, cx: &mut Context<Chat>, theme: &Theme) -> i
             el.child(older)
         })
         .when(!messages.is_empty(), |el| {
-            el.child(rows(chat, pane, messages.clone(), cx, theme))
+            // the way back floats over the list's foot, taking no row of its own
+            el.child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .child(rows(chat, pane, messages.clone(), cx, theme))
+                    .when(timeline, |el| {
+                        el.when_some(jump_to_latest(chat, cx, theme), |el, jump| el.child(jump))
+                    }),
+            )
         })
         .when(
             timeline && chat.copy.is_some_and(|copy| copy.pane == pane),
             |el| el.child(selection_bar(chat, cx, theme)),
         )
-        .when(timeline && !messages.is_empty(), |el| {
-            el.when_some(jump_to_latest(chat, cx, theme), |el, jump| el.child(jump))
-        })
         .when_some(super::menu::editing(chat, pane, cx), |el, editing| {
             el.child(editing)
         })
@@ -225,17 +234,22 @@ fn jump_to_latest(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<
         cx.notify();
         chat.open(id.clone(), window, cx)
     });
+    // a strip across the list's foot that only centres the button: it has
+    // no handlers, so a click beside the button still reaches the row under it
     let jump = div()
         .id("chat-jump-latest")
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom_3()
         .flex()
         .justify_center()
-        .p_2()
-        .child(super::button(
+        .child(div().bg(theme.background).shadow_lg().child(super::button(
             "chat-jump-latest-button",
             "Jump to latest",
             theme,
             latest,
-        ));
+        )));
     Some(jump.into_any_element())
 }
 

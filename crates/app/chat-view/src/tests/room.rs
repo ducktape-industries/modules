@@ -424,3 +424,37 @@ fn a_landed_room_rereads_its_window() {
     cx.run_until_parked();
     assert!(cx.has_text("edited since"), "{:?}", cx.texts());
 }
+
+/// Off the live tail, "Jump to latest" floats over the list's foot: it
+/// takes no row of its own, so the list keeps its height, and it lets a
+/// click beside the button through to the row under it.
+#[test]
+fn jump_to_latest_floats_over_the_list() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        chat.room = Some(Room {
+            id: "general".into(),
+            messages: Loadable::Ready(vec![row(1, 7, "old"), row(2, 8, "older")]),
+            at_tail: false,
+            ..Room::default()
+        });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+        style,
+        interactivity,
+        ..
+    })) = cx.find("chat-jump-latest")
+    else {
+        panic!("jump to latest")
+    };
+    assert_eq!(
+        style.position,
+        ducktape_view_guest::StyleRefinement::default()
+            .absolute()
+            .position
+    );
+    assert!(!interactivity.occlude);
+    assert!(cx.find("chat-jump-latest-button").is_some());
+}
