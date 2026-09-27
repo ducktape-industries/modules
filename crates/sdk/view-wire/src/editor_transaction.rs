@@ -103,8 +103,6 @@ impl EditorKeyClaim {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorBinding {
-    /// An authored factory owns its routes; plain renderings inherit a document factory.
-    pub authored: bool,
     #[serde(deserialize_with = "decode_claims")]
     pub claims: Vec<EditorKeyClaim>,
     pub on_request: u32,
@@ -155,14 +153,7 @@ pub enum EditorHistoryEffect {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditorEditKind {
     Insert,
-    Paste,
-    ImeCommit,
-    Enter,
     Backspace,
-    Delete,
-    Indent,
-    Unindent,
-    Cut,
     Cursor,
     GuestPatch,
     Undo,
@@ -190,10 +181,6 @@ pub struct EditorResponse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditorFault {
     Overflow,
-    Timeout,
-    Conflicts,
-    InvalidResponse,
-    Limit,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -474,7 +461,6 @@ mod tests {
     #[test]
     fn decoder_rejects_excess_claims_and_responses() {
         let binding = EditorBinding {
-            authored: true,
             claims: vec![
                 EditorKeyClaim {
                     key: crate::keyboard::Key::Named(crate::keyboard::Named::Tab),

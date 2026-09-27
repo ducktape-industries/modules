@@ -243,12 +243,7 @@ fn restored_editor_presentation_keeps_mention_highlights_and_document_routes() {
         unreachable!()
     };
     assert_eq!(document.document, "c");
-    assert!(
-        options
-            .binding
-            .as_ref()
-            .is_some_and(|binding| binding.authored)
-    );
+    assert!(options.binding.is_some());
     let presentation = options.presentation.as_ref().expect("editor presentation");
     assert_eq!(presentation.formats.len(), 1);
     assert_eq!(presentation.spans.len(), 1);

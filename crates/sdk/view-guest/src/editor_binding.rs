@@ -69,7 +69,6 @@ type Decide = Rc<dyn for<'a> Fn(EditorKeyRequest<'a>) -> EditorDecision>;
 type Interact = Rc<dyn for<'a> Fn(EditorInteractionRequest<'a>) -> EditorDecision>;
 type Observe<P> = Rc<dyn for<'a> Fn(EditorTransactionEvent<'a>) -> Option<P>>;
 pub struct EditorBinding<P> {
-    authored: bool,
     claims: Vec<wire::EditorKeyClaim>,
     decide: Decide,
     interact: Option<Interact>,
@@ -91,7 +90,6 @@ impl<P: 'static> EditorBinding<P> {
             "editor claim limit"
         );
         Self {
-            authored: true,
             claims,
             decide: Rc::new(decide),
             interact: None,
@@ -150,7 +148,6 @@ impl<P: 'static> EditorBinding<P> {
             }),
         );
         wire::EditorBinding {
-            authored: self.authored,
             claims: self.claims,
             on_request,
             on_event,
@@ -159,13 +156,11 @@ impl<P: 'static> EditorBinding<P> {
 }
 impl EditorBinding<()> {
     pub fn plain() -> Self {
-        let mut binding = EditorBinding::new(
+        EditorBinding::new(
             Vec::new(),
             |_| EditorDecision::DefaultEditorAction,
             |_| None,
-        );
-        binding.authored = false;
-        binding
+        )
     }
 }
 #[derive(Clone, Debug)]
