@@ -78,7 +78,7 @@ pub(super) fn editor<V: 'static>(
     choices: &[MentionChoice],
     handle: Handle<V>,
     accent: gpui::Hsla,
-) -> EditorElement<Change, Callback<V>> {
+) -> EditorElement<Change, V> {
     let effect = move |event: Event<V>| {
         let handle = handle.clone();
         let event = std::cell::RefCell::new(Some(event));

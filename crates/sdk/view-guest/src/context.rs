@@ -7,7 +7,9 @@ use std::ops::Range;
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
-pub(crate) type Callback<V> = Rc<dyn Fn(&mut V, &mut Window, &mut Context<V>)>;
+/// A step to run on the view: an editor route or a composer outcome hands
+/// one back, and the driver runs it after the event.
+pub type Callback<V> = Rc<dyn Fn(&mut V, &mut Window, &mut Context<V>)>;
 
 pub(crate) type Globals = std::collections::HashMap<TypeId, Rc<dyn Any>>;
 

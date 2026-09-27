@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::rc::Rc;
 use view_guest::{
-    Context, Driver, Editor, EditorBinding, EditorElement, EditorElementEvent, ElementId, Render,
-    Styled, View, Window, wire,
+    Callback, Context, Driver, Editor, EditorBinding, EditorElement, ElementId, Render, Styled,
+    View, Window, wire,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -29,11 +30,7 @@ impl Render for EditorView {
             &self.editor,
             "app:draft",
             binding,
-            |event| match event {
-                EditorElementEvent::Document(_) => (),
-                EditorElementEvent::Observed(()) => (),
-                EditorElementEvent::Transaction(_) => (),
-            },
+            |_| -> Callback<Self> { Rc::new(|_, _, _| {}) },
         )
         .placeholder("Write a message")
         .label("Message")

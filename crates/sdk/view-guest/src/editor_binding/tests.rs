@@ -31,7 +31,7 @@ fn transaction(
         event: Transaction::Event(event),
         map,
         identity: context.identity(),
-        message: std::marker::PhantomData,
+        view: std::marker::PhantomData,
     }
 }
 fn commit(

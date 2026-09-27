@@ -81,7 +81,7 @@ mod view;
 pub use view::{Capabilities, Loadable, Render, View};
 pub use wire::methods;
 mod context;
-pub use context::{App, AsyncApp, Context, Entity, Released, WeakEntity};
+pub use context::{App, AsyncApp, Callback, Context, Entity, Released, WeakEntity};
 mod executor;
 pub use executor::Task;
 pub use host::Host;

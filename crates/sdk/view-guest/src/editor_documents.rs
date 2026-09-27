@@ -1,4 +1,5 @@
 //! Document delivery is routed through the generated mutable Editor binding.
+use crate::context::Callback;
 use crate::{Editor, slots, wire};
 use wire::editor_document::{EditorDocumentMessage, EditorDocumentRef, EditorTransferError};
 
@@ -58,16 +59,16 @@ impl EditorDocumentUpdate {
 impl Editor {
     /// Generated code calls this for every projection. The mirror stays owned
     /// by application state; routes and transfer progress retain only identity.
-    pub(crate) fn document<M: 'static>(
+    pub(crate) fn document<V: 'static>(
         &self,
         context: &slots::Context,
         document: String,
-        wrap: impl Fn(EditorDocumentUpdate) -> M + 'static,
+        wrap: impl Fn(EditorDocumentUpdate) -> Callback<V> + 'static,
     ) -> (EditorDocumentRef, u32) {
         let reference = self.document_reference(document.clone());
         slots::editor_document_frame(context, &reference, self.text_ref());
         let identity = context.identity();
-        let handler = slots::handler::<EditorDocumentMessage, M>(
+        let handler = slots::handler::<EditorDocumentMessage, Callback<V>>(
             context,
             Box::new(move |message| {
                 Some(wrap(EditorDocumentUpdate {
@@ -109,7 +110,7 @@ mod tests {
                 &self.editor,
                 "app:draft",
                 EditorBinding::plain(),
-                |event| -> crate::context::Callback<Self> {
+                |event| -> Callback<Self> {
                     match event {
                         EditorElementEvent::Document(update) => Rc::new(move |view, _, cx| {
                             update.clone().apply(&mut view.editor, cx);
@@ -133,7 +134,9 @@ mod tests {
         let context = slots::Context::default();
         let identity = context.identity();
         let editor = Editor::new("document");
-        editor.document(&context, "draft".into(), |update| update);
+        editor.document(&context, "draft".into(), |_| -> Callback<()> {
+            Rc::new(|_, _, _| {})
+        });
         assert!(identity.upgrade().is_some());
         drop(context);
         assert!(

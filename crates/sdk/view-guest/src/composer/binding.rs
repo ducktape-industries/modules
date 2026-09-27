@@ -24,7 +24,7 @@ pub struct Change {
 
 pub enum Event<V> {
     Document(EditorDocumentUpdate),
-    Transaction(EditorTransaction<Callback<V>>),
+    Transaction(EditorTransaction<V>),
     Committed(Change),
     Action(String),
 }

@@ -1,4 +1,5 @@
 //! Guest-local decisions borrow the canonical document owned by application state.
+use crate::context::Callback;
 use crate::{Editor, slots, wire};
 use std::rc::Rc;
 
@@ -74,10 +75,10 @@ pub struct EditorBinding<P> {
     interact: Option<Interact>,
     on_event: Observe<P>,
 }
-struct Callbacks<M> {
+struct Callbacks<V> {
     decide: Decide,
     interact: Option<Interact>,
-    on_event: Observe<M>,
+    on_event: Observe<Callback<V>>,
 }
 impl<P: 'static> EditorBinding<P> {
     pub fn new(
@@ -104,11 +105,11 @@ impl<P: 'static> EditorBinding<P> {
         self.interact = Some(Rc::new(decide));
         self
     }
-    pub(crate) fn register<M: 'static>(
+    pub(crate) fn register<V: 'static>(
         self,
         context: &slots::Context,
-        route: impl Fn(P) -> M + 'static,
-        wrap: impl Fn(EditorTransaction<M>) -> M + 'static,
+        route: impl Fn(P) -> Callback<V> + 'static,
+        wrap: impl Fn(EditorTransaction<V>) -> Callback<V> + 'static,
     ) -> wire::EditorBinding {
         let observe = self.on_event;
         let callbacks = Rc::new(Callbacks {
@@ -118,7 +119,7 @@ impl<P: 'static> EditorBinding<P> {
         });
         // Existing handler storage already supplies bounded frame-local lifetime
         // and memo capture. No second callback registry or copied document.
-        let map = slots::handler::<(), Rc<Callbacks<M>>>(
+        let map = slots::handler::<(), Rc<Callbacks<V>>>(
             context,
             Box::new(move |()| Some(callbacks.clone())),
         );
@@ -126,25 +127,25 @@ impl<P: 'static> EditorBinding<P> {
         let wrap = Rc::new(wrap);
         let request_wrap = wrap.clone();
         let request_identity = identity.clone();
-        let on_request = slots::handler::<wire::EditorRequest, M>(
+        let on_request = slots::handler::<wire::EditorRequest, Callback<V>>(
             context,
             Box::new(move |request| {
                 Some(request_wrap(EditorTransaction {
                     event: Transaction::Request(request),
                     map,
                     identity: request_identity.clone(),
-                    message: std::marker::PhantomData,
+                    view: std::marker::PhantomData,
                 }))
             }),
         );
-        let on_event = slots::handler::<wire::EditorTransactionEvent, M>(
+        let on_event = slots::handler::<wire::EditorTransactionEvent, Callback<V>>(
             context,
             Box::new(move |event| {
                 Some(wrap(EditorTransaction {
                     event: Transaction::Event(event),
                     map,
                     identity: identity.clone(),
-                    message: std::marker::PhantomData,
+                    view: std::marker::PhantomData,
                 }))
             }),
         );
@@ -172,41 +173,41 @@ enum Transaction {
     Request(wire::EditorRequest),
     Event(wire::EditorTransactionEvent),
 }
-pub struct EditorTransaction<M> {
+pub struct EditorTransaction<V> {
     event: Transaction,
     map: u32,
     identity: std::sync::Weak<()>,
-    message: std::marker::PhantomData<fn() -> M>,
+    view: std::marker::PhantomData<fn() -> V>,
 }
-impl<M> Clone for EditorTransaction<M> {
+impl<V> Clone for EditorTransaction<V> {
     fn clone(&self) -> Self {
         Self {
             event: self.event.clone(),
             map: self.map,
             identity: self.identity.clone(),
-            message: std::marker::PhantomData,
+            view: std::marker::PhantomData,
         }
     }
 }
-impl<M> std::fmt::Debug for EditorTransaction<M> {
+impl<V> std::fmt::Debug for EditorTransaction<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("EditorTransaction")
             .field(&self.event)
             .finish()
     }
 }
-impl<M: 'static> EditorTransaction<M> {
-    pub fn apply(self, editor: &mut Editor, cx: &mut crate::App) -> Option<M> {
+impl<V: 'static> EditorTransaction<V> {
+    pub fn apply(self, editor: &mut Editor, cx: &mut crate::App) -> Option<Callback<V>> {
         self.apply_in(editor, &cx.inner.slots)
     }
 
-    fn apply_in(self, editor: &mut Editor, context: &slots::Context) -> Option<M> {
+    fn apply_in(self, editor: &mut Editor, context: &slots::Context) -> Option<Callback<V>> {
         if !std::sync::Weak::ptr_eq(&self.identity, &context.identity())
             || self.identity.upgrade().is_none()
         {
             return None;
         }
-        let callbacks = slots::run_handler::<(), Rc<Callbacks<M>>>(context, self.map, ())?;
+        let callbacks = slots::run_handler::<(), Rc<Callbacks<V>>>(context, self.map, ())?;
         match self.event {
             Transaction::Request(request) => {
                 if !slots::editor_request_current(context, &request.id) {

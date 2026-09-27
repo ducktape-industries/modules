@@ -9,22 +9,22 @@ use gpui::{ElementId, StyleRefinement, Styled};
 use std::rc::Rc;
 
 /// A driver-routed event produced by an [`EditorElement`].
-pub enum EditorElementEvent<P, M> {
+pub enum EditorElementEvent<P, V> {
     Document(EditorDocumentUpdate),
     Observed(P),
-    Transaction(EditorTransaction<M>),
+    Transaction(EditorTransaction<V>),
 }
 
 /// A multiline host editor bound to guest-owned [`Editor`] state.
 ///
 /// GPUI core has no editor widget, so lowering emits the host primitive while
 /// preserving GPUI identity and style values.
-pub struct EditorElement<P, M> {
+pub struct EditorElement<P, V> {
     id: ElementId,
     editor: Editor,
     document: String,
     binding: EditorBinding<P>,
-    route: Rc<dyn Fn(EditorElementEvent<P, M>) -> M>,
+    route: Rc<dyn Fn(EditorElementEvent<P, V>) -> Callback<V>>,
     placeholder: String,
     label: Option<String>,
     editable: bool,
@@ -32,13 +32,13 @@ pub struct EditorElement<P, M> {
     presentation: Option<Box<wire::editor_presentation::EditorPresentation>>,
 }
 
-impl<P: 'static, M: 'static> EditorElement<P, M> {
+impl<P: 'static, V: 'static> EditorElement<P, V> {
     pub fn new(
         id: impl Into<ElementId>,
         editor: &Editor,
         document: impl Into<String>,
         binding: EditorBinding<P>,
-        route: impl Fn(EditorElementEvent<P, M>) -> M + 'static,
+        route: impl Fn(EditorElementEvent<P, V>) -> Callback<V> + 'static,
     ) -> Self {
         Self {
             id: id.into(),
@@ -75,7 +75,7 @@ impl<P: 'static, M: 'static> EditorElement<P, M> {
     }
 }
 
-impl<V: 'static> EditorElement<(), Callback<V>> {
+impl<V: 'static> EditorElement<(), V> {
     /// A plain multi-line field over one [`Editor`] the view owns: `field`
     /// finds it (`None` once the draft is gone), and every document update
     /// and transaction the host sends lands on it.
@@ -117,13 +117,13 @@ impl<V: 'static> EditorElement<(), Callback<V>> {
     }
 }
 
-impl<P, M> Styled for EditorElement<P, M> {
+impl<P, V> Styled for EditorElement<P, V> {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
     }
 }
 
-impl<P: 'static, M: 'static> Element for EditorElement<P, M> {
+impl<P: 'static, V: 'static> Element for EditorElement<P, V> {
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
     }
@@ -171,7 +171,7 @@ impl<P: 'static, M: 'static> Element for EditorElement<P, M> {
     }
 }
 
-impl<P: 'static, M: 'static> IntoElement for EditorElement<P, M> {
+impl<P: 'static, V: 'static> IntoElement for EditorElement<P, V> {
     type Element = Self;
 
     fn into_element(self) -> Self {
@@ -179,4 +179,4 @@ impl<P: 'static, M: 'static> IntoElement for EditorElement<P, M> {
     }
 }
 
-impl<P: 'static, M: 'static> gpui::prelude::FluentBuilder for EditorElement<P, M> {}
+impl<P: 'static, V: 'static> gpui::prelude::FluentBuilder for EditorElement<P, V> {}
