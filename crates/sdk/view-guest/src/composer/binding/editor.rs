@@ -183,17 +183,12 @@ pub(super) fn editor<V: 'static>(
         if !editable {
             return wire::EditorDecision::Noop;
         }
-        match request.action {
-            wire::editor_presentation::EditorInteraction::Action { tag } => {
-                interacting.decide(tag, &interaction_choices, request.state)
-            }
-            _ => wire::EditorDecision::Noop,
-        }
+        let wire::editor_presentation::EditorInteraction::Action { tag } = request.action;
+        interacting.decide(tag, &interaction_choices, request.state)
     });
     let mut presentation = wire::editor_presentation::EditorPresentation {
         formats: vec![wire::editor_presentation::EditorFormat {
             style: gpui::StyleRefinement::default().text_color(accent),
-            ..Default::default()
         }],
         ..Default::default()
     };
