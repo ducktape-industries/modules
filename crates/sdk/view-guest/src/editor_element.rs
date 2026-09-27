@@ -30,7 +30,6 @@ pub struct EditorElement<P, M> {
     editable: bool,
     style: StyleRefinement,
     presentation: Option<Box<wire::editor_presentation::EditorPresentation>>,
-    rich: Option<Box<wire::editor_rich::RichPresentation>>,
 }
 
 impl<P: 'static, M: 'static> EditorElement<P, M> {
@@ -52,7 +51,6 @@ impl<P: 'static, M: 'static> EditorElement<P, M> {
             editable: true,
             style: StyleRefinement::default(),
             presentation: None,
-            rich: None,
         }
     }
 
@@ -73,11 +71,6 @@ impl<P: 'static, M: 'static> EditorElement<P, M> {
 
     pub fn presentation(mut self, value: wire::editor_presentation::EditorPresentation) -> Self {
         self.presentation = Some(Box::new(value));
-        self
-    }
-
-    pub fn rich_presentation(mut self, value: wire::editor_rich::RichPresentation) -> Self {
-        self.rich = Some(Box::new(value));
         self
     }
 }
@@ -147,7 +140,6 @@ impl<P: 'static, M: 'static> Element for EditorElement<P, M> {
             editable,
             style,
             presentation,
-            rich,
         } = *self;
         let id = crate::element::wire_id(id);
         let context = &lowering.app().inner.slots;
@@ -164,7 +156,7 @@ impl<P: 'static, M: 'static> Element for EditorElement<P, M> {
         );
         wire::Node::Editor {
             options: Box::new(wire::EditorOptions {
-                rich,
+                rich: None,
                 binding: Some(Box::new(binding)),
                 presentation,
             }),

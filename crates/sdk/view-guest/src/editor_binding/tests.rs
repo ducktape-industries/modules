@@ -15,7 +15,6 @@ fn observer(context: &slots::Context, calls: Rc<Cell<usize>>) -> u32 {
     let callbacks = Rc::new(Callbacks::<()> {
         decide: Rc::new(|_| EditorDecision::Noop),
         interact: None,
-        rich: None,
         on_event: Rc::new(move |_| {
             calls.set(calls.get() + 1);
             None
@@ -66,7 +65,6 @@ fn a_large_caret_commit_borrows_one_canonical_text_for_both_history_views() {
     let callbacks = Rc::new(Callbacks::<()> {
         decide: Rc::new(|_| EditorDecision::Noop),
         interact: None,
-        rich: None,
         on_event: Rc::new(move |event| {
             let EditorTransactionEvent::Commit { before, after, .. } = event else {
                 panic!("expected caret commit");
