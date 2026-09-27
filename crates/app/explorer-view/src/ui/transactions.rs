@@ -100,7 +100,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
             theme,
         ))
         .children(
-            tx.run
+            tx.receipt
                 .as_ref()
                 .map(|run| field("Status", status(run, "explorer-tx", theme), theme)),
         )
@@ -130,15 +130,19 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
                 .child("Operation"),
         )
         .child(operation(view, tx, cx, theme))
-        .children(tx.run.as_ref().and_then(|run| messages(run, theme)))
+        .children(tx.receipt.as_ref().and_then(|run| messages(run, theme)))
         .into_any_element()
 }
 
 /// A run's outcome as a badge and, where it was rejected, the refusal's
 /// sentence and reason. `id` keeps the badge's id its own.
-fn status(run: &Run, id: &str, theme: &Theme) -> Div {
+fn status(run: &Receipt, id: &str, theme: &Theme) -> Div {
     let (word, color, soft) = outcome(run, theme);
-    let refusal = run.refusal.as_ref().map(|refusal| {
+    let refusal = match &run.outcome {
+        Outcome::Applied { .. } => None,
+        Outcome::Rejected(refusal) => Some(refusal),
+    };
+    let refusal = refusal.map(|refusal| {
         div()
             .flex()
             .gap_2()
@@ -157,7 +161,7 @@ fn status(run: &Run, id: &str, theme: &Theme) -> Div {
 
 /// The runs a transaction's messages caused, each under the run that sent
 /// it; `None` where it sent none.
-fn messages(run: &Run, theme: &Theme) -> Option<impl IntoElement> {
+fn messages(run: &Receipt, theme: &Theme) -> Option<impl IntoElement> {
     if run.nested.is_empty() {
         return None;
     }
@@ -181,7 +185,7 @@ fn messages(run: &Run, theme: &Theme) -> Option<impl IntoElement> {
 }
 
 /// `runs` and theirs below them, one row each, stepped in by `depth`.
-fn nested(runs: &[Run], depth: usize, at: &str, theme: &Theme, rows: &mut Vec<AnyElement>) {
+fn nested(runs: &[Receipt], depth: usize, at: &str, theme: &Theme, rows: &mut Vec<AnyElement>) {
     for (index, run) in runs.iter().enumerate() {
         let id = format!("{at}-{index}");
         rows.push(

@@ -6,8 +6,9 @@ use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::decode::{ago, clip, date, grouped, plural, short};
-use crate::{BlockRow, Explorer, Note, Route, Run, TxRow};
+use crate::{BlockRow, Explorer, Note, Route, TxRow};
 use design::{empty_state, mono};
+use ducktape_view_guest::methods::{Outcome, Receipt};
 
 /// The most rows one list draws; the rest is reached by search.
 const LIST_ROWS: usize = 50;
@@ -398,7 +399,7 @@ fn tx_row(
     view.describe(tx, cx);
     // empty until the host answers: the program column already says whose
     let title = tx.op().map(|op| clip(&op.title)).unwrap_or_default();
-    let (label, mark) = match &tx.run {
+    let (label, mark) = match &tx.receipt {
         Some(run) => {
             let (word, color, _) = outcome(run, theme);
             (format!("{title}, {word}"), Some(color))
@@ -443,10 +444,10 @@ fn tx_row(
 }
 
 /// A run's outcome in a word, its colour and its soft background.
-fn outcome(run: &Run, theme: &Theme) -> (&'static str, Hsla, Hsla) {
-    match run.refusal {
-        None => ("Accepted", theme.success, theme.success_soft),
-        Some(_) => ("Rejected", theme.danger, theme.danger_soft),
+fn outcome(run: &Receipt, theme: &Theme) -> (&'static str, Hsla, Hsla) {
+    match run.outcome {
+        Outcome::Applied { .. } => ("Accepted", theme.success, theme.success_soft),
+        Outcome::Rejected(_) => ("Rejected", theme.danger, theme.danger_soft),
     }
 }
 
