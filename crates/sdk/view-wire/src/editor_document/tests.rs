@@ -51,14 +51,9 @@ fn document_messages_reject_cross_document_targets_and_unbounded_chunks() {
 #[test]
 fn repeated_bindings_charge_one_document_but_each_native_projection() {
     let (_, reference) = metadata(MAX_EDITOR_DOCUMENT_BYTES);
-    let usage = validate_editor_document_refs(std::iter::repeat_n(&reference, 8)).unwrap();
     assert_eq!(
-        usage,
-        EditorDocumentUsage {
-            documents: 1,
-            live_bytes: MAX_EDITOR_DOCUMENT_BYTES,
-            projection_bytes: MAX_EDITOR_PROJECTION_BYTES,
-        }
+        validate_editor_document_refs(std::iter::repeat_n(&reference, 8)),
+        Ok(())
     );
     assert_eq!(
         validate_editor_document_refs(std::iter::repeat_n(&reference, 9)),
@@ -82,10 +77,8 @@ fn independent_documents_have_separate_count_and_live_byte_limits() {
         })
         .collect();
     assert_eq!(
-        validate_editor_document_refs(&documents[..MAX_EDITOR_DOCUMENTS])
-            .unwrap()
-            .documents,
-        MAX_EDITOR_DOCUMENTS
+        validate_editor_document_refs(&documents[..MAX_EDITOR_DOCUMENTS]),
+        Ok(())
     );
     assert_eq!(
         validate_editor_document_refs(&documents),
@@ -95,12 +88,7 @@ fn independent_documents_have_separate_count_and_live_byte_limits() {
     for reference in &mut full {
         reference.byte_len = MAX_EDITOR_DOCUMENT_BYTES as u32;
     }
-    assert_eq!(
-        validate_editor_document_refs(&full[..4])
-            .unwrap()
-            .live_bytes,
-        MAX_EDITOR_LIVE_BYTES
-    );
+    assert_eq!(validate_editor_document_refs(&full[..4]), Ok(()));
     assert_eq!(
         validate_editor_document_refs(&full),
         Err(EditorTransferError::Limit)

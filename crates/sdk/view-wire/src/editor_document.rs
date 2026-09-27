@@ -15,25 +15,18 @@ pub const MAX_EDITOR_DOCUMENTS: usize = 16;
 pub const MAX_EDITOR_LIVE_BYTES: usize = 4 * MAX_EDITOR_DOCUMENT_BYTES;
 pub const MAX_EDITOR_PROJECTION_BYTES: usize = 8 * MAX_EDITOR_DOCUMENT_BYTES;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct EditorDocumentUsage {
-    pub documents: usize,
-    pub live_bytes: usize,
-    pub projection_bytes: usize,
-}
-
 /// Validate all references before allocating projections or changing a live
 /// document. Repeated bindings must describe exactly the same logical state.
 pub fn validate_editor_document_refs<'a>(
     references: impl IntoIterator<Item = &'a EditorDocumentRef>,
-) -> Result<EditorDocumentUsage, EditorTransferError> {
+) -> Result<(), EditorTransferError> {
     let mut documents = HashMap::new();
-    let mut usage = EditorDocumentUsage::default();
+    let mut projection_bytes = 0usize;
+    let mut live_bytes = 0usize;
     for reference in references {
         reference.validate()?;
         let bytes = reference.byte_len as usize;
-        usage.projection_bytes = usage
-            .projection_bytes
+        projection_bytes = projection_bytes
             .checked_add(bytes)
             .filter(|total| *total <= MAX_EDITOR_PROJECTION_BYTES)
             .ok_or(EditorTransferError::Limit)?;
@@ -44,8 +37,7 @@ pub fn validate_editor_document_refs<'a>(
                 if documents.len() == MAX_EDITOR_DOCUMENTS {
                     return Err(EditorTransferError::Limit);
                 }
-                usage.live_bytes = usage
-                    .live_bytes
+                live_bytes = live_bytes
                     .checked_add(bytes)
                     .filter(|total| *total <= MAX_EDITOR_LIVE_BYTES)
                     .ok_or(EditorTransferError::Limit)?;
@@ -53,8 +45,7 @@ pub fn validate_editor_document_refs<'a>(
             }
         }
     }
-    usage.documents = documents.len();
-    Ok(usage)
+    Ok(())
 }
 
 pub(crate) fn native_editor_boundary(text: &str, at: usize) -> bool {
@@ -380,17 +371,17 @@ impl EditorTransferSender {
     }
 }
 
-/// One bounded byte buffer, also usable by application-owned document loading.
-/// No partial string can be observed. UTF-8 may cross any raw chunk boundary.
+/// One bounded byte buffer. No partial string can be observed. UTF-8 may
+/// cross any raw chunk boundary.
 #[derive(Debug)]
-pub struct EditorChunkAssembler {
+struct EditorChunkAssembler {
     expected: usize,
     next: usize,
     bytes: Vec<u8>,
 }
 
 impl EditorChunkAssembler {
-    pub fn new(byte_len: usize) -> Result<Self, EditorTransferError> {
+    fn new(byte_len: usize) -> Result<Self, EditorTransferError> {
         if byte_len > MAX_EDITOR_DOCUMENT_BYTES {
             return Err(EditorTransferError::Limit);
         }
@@ -401,7 +392,7 @@ impl EditorChunkAssembler {
         })
     }
 
-    pub fn push(&mut self, index: u8, bytes: &[u8]) -> Result<(), EditorTransferError> {
+    fn push(&mut self, index: u8, bytes: &[u8]) -> Result<(), EditorTransferError> {
         if usize::from(index) != self.next || self.bytes.len() == self.expected {
             return Err(EditorTransferError::Order);
         }
@@ -414,11 +405,12 @@ impl EditorChunkAssembler {
         Ok(())
     }
 
-    pub fn buffered_bytes(&self) -> usize {
+    #[cfg(test)]
+    fn buffered_bytes(&self) -> usize {
         self.bytes.len()
     }
 
-    pub fn finish(self) -> Result<String, EditorTransferError> {
+    fn finish(self) -> Result<String, EditorTransferError> {
         if self.bytes.len() != self.expected
             || self.next != self.expected.div_ceil(MAX_EDITOR_CHUNK_BYTES)
         {
@@ -453,7 +445,8 @@ impl EditorTransferReceiver {
         })
     }
 
-    pub fn buffered_bytes(&self) -> usize {
+    #[cfg(test)]
+    fn buffered_bytes(&self) -> usize {
         self.assembler
             .as_ref()
             .map_or(0, EditorChunkAssembler::buffered_bytes)
