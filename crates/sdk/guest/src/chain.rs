@@ -11,7 +11,9 @@
 //! `None`), committed reads (they read the same map as a plain read), the
 //! signer's sequence number (a submission is never out of sequence), and
 //! the query stack's cycle check (a module asking itself, through others,
-//! is refused as unknown rather than as a cycle).
+//! is refused as unknown rather than as a cycle), and receipts (a
+//! submission is its output or its refusal; what ran nested is read off
+//! the hosts).
 
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::BTreeMap;
@@ -180,7 +182,7 @@ impl MockChain {
         self.roster.borrow()
     }
 
-    pub fn roster_mut(&self) -> RefMut<'_, Roster> {
+    fn roster_mut(&self) -> RefMut<'_, Roster> {
         self.roster.borrow_mut()
     }
 
