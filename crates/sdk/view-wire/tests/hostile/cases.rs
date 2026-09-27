@@ -18,7 +18,11 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
     for i in 0..NUM_TREES {
         let seed = SEED ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let ctx = format!("seed={seed:#x} tree={i}");
-        let (frame, bytes) = build_and_encode(seed, i);
+        let (frame, bytes) = on_big_stack(move || {
+            let frame = gen_frame(&mut Rng::new(seed), i);
+            let bytes = encode(&frame);
+            (frame, bytes)
+        });
 
         match decode::<Frame>(&bytes) {
             Err(message) => {
@@ -142,7 +146,7 @@ fn mutated_bytes_never_panic() {
 
     for i in 0..NUM_FRAMES {
         let seed = SEED ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        let (_frame, bytes) = build_and_encode_bounded(seed);
+        let bytes = on_big_stack(move || encode(&gen_frame_bounded(&mut Rng::new(seed))));
         let mut mutator = Rng::new(seed ^ 0xF00D);
 
         for m in 0..MUTATIONS_PER_FRAME {
@@ -403,7 +407,7 @@ fn sanitize_is_idempotent() {
     for i in 0..NUM_TREES {
         let seed = SEED ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let ctx = format!("seed={seed:#x} tree={i}");
-        let mut once = build_frame(seed, i);
+        let mut once = on_big_stack(move || gen_frame(&mut Rng::new(seed), i));
         if sanitize(&mut once).is_err() {
             continue;
         }

@@ -319,28 +319,3 @@ pub(super) fn on_big_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'st
         Err(payload) => std::panic::resume_unwind(payload),
     }
 }
-
-pub(super) fn build_frame(seed: u64, i: usize) -> Frame {
-    on_big_stack(move || {
-        let mut rng = Rng::new(seed);
-        gen_frame(&mut rng, i)
-    })
-}
-
-pub(super) fn build_and_encode(seed: u64, i: usize) -> (Frame, Vec<u8>) {
-    on_big_stack(move || {
-        let mut rng = Rng::new(seed);
-        let frame = gen_frame(&mut rng, i);
-        let bytes = encode(&frame);
-        (frame, bytes)
-    })
-}
-
-pub(super) fn build_and_encode_bounded(seed: u64) -> (Frame, Vec<u8>) {
-    on_big_stack(move || {
-        let mut rng = Rng::new(seed);
-        let frame = gen_frame_bounded(&mut rng);
-        let bytes = encode(&frame);
-        (frame, bytes)
-    })
-}
