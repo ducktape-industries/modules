@@ -186,6 +186,24 @@ mod tests {
     }
 
     #[test]
+    fn a_mirror_installs_at_the_hosts_revisions_and_never_across_a_reset() {
+        let mut editor = Editor::new("a");
+        let mut target = editor.document_reference("app:draft".into());
+        target.revision = 2;
+        target.text_revision = 1;
+        target.byte_len = 2;
+        target.cursor = caret(2);
+        assert!(!editor.install_mirror("abc".into(), &target));
+        assert!(editor.install_mirror("ab".into(), &target));
+        assert_eq!(editor.text(), "ab");
+        assert_eq!(editor.cursor(), caret(2));
+        let installed = editor.document_reference("app:draft".into());
+        assert_eq!((installed.revision, installed.text_revision), (2, 1));
+        target.reset += 1;
+        assert!(!editor.install_mirror("ab".into(), &target));
+    }
+
+    #[test]
     fn frame_snapshot_shares_immutable_text_and_detaches_before_mutation() {
         let mut editor = Editor::new("before");
         let frame = editor.clone();
