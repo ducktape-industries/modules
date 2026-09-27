@@ -229,8 +229,8 @@ pub(super) fn editor<V: 'static>(
     .w_full()
     .min_h(px(40.))
     .max_h(px(200.))
-    .p(px(super::TEXT_INSET))
-    .text_size(px(design::type_scale::BODY as f32))
+    .p(crate::design::space::MD)
+    .text_size(crate::design::text::BODY)
     .whitespace_normal()
     .presentation(presentation);
     if !placeholder.is_empty() {

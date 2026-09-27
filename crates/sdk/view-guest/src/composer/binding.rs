@@ -84,9 +84,6 @@ impl Draft {
     }
 }
 
-const TEXT_INSET: f32 = design::spacing::MD as f32;
-const CONTROL_INSET: f32 = design::spacing::XXS as f32;
-
 /// Dresses a mark's sign as what it does: bold, italic, code, quote.
 type Face = fn(crate::Div) -> crate::Div;
 
@@ -111,8 +108,8 @@ impl RenderOnce for Mark {
             .flex()
             .items_center()
             .justify_center()
-            .size(px(design::height::CONTROL as f32))
-            .text_size(px(design::type_scale::BODY as f32))
+            .size(crate::design::size::CONTROL)
+            .text_size(crate::design::text::BODY)
             .text_color(theme.muted)
             .child(sign);
         if let Some(on_click) = self.on_click {
@@ -149,13 +146,13 @@ impl RenderOnce for ActionButton {
             .flex()
             .items_center()
             .justify_center()
-            .h(px(design::height::CONTROL as f32))
+            .h(crate::design::size::CONTROL)
             .px_2()
             .border_1()
             .border_color(border)
             .bg(background)
             .text_color(foreground)
-            .text_size(px(design::type_scale::SECONDARY as f32))
+            .text_size(crate::design::text::SECONDARY)
             .child(self.label);
         if let Some(on_click) = self.on_click {
             button = button.on_click(on_click);
@@ -183,7 +180,7 @@ impl RenderOnce for MentionItem {
             .w_full()
             .flex()
             .items_center()
-            .min_h(px(design::height::ROW as f32))
+            .min_h(crate::design::size::ROW)
             .px_2()
             .bg(if self.selected {
                 theme.accent_soft
@@ -195,7 +192,7 @@ impl RenderOnce for MentionItem {
             } else {
                 theme.foreground
             })
-            .text_size(px(design::type_scale::BODY as f32))
+            .text_size(crate::design::text::BODY)
             .child(self.label);
         if let Some(on_click) = self.on_click {
             row = row.on_click(on_click);
@@ -280,7 +277,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
     if !draft.note.is_empty() {
         rows.push(
             div()
-                .mx(px(TEXT_INSET))
+                .mx(crate::design::space::MD)
                 .text_sm()
                 .text_color(cx.global::<Theme>().danger)
                 .child(draft.note.clone())
@@ -290,7 +287,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
     if draft.failed_send.is_some() {
         rows.push(
             div()
-                .mx(px(TEXT_INSET))
+                .mx(crate::design::space::MD)
                 .flex()
                 .items_center()
                 .gap_2()
@@ -309,7 +306,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
     }
 
     let mut toolbar = div()
-        .mx(px(CONTROL_INSET))
+        .mx(crate::design::space::XXS)
         .flex()
         .items_center()
         .gap(px(2.));
@@ -359,7 +356,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
         .border_1()
         .border_color(cx.global::<Theme>().border)
         .bg(cx.global::<Theme>().background)
-        .pb(px(CONTROL_INSET))
+        .pb(crate::design::space::XXS)
         .children(rows)
 }
 
