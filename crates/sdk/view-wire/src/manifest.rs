@@ -25,29 +25,13 @@ impl PreferredSize {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
     pub wire_epoch: u32,
-    /// the [`crate::methods::METHODS_REVISION`] the view was built against; 0
-    /// from a v1 manifest, which predates it
+    /// the [`crate::methods::METHODS_REVISION`] the view was built against
     pub methods: u32,
     pub name: String,
     pub description: String,
     pub capabilities: Vec<Capability>,
     pub preferred_size: Option<PreferredSize>,
 }
-
-/// A valid manifest requests a payload protocol this host does not implement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProtocolMismatch {
-    pub guest: u32,
-    pub host: u32,
-}
-
-impl std::fmt::Display for ProtocolMismatch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "wire epoch guest {}, host {}", self.guest, self.host)
-    }
-}
-
-impl std::error::Error for ProtocolMismatch {}
 
 /// What a manifest may say about itself. The catalog is read before anything
 /// is installed, and the store shapes every field of every entry on every
@@ -88,20 +72,17 @@ pub fn read_manifest(bytes: &[u8]) -> Option<Manifest> {
 }
 
 impl Manifest {
-    /// Parses the strict six-line `ducktape.view.manifest.v1` text, or the
-    /// seven-line `v2` that adds the methods revision, and its bounds. A
-    /// capability this host does not know refuses the whole manifest: a
-    /// grant is never silently narrowed.
+    /// Parses the strict seven-line `ducktape.view.manifest.v2` text and its
+    /// bounds. A capability this host does not know refuses the whole
+    /// manifest: a grant is never silently narrowed.
     pub fn parse(text: &str) -> Option<Self> {
         if text.len() > 1024 || text.chars().any(|c| c.is_control() && c != '\n') {
             return None;
         }
         let mut lines = text.split('\n');
-        let v2 = match lines.next()? {
-            "ducktape.view.manifest.v1" => false,
-            "ducktape.view.manifest.v2" => true,
-            _ => return None,
-        };
+        if lines.next()? != "ducktape.view.manifest.v2" {
+            return None;
+        }
         let name = lines.next()?.to_owned();
         let description = lines.next()?.to_owned();
         let caps = lines.next()?;
@@ -124,7 +105,7 @@ impl Manifest {
             }
         };
         let wire_epoch = canonical(lines.next()?)?;
-        let methods = if v2 { canonical(lines.next()?)? } else { 0 };
+        let methods = canonical(lines.next()?)?;
         if lines.next().is_some() {
             return None;
         }
@@ -137,23 +118,6 @@ impl Manifest {
             preferred_size,
         };
         manifest.within_bounds().then_some(manifest)
-    }
-
-    /// Reject a different payload protocol before executing or restoring a guest.
-    pub fn check_wire_protocol(&self) -> Result<(), ProtocolMismatch> {
-        if self.wire_epoch == crate::WIRE_EPOCH {
-            Ok(())
-        } else {
-            Err(ProtocolMismatch {
-                guest: self.wire_epoch,
-                host: crate::WIRE_EPOCH,
-            })
-        }
-    }
-
-    /// Whether the view was built against methods this host does not have.
-    pub fn needs_newer_methods(&self) -> bool {
-        self.methods > crate::methods::METHODS_REVISION
     }
 
     fn within_bounds(&self) -> bool {
@@ -175,7 +139,7 @@ mod tests {
     use super::*;
     #[test]
     fn manifest_requires_an_explicit_canonical_wire_epoch() {
-        let current = "ducktape.view.manifest.v1\nSized\nDescription\nclock,\nnone\n1";
+        let current = "ducktape.view.manifest.v2\nSized\nDescription\nclock,\nnone\n1\n1";
         assert!(
             Manifest::parse(current).is_some(),
             "current epoch manifest rejected"
@@ -187,43 +151,15 @@ mod tests {
         for epoch in ["", "0", "01", "+1", "-1", " 1", "1 ", "4294967296"] {
             assert!(
                 Manifest::parse(&format!(
-                    "ducktape.view.manifest.v1\nSized\n\n\nnone\n{epoch}"
+                    "ducktape.view.manifest.v2\nSized\n\n\nnone\n{epoch}\n1"
                 ))
                 .is_none(),
                 "accepted {epoch:?}"
             );
         }
         assert!(
-            Manifest::parse("ducktape.view.manifest.v1\nSized\n\n\nnone\n2").is_some(),
+            Manifest::parse("ducktape.view.manifest.v2\nSized\n\n\nnone\n2\n1").is_some(),
             "unsupported is distinct from malformed"
-        );
-    }
-
-    #[test]
-    fn wire_protocol_mismatch_reports_both_epochs() {
-        let current = Manifest::parse(&format!(
-            "ducktape.view.manifest.v1\nApp\n\n\nnone\n{}",
-            crate::WIRE_EPOCH
-        ))
-        .unwrap();
-        assert_eq!(current.check_wire_protocol(), Ok(()));
-        let mut other = current;
-        other.wire_epoch = crate::WIRE_EPOCH + 1;
-        let mismatch = other.check_wire_protocol().unwrap_err();
-        assert_eq!(
-            mismatch,
-            ProtocolMismatch {
-                guest: crate::WIRE_EPOCH + 1,
-                host: crate::WIRE_EPOCH
-            }
-        );
-        assert_eq!(
-            mismatch.to_string(),
-            format!(
-                "wire epoch guest {}, host {}",
-                crate::WIRE_EPOCH + 1,
-                crate::WIRE_EPOCH
-            )
         );
     }
 
@@ -231,7 +167,7 @@ mod tests {
     #[test]
     fn extraction_rejects_duplicate_and_truncated_sections() {
         let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-        let text = b"ducktape.view.manifest.v1\nSized\n\n\n640.5,480.25\n1";
+        let text = b"ducktape.view.manifest.v2\nSized\n\n\n640.5,480.25\n1\n1";
         let mut section = vec![
             0,
             (1 + MANIFEST_SECTION.len() + text.len()) as u8,
@@ -269,23 +205,25 @@ mod tests {
     // finite positive bounded preferred size. Dropping those guards is Red.
     #[test]
     fn manifest_format_and_preferred_size_are_strict() {
-        let good = "ducktape.view.manifest.v1\nSized\nDescription\nclock,store,\n640.5,480.25\n1";
+        let good =
+            "ducktape.view.manifest.v2\nSized\nDescription\nclock,store,\n640.5,480.25\n1\n1";
         let parsed = Manifest::parse(good).unwrap();
         assert_eq!(parsed.preferred_size.unwrap().dimensions(), [640.5, 480.25]);
         assert_eq!(parsed.capabilities, [Capability::Clock, Capability::Store]);
         assert!(
-            Manifest::parse("ducktape.view.manifest.v1\nDefault\n\n\nnone\n1")
+            Manifest::parse("ducktape.view.manifest.v2\nDefault\n\n\nnone\n1\n1")
                 .unwrap()
                 .preferred_size
                 .is_none()
         );
         for invalid in [
-            "Sized\nDescription\nclock,", // no legacy format
-            "ducktape.view.manifest.v1\nSized\nDescription\n\nnone",
-            "ducktape.view.manifest.v1\nSized\nDescription\n\nnone\nextra\n1",
-            "ducktape.view.manifest.v1\nSized\nDescription\nclock\nnone\n1",
-            "ducktape.view.manifest.v1\nSized\nDescription\nclock,,\nnone\n1",
-            "ducktape.view.manifest.v1\nSized\nDescription\nclock,storage,\nnone\n1",
+            "Sized\nDescription\nclock,", // no header
+            "ducktape.view.manifest.v1\nSized\nDescription\nclock,\nnone\n1", // no older format
+            "ducktape.view.manifest.v2\nSized\nDescription\n\nnone",
+            "ducktape.view.manifest.v2\nSized\nDescription\n\nnone\n1\n1\nextra",
+            "ducktape.view.manifest.v2\nSized\nDescription\nclock\nnone\n1\n1",
+            "ducktape.view.manifest.v2\nSized\nDescription\nclock,,\nnone\n1\n1",
+            "ducktape.view.manifest.v2\nSized\nDescription\nclock,storage,\nnone\n1\n1",
         ] {
             assert!(
                 Manifest::parse(invalid).is_none(),
@@ -307,7 +245,7 @@ mod tests {
         ] {
             assert!(
                 Manifest::parse(&format!(
-                    "ducktape.view.manifest.v1\nSized\nDescription\n\n{invalid}\n1"
+                    "ducktape.view.manifest.v2\nSized\nDescription\n\n{invalid}\n1\n1"
                 ))
                 .is_none(),
                 "accepted {invalid}"
@@ -327,24 +265,15 @@ mod tests {
     }
 
     #[test]
-    fn a_v2_manifest_names_its_methods_and_a_v1_one_none() {
-        let v2 = Manifest::parse("ducktape.view.manifest.v2\nApp\n\n\nnone\n2\n7").unwrap();
-        assert_eq!((v2.wire_epoch, v2.methods), (2, 7));
-        assert!(!v2.needs_newer_methods());
-        let v1 = Manifest::parse("ducktape.view.manifest.v1\nApp\n\n\nnone\n2").unwrap();
-        assert_eq!(v1.methods, 0);
+    fn a_manifest_names_its_methods_revision_canonically() {
+        let manifest = Manifest::parse("ducktape.view.manifest.v2\nApp\n\n\nnone\n2\n7").unwrap();
+        assert_eq!((manifest.wire_epoch, manifest.methods), (2, 7));
         for invalid in [
             "ducktape.view.manifest.v2\nApp\n\n\nnone\n2",
             "ducktape.view.manifest.v2\nApp\n\n\nnone\n2\n0",
             "ducktape.view.manifest.v2\nApp\n\n\nnone\n2\n07",
-            "ducktape.view.manifest.v1\nApp\n\n\nnone\n2\n7",
         ] {
             assert!(Manifest::parse(invalid).is_none(), "accepted {invalid:?}");
         }
-        let ahead = format!(
-            "ducktape.view.manifest.v2\nApp\n\n\nnone\n2\n{}",
-            crate::methods::METHODS_REVISION + 1
-        );
-        assert!(Manifest::parse(&ahead).unwrap().needs_newer_methods());
     }
 }

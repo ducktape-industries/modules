@@ -501,5 +501,4 @@ fn the_manifest_bytes_parse_back_with_the_epoch_and_the_methods() {
     assert_eq!(manifest.methods, wire::methods::METHODS_REVISION);
     assert_eq!(manifest.capabilities, CAPABILITIES);
     assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
-    assert!(!manifest.needs_newer_methods());
 }
