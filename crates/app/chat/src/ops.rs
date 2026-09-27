@@ -61,9 +61,7 @@ pub(crate) fn open_dm(
     if !matches!(ctx.env().origin, Origin::Signed(_)) {
         return Err(unauthorized("only a key opens a dm, not a module"));
     }
-    let Some(me) = sender.account() else {
-        return Err(unauthorized("only an account opens a dm"));
-    };
+    let me = ctx.sender_account()?;
     if me == counterpart {
         return Err(invalid("a dm needs two accounts"));
     }

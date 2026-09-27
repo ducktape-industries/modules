@@ -12,7 +12,7 @@ pub const TESTER: &[u8] = b"tester";
 /// talker in chat is 4. Every other key holds no account.
 pub const HELD: [(&[u8], u64); 3] = [(TESTER, 1), (b"reviewer", 2), (b"talker", 4)];
 
-/// One module over `MemorySandbox` with the kernel's height discipline: an
+/// forge over `MemorySandbox` with the kernel's height discipline: an
 /// op lands in a new block, and what it emits to chat runs in its frame; a
 /// chat write is a block of its own; a query moves nothing.
 pub struct Rig {
@@ -85,8 +85,9 @@ impl Rig {
             Principal::Account(number) => match sandbox::module_of(number) {
                 Some(module) => Origin::Module(module.into()),
                 None => {
-                    let accounts = self.sandbox.accounts.borrow();
-                    let (key, _) = accounts
+                    let roster = self.sandbox.chain.roster();
+                    let (key, _) = roster
+                        .keys
                         .iter()
                         .find(|(_, held)| **held == number)
                         .expect("a key holds the account");

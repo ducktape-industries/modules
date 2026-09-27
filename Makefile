@@ -60,8 +60,8 @@ program_artifact = $(call PROGRAM_TARGET,$1)/wasm32-unknown-unknown/release/$(su
 program_build = $(WASM_BUILD) --target-dir $(call PROGRAM_TARGET,$1) -p $1 --features module
 export CARGO BUILD_TARGET RELEASE WASM_BUILD WASM_OPT
 
-.PHONY: dev wasm-why new-module new-program new-view
-.PHONY: module-wasm-check program-wasm-check wasm-programs probe-fixture wasm-views view-wasm-check test
+.PHONY: dev wasm-why new-module new-view scaffold-check
+.PHONY: module-wasm-check wasm-programs probe-fixture wasm-views view-wasm-check test
 
 # `make dev P=forge` / `V=forge-view` narrow the loop to one artifact.
 DEV_PROGRAMS = $(if $(or $P,$V),$P,$(PROGRAMS))
@@ -83,14 +83,11 @@ wasm-why:
 	@$(WASM_CARGO) --target-dir $(BUILD_TARGET) --profile why -p $V
 	twiggy top -n 25 $(BUILD_TARGET)/wasm32-unknown-unknown/why/$(subst -,_,$V).wasm
 
-## scaffolds crates/app/NAME in chat's shape and registers it (PROGRAMS,
+## scaffolds crates/app/NAME in valset's shape and registers it (PROGRAMS,
 ## workspace members and dependencies); `make dev P=NAME` must pass on it.
 new-module:
 	@test -n "$(NAME)" || { echo "usage: make new-module NAME=<module>"; exit 1; }
 	@tools/scaffold.sh module $(NAME)
-
-# the old name of new-module
-new-program: new-module
 
 ## scaffolds crates/app/NAME (NAME ends in -view) over the module it names,
 ## in members-view's shape, and registers it (VIEWS, workspace members).
@@ -98,15 +95,17 @@ new-view:
 	@test -n "$(NAME)" || { echo "usage: make new-view NAME=<module>-view"; exit 1; }
 	@tools/scaffold.sh view $(NAME)
 
+## new-module and new-view in a throwaway worktree, then `make dev` and the
+## describe build over what they wrote (tools/scaffold-check.sh).
+scaffold-check:
+	@tools/scaffold-check.sh
+
 ## builds abi and guest for wasm32-unknown-unknown.
 module-wasm-check:
 	@for crate in $(PROGRAM_LINKABLE); do \
 	  $(CARGO) build --target wasm32-unknown-unknown -p $$crate || exit 1; \
 	done; \
 	echo "abi, guest and store build for wasm32"
-
-# the old name of module-wasm-check
-program-wasm-check: module-wasm-check
 
 ## builds every program (with `module` on) into $(RELEASE)/<name>.wasm. The
 ## founding suite reads the boot set from there.

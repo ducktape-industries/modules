@@ -41,7 +41,7 @@ pub fn bounds() -> Bounds {
 
 pub fn founded() -> MemorySandbox {
     let sandbox = MemorySandbox::default();
-    Forge::init(&sandbox.exec(1), &abi::encode(&bounds())).unwrap();
+    sandbox.chain.init("forge", &bounds()).unwrap();
     sandbox
 }
 
@@ -72,13 +72,13 @@ pub fn signed_op(
 
 /// `actor`'s op; a refusal left forge's store as it was.
 #[track_caller]
-pub fn act(sandbox: &mut MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, guest::Error> {
+pub fn act(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, guest::Error> {
     sandbox.forge.attempt(|| signed_op(sandbox, actor, 1, op))
 }
 
 /// The refusal of `actor`'s op, which left forge's store as it was.
 #[track_caller]
-pub fn refused(sandbox: &mut MemorySandbox, actor: &[u8], op: &Op) -> guest::Error {
+pub fn refused(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> guest::Error {
     sandbox.forge.refused(|| signed_op(sandbox, actor, 1, op))
 }
 
@@ -86,7 +86,7 @@ pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, guest::Err
     Forge::query(&sandbox.reads(1), query.clone()).map(|reply| reply.0)
 }
 
-pub fn create(sandbox: &mut MemorySandbox, name: &str, hash: HashKind) {
+pub fn create(sandbox: &MemorySandbox, name: &str, hash: HashKind) {
     act(
         sandbox,
         OWNER,
@@ -186,7 +186,7 @@ pub fn push_request(commands: &[(Oid, Oid, &str)], pack_bytes: &[u8]) -> Vec<u8>
 }
 
 pub fn push(
-    sandbox: &mut MemorySandbox,
+    sandbox: &MemorySandbox,
     actor: &[u8],
     repo: &str,
     commands: &[(Oid, Oid, &str)],

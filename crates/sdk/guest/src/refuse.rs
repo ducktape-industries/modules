@@ -31,6 +31,15 @@ pub fn stale(message: impl Into<String>) -> Error {
     Error::new(code::STALE, message)
 }
 
+/// A sibling `module` answered `asked` with a reply of another shape than
+/// the one its role or its types promise: an operator's problem.
+pub fn unexpected_reply(module: &str, asked: &str, reply: &impl std::fmt::Debug) -> Error {
+    Error::new(
+        code::UNEXPECTED_REPLY,
+        format!("{module} answered {asked} with {reply:?}"),
+    )
+}
+
 /// Stored state that does not decode: an operator's problem, never a panic.
 pub fn corrupt(table: &str, key: &[u8], what: impl std::fmt::Display) -> Error {
     Error::new(code::CORRUPT, format!("{table}[{}]: {what}", abi::hex(key)))
