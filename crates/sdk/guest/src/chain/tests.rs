@@ -46,14 +46,14 @@ impl Module for Bot {
                     reply,
                 } => {
                     let reply = if reply { Reply::Wanted } else { Reply::None };
-                    let id = ctx.emit(target, abi::encode(&steps), reply);
+                    let id = ctx.emit(target, &steps, reply);
                     let mut emitted: Vec<MessageId> = ctx.record("emitted")?.unwrap_or_default();
                     emitted.push(id);
                     ctx.put("emitted", &emitted);
                 }
                 Step::Recurse(n) if n > 0 => {
                     let me = ctx.env().module.clone();
-                    ctx.emit(me, abi::encode(&vec![Step::Recurse(n - 1)]), Reply::None);
+                    ctx.emit(me, &vec![Step::Recurse(n - 1)], Reply::None);
                 }
                 Step::Recurse(_) => {}
                 Step::Peek(target, key) => {
@@ -140,11 +140,7 @@ fn chain() -> MockChain {
     let mut chain = MockChain::default();
     for (name, number) in [("a", 100), ("b", 101), ("c", 102)] {
         chain.seat::<Bot>(name);
-        chain.profile(Profile {
-            number,
-            name: name.into(),
-            kind: Kind::Module(name.into()),
-        });
+        chain.register(name, number);
     }
     chain.hold(b"ada-key".to_vec(), 1);
     chain
@@ -218,7 +214,7 @@ fn messages_run_after_the_emitter_in_emit_order_depth_first_as_the_emitters_acco
         emit("b", vec![Step::Peek("c".into(), "seen".into())], false),
         put("own", "kept"),
     ];
-    chain.submit(ada(), "a", abi::encode(&script)).unwrap();
+    chain.submit(ada(), "a", &script).unwrap();
     let (a, b, c) = (
         logged(&chain, "a"),
         logged(&chain, "b"),
@@ -262,7 +258,7 @@ fn messages_run_after_the_emitter_in_emit_order_depth_first_as_the_emitters_acco
     assert_eq!(chain.host("a").borrow().state[b"own".as_slice()], b"kept");
     // the next submission numbers from 0 again
     chain
-        .submit(ada(), "a", abi::encode(&vec![emit("b", vec![], false)]))
+        .submit(ada(), "a", &vec![emit("b", vec![], false)])
         .unwrap();
     assert_eq!(logged(&chain, "b")[2].cause, Cause::Message(id("a", 0)));
 }
@@ -272,7 +268,7 @@ fn a_wanted_reply_brings_the_outcome_back_as_the_targets_message() {
     let chain = chain();
     // applied: the target's output comes back
     let script = vec![emit("b", vec![Step::Output(b"hi".to_vec())], true)];
-    chain.submit(ada(), "a", abi::encode(&script)).unwrap();
+    chain.submit(ada(), "a", &script).unwrap();
     let a = logged(&chain, "a");
     assert_eq!(a.len(), 2);
     assert_eq!(
@@ -299,7 +295,7 @@ fn a_wanted_reply_brings_the_outcome_back_as_the_targets_message() {
         put("mine", "stays"),
         emit("b", vec![put("theirs", "gone"), Step::Refuse], true),
     ];
-    chain.submit(ada(), "a", abi::encode(&script)).unwrap();
+    chain.submit(ada(), "a", &script).unwrap();
     let a = logged(&chain, "a");
     assert_eq!(a.len(), 4);
     let Cause::Reply {
@@ -348,7 +344,7 @@ fn a_rejection_not_absorbed_undoes_the_emitter_whole_and_propagates_up() {
             false,
         ),
     ];
-    let refusal = chain.submit(ada(), "a", abi::encode(&script)).unwrap_err();
+    let refusal = chain.submit(ada(), "a", &script).unwrap_err();
     assert_eq!(refusal.code, code::WRONG_STATE);
     assert_eq!(left(&chain, "a"), before);
     for module in ["a", "b", "c"] {
@@ -356,13 +352,13 @@ fn a_rejection_not_absorbed_undoes_the_emitter_whole_and_propagates_up() {
     }
     // a reply run that refuses (the default, on a rejected outcome) does the same
     let script = vec![put("mine", "undone"), emit("b", vec![Step::Refuse], true)];
-    let refusal = chain.submit(ada(), "a", abi::encode(&script)).unwrap_err();
+    let refusal = chain.submit(ada(), "a", &script).unwrap_err();
     assert_eq!(refusal.code, code::WRONG_STATE);
     assert!(refusal.message.contains("seq: 0"), "{refusal}");
     assert_eq!(left(&chain, "a"), before);
     // the emitter's own refusal after emitting: nothing it emitted runs
     let script = vec![emit("b", vec![], false), Step::Refuse];
-    chain.submit(ada(), "a", abi::encode(&script)).unwrap_err();
+    chain.submit(ada(), "a", &script).unwrap_err();
     assert!(logged(&chain, "b").is_empty());
 }
 
@@ -387,7 +383,7 @@ fn undo_covers_every_hosts_state_blobs_output_events_and_emissions() {
             false,
         ),
     ];
-    chain.submit(ada(), "a", abi::encode(&script)).unwrap_err();
+    chain.submit(ada(), "a", &script).unwrap_err();
     assert_eq!(all(), before);
     // and the same script, its refusal gone, leaves all of it
     let script = vec![
@@ -396,10 +392,7 @@ fn undo_covers_every_hosts_state_blobs_output_events_and_emissions() {
         Step::Event,
         Step::Output(b"out".to_vec()),
     ];
-    assert_eq!(
-        chain.submit(ada(), "a", abi::encode(&script)).unwrap(),
-        b"out"
-    );
+    assert_eq!(chain.submit(ada(), "a", &script).unwrap(), b"out");
     let (state, blobs, output, _, events) = left(&chain, "a");
     assert_eq!((state.len(), blobs, events), (2, 1, 1));
     assert!(
@@ -412,11 +405,11 @@ fn undo_covers_every_hosts_state_blobs_output_events_and_emissions() {
 fn messages_nest_no_deeper_than_max_depth() {
     let chain = chain();
     chain
-        .submit(ada(), "a", abi::encode(&vec![Step::Recurse(MAX_DEPTH)]))
+        .submit(ada(), "a", &vec![Step::Recurse(MAX_DEPTH)])
         .unwrap();
     assert_eq!(logged(&chain, "a").len() as u32, MAX_DEPTH + 1);
     let refusal = chain
-        .submit(ada(), "a", abi::encode(&vec![Step::Recurse(MAX_DEPTH + 1)]))
+        .submit(ada(), "a", &vec![Step::Recurse(MAX_DEPTH + 1)])
         .unwrap_err();
     assert_eq!(refusal.code, code::CAPACITY);
     assert_eq!(
@@ -440,19 +433,19 @@ fn a_submission_acts_as_the_account_its_key_holds_or_as_no_one() {
         },
     });
     let nothing = abi::encode(&Vec::<Step>::new());
-    chain.submit(ada(), "a", &nothing).unwrap();
+    chain.submit_raw(ada(), "a", &nothing).unwrap();
     chain
-        .submit(Origin::Signed(b"loose".to_vec()), "a", &nothing)
+        .submit_raw(Origin::Signed(b"loose".to_vec()), "a", &nothing)
         .unwrap();
     let refused = chain
-        .submit(Origin::Signed(b"agent-key".to_vec()), "a", &nothing)
+        .submit_raw(Origin::Signed(b"agent-key".to_vec()), "a", &nothing)
         .unwrap_err();
     assert_eq!(refused.code, code::WRONG_STATE);
     // the chain's own conveniences: a message by hand, a root call
     chain
-        .submit(Origin::Module("b".into()), "a", &nothing)
+        .submit_raw(Origin::Module("b".into()), "a", &nothing)
         .unwrap();
-    chain.submit(Origin::Root, "a", &nothing).unwrap();
+    chain.submit_raw(Origin::Root, "a", &nothing).unwrap();
     let senders: Vec<Option<Principal>> = logged(&chain, "a")
         .into_iter()
         .map(|env| env.sender)
@@ -461,7 +454,7 @@ fn a_submission_acts_as_the_account_its_key_holds_or_as_no_one() {
         senders,
         [account(1), None, account(101), Some(Principal::Root)]
     );
-    let unknown = chain.submit(ada(), "nobody", &nothing).unwrap_err();
+    let unknown = chain.submit_raw(ada(), "nobody", &nothing).unwrap_err();
     assert_eq!(unknown.code, code::UNKNOWN_MODULE);
 }
 
@@ -477,15 +470,13 @@ fn the_roster_answers_modules_as_the_identity_role_does() {
             standing: Standing::Revoked,
         },
     });
-    chain
-        .submit(ada(), "a", abi::encode(&vec![Step::Person(1)]))
-        .unwrap();
+    chain.submit(ada(), "a", &vec![Step::Person(1)]).unwrap();
     let refused = chain
-        .submit(ada(), "a", abi::encode(&vec![Step::Person(6)]))
+        .submit(ada(), "a", &vec![Step::Person(6)])
         .unwrap_err();
     assert_eq!(refused.code, code::WRONG_STATE);
     let refused = chain
-        .submit(ada(), "a", abi::encode(&vec![Step::Person(100)]))
+        .submit(ada(), "a", &vec![Step::Person(100)])
         .unwrap_err();
     assert_eq!(
         refused.code,
@@ -515,12 +506,8 @@ fn a_seated_identity_module_is_asked_as_the_kernel_asks_it() {
     chain.seat::<Ident>(&MockHost::roles().identity);
     chain.seat::<Bot>("bad");
     let script = vec![emit("b", vec![], false)];
-    chain
-        .submit(Origin::Signed(vec![7]), "a", abi::encode(&script))
-        .unwrap();
-    chain
-        .submit(Origin::Signed(vec![]), "a", abi::encode(&script))
-        .unwrap();
+    chain.submit(Origin::Signed(vec![7]), "a", &script).unwrap();
+    chain.submit(Origin::Signed(vec![]), "a", &script).unwrap();
     let a = logged(&chain, "a");
     assert_eq!(
         (a[0].sender.clone(), a[1].sender.clone()),
@@ -531,12 +518,10 @@ fn a_seated_identity_module_is_asked_as_the_kernel_asks_it() {
         account(100 + u64::from(b'a'))
     );
     // ada's key in the roster means nothing now: identity answers
-    chain.submit(ada(), "a", abi::encode(&script)).unwrap();
+    chain.submit(ada(), "a", &script).unwrap();
     assert_eq!(logged(&chain, "a")[2].sender, account(u64::from(b'a')));
     // an emitter identity refuses to name: its message is rejected...
-    let refused = chain
-        .submit(Origin::Root, "bad", abi::encode(&script))
-        .unwrap_err();
+    let refused = chain.submit(Origin::Root, "bad", &script).unwrap_err();
     assert_eq!(refused.code, code::NOT_FOUND);
     assert!(logged(&chain, "b").len() == 3 && logged(&chain, "bad").is_empty());
     // ...which, with a reply wanted, comes back as its outcome
@@ -546,9 +531,7 @@ fn a_seated_identity_module_is_asked_as_the_kernel_asks_it() {
         .state
         .insert(b"absorb".to_vec(), Vec::new());
     let script = vec![emit("b", vec![], true)];
-    chain
-        .submit(Origin::Root, "bad", abi::encode(&script))
-        .unwrap();
+    chain.submit(Origin::Root, "bad", &script).unwrap();
     let bad = logged(&chain, "bad");
     assert_eq!(bad.len(), 2);
     assert!(
@@ -560,7 +543,7 @@ fn a_seated_identity_module_is_asked_as_the_kernel_asks_it() {
     let mut wrong = MockChain::default();
     wrong.seat::<Bot>("a");
     wrong.seat::<Wrong>(&MockHost::roles().identity);
-    let refused = wrong.submit(ada(), "a", abi::encode(&script)).unwrap_err();
+    let refused = wrong.submit(ada(), "a", &script).unwrap_err();
     assert_eq!(refused.code, code::UNEXPECTED_REPLY);
 }
 

@@ -195,10 +195,7 @@ fn replay(tape: &mut Tape) {
             repo: REPO.into(),
             from: reference("feature"),
             exclude: None,
-            page: PageRequest {
-                after: page.next,
-                limit: Some(1),
-            },
+            page: PageRequest::resume(page.next, 1),
         },
     );
     let Reply::Tree { page, .. } = tape.capture(
@@ -220,10 +217,7 @@ fn replay(tape: &mut Tape) {
             repo: REPO.into(),
             at: story.feature.clone(),
             path: vec![],
-            page: PageRequest {
-                after: page.next,
-                limit: Some(64),
-            },
+            page: PageRequest::resume(page.next, 64),
         },
     );
     tape.capture(
@@ -282,10 +276,7 @@ fn replay(tape: &mut Tape) {
             base: Some(story.root.clone()),
             head: story.feature.clone(),
             path: None,
-            page: PageRequest {
-                after: page.next,
-                limit: Some(2),
-            },
+            page: PageRequest::resume(page.next, 2),
         },
     );
     for (name, path) in [
@@ -392,10 +383,7 @@ fn replay(tape: &mut Tape) {
             repo: REPO.into(),
             from: reference("feature"),
             exclude: None,
-            page: PageRequest {
-                after: Some(vec![1]),
-                limit: Some(1),
-            },
+            page: PageRequest::resume(Some(vec![1]), 1),
         },
     );
     let Reply::Refs { page, .. } = tape.capture(
@@ -421,10 +409,7 @@ fn replay(tape: &mut Tape) {
         "refused-stale",
         Query::Refs {
             repo: REPO.into(),
-            page: PageRequest {
-                after: page.next.clone(),
-                limit: Some(1),
-            },
+            page: PageRequest::resume(page.next.clone(), 1),
         },
     );
     tape.refusal(
@@ -432,10 +417,7 @@ fn replay(tape: &mut Tape) {
         "refused-other-listing",
         Query::Refs {
             repo: "other".into(),
-            page: PageRequest {
-                after: page.next,
-                limit: Some(1),
-            },
+            page: PageRequest::resume(page.next, 1),
         },
     );
     tape.output(&mut rig, "op-change-open", story.open("Review this change"));
@@ -486,10 +468,7 @@ fn replay(tape: &mut Tape) {
         Query::Change {
             repo: REPO.into(),
             n: 1,
-            page: PageRequest {
-                after: reviews.next,
-                limit: Some(2),
-            },
+            page: PageRequest::resume(reviews.next, 2),
         },
     ) else {
         panic!();

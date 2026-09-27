@@ -2,7 +2,7 @@
 //! chat's views read them. The sender itself is the host's, read first thing in
 //! [`Chat::execute`](crate::Chat).
 use abi::role::identity as role;
-use guest::{Error, QueryCtx, code, invalid};
+use guest::{Error, QueryCtx, invalid, unexpected_reply};
 use store::{PageRequest, PageResponse};
 
 use crate::Profile;
@@ -21,13 +21,11 @@ pub(crate) fn accounts(ctx: &QueryCtx, page: PageRequest) -> Result<PageResponse
         after,
         limit: page.limit() as u32,
     };
+    let identity = &ctx.env().roles.identity;
     let role::Reply::Profiles { profiles, next } =
-        ctx.query::<role::Query, role::Reply>(&ctx.env().roles.identity, &profiles)?
+        ctx.query::<role::Query, role::Reply>(identity, &profiles)?
     else {
-        return Err(Error::new(
-            code::UNEXPECTED_REPLY,
-            "identity answered Profiles with something else",
-        ));
+        return Err(unexpected_reply(identity, "Profiles", &"another reply"));
     };
     Ok(PageResponse {
         height: ctx.env().height,

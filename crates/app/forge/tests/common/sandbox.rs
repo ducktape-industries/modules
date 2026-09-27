@@ -37,11 +37,7 @@ impl Default for MemorySandbox {
             chain.hold(key, account);
         }
         for (module, number) in MODULES {
-            chain.profile(Profile {
-                number,
-                name: module.into(),
-                kind: Kind::Module(module.into()),
-            });
+            chain.register(module, number);
         }
         MemorySandbox { chain, forge, chat }
     }
@@ -103,7 +99,7 @@ impl MemorySandbox {
         msg: chat::Op,
     ) -> Result<(), Error> {
         (self.chain.height, self.chain.time) = (height, time);
-        self.chain.submit(origin, "chat", abi::encode(&msg))?;
+        self.chain.submit(origin, "chat", &msg)?;
         Ok(())
     }
 
@@ -122,7 +118,7 @@ impl MemorySandbox {
         op: &forge::Op,
     ) -> Result<Vec<u8>, Error> {
         (self.chain.height, self.chain.time) = (height, time);
-        self.chain.submit(origin, "forge", abi::encode(op))
+        self.chain.submit(origin, "forge", op)
     }
 
     pub fn blob_count(&self) -> usize {

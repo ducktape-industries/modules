@@ -3,8 +3,7 @@
 
 use chat::{Block, MsgRow, Op, PostPolicy, Query, Reply};
 use guest::Principal;
-use guest::{Error, code};
-use guest::{ExecCtx, QueryCtx};
+use guest::{Error, ExecCtx, QueryCtx, unexpected_reply};
 
 use crate::Change;
 
@@ -63,7 +62,7 @@ pub fn post(ctx: &ExecCtx, change: &Change, message_id: String, event: Event) {
 }
 
 fn emit(ctx: &ExecCtx, message: Op) {
-    ctx.emit(chat::MODULE, abi::encode(&message), guest::Reply::None);
+    ctx.emit(chat::MODULE, &message, guest::Reply::None);
 }
 
 /// The chat root a review posted, by its message id.
@@ -73,7 +72,7 @@ pub fn message(ctx: &QueryCtx, id: &str) -> Result<Option<MsgRow>, Error> {
     };
     match ctx.query::<Query, Reply>(chat::MODULE, &query)? {
         Reply::Message(row) => Ok(row),
-        other => Err(unexpected("MessageById", &other)),
+        other => Err(unexpected_reply(chat::MODULE, "MessageById", &other)),
     }
 }
 
@@ -89,13 +88,6 @@ pub fn attention(
     };
     match ctx.query::<Query, Reply>(chat::MODULE, &query)? {
         Reply::Attention(row) => Ok(row),
-        other => Err(unexpected("ThreadAttention", &other)),
+        other => Err(unexpected_reply(chat::MODULE, "ThreadAttention", &other)),
     }
-}
-
-fn unexpected(asked: &str, reply: &Reply) -> Error {
-    Error::new(
-        code::UNEXPECTED_REPLY,
-        format!("chat answered {asked} with {reply:?}"),
-    )
 }

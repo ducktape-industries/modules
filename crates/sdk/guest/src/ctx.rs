@@ -13,7 +13,7 @@ use abi::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{Env, Error, MessageId, ModuleId, Principal, Range};
+use crate::{AccountNumber, Env, Error, MessageId, ModuleId, Principal, Range};
 
 /// A query's context: the env and the reads. It has no write methods.
 pub struct QueryCtx {
@@ -290,6 +290,15 @@ impl ExecCtx {
         })
     }
 
+    /// The account this write acts as ([`sender`](ExecCtx::sender) as a
+    /// number): a person's, an agent's or a module's. The chain itself
+    /// (`Root`) is refused: a row that names an account cannot name it.
+    pub fn sender_account(&self) -> Result<AccountNumber, Error> {
+        self.sender()?
+            .account()
+            .ok_or_else(|| crate::unauthorized("only an account does this, not the chain"))
+    }
+
     /// Writes `value` at `key` in this module's state. A refused frame's
     /// writes are undone by the host, so a rule checks, then writes.
     pub fn set(&self, key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) {
@@ -328,11 +337,21 @@ impl ExecCtx {
         }
     }
 
-    /// Has `target` run `payload` in this frame, once this handler returns
-    /// Ok, as a message from this module. Messages run in the order
-    /// emitted, each before the next, and `reply` says what its refusal
-    /// does.
-    pub fn emit(
+    /// Has `target` run `op` (its own `Op`, borsh) in this frame, once this
+    /// handler returns Ok, as a message from this module. Messages run in
+    /// the order emitted, each before the next, and `reply` says what the
+    /// target's refusal does. [`query`](QueryCtx::query) is the read.
+    pub fn emit<T: BorshSerialize>(
+        &self,
+        target: impl Into<ModuleId>,
+        op: &T,
+        reply: Reply,
+    ) -> MessageId {
+        self.emit_raw(target, abi::encode(op), reply)
+    }
+
+    /// [`emit`](ExecCtx::emit) with the message's bytes as they are.
+    pub fn emit_raw(
         &self,
         target: impl Into<ModuleId>,
         payload: impl Into<Vec<u8>>,
@@ -371,8 +390,8 @@ mod tests {
     fn emit_hands_the_host_the_message_and_names_it_in_this_frame() {
         let host = MockHost::default();
         let ctx = host.exec(MockHost::env("forge"));
-        let first = ctx.emit("chat", b"a".to_vec(), Reply::None);
-        let second = ctx.emit("chat", b"b".to_vec(), Reply::Wanted);
+        let first = ctx.emit_raw("chat", b"a".to_vec(), Reply::None);
+        let second = ctx.emit_raw("chat", b"b".to_vec(), Reply::Wanted);
         let id = |seq| MessageId {
             module: "forge".into(),
             seq,

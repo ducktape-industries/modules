@@ -24,7 +24,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
     AccountNumber, Cause, Env, Error, ExecCtx, MessageId, MockHost, Module, ModuleId, Origin,
-    Outcome, Principal, QueryCtx, code, identity_role,
+    Outcome, Principal, QueryCtx, code, identity_role, unexpected_reply,
 };
 
 /// How deep messages nest in one frame: a submission runs at depth 0 and
@@ -53,7 +53,7 @@ struct Seat {
 /// ```ignore
 /// let chain = MockChain::default();
 /// chain.hold(b"ada-key", 1); // a person, unless a profile says otherwise
-/// chain.profile(Profile { number: 900, name: "forge".into(), kind: Kind::Module("forge".into()) });
+/// chain.register("forge", 900);
 /// assert_eq!(chain.roster().keys[b"ada-key".as_slice()], 1);
 /// ```
 #[derive(Default)]
@@ -103,12 +103,13 @@ impl Roster {
 ///
 /// ```ignore
 /// let mut chain = MockChain::default();
-/// let forge = chain.seat::<Forge>("forge");
+/// chain.seat::<Forge>("forge");
 /// chain.seat::<Chat>("chat");
+/// chain.register("forge", 900);
 /// chain.hold(b"ada-key", 1);
-/// Forge::init(&forge.exec(chain.env("forge")), &abi::encode(&bounds())).unwrap();
+/// chain.init::<Forge>("forge", &bounds())?;
 /// // forge's op, and what it emitted to chat, as one frame
-/// let output = chain.submit(Origin::Signed(b"ada-key".to_vec()), "forge", abi::encode(&op))?;
+/// let output = chain.submit(Origin::Signed(b"ada-key".to_vec()), "forge", &op)?;
 /// let reply: chat::Reply = chain.query("chat", &chat::Query::Roots { .. })?;
 /// ```
 pub struct MockChain {
@@ -214,15 +215,44 @@ impl MockChain {
         }
     }
 
-    /// Runs `payload` on `module` as one frame, as the kernel runs a
-    /// submission: `origin`'s sender resolved through identity (a key that
-    /// holds no account still runs, as no one; a refusal there rejects the
-    /// frame), then the module, then what it emitted, depth first. The
-    /// module's output, or the refusal that rejected the frame, which left
-    /// every host as it was. A `Signed` origin is a submission as the
-    /// kernel admits one; `Module` and `Root` are the chain's convenience,
-    /// a message or a genesis call sent by hand.
-    pub fn submit(
+    /// `M`'s [`init`](Module::init) with `params` (borsh), as founding runs
+    /// it: by the chain itself, at this height, over `module`'s host.
+    pub fn init<M: Module>(&self, module: &str, params: &impl BorshSerialize) -> Result<(), Error> {
+        M::init(
+            &self.host(module).exec(self.env(module)),
+            &abi::encode(params),
+        )
+    }
+
+    /// Gives `module` the account `number`, as identity does when the
+    /// kernel admits a module: what its messages act as.
+    pub fn register(&self, module: &str, number: AccountNumber) {
+        self.profile(Profile {
+            number,
+            name: module.into(),
+            kind: Kind::Module(module.into()),
+        });
+    }
+
+    /// Runs `op` (`module`'s own `Op`, borsh) as one frame, as the kernel
+    /// runs a submission: `origin`'s sender resolved through identity (a
+    /// key that holds no account still runs, as no one; a refusal there
+    /// rejects the frame), then the module, then what it emitted, depth
+    /// first. The module's output, or the refusal that rejected the frame,
+    /// which left every host as it was. A `Signed` origin is a submission
+    /// as the kernel admits one; `Module` and `Root` are the chain's
+    /// convenience, a message or a genesis call sent by hand.
+    pub fn submit<O: BorshSerialize>(
+        &self,
+        origin: Origin,
+        module: impl Into<ModuleId>,
+        op: &O,
+    ) -> Result<Vec<u8>, Error> {
+        self.submit_raw(origin, module, abi::encode(op))
+    }
+
+    /// [`submit`](MockChain::submit) with the payload's bytes as they are.
+    pub fn submit_raw(
         &self,
         origin: Origin,
         module: impl Into<ModuleId>,
@@ -271,21 +301,19 @@ impl MockChain {
         let account = if self.seats.contains_key(&identity) {
             let env = Env {
                 sender: None,
-                ..self.env(identity)
+                ..self.env(identity.clone())
             };
             let answered = self.query_raw(&env, &abi::encode(&asked))?;
             match abi::decode(&answered) {
                 Ok(Reply::Account(account)) => account,
                 Ok(other) => {
-                    return Err(Error::new(
-                        code::UNEXPECTED_REPLY,
-                        format!("identity answered {asked:?} with {other:?}"),
-                    ));
+                    return Err(unexpected_reply(&identity, &format!("{asked:?}"), &other));
                 }
                 Err(fault) => {
-                    return Err(Error::new(
-                        code::UNEXPECTED_REPLY,
-                        format!("identity answered {asked:?} with {}", fault.sentence),
+                    return Err(unexpected_reply(
+                        &identity,
+                        &format!("{asked:?}"),
+                        &fault.sentence,
                     ));
                 }
             }

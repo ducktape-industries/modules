@@ -69,5 +69,5 @@ pub use module::exports;
 pub use module::{Module, execute, query};
 pub use refuse::{
     already_exists, capacity, corrupt, decoded, invalid, not_found, stale, unauthorized,
-    wrong_state,
+    unexpected_reply, wrong_state,
 };
