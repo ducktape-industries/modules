@@ -113,7 +113,7 @@ pub(crate) use frame_sanitize::{Budgets, finite, sanitize_tree, spend_text, trun
 pub use frame_sanitize::{
     MAX_DEPTH, MAX_FRAME_BYTES, MAX_NODES, MAX_PICTURE_BYTES_PER_FRAME, MAX_PIXELS,
     MAX_STRING_BYTES, MAX_TEXT_BYTES_PER_FRAME, MAX_TEXT_PIXELS, MAX_UNIFORM_LIST_COUNT,
-    MAX_UNIFORM_LIST_ROWS, sanitize,
+    MAX_UNIFORM_LIST_ROWS, sanitize, truncate_string,
 };
 
 mod codec;

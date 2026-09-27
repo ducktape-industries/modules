@@ -223,7 +223,8 @@ mod node;
 use node::sanitize_node;
 
 mod numbers;
-pub(crate) use numbers::{bounded, finite, signed_bounded, truncate_string, truncate_to};
+pub use numbers::truncate_string;
+pub(crate) use numbers::{bounded, finite, signed_bounded, truncate_to};
 
 mod interactivity;
 use interactivity::sanitize_interactivity;
