@@ -325,8 +325,9 @@ mod node;
 use node::sanitize_node;
 
 mod numbers;
-pub use numbers::truncate_string;
-pub(crate) use numbers::{bound_optional, bounded, finite, signed_bounded, truncate_to};
+pub(crate) use numbers::{
+    bound_optional, bounded, finite, signed_bounded, truncate_string, truncate_to,
+};
 
 mod interactivity;
 use interactivity::sanitize_interactivity;
