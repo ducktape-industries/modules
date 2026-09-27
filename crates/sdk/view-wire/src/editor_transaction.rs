@@ -355,22 +355,7 @@ fn decode_patches<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorPa
 pub(crate) fn decode_responses<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Vec<EditorResponse>, D::Error> {
-    let responses = crate::bounded_vec(d, MAX_EDITOR_RESPONSES, "editor response limit")?;
-    let bytes: usize = responses
-        .iter()
-        .map(|response: &EditorResponse| match &response.decision {
-            EditorDecision::Apply { patches, .. } => {
-                patches.iter().map(|patch| patch.replacement.len()).sum()
-            }
-            _ => 0,
-        })
-        .sum();
-    if bytes > MAX_EDITOR_PATCH_BYTES {
-        return Err(serde::de::Error::custom(
-            "editor response aggregate byte limit",
-        ));
-    }
-    Ok(responses)
+    crate::bounded_vec(d, MAX_EDITOR_RESPONSES, "editor response limit")
 }
 
 thread_local! {
