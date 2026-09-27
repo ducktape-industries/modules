@@ -126,6 +126,9 @@ impl QueryCtx {
         }
     }
 
+    /// This module's value at `key`, as this frame sees it: its own writes
+    /// so far included. Keys are this module's alone; another module's
+    /// state is read by [`query`](QueryCtx::query)ing it.
     pub fn get(&self, key: impl AsRef<[u8]>) -> Option<Vec<u8>> {
         match self.host(HostOp::Get(key.as_ref().to_vec())) {
             HostReply::Value(value) => value,
@@ -133,6 +136,8 @@ impl QueryCtx {
         }
     }
 
+    /// The entries `range` admits, in its order, as this frame sees them.
+    /// `store`'s tables build the range (`prefix_of`, `below`, a page).
     pub fn scan(&self, range: Range) -> Vec<Entry> {
         match self.host(HostOp::Scan(range.into())) {
             HostReply::Entries(entries) => entries,
@@ -140,6 +145,8 @@ impl QueryCtx {
         }
     }
 
+    /// [`get`](QueryCtx::get) as of the last committed block: none of this
+    /// block's writes, this frame's own included.
     pub fn committed_get(&self, key: impl AsRef<[u8]>) -> Option<Vec<u8>> {
         match self.host(HostOp::CommittedGet(key.as_ref().to_vec())) {
             HostReply::Value(value) => value,
@@ -147,6 +154,7 @@ impl QueryCtx {
         }
     }
 
+    /// [`scan`](QueryCtx::scan) as of the last committed block.
     pub fn committed_scan(&self, range: Range) -> Vec<Entry> {
         match self.host(HostOp::CommittedScan(range.into())) {
             HostReply::Entries(entries) => entries,
@@ -154,12 +162,15 @@ impl QueryCtx {
         }
     }
 
+    /// [`get`](QueryCtx::get), the value decoded from borsh; a value that
+    /// does not decode is an error, never a panic.
     pub fn record<T: BorshDeserialize>(&self, key: impl AsRef<[u8]>) -> Result<Option<T>, Error> {
         self.get(key)
             .map(|bytes| abi::decode(&bytes).map_err(crate::kernel::error_from))
             .transpose()
     }
 
+    /// [`scan`](QueryCtx::scan), each value decoded from borsh beside its raw key.
     pub fn records<T: BorshDeserialize>(&self, range: Range) -> Result<Vec<(Vec<u8>, T)>, Error> {
         self.scan(range)
             .into_iter()
@@ -172,6 +183,8 @@ impl QueryCtx {
             .collect()
     }
 
+    /// A blob by id, whole: its kind and body; [`blob_read`](QueryCtx::blob_read)
+    /// reads a slice.
     pub fn blob_get(&self, id: BlobId) -> Option<Blob> {
         match self.host(HostOp::BlobGet(id)) {
             HostReply::Blob(blob) => blob,
@@ -179,6 +192,7 @@ impl QueryCtx {
         }
     }
 
+    /// A blob's kind and length, without its body.
     pub fn blob_stat(&self, id: BlobId) -> Option<BlobHeader> {
         match self.host(HostOp::BlobStat(id)) {
             HostReply::BlobHeader(header) => header,
@@ -186,6 +200,7 @@ impl QueryCtx {
         }
     }
 
+    /// Up to `len` bytes of a blob's body from `offset` (fewer at its end).
     pub fn blob_read(&self, id: BlobId, offset: u64, len: u64) -> Option<Vec<u8>> {
         match self.host(HostOp::BlobRead { id, offset, len }) {
             HostReply::Value(bytes) => bytes,
@@ -193,6 +208,8 @@ impl QueryCtx {
         }
     }
 
+    /// `module`'s state root as of the last committed block; `None` for a
+    /// module the chain does not run (and always natively).
     pub fn root(&self, module: impl Into<ModuleId>) -> Option<Root> {
         match self.host(HostOp::Root(module.into())) {
             HostReply::Root(root) => root,
@@ -226,6 +243,7 @@ impl QueryCtx {
             .map_err(crate::kernel::error_from)
     }
 
+    /// The SHA-256 of `bytes`, computed by the host.
     pub fn sha256(&self, bytes: impl Into<Vec<u8>>) -> [u8; 32] {
         match self.host(HostOp::Crypto(CryptoOp::Sha256(bytes.into()))) {
             HostReply::Crypto(CryptoReply::Digest(digest)) => digest,
@@ -233,6 +251,9 @@ impl QueryCtx {
         }
     }
 
+    /// Whether `signature` signs `message` under `namespace` for `key` in
+    /// `scheme`. Natively the `MockHost`'s `verifier` decides, and with none
+    /// set the check is refused.
     pub fn verify(
         &self,
         scheme: Scheme,
@@ -269,6 +290,8 @@ impl ExecCtx {
         })
     }
 
+    /// Writes `value` at `key` in this module's state. A refused frame's
+    /// writes are undone by the host, so a rule checks, then writes.
     pub fn set(&self, key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) {
         self.done(HostOp::Set {
             key: key.into(),
@@ -276,14 +299,18 @@ impl ExecCtx {
         })
     }
 
+    /// Removes `key` from this module's state (a missing key is no error).
     pub fn delete(&self, key: impl Into<Vec<u8>>) {
         self.done(HostOp::Delete(key.into()))
     }
 
+    /// [`set`](ExecCtx::set) the borsh of `record`; [`record`](QueryCtx::record) reads it back.
     pub fn put<T: BorshSerialize>(&self, key: impl Into<Vec<u8>>, record: &T) {
         self.set(key, abi::encode(record))
     }
 
+    /// Stores `body` as a blob of `kind` (one word) and answers its id: the
+    /// `hash` of `<kind> <len>\0<body>`, so the same bytes are one blob.
     pub fn blob_put(
         &self,
         hash: HashKind,
@@ -321,6 +348,8 @@ impl ExecCtx {
         }
     }
 
+    /// Adds `payload` to this call's receipt: a record for readers of the
+    /// chain, not state any module reads back.
     pub fn event(&self, payload: impl Into<Vec<u8>>) {
         self.done(HostOp::Event(payload.into()))
     }
