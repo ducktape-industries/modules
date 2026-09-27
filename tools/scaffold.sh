@@ -31,7 +31,8 @@ anchor() { # <file> <pattern>
 # no bare `-i`, nor `\n` in a replacement: a new line there is `\` and a
 # real line break).
 edit() {
-    sed -e "$2" "$1" > "$1.new" && mv "$1.new" "$1"
+    sed -e "$2" "$1" > "$1.new" || { rm -f "$1.new"; exit 1; }
+    mv "$1.new" "$1"
 }
 register() { # <Makefile list> <name>
     edit Makefile "s/^$1 := .*/& $2/"
