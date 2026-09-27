@@ -16,8 +16,7 @@ fn replace_pending(tables: &mut Tables, id: &EditorTransactionId) {
 }
 
 pub(crate) fn editor_response(context: &Context, response: crate::wire::EditorResponse) {
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     replace_pending(&mut tables, &response.id);
     tables.editor_responses.push(response);
 }
@@ -47,8 +46,7 @@ pub(crate) fn editor_matches_pending(
 }
 pub(crate) fn editor_acknowledge(context: &Context, event: &crate::wire::EditorTransactionEvent) {
     let id = event.id();
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     tables.editor_pending.retain(|pending| pending != id);
     tables
         .editor_responses
@@ -62,8 +60,7 @@ pub(crate) fn request_editor_mirror(
         EditorDocumentMessage, EditorTransferError, EditorTransferId, EditorTransferReceiver,
     };
     let id = EditorTransferId::from(&request.id);
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     if tables.editor_sender.is_some() || !tables.editor_documents.is_empty() {
         return Err(EditorTransferError::Limit);
     }
@@ -94,8 +91,7 @@ pub(crate) fn receive_editor_mirror(
     crate::wire::editor_document::EditorTransferError,
 > {
     use crate::wire::editor_document::EditorTransferError;
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     let Some((id, target, receiver)) = &mut tables.editor_receiver else {
         return Err(EditorTransferError::Identity);
     };
@@ -122,8 +118,7 @@ pub(crate) fn acknowledge_editor_mirror(
     context: &Context,
     id: crate::wire::editor_document::EditorTransferId,
 ) {
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     if tables.editor_documents.is_empty() {
         tables
             .editor_documents
@@ -137,8 +132,7 @@ pub(crate) fn start_editor_transfer(
     target: crate::wire::editor_document::EditorDocumentRef,
 ) -> Result<(), crate::wire::editor_document::EditorTransferError> {
     use crate::wire::editor_document::{EditorTransferError, EditorTransferSender};
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     if let Some(sender) = &tables.editor_sender {
         return if sender.id() == &id {
             Ok(())
@@ -156,8 +150,7 @@ pub(crate) fn editor_document_frame(
     text: &str,
 ) {
     use crate::wire::editor_document::EditorDocumentMessage;
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     if !tables.editor_documents.is_empty() {
         return;
     }
@@ -183,8 +176,7 @@ pub(crate) fn editor_document_failure(
     id: crate::wire::editor_document::EditorTransferId,
     reason: crate::wire::editor_document::EditorTransferError,
 ) {
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     if tables.editor_documents.is_empty() {
         tables
             .editor_documents
@@ -196,8 +188,7 @@ pub(crate) fn finish_editor_transfer(
     context: &Context,
     id: &crate::wire::editor_document::EditorTransferId,
 ) {
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     if tables
         .editor_receiver
         .as_ref()
@@ -228,8 +219,7 @@ pub(crate) fn take_editor_documents(
 }
 pub(crate) fn take_editor_responses(context: &Context) -> Vec<crate::wire::EditorResponse> {
     use crate::wire::editor_transaction::{MAX_EDITOR_PATCH_BYTES, MAX_EDITOR_RESPONSES};
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
+    let mut tables = context.0.borrow_mut();
     let mut bytes = 0usize;
     let mut count = 0;
     for response in tables.editor_responses.iter().take(MAX_EDITOR_RESPONSES) {
