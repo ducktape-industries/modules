@@ -60,9 +60,9 @@ impl ImageData {
     }
 }
 
-// A wire frame is capped at 8 MiB by hosts. Reject a collection header before
-// allocating, even when callers decode ImageData directly. The smaller shared
-// picture allowance is applied by frame sanitization, without truncating data.
+// Bounded by the frame, not the picture allowance: frame sanitization applies
+// that, dropping a picture whole rather than truncating it. A collection header
+// is refused before allocating, even when ImageData is decoded on its own.
 fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
     struct Bytes;
     impl<'de> serde::de::Visitor<'de> for Bytes {
@@ -74,13 +74,15 @@ fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec
             self,
             mut seq: A,
         ) -> Result<Self::Value, A::Error> {
-            const LIMIT: usize = 8 << 20;
-            if seq.size_hint().is_some_and(|size| size > LIMIT) {
+            if seq
+                .size_hint()
+                .is_some_and(|size| size > crate::MAX_FRAME_BYTES)
+            {
                 return Err(serde::de::Error::custom("raster byte limit exceeded"));
             }
             let mut bytes = Vec::new();
             while let Some(byte) = seq.next_element()? {
-                if bytes.len() == LIMIT {
+                if bytes.len() == crate::MAX_FRAME_BYTES {
                     return Err(serde::de::Error::custom("raster byte limit exceeded"));
                 }
                 bytes.push(byte);
@@ -114,7 +116,7 @@ mod tests {
         let mut malicious = vec![0x81, 0xa7];
         malicious.extend_from_slice(b"Encoded");
         malicious.push(0xdd);
-        malicious.extend_from_slice(&((8u32 << 20) + 1).to_be_bytes());
+        malicious.extend_from_slice(&(crate::MAX_FRAME_BYTES as u32 + 1).to_be_bytes());
         let error = crate::decode::<ImageData>(&malicious)
             .unwrap_err()
             .to_string();

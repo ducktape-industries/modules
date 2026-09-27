@@ -1,5 +1,8 @@
 use crate::*;
 
+/// The most bytes one encoded frame may be: a host refuses a longer one
+/// before decoding it, and no raster payload may claim more.
+pub const MAX_FRAME_BYTES: usize = 8 << 20;
 /// A tree deeper than this is cut off: a guest cannot make the host's
 /// layout recurse without bound.
 pub const MAX_DEPTH: usize = 64;
