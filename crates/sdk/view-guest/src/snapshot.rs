@@ -11,7 +11,7 @@ impl<V: View> Driver<V> {
         {
             return Err("guest has pending work; snapshot after it settles".into());
         }
-        Ok(self.entity.read(|view| wire::encode(view)))
+        self.entity.read(|view| wire::try_encode(view))
     }
     pub fn from_snapshot(bytes: &[u8]) -> Result<Self, String> {
         Self::from_snapshot_in(App::for_driver(), bytes)

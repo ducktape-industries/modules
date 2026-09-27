@@ -145,17 +145,28 @@ where
 
 pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {
     let mut bytes = Vec::new();
-    write(value, &mut bytes);
+    write(value, &mut bytes).expect("wire types are plain data");
     bytes
+}
+
+/// [`encode`] for a value whose serde is not the wire's own — a view's
+/// state, whatever it derives or writes by hand — so a `Serialize` that
+/// refuses (an unsized sequence, a custom error) is an answer, not a panic
+/// inside the guest.
+pub fn try_encode<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    write(value, &mut bytes).map_err(|error| error.to_string())?;
+    Ok(bytes)
 }
 
 // One serializer instantiation for buffers and size counting: a second writer
 // type would duplicate the entire node serialization graph.
 #[inline(never)]
-fn write<T: Serialize>(value: &T, writer: &mut dyn std::io::Write) {
-    value
-        .serialize(&mut rmp_serde::Serializer::new(writer).with_struct_map())
-        .expect("wire types are plain data");
+fn write<T: Serialize>(
+    value: &T,
+    writer: &mut dyn std::io::Write,
+) -> Result<(), rmp_serde::encode::Error> {
+    value.serialize(&mut rmp_serde::Serializer::new(writer).with_struct_map())
 }
 
 /// Counts bytes without keeping them.
@@ -174,7 +185,7 @@ impl std::io::Write for Count {
 /// How many bytes [`encode`] would write, without writing them.
 pub fn encoded_size<T: Serialize>(value: &T) -> u64 {
     let mut count = Count(0);
-    write(value, &mut count);
+    write(value, &mut count).expect("wire types are plain data");
     count.0
 }
 
@@ -188,4 +199,25 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, String> {
         return Err("trailing MessagePack bytes".into());
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    /// A `Serialize` written by hand that refuses.
+    struct Refusing;
+
+    impl serde::Serialize for Refusing {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("not while a transfer is open"))
+        }
+    }
+
+    #[test]
+    fn a_views_own_serde_answers_instead_of_panicking() {
+        assert_eq!(
+            super::try_encode(&Refusing).unwrap_err(),
+            "not while a transfer is open"
+        );
+        assert_eq!(super::try_encode(&7u8).unwrap(), super::encode(&7u8));
+    }
 }
