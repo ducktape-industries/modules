@@ -569,19 +569,6 @@ pub fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> State
     explorer_link(id, label, explorer::block_path(height), theme)
 }
 
-/// A transaction's short hash, opening Explorer at that transaction.
-pub fn tx_link(id: impl Into<ElementId>, hash: &[u8], theme: &Theme) -> Stateful<Div> {
-    let path = explorer::tx_path(hash);
-    let label = short_hex(&path["tx/".len()..]);
-    explorer_link(id, label, path, theme)
-}
-
-/// `account 7`, opening Explorer at that account.
-pub fn account_link(id: impl Into<ElementId>, number: u64, theme: &Theme) -> Stateful<Div> {
-    let label = format!("account {number}");
-    explorer_link(id, label, explorer::account_path(number), theme)
-}
-
 /// Subdued mono text that underlines under the pointer and opens
 /// Explorer at `path` through `link.open`.
 fn explorer_link(
