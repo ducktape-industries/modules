@@ -2,7 +2,6 @@
 //! identity and valset, and the clock the node status is re-read on.
 //! Every follower says what a refusal means to it; none ends on one.
 use ducktape_view_guest::Context;
-use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::{Changes, ClockTicks};
 use ducktape_view_guest::view::Loadable;
 
@@ -28,23 +27,22 @@ impl Settings {
             // an account, key or agent changed: the reader's may be among them
             cx.for_each(identity, |view, head, _, cx| match head {
                 Ok(_) => view.refresh_account(cx),
-                Err(refusal) => log(cx, "identity's live heads", &refusal),
+                Err(refusal) => {
+                    cx.host()
+                        .log_refused("settings", "identity's live heads", &refusal)
+                }
             }),
             // a key started or stopped validating
             cx.for_each(valset, |view, head, _, cx| match head {
                 Ok(_) => view.refresh_account(cx),
-                Err(refusal) => log(cx, "valset's live heads", &refusal),
+                Err(refusal) => cx
+                    .host()
+                    .log_refused("settings", "valset's live heads", &refusal),
             }),
             cx.for_each(ticks, |view, tick, _, cx| match tick {
                 Ok(()) => view.read_status(cx),
-                Err(refusal) => log(cx, "the clock", &refusal),
+                Err(refusal) => cx.host().log_refused("settings", "the clock", &refusal),
             }),
         ];
     }
-}
-
-/// A refusal nothing on screen waits for, kept in the host's log.
-pub(crate) fn log(cx: &mut Context<Settings>, what: &str, refusal: &Error) {
-    cx.host()
-        .log(format!("settings: {what} refused: {refusal}"));
 }

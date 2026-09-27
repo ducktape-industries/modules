@@ -139,22 +139,20 @@ impl View for Members {
                     view.me = session.account;
                     view.chain = session.chain_id;
                 }
-                Err(refusal) => log(cx, "the session", &refusal),
+                Err(refusal) => cx.host().log_refused("members", "the session", &refusal),
             }));
         let changes = cx.host().subscribe::<Changes<Identity>>(());
-        self.watches
-            .push(cx.for_each(changes, |view, bump, _, cx| match bump {
+        self.watches.push(cx.for_each(changes, |view, bump, _, cx| {
+            match bump {
                 Ok(_) => view.read(cx),
-                Err(refusal) => log(cx, "identity's live heads", &refusal),
-            }));
+                Err(refusal) => cx
+                    .host()
+                    .log_refused("members", "identity's live heads", &refusal),
+            }
+        }));
         self.read(cx);
         self.read_activity(cx);
     }
-}
-
-/// A refusal nothing on screen waits for, kept in the host's log.
-fn log(cx: &mut Context<Members>, what: &str, refusal: &Error) {
-    cx.host().log(format!("members: {what} refused: {refusal}"));
 }
 
 impl Render for Members {
@@ -184,7 +182,9 @@ impl Members {
                             .is_some_and(|number| keys(old, number) != keys(&rows, number));
                         view.rows = Loadable::Ready(rows);
                     }
-                    (Err(refusal), Some(_)) => log(cx, "a refresh", &refusal),
+                    (Err(refusal), Some(_)) => {
+                        cx.host().log_refused("members", "a refresh", &refusal)
+                    }
                     (Err(refusal), None) => view.rows = Loadable::Failed(refusal),
                 }
                 if rescan {

@@ -143,11 +143,6 @@ fn agents(
             theme,
         ))
         .children(lines)
-        .children(
-            account
-                .more_agents
-                .then(|| design::more_not_shown("settings/agents/more", theme)),
-        )
         .child(field(
             "settings/agents/create/name",
             "Agent name",

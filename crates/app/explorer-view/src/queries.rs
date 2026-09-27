@@ -11,12 +11,9 @@ use valset::view::Valset;
 
 use crate::state::{Accounts, Network};
 
-/// How many pages of accounts, or of scheduled changes, one read follows.
-const LIST_PAGES: usize = 64;
-
-/// Every account, up to [`LIST_PAGES`] pages of them.
+/// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
-    let (list, next) = pages(None, LIST_PAGES, |after| {
+    let (list, _) = pages(None, usize::MAX, |after| {
         let ask = host.ask::<Query<Identity>>(identity::Query::List {
             page: identity::PageRequest { after, limit: None },
         });
@@ -28,10 +25,7 @@ pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
         }
     })
     .await?;
-    Ok(Accounts {
-        list,
-        more: next.is_some(),
-    })
+    Ok(Accounts { list })
 }
 
 pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
@@ -58,7 +52,7 @@ pub(crate) async fn network(host: Host) -> Result<Network, Error> {
         registry::Reply::Views(views) => views,
         _ => return Err(wrong_reply()),
     };
-    let (changes, next) = pages(None, LIST_PAGES, |after| {
+    let (changes, _) = pages(None, usize::MAX, |after| {
         let ask = host.ask::<Query<Registry>>(registry::Query::Scheduled {
             page: registry::PageRequest { after, limit: None },
         });
@@ -74,6 +68,5 @@ pub(crate) async fn network(host: Host) -> Result<Network, Error> {
         programs,
         views,
         changes,
-        more: next.is_some(),
     })
 }

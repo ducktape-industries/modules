@@ -7,9 +7,6 @@ use serde::{Deserialize, Serialize};
 use valset::view::Valset;
 use valset::{Membership, PageRequest, Query as Ask, Reply};
 
-/// How many membership pages one read follows.
-const MEMBER_PAGES: usize = 64;
-
 /// What the screen shows: the consensus set as valset answers it, and the
 /// memberships behind it, as valset's own rows.
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -18,8 +15,6 @@ pub struct Set {
     pub validators: Vec<Vec<u8>>,
     #[serde(with = "borsh_bytes")]
     pub members: Vec<Membership>,
-    /// the read stopped at [`MEMBER_PAGES`]: more memberships exist
-    pub more: bool,
 }
 
 /// The set, read twice: the consensus keys the program answers, then every
@@ -29,7 +24,7 @@ pub(crate) async fn set(host: Host) -> Result<Set, Error> {
         Reply::Validators(keys) => keys,
         _ => return Err(wrong_reply()),
     };
-    let (members, next) = pages(None, MEMBER_PAGES, |after| {
+    let (members, _) = pages(None, usize::MAX, |after| {
         let ask = host.ask::<Query<Valset>>(Ask::Memberships {
             page: PageRequest { after, limit: None },
         });
@@ -44,6 +39,5 @@ pub(crate) async fn set(host: Host) -> Result<Set, Error> {
     Ok(Set {
         validators,
         members,
-        more: next.is_some(),
     })
 }

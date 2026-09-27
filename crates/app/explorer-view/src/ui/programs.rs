@@ -64,11 +64,6 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         ))
         .children(scheduled)
         .children(nothing_scheduled)
-        .children(
-            network
-                .more
-                .then(|| design::more_not_shown("explorer-changes-more", theme).px_5()),
-        )
         .into_any_element()
 }
 

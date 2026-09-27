@@ -9,9 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::{Identity, Valset};
 
-/// How many pages of a person's agents one read follows.
-const AGENT_PAGES: usize = 64;
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Account {
     /// `None`: the seated key holds no account yet
@@ -22,8 +19,6 @@ pub struct Account {
     /// a person's account manages agents; an agent's or a module's none
     pub manages: bool,
     pub agents: Vec<Agent>,
-    /// the agent read stopped at [`AGENT_PAGES`]: more agents exist
-    pub more_agents: bool,
     /// why a key that resolves to no account acts as no one: the agent
     /// holding it does not act. `None` for a key no account holds.
     pub note: Option<String>,
@@ -84,7 +79,6 @@ pub(crate) async fn account(
             keys: vec![read_key(&host, key, None).await?],
             manages: false,
             agents: Vec::new(),
-            more_agents: false,
             note,
         }));
     };
@@ -103,10 +97,10 @@ pub(crate) async fn account(
         keys.push(read_key(&host, key.key.clone(), key.label.clone()).await?);
     }
     let manages = matches!(account.control, Control::Person { .. });
-    let (agents, more_agents) = if manages {
+    let agents = if manages {
         agents(&host, number).await?
     } else {
-        (Vec::new(), false)
+        Vec::new()
     };
     Ok(Some(Account {
         number: Some(number),
@@ -114,7 +108,6 @@ pub(crate) async fn account(
         keys,
         manages,
         agents,
-        more_agents,
         note: None,
     }))
 }
@@ -143,10 +136,9 @@ async fn held_by(host: &Host, key: &[u8]) -> Result<Option<(String, &'static str
     Ok(profile.and_then(|p| Some((p.name, p.kind.note()?))))
 }
 
-/// The agents `manager` manages, up to [`AGENT_PAGES`] pages, and whether
-/// more follow.
-async fn agents(host: &Host, manager: u64) -> Result<(Vec<Agent>, bool), Error> {
-    let (listed, next) = pages(None, AGENT_PAGES, |after| {
+/// Every agent `manager` manages.
+async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
+    let (listed, _) = pages(None, usize::MAX, |after| {
         let ask = host.ask::<Query<Identity>>(identity::Query::Managed {
             by: manager,
             page: PageRequest { after, limit: None },
@@ -174,7 +166,7 @@ async fn agents(host: &Host, manager: u64) -> Result<(Vec<Agent>, bool), Error> 
             ))),
         })
         .collect::<Result<_, _>>()?;
-    Ok((agents, next.is_some()))
+    Ok(agents)
 }
 
 async fn read_key(host: &Host, key: Vec<u8>, label: Option<String>) -> Result<Key, Error> {

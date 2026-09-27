@@ -779,7 +779,7 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
                             .justify_end()
                             .text_size(text::CAPTION)
                             .text_color(theme.faint)
-                            .child(activity::ago(recent.now, signed.time)),
+                            .child(design::ago(recent.now, signed.time)),
                     )
                     .into_any_element()
             })

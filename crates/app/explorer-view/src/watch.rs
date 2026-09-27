@@ -2,7 +2,6 @@
 //! links opened into it, and the live heads of the programs whose lists it
 //! shows. Every follower says what a refusal means to it; none ends on one.
 use ducktape_view_guest::Context;
-use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::{ChainHeads, Changes, HostRoute, HostSession};
 use futures::StreamExt;
 use identity::view::Identity;
@@ -29,40 +28,43 @@ impl Explorer {
             cx.for_each(heads, |view, head, _, cx| match head {
                 Some(Ok(head)) => view.at_head(head, cx),
                 Some(Err(refusal)) => {
-                    log(cx, "the chain's heads", &refusal);
+                    cx.host()
+                        .log_refused("explorer", "the chain's heads", &refusal);
                     view.poll_head(cx);
                 }
                 None => view.poll_head(cx),
             }),
             cx.for_each(session, |view, session, _, cx| match session {
                 Ok(session) => view.session_chain = session.chain_id,
-                Err(refusal) => log(cx, "the session", &refusal),
+                Err(refusal) => cx.host().log_refused("explorer", "the session", &refusal),
             }),
             // `duck://<chain>/explorer/<route>`
             cx.for_each(routes, |view, route, _, cx| match route {
                 Ok(route) => view.open_route(&route, cx),
-                Err(refusal) => log(cx, "the route", &refusal),
+                Err(refusal) => cx.host().log_refused("explorer", "the route", &refusal),
             }),
             // an account made, renamed or re-keyed, by anyone: a module's
             // `RegisterModule` included, which no transaction targets
             cx.for_each(identity, |view, head, _, cx| match head {
                 Ok(_) => view.read_accounts(cx),
-                Err(refusal) => log(cx, "identity's live heads", &refusal),
+                Err(refusal) => {
+                    cx.host()
+                        .log_refused("explorer", "identity's live heads", &refusal)
+                }
             }),
             cx.for_each(valset, |view, head, _, cx| match head {
                 Ok(_) => view.read_validators(cx),
-                Err(refusal) => log(cx, "valset's live heads", &refusal),
+                Err(refusal) => cx
+                    .host()
+                    .log_refused("explorer", "valset's live heads", &refusal),
             }),
             cx.for_each(registry, |view, head, _, cx| match head {
                 Ok(_) => view.read_network(cx),
-                Err(refusal) => log(cx, "the registry's live heads", &refusal),
+                Err(refusal) => {
+                    cx.host()
+                        .log_refused("explorer", "the registry's live heads", &refusal)
+                }
             }),
         ];
     }
-}
-
-/// A refusal nothing on screen waits for, kept in the host's log.
-pub(crate) fn log(cx: &mut Context<Explorer>, what: &str, refusal: &Error) {
-    cx.host()
-        .log(format!("explorer: {what} refused: {refusal}"));
 }

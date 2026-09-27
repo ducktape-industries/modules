@@ -66,18 +66,7 @@ pub fn short(raw: &[u8]) -> String {
     short_hex(&abi::hex(raw))
 }
 
-pub use ducktape_view_guest::design::{date, grouped, plural, short_hex};
-
-/// How long before `now` a time in milliseconds was: `2s`, `3m`, `4h`, `5d`.
-pub fn ago(now: u64, then: u64) -> String {
-    let seconds = now.saturating_sub(then) / 1000;
-    match seconds {
-        0..60 => format!("{seconds}s"),
-        60..3_600 => format!("{}m", seconds / 60),
-        3_600..86_400 => format!("{}h", seconds / 3_600),
-        _ => format!("{}d", seconds / 86_400),
-    }
-}
+pub use ducktape_view_guest::design::{ago, date, grouped, plural, short_hex};
 
 /// A signing scheme by its short name: `ed25519`, `p256`.
 pub fn scheme(scheme: abi::Scheme) -> String {

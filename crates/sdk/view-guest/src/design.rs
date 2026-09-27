@@ -479,6 +479,17 @@ pub fn date(millis: u64) -> String {
     )
 }
 
+/// How long before `now` a time in milliseconds was: `2s`, `3m`, `4h`, `5d`.
+pub fn ago(now: u64, then: u64) -> String {
+    let seconds = now.saturating_sub(then) / 1000;
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3_600 => format!("{}m", seconds / 60),
+        3_600..86_400 => format!("{}h", seconds / 3_600),
+        _ => format!("{}d", seconds / 86_400),
+    }
+}
+
 /// `1 block`, `1,200 blocks`.
 pub fn plural(count: u64, one: &str, many: &str) -> String {
     format!("{} {}", grouped(count), if count == 1 { one } else { many })

@@ -9,7 +9,6 @@ use ducktape_view_guest::methods::{
 use ducktape_view_guest::view::Loadable;
 
 use crate::chain::{BlockRow, TxRow};
-use crate::watch::log;
 use crate::{Explorer, PAGE, TICK, WINDOW, decode, queries};
 
 impl Explorer {
@@ -46,7 +45,7 @@ impl Explorer {
         let ticks = cx.host().subscribe::<ClockTicks>(TICK);
         self.polling = Some(cx.for_each(ticks, |view, tick, _, cx| match tick {
             Ok(()) => view.read_head(cx),
-            Err(refusal) => log(cx, "the clock", &refusal),
+            Err(refusal) => cx.host().log_refused("explorer", "the clock", &refusal),
         }));
     }
 
@@ -165,7 +164,7 @@ impl Explorer {
                     Ok(Some(op)) => op,
                     Ok(None) => decode::bytes(&tx.target, &tx.payload),
                     Err(refusal) => {
-                        log(cx, "a description", &refusal);
+                        cx.host().log_refused("explorer", "a description", &refusal);
                         decode::bytes(&tx.target, &tx.payload)
                     }
                 };

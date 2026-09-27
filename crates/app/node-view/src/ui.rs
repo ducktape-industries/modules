@@ -84,10 +84,6 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
             .child(validators(&set.validators, theme))
             .child(section("nodes-members-header", "Memberships", theme))
             .child(members(&set.members, theme))
-            .children(
-                set.more
-                    .then(|| design::more_not_shown("nodes-more", theme)),
-            )
             .into_any_element(),
     }
 }

@@ -4,7 +4,6 @@
 //!
 //! The rows are valset's own types (`queries.rs`), kept as they land and
 //! worded only when drawn (`ui.rs`); valset's live heads re-read them.
-use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::Changes;
 use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Context, IntoElement, Render, Task, View, Window, export_view};
@@ -35,9 +34,13 @@ impl View for Nodes {
 
     fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let heads = cx.host().subscribe::<Changes<Valset>>(());
-        self.followers = vec![cx.for_each(heads, |view, head, _, cx| match head {
-            Ok(_) => view.read(cx),
-            Err(refusal) => log(cx, "valset's live heads", &refusal),
+        self.followers = vec![cx.for_each(heads, |view, head, _, cx| {
+            match head {
+                Ok(_) => view.read(cx),
+                Err(refusal) => cx
+                    .host()
+                    .log_refused("nodes", "valset's live heads", &refusal),
+            }
         })];
         self.read(cx);
     }
@@ -60,11 +63,6 @@ impl Nodes {
         }
         cx.notify();
     }
-}
-
-/// A refusal nothing on screen waits for, kept in the host's log.
-fn log(cx: &mut Context<Nodes>, what: &str, refusal: &Error) {
-    cx.host().log(format!("nodes: {what} refused: {refusal}"));
 }
 
 export_view!(

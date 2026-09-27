@@ -84,8 +84,6 @@ pub(crate) fn hash_of(text: &str) -> Option<[u8; 32]> {
 pub struct Accounts {
     #[serde(with = "borsh_bytes")]
     pub list: Vec<identity::Account>,
-    /// the read stopped at its page budget: more accounts exist
-    pub more: bool,
 }
 
 /// What the registry runs, lists and will change, as it answers them.
@@ -99,8 +97,6 @@ pub struct Network {
     /// what the registry will fold in at later blocks
     #[serde(with = "borsh_bytes")]
     pub changes: Vec<registry::Scheduled>,
-    /// the scheduled read stopped at its page budget: more changes exist
-    pub more: bool,
 }
 
 /// The line under the bar: what a search, a link or a copy came to. Worded

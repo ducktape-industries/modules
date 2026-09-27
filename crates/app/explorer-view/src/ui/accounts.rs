@@ -68,11 +68,6 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
             theme,
         ))
         .children(rows)
-        .children(
-            listed
-                .more
-                .then(|| design::more_not_shown("explorer-accounts-more", theme).px_5()),
-        )
         .into_any_element()
 }
 
