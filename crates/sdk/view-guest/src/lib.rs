@@ -3,13 +3,14 @@ pub use gpui::prelude::FluentBuilder;
 extern crate self as ducktape_view_guest;
 
 pub use gpui::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId,
-    FileDropEvent, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode, Hsla,
-    KeyDownEvent, KeyUpEvent, ListHorizontalSizingBehavior, ListSizingBehavior,
-    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
-    MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, Resource, Role,
-    ScrollStrategy, ScrollWheelEvent, SharedString, StrikethroughStyle, StyleRefinement, Styled,
-    TextRun, TextStyle, UnderlineStyle, WindowControlArea, hsla, px, rems, rgb,
+    Anchor, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId, FileDropEvent,
+    FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode, Hsla,
+    KeyDownEvent, KeyUpEvent, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
+    ListScrollEvent, ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+    MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent,
+    Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
+    StrikethroughStyle, StyleRefinement, Styled, TextRun, TextStyle, UnderlineStyle,
+    WindowControlArea, hsla, px, rems, rgb,
 };
 pub use view_guest_derive::IntoElement;
 pub use view_wire as wire;
@@ -31,7 +32,7 @@ pub use element::{
 pub use interactivity::{
     FocusHandle, InteractiveElement, Interactivity, Stateful, StatefulInteractiveElement,
 };
-pub use list::{FollowMode, List, ListAlignment, ListOffset, ListScrollEvent, ListState, list};
+pub use list::{List, ListState, list};
 pub use primitives::{
     Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img, StyledImage, Svg, Transformation,
     anchored, canvas, deferred, img, svg,

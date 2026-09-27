@@ -7,7 +7,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-pub use gpui::{FollowMode, ListAlignment, ListOffset, ListScrollEvent, ListSizingBehavior};
+use gpui::{FollowMode, ListAlignment, ListOffset, ListScrollEvent, ListSizingBehavior};
 type ScrollHandler = dyn FnMut(&ListScrollEvent, &mut Window, &mut App) + 'static;
 type ItemRenderer = Box<dyn FnMut(usize, &mut Window, &mut App) -> AnyElement>;
 
