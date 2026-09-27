@@ -366,17 +366,11 @@ mod tests {
         }
         let reply = NUMBERS.range(&ctx, &PageRequest::first(2), 3).unwrap();
         assert_eq!((reply.items.len(), reply.height), (2, 3));
-        let page = PageRequest {
-            after: reply.next,
-            limit: Some(2),
-        };
+        let page = PageRequest::resume(reply.next, 2);
         let reply = NUMBERS.range(&ctx, &page, 3).unwrap();
         assert_eq!(reply.items[0].0, 2);
         assert!(reply.next.is_some());
-        let page = PageRequest {
-            after: reply.next,
-            limit: Some(2),
-        };
+        let page = PageRequest::resume(reply.next, 2);
         assert_eq!(NUMBERS.range(&ctx, &page, 3).unwrap().next, None);
     }
 }

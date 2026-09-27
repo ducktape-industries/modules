@@ -125,10 +125,7 @@ fn memberships_page_in_key_order_at_the_answering_height() {
     let Reply::Memberships(rest) = ask(
         &store,
         Query::Memberships {
-            page: PageRequest {
-                after: first.next,
-                limit: Some(2),
-            },
+            page: PageRequest::resume(first.next, 2),
         },
     ) else {
         panic!()
