@@ -7,7 +7,6 @@ use std::ops::Range;
 
 type ClickListener = Box<dyn Fn(usize, &mut Window, &mut App)>;
 type HoverListener = Box<dyn Fn(Option<usize>, MouseMoveEvent, &mut Window, &mut App)>;
-type TooltipBuilder = Box<dyn Fn(usize, &mut Window, &mut App) -> Option<crate::AnyView>>;
 
 pub struct StyledText {
     text: SharedString,
@@ -143,7 +142,7 @@ pub struct InteractiveText {
     clickable_ranges: Vec<Range<usize>>,
     on_click: Option<ClickListener>,
     on_hover: Option<HoverListener>,
-    tooltip: Option<TooltipBuilder>,
+    tooltip: Option<crate::slots::RichTextTooltipBuilder>,
 }
 
 impl InteractiveText {
