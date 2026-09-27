@@ -399,7 +399,21 @@ fn a_merge_lands_its_change_once_and_only_over_the_heads_it_read() {
 
     // The feature moves on; its change is merged already.
     let main = refs_of(&rig.sandbox, REPO)["refs/heads/main"].clone();
+    let merged = story.feature.clone();
     let tip = story.push_follow_up(&mut rig, "later.txt", b"later\n");
     let again = merge_over(&main, &tip);
     assert_eq!(rig.refused(&again).code, code::WRONG_STATE);
+    // ...and still reads the two heads it merged, not the moved refs
+    let Reply::Change {
+        source_head,
+        target_head,
+        ..
+    } = reply(&rig, &crate::change(n))
+    else {
+        panic!()
+    };
+    assert_eq!(
+        (source_head.as_deref(), target_head.as_deref()),
+        (Some(merged.as_str()), Some(story.root.as_str()))
+    );
 }

@@ -45,18 +45,24 @@ impl Forge {
         self.session.connected && self.me_principal().is_some()
     }
 
-    /// Whether a list on this screen stopped at its page budget: a read
-    /// with a cursor left over, or a change's conversation cut short.
-    pub(crate) fn cut_short(&self) -> bool {
-        let reads = self.data.values().any(|loaded| match loaded {
-            Loadable::Ready(reply) => crate::queries::cut_short(reply),
-            _ => false,
-        });
-        let talk = self
-            .messages
-            .values()
-            .any(|loaded| matches!(loaded, Loadable::Ready((_, true))));
-        reads || talk
+    /// Whether the reader may push, merge and close in the open repository:
+    /// its owner or a writer, as forge's `require_writer` checks.
+    // ponytail: reads the writers' first page only; a reader granted past it
+    // sees Merge and Close off until the page walks further
+    pub(crate) fn writes_repo(&self) -> bool {
+        let (Some(me), Some((info, _, writers))) = (self.me_principal(), self.repo()) else {
+            return false;
+        };
+        self.may_write() && (info.repo.owner == me || writers.items.contains(&me))
+    }
+
+    /// Whether the reader owns the open repository: only the owner changes
+    /// its settings and writers.
+    pub(crate) fn owns_repo(&self) -> bool {
+        let (Some(me), Some((info, _, _))) = (self.me_principal(), self.repo()) else {
+            return false;
+        };
+        self.may_write() && info.repo.owner == me
     }
 
     pub(crate) fn stage(&self, query: &Query) -> Stage<'_> {
@@ -166,6 +172,7 @@ impl Forge {
         let log = self.ready(&Query::Log {
             repo: self.repo_name(),
             from: self.revision(),
+            exclude: None,
             page: PAGE,
         })?;
         let Reply::Log { page, .. } = log else {
@@ -200,12 +207,25 @@ impl Forge {
         }
     }
 
-    pub(crate) fn compare_query(&self) -> Option<Query> {
+    /// What the open change compares: its source and target, or, once
+    /// merged, the two heads the merge joined (the refs move on after).
+    pub(crate) fn endpoints(&self) -> Option<(Revision, Revision)> {
         let (change, _, _, _) = self.change()?;
+        Some(match &change.merged_heads {
+            Some(heads) => (
+                Revision::Oid(heads.source.clone()),
+                Revision::Oid(heads.target.clone()),
+            ),
+            None => (change.from.clone(), Revision::Ref(change.into.clone())),
+        })
+    }
+
+    pub(crate) fn compare_query(&self) -> Option<Query> {
+        let (from, into) = self.endpoints()?;
         Some(Query::Compare {
             repo: self.nav.repo.clone()?,
-            from: change.from.clone(),
-            into: Revision::Ref(change.into.clone()),
+            from,
+            into,
         })
     }
 
@@ -250,6 +270,12 @@ impl Forge {
     pub(crate) fn review(&self) -> Option<&state::ReviewSession> {
         self.reviews
             .get(&change_key(self.nav.repo.as_deref()?, self.nav.change?))
+    }
+
+    /// The open change's review being written, to edit.
+    pub(crate) fn review_mut(&mut self) -> Option<&mut state::ReviewSession> {
+        let key = change_key(self.nav.repo.as_deref()?, self.nav.change?);
+        self.reviews.get_mut(&key)
     }
 
     pub(crate) fn pending_in(&self, scope: &str) -> Vec<&state::Pending> {

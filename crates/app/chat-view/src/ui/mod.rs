@@ -13,7 +13,7 @@ use ducktape_view_guest::design;
 pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, quiet};
 use ducktape_view_guest::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Styled, Theme,
-    div, hsla, modal_overlay, sensor,
+    Window, div, hsla, modal_overlay, sensor,
 };
 
 use crate::Chat;
@@ -44,20 +44,22 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
         .into_any_element();
     let screen = with_menu(chat, screen, cx, &theme);
     let screen = with_create(chat, screen, cx, &theme);
-    let measured = cx.listener(|chat, size: &(Pixels, Pixels), _window, cx| {
-        chat.layout.viewport = (size.0.into(), size.1.into());
-        chat.layout.clamp();
-        cx.notify();
-    });
-    let resized = cx.listener(|chat, size: &(Pixels, Pixels), _window, cx| {
-        chat.layout.viewport = (size.0.into(), size.1.into());
-        chat.layout.clamp();
-        cx.notify();
-    });
     sensor("chat-viewport", screen)
         .size_full()
-        .on_show(measured)
-        .on_resize(resized)
+        .on_show(cx.listener(viewport))
+        .on_resize(cx.listener(viewport))
+}
+
+/// The window's size, measured or resized: the panes clamp to it.
+fn viewport(
+    chat: &mut Chat,
+    size: &(Pixels, Pixels),
+    _window: &mut Window,
+    cx: &mut Context<Chat>,
+) {
+    chat.layout.viewport = (size.0.into(), size.1.into());
+    chat.layout.clamp();
+    cx.notify();
 }
 
 /// The screen under the open message menu, if any.
@@ -121,8 +123,9 @@ fn with_create(
 }
 
 fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
-    let mut panes = div()
+    let panes = div()
         .id("chat-panes")
+        .relative()
         .flex()
         .size_full()
         .child(sidebar::render(chat, cx, theme))
@@ -136,30 +139,26 @@ fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEle
             },
         ))
         .child(room::render(chat, cx, theme));
-    if chat.details.is_some() && chat.room.is_some() {
-        panes = panes
-            .child(design::divider(
-                "chat-details-resize",
-                theme,
-                cx,
-                |chat, dx| {
-                    chat.layout.details -= dx;
-                    chat.layout.clamp();
-                },
-            ))
-            .child(side::details(chat, cx, theme));
-    } else if chat.room.as_ref().is_some_and(|room| room.thread.is_some()) {
-        panes = panes
-            .child(design::divider(
-                "chat-thread-resize",
-                theme,
-                cx,
-                |chat, dx| {
-                    chat.layout.thread -= dx;
-                    chat.layout.clamp();
-                },
-            ))
-            .child(side::thread(chat, cx, theme));
+    let details = chat.details.is_some() && chat.room.is_some();
+    let thread = chat.room.as_ref().is_some_and(|room| room.thread.is_some());
+    let (pane, width) = match (details, thread) {
+        (true, _) => (side::details(chat, cx, theme), chat.layout.details),
+        (false, true) => (side::thread(chat, cx, theme), chat.layout.thread),
+        (false, false) => return panes,
+    };
+    // too narrow for the room beside it: the pane covers the whole screen
+    if !chat.layout.docks(width) {
+        return panes.child(design::over("chat-side-over", pane, theme));
     }
-    panes
+    let divider = match details {
+        true => design::divider("chat-details-resize", theme, cx, |chat, dx| {
+            chat.layout.details -= dx;
+            chat.layout.clamp();
+        }),
+        false => design::divider("chat-thread-resize", theme, cx, |chat, dx| {
+            chat.layout.thread -= dx;
+            chat.layout.clamp();
+        }),
+    };
+    panes.child(divider).child(pane)
 }

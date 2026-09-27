@@ -6,7 +6,7 @@
 //! into the lists — the next query reconciles them.
 use ducktape_view_guest::methods::HostId;
 use ducktape_view_guest::view::Submit;
-use ducktape_view_guest::{Context, Window};
+use ducktape_view_guest::{Context, Editor, Window};
 
 use crate::api::{ChatApi, SubmitForge};
 use crate::state::{ChangeForm, Forge, NewRepo, Pending, Progress, change_key};
@@ -43,6 +43,9 @@ impl Forge {
     pub(crate) fn submit(&mut self, op: Op, scope: String, label: &str, cx: &mut Context<Self>) {
         self.next_pending += 1;
         let id = self.next_pending;
+        // a landed review is done: its session goes, or it stays pinned at
+        // the old head and Finish would send it again
+        let review = matches!(op, Op::ReviewSubmit { .. }).then(|| scope.clone());
         self.pending.push(Pending {
             id,
             scope,
@@ -61,6 +64,9 @@ impl Forge {
                 match result {
                     Ok(_) => {
                         op.progress = Progress::Accepted;
+                        if let Some(key) = &review {
+                            forge.reviews.remove(key);
+                        }
                         forge.refresh(cx);
                     }
                     Err(refusal) => op.progress = Progress::Refused(refusal.message),
@@ -132,7 +138,7 @@ impl Forge {
             },
             into: change.into.clone(),
             title: change.title.clone(),
-            body: change.body.clone(),
+            body: Editor::new(change.body.clone()),
             reviewers: change.reviewers.clone(),
             error: String::new(),
         });
@@ -160,7 +166,7 @@ impl Forge {
                     repo: repo.clone(),
                     n,
                     title: Some(form.title.clone()),
-                    body: Some(form.body.clone()),
+                    body: Some(form.body.text()),
                     reviewers: Some(form.reviewers.clone()),
                 },
                 "Saving the change".to_owned(),
@@ -172,7 +178,7 @@ impl Forge {
                     from: Revision::Ref(form.from.clone()),
                     into: form.into.clone(),
                     title: form.title.clone(),
-                    body: form.body.clone(),
+                    body: form.body.text(),
                     reviewers: form.reviewers.clone(),
                 },
                 format!("Opening “{}”", form.title.trim()),
@@ -182,10 +188,17 @@ impl Forge {
         self.submit(op, scope, &label, cx);
     }
 
+    /// Closes the open change on the second press: the first only asks.
     pub(crate) fn close_change(&mut self, cx: &mut Context<Self>) {
         let (Some(repo), Some(n)) = (self.nav().repo.clone(), self.nav().change) else {
             return;
         };
+        let key = change_key(&repo, n);
+        if self.closing.take() != Some(key.clone()) {
+            self.closing = Some(key);
+            cx.notify();
+            return;
+        }
         self.submit(
             Op::ChangeClose {
                 repo: repo.clone(),
@@ -310,7 +323,7 @@ impl Forge {
     /// A reply in the change's hidden channel. Chat owns every reply; forge
     /// owns only the change's own body.
     pub(crate) fn post_reply(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.reply.trim().to_owned();
+        let text = self.reply.state_view().text.trim().to_owned();
         if text.is_empty() {
             return;
         }
@@ -318,7 +331,8 @@ impl Forge {
             return;
         };
         let channel = change.channel.clone();
-        self.reply.clear();
+        self.reply
+            .replace(Editor::default(), self.reply.reset_revision());
         cx.notify();
         cx.spawn(async move |this, cx| {
             let host = cx.host();

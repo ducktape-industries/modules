@@ -63,7 +63,8 @@ pub(crate) fn open(
         merge_oid: None,
         closed_by: None,
         merged_by: None,
-        channel: format!("forge:{repo}:{n}"),
+        merged_heads: None,
+        channel: crate::state::channel_id(repo, n),
         system_seq: 1,
     };
     fits(ctx, &change)?;
@@ -242,6 +243,10 @@ pub(crate) fn merge_heads(
         change.state = ChangeState::Merged;
         change.merge_oid = Some(result.to_hex());
         change.merged_by = Some(actor.clone());
+        change.merged_heads = Some(MergedHeads {
+            source: expected_from.to_hex(),
+            target: expected_into.to_hex(),
+        });
         touched(&mut change, env);
         change.system_seq = next(change.system_seq)?;
         fits(ctx, &change)?;

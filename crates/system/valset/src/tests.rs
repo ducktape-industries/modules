@@ -143,25 +143,27 @@ fn memberships_page_in_key_order_at_the_answering_height() {
 }
 
 #[test]
-fn the_host_contract_is_a_prefix_of_the_program_contract() {
-    assert_eq!(
-        abi::encode(&abi::role::validators::Query::Validators),
-        abi::encode(&super::Query::Validators)
+fn role_asks_the_program_bound_to_the_validators_role() {
+    let store = founded();
+    let valset = store.clone();
+    store.borrow_mut().siblings.insert(
+        "third-party-valset".into(),
+        Box::new(move |request| {
+            let reply = Valset::query(
+                &valset.query(env(Origin::Root)),
+                abi::decode(request).unwrap(),
+            )?;
+            Ok(abi::encode(&reply))
+        }),
     );
-    assert_eq!(
-        abi::encode(&abi::role::validators::Query::Members),
-        abi::encode(&super::Query::Members)
-    );
-    let member = abi::role::validators::Member {
-        key: vec![1],
-        address: "a".into(),
+    let mut bound = env(Origin::Root);
+    bound.roles = guest::Roles {
+        validators: "third-party-valset".into(),
+        ..MockHost::roles()
     };
+    // nothing answers at the literal name: only the binding reaches valset
     assert_eq!(
-        abi::encode(&abi::role::validators::Reply::Validators(vec![vec![1]])),
-        abi::encode(&super::Reply::Validators(vec![vec![1]]))
-    );
-    assert_eq!(
-        abi::encode(&abi::role::validators::Reply::Members(vec![member.clone()])),
-        abi::encode(&super::Reply::Members(vec![member]))
+        crate::role(&store.query(bound), &key(1)).unwrap(),
+        Some(Role::Validator)
     );
 }

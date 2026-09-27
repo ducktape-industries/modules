@@ -44,12 +44,22 @@ pub fn channel_create(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Opt
                 .child("Channel name"),
         )
         .child(name_field(create, can_submit, cx, theme))
-        .children(toggles(create, cx, theme))
         .children(notes(chat, create, theme))
-        .child(design::button("chat-create-cancel", "Cancel", theme, cancel).enabled(!busy))
+        // one row, as the other views' dialogs: the option, then Cancel
+        // beside the primary action
         .child(
-            design::button("chat-create-submit", "Create channel", theme, submit)
-                .enabled(can_submit),
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_2()
+                .child(members_only(create, cx, theme))
+                .child(div().flex_1())
+                .child(design::button("chat-create-cancel", "Cancel", theme, cancel).enabled(!busy))
+                .child(
+                    design::button("chat-create-submit", "Create channel", theme, submit)
+                        .kind(design::Kind::Primary)
+                        .enabled(can_submit),
+                ),
         );
     Some(card.into_any_element())
 }
@@ -88,38 +98,18 @@ fn name_field(
     }
 }
 
-/// Voice room, and members only (which a voice room never is).
-fn toggles(create: &ChannelCreate, cx: &mut Context<Chat>, theme: &Theme) -> [AnyElement; 2] {
-    let voice = cx.listener(|chat, _: &ClickEvent, _window, cx| {
+/// Members only, a toggle: on, posting takes a seat.
+fn members_only(create: &ChannelCreate, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+    let toggle = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         if let Some(create) = &mut chat.create {
-            create.voice = !create.voice;
-        }
-        cx.notify();
-    });
-    let members = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        if let Some(create) = &mut chat.create
-            && !create.voice
-        {
             create.members_only = !create.members_only;
         }
         cx.notify();
     });
-    let voice_label = match create.voice {
-        true => "Voice room: On",
-        false => "Voice room: Off",
-    };
-    let members_label = match create.members_only {
-        true => "Members only: On",
-        false => "Members only: Off",
-    };
-    [
-        design::button("chat-create-voice", voice_label, theme, voice)
-            .enabled(!create.busy)
-            .into_any_element(),
-        design::button("chat-create-members", members_label, theme, members)
-            .enabled(!create.busy && !create.voice)
-            .into_any_element(),
-    ]
+    design::button("chat-create-members", "Members only", theme, toggle)
+        .selected(create.members_only)
+        .enabled(!create.busy)
+        .into_any_element()
 }
 
 /// Why the dialog failed, and why it cannot create at all.

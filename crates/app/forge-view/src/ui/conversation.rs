@@ -1,5 +1,6 @@
 //! A change's conversation: its body, its reviews, and the replies in
 //! chat's hidden channel beneath them, with a composer at the end.
+use ducktape_view_guest::EditorElement;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 
@@ -38,9 +39,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     // Until chat answers, the reviews stand on their own; once it has, each
     // sits in the timeline where forge posted its line.
     let placed = |review: &forge::Review| match forge.messages.get(&change.channel) {
-        Some(Loadable::Ready((rows, _))) => {
-            rows.iter().any(|row| row.message_id == review.message_id)
-        }
+        Some(Loadable::Ready(rows)) => rows.iter().any(|row| row.message_id == review.message_id),
         _ => false,
     };
     for review in reviews.items.iter().filter(|review| !placed(review)) {
@@ -202,10 +201,14 @@ fn forge_line(
     }
 }
 
-/// forge's own line: written by the account identity names forge's.
+/// forge's own line: written in its room by the account identity names
+/// forge's ([`chat::program_author`]).
 fn is_forge(forge: &Forge, row: &chat::MsgRow) -> bool {
-    let names = forge.names.ready();
-    names.and_then(|names| names.module(&row.author)) == Some(forge::MODULE)
+    let module = forge
+        .names
+        .ready()
+        .and_then(|names| names.module(&row.author));
+    chat::program_author(row, module) == Some(forge::MODULE)
 }
 
 /// The hidden chat channel of this change, in chat's row shape.
@@ -227,14 +230,14 @@ fn messages(forge: &Forge, theme: &Theme) -> AnyElement {
             .text_size(design::text::SECONDARY)
             .child(refusal.message.clone())
             .into_any_element(),
-        Some(Loadable::Ready((rows, _))) if rows.is_empty() => empty_state(
+        Some(Loadable::Ready(rows)) if rows.is_empty() => empty_state(
             id("forge-conversation-empty"),
             "No replies yet",
             "This change's channel is quiet.",
             theme,
         )
         .into_any_element(),
-        Some(Loadable::Ready((rows, _))) => {
+        Some(Loadable::Ready(rows)) => {
             let opened = rows
                 .iter()
                 .find(|row| is_forge(forge, row))
@@ -282,10 +285,6 @@ fn messages(forge: &Forge, theme: &Theme) -> AnyElement {
 }
 
 fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let typed = cx.listener(|forge, text: &String, _, cx| {
-        forge.reply = text.clone();
-        cx.notify();
-    });
     let send = cx.listener(|forge, _: &ClickEvent, window, cx| forge.post_reply(window, cx));
     div()
         .id(id("forge-composer"))
@@ -293,23 +292,26 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
         .gap_2()
         .items_center()
         .child(
-            Input::new(id("forge-reply"))
-                .h(design::size::CONTROL)
-                .flex_1()
-                .px_2()
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.surface)
-                .text_color(theme.foreground)
-                .value(forge.reply.clone())
-                .placeholder("Reply in this change")
-                .label("Reply")
-                .on_input(typed),
+            EditorElement::plain(
+                id("forge-reply"),
+                &forge.reply,
+                "forge-reply",
+                |forge: &mut Forge| Some(&mut forge.reply),
+            )
+            .min_h(design::size::CONTROL * 2.)
+            .flex_1()
+            .px_2()
+            .border_1()
+            .border_color(theme.border_strong)
+            .bg(theme.surface)
+            .text_color(theme.foreground)
+            .placeholder("Reply in this change")
+            .label("Reply"),
         )
         .child(
             button(id("forge-reply-send"), "Send", theme, send)
                 .kind(design::Kind::Primary)
-                .enabled(forge.may_write() && !forge.reply.trim().is_empty()),
+                .enabled(forge.may_write() && !forge.reply.state_view().text.trim().is_empty()),
         )
         .into_any_element()
 }

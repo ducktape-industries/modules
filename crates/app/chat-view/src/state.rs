@@ -15,8 +15,6 @@ pub struct Chat {
     #[serde(skip)]
     pub(crate) names: Loadable<Names>,
     pub(crate) channels: Loadable<Vec<ChannelInfo>>,
-    /// the channel read stopped at its page budget: more rooms exist
-    pub(crate) channels_more: bool,
     pub(crate) room: Option<Room>,
     pub(crate) drafts: BTreeMap<String, Draft>,
     /// the banner over the room: the last refusal, until the reader moves on
@@ -120,7 +118,6 @@ pub struct Hits {
 #[derive(Serialize, Deserialize, Default)]
 pub struct ChannelCreate {
     pub(crate) name: String,
-    pub(crate) voice: bool,
     pub(crate) members_only: bool,
     pub(crate) error: String,
     #[serde(skip)]
@@ -174,6 +171,12 @@ impl Layout {
         self.details = self.details.clamp(lo, side.clamp(lo, hi));
         let (lo, hi) = THREAD_W;
         self.thread = self.thread.clamp(lo, side.clamp(lo, hi));
+    }
+
+    /// Whether a side pane `side` wide fits beside the sidebar and the
+    /// room's narrowest; else it floats over the room.
+    pub(crate) fn docks(&self, side: f32) -> bool {
+        ducktape_view_guest::design::docks(self.viewport.0, self.sidebar + ROOM_KEEPS_W, side)
     }
 }
 

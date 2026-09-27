@@ -48,7 +48,8 @@ pub enum Outcome<V> {
 }
 
 pub type Handle<V> = Rc<dyn Fn(&mut V, Event<V>, &mut Window, &mut Context<V>)>;
-type Click = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+/// A press on a composer control.
+pub type Click = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 impl Draft {
     pub fn handle<V: 'static>(
@@ -229,6 +230,9 @@ pub fn view<V: View + 'static>(
     // what the commit button says: "Send" for a new message, "Save" for an
     // edit; the composer does not guess from the draft
     commit: &str,
+    // a way out beside the commit, as an edit's Cancel beside its Save;
+    // `None` for a composer that stays open
+    cancel: Option<Click>,
     editable: bool,
     choices: &[MentionChoice],
     cx: &mut Context<V>,
@@ -330,7 +334,16 @@ pub fn view<V: View + 'static>(
         });
     }
     let sendable = editable && draft.can_send(draft.editor.state_view().text);
-    toolbar = toolbar.child(div().flex_1()).child(ActionButton {
+    toolbar = toolbar.child(div().flex_1());
+    if let Some(cancel) = cancel {
+        toolbar = toolbar.child(ActionButton {
+            id: ElementId::Name(format!("{key}/cancel").into()),
+            label: "Cancel".into(),
+            primary: false,
+            on_click: Some(cancel),
+        });
+    }
+    toolbar = toolbar.child(ActionButton {
         id: ElementId::Name(format!("{key}/send").into()),
         label: commit.to_owned().into(),
         primary: true,

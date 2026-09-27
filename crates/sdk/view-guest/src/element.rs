@@ -220,7 +220,10 @@ impl Element for Div {
                 .cloned()
                 .expect("identified div must lower inside its authored scope")
         });
-        let style = interactivity.base_style.clone();
+        let mut style = interactivity.base_style.clone();
+        if id.is_some() {
+            bar_gutter(&mut style);
+        }
         let (_, wire_interactivity) = interactivity.into_wire(lowering);
         let children = children
             .into_iter()
@@ -232,6 +235,22 @@ impl Element for Div {
             interactivity: wire_interactivity,
             children,
         })
+    }
+}
+
+/// A scroller the host gives a vertical bar (one with an id) keeps its
+/// right edge for that bar: the bar paints over the scroller, so content
+/// inset less than its width would sit under it.
+fn bar_gutter(style: &mut StyleRefinement) {
+    use gpui::{AbsoluteLength, DefiniteLength};
+    if style.overflow.y != Some(Overflow::Scroll) {
+        return;
+    }
+    let bar = crate::design::size::SCROLLBAR;
+    let right = &mut style.padding.right;
+    match right {
+        Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(inset))) if *inset >= bar => {}
+        _ => *right = Some(bar.into()),
     }
 }
 
@@ -442,3 +461,36 @@ mod tests;
 
 #[cfg(test)]
 mod ancestry_tests;
+
+#[cfg(test)]
+mod bar_gutter_tests {
+    use super::*;
+    use crate::prelude::*;
+    use gpui::px;
+
+    #[test]
+    fn a_scroller_keeps_its_right_edge_for_the_bar() {
+        let bar = crate::design::size::SCROLLBAR;
+        let mut inset = crate::div().id("s").overflow_y_scroll().p(px(8.));
+        let mut style = inset.style().clone();
+        bar_gutter(&mut style);
+        assert_eq!(style.padding.right, Some(bar.into()));
+        assert_eq!(
+            style.padding.left,
+            Some(px(8.).into()),
+            "only the bar's edge"
+        );
+        let mut wide = crate::div().id("s").overflow_y_scroll().pr(px(24.));
+        let mut style = wide.style().clone();
+        bar_gutter(&mut style);
+        assert_eq!(style.padding.right, Some(px(24.).into()));
+        let mut still = crate::div().p(px(8.));
+        let mut style = still.style().clone();
+        bar_gutter(&mut style);
+        assert_eq!(
+            style.padding.right,
+            Some(px(8.).into()),
+            "no scroll, no bar"
+        );
+    }
+}

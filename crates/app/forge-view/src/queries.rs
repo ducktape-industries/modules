@@ -1,26 +1,23 @@
 //! Typed reads. Every forge list is cursored, so one read follows `next`
-//! until the program stops offering one (or the page budget runs out) and
-//! hands the screen a single reply. A typed refusal becomes an `Error`, so
+//! until the program stops offering one and hands the screen a single
+//! reply. A typed refusal becomes an `Error`, so
 //! the four states of a `Loadable` slot stay honest.
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, pages, wrong_reply};
-use ducktape_view_guest::methods::Query as Ask;
+use ducktape_view_guest::host::{Error, pages};
 
-use crate::api::{Ask as Forge, ChatApi};
+use crate::api::Ask as Forge;
 use forge::{PageRequest, PageResponse, Query, Reply};
 
 /// What one page asks for: 64 rows, from the start. A limit above the
 /// program's `Bounds.page_size` is clamped to it.
-pub(crate) const PAGE: PageRequest = PageRequest::first(64);
-/// How many pages one read follows. A history longer than this shows what
-/// it read and says more follows, rather than walking a repository forever.
-const MAX_PAGES: usize = 16;
+pub(crate) const PAGE: PageRequest = PageRequest::first(PER_PAGE);
+const PER_PAGE: u64 = 64;
 
 /// One read of forge, `next` followed: the pages after the first fold into
 /// it.
 pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
     let mut reply = host.ask::<Forge>(query.clone()).await?;
-    let (more, _) = pages(next_cursor(&reply).cloned(), MAX_PAGES - 1, |after| {
+    let more = pages(next_cursor(&reply).cloned(), |after| {
         let ask = after
             .and_then(|after| with_cursor(&query, after))
             .map(|query| host.ask::<Forge>(query));
@@ -38,13 +35,6 @@ pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
         extend(&mut reply, page);
     }
     Ok(reply)
-}
-
-/// Whether a folded read stopped at the page budget with more to read:
-/// [`fetch`] follows every cursor it can, so one left over means exactly
-/// that.
-pub(crate) fn cut_short(reply: &Reply) -> bool {
-    next_cursor(reply).is_some()
 }
 
 fn next_cursor(reply: &Reply) -> Option<&Vec<u8>> {
@@ -91,27 +81,12 @@ fn extend(into: &mut Reply, more: Reply) {
     }
 }
 
-/// A change's hidden channel, oldest first, and whether more follow past
-/// the page budget.
+/// A change's hidden channel, oldest first.
 pub(crate) async fn conversation(
     host: Host,
     channel_id: String,
     viewer: Vec<forge::Principal>,
-) -> Result<(Vec<chat::MsgRow>, bool), Error> {
-    let (mut all, next) = pages(None, MAX_PAGES, |after| {
-        let ask = host.ask::<Ask<ChatApi>>(chat::Query::Roots {
-            channel_id: channel_id.clone(),
-            viewer: viewer.clone(),
-            page: PageRequest { after, ..PAGE },
-        });
-        async move {
-            match ask.await? {
-                chat::Reply::Roots(roots) => Ok((roots.items, roots.next)),
-                _ => Err(wrong_reply()),
-            }
-        }
-    })
-    .await?;
-    all.sort_by_key(|row: &chat::MsgRow| row.seq);
-    Ok((all, next.is_some()))
+) -> Result<Vec<chat::MsgRow>, Error> {
+    let (rows, _) = chat::view::roots(host, channel_id, viewer, None, usize::MAX, PER_PAGE).await?;
+    Ok(rows)
 }

@@ -2,7 +2,7 @@
 //! Conversation is chat's hidden channel; Files is the reviewer's home.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use ducktape_view_guest::{Div, Editor, EditorElement, Stateful};
 
 use crate::Forge;
 use crate::state::{ChangeTab, Dock, verdict_label};
@@ -45,13 +45,16 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     }
     let body: AnyElement = match forge.nav().change_tab {
         ChangeTab::Conversation => crate::ui::conversation::render(forge, cx, theme),
-        ChangeTab::Commits => commits::log(
-            forge,
-            &commits::query(forge, change.from.clone()),
-            "forge-change-log",
-            cx,
-            theme,
-        ),
+        ChangeTab::Commits => match forge.endpoints() {
+            Some((from, into)) => commits::log(
+                forge,
+                &commits::query(forge, from, Some(into)),
+                "forge-change-log",
+                cx,
+                theme,
+            ),
+            None => div().into_any_element(),
+        },
         ChangeTab::Files => files(forge, cx, theme),
     };
     column.child(body).into_any_element()
@@ -80,6 +83,15 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
             cx,
             theme,
         ));
+    if closing(forge, change) {
+        column = column.child(
+            div()
+                .id(id("forge-close-warning"))
+                .text_size(design::text::SECONDARY)
+                .text_color(theme.muted)
+                .child("Closing is final: a closed change cannot be reopened."),
+        );
+    }
     if let Some(blocked) = blocked {
         column = column.child(
             div()
@@ -90,6 +102,11 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         );
     }
     column.child(tabs(forge, cx, theme)).into_any_element()
+}
+
+/// Whether this change's Close waits for its second press.
+fn closing(forge: &Forge, change: &Change) -> bool {
+    forge.closing == Some(crate::state::change_key(&forge.repo_name(), change.n))
 }
 
 /// The change's number, title, state, endpoints and author, and what an
@@ -109,9 +126,11 @@ fn title_line(
     let author = forge.principal_name(&change.author);
     let open = change.state == ChangeState::Open;
     let mine = forge.me_principal().as_ref() == Some(&change.author);
+    let closing = closing(forge, change);
     let mut top = div()
         .id(id("forge-change-head"))
         .flex()
+        .flex_wrap()
         .items_center()
         .gap_2()
         .child(button(id("forge-change-back"), "← Changes", theme, back))
@@ -139,12 +158,18 @@ fn title_line(
         top = top
             .child(button(id("forge-edit-change"), "Edit", theme, edit).enabled(mine))
             .child(
-                button(id("forge-close-change"), "Close", theme, close).enabled(forge.may_write()),
+                button(
+                    id("forge-close-change"),
+                    if closing { "Close for good" } else { "Close" },
+                    theme,
+                    close,
+                )
+                .enabled(forge.writes_repo()),
             )
             .child(
                 button(id("forge-merge"), "Merge", theme, merge)
                     .kind(design::Kind::Primary)
-                    .enabled(mergeable && forge.may_write()),
+                    .enabled(mergeable && forge.writes_repo()),
             );
     }
     top
@@ -387,27 +412,34 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
     if !review.finishing {
         return bar.into_any_element();
     }
-    bar.child(review_body(&review.body, cx, theme))
+    // a document per change: the host keeps a document by its name, and
+    // one name across changes would carry one change's body into another's
+    let document = format!(
+        "forge-review-body-{}",
+        forge.review_key().unwrap_or_default()
+    );
+    bar.child(review_body(&review.body, document, theme))
         .child(verdict_buttons(forge, cx, theme))
         .into_any_element()
 }
 
 /// What the review says overall, typed while finishing.
-fn review_body(body: &str, cx: &mut Context<Forge>, theme: &Theme) -> Input {
-    let typed =
-        cx.listener(|forge, text: &String, _, cx| forge.typed_review_body(text.clone(), cx));
-    Input::new(id("forge-review-body"))
-        .h(design::size::CONTROL)
-        .w_full()
-        .px_2()
-        .border_1()
-        .border_color(theme.border_strong)
-        .bg(theme.background)
-        .text_color(theme.foreground)
-        .value(body.to_owned())
-        .placeholder("What this review says overall")
-        .label("Review body")
-        .on_input(typed)
+fn review_body(body: &Editor, document: String, theme: &Theme) -> impl IntoElement + use<> {
+    EditorElement::plain(
+        id("forge-review-body"),
+        body,
+        document,
+        |forge: &mut Forge| forge.review_mut().map(|review| &mut review.body),
+    )
+    .min_h(design::size::CONTROL * 3.)
+    .w_full()
+    .px_2()
+    .border_1()
+    .border_color(theme.border_strong)
+    .bg(theme.background)
+    .text_color(theme.foreground)
+    .placeholder("What this review says overall")
+    .label("Review body")
 }
 
 /// One button per verdict; pressing one submits the review.

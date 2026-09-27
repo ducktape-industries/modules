@@ -30,6 +30,9 @@ pub mod size {
     pub const AVATAR_SM: Pixels = px(::design::height::AVATAR_SM as f32);
     pub const AVATAR: Pixels = px(::design::height::AVATAR as f32);
     pub const AVATAR_LG: Pixels = px(::design::height::AVATAR_LG as f32);
+    /// The host's vertical scroll bar, its hover width and insets: a
+    /// scroller keeps this much of its right edge clear.
+    pub const SCROLLBAR: Pixels = px(16.);
 }
 
 /// [`spacing`] as gaps and insets an element takes.
@@ -115,17 +118,6 @@ pub fn quiet(text: impl Into<SharedString>, theme: &Theme) -> Div {
         .text_size(text::SECONDARY)
         .text_color(theme.muted)
         .child(text.into())
-}
-
-/// Under a list whose read stopped at its page budget with more still to
-/// read: says the list goes on past what is shown, rather than letting a
-/// cut list pass for the whole of it.
-pub fn more_not_shown(id: impl Into<ElementId>, theme: &Theme) -> Stateful<Div> {
-    div()
-        .id(id)
-        .text_size(text::CAPTION)
-        .text_color(theme.muted)
-        .child("This list goes on past what is shown here.")
 }
 
 /// A heading: the title size at level 1, the section size under it.
@@ -343,6 +335,32 @@ pub fn divider<V: crate::View>(
     crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border)).on_drag(dragged)
 }
 
+/// Whether a side pane `side` wide fits in `width` beside what the screen
+/// `keeps` (its list and its body's narrowest). When it does not, the pane
+/// floats over the body ([`over`]) and the body keeps its whole width.
+pub fn docks(width: f32, keeps: f32, side: f32) -> bool {
+    width >= keeps + side
+}
+
+/// A side pane that does not [`docks`]: it covers the whole of its
+/// `relative` parent, list and body alike, at the pane's own width no
+/// more, so nothing underneath stays half in view; a click on it stops
+/// there. The pane carries its own close control.
+pub fn over(
+    id: impl Into<ElementId>,
+    pane: impl IntoElement + Styled,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .absolute()
+        .inset_0()
+        .flex()
+        .bg(theme.background)
+        .occlude()
+        .child(pane.w_full().h_full())
+}
+
 /// A small tag: a state, a role, a count, in its own colours.
 pub fn badge(
     id: impl Into<ElementId>,
@@ -453,6 +471,43 @@ pub fn initial(name: &str) -> String {
         .map_or_else(|| "•".into(), str::to_uppercase)
 }
 
+/// A time in milliseconds as a UTC date: `24 Sep 2026, 05:12:07`.
+pub fn date(millis: u64) -> String {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let seconds = millis / 1000;
+    let (days, of_day) = (seconds / 86_400, seconds % 86_400);
+    // days since 1970-01-01 to a civil date (Howard Hinnant's algorithm)
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{day} {} {year}, {:02}:{:02}:{:02}",
+        MONTHS[(month - 1) as usize],
+        of_day / 3_600,
+        of_day % 3_600 / 60,
+        of_day % 60
+    )
+}
+
+/// How long before `now` a time in milliseconds was: `2s`, `3m`, `4h`, `5d`.
+pub fn ago(now: u64, then: u64) -> String {
+    let seconds = now.saturating_sub(then) / 1000;
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3_600 => format!("{}m", seconds / 60),
+        3_600..86_400 => format!("{}h", seconds / 3_600),
+        _ => format!("{}d", seconds / 86_400),
+    }
+}
+
 /// `1 block`, `1,200 blocks`.
 pub fn plural(count: u64, one: &str, many: &str) -> String {
     format!("{} {}", grouped(count), if count == 1 { one } else { many })
@@ -468,6 +523,14 @@ mod tests {
         assert_eq!(super::grouped(1_048_576), "1,048,576");
         assert_eq!(super::plural(1, "block", "blocks"), "1 block");
         assert_eq!(super::plural(1200, "block", "blocks"), "1,200 blocks");
+    }
+
+    #[test]
+    fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
+        assert!(super::docks(1000., 576., 320.));
+        assert!(super::docks(896., 576., 320.));
+        assert!(!super::docks(895., 576., 320.));
+        assert!(!super::docks(720., 400., 440.));
     }
 
     #[test]

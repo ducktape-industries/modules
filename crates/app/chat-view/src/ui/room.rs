@@ -2,11 +2,9 @@
 
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, ElementId, ParentElement, Styled, Theme, div, px,
-};
+use ducktape_view_guest::{AnyElement, ClickEvent, Context, ParentElement, Styled, Theme, div, px};
 
-use chat::{ChannelInfo, MsgRow};
+use chat::MsgRow;
 use ducktape_view_guest::view::Loadable;
 
 use super::timeline;
@@ -32,15 +30,10 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
         true => timeline::list(chat, Pane::Timeline, cx, theme).into_any_element(),
         false => search_results(chat, cx, theme).into_any_element(),
     };
-    let huddled = chat
-        .room_info()
-        .filter(|info| !info.channel.huddle.is_empty())
-        .map(|info| huddle(info, theme));
     pane.child(header(chat, room, cx, theme))
         .children(notice(chat, cx, theme))
         .children(confirmation(chat, cx, theme))
         .child(body)
-        .children(huddled)
         .child(compose(chat, room, cx, theme))
 }
 
@@ -212,7 +205,11 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
         .child(div().flex_1().child(title))
         .child(button(
             "chat-room-details",
-            if direct { "Details" } else { "Channel details" },
+            if direct {
+                "Conversation details"
+            } else {
+                "Channel details"
+            },
             theme,
             details,
         ))
@@ -271,30 +268,6 @@ fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
     .into_any_element()
 }
 
-fn huddle(info: &ChannelInfo, theme: &Theme) -> impl IntoElement {
-    div()
-        .id("chat-room-huddle")
-        .flex()
-        .items_center()
-        .gap_2()
-        .mx_3()
-        .my_1()
-        .p_2()
-        .bg(theme.surface)
-        .child(badge(
-            "chat-room-huddle-live",
-            "Voice",
-            theme.success,
-            theme.success_soft,
-        ))
-        .child(
-            div()
-                .text_size(design::text::SECONDARY)
-                .text_color(theme.muted)
-                .child(format!("{} people", info.channel.huddle.len())),
-        )
-}
-
 fn search_results(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
     let found = match &chat.search.hits {
         Loadable::Idle | Loadable::Loading(_) => {
@@ -343,7 +316,7 @@ fn hit_list(chat: &Chat, hits: &Hits, cx: &mut Context<Chat>, theme: &Theme) -> 
             .child(format!("{count} for “{}”", chat.search.query))
             .into_any_element(),
     ];
-    list.extend(hits.rows.iter().map(|row| hit(row, cx, theme)));
+    list.extend(hits.rows.iter().map(|row| hit(chat, row, cx, theme)));
     if hits.has_more {
         let more = cx.listener(|chat, _: &ClickEvent, _window, cx| {
             cx.notify();
@@ -355,15 +328,35 @@ fn hit_list(chat: &Chat, hits: &Hits, cx: &mut Context<Chat>, theme: &Theme) -> 
 }
 
 /// One hit: its text and where it sits, opening the room at it.
-fn hit(row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+    // where it sits: the room a person knows it by, and who wrote it
+    let names = chat.names.ready();
+    let room = match chat::dm_peers(&row.channel_id) {
+        Some(_) => chat
+            .my_account()
+            .and_then(|me| crate::names::dm_peer_of(me, &row.channel_id))
+            .zip(names)
+            .map(|(peer, names)| names.member(&chat::Principal::Account(peer))),
+        None => chat
+            .info(&row.channel_id)
+            .map(|info| format!("#{}", info.channel.name)),
+    };
+    let author = names.map(|names| names.member(&row.author));
+    let place = [room, author]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
     let id = row.channel_id.clone();
     let seq = row.seq;
+    // seq is per channel: two channels' hits at one seq are two rows
+    let key = format!("chat-search-hit-{id}-{seq}");
     let open = cx.listener(move |chat, _: &ClickEvent, window, cx| {
         cx.notify();
         chat.open_hit(id.clone(), seq, window, cx)
     });
     div()
-        .id(ElementId::named_usize("chat-search-hit", seq as usize))
+        .id(key)
         .flex()
         .flex_col()
         .gap_1()
@@ -382,7 +375,7 @@ fn hit(row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
             div()
                 .text_size(design::text::CAPTION)
                 .text_color(theme.muted)
-                .child(format!("message {}", row.seq)),
+                .child(place),
         )
         .into_any_element()
 }
@@ -435,15 +428,23 @@ pub fn composer(
     let empty = crate::composer::Draft::default();
     let draft = chat.drafts.get(&key).unwrap_or(&empty);
     let choices = chat.mention_choices();
-    let commit = match target {
-        Target::Post { .. } => "Send",
-        Target::Edit { .. } => "Save",
+    let (commit, cancel) = match target {
+        Target::Post { .. } => ("Send", None),
+        // an edit's way out sits beside its Save, as Send's row lays out
+        Target::Edit { .. } => (
+            "Save",
+            Some(Box::new(cx.listener(|chat, _: &ClickEvent, _, cx| {
+                chat.close_menu();
+                cx.notify();
+            })) as crate::composer::Click),
+        ),
     };
     crate::composer::view::<Chat>(
         draft,
         &key,
         hint,
         commit,
+        cancel,
         editable,
         &choices,
         cx,

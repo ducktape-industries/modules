@@ -14,7 +14,7 @@ use forge::{ChangeFilter, ChangeState, Query, Revision};
 /// How many branches the Refs screen compares against the default head in
 /// one pass. Beyond that the screen says so rather than walking a fleet of
 /// refs through the program's compare budget.
-const COMPARED_REFS: usize = 20;
+pub(crate) const COMPARED_REFS: usize = 20;
 
 impl Forge {
     pub(crate) fn session_changed(&mut self, next: Session, cx: &mut Context<Self>) {
@@ -147,6 +147,7 @@ impl Forge {
                 let log = Query::Log {
                     repo: repo.clone(),
                     from: self.revision(),
+                    exclude: None,
                     page: PAGE,
                 };
                 let diff = self.nav.commit.clone().map(|commit| Query::Diff {
@@ -184,16 +185,14 @@ impl Forge {
             n,
             page: PAGE,
         }];
-        let Some((change, source_head, _, _)) = self.change() else {
+        let (Some((_, source_head, _, _)), Some((from, into))) = (self.change(), self.endpoints())
+        else {
             return wanted;
         };
         wanted.extend(self.compare_query());
         if self.nav.change_tab == ChangeTab::Commits {
-            wanted.push(Query::Log {
-                repo: repo.to_owned(),
-                from: change.from.clone(),
-                page: PAGE,
-            });
+            // the change's own commits: what its target does not reach
+            wanted.push(crate::ui::commits::query(self, from, Some(into)));
         }
         if let (ChangeTab::Files, Some(head), Some(comparison)) =
             (self.nav.change_tab, source_head.clone(), self.compare())

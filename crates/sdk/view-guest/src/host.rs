@@ -39,23 +39,20 @@ pub fn wrong_reply() -> Error {
 pub type Page<T> = (Vec<T>, Option<Vec<u8>>);
 
 /// Follows a cursored listing from `after`: asks page after page, feeding
-/// each `next` back, until the listing ends or `max_pages` pages are read.
-/// Returns every row read and the cursor still to follow (`None`: all of it).
+/// each `next` back, until the listing ends. Fuel is the only bound.
 pub async fn pages<T, F: Future<Output = Result<Page<T>, Error>>>(
     mut after: Option<Vec<u8>>,
-    max_pages: usize,
     mut ask: impl FnMut(Option<Vec<u8>>) -> F,
-) -> Result<Page<T>, Error> {
+) -> Result<Vec<T>, Error> {
     let mut all = Vec::new();
-    for _ in 0..max_pages {
+    loop {
         let (rows, next) = ask(after).await?;
         all.extend(rows);
         after = next;
         if after.is_none() {
-            break;
+            return Ok(all);
         }
     }
-    Ok((all, after))
 }
 
 #[derive(Default)]
@@ -165,6 +162,11 @@ impl Host {
     }
     pub fn log(&self, message: impl AsRef<str>) {
         self.notify::<methods::HostLog>(message.as_ref().to_owned());
+    }
+    /// A refusal nothing on screen waits for, kept in the host's log:
+    /// `<view>: <what> refused: <refusal>`.
+    pub fn log_refused(&self, view: &str, what: &str, refusal: &Error) {
+        self.log(format!("{view}: {what} refused: {refusal}"));
     }
     pub fn open_link(&self, link: &str) {
         self.notify::<methods::LinkOpen>(link.to_owned());
@@ -333,12 +335,10 @@ mod pages_tests {
     }
 
     #[test]
-    fn pages_follow_the_cursor_to_the_end_or_the_cap() {
-        let all = futures::executor::block_on(pages(None, 16, listing)).unwrap();
-        assert_eq!(all, ((0..10).collect(), None));
-        let capped = futures::executor::block_on(pages(None, 2, listing)).unwrap();
-        assert_eq!(capped, ((0..6).collect(), Some(vec![6])));
-        let resumed = futures::executor::block_on(pages(Some(vec![6]), 16, listing)).unwrap();
-        assert_eq!(resumed, ((6..10).collect(), None));
+    fn pages_follow_the_cursor_to_the_end() {
+        let all = futures::executor::block_on(pages(None, listing)).unwrap();
+        assert_eq!(all, (0..10).collect::<Vec<_>>());
+        let resumed = futures::executor::block_on(pages(Some(vec![6]), listing)).unwrap();
+        assert_eq!(resumed, (6..10).collect::<Vec<_>>());
     }
 }
