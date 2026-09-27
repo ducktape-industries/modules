@@ -22,7 +22,6 @@ use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, View, Window};
 use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 use identity::view::Identity;
 use valset::view::Valset;
@@ -49,10 +48,6 @@ pub struct Members {
     /// what the selected account signed lately; read again on restore
     #[serde(skip)]
     activity: Loadable<Recent>,
-    /// each account's last finished scan, so choosing it again reads nothing;
-    /// an entry goes when a bump changes that account's keys
-    #[serde(skip)]
-    scans: BTreeMap<u64, Recent>,
     #[serde(skip)]
     watches: Vec<Task<()>>,
 }
@@ -175,8 +170,6 @@ impl Members {
                 match (result, view.rows.ready()) {
                     (Ok(rows), old) => {
                         let old = old.map_or(&[][..], Vec::as_slice);
-                        view.scans
-                            .retain(|&number, _| keys(old, number) == keys(&rows, number));
                         rescan |= view
                             .selected
                             .is_some_and(|number| keys(old, number) != keys(&rows, number));
@@ -212,17 +205,11 @@ impl Members {
     }
 
     /// Reads the selected account's recent activity, once its keys are
-    /// known, unless an earlier scan of the same keys is kept; an account
-    /// with no keys signs nothing and asks nothing.
+    /// known; an account with no keys signs nothing and asks nothing.
     fn read_activity(&mut self, cx: &mut Context<Self>) {
         let Some(row) = self.selected_row() else {
             return;
         };
-        let number = row.number;
-        if let Some(recent) = self.scans.get(&number) {
-            self.activity = Loadable::Ready(recent.clone());
-            return;
-        }
         if row.devices.is_empty() {
             self.activity = Loadable::Idle;
             return;
@@ -237,9 +224,6 @@ impl Members {
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |view, cx| {
-                if let Ok(recent) = &result {
-                    view.scans.insert(number, recent.clone());
-                }
                 view.activity = Loadable::from(result);
                 cx.notify();
             });
