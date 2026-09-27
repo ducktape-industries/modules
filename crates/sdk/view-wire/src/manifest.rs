@@ -1,5 +1,7 @@
 //! Static metadata for a ducktape view. Parsing never instantiates or runs a guest.
 
+use crate::methods::Capability;
+
 pub const MANIFEST_SECTION: &str = "ducktape.view.manifest";
 
 /// A finite positive logical size, bounded like wire geometry. Private bits
@@ -28,7 +30,7 @@ pub struct Manifest {
     pub methods: u32,
     pub name: String,
     pub description: String,
-    pub capabilities: Vec<String>,
+    pub capabilities: Vec<Capability>,
     pub preferred_size: Option<PreferredSize>,
 }
 
@@ -55,7 +57,6 @@ impl std::error::Error for ProtocolMismatch {}
 const MAX_NAME_BYTES: usize = 64;
 const MAX_DESCRIPTION_BYTES: usize = 256;
 const MAX_CAPABILITIES: usize = 16;
-const MAX_CAPABILITY_BYTES: usize = 32;
 
 /// Extracts exactly one current manifest from a view's core module.
 /// Returns `None` for missing, duplicate, malformed, or out-of-bounds metadata.
@@ -88,7 +89,9 @@ pub fn read_manifest(bytes: &[u8]) -> Option<Manifest> {
 
 impl Manifest {
     /// Parses the strict six-line `ducktape.view.manifest.v1` text, or the
-    /// seven-line `v2` that adds the methods revision, and its bounds.
+    /// seven-line `v2` that adds the methods revision, and its bounds. A
+    /// capability this host does not know refuses the whole manifest: a
+    /// grant is never silently narrowed.
     pub fn parse(text: &str) -> Option<Self> {
         if text.len() > 1024 || text.chars().any(|c| c.is_control() && c != '\n') {
             return None;
@@ -105,11 +108,10 @@ impl Manifest {
         let capabilities = if caps.is_empty() {
             Vec::new()
         } else {
-            let caps = caps.strip_suffix(',')?;
-            if caps.split(',').any(str::is_empty) {
-                return None;
-            }
-            caps.split(',').map(str::to_owned).collect()
+            caps.strip_suffix(',')?
+                .split(',')
+                .map(Capability::parse)
+                .collect::<Option<_>>()?
         };
         let preferred_size = match lines.next()? {
             "none" => None,
@@ -159,10 +161,6 @@ impl Manifest {
             && self.name.len() <= MAX_NAME_BYTES
             && self.description.len() <= MAX_DESCRIPTION_BYTES
             && self.capabilities.len() <= MAX_CAPABILITIES
-            && self
-                .capabilities
-                .iter()
-                .all(|capability| capability.len() <= MAX_CAPABILITY_BYTES)
     }
 }
 
@@ -271,10 +269,10 @@ mod tests {
     // finite positive bounded preferred size. Dropping those guards is Red.
     #[test]
     fn manifest_format_and_preferred_size_are_strict() {
-        let good = "ducktape.view.manifest.v1\nSized\nDescription\nclock,storage,\n640.5,480.25\n1";
+        let good = "ducktape.view.manifest.v1\nSized\nDescription\nclock,store,\n640.5,480.25\n1";
         let parsed = Manifest::parse(good).unwrap();
         assert_eq!(parsed.preferred_size.unwrap().dimensions(), [640.5, 480.25]);
-        assert_eq!(parsed.capabilities, ["clock", "storage"]);
+        assert_eq!(parsed.capabilities, [Capability::Clock, Capability::Store]);
         assert!(
             Manifest::parse("ducktape.view.manifest.v1\nDefault\n\n\nnone\n1")
                 .unwrap()
@@ -287,6 +285,7 @@ mod tests {
             "ducktape.view.manifest.v1\nSized\nDescription\n\nnone\nextra\n1",
             "ducktape.view.manifest.v1\nSized\nDescription\nclock\nnone\n1",
             "ducktape.view.manifest.v1\nSized\nDescription\nclock,,\nnone\n1",
+            "ducktape.view.manifest.v1\nSized\nDescription\nclock,storage,\nnone\n1",
         ] {
             assert!(
                 Manifest::parse(invalid).is_none(),

@@ -123,7 +123,7 @@ export_view!(
     Forge,
     "Forge",
     "Repositories, code, commits and the changes waiting on your judgment.",
-    ["module", "op", "host", "link", "clipboard"]
+    [Module, Op, Host, Link, Clipboard]
 );
 
 #[cfg(test)]

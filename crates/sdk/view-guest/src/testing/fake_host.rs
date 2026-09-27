@@ -16,7 +16,7 @@ struct State {
     logs: Vec<String>,
     links: Vec<String>,
     streams: Vec<Rc<RefCell<StreamState>>>,
-    declared: Option<&'static [&'static str]>,
+    declared: Option<&'static [methods::Capability]>,
 }
 
 /// A typed host whose requests must be explicitly handled by a test.
@@ -126,7 +126,7 @@ impl FakeHost {
             }
         }
     }
-    pub(super) fn declare(&self, capabilities: &'static [&'static str]) {
+    pub(super) fn declare(&self, capabilities: &'static [methods::Capability]) {
         self.0.borrow_mut().declared = Some(capabilities);
     }
     pub(super) fn take_events(&self) -> Vec<Event> {
@@ -144,16 +144,15 @@ impl FakeHost {
             state.requests.push(request.clone());
             // The app refuses a method the manifest leaves out
             // (`undeclared_capability`); a test fails on it instead.
-            let capability = request
-                .kind
-                .split_once('.')
-                .map_or(&*request.kind, |(c, _)| c);
-            if let Some(declared) = state.declared {
+            if let (Some(declared), Some((capability, _))) =
+                (state.declared, methods::Capability::of_kind(&request.kind))
+            {
                 assert!(
-                    !methods::is_capability(capability) || declared.contains(&capability),
-                    "undeclared_capability: `{}` needs the `{capability}` capability, \
+                    declared.contains(&capability),
+                    "undeclared_capability: `{}` needs the `{}` capability, \
                      which this view's export_view! does not declare",
-                    request.kind
+                    request.kind,
+                    capability.as_str()
                 );
             }
             match request.kind.as_str() {

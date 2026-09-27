@@ -46,7 +46,7 @@ export_view!(
     Settings,
     "Account",
     "Your account, its keys, the agents it manages, and invites.",
-    ["module", "op", "invite", "host", "clipboard"]
+    [Module, Op, Invite, Host, Clipboard]
 );
 
 #[cfg(test)]

@@ -444,41 +444,66 @@ methods! {
     HostOffset, "host.offset", (), i32;
 }
 
-/// The `<capability>` half of every kind in [`ALL`]: the names a view's
-/// manifest may declare. `export_view!` refuses any other at compile time.
-pub const CAPABILITIES: &[&str] = &[
-    "chain",
-    "module",
-    "op",
-    "invite",
-    "link",
-    "blob",
-    "host",
-    "clock",
-    "clipboard",
-    "notify",
-    "store",
-];
+/// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
+/// declares, and the only names it may. A method is reached only through the
+/// capability its kind starts with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Capability {
+    Chain,
+    Module,
+    Op,
+    Invite,
+    Link,
+    Blob,
+    Host,
+    Clock,
+    Clipboard,
+    Notify,
+    Store,
+}
 
-/// Whether `name` is in [`CAPABILITIES`]; `const` so a manifest literal is
-/// checked where it is written.
-pub const fn is_capability(name: &str) -> bool {
-    let name = name.as_bytes();
-    let mut index = 0;
-    while index < CAPABILITIES.len() {
-        let known = CAPABILITIES[index].as_bytes();
-        if known.len() == name.len() {
-            let mut byte = 0;
-            while byte < known.len() && known[byte] == name[byte] {
-                byte += 1;
-            }
-            if byte == known.len() {
-                return true;
-            }
+impl Capability {
+    pub const ALL: [Self; 11] = [
+        Self::Chain,
+        Self::Module,
+        Self::Op,
+        Self::Invite,
+        Self::Link,
+        Self::Blob,
+        Self::Host,
+        Self::Clock,
+        Self::Clipboard,
+        Self::Notify,
+        Self::Store,
+    ];
+
+    /// The name a manifest and a kind spell it with.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Chain => "chain",
+            Self::Module => "module",
+            Self::Op => "op",
+            Self::Invite => "invite",
+            Self::Link => "link",
+            Self::Blob => "blob",
+            Self::Host => "host",
+            Self::Clock => "clock",
+            Self::Clipboard => "clipboard",
+            Self::Notify => "notify",
+            Self::Store => "store",
         }
-        index += 1;
     }
-    false
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|known| known.as_str() == name)
+    }
+
+    /// A kind split into its capability and its verb: `chain.status` is
+    /// `(Chain, "status")`. `None` for a kind no capability starts.
+    pub fn of_kind(kind: &str) -> Option<(Self, &str)> {
+        let (capability, verb) = kind.split_once('.')?;
+        Some((Self::parse(capability)?, verb))
+    }
 }
 
 #[cfg(test)]
@@ -489,16 +514,22 @@ mod tests {
     fn capabilities_are_exactly_the_prefixes_of_every_kind() {
         let mut prefixes: Vec<&str> = ALL
             .iter()
-            .map(|kind| kind.split_once('.').unwrap().0)
+            .map(|kind| Capability::of_kind(kind).unwrap().0.as_str())
             .collect();
         prefixes.sort_unstable();
         prefixes.dedup();
-        let mut known = CAPABILITIES.to_vec();
+        let mut known = Capability::ALL.map(Capability::as_str).to_vec();
         known.sort_unstable();
         assert_eq!(prefixes, known);
-        assert!(is_capability("chain") && is_capability("link") && is_capability("notify"));
-        assert!(!is_capability("rpc"));
-        assert!(!is_capability("chat") && !is_capability("module.query") && !is_capability(""));
+        assert_eq!(Capability::parse("link"), Some(Capability::Link));
+        for name in ["rpc", "chat", "module.query", "", "Chain"] {
+            assert_eq!(Capability::parse(name), None, "{name:?}");
+        }
+        assert_eq!(
+            Capability::of_kind("chain.status"),
+            Some((Capability::Chain, "status"))
+        );
+        assert_eq!(Capability::of_kind("chain"), None);
     }
 
     struct Binary;

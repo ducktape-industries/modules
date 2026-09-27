@@ -179,6 +179,7 @@ impl TestAppContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::methods::Capability;
     use crate::{
         methods::Changes, testing::Probe, Context, InteractiveElement, ParentElement, Render, Task,
         Window,
@@ -213,7 +214,7 @@ mod tests {
         }
     }
     impl Capabilities for LiveView {
-        const CAPABILITIES: &'static [&'static str] = &["module"];
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
     }
     impl Render for LiveView {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
@@ -249,7 +250,7 @@ mod tests {
         }
     }
     impl Capabilities for Undeclared {
-        const CAPABILITIES: &'static [&'static str] = &["module"];
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
     }
     impl Render for Undeclared {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {

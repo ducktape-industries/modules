@@ -492,11 +492,14 @@ fn notifying_during_render_requests_another_frame() {
 
 #[test]
 fn the_manifest_bytes_parse_back_with_the_epoch_and_the_methods() {
-    const TEXT: &str = "ducktape.view.manifest.v2\nApp\nWords\nclock,\n";
-    let bytes: [u8; manifest_len(TEXT, "640,480")] = manifest_bytes(TEXT, "640,480");
+    use wire::methods::Capability;
+    const CAPABILITIES: &[Capability] = &[Capability::Clock, Capability::Module];
+    let bytes: [u8; manifest_len("App", "Words", CAPABILITIES, "640,480")] =
+        manifest_bytes("App", "Words", CAPABILITIES, "640,480");
     let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
     assert_eq!(manifest.wire_epoch, wire::WIRE_EPOCH);
     assert_eq!(manifest.methods, wire::methods::METHODS_REVISION);
-    assert_eq!(manifest.capabilities, ["clock"]);
+    assert_eq!(manifest.capabilities, CAPABILITIES);
+    assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
     assert!(!manifest.needs_newer_methods());
 }

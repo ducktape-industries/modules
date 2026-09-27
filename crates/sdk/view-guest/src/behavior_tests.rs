@@ -11,7 +11,7 @@ struct BehaviorView {
 }
 
 impl crate::Capabilities for BehaviorView {
-    const CAPABILITIES: &'static [&'static str] = &[];
+    const CAPABILITIES: &'static [crate::methods::Capability] = &[];
 }
 
 impl View for BehaviorView {
@@ -24,7 +24,7 @@ impl View for BehaviorView {
 struct DefaultSensorView;
 
 impl crate::Capabilities for DefaultSensorView {
-    const CAPABILITIES: &'static [&'static str] = &[];
+    const CAPABILITIES: &'static [crate::methods::Capability] = &[];
 }
 
 impl View for DefaultSensorView {

@@ -95,7 +95,7 @@ export_view!(
     Nodes,
     "Nodes",
     "The node this app talks to, the validator set of this network and every membership behind it.",
-    ["chain", "module", "host", "clock"]
+    [Chain, Module, Host, Clock]
 );
 
 #[cfg(test)]

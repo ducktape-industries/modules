@@ -63,7 +63,7 @@ export_view!(
     Explorer,
     "Explorer",
     "The chain as this node keeps it: blocks, transactions, accounts and programs.",
-    ["chain", "module", "host", "clock", "clipboard"]
+    [Chain, Module, Host, Clock, Clipboard]
 );
 
 #[cfg(test)]
