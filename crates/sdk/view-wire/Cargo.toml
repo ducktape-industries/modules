@@ -7,8 +7,8 @@
 # before running it.
 [package]
 name = "view-wire"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [features]
 # Reads the manifest custom section out of a built view: host-only, so the
@@ -21,19 +21,18 @@ schema = ["dep:serde-reflection", "dep:sha2"]
 [dependencies]
 wasmparser = { version = "0.251", optional = true }
 serde-reflection = { version = "0.6", optional = true }
-sha2 = { version = "0.10", optional = true }
-serde = { version = "1", features = ["derive"] }
+sha2 = { workspace = true, optional = true }
+serde.workspace = true
 gpui.workspace = true
+# No code use: enables serde on gpui's re-exported accesskit Role, Toggled and
+# Orientation, which `Interactivity` and `Aria` serialize.
 accesskit = { version = "0.24.0", features = ["serde"] }
 rmp-serde = "1"
-# The data plane: every host method carries borsh, the codec the program abi is
-# written in, so a program's bytes ride a method without a second encoding.
-borsh = { version = "1", default-features = false, features = ["derive", "std"] }
+borsh.workspace = true
 slotmap = "1.0.6"
 uuid = "1.1.2"
 # `task` and `subscription` share the SDK futures runtime.
-futures = "0.3"
-design = { path = "../design" }
+futures.workspace = true
 # `Error` is the one error type: the same for an error a module wrote and one
 # the host wrote.
 error = { workspace = true, features = ["serde"] }

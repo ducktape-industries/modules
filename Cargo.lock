@@ -6459,7 +6459,6 @@ dependencies = [
  "accesskit",
  "borsh",
  "describe",
- "design",
  "error",
  "futures",
  "gpui-pre",
