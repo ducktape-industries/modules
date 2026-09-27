@@ -15,25 +15,6 @@ pub(crate) fn texts(frame: &Frame) -> Vec<String> {
 
 fn collect_texts(node: &Node, out: &mut Vec<String>) {
     match node {
-        Node::Container(crate::wire::ContainerNode { children, .. }) => {
-            children.iter().for_each(|child| collect_texts(child, out))
-        }
-        Node::Sensor { child: content, .. }
-        | Node::Float { content, .. }
-        | Node::Deferred { content, .. }
-        | Node::Responsive { content, .. }
-        | Node::Lazy { content, .. }
-        | Node::ResizeHandle { content, .. }
-        | Node::MouseArea { content, .. }
-        | Node::Scroll { content, .. } => collect_texts(content, out),
-        Node::Tooltip { children, .. }
-        | Node::Overlay { children, .. }
-        | Node::UniformList { children, .. }
-        | Node::Anchored { children, .. }
-        | Node::List { children, .. }
-        | Node::When { children, .. } => {
-            children.iter().for_each(|child| collect_texts(child, out))
-        }
         Node::RichText { text, .. } => out.push(text.clone()),
         Node::Text(crate::wire::TextNode { content, .. }) => out.push(content.clone()),
         Node::Input {
@@ -55,10 +36,10 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
                 out.push(placeholder.clone());
             }
         }
-        Node::Button { content, .. } => match content {
-            ButtonContent::Label(label) => out.push(label.clone()),
-            ButtonContent::Child(child) => collect_texts(child, out),
-        },
+        Node::Button {
+            content: ButtonContent::Label(label),
+            ..
+        } => out.push(label.clone()),
         Node::Toggle { label, .. } | Node::Radio { label, .. } => out.push(label.clone()),
         Node::ComboBox {
             options,
@@ -80,16 +61,10 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
             Some(index) => options[*index as usize].clone(),
             None => placeholder.clone().unwrap_or_default(),
         }),
-        Node::Space { .. }
-        | Node::Rule { .. }
-        | Node::Qr { .. }
-        | Node::Svg { .. }
-        | Node::Image { .. }
-        | Node::ImageViewer { .. }
-        | Node::Slider { .. }
-        | Node::Progress { .. }
-        | Node::Canvas { .. }
-        | Node::Surface { .. } => {}
+        _ => node
+            .children()
+            .iter()
+            .for_each(|child| collect_texts(child, out)),
     }
 }
 
@@ -144,49 +119,9 @@ fn find_by<'a>(node: &'a Node, matches: &dyn Fn(&Node) -> bool) -> Option<&'a No
     if matches(node) {
         return Some(node);
     }
-    match node {
-        Node::Container(crate::wire::ContainerNode { children, .. }) => {
-            children.iter().find_map(|child| find_by(child, matches))
-        }
-        Node::Sensor { child: content, .. }
-        | Node::Float { content, .. }
-        | Node::Deferred { content, .. }
-        | Node::Responsive { content, .. }
-        | Node::Lazy { content, .. }
-        | Node::ResizeHandle { content, .. }
-        | Node::MouseArea { content, .. }
-        | Node::Scroll { content, .. } => find_by(content, matches),
-        Node::Tooltip { children, .. }
-        | Node::Overlay { children, .. }
-        | Node::UniformList { children, .. }
-        | Node::Anchored { children, .. }
-        | Node::List { children, .. }
-        | Node::When { children, .. } => children.iter().find_map(|child| find_by(child, matches)),
-
-        Node::Button {
-            content: ButtonContent::Child(child),
-            ..
-        } => find_by(child, matches),
-        Node::Button { .. }
-        | Node::RichText { .. }
-        | Node::Text(crate::wire::TextNode { .. })
-        | Node::Qr { .. }
-        | Node::Svg { .. }
-        | Node::Image { .. }
-        | Node::ImageViewer { .. }
-        | Node::Input { .. }
-        | Node::Editor { .. }
-        | Node::Space { .. }
-        | Node::Rule { .. }
-        | Node::Toggle { .. }
-        | Node::Radio { .. }
-        | Node::Slider { .. }
-        | Node::PickList { .. }
-        | Node::ComboBox { .. }
-        | Node::Progress { .. }
-        | Node::Canvas { .. }
-        | Node::Surface { .. } => None,
-    }
+    node.children()
+        .iter()
+        .find_map(|child| find_by(child, matches))
 }
 
 /// The button whose key, label or accessible name is `name`.
@@ -341,49 +276,9 @@ fn collect_keys(node: &Node, out: &mut Vec<String>) {
     if let Some(key) = node.key() {
         out.push(key.to_string());
     }
-    match node {
-        Node::Container(crate::wire::ContainerNode { children, .. }) => {
-            children.iter().for_each(|child| collect_keys(child, out))
-        }
-        Node::Sensor { child: content, .. }
-        | Node::Float { content, .. }
-        | Node::Deferred { content, .. }
-        | Node::Responsive { content, .. }
-        | Node::Lazy { content, .. }
-        | Node::ResizeHandle { content, .. }
-        | Node::MouseArea { content, .. }
-        | Node::Scroll { content, .. } => collect_keys(content, out),
-        Node::Tooltip { children, .. }
-        | Node::Overlay { children, .. }
-        | Node::UniformList { children, .. }
-        | Node::Anchored { children, .. }
-        | Node::List { children, .. }
-        | Node::When { children, .. } => children.iter().for_each(|child| collect_keys(child, out)),
-
-        Node::Button {
-            content: ButtonContent::Child(child),
-            ..
-        } => collect_keys(child, out),
-        Node::Button { .. }
-        | Node::RichText { .. }
-        | Node::Text(crate::wire::TextNode { .. })
-        | Node::Qr { .. }
-        | Node::Svg { .. }
-        | Node::Image { .. }
-        | Node::ImageViewer { .. }
-        | Node::Input { .. }
-        | Node::Editor { .. }
-        | Node::Space { .. }
-        | Node::Rule { .. }
-        | Node::Toggle { .. }
-        | Node::Radio { .. }
-        | Node::Slider { .. }
-        | Node::PickList { .. }
-        | Node::ComboBox { .. }
-        | Node::Progress { .. }
-        | Node::Canvas { .. }
-        | Node::Surface { .. } => {}
-    }
+    node.children()
+        .iter()
+        .for_each(|child| collect_keys(child, out));
 }
 
 mod context;
