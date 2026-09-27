@@ -14,14 +14,9 @@ edition.workspace = true
 # Reads the manifest custom section out of a built view: host-only, so the
 # guests skip `wasmparser` entirely.
 manifest = ["dep:wasmparser"]
-# Derives a view's snapshot layout from its own serde impls. A dev-dependency
-# feature: the tracer never enters wasm, so a guest builds without either crate.
-schema = ["dep:serde-reflection", "dep:sha2"]
 
 [dependencies]
 wasmparser = { version = "0.251", optional = true }
-serde-reflection = { version = "0.6", optional = true }
-sha2 = { workspace = true, optional = true }
 serde.workspace = true
 gpui.workspace = true
 # No code use: enables serde on gpui's re-exported accesskit Role, Toggled and

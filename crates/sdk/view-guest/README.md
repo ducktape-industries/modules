@@ -52,9 +52,9 @@ change. Read "who am I" from `account`; no view asks identity for it.
 
 `View` (`src/view.rs`): `new(window, cx)` on first mount, `restored` after a
 snapshot came back, `PREFERRED_WINDOW_SIZE` as `"w,h"` or `"none"`. The
-snapshot is the view's own serde (`src/snapshot.rs`), refused while work is
-pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
-`view-wire/src/snapshot.rs`). Derive `Serialize`/`Deserialize` and keep
+snapshot is the view's own serde as the wire's named MessagePack
+(`src/snapshot.rs`), refused while work is pending; a host holds it to
+`view_wire::MAX_SNAPSHOT_BYTES` (8 MiB, `view-wire/src/snapshot.rs`). Derive `Serialize`/`Deserialize` and keep
 `Task`s out of the state (`Loadable` does).
 
 ## Exporting

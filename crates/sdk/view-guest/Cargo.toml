@@ -15,10 +15,12 @@ futures.workspace = true
 view-wire.workspace = true
 design.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 gpui.workspace = true
 view-guest-derive = { path = "../view-guest-derive" }
 unicode-segmentation = "1"
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [[example]]
 name = "exported_view"

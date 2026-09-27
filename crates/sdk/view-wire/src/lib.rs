@@ -38,8 +38,6 @@ pub(crate) fn is_default<T: Default + PartialEq>(value: &T) -> bool {
 pub mod abi;
 pub mod manifest;
 pub mod methods;
-#[cfg(feature = "schema")]
-pub mod schema;
 
 mod sanitization;
 pub use sanitization::SanitizeReport;
@@ -66,7 +64,7 @@ mod image;
 pub use image::{ImageData, ViewerOptions};
 
 mod snapshot;
-pub use snapshot::{MAX_SNAPSHOT_BYTES, Snapshot, SnapshotValue};
+pub use snapshot::MAX_SNAPSHOT_BYTES;
 
 mod aria;
 pub mod click;

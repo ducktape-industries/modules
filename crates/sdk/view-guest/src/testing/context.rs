@@ -230,6 +230,7 @@ mod tests {
         cx.run_until_parked();
         assert!(cx.has_text("1"));
         let snapshot = cx.snapshot().unwrap();
+        assert!(snapshot[0] >= 0x80, "a named MessagePack map, not JSON");
         feed.send(None);
         let restored = cx.restore::<LiveView>(&snapshot).unwrap();
         restored.read(|view| assert_eq!(view.items, 1));
