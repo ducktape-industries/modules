@@ -45,7 +45,7 @@ impl TestAppContext {
     }
     pub fn open<V: View + Capabilities>(&mut self) -> Entity<V> {
         self.host.declare(V::CAPABILITIES);
-        let driver = Driver::<V>::initialize_in(self.fresh_app(), None).expect("view initializes");
+        let driver = Driver::<V>::initialize_in(self.fresh_app(), None);
         let entity = driver.entity();
         self.host.reset_connection();
         self.driver = Some(Box::new(driver));
@@ -59,7 +59,7 @@ impl TestAppContext {
     pub fn restore<V: View + Capabilities>(&mut self, bytes: &[u8]) -> Result<Entity<V>, String> {
         self.host.declare(V::CAPABILITIES);
         let value = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        let driver = Driver::<V>::initialize_in(self.fresh_app(), Some(value))?;
+        let driver = Driver::<V>::initialize_in(self.fresh_app(), Some(value));
         let entity = driver.entity();
         self.host.reset_connection();
         self.driver = Some(Box::new(driver));

@@ -15,6 +15,6 @@ impl<V: View> Driver<V> {
     }
     pub fn from_snapshot(bytes: &[u8]) -> Result<Self, String> {
         let view = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        Self::initialize(Some(view))
+        Ok(Self::initialize(Some(view)))
     }
 }

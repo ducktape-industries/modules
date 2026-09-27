@@ -21,12 +21,12 @@ impl<V: View> Default for Driver<V> {
 }
 impl<V: View> Driver<V> {
     pub fn new() -> Self {
-        Self::initialize(None).expect("view initializes")
+        Self::initialize(None)
     }
-    pub(crate) fn initialize(restored: Option<V>) -> Result<Self, String> {
+    pub(crate) fn initialize(restored: Option<V>) -> Self {
         Self::initialize_in(App::for_driver(), restored)
     }
-    pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Result<Self, String> {
+    pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Self {
         let entity = Entity::reserve(&app);
         let mut window = app.window();
         let mut cx = Context {
@@ -41,12 +41,12 @@ impl<V: View> Driver<V> {
             None => V::new(&mut window, &mut cx),
         };
         *entity.value.borrow_mut() = Some(value);
-        Ok(Self {
+        Self {
             app,
             entity,
             last_root: None,
             busy: false,
-        })
+        }
     }
     pub fn entity(&self) -> Entity<V> {
         self.entity.clone()
