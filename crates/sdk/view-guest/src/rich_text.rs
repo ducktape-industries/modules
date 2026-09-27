@@ -91,7 +91,7 @@ impl StyledText {
         clickable_ranges: Vec<Range<usize>>,
         on_click: Option<u32>,
         on_hover: Option<u32>,
-        tooltip: Option<wire::RichTextTooltip>,
+        tooltip: Option<wire::TooltipResponse>,
     ) -> wire::Node {
         let runs = match self.runs {
             Some(runs) => wire::RichTextRuns::Runs(runs.into_iter().map(Into::into).collect()),
@@ -229,7 +229,7 @@ impl Element for InteractiveText {
                 )
             })
         });
-        let tooltip = tooltip.map(|builder| wire::RichTextTooltip {
+        let tooltip = tooltip.map(|builder| wire::TooltipResponse {
             request: lowering.rich_text_tooltip(builder),
             character_index: None,
             content: None,

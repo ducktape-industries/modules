@@ -107,9 +107,7 @@ pub use patch::{MAX_PATCHES, Patch, apply, diff};
 pub mod interactivity;
 pub mod keyboard;
 pub mod mouse;
-pub use interactivity::{
-    DispatchPhase, HoverListenerMode, KeyContext, RichTextTooltip, Tooltip, TooltipResponse,
-};
+pub use interactivity::{DispatchPhase, HoverListenerMode, KeyContext, Tooltip, TooltipResponse};
 
 mod protocol;
 pub use protocol::{

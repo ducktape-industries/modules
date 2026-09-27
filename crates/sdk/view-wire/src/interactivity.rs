@@ -170,12 +170,4 @@ pub struct TooltipResponse {
     pub content: Option<Box<crate::Node>>,
 }
 
-/// One bounded response cache for a native `InteractiveText` tooltip.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RichTextTooltip {
-    pub request: u32,
-    pub character_index: Option<u32>,
-    pub content: Option<Box<crate::Node>>,
-}
-
 mod convert;

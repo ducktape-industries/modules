@@ -130,7 +130,7 @@ fn rich_tooltip_cache_and_explicit_none_share_the_frame_budget() {
             clickable_ranges: Vec::new(),
             on_click: None,
             on_hover: None,
-            tooltip: Some(RichTextTooltip {
+            tooltip: Some(TooltipResponse {
                 request: 2,
                 character_index: Some(0),
                 content: Some(Box::new(column(

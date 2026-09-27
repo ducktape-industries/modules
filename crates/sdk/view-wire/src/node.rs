@@ -87,7 +87,8 @@ pub enum Node {
         clickable_ranges: Vec<std::ops::Range<usize>>,
         on_click: Option<u32>,
         on_hover: Option<u32>,
-        tooltip: Option<crate::RichTextTooltip>,
+        /// The response cache for the paragraph's native tooltip.
+        tooltip: Option<crate::TooltipResponse>,
     },
     /// A native GPUI anchored element. The host owns fitting and clipping.
     Anchored {
