@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::api::{Invite, NodeStatus, Session};
-use crate::queries::Account;
+use crate::queries::Seat;
 
 /// The invite lifetimes offered, in days.
 pub(crate) const TTL: [u64; 3] = [1, 7, 30];
@@ -14,7 +14,7 @@ pub(crate) const TTL: [u64; 3] = [1, 7, 30];
 pub struct Settings {
     pub(crate) session: Session,
     pub(crate) status: Loadable<NodeStatus>,
-    pub(crate) account: Loadable<Option<Account>>,
+    pub(crate) account: Loadable<Option<Seat>>,
     pub(crate) invite: Loadable<Invite>,
     /// which of [`TTL`] the next invite lasts
     pub(crate) ttl: usize,

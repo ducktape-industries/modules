@@ -1,43 +1,32 @@
 //! The Account section: who the seated key is, its keys, the form that
 //! gives a bare key an account, and a person's agents.
 use super::*;
-use crate::queries::{Account, Agent};
+use crate::queries::{Account, Agent, Key, Seat};
 use identity::Standing;
 
 pub(super) fn account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
     match &view.account {
-        Loadable::Ready(Some(account)) => {
-            let who = match account.number {
-                Some(number) => format!("{} · account {number}", account.name),
-                // a key held by an agent that does not act goes by the agent
-                None if account.note.is_some() => account.name.clone(),
-                None => "Unregistered key".into(),
-            };
-            let keys = account.keys.iter().enumerate().map(|(i, key)| {
-                // a bare key is the host's; an account's key goes by its label
-                let label = match (account.number, &key.label) {
-                    (None, _) => "Host key",
-                    (Some(_), Some(label)) => label,
-                    (Some(_), None) => "Key",
-                };
-                let hex = design::short_hex(&abi::hex(&key.key));
-                let shown = match key.validator {
-                    true => format!("{hex} · Validator"),
-                    false => hex,
-                };
-                line(&format!("key/{i}"), label, &shown)
-            });
+        Loadable::Ready(Some(Seat::Bare(key))) => column("settings/account/data")
+            .child(line("who", "Who I am", "Unregistered key"))
+            .child(key_line(0, "Host key", key))
+            .child(create_account(view, cx, theme))
+            .into_any_element(),
+        // a key held by an agent that does not act goes by the agent
+        Loadable::Ready(Some(Seat::Stopped { key, name, note })) => column("settings/account/data")
+            .child(line("who", "Who I am", name))
+            .child(key_line(0, "Host key", key))
+            .child(secondary("settings/account/note", note, theme))
+            .into_any_element(),
+        Loadable::Ready(Some(Seat::Account(account))) => {
+            let who = format!("{} · account {}", account.name, account.number);
+            let keys = account
+                .keys
+                .iter()
+                .enumerate()
+                .map(|(i, key)| key_line(i, key.label.as_deref().unwrap_or("Key"), key));
             column("settings/account/data")
                 .child(line("who", "Who I am", &who))
                 .children(keys)
-                // a bare key is seated: `queries::account` answers no
-                // account at all while none is
-                .when_some(account.note.as_ref(), |body, note| {
-                    body.child(secondary("settings/account/note", note, theme))
-                })
-                .when(account.number.is_none() && account.note.is_none(), |body| {
-                    body.child(create_account(view, cx, theme))
-                })
                 .when(account.manages, |body| {
                     body.child(agents(view, account, cx, theme))
                 })
@@ -59,6 +48,15 @@ pub(super) fn account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme
             secondary("settings/account/loading", "Reading your account…", theme).into_any_element()
         }
     }
+}
+
+fn key_line(i: usize, label: &str, key: &Key) -> impl IntoElement {
+    let hex = design::short_hex(&abi::hex(&key.key));
+    let shown = match key.validator {
+        true => format!("{hex} · Validator"),
+        false => hex,
+    };
+    line(&format!("key/{i}"), label, &shown)
 }
 
 fn create_account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {

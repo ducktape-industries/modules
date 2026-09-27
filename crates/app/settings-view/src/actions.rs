@@ -52,7 +52,7 @@ impl Settings {
     fn account_query(
         &self,
         cx: &mut Context<Self>,
-    ) -> impl Future<Output = Result<Option<queries::Account>, ducktape_view_guest::host::Error>> + 'static
+    ) -> impl Future<Output = Result<Option<queries::Seat>, ducktape_view_guest::host::Error>> + 'static
     {
         let (signer, number) = (self.session.signer.clone(), self.session.account);
         queries::account(cx.host(), signer, number)
@@ -122,14 +122,10 @@ impl Settings {
     /// as the manager.
     pub(crate) fn submit_agent_key(&mut self, cx: &mut Context<Self>) {
         let mine = |account: u64| {
-            self.account
-                .ready()
-                .and_then(Option::as_ref)
-                .is_some_and(|a| {
-                    a.agents.iter().any(|agent| {
-                        agent.number == account && agent.standing() != identity::Standing::Revoked
-                    })
-                })
+            matches!(self.account.ready(), Some(Some(queries::Seat::Account(a)))
+            if a.agents.iter().any(|agent| {
+                agent.number == account && agent.standing() != identity::Standing::Revoked
+            }))
         };
         let op = abi::unhex(self.agent_key.text.trim())
             .and_then(|bytes| abi::decode::<identity::Op>(&bytes).ok())

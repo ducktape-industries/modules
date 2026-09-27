@@ -9,19 +9,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::{Identity, Valset};
 
+/// Who the seated key is.
+#[derive(Clone, Serialize, Deserialize)]
+pub enum Seat {
+    /// a key no account holds
+    Bare(Key),
+    /// a key held by an agent that does not act: the agent's name and why
+    Stopped {
+        key: Key,
+        name: String,
+        note: String,
+    },
+    Account(Account),
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Account {
-    /// `None`: the seated key holds no account yet
-    pub number: Option<u64>,
-    /// the account's name; empty while it has no account
+    pub number: u64,
     pub name: String,
     pub keys: Vec<Key>,
     /// a person's account manages agents; an agent's or a module's none
     pub manages: bool,
     pub agents: Vec<Agent>,
-    /// why a key that resolves to no account acts as no one: the agent
-    /// holding it does not act. `None` for a key no account holds.
-    pub note: Option<String>,
 }
 
 /// An agent the account manages.
@@ -57,7 +66,7 @@ pub(crate) async fn account(
     host: Host,
     signer: String,
     number: Option<u64>,
-) -> Result<Option<Account>, Error> {
+) -> Result<Option<Seat>, Error> {
     if signer.is_empty() {
         return Ok(None);
     }
@@ -66,20 +75,15 @@ pub(crate) async fn account(
     let Some(number) = number else {
         // the host resolves no account for a suspended agent's key, which
         // identity still holds (and so refuses to create an account with)
-        let (name, note) = match held_by(&host, &key).await? {
-            Some((name, note)) => {
-                let sentence = format!("This key belongs to {name}, {note} by its manager.");
-                (name, Some(sentence))
-            }
-            None => (String::new(), None),
-        };
-        return Ok(Some(Account {
-            number: None,
-            name,
-            keys: vec![read_key(&host, key, None).await?],
-            manages: false,
-            agents: Vec::new(),
-            note,
+        let held = held_by(&host, &key).await?;
+        let key = read_key(&host, key, None).await?;
+        return Ok(Some(match held {
+            Some((name, note)) => Seat::Stopped {
+                key,
+                note: format!("This key belongs to {name}, {note} by its manager."),
+                name,
+            },
+            None => Seat::Bare(key),
         }));
     };
     let account = match host
@@ -102,14 +106,13 @@ pub(crate) async fn account(
     } else {
         Vec::new()
     };
-    Ok(Some(Account {
-        number: Some(number),
+    Ok(Some(Seat::Account(Account {
+        number,
         name: account.card.name,
         keys,
         manages,
         agents,
-        note: None,
-    }))
+    })))
 }
 
 /// The account holding `key` that does not act, by its name and why not
