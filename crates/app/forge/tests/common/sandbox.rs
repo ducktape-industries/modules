@@ -92,13 +92,13 @@ impl MemorySandbox {
 
     /// Runs one chat message as a frame of its own, signed by `origin`.
     pub fn chat_execute(
-        &mut self,
+        &self,
         origin: Origin,
         height: u64,
         time: u64,
         msg: chat::Op,
     ) -> Result<(), Error> {
-        (self.chain.height, self.chain.time) = (height, time);
+        self.chain.at(height, time);
         self.chain.submit(origin, "chat", &msg)?;
         Ok(())
     }
@@ -111,13 +111,13 @@ impl MemorySandbox {
     /// emitted, in one frame as the kernel runs it: forge's output, or the
     /// refusal that failed the frame (which left every host as it was).
     pub fn frame(
-        &mut self,
+        &self,
         origin: Origin,
         height: u64,
         time: u64,
         op: &forge::Op,
     ) -> Result<Vec<u8>, Error> {
-        (self.chain.height, self.chain.time) = (height, time);
+        self.chain.at(height, time);
         self.chain.submit(origin, "forge", op)
     }
 

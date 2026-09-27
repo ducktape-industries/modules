@@ -102,7 +102,7 @@ impl Roster {
 }
 
 /// Several modules over one clock, run as the kernel runs them. The chain
-/// is at `height` and `time` (fields a test moves); every module is seated
+/// is at a height and time ([`at`](MockChain::at) moves it); every module is seated
 /// by name ([`seat`](MockChain::seat)) over a host of its own
 /// ([`host`](MockChain::host)); a signed submission is one frame
 /// ([`submit`](MockChain::submit)). Who a key or a module acts as: the
@@ -125,8 +125,8 @@ pub struct MockChain {
     roster: Rc<RefCell<Roster>>,
     /// The frame-wide number the next emitted message gets.
     next_message: Cell<u64>,
-    pub height: u64,
-    pub time: u64,
+    /// The block every run is in: height and time.
+    clock: Cell<(u64, u64)>,
 }
 
 impl Default for MockChain {
@@ -135,8 +135,7 @@ impl Default for MockChain {
             seats: BTreeMap::new(),
             roster: Rc::default(),
             next_message: Cell::new(0),
-            height: 1,
-            time: 0,
+            clock: Cell::new((1, 0)),
         }
     }
 }
@@ -219,12 +218,19 @@ impl MockChain {
         self.roster_mut().profiles.insert(profile.number, profile);
     }
 
+    /// Moves the chain to `height` and `time`: the block every later
+    /// submission, init and query runs in (height 1, time 0 at first).
+    pub fn at(&self, height: u64, time: u64) {
+        self.clock.set((height, time));
+    }
+
     /// `module`'s env for a direct call by the chain itself at this height
     /// and time: what [`Module::init`] runs in.
     pub fn env(&self, module: impl Into<ModuleId>) -> Env {
+        let (height, time) = self.clock.get();
         Env {
-            height: self.height,
-            time: self.time,
+            height,
+            time,
             ..MockHost::env(module)
         }
     }
@@ -354,7 +360,7 @@ impl MockChain {
         }
         let checkpoint = self.checkpoint();
         let seat = self.seated(&env.module)?;
-        let host = seat.host.clone();
+        let host = &seat.host;
         let first = self.next_message.get();
         host.borrow_mut().next_message = first;
         let ran = match call {

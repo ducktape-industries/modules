@@ -204,11 +204,8 @@ fn left(
 
 #[test]
 fn messages_run_after_the_emitter_in_emit_order_depth_first_as_the_emitters_account() {
-    let chain = MockChain {
-        height: 9,
-        time: 90,
-        ..chain()
-    };
+    let chain = chain();
+    chain.at(9, 90);
     // a emits twice to b; b's first run emits to c, b's second peeks at c
     let script = vec![
         emit(

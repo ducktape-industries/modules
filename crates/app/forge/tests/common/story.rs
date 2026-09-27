@@ -58,8 +58,9 @@ impl Rig {
     pub fn execute(&mut self, op: &Op) -> Result<Vec<u8>, guest::Error> {
         self.advance();
         let (actor, height) = (self.actor.clone(), self.height);
-        let forge = self.sandbox.forge.clone();
-        forge.attempt(|| signed_op(&mut self.sandbox, &actor, height, op))
+        self.sandbox
+            .forge
+            .attempt(|| signed_op(&self.sandbox, &actor, height, op))
     }
 
     /// The refusal of the actor's op, which left forge's store as it was.
@@ -67,8 +68,9 @@ impl Rig {
     pub fn refused(&mut self, op: &Op) -> guest::Error {
         self.advance();
         let (actor, height) = (self.actor.clone(), self.height);
-        let forge = self.sandbox.forge.clone();
-        forge.refused(|| signed_op(&mut self.sandbox, &actor, height, op))
+        self.sandbox
+            .forge
+            .refused(|| signed_op(&self.sandbox, &actor, height, op))
     }
 
     pub fn query(&self, query: &Query) -> Result<Vec<u8>, guest::Error> {

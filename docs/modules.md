@@ -427,7 +427,7 @@ would (`hold`, `register`, `profile` for an agent and its standing); seat
 instead, and the roster's edits do nothing (identity's own ops seat keys
 then). `chain.init(module, &params)` runs `init` as the kernel admits a
 module: one frame, what it emits run after it, a refusal undoing it all;
-`chain.height`/`time` are fields a test moves. The two tests that matter
+`chain.at(height, time)` moves the chain to another block. The two tests that matter
 for poll: the announcement lands in the frame that opened the poll, and a
 room that refuses the line still gets its poll while a refused closing
 line fails the close whole.

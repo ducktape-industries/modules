@@ -3,7 +3,7 @@ use common::*;
 
 #[test]
 fn founding_requires_bounds_and_ops_require_a_signer() {
-    let mut sandbox = MemorySandbox::default();
+    let sandbox = MemorySandbox::default();
     let unfounded = Forge::init(&sandbox.exec(1), b"").unwrap_err();
     assert_eq!(unfounded.code, code::INVALID_INPUT);
     assert!(
@@ -19,18 +19,19 @@ fn founding_requires_bounds_and_ops_require_a_signer() {
         hash: HashKind::Sha1,
     };
     for origin in [Origin::Root, Origin::Module("chat".into())] {
-        let forge = sandbox.forge.clone();
-        let refusal = forge.refused(|| sandbox.frame(origin, 1, TIME, &create));
+        let refusal = sandbox
+            .forge
+            .refused(|| sandbox.frame(origin, 1, TIME, &create));
         assert_eq!(refusal.code, code::UNAUTHORIZED);
     }
 }
 
 #[test]
 fn create_names_an_owner_and_refuses_bad_or_taken_names() {
-    let mut sandbox = founded();
-    create(&mut sandbox, "project", HashKind::Sha1);
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
     let again = act(
-        &mut sandbox,
+        &sandbox,
         WRITER,
         &Op::Create {
             repo: "project".into(),
@@ -40,7 +41,7 @@ fn create_names_an_owner_and_refuses_bad_or_taken_names() {
     assert_eq!(again.unwrap_err().code, code::ALREADY_EXISTS);
     for bad in ["", "a/b", ".hidden", "x.git", "sp ace"] {
         let refused = act(
-            &mut sandbox,
+            &sandbox,
             OWNER,
             &Op::Create {
                 repo: bad.into(),
@@ -71,14 +72,14 @@ fn create_names_an_owner_and_refuses_bad_or_taken_names() {
 
 #[test]
 fn a_push_stores_the_objects_moves_the_ref_and_reports() {
-    let mut sandbox = founded();
-    create(&mut sandbox, "project", HashKind::Sha1);
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
     let mut source = MemoryObjects::new(Hash::Sha1);
     let tip = file_commit(&mut source, &[], 1, &[("README", b"hello\n")]);
     let zero = Hash::Sha1.zero();
 
     let report = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(zero, tip, "refs/heads/main")],
@@ -95,20 +96,20 @@ fn a_push_stores_the_objects_moves_the_ref_and_reports() {
 
 #[test]
 fn only_the_owner_and_granted_writers_push() {
-    let mut sandbox = founded();
-    create(&mut sandbox, "project", HashKind::Sha1);
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
     let mut source = MemoryObjects::new(Hash::Sha1);
     let tip = file_commit(&mut source, &[], 1, &[("a", b"1")]);
     let zero = Hash::Sha1.zero();
     let pack_bytes = pack_of(&source, &all_ids(&source));
     let commands = [(zero, tip, "refs/heads/main")];
 
-    let stranger = push(&mut sandbox, STRANGER, "project", &commands, &pack_bytes);
+    let stranger = push(&sandbox, STRANGER, "project", &commands, &pack_bytes);
     assert_eq!(stranger.unwrap_err().code, code::UNAUTHORIZED);
     assert_eq!(sandbox.blob_count(), 0);
 
     let grant_by_stranger = act(
-        &mut sandbox,
+        &sandbox,
         STRANGER,
         &Op::Grant {
             repo: "project".into(),
@@ -118,7 +119,7 @@ fn only_the_owner_and_granted_writers_push() {
     assert_eq!(grant_by_stranger.unwrap_err().code, code::UNAUTHORIZED);
 
     act(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         &Op::Grant {
             repo: "project".into(),
@@ -126,11 +127,11 @@ fn only_the_owner_and_granted_writers_push() {
         },
     )
     .unwrap();
-    let writer = push(&mut sandbox, WRITER, "project", &commands, &pack_bytes).unwrap();
+    let writer = push(&sandbox, WRITER, "project", &commands, &pack_bytes).unwrap();
     assert_eq!(writer, ["unpack ok", "ok refs/heads/main"]);
 
     act(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         &Op::Revoke {
             repo: "project".into(),
@@ -138,14 +139,14 @@ fn only_the_owner_and_granted_writers_push() {
         },
     )
     .unwrap();
-    let revoked = push(&mut sandbox, WRITER, "project", &commands, &pack_bytes);
+    let revoked = push(&sandbox, WRITER, "project", &commands, &pack_bytes);
     assert_eq!(revoked.unwrap_err().code, code::UNAUTHORIZED);
 }
 
 #[test]
 fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
-    let mut sandbox = founded();
-    create(&mut sandbox, "project", HashKind::Sha1);
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
     let mut source = MemoryObjects::new(Hash::Sha1);
     let root = file_commit(&mut source, &[], 1, &[("a", b"1")]);
     let left = file_commit(&mut source, &[root], 2, &[("a", b"left")]);
@@ -154,7 +155,7 @@ fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
     let everything = pack_of(&source, &all_ids(&source));
 
     push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(zero, left, "refs/heads/main")],
@@ -162,7 +163,7 @@ fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
     )
     .unwrap();
     let rewound = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(left, right, "refs/heads/main")],
@@ -179,7 +180,7 @@ fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
     );
 
     let deleted = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(left, zero, "refs/heads/main")],
@@ -192,7 +193,7 @@ fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
     );
 
     act(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         &Op::Configure {
             repo: "project".into(),
@@ -205,7 +206,7 @@ fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
     )
     .unwrap();
     let forced = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(left, right, "refs/heads/main")],
@@ -218,7 +219,7 @@ fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
         right.to_hex()
     );
     let deleted = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(right, zero, "refs/heads/main")],
@@ -231,15 +232,15 @@ fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
 
 #[test]
 fn a_stale_old_value_is_reported() {
-    let mut sandbox = founded();
-    create(&mut sandbox, "project", HashKind::Sha1);
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
     let mut source = MemoryObjects::new(Hash::Sha1);
     let root = file_commit(&mut source, &[], 1, &[("a", b"1")]);
     let next = file_commit(&mut source, &[root], 2, &[("a", b"2")]);
     let zero = Hash::Sha1.zero();
     let everything = pack_of(&source, &all_ids(&source));
     push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(zero, root, "refs/heads/main")],
@@ -247,7 +248,7 @@ fn a_stale_old_value_is_reported() {
     )
     .unwrap();
     let stale = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(zero, next, "refs/heads/main")],
@@ -259,8 +260,8 @@ fn a_stale_old_value_is_reported() {
 
 #[test]
 fn an_import_arrives_as_fast_forward_steps_and_an_open_pack_is_refused_whole() {
-    let mut sandbox = founded();
-    create(&mut sandbox, "project", HashKind::Sha1);
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
     let mut source = MemoryObjects::new(Hash::Sha1);
     let first = file_commit(&mut source, &[], 1, &[("a", b"1"), ("b", b"1")]);
     let after_first: BTreeSet<Oid> = source.ids().copied().collect();
@@ -274,7 +275,7 @@ fn an_import_arrives_as_fast_forward_steps_and_an_open_pack_is_refused_whole() {
     let zero = Hash::Sha1.zero();
 
     let open = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(zero, third, "refs/heads/main")],
@@ -291,7 +292,7 @@ fn an_import_arrives_as_fast_forward_steps_and_an_open_pack_is_refused_whole() {
     assert!(refs_of(&sandbox, "project").is_empty());
 
     let step_one = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(zero, first, "refs/heads/main")],
@@ -300,7 +301,7 @@ fn an_import_arrives_as_fast_forward_steps_and_an_open_pack_is_refused_whole() {
     .unwrap();
     assert_eq!(step_one, ["unpack ok", "ok refs/heads/main"]);
     let step_two = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(first, third, "refs/heads/main")],
@@ -317,7 +318,7 @@ fn an_import_arrives_as_fast_forward_steps_and_an_open_pack_is_refused_whole() {
 
 #[test]
 fn a_walk_past_the_bound_asks_for_smaller_steps() {
-    let mut sandbox = MemorySandbox::default();
+    let sandbox = MemorySandbox::default();
     Forge::init(
         &sandbox.exec(1),
         &abi::encode(&Bounds {
@@ -326,7 +327,7 @@ fn a_walk_past_the_bound_asks_for_smaller_steps() {
         }),
     )
     .unwrap();
-    create(&mut sandbox, "project", HashKind::Sha1);
+    create(&sandbox, "project", HashKind::Sha1);
     let mut source = MemoryObjects::new(Hash::Sha1);
     let mut tip = file_commit(&mut source, &[], 1, &[("a", b"0")]);
     let root = tip;
@@ -336,7 +337,7 @@ fn a_walk_past_the_bound_asks_for_smaller_steps() {
     let zero = Hash::Sha1.zero();
     let everything = pack_of(&source, &all_ids(&source));
     push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(zero, root, "refs/heads/main")],
@@ -344,7 +345,7 @@ fn a_walk_past_the_bound_asks_for_smaller_steps() {
     )
     .unwrap();
     let too_far = push(
-        &mut sandbox,
+        &sandbox,
         OWNER,
         "project",
         &[(root, tip, "refs/heads/main")],
@@ -441,7 +442,7 @@ fn a_forge_write_at_the_answering_height_restarts_the_walk() {
     rig.sandbox.hold(b"ninth", 9);
     let (actor, height) = (rig.actor.clone(), rig.height);
     signed_op(
-        &mut rig.sandbox,
+        &rig.sandbox,
         &actor,
         height,
         &Op::Grant {
