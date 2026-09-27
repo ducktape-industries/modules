@@ -6,6 +6,7 @@ use ducktape_view_guest::UniformListScrollHandle;
 use ducktape_view_guest::design;
 pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, heading, short_hex};
 use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{AnchoredPositionMode, Edges, MouseDownEvent, Point};
 
 pub(crate) fn id(text: impl Into<String>) -> ElementId {
     ElementId::Name(text.into().into())
@@ -20,8 +21,6 @@ where
     id: ElementId,
     theme: Theme,
     selected: bool,
-    /// on the ink rail a row wears the sidebar tones, not the surface ones
-    sidebar: bool,
     children: Vec<AnyElement>,
     click: Option<F>,
 }
@@ -34,7 +33,6 @@ where
         id: id.into(),
         theme: *theme,
         selected: false,
-        sidebar: false,
         children: Vec::new(),
         click: None,
     }
@@ -50,10 +48,6 @@ where
     }
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
-        self
-    }
-    pub fn sidebar(mut self, sidebar: bool) -> Self {
-        self.sidebar = sidebar;
         self
     }
     pub fn cell(mut self, child: impl IntoElement) -> Self {
@@ -77,11 +71,7 @@ where
             .min_h(design::size::CONTROL)
             .px_2()
             .children(self.children);
-        let (chosen, hovered) = if self.sidebar {
-            (theme.sidebar_raised, theme.sidebar_raised)
-        } else {
-            (theme.accent_soft, theme.hover)
-        };
+        let (chosen, hovered) = (theme.accent_soft, theme.hover);
         if self.selected {
             element = element.bg(chosen).aria_selected(true);
         }
@@ -165,4 +155,144 @@ pub(crate) fn ref_label(name: &[u8]) -> String {
         .or_else(|| text.strip_prefix("refs/tags/"))
         .unwrap_or(&text)
         .to_owned()
+}
+
+/// A dropdown's width.
+const MENU_W: Pixels = px(220.);
+/// How far under its button's top a dropdown opens.
+const MENU_DROP: Pixels = px(30.);
+
+/// A button that names what is picked (`main ⌄`) and, while `open`, the
+/// menu under it: `items` in a box that a press anywhere else closes.
+/// The button only opens it.
+pub(crate) fn dropdown(
+    key: &str,
+    label: String,
+    open: bool,
+    items: Vec<AnyElement>,
+    theme: &Theme,
+    on_open: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    on_close: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let theme = *theme;
+    let button = div()
+        .id(id(key.to_owned()))
+        .h(design::size::ROW)
+        .px(design::space::SM)
+        .flex()
+        .items_center()
+        .gap(design::space::XS)
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .font_family(design::fonts::FAMILY_MONO)
+        .text_size(design::text::CAPTION)
+        .whitespace_nowrap()
+        .hover(move |style| style.bg(theme.surface))
+        .role(Role::Button)
+        .aria_expanded(open)
+        .focusable()
+        .on_click(on_open)
+        .child(label)
+        .child(div().text_color(theme.faint).child("⌄"));
+    let mut wrapper = div().relative().flex_none().child(button);
+    if open {
+        let menu = div()
+            .id(id(format!("{key}-menu")))
+            .w(MENU_W)
+            .py(design::space::XXS)
+            .flex()
+            .flex_col()
+            .border_1()
+            .border_color(theme.border_strong)
+            .bg(theme.background)
+            .shadow_lg()
+            .occlude()
+            .role(Role::Menu)
+            .on_mouse_down_out(on_close)
+            .children(items);
+        // pinned to the button's top-left, so the drop is measured from there
+        wrapper = wrapper.child(
+            div().absolute().top_0().left_0().child(deferred(
+                anchored()
+                    .position_mode(AnchoredPositionMode::Local)
+                    .position(Point {
+                        x: px(0.),
+                        y: MENU_DROP,
+                    })
+                    .snap_to_window_with_margin(Edges::all(design::space::SM))
+                    .child(menu),
+            )),
+        );
+    }
+    wrapper.into_any_element()
+}
+
+/// A dropdown's group label: `Branches`, `Tags`.
+pub(crate) fn menu_label(text: &str, theme: &Theme) -> AnyElement {
+    div()
+        .px(design::space::LG)
+        .pt(design::space::SM)
+        .pb(design::space::XXS)
+        .font_family(design::fonts::FAMILY_MONO)
+        .text_size(design::text::CAPTION)
+        .text_color(theme.muted)
+        .child(text.to_owned())
+        .into_any_element()
+}
+
+/// One pick in a dropdown, mono, the picked one raised; `note` sits
+/// faint on its right.
+pub(crate) fn menu_item(
+    element_id: ElementId,
+    label: String,
+    note: Option<&str>,
+    selected: bool,
+    theme: &Theme,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let theme = *theme;
+    div()
+        .id(element_id)
+        .h(design::size::ROW)
+        .px(design::space::LG)
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .font_family(design::fonts::FAMILY_MONO)
+        .text_size(design::text::CAPTION)
+        .when(selected, |item| item.bg(theme.surface_raised))
+        .hover(move |style| style.bg(theme.surface))
+        .role(Role::MenuItem)
+        .aria_selected(selected)
+        .focusable()
+        .on_click(click)
+        .child(div().flex_1().min_w(px(0.)).truncate().child(label))
+        .children(note.map(|note| div().text_color(theme.faint).child(note.to_owned())))
+        .into_any_element()
+}
+
+/// A tab with its count beside the label, faint: `Changes 3`. Tabs sit
+/// on a bar's hairline, full height.
+pub(crate) fn tab(
+    element_id: ElementId,
+    label: &str,
+    count: Option<u64>,
+    selected: bool,
+    theme: &Theme,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    design::tab(element_id, label.to_owned(), selected, theme, click)
+        .h_full()
+        .px_0()
+        .gap(design::space::XS)
+        .text_size(design::text::BODY)
+        .font_weight(ducktape_view_guest::FontWeight::NORMAL)
+        .children(count.map(|count| {
+            div()
+                .text_size(design::text::CAPTION)
+                .text_color(theme.faint)
+                .child(count.to_string())
+        }))
+        .into_any_element()
 }

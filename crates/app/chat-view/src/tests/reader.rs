@@ -37,7 +37,7 @@ fn an_unregistered_key_stays_read_only() {
     assert!(cx.has_text("Create an account to create a channel"));
 }
 
-/// The reader creates the account in Settings, then switches to Chat: the
+/// The reader creates the account in Account, then switches to Chat: the
 /// seated key never changes; the host resolves its new account and hands it
 /// over as a session change.
 #[test]

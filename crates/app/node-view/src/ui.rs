@@ -1,18 +1,19 @@
-//! The Nodes screen: a header with the counts, then the set in one of its
-//! four states. `render` reads the state and changes nothing.
+//! The Nodes screen: a header with the counts, the connected node's
+//! status, then the set in one of its four states. `render` reads the
+//! state and changes nothing.
 use abi::hex;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::view::Loadable;
-use ducktape_view_guest::{Div, FontWeight};
+use ducktape_view_guest::{Div, FontWeight, Stateful};
 use valset::{Membership, Role as Standing};
 
 use crate::Nodes;
 
-/// The validator's place in the set, before its key.
-const PLACE_W: Pixels = px(28.);
-/// The widest a member's address runs before it is clipped.
-const ADDRESS_W: Pixels = px(220.);
+/// A row's label column.
+const LABEL_W: Pixels = px(180.);
+/// The widest the rows run: status, validators and members alike.
+const ROWS_W: Pixels = px(720.);
 
 pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
@@ -40,7 +41,113 @@ pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement 
                         .child(count(view)),
                 ),
         )
-        .child(body(view, cx, &theme))
+        .child(
+            div()
+                .id("nodes-scroll")
+                .flex_1()
+                .min_h(px(0.))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(section("nodes-status-header", "Node", &theme))
+                .child(status(view, cx, &theme))
+                .child(body(view, cx, &theme)),
+        )
+}
+
+/// The connected node's own numbers, one row each, or why they are not
+/// here.
+fn status(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
+    match &view.status {
+        Loadable::Ready(s) => div()
+            .id("nodes-status")
+            .max_w(ROWS_W)
+            .flex()
+            .flex_col()
+            .children([
+                fact("network", "Network", s.chain_id.clone(), false, theme),
+                fact("height", "Height", design::grouped(s.height), true, theme),
+                fact("epoch", "Epoch", design::grouped(s.epoch), true, theme),
+                fact(
+                    "block-time",
+                    "Block time",
+                    format!("{} ms", design::grouped(s.block_time_ms)),
+                    true,
+                    theme,
+                ),
+                fact("tip", "Tip", hex(&s.tip), true, theme),
+                fact(
+                    "identity",
+                    "Node identity",
+                    design::short_hex(&hex(&s.identity)),
+                    true,
+                    theme,
+                ),
+                fact(
+                    "contract",
+                    "Contract version",
+                    s.contract.to_string(),
+                    true,
+                    theme,
+                ),
+            ])
+            .into_any_element(),
+        Loadable::Failed(refusal) => {
+            let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read_status(cx));
+            design::refused("nodes-status", refusal.message.clone(), theme, retry)
+                .into_any_element()
+        }
+        Loadable::Idle | Loadable::Loading(_) => design::quiet("Reading node status…", theme)
+            .id("nodes-status-loading")
+            .pl_2()
+            .into_any_element(),
+    }
+}
+
+/// One status row: the label, and the value (mono for numbers and hashes).
+fn fact(key: &str, label: &str, value: String, mono: bool, theme: &Theme) -> AnyElement {
+    let value = match mono {
+        true => design::mono(value).truncate().into_any_element(),
+        false => div().child(value).into_any_element(),
+    };
+    row(
+        format!("nodes-status-{key}").into(),
+        div().text_color(theme.muted).child(label.to_owned()),
+        value,
+        theme,
+    )
+    .into_any_element()
+}
+
+/// The one row every block of this screen uses: a label column, the value
+/// beside it, a hairline under.
+fn row(
+    id: ElementId,
+    label: impl IntoElement,
+    value: impl IntoElement,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap_2()
+        .min_h(design::size::CONTROL + design::space::SM)
+        .pl_2()
+        .pr_2()
+        .border_b_1()
+        .border_color(theme.border)
+        .child(div().w(LABEL_W).flex_none().min_w(px(0.)).child(label))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(value),
+        )
 }
 
 fn count(view: &Nodes) -> String {
@@ -75,8 +182,6 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
         }
         Loadable::Ready(set) => div()
             .id("nodes-list")
-            .flex_1()
-            .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap_2()
@@ -113,23 +218,18 @@ fn validators(validators: &[Vec<u8>], theme: &Theme) -> AnyElement {
     }
     div()
         .id("nodes-validators")
+        .max_w(ROWS_W)
         .flex()
         .flex_col()
-        .gap_2()
         .children(validators.iter().enumerate().map(|(index, key)| {
-            div()
-                .id(ElementId::named_usize("nodes-validator", index))
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .w(PLACE_W)
-                        .text_size(design::text::SECONDARY)
-                        .text_color(theme.muted)
-                        .child((index + 1).to_string()),
-                )
-                .child(key_text(key).flex_1())
+            row(
+                ElementId::named_usize("nodes-validator", index),
+                div()
+                    .text_color(theme.muted)
+                    .child(format!("Validator {}", index + 1)),
+                key_text(key),
+                theme,
+            )
         }))
         .into_any_element()
 }
@@ -137,24 +237,28 @@ fn validators(validators: &[Vec<u8>], theme: &Theme) -> AnyElement {
 fn members(members: &[Membership], theme: &Theme) -> impl IntoElement {
     div()
         .id("nodes-members")
+        .max_w(ROWS_W)
         .flex()
         .flex_col()
-        .gap_2()
         .children(members.iter().enumerate().map(|(index, member)| {
-            div()
-                .id(ElementId::named_usize("nodes-member", index))
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(key_text(&member.key).flex_1())
-                .child(
-                    div()
-                        .max_w(ADDRESS_W)
-                        .truncate()
-                        .text_size(design::text::SECONDARY)
-                        .child(member.address.clone()),
-                )
-                .child(standing(index, member.role, theme))
+            row(
+                ElementId::named_usize("nodes-member", index),
+                key_text(&member.key),
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        design::mono(member.address.clone())
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate(),
+                    )
+                    .child(standing(index, member.role, theme)),
+                theme,
+            )
         }))
 }
 

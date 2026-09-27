@@ -351,7 +351,7 @@ fn a_second_device_key_reads_as_the_same_person() {
     assert_eq!(judged(&cx), [forge::Principal::Account(1)]);
 }
 
-/// The reader creates the account in Settings, then switches to Forge: the
+/// The reader creates the account in Account, then switches to Forge: the
 /// seated key never changes; the host resolves its new account and hands it
 /// over as a session change, and the same key writes and is judged as the
 /// account from then on.
@@ -423,7 +423,10 @@ fn the_repositories_list_shows_every_column_of_the_plan() {
     assert!(cx.has_text("project"), "{:?}", cx.texts());
     assert!(cx.has_text("main"), "the default head is a badge");
     assert!(cx.has_text("Ada"), "the owner key resolves to a name");
-    assert!(cx.has_text("6 refs"));
+    assert!(cx.has_text("6"), "the refs column");
+    for column in ["Name", "Owner", "Default", "Refs", "Last active"] {
+        assert!(cx.has_text(column), "{column}: {:?}", cx.texts());
+    }
     assert!(cx.has_text("block 2"));
     assert!(
         cx.has_text("duck://testnet-0a1b2c3d/forge/project"),
@@ -440,7 +443,7 @@ fn an_empty_program_explains_how_a_repository_begins() {
     assert!(
         cx.texts()
             .iter()
-            .any(|text| text.contains("Create one with + New"))
+            .any(|text| text.contains("Create one with New repository"))
     );
 }
 
@@ -490,18 +493,36 @@ fn creating_a_repository_validates_its_name_then_shows_the_submission() {
         cx.texts()
     );
     assert!(cx.host().requests::<SubmitForge>().is_empty());
+    // SHA-256 unless SHA-1 is picked
     cx.simulate_input("forge-new-repo-name", "ledger");
-    cx.simulate_click("forge-new-repo-sha256");
     cx.simulate_click("forge-new-repo-submit");
     cx.run_until_parked();
+    view.read(|forge| assert!(forge.new_repo.is_none()));
+    cx.simulate_click("forge-new-repo");
     assert!(
-        cx.host()
-            .requests::<SubmitForge>()
-            .iter()
-            .any(|op| matches!(
-                op,
-                Op::Create { repo, hash } if repo == "ledger" && *hash == abi::HashKind::Sha256
-            ))
+        cx.has_text(
+            "Pick SHA-1 to push an existing Git project. The format is fixed once created."
+        )
+    );
+    cx.simulate_input("forge-new-repo-name", "imported");
+    cx.simulate_click("forge-new-repo-sha1");
+    cx.simulate_click("forge-new-repo-submit");
+    cx.run_until_parked();
+    let created: Vec<(String, abi::HashKind)> = cx
+        .host()
+        .requests::<SubmitForge>()
+        .iter()
+        .filter_map(|op| match op {
+            Op::Create { repo, hash } => Some((repo.clone(), *hash)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        created,
+        [
+            ("ledger".to_owned(), abi::HashKind::Sha256),
+            ("imported".to_owned(), abi::HashKind::Sha1),
+        ]
     );
     view.read(|forge| assert!(forge.new_repo.is_none()));
 }
@@ -510,7 +531,11 @@ fn creating_a_repository_validates_its_name_then_shows_the_submission() {
 fn a_repository_opens_on_code_with_its_header_ref_picker_and_tabs() {
     let (cx, view) = opened("default");
     view.read(|forge| assert_eq!(forge.nav().repo.as_deref(), Some("project")));
-    assert!(cx.has_text("owner Ada"));
+    assert!(
+        cx.has_text("owner Ada · 6 refs · active"),
+        "{:?}",
+        cx.texts()
+    );
     assert!(
         cx.texts()
             .iter()
@@ -525,9 +550,18 @@ fn a_repository_opens_on_code_with_its_header_ref_picker_and_tabs() {
             tab.label()
         );
     }
-    // The ref picker carries every ref the paged read followed.
+    // The ref picker is one dropdown; open, it carries every ref the paged
+    // read followed, and a press outside folds it.
+    assert!(cx.find("forge-ref-refs/heads/clean").is_none());
+    let mut cx = cx;
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
     assert!(cx.find("forge-ref-refs/heads/clean").is_some());
     assert!(cx.find("forge-ref-refs/heads/conflict").is_some());
+    assert!(cx.has_text("Branches"), "{:?}", cx.texts());
+    view.update(&mut cx, |forge, _, cx| forge.open_menu(None, cx));
+    cx.run_until_parked();
+    assert!(cx.find("forge-ref-picker-menu").is_none());
 }
 
 #[test]
@@ -547,6 +581,7 @@ fn the_about_panel_docks_what_the_repo_record_carries() {
 #[test]
 fn a_repo_opens_on_its_readme_and_code_holds_the_tree() {
     let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-ref-picker");
     cx.simulate_click("forge-ref-refs/heads/clean");
     cx.run_until_parked();
     view.read(|forge| {
@@ -587,6 +622,7 @@ fn a_repo_opens_on_its_readme_and_code_holds_the_tree() {
 #[test]
 fn a_relative_link_opens_its_file_in_the_code_tab() {
     let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-ref-picker");
     cx.simulate_click("forge-ref-refs/heads/clean");
     cx.run_until_parked();
     let follow = |cx: &mut TestAppContext, dir: &[u8], dest: &str| {
@@ -633,6 +669,7 @@ fn a_relative_link_opens_its_file_in_the_code_tab() {
 #[test]
 fn a_folder_opens_its_children_inline_and_keeps_its_state() {
     let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-ref-picker");
     cx.simulate_click("forge-ref-refs/heads/clean");
     cx.simulate_click("forge-tab-code");
     cx.run_until_parked();
@@ -684,6 +721,7 @@ fn path_of(path: &[u8]) -> String {
 fn the_tree_walks_by_keyboard() {
     use crate::tree::Key;
     let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-ref-picker");
     cx.simulate_click("forge-ref-refs/heads/clean");
     cx.simulate_click("forge-tab-code");
     cx.run_until_parked();
@@ -720,6 +758,7 @@ fn the_tree_walks_by_keyboard() {
 #[test]
 fn an_oversize_blob_is_a_header_not_a_body() {
     let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-ref-picker");
     cx.simulate_click("forge-ref-refs/heads/clean");
     cx.simulate_click("forge-tab-code");
     cx.run_until_parked();
@@ -829,6 +868,7 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
     assert!(cx.has_text("Allow ref deletion"));
     assert!(cx.has_text("Wren"), "the granted writer resolves to a name");
     cx.simulate_click("forge-settings-force");
+    cx.simulate_click("forge-settings-head");
     cx.simulate_click("forge-settings-head-clean");
     cx.simulate_click("forge-settings-save");
     cx.run_until_parked();

@@ -6,7 +6,7 @@ use ducktape_view_guest::{Div, EditorElement};
 
 use crate::Forge;
 use crate::state::{ChangeForm, Filter};
-use crate::ui::components::{badge, button, empty_state, heading, id, quiet, ref_label, row};
+use crate::ui::components::{badge, button, empty_state, heading, id, quiet, ref_label};
 use crate::ui::{pending, scroller, staged};
 use forge::{ChangeState, ChangeSummary, Judgment, Reply, ReviewCounts};
 
@@ -75,20 +75,21 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             ))
             .into_any_element();
     }
-    let mut list = scroller("forge-changes-list");
+    let mut list = scroller("forge-changes-list").p_0().gap_0();
     for (summary, judgment) in shown {
         list = list.child(change_row(forge, summary, *judgment, cx, theme));
     }
     column.child(list).into_any_element()
 }
 
-/// The change number column.
-const NUMBER_W: Pixels = px(44.);
 /// The title search field.
 const SEARCH_W: Pixels = px(220.);
+/// A row's state dot.
+const DOT: Pixels = px(6.);
 
-/// One change: number, title, state, endpoints, author, counts, and what
-/// it asks of me when listed by judgment.
+/// One change: its state dot, title and number, `from → into · author`
+/// under it, and on the right its verdicts, its comments, and what it asks
+/// of me when listed by judgment.
 fn change_row(
     forge: &Forge,
     summary: &ChangeSummary,
@@ -99,35 +100,68 @@ fn change_row(
     let n = summary.n;
     let open = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change(Some(n), cx));
     let author = forge.principal_name(&summary.author);
-    let mut line = row(id(format!("forge-change-{n}")), theme)
+    let dot = match summary.state {
+        ChangeState::Open => theme.success,
+        ChangeState::Merged => theme.agent,
+        ChangeState::Closed => theme.faint,
+    };
+    let theme_ = *theme;
+    let mut line = div()
+        .id(id(format!("forge-change-{n}")))
+        .flex()
+        .items_center()
+        .gap(design::space::LG)
+        .px(crate::ui::PAGE_X)
+        .py(design::space::MD)
+        .border_b_1()
+        .border_color(theme.border)
+        .hover(move |style| style.bg(theme_.surface))
+        .role(Role::Button)
+        .focusable()
         .on_click(open)
-        .cell(
+        .child(
             div()
-                .w(NUMBER_W)
-                .text_color(theme.muted)
-                .child(format!("#{n}")),
+                .id(id(format!("forge-change-state-{n}")))
+                .size(DOT)
+                .flex_none()
+                .rounded_full()
+                .bg(dot)
+                .aria_label(state_label(summary.state)),
         )
-        .cell(
+        .child(
             div()
                 .flex_1()
-                .truncate()
-                .child(crate::ui::bold(summary.title.clone())),
-        )
-        .cell(state_chip(summary.state, n, theme))
-        .cell(quiet(
-            format!(
-                "{} → {}",
-                ref_label(&revision_name(&summary.from)),
-                ref_label(&summary.into)
-            ),
-            theme,
-        ))
-        .cell(quiet(author, theme))
-        .cell(quiet(format!("{} comments", summary.comment_count), theme))
-        .cell(verdicts(&summary.verdicts, n, theme));
+                .min_w(px(0.))
+                .flex()
+                .flex_col()
+                .gap(design::space::HAIR)
+                .child(
+                    div()
+                        .flex()
+                        .gap(design::space::XS)
+                        .min_w(px(0.))
+                        .child(
+                            div()
+                                .min_w(px(0.))
+                                .truncate()
+                                .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+                                .child(summary.title.clone()),
+                        )
+                        .child(div().text_color(theme.muted).child(format!("#{n}"))),
+                )
+                .child(
+                    design::mono(format!(
+                        "{} → {} · {author}",
+                        ref_label(&revision_name(&summary.from)),
+                        ref_label(&summary.into)
+                    ))
+                    .text_size(design::text::CAPTION)
+                    .text_color(theme.muted),
+                ),
+        );
     if let Some(judgment) = judgment {
         if judgment.requested {
-            line = line.cell(badge(
+            line = line.child(badge(
                 id(format!("forge-change-requested-{n}")),
                 "review requested",
                 theme.accent_foreground,
@@ -135,7 +169,7 @@ fn change_row(
             ));
         }
         if judgment.replies.is_some() {
-            line = line.cell(badge(
+            line = line.child(badge(
                 id(format!("forge-change-unread-{n}")),
                 "new reply",
                 theme.warning,
@@ -143,7 +177,20 @@ fn change_row(
             ));
         }
     }
-    line.into_any_element()
+    line.child(verdicts(&summary.verdicts, n, theme))
+        .child(div().w(px(90.)).flex().justify_end().child(quiet(
+            design::plural(summary.comment_count, "comment", "comments"),
+            theme,
+        )))
+        .into_any_element()
+}
+
+fn state_label(state: ChangeState) -> &'static str {
+    match state {
+        ChangeState::Open => "open",
+        ChangeState::Merged => "merged",
+        ChangeState::Closed => "closed",
+    }
 }
 
 pub(crate) fn revision_name(revision: &forge::Revision) -> Vec<u8> {
@@ -154,50 +201,75 @@ pub(crate) fn revision_name(revision: &forge::Revision) -> Vec<u8> {
 }
 
 pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme) -> AnyElement {
-    let (label, foreground, background) = match state {
-        ChangeState::Open => ("open", theme.success, theme.success_soft),
-        ChangeState::Merged => ("merged", theme.accent_foreground, theme.accent_soft),
-        ChangeState::Closed => ("closed", theme.muted, theme.surface_raised),
+    let (foreground, background) = match state {
+        ChangeState::Open => (theme.success, theme.success_soft),
+        ChangeState::Merged => (theme.agent, theme.agent_soft),
+        ChangeState::Closed => (theme.muted, theme.surface_raised),
     };
     badge(
         id(format!("forge-change-state-{n}")),
-        label,
+        state_label(state),
         foreground,
         background,
     )
     .into_any_element()
 }
 
+/// `1 approved · 1 asked for changes`, when anyone has reviewed.
 fn verdicts(counts: &ReviewCounts, n: u64, theme: &Theme) -> AnyElement {
     if counts.approve + counts.request_changes + counts.comment == 0 {
         return div().into_any_element();
     }
-    badge(
-        id(format!("forge-change-verdicts-{n}")),
-        format!(
-            "✓{} ✗{} 💬{}",
-            counts.approve, counts.request_changes, counts.comment
-        ),
-        theme.muted,
-        theme.surface_raised,
-    )
-    .into_any_element()
+    div()
+        .id(id(format!("forge-change-verdicts-{n}")))
+        .text_size(design::text::SECONDARY)
+        .text_color(theme.muted)
+        .child(format!(
+            "{} approved · {} asked for changes",
+            counts.approve, counts.request_changes
+        ))
+        .into_any_element()
 }
 
+/// The state as one segmented choice (Open with its count), the lists
+/// about me as quiet buttons, and the title search on the right.
 fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let typed = cx.listener(|forge, text: &String, _, cx| {
         forge.change_search = text.clone();
         cx.notify();
     });
+    let states = design::segmented(
+        id("forge-filter-states"),
+        theme,
+        [Filter::Open, Filter::Merged, Filter::Closed].map(|filter| {
+            let pick =
+                cx.listener(move |forge, _: &ClickEvent, _, cx| forge.set_filter(filter, cx));
+            let label = match (filter, forge.open_changes()) {
+                (Filter::Open, Some(count)) => format!("Open {count}"),
+                _ => filter.label().to_owned(),
+            };
+            design::segment(
+                id(format!("forge-filter-{}", filter.slug())),
+                label,
+                forge.filter == filter,
+                theme,
+                pick,
+            )
+        }),
+    );
     let mut bar = div()
         .id(id("forge-filters"))
         .flex()
         .flex_wrap()
         .items_center()
-        .gap_1()
-        .px_3()
-        .py_2();
-    for filter in Filter::ALL {
+        .gap(design::space::MD)
+        .px(crate::ui::PAGE_X)
+        .py(design::space::LG)
+        .border_b_1()
+        .border_color(theme.border)
+        .child(states)
+        .child(div().w(px(1.)).h(px(18.)).bg(theme.border));
+    for filter in [Filter::Judgment, Filter::Authored, Filter::Involves] {
         let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.set_filter(filter, cx));
         bar = bar.child(
             button(
@@ -206,31 +278,29 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
                 theme,
                 pick,
             )
+            .kind(design::Kind::Quiet)
             .selected(forge.filter == filter)
-            .enabled(
-                filter == Filter::Open
-                    || filter == Filter::Merged
-                    || filter == Filter::Closed
-                    || forge.me_principal().is_some(),
-            ),
+            .enabled(forge.me_principal().is_some()),
         );
     }
-    bar.child(div().flex_1())
-        .child(
+    // the Input sits in a box of its own: pushed right, it keeps its width
+    bar.child(
+        div().ml_auto().flex_none().w(SEARCH_W).child(
             Input::new(id("forge-changes-search"))
-                .h(design::size::ROW)
+                .h(design::size::CONTROL)
                 .w(SEARCH_W)
                 .px_2()
                 .border_1()
                 .border_color(theme.border_strong)
-                .bg(theme.surface)
+                .bg(theme.background)
                 .text_color(theme.foreground)
                 .value(forge.change_search.clone())
                 .placeholder("Search titles")
                 .label("Search changes")
                 .on_input(typed),
-        )
-        .into_any_element()
+        ),
+    )
+    .into_any_element()
 }
 
 /// The Change draft: a comparison turned into a title, a body and reviewers.

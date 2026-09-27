@@ -21,12 +21,17 @@ use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::Forge;
-use crate::state::{Dock, Progress, RepoTab};
-use components::{badge, button, heading, id, quiet};
+use crate::state::{Dock, Menu, Progress, RepoTab};
+use components::{button, heading, id, quiet};
+use ducktape_view_guest::MouseDownEvent;
 use forge::Reply;
 
-/// The dock beside a change.
+/// The About dock beside a repository.
 const DOCK_W: Pixels = px(300.);
+/// A page's side inset.
+pub(crate) const PAGE_X: Pixels = px(20.);
+/// A tab bar's height.
+pub(crate) const TAB_BAR_H: Pixels = px(38.);
 /// A fact's label column.
 const FACT_LABEL_W: Pixels = px(120.);
 
@@ -58,7 +63,12 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
             ));
     }
     columns = columns.child(main(forge, cx, &theme));
-    if let Some(dock) = forge.nav().dock.filter(|_| forge.layout.dock_visible()) {
+    // a change carries its own details; the About dock is a repository's
+    if let Some(dock) = forge
+        .nav()
+        .dock
+        .filter(|_| forge.layout.dock_visible() && forge.nav().change.is_none())
+    {
         columns = columns.child(panel(forge, dock, cx, &theme));
     }
     let root = div()
@@ -122,62 +132,35 @@ fn no_account(theme: &Theme) -> AnyElement {
         .text_size(design::text::SECONDARY)
         .child(
             "To create repositories, push, open changes or review, create or join an account in \
-             Settings → Account. You can read every repository without an account.",
+             Account. You can read every repository without an account.",
         )
         .into_any_element()
 }
 
-/// The repository header: name, the ref picker, its clone address and tabs.
+/// The repository header: its name, what it is and its clone address,
+/// then the ref picker and the tabs on one bar.
 fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let name = forge.repo_name();
     let head = forge.head_name();
-    let mut header = div()
-        .id(id("forge-repo-header"))
-        .flex()
-        .flex_col()
-        .gap_2()
-        .px_4()
-        .pt_3()
-        .border_b_1()
-        .border_color(theme.border);
-    let mut title = div()
-        .id(id("forge-repo-title"))
+    let mut tabs = div()
+        .id(id("forge-tabs"))
+        .h(TAB_BAR_H)
         .flex()
         .items_center()
-        .gap_2()
-        .child(heading(id("forge-repo-name"), name.clone(), 1, theme));
-    if let Some((info, _, _)) = forge.repo() {
-        let owner = forge.principal_name(&info.repo.owner);
-        title = title
-            .child(badge(
-                id("forge-repo-owner"),
-                format!("owner {owner}"),
-                theme.muted,
-                theme.surface_raised,
-            ))
-            .child(quiet(
-                format!(
-                    "{} · active at",
-                    design::plural(info.repo.refs_count, "ref", "refs"),
-                ),
-                theme,
-            ))
-            .child(design::block_link(
-                id("forge-repo-activity"),
-                info.repo.last_activity,
-                theme,
-            ));
-    }
-    title = title
-        .child(div().flex_1())
-        .child(quiet(repo_link(forge, &name), theme));
-    header = header.child(title).child(ref_picker(forge, cx, theme));
-    let mut tabs = div().id(id("forge-tabs")).flex().gap_1();
+        .gap(design::space::XL)
+        .px(PAGE_X)
+        .border_b_1()
+        .border_color(theme.border)
+        .child(ref_picker(forge, cx, theme));
     for tab in RepoTab::ALL {
         let open = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_tab(tab, cx));
-        tabs = tabs.child(design::tab(
+        let count = (tab == RepoTab::Changes)
+            .then(|| forge.open_changes())
+            .flatten();
+        tabs = tabs.child(components::tab(
             id(format!("forge-tab-{}", tab.slug())),
             tab.label(),
+            count,
             forge.nav().tab == tab,
             theme,
             open,
@@ -203,8 +186,78 @@ fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(header.child(tabs))
+        .child(title(forge, &name, cx, theme))
+        .child(tabs)
         .child(body)
+        .into_any_element()
+}
+
+/// The repository's name, one mono line of what it is (owner, refs, the
+/// block it was last active at), and its address with Copy.
+fn title(forge: &Forge, name: &str, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+    let url = repo_link(forge, name);
+    let copy = cx.listener({
+        let (name, url) = (name.to_owned(), url.clone());
+        move |forge, _: &ClickEvent, _, cx| {
+            cx.host()
+                .notify::<ducktape_view_guest::methods::ClipboardWrite>(url.clone());
+            forge.copied = Some(name.clone());
+            cx.notify();
+        }
+    });
+    let copied = forge.copied.as_deref() == Some(name);
+    let mut title = div()
+        .id(id("forge-repo-header"))
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(design::space::MD)
+        .px(PAGE_X)
+        .pt(design::space::BLOCK)
+        .pb(design::space::XS)
+        .child(heading(id("forge-repo-name"), name.to_owned(), 1, theme));
+    if let Some((info, _, _)) = forge.repo() {
+        let owner = forge.principal_name(&info.repo.owner);
+        title = title.child(
+            div()
+                .id(id("forge-repo-owner"))
+                .flex()
+                .items_center()
+                .gap(design::space::XS)
+                .font_family(design::fonts::FAMILY_MONO)
+                .text_size(design::text::CAPTION)
+                .text_color(theme.muted)
+                .child(format!(
+                    "owner {owner} · {} · active",
+                    design::plural(info.repo.refs_count, "ref", "refs")
+                ))
+                .child(design::block_link(
+                    id("forge-repo-activity"),
+                    info.repo.last_activity,
+                    theme,
+                )),
+        );
+    }
+    title
+        .child(div().flex_1())
+        .child(
+            div()
+                .min_w(px(0.))
+                .truncate()
+                .font_family(design::fonts::FAMILY_MONO)
+                .text_size(design::text::CAPTION)
+                .text_color(theme.faint)
+                .child(url),
+        )
+        .child(
+            button(
+                id("forge-repo-copy"),
+                if copied { "Copied" } else { "Copy" },
+                theme,
+                copy,
+            )
+            .kind(design::Kind::Quiet),
+        )
         .into_any_element()
 }
 
@@ -216,49 +269,66 @@ pub(crate) fn repo_link(forge: &Forge, name: &str) -> String {
         .unwrap_or_else(|| format!("duck://<network>/forge/{name}"))
 }
 
-/// Branches and tags, default first; the picked one steers every screen.
+/// The picked ref as a dropdown at the head of the tab bar: branches, the
+/// default first, then tags. The pick steers every tab.
 fn ref_picker(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let head = forge.head_name();
     let default = forge.default_head();
-    let Some(refs) = forge.refs() else {
-        return quiet("Reading refs…", theme);
-    };
-    let mut ordered: Vec<&forge::RefInfo> = refs.iter().collect();
-    ordered.sort_by_key(|info| (info.name != default, info.name.clone()));
-    let mut picker = div()
-        .id(id("forge-ref-picker"))
-        .flex()
-        .flex_wrap()
-        .gap_1()
-        .items_center()
-        .child(quiet("Ref", theme));
-    for info in ordered.into_iter().take(24) {
-        let name = info.name.clone();
-        let pick = cx.listener({
-            let name = name.clone();
-            move |forge, _: &ClickEvent, _, cx| forge.pick_ref(name.clone(), cx)
-        });
-        picker = picker.child(
-            button(
-                id(format!("forge-ref-{}", components::path_text(&name))),
-                components::ref_label(&name),
-                theme,
-                pick,
-            )
-            .selected(name == head)
-            .kind(design::Kind::Quiet),
-        );
+    let open = forge.menu == Some(Menu::Ref);
+    let mut items = Vec::new();
+    if open {
+        let mut ordered: Vec<&forge::RefInfo> = forge.refs().unwrap_or_default().iter().collect();
+        ordered.sort_by_key(|info| (info.name != default, info.name.clone()));
+        let (tags, branches): (Vec<_>, Vec<_>) = ordered
+            .into_iter()
+            .partition(|info| info.name.starts_with(b"refs/tags/"));
+        for (label, group) in [("Branches", branches), ("Tags", tags)] {
+            if group.is_empty() {
+                continue;
+            }
+            items.push(components::menu_label(label, theme));
+            for info in group {
+                let name = info.name.clone();
+                let pick = cx.listener({
+                    let name = name.clone();
+                    move |forge, _: &ClickEvent, _, cx| forge.pick_ref(name.clone(), cx)
+                });
+                items.push(components::menu_item(
+                    id(format!("forge-ref-{}", components::path_text(&name))),
+                    components::ref_label(&name),
+                    (name == default).then_some("default"),
+                    name == head,
+                    theme,
+                    pick,
+                ));
+            }
+        }
+        if items.is_empty() {
+            items.push(components::menu_label("Reading refs…", theme));
+        }
     }
-    picker.into_any_element()
+    let label = match forge.refs() {
+        Some([]) => "no refs".to_owned(),
+        _ => components::ref_label(&head),
+    };
+    components::dropdown(
+        "forge-ref-picker",
+        label,
+        open,
+        items,
+        theme,
+        cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_menu(Some(Menu::Ref), cx)),
+        cx.listener(|forge, _: &MouseDownEvent, _, cx| forge.open_menu(None, cx)),
+    )
 }
 
-/// On a narrow window the rail and the dock become toggles.
+/// On a narrow window the rail and a change's details fold into toggles.
 fn narrow_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let tree = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.layout.tree_open = !forge.layout.tree_open;
         cx.notify();
     });
-    let dock = cx.listener(|forge, _: &ClickEvent, _, cx| {
+    let details = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.layout.dock_open = !forge.layout.dock_open;
         cx.notify();
     });
@@ -272,11 +342,16 @@ fn narrow_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
         .border_color(theme.border)
         .child(
             button(id("forge-toggle-rail"), "Repositories", theme, tree)
+                .kind(design::Kind::Outline)
                 .selected(forge.layout.tree_open),
         )
-        .child(
-            button(id("forge-toggle-dock"), "Panel", theme, dock).selected(forge.layout.dock_open),
-        )
+        .when(forge.nav().change.is_some(), |bar| {
+            bar.child(
+                button(id("forge-toggle-dock"), "Details", theme, details)
+                    .kind(design::Kind::Outline)
+                    .selected(forge.layout.dock_open),
+            )
+        })
         .into_any_element()
 }
 
@@ -285,9 +360,6 @@ fn panel(forge: &Forge, dock: Dock, cx: &mut Context<Forge>, theme: &Theme) -> A
     let close = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.toggle_dock(dock, cx));
     let body: AnyElement = match dock {
         Dock::About => about(forge, theme),
-        Dock::Overview => dock::overview(forge, cx, theme),
-        Dock::Comments => dock::comments(forge, cx, theme),
-        Dock::MergeStatus => dock::merge_status(forge, theme),
     };
     div()
         .id(id("forge-dock"))

@@ -11,7 +11,7 @@ use crate::ui::components::{
 };
 use crate::ui::scroller;
 use ducktape_view_guest::view::Loadable;
-use forge::{ChangeState, Verdict};
+use forge::ChangeState;
 
 /// A review's body and comments start under its author's name, past the
 /// avatar and the gap beside it.
@@ -21,13 +21,17 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     let Some((change, _, _, reviews)) = forge.change() else {
         return div().into_any_element();
     };
-    let mut column = scroller("forge-conversation");
+    let mut column = scroller("forge-conversation")
+        .px(crate::ui::PAGE_X)
+        .py(design::space::BLOCK)
+        .gap(design::space::LG);
     if !change.body.trim().is_empty() {
         column = column.child(
             div()
                 .id(id("forge-change-body"))
-                .p_2()
-                .bg(theme.surface)
+                .pb(design::space::LG)
+                .border_b_1()
+                .border_color(theme.border)
                 .child(crate::ui::markdown::render(
                     "forge-change-body-text",
                     &change.body,
@@ -49,103 +53,99 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     column.child(composer(forge, cx, theme)).into_any_element()
 }
 
-/// One review as a timeline event: who, what they concluded, where, and
-/// the line comments it carried.
+/// One review as a timeline event: who, what they concluded (the verdict
+/// is the verb), the block it landed in, then what it says and the line
+/// comments it carried, quoted.
 fn review_card(forge: &Forge, review: &forge::Review, theme: &Theme) -> AnyElement {
     let author = forge.principal_name(&review.author);
     let outdated = forge.outdated(&review.draft.commit_oid);
-    let comments = review.draft.comments.len();
+    let mut head = timeline_head(
+        &author,
+        Some(author.clone()),
+        verdict_verb(review.draft.verdict),
+        review.height,
+        theme,
+    );
+    if outdated {
+        head = head.child(badge(
+            id(format!("forge-review-outdated-{}", review.id)),
+            "outdated",
+            theme.warning,
+            theme.warning_soft,
+        ));
+    }
     let mut card = div()
         .id(id(format!("forge-review-{}", review.id)))
         .flex()
         .flex_col()
-        .gap_1()
-        .p_2()
-        .border_1()
-        .border_color(theme.border)
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap_2()
-                .child(design::avatar(&author, design::size::AVATAR, theme))
-                .child(crate::ui::bold(author))
-                .child(badge(
-                    id(format!("forge-review-verdict-{}", review.id)),
-                    verdict_verb(review.draft.verdict),
-                    match review.draft.verdict {
-                        Verdict::Approve => theme.success,
-                        Verdict::RequestChanges => theme.danger,
-                        Verdict::Comment => theme.muted,
-                    },
-                    match review.draft.verdict {
-                        Verdict::Approve => theme.success_soft,
-                        Verdict::RequestChanges => theme.danger_soft,
-                        Verdict::Comment => theme.surface_raised,
-                    },
-                ))
-                .child(quiet(
-                    format!("at {}", short_hex(&review.draft.commit_oid)),
-                    theme,
-                ))
-                .when(comments > 0, |element| {
-                    element.child(quiet(line_comments(comments), theme))
-                })
-                .when(outdated, |element| {
-                    element.child(badge(
-                        id(format!("forge-review-outdated-{}", review.id)),
-                        "outdated",
-                        theme.warning,
-                        theme.warning_soft,
-                    ))
-                }),
-        );
+        .gap(design::space::XS)
+        .child(head);
     if !review.draft.body.trim().is_empty() {
-        card = card.child(
-            div()
-                .pl(UNDER_NAME)
-                .child(quiet(review.draft.body.clone(), theme)),
-        );
+        card = card.child(div().pl(UNDER_NAME).child(review.draft.body.clone()));
     }
     for comment in &review.draft.comments {
-        card = card.child(div().pl(UNDER_NAME).child(quiet(
-            format!(
-                "{}:{} — {}",
-                path_text(&comment.path),
-                comment.line,
-                comment.body
+        card = card.child(
+            div().pl(UNDER_NAME).child(
+                div()
+                    .pl(design::space::MD)
+                    .border_l_1()
+                    .border_color(theme.border_strong)
+                    .child(
+                        design::mono(format!(
+                            "{}:{} — {}",
+                            path_text(&comment.path),
+                            comment.line,
+                            comment.body
+                        ))
+                        .text_size(design::text::CAPTION)
+                        .text_color(theme.muted),
+                    ),
             ),
-            theme,
-        )));
+        );
     }
     card.into_any_element()
 }
 
-fn line_comments(n: usize) -> String {
-    match n {
-        1 => "1 line comment".into(),
-        n => format!("{n} line comments"),
-    }
+/// A timeline line's head: the avatar, the name (bold), what they did
+/// (quiet), and the block it landed in on the right.
+fn timeline_head(
+    avatar: &str,
+    who: Option<String>,
+    what: &str,
+    height: u64,
+    theme: &Theme,
+) -> ducktape_view_guest::Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .child(
+            design::avatar(avatar, design::size::AVATAR, theme)
+                .border_1()
+                .border_color(theme.border)
+                .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD),
+        )
+        .children(who.map(crate::ui::bold))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .child(quiet(what.to_owned(), theme)),
+        )
+        .child(
+            design::mono(format!("block {}", design::grouped(height)))
+                .text_size(design::text::CAPTION)
+                .text_color(theme.faint),
+        )
 }
 
-/// One line of the change's history: who did it, if forge recorded it, and
-/// what happened.
-fn event(key: String, who: Option<String>, what: String, theme: &Theme) -> AnyElement {
+/// One line of the change's history: who did it, if forge recorded it,
+/// what happened, and the block it landed in.
+fn event(key: String, who: Option<String>, what: String, height: u64, theme: &Theme) -> AnyElement {
+    let avatar = who.clone().unwrap_or_default();
     div()
         .id(id(format!("forge-event-{key}")))
-        .flex()
-        .flex_wrap()
-        .items_center()
-        .gap_2()
-        .px_2()
-        .py_1()
-        .when_some(who, |element, name| {
-            element
-                .child(design::avatar(&name, design::size::AVATAR, theme))
-                .child(crate::ui::bold(name))
-        })
-        .child(quiet(what, theme))
+        .child(timeline_head(&avatar, who, &what, height, theme))
         .into_any_element()
 }
 
@@ -169,7 +169,13 @@ fn forge_line(
     let key = row.message_id.clone();
     if opened {
         let author = forge.principal_name(&change.author);
-        return Some(event(key, Some(author), "opened this change".into(), theme));
+        return Some(event(
+            key,
+            Some(author),
+            "opened this change".into(),
+            row.height,
+            theme,
+        ));
     }
     // a line matching no review yet may be one still paging in
     if reviews.next.is_some() {
@@ -189,12 +195,14 @@ fn forge_line(
                 ref_label(&change.into),
                 short_hex(oid)
             ),
+            row.height,
             theme,
         )),
         (ChangeState::Closed, _) => Some(event(
             key,
             actor(&change.closed_by),
             "closed this change".into(),
+            row.height,
             theme,
         )),
         _ => None,
@@ -246,7 +254,7 @@ fn messages(forge: &Forge, theme: &Theme) -> AnyElement {
                 .id(id("forge-conversation-messages"))
                 .flex()
                 .flex_col()
-                .gap_2();
+                .gap(design::space::BLOCK);
             for message in rows {
                 if is_forge(forge, message) {
                     if let Some(line) =
@@ -261,22 +269,16 @@ fn messages(forge: &Forge, theme: &Theme) -> AnyElement {
                     div()
                         .id(id(format!("forge-message-{}", message.message_id)))
                         .flex()
-                        .gap_2()
-                        .p_2()
-                        .bg(theme.surface)
-                        .child(design::avatar(&author, design::size::AVATAR, theme))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap_0p5()
-                                .child(crate::ui::bold(author))
-                                .child(
-                                    div()
-                                        .text_size(design::text::BODY)
-                                        .child(message.text.clone()),
-                                ),
-                        ),
+                        .flex_col()
+                        .gap(design::space::XS)
+                        .child(timeline_head(
+                            &author,
+                            Some(author.clone()),
+                            "replied",
+                            message.height,
+                            theme,
+                        ))
+                        .child(div().pl(UNDER_NAME).child(message.text.clone())),
                 );
             }
             column.into_any_element()
@@ -289,8 +291,11 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
     div()
         .id(id("forge-composer"))
         .flex()
-        .gap_2()
-        .items_center()
+        .gap(design::space::SM)
+        .items_start()
+        .pt(design::space::SM)
+        .border_t_1()
+        .border_color(theme.border)
         .child(
             EditorElement::plain(
                 id("forge-reply"),
@@ -298,19 +303,20 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
                 "forge-reply",
                 |forge: &mut Forge| Some(&mut forge.reply),
             )
-            .min_h(design::size::CONTROL * 2.)
+            .min_h(design::size::CONTROL)
             .flex_1()
             .px_2()
+            .py(design::space::XS)
             .border_1()
             .border_color(theme.border_strong)
-            .bg(theme.surface)
+            .bg(theme.background)
             .text_color(theme.foreground)
             .placeholder("Reply in this change")
             .label("Reply"),
         )
         .child(
             button(id("forge-reply-send"), "Send", theme, send)
-                .kind(design::Kind::Primary)
+                .kind(design::Kind::Outline)
                 .enabled(forge.may_write() && !forge.reply.state_view().text.trim().is_empty()),
         )
         .into_any_element()

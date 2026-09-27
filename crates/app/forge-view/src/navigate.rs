@@ -40,6 +40,7 @@ impl Forge {
     }
 
     pub(crate) fn open_tab(&mut self, tab: RepoTab, cx: &mut Context<Self>) {
+        self.menu = None;
         // the tree keeps what it had open across tabs
         let kept = std::mem::take(&mut self.nav);
         self.nav.repo = kept.repo;
@@ -70,7 +71,14 @@ impl Forge {
         self.moved(cx);
     }
 
+    /// Opens a dropdown under its button; a press anywhere else closes it.
+    pub(crate) fn open_menu(&mut self, menu: Option<crate::state::Menu>, cx: &mut Context<Self>) {
+        self.menu = menu;
+        cx.notify();
+    }
+
     pub(crate) fn pick_ref(&mut self, name: Vec<u8>, cx: &mut Context<Self>) {
+        self.menu = None;
         self.nav.rev = Some(name);
         self.nav.expanded.clear();
         self.nav.cursor = None;
@@ -156,6 +164,7 @@ impl Forge {
     }
 
     pub(crate) fn open_change(&mut self, n: Option<u64>, cx: &mut Context<Self>) {
+        self.menu = None;
         self.nav.change = n;
         self.nav.change_tab = ChangeTab::default();
         self.nav.diff_path = None;
@@ -186,6 +195,13 @@ impl Forge {
     pub(crate) fn single_file(&mut self, path: Option<Vec<u8>>, cx: &mut Context<Self>) {
         self.nav.diff_path = path;
         cx.notify();
+    }
+
+    /// A line comment pressed in the details: its file, alone, in Files.
+    pub(crate) fn open_file_comment(&mut self, path: Vec<u8>, cx: &mut Context<Self>) {
+        self.nav.change_tab = ChangeTab::Files;
+        self.nav.diff_path = Some(path);
+        self.moved(cx);
     }
 
     pub(crate) fn toggle_viewed(&mut self, path: &[u8], cx: &mut Context<Self>) {

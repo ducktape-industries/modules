@@ -58,6 +58,9 @@ pub struct Forge {
     /// the change whose Close waits for a second press: closing is final
     #[serde(skip)]
     pub(crate) closing: Option<String>,
+    /// the dropdown open under its button, if any
+    #[serde(skip)]
+    pub(crate) menu: Option<Menu>,
     #[serde(skip)]
     pub(crate) blob_cache: crate::ui::code::BlobCache,
 }
@@ -162,33 +165,28 @@ impl ChangeTab {
     }
 }
 
-/// The one docked panel a screen shows at a time.
+/// The panel a repository docks beside its tabs. A change carries its own
+/// details sidebar instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum Dock {
     About,
-    Overview,
-    Comments,
-    MergeStatus,
 }
 
 impl Dock {
-    pub const CHANGE: [Self; 3] = [Self::Overview, Self::Comments, Self::MergeStatus];
     pub fn label(self) -> &'static str {
         match self {
             Self::About => "About",
-            Self::Overview => "Overview",
-            Self::Comments => "Comments",
-            Self::MergeStatus => "Merge status",
         }
     }
-    pub fn slug(self) -> &'static str {
-        match self {
-            Self::About => "about",
-            Self::Overview => "overview",
-            Self::Comments => "comments",
-            Self::MergeStatus => "merge-status",
-        }
-    }
+}
+
+/// A dropdown open under the button that opened it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Menu {
+    /// the ref every repository tab reads
+    Ref,
+    /// the default head in the repository's settings
+    Head,
 }
 
 /// The change-list filters. "Needs my judgment" is its own query, not a
@@ -205,14 +203,6 @@ pub(crate) enum Filter {
 }
 
 impl Filter {
-    pub const ALL: [Self; 6] = [
-        Self::Judgment,
-        Self::Open,
-        Self::Merged,
-        Self::Closed,
-        Self::Authored,
-        Self::Involves,
-    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Judgment => "Needs my judgment",
@@ -246,6 +236,9 @@ pub(crate) struct ReviewSession {
     pub open: Option<PendingComment>,
     /// what the review says overall, multi-line
     pub body: Editor,
+    /// the verdict picked in the finish panel; none picked is a comment
+    #[serde(skip)]
+    pub verdict: Option<Verdict>,
     pub finishing: bool,
     pub error: String,
 }
@@ -335,7 +328,8 @@ pub(crate) struct ChangeForm {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct NewRepo {
     pub name: String,
-    pub sha256: bool,
+    /// SHA-256 unless SHA-1 is picked (to push an existing git project)
+    pub sha1: bool,
     pub error: String,
 }
 
@@ -386,7 +380,7 @@ impl Default for Layout {
         Self {
             width: 1180.,
             height: 760.,
-            tree: 248.,
+            tree: 220.,
             files: 300.,
             tree_open: false,
             dock_open: false,

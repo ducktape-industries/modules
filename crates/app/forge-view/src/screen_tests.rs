@@ -89,12 +89,14 @@ fn screen(state: &str) -> TestAppContext {
         }
         "code" => {
             let (mut cx, _) = opened("default");
+            cx.simulate_click("forge-ref-picker");
             cx.simulate_click("forge-ref-refs/heads/clean");
             cx.run_until_parked();
             cx
         }
         "blob" => {
             let (mut cx, _) = opened("default");
+            cx.simulate_click("forge-ref-picker");
             cx.simulate_click("forge-ref-refs/heads/clean");
             cx.run_until_parked();
             cx.simulate_click("forge-tree-README.md");

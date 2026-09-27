@@ -160,6 +160,9 @@ pub enum Kind {
     Primary,
     /// a choice among many: no fill, muted text
     Quiet,
+    /// a secondary action beside the primary one: the window's ground in a
+    /// hairline box
+    Outline,
 }
 
 /// A button. Disabled keeps it visible, drops the click and says so.
@@ -232,6 +235,10 @@ where
         // The chosen one is the ink one: fg text on the window, an fg edge
         // around it; the rest stay quiet.
         element = match (self.kind, self.selected) {
+            // a primary that cannot run greys out but keeps its place
+            (Kind::Primary, _) if !self.enabled => {
+                element.bg(theme.faint).text_color(theme.primary_foreground)
+            }
             (Kind::Primary, _) => element
                 .bg(theme.primary)
                 .text_color(theme.primary_foreground),
@@ -243,24 +250,33 @@ where
             (Kind::Quiet, false) => element
                 .text_color(theme.muted)
                 .border_1()
-                .border_color(theme.background),
+                .border_color(crate::hsla(0., 0., 0., 0.)),
             (Kind::Plain, false) => element
                 .bg(theme.surface)
                 .text_color(theme.foreground)
                 .border_1()
                 .border_color(theme.surface),
+            (Kind::Outline, false) => element
+                .bg(theme.background)
+                .text_color(theme.foreground)
+                .border_1()
+                .border_color(theme.border_strong),
         };
         if self.selected {
             element = element.font_weight(FontWeight::MEDIUM).aria_selected(true);
         }
         if !self.enabled {
-            return element.text_color(theme.muted).aria_disabled(true);
+            return match self.kind {
+                Kind::Primary => element.aria_disabled(true),
+                _ => element.text_color(theme.muted).aria_disabled(true),
+            };
         }
         element = match (self.kind, self.selected) {
             (Kind::Quiet, false) => element.hover(move |style| style.text_color(theme.foreground)),
             (Kind::Plain, false) => element
                 .hover(move |style| style.bg(theme.surface_raised))
                 .active(move |style| style.bg(theme.accent_soft)),
+            (Kind::Outline, false) => element.hover(move |style| style.bg(theme.surface)),
             _ => element,
         };
         element.focusable().on_click(self.click)
@@ -302,6 +318,147 @@ pub fn tab(
         .focusable()
         .on_click(click)
         .child(label.into())
+}
+
+/// A few choices side by side in one box, the picked one ink-filled: a
+/// state filter, an object format, an invite's lifetime. The segments are
+/// [`segment`]s; the box draws the edge they share.
+pub fn segmented(
+    id: impl Into<ElementId>,
+    theme: &Theme,
+    segments: impl IntoIterator<Item = Stateful<Div>>,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .border_t_1()
+        .border_b_1()
+        .border_r_1()
+        .border_color(theme.border_strong)
+        .role(Role::RadioGroup)
+        .children(segments)
+}
+
+/// One choice of a [`segmented`] box.
+pub fn segment(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    selected: bool,
+    theme: &Theme,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let theme = *theme;
+    div()
+        .id(id)
+        .h(size::ROW)
+        .px(space::MD)
+        .flex()
+        .items_center()
+        .border_l_1()
+        .border_color(theme.border_strong)
+        .text_size(text::SECONDARY)
+        .whitespace_nowrap()
+        .map(|segment| match selected {
+            true => segment
+                .bg(theme.primary)
+                .text_color(theme.primary_foreground),
+            false => segment
+                .text_color(theme.muted)
+                .hover(move |style| style.text_color(theme.foreground)),
+        })
+        .role(Role::RadioButton)
+        .aria_selected(selected)
+        .focusable()
+        .on_click(click)
+        .child(label.into())
+}
+
+/// An on/off switch: a pill with its knob at the on or the off end.
+pub fn switch(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    on: bool,
+    enabled: bool,
+    theme: &Theme,
+    toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let knob = div().size(px(12.)).rounded_full().bg(theme.background);
+    let element = div()
+        .id(id)
+        .w(px(28.))
+        .h(px(16.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .px(px(2.))
+        .rounded_full()
+        .bg(if on {
+            theme.primary
+        } else {
+            theme.border_strong
+        })
+        .when(on, |pill| pill.justify_end())
+        .role(Role::Switch)
+        .aria_label(label.into())
+        .aria_selected(on)
+        .child(knob);
+    match enabled {
+        true => element.cursor_pointer().focusable().on_click(toggle),
+        false => element.opacity(0.5).aria_disabled(true),
+    }
+}
+
+/// One setting: its title and a line about it on the left, its control on
+/// the right, a hairline under it.
+pub fn setting_row(
+    id: impl Into<ElementId>,
+    title: impl Into<SharedString>,
+    description: impl Into<SharedString>,
+    control: impl IntoElement,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .w_full()
+        // wrapped, it grows; a column around it must not squeeze it
+        .flex_none()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(space::LG)
+        .py(space::MD)
+        .border_b_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(200.))
+                .flex()
+                .flex_col()
+                .gap(space::HAIR)
+                .child(
+                    div()
+                        .text_size(text::BODY)
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(title.into()),
+                )
+                .child(
+                    div()
+                        .text_size(text::SECONDARY)
+                        .text_color(theme.muted)
+                        .child(description.into()),
+                ),
+        )
+        .child(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(space::SM)
+                .child(control),
+        )
 }
 
 /// A person's round initial at `size`, on the raised surface. A caller

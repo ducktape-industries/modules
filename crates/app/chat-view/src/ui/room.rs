@@ -390,7 +390,7 @@ fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
             "This channel is members-only and your key is not on its roster. Ask a member to add your key from Channel details."
         }
         Gate::NoAccount => {
-            "To send messages, create or join an account in Settings → Account. You can read this channel without an account."
+            "To send messages, create or join an account in Account. You can read this channel without an account."
         }
     };
     let mut notice = div()

@@ -33,7 +33,9 @@ impl MergeBlock {
             Self::Comparing => "Comparing the endpoints…",
             Self::UpToDate => "The target already contains this change",
             Self::Unrelated => "The endpoints share no history",
-            Self::Diverged => "The endpoints diverged: merge with git and push the result",
+            Self::Diverged => {
+                "The endpoints diverged. Merge with git and push the result, then Merge turns on."
+            }
         }
     }
 }
@@ -89,10 +91,10 @@ impl Forge {
             cx.notify();
             return;
         }
-        let hash = if form.sha256 {
-            abi::HashKind::Sha256
-        } else {
+        let hash = if form.sha1 {
             abi::HashKind::Sha1
+        } else {
+            abi::HashKind::Sha256
         };
         self.new_repo = None;
         self.submit(
