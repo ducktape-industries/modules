@@ -385,7 +385,7 @@ export_view!(
     $title,
     "$title",
     "The count the $program module keeps.",
-    ["module"]
+    [Module]
 );
 
 #[cfg(test)]
