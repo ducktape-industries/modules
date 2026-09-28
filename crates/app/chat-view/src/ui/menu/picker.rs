@@ -110,7 +110,9 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         .h(px(TABS))
         .flex()
         .border_b_1()
-        .border_color(theme.border);
+        .border_color(theme.border)
+        .role(Role::TabList)
+        .aria_label("Emoji categories");
     for (index, category) in emoji::CATEGORIES.iter().enumerate() {
         let open = cx.listener(move |chat, _: &ClickEvent, _, cx| {
             chat.picker.tab = index;

@@ -56,7 +56,9 @@ pub fn card(
             theme.background
         })
         .hover(|style| style.bg(theme.surface_raised))
-        .role(ducktape_view_guest::Role::Button)
+        // it holds reactions, links and the replies button, which a button
+        // may not
+        .role(ducktape_view_guest::Role::Article)
         .aria_label(format!(
             "Select message, shows its actions: {}: {}",
             message.author, message.body
@@ -78,6 +80,9 @@ pub fn card(
         .relative()
         .w_full()
         .group(group.clone())
+        // the message and the strip of actions it shows under the pointer
+        .role(ducktape_view_guest::Role::Group)
+        .aria_label(format!("Message from {}", message.author))
         .on_hover(row_hover)
         .child(card);
     if !message.pending && !message.deleted && (chosen || chat.hovered == Some(key)) {

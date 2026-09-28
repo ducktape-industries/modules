@@ -15,6 +15,19 @@ fn menus_and_dialogs_are_modal_overlays_with_dismiss_routes() {
             ..
         }) if label == "Message menu" && children.len() == 2
     ));
+    // a Menu of MenuItems, named
+    let role = |cx: &TestAppContext, key: &str| match cx.find(key) {
+        Some(wire::Node::Container(node)) => node.interactivity.role,
+        _ => panic!("{key} is a container"),
+    };
+    assert_eq!(
+        role(&cx, "chat-room-message-action-focus"),
+        Some(ducktape_view_guest::Role::Menu)
+    );
+    assert_eq!(
+        role(&cx, "chat-menu-reply"),
+        Some(ducktape_view_guest::Role::MenuItem)
+    );
 
     cx.simulate_dismiss("chat-menu-overlay");
     view.read(|chat| assert!(chat.menu.is_none()));

@@ -242,6 +242,7 @@ fn members(chat: &Chat, removable: bool, cx: &mut Context<Chat>, theme: &Theme) 
     }
     let mut rows = Vec::new();
     for (index, (principal, label)) in roster.into_iter().enumerate() {
+        let name = format!("Remove {label}");
         let remove = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
             cx.notify();
             chat.set_member(principal.clone(), false, cx);
@@ -252,6 +253,9 @@ fn members(chat: &Chat, removable: bool, cx: &mut Context<Chat>, theme: &Theme) 
             .py_1()
             .bg(theme.surface)
             .hover(|s| s.bg(theme.surface_raised))
+            .role(Role::Button)
+            .aria_label(name)
+            .focusable()
             .child("Remove")
             .on_click(remove);
         let row = div()
