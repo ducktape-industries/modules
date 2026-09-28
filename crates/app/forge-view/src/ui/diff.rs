@@ -544,7 +544,7 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .value(open.body.clone())
+                .value(open.body)
                 .placeholder("What should change here?")
                 .on_input(typed),
         );

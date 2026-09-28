@@ -10,8 +10,8 @@ use ducktape_view_guest::methods::{Module, Query as Ask};
 
 use crate::{Kind, MsgRow, PageRequest, Principal, Profile, Query, Reply, Standing};
 
-pub struct Chat;
-impl Module for Chat {
+pub struct ChatApi;
+impl Module for ChatApi {
     const NAME: &'static str = crate::MODULE;
     type Op = crate::Op;
     type Query = crate::Query;
@@ -21,8 +21,8 @@ impl Module for Chat {
 /// The identity role as a view follows it. A view's targets are fixed in
 /// its manifest, so it names the program networks bind to the role; the
 /// module itself asks the binding (`Env.roles`). A view sends it nothing.
-pub struct Identity;
-impl Module for Identity {
+pub struct IdentityApi;
+impl Module for IdentityApi {
     const NAME: &'static str = "identity";
     type Op = ();
     type Query = abi::role::identity::Query;
@@ -32,7 +32,7 @@ impl Module for Identity {
 /// Every account's profile, every page of it, folded into [`Names`].
 pub async fn roster(host: Host) -> Result<Names, Error> {
     let rows = pages(None, |after| {
-        let ask = host.ask::<Ask<Chat>>(Query::Accounts {
+        let ask = host.ask::<Ask<ChatApi>>(Query::Accounts {
             page: PageRequest {
                 after,
                 limit: Some(PageRequest::MAX_LIMIT),
@@ -62,7 +62,7 @@ pub async fn roots(
 ) -> Result<(Vec<MsgRow>, bool), Error> {
     let mut rows = Vec::new();
     loop {
-        let page = host.ask::<Ask<Chat>>(Query::Roots {
+        let page = host.ask::<Ask<ChatApi>>(Query::Roots {
             channel_id: channel_id.clone(),
             viewer: viewer.clone(),
             page: PageRequest {

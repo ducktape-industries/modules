@@ -37,8 +37,8 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
 sealed, so a view cannot invent a kind. Three verbs on `Host` (`src/host.rs`):
 
 ```rust
-let reply = cx.host().ask::<Query<Identity>>(identity::Query::List { page }).await?;
-let mut live = cx.host().subscribe::<Changes<Valset>>(());
+let reply = cx.host().ask::<Query<IdentityApi>>(identity::Query::List { page }).await?;
+let mut live = cx.host().subscribe::<Changes<ValsetApi>>(());
 cx.host().notify::<methods::HostBadge>(3);
 ```
 

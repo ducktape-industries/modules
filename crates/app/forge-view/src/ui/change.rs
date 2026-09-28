@@ -390,10 +390,7 @@ fn file_row(
         let path = path.clone();
         move |forge, _: &ClickEvent, _, cx| forge.single_file(Some(path.clone()), cx)
     });
-    let tick = cx.listener({
-        let path = path.clone();
-        move |forge, _: &ClickEvent, _, cx| forge.toggle_viewed(&path, cx)
-    });
+    let tick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.toggle_viewed(&path, cx));
     let theme = *theme;
     let check = div()
         .id(id(format!("forge-viewed-{label}")))

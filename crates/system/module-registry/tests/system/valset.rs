@@ -100,3 +100,47 @@ fn memberships_resume_in_key_order_at_the_answering_height() {
         assert_eq!(keys, expected);
     });
 }
+
+#[test]
+fn a_resident_is_a_member_the_next_epoch_does_not_seat() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found(context, dir.path()).await;
+        let admitted = net
+            .as_anyone(
+                valset::MODULE,
+                &valset::Op::Set(membership(3, valset::Role::Resident)),
+            )
+            .await;
+        output_of(&admitted);
+        let epoch = (net.height + EPOCH_LENGTH) / EPOCH_LENGTH;
+        while net.host.epoch_members(epoch).unwrap().is_none() {
+            net.tick().await;
+        }
+        let members = net.host.epoch_members(epoch).unwrap().unwrap();
+        assert_eq!(members.len(), 3);
+        assert!(members.iter().any(|member| member.key == public(3)));
+        let seated = net.host.epoch_validators(epoch).unwrap().unwrap();
+        assert_eq!(seated, net.validators().await);
+        assert_eq!(seated.len(), 2);
+        assert!(!seated.contains(&public(3)));
+    });
+}
+
+#[test]
+fn a_newcomer_past_the_cap_is_refused_on_the_host() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        // the two founding validators fill a cap of two: the kernel handed
+        // valset the cap it founded with
+        let mut net = Net::found_with(context, dir.path(), Vec::new(), 2).await;
+        let refused = net
+            .as_anyone(
+                valset::MODULE,
+                &valset::Op::Set(membership(3, valset::Role::Resident)),
+            )
+            .await;
+        assert_eq!(refusal_of(&refused), reason::CAPACITY);
+        assert_eq!(net.memberships().await.len(), 2);
+    });
+}

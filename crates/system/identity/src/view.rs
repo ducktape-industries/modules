@@ -5,8 +5,8 @@ use ducktape_view_guest::methods::Module;
 
 use crate::{Op, Query, Reply};
 
-pub struct Identity;
-impl Module for Identity {
+pub struct IdentityApi;
+impl Module for IdentityApi {
     const NAME: &'static str = crate::MODULE;
     type Op = Op;
     type Query = Query;

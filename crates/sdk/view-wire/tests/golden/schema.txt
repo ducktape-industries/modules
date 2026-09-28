@@ -1,0 +1,1579 @@
+# methods: kind, target, request -> reply; borsh unless named
+blob.get None String -> Option<Vec<u8>>
+chain.block None BlockRef -> Option<Block>
+chain.blocks None BlockPage -> Vec<Block>
+chain.heads None () -> Head
+chain.status None () -> NodeStatus
+clipboard.read None () -> Clipboard
+clipboard.write None String -> ()
+clock.ticks None i64 -> ()
+host.badge None i64 -> ()
+host.id None String -> String
+host.log None String -> ()
+host.offset None () -> i32
+host.route None () -> String
+host.session None () -> Session
+host.visible None () -> bool
+host.widget None TypeName("WidgetCommand") -> Unit named MessagePack
+invite.create None CreateInvite -> Invite
+link.open None String -> ()
+module.changes Some("P") () -> Option<u64>
+module.describe None (String, Vec<u8>) -> Option<Description>
+module.query Some("P") ModuleQuery -> ModuleReply
+notify.post None Notification -> Delivery
+notify.seen None String -> ()
+op.submit Some("P") ModuleOp -> Vec<u8>
+store.get None String -> Option<Vec<u8>>
+store.set None (String, Option<Vec<u8>>) -> ()
+
+# borsh: every definition the methods reach
+() = Primitive(0)
+(String, Option<Vec<u8>>) = Tuple { elements: ["String", "Option<Vec<u8>>"] }
+(String, Vec<u8>) = Tuple { elements: ["String", "Vec<u8>"] }
+Block = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]"), ("parent", "[u8; 32]"), ("time", "u64"), ("epoch", "u64"), ("proposer", "Option<Vec<u8>>"), ("txs", "Vec<Tx>")]) }
+BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "u32")]) }
+BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1, "Id", "BlockRef__Id")] }
+BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
+BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }
+Clipboard = Struct { fields: NamedFields([("text", "String")]) }
+CreateInvite = Struct { fields: NamedFields([("ttl_days", "u64")]) }
+Delivery = Enum { tag_width: 1, variants: [(0, "Banner", "Delivery__Banner"), (1, "Logged", "Delivery__Logged"), (2, "Blocked", "Delivery__Blocked")] }
+Delivery__Banner = Struct { fields: Empty }
+Delivery__Blocked = Struct { fields: Empty }
+Delivery__Logged = Struct { fields: Empty }
+Description = Struct { fields: NamedFields([("title", "String"), ("fields", "Vec<Field>")]) }
+Error = Struct { fields: NamedFields([("code", "String"), ("message", "String")]) }
+Field = Struct { fields: NamedFields([("label", "String"), ("value", "Value")]) }
+Head = Struct { fields: NamedFields([("height", "u64"), ("time", "u64"), ("id", "[u8; 32]")]) }
+Invite = Struct { fields: NamedFields([("invite", "String"), ("notes", "Vec<Error>")]) }
+ModuleOp = Struct { fields: Empty }
+ModuleQuery = Struct { fields: Empty }
+ModuleReply = Struct { fields: Empty }
+NodeStatus = Struct { fields: NamedFields([("chain_id", "String"), ("time", "u64"), ("block_time_ms", "u64"), ("epoch_length", "u64"), ("height", "u64"), ("tip", "[u8; 32]"), ("root", "[u8; 32]"), ("epoch", "u64"), ("identity", "Vec<u8>"), ("contract", "u32")]) }
+Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String")]) }
+Option<Block> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Block")] }
+Option<Description> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Description")] }
+Option<Receipt> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Receipt")] }
+Option<Vec<u8>> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Vec<u8>")] }
+Option<u64> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "u64")] }
+Outcome = Enum { tag_width: 1, variants: [(0, "Applied", "Outcome__Applied"), (1, "Rejected", "Outcome__Rejected")] }
+Outcome__Applied = Struct { fields: NamedFields([("output", "Vec<u8>")]) }
+Outcome__Rejected = Struct { fields: UnnamedFields(["Error"]) }
+Receipt = Struct { fields: NamedFields([("program", "String"), ("outcome", "Outcome"), ("events", "Vec<Vec<u8>>"), ("nested", "Vec<Receipt>")]) }
+Session = Struct { fields: NamedFields([("connected", "bool"), ("dark", "bool"), ("chain_id", "String"), ("signer", "String"), ("account", "Option<u64>"), ("endpoint", "String")]) }
+String = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+Tx = Struct { fields: NamedFields([("hash", "[u8; 32]"), ("signer", "Vec<u8>"), ("seq", "u64"), ("target", "String"), ("payload", "Vec<u8>"), ("receipt", "Option<Receipt>")]) }
+Value = Enum { tag_width: 1, variants: [(0, "Text", "Value__Text"), (1, "Account", "Value__Account"), (2, "Key", "Value__Key"), (3, "Module", "Value__Module"), (4, "Hash", "Value__Hash"), (5, "Amount", "Value__Amount"), (6, "Time", "Value__Time"), (7, "Bytes", "Value__Bytes"), (8, "List", "Value__List")] }
+Value__Account = Struct { fields: UnnamedFields(["u64"]) }
+Value__Amount = Struct { fields: NamedFields([("value", "u128"), ("decimals", "u8")]) }
+Value__Bytes = Struct { fields: NamedFields([("len", "u64"), ("preview", "Vec<u8>")]) }
+Value__Hash = Struct { fields: UnnamedFields(["Vec<u8>"]) }
+Value__Key = Struct { fields: UnnamedFields(["Vec<u8>"]) }
+Value__List = Struct { fields: UnnamedFields(["Vec<Value>"]) }
+Value__Module = Struct { fields: UnnamedFields(["String"]) }
+Value__Text = Struct { fields: UnnamedFields(["String"]) }
+Value__Time = Struct { fields: UnnamedFields(["u64"]) }
+Vec<Block> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Block" }
+Vec<Error> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Error" }
+Vec<Field> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Field" }
+Vec<Receipt> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Receipt" }
+Vec<Tx> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Tx" }
+Vec<Value> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Value" }
+Vec<Vec<u8>> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Vec<u8>" }
+Vec<u8> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+[u8; 32] = Sequence { length_width: 0, length_range: 32..=32, elements: "u8" }
+bool = Primitive(1)
+i32 = Primitive(4)
+i64 = Primitive(8)
+u128 = Primitive(16)
+u32 = Primitive(4)
+u64 = Primitive(8)
+u8 = Primitive(1)
+
+# tree: named MessagePack, every container by name
+Action enum
+  0 click: Unit
+  1 focus: Unit
+  2 blur: Unit
+  3 collapse: Unit
+  4 expand: Unit
+  5 customAction: Unit
+  6 decrement: Unit
+  7 increment: Unit
+  8 hideTooltip: Unit
+  9 showTooltip: Unit
+  10 replaceSelectedText: Unit
+  11 scrollDown: Unit
+  12 scrollLeft: Unit
+  13 scrollRight: Unit
+  14 scrollUp: Unit
+  15 scrollIntoView: Unit
+  16 scrollToPoint: Unit
+  17 setScrollOffset: Unit
+  18 setTextSelection: Unit
+  19 setSequentialFocusNavigationStartingPoint: Unit
+  20 setValue: Unit
+  21 showContextMenu: Unit
+ActionData enum
+  0 customAction: NewType(I32)
+  1 value: NewType(Str)
+  2 numericValue: NewType(F64)
+  3 scrollUnit: NewType(TypeName("ScrollUnit"))
+  4 scrollHint: NewType(TypeName("ScrollHint"))
+  5 scrollToPoint: NewType(TypeName("accesskit::Point"))
+  6 setScrollOffset: NewType(TypeName("accesskit::Point"))
+  7 setTextSelection: NewType(TypeName("TextSelection"))
+AlignContent enum
+  0 Start: Unit
+  1 End: Unit
+  2 FlexStart: Unit
+  3 FlexEnd: Unit
+  4 Center: Unit
+  5 Stretch: Unit
+  6 SpaceBetween: Unit
+  7 SpaceEvenly: Unit
+  8 SpaceAround: Unit
+AlignItems enum
+  0 Start: Unit
+  1 End: Unit
+  2 FlexStart: Unit
+  3 FlexEnd: Unit
+  4 Center: Unit
+  5 Baseline: Unit
+  6 Stretch: Unit
+Anchor enum
+  0 TopLeft: Unit
+  1 TopRight: Unit
+  2 BottomLeft: Unit
+  3 BottomRight: Unit
+  4 TopCenter: Unit
+  5 BottomCenter: Unit
+  6 LeftCenter: Unit
+  7 RightCenter: Unit
+AnchoredFitMode enum
+  0 SnapToWindow: Unit
+  1 SnapToWindowWithMargin: NewType(TupleArray { content: F32, size: 4 })
+  2 SwitchAnchor: Unit
+AnchoredPositionMode enum
+  0 Window: Unit
+  1 Local: Unit
+Aria struct
+  author_id: Option(Str)
+  label: Option(Str)
+  description: Option(Str)
+  keyshortcuts: Option(Str)
+  active_descendant: Bool
+  value: Option(Str)
+  placeholder: Option(Str)
+  selected: Option(Bool)
+  expanded: Option(Bool)
+  disabled: Option(Bool)
+  numeric_value: Option(F64)
+  numeric_value_step: Option(F64)
+  min_numeric_value: Option(F64)
+  max_numeric_value: Option(F64)
+  level: Option(U64)
+  position_in_set: Option(U64)
+  size_of_set: Option(U64)
+  row_index: Option(U64)
+  column_index: Option(U64)
+  row_count: Option(U64)
+  column_count: Option(U64)
+  toggled: Option(TypeName("Toggled"))
+  orientation: Option(TypeName("Orientation"))
+  live: Option(TypeName("Live"))
+  busy: Bool
+  required: Bool
+  read_only: Bool
+  invalid: Option(TypeName("Invalid"))
+  has_popup: Option(TypeName("HasPopup"))
+  current: Option(TypeName("AriaCurrent"))
+  labelled_by: Seq(Seq(TypeName("WireRepr")))
+  described_by: Seq(Seq(TypeName("WireRepr")))
+  controls: Seq(Seq(TypeName("WireRepr")))
+  error_message: Option(Seq(TypeName("WireRepr")))
+  actions: Seq(Tuple([TypeName("Action"), U32]))
+  custom_actions: Seq(Tuple([I32, Str]))
+AriaCurrent enum
+  0 false: Unit
+  1 true: Unit
+  2 page: Unit
+  3 step: Unit
+  4 location: Unit
+  5 date: Unit
+  6 time: Unit
+Background struct
+  tag: TypeName("BackgroundTag")
+  color_space: TypeName("ColorSpace")
+  solid: Str
+  gradient_angle_or_pattern_height: F32
+  colors: TupleArray { content: TypeName("LinearColorStop"), size: 2 }
+  pad: U32
+BackgroundTag enum
+  0 Solid: Unit
+  1 LinearGradient: Unit
+  2 PatternSlash: Unit
+  3 Checkerboard: Unit
+BorderStyle enum
+  0 Solid: Unit
+  1 Dashed: Unit
+Bounds struct
+  origin: TypeName("Point")
+  size: TypeName("Size")
+BoxShadow struct
+  color: Str
+  offset: TypeName("Point")
+  blur_radius: TypeName("Pixels")
+  spread_radius: TypeName("Pixels")
+  inset: Bool
+ButtonEvent struct
+  button: TypeName("MouseButton")
+  position: TypeName("Point")
+  modifiers: TypeName("Modifiers")
+  click_count: U64
+Call struct
+  target: Str
+  body: Seq(U8)
+CanvasCommand enum
+  0 Draw struct
+    shape: TypeName("CanvasShape")
+    fill: Option(Str)
+    even_odd: Bool
+    stroke: Option(TypeName("CanvasStroke"))
+  1 Push struct
+    translate: TupleArray { content: F32, size: 2 }
+    rotate: F32
+    scale: TupleArray { content: F32, size: 2 }
+    clip: Option(TupleArray { content: F32, size: 4 })
+  2 Pop: Unit
+CanvasLineCap enum
+  0 Butt: Unit
+  1 Square: Unit
+  2 Round: Unit
+CanvasLineJoin enum
+  0 Miter: Unit
+  1 Round: Unit
+  2 Bevel: Unit
+CanvasSegment enum
+  0 Rectangle struct
+    position: TupleArray { content: F32, size: 2 }
+    size: TupleArray { content: F32, size: 2 }
+    radius: TupleArray { content: F32, size: 4 }
+  1 Circle struct
+    center: TupleArray { content: F32, size: 2 }
+    radius: F32
+  2 Move: NewType(TupleArray { content: F32, size: 2 })
+  3 Line: NewType(TupleArray { content: F32, size: 2 })
+  4 Arc struct
+    center: TupleArray { content: F32, size: 2 }
+    radius: F32
+    start: F32
+    end: F32
+  5 ArcTo struct
+    a: TupleArray { content: F32, size: 2 }
+    b: TupleArray { content: F32, size: 2 }
+    radius: F32
+  6 Ellipse struct
+    center: TupleArray { content: F32, size: 2 }
+    radius: TupleArray { content: F32, size: 2 }
+    rotation: F32
+    start: F32
+    end: F32
+  7 Bezier struct
+    a: TupleArray { content: F32, size: 2 }
+    b: TupleArray { content: F32, size: 2 }
+    end: TupleArray { content: F32, size: 2 }
+  8 Quadratic struct
+    control: TupleArray { content: F32, size: 2 }
+    end: TupleArray { content: F32, size: 2 }
+  9 Close: Unit
+CanvasShape enum
+  0 Rectangle struct
+    position: TupleArray { content: F32, size: 2 }
+    size: TupleArray { content: F32, size: 2 }
+    radius: TupleArray { content: F32, size: 4 }
+  1 Circle struct
+    center: TupleArray { content: F32, size: 2 }
+    radius: F32
+  2 Line struct
+    from: TupleArray { content: F32, size: 2 }
+    to: TupleArray { content: F32, size: 2 }
+  3 Path: NewType(Seq(TypeName("CanvasSegment")))
+CanvasStroke struct
+  color: Str
+  width: F32
+  cap: TypeName("CanvasLineCap")
+  join: TypeName("CanvasLineJoin")
+  dash: Seq(F32)
+  dash_offset: U32
+Click enum
+  0 Mouse struct
+    down: TypeName("ButtonEvent")
+    up: TypeName("ButtonEvent")
+    first_mouse: Bool
+  1 Keyboard struct
+    button: TypeName("KeyboardButton")
+    bounds: TypeName("Bounds")
+  2 Touch struct
+    position: TypeName("Point")
+    tap_count: U64
+    long_press: Bool
+ColorSpace enum
+  0 Srgb: Unit
+  1 Oklab: Unit
+ContainerNode struct
+  id: Option(TypeName("WireRepr"))
+  style: TypeName("StyleRefinement")
+  interactivity: TypeName("Interactivity")
+  children: Seq(TypeName("Node"))
+CornersRefinement struct
+  top_left: Option(Str)
+  top_right: Option(Str)
+  bottom_right: Option(Str)
+  bottom_left: Option(Str)
+Cursor enum
+  0 None: Unit
+  1 Hidden: Unit
+  2 Idle: Unit
+  3 ContextMenu: Unit
+  4 Help: Unit
+  5 Pointer: Unit
+  6 Progress: Unit
+  7 Wait: Unit
+  8 Cell: Unit
+  9 Crosshair: Unit
+  10 Text: Unit
+  11 Alias: Unit
+  12 Copy: Unit
+  13 Move: Unit
+  14 NoDrop: Unit
+  15 NotAllowed: Unit
+  16 Grab: Unit
+  17 Grabbing: Unit
+  18 ResizingHorizontally: Unit
+  19 ResizingVertically: Unit
+  20 ResizingDiagonallyUp: Unit
+  21 ResizingDiagonallyDown: Unit
+  22 ResizingColumn: Unit
+  23 ResizingRow: Unit
+  24 AllScroll: Unit
+  25 ZoomIn: Unit
+  26 ZoomOut: Unit
+CursorStyle enum
+  0 Arrow: Unit
+  1 IBeam: Unit
+  2 Crosshair: Unit
+  3 ClosedHand: Unit
+  4 OpenHand: Unit
+  5 PointingHand: Unit
+  6 ResizeLeft: Unit
+  7 ResizeRight: Unit
+  8 ResizeLeftRight: Unit
+  9 ResizeUp: Unit
+  10 ResizeDown: Unit
+  11 ResizeUpDown: Unit
+  12 ResizeUpLeftDownRight: Unit
+  13 ResizeUpRightDownLeft: Unit
+  14 ResizeColumn: Unit
+  15 ResizeRow: Unit
+  16 IBeamCursorForVerticalLayout: Unit
+  17 OperationNotAllowed: Unit
+  18 DragLink: Unit
+  19 DragCopy: Unit
+  20 ContextualMenu: Unit
+DispatchPhase enum
+  0 Capture: Unit
+  1 Bubble: Unit
+Display enum
+  0 Block: Unit
+  1 Flex: Unit
+  2 Grid: Unit
+  3 None: Unit
+EdgesRefinement struct
+  top: Option(Str)
+  right: Option(Str)
+  bottom: Option(Str)
+  left: Option(Str)
+EditorBinding struct
+  claims: Seq(TypeName("EditorKeyClaim"))
+  on_request: U32
+  on_event: U32
+EditorCursor struct
+  position: TypeName("EditorPosition")
+  selection: Option(TypeName("EditorPosition"))
+EditorDecision enum
+  0 DefaultEditorAction: Unit
+  1 Noop: Unit
+  2 Apply struct
+    patches: Seq(TypeName("EditorPatch"))
+    cursor: TypeName("EditorCursor")
+    history: TypeName("EditorHistoryEffect")
+EditorDocumentMessage enum
+  0 Request struct
+    id: TypeName("EditorTransferId")
+    target: TypeName("EditorDocumentRef")
+  1 Transfer: NewType(TypeName("EditorTransfer"))
+  2 Acknowledged struct
+    id: TypeName("EditorTransferId")
+  3 Failed struct
+    id: TypeName("EditorTransferId")
+    reason: TypeName("EditorTransferError")
+EditorDocumentRef struct
+  document: Str
+  reset: U64
+  text_revision: U64
+  revision: U64
+  cursor: TypeName("EditorCursor")
+  byte_len: U32
+EditorEditKind enum
+  0 Insert: Unit
+  1 Backspace: Unit
+  2 Cursor: Unit
+  3 GuestPatch: Unit
+  4 Undo: Unit
+  5 Redo: Unit
+EditorFault enum
+  0 Overflow: Unit
+EditorFormat struct
+  style: TypeName("StyleRefinement")
+EditorHistoryEffect enum
+  0 Native: Unit
+  1 NewGroup: Unit
+  2 ExtendPrevious: Unit
+  3 Undo: Unit
+  4 Redo: Unit
+EditorInteraction enum
+  0 Action struct
+    tag: Str
+EditorKeyClaim struct
+  key: TypeName("Key")
+  modifiers: TypeName("Modifiers")
+  command: Bool
+EditorOptions struct
+  binding: Option(TypeName("EditorBinding"))
+  presentation: Option(TypeName("EditorPresentation"))
+EditorPatch struct
+  start_byte: U32
+  end_byte: U32
+  replacement: Str
+EditorPosition struct
+  line: U32
+  column: U32
+EditorPresentation struct
+  formats: Seq(TypeName("EditorFormat"))
+  spans: Seq(TypeName("EditorSpan"))
+  style: TypeName("StyleRefinement")
+EditorRequest struct
+  id: TypeName("EditorTransactionId")
+  state: TypeName("EditorDocumentRef")
+  input: TypeName("EditorRequestInput")
+  input_time_ms: U64
+EditorRequestInput enum
+  0 Key struct
+    key: TypeName("KeyState")
+    repeat: Bool
+  1 Interaction struct
+    action: TypeName("EditorInteraction")
+EditorResponse struct
+  id: TypeName("EditorTransactionId")
+  decision: TypeName("EditorDecision")
+EditorSpan struct
+  line: U32
+  start: U32
+  end: U32
+  format: U16
+EditorTransactionEvent enum
+  0 Interaction struct
+    id: TypeName("EditorTransactionId")
+    state: TypeName("EditorDocumentRef")
+    action: TypeName("EditorInteraction")
+    input_time_ms: U64
+  1 Commit struct
+    id: TypeName("EditorTransactionId")
+    origin: Option(TypeName("EditorRequestInput"))
+    before: TypeName("EditorDocumentRef")
+    after: TypeName("EditorDocumentRef")
+    patches: Seq(TypeName("EditorPatch"))
+    kind: TypeName("EditorEditKind")
+    history: TypeName("EditorHistoryEffect")
+    input_time_ms: U64
+  2 Fault struct
+    id: TypeName("EditorTransactionId")
+    state: TypeName("EditorDocumentRef")
+    reason: TypeName("EditorFault")
+  3 Cancelled struct
+    id: TypeName("EditorTransactionId")
+    state: TypeName("EditorDocumentRef")
+EditorTransactionId struct
+  instance: U64
+  document: Str
+  reset: U64
+  sequence: U64
+  attempt: U32
+  text_revision: U64
+  revision: U64
+EditorTransfer enum
+  0 Begin struct
+    id: TypeName("EditorTransferId")
+    target: TypeName("EditorDocumentRef")
+  1 Chunk struct
+    id: TypeName("EditorTransferId")
+    index: U8
+    bytes: Seq(U8)
+  2 Complete struct
+    id: TypeName("EditorTransferId")
+  3 Abort struct
+    id: TypeName("EditorTransferId")
+EditorTransferError enum
+  0 Limit: Unit
+  1 Identity: Unit
+  2 Order: Unit
+  3 Length: Unit
+  4 Utf8: Unit
+  5 Cursor: Unit
+  6 Aborted: Unit
+EditorTransferId struct
+  instance: U64
+  document: Str
+  reset: U64
+  serial: U64
+  attempt: U32
+ElementIdAtom enum
+  0 View: NewType(U64)
+  1 Integer: NewType(U64)
+  2 Name: NewType(Str)
+  3 Uuid: NewType(TupleArray { content: U8, size: 16 })
+  4 FocusHandle: NewType(U64)
+  5 NamedInteger: Tuple([Str, U64])
+  6 Path: NewType(Seq(U8))
+  7 CodeLocation struct
+    file: Str
+    line: U32
+    column: U32
+  8 OpaqueId: NewType(TupleArray { content: U8, size: 20 })
+Error struct
+  code: Str
+  message: Str
+Event enum
+  0 Message: NewType(U32)
+  1 Click struct
+    handler: U32
+    event: TypeName("Click")
+  2 MouseDown struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("MouseDown")
+  3 MouseUp struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("MouseUp")
+  4 MouseDownOut struct
+    handler: U32
+    event: TypeName("MouseDown")
+  5 MouseUpOut struct
+    handler: U32
+    event: TypeName("MouseUp")
+  6 MousePressure struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("MousePressure")
+  7 MouseMove struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("MouseMove")
+  8 MouseExit struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("MouseExit")
+  9 ScrollWheel struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("ScrollWheel")
+  10 Pinch struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("Pinch")
+  11 KeyDown struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("KeyDown")
+  12 KeyUp struct
+    handler: U32
+    phase: TypeName("DispatchPhase")
+    event: TypeName("KeyUp")
+  13 ModifiersChanged struct
+    handler: U32
+    event: TypeName("ModifiersChanged")
+  14 Hover struct
+    handler: U32
+    hovered: Bool
+  15 FileDropExit struct
+    handler: U32
+  16 AuxClick struct
+    handler: U32
+    event: TypeName("Click")
+  17 TooltipRequest struct
+    request: U32
+    character_index: Option(U32)
+  18 Input struct
+    handler: U32
+    text: Str
+  19 EditorDocument struct
+    handler: U32
+    message: TypeName("EditorDocumentMessage")
+  20 EditorRequest struct
+    handler: U32
+    request: TypeName("EditorRequest")
+  21 EditorTransaction struct
+    handler: U32
+    event: TypeName("EditorTransactionEvent")
+  22 Theme struct
+    dark: Bool
+  23 Select struct
+    handler: U32
+    index: U32
+  24 RichTextHover struct
+    handler: U32
+    event: TypeName("RichTextHover")
+  25 Size struct
+    handler: U32
+    width: F32
+    height: F32
+  26 Drag struct
+    handler: U32
+    dx: F64
+    dy: F64
+  27 ScrollOffset struct
+    handler: U32
+    x: F32
+    y: F32
+    relative_x: F32
+    relative_y: F32
+  28 UniformListRange struct
+    path: Seq(TypeName("WireRepr"))
+    route: U32
+    start: U32
+    end: U32
+  29 UniformListState struct
+    path: Seq(TypeName("WireRepr"))
+    route: U32
+    top_index: U32
+    scrollable: Bool
+    scrolled_to_end: Option(Bool)
+  30 ListRequest struct
+    handler: U32
+    request: TypeName("ListRequest")
+  31 ListScroll struct
+    handler: U32
+    event: TypeName("ListScroll")
+  32 Response struct
+    id: U64
+    result: TypeName("Result")
+    done: Bool
+  33 Resync: Unit
+  34 A11yAction struct
+    handler: U32
+    data: Option(TypeName("ActionData"))
+Fill enum
+  0 Color: NewType(TypeName("Background"))
+FlexDirection enum
+  0 Row: Unit
+  1 Column: Unit
+  2 RowReverse: Unit
+  3 ColumnReverse: Unit
+FlexWrap enum
+  0 NoWrap: Unit
+  1 Wrap: Unit
+  2 WrapReverse: Unit
+FontFallbacks NewTypeStruct(Seq(Str))
+FontStyle enum
+  0 Normal: Unit
+  1 Italic: Unit
+  2 Oblique: Unit
+Frame struct
+  upstream_sanitization: TypeName("SanitizeReport")
+  editor_decisions: Seq(TypeName("EditorResponse"))
+  editor_documents: Seq(TypeName("EditorDocumentMessage"))
+  tooltip_responses: Seq(TypeName("TooltipResponse"))
+  root: Option(TypeName("Node"))
+  patches: Seq(TypeName("Patch"))
+  requests: Seq(TypeName("Request"))
+  cancels: Seq(U64)
+  unchanged: Bool
+  busy: Bool
+GridPlacement enum
+  0 Line: NewType(I16)
+  1 Span: NewType(U16)
+  2 Auto: Unit
+GridTemplate struct
+  repeat: U16
+  min_size: TypeName("GridTemplateMinSize")
+GridTemplateMinSize enum
+  0 Zero: Unit
+  1 MinContent: Unit
+  2 MaxContent: Unit
+GroupRefinement struct
+  group: Str
+  style: TypeName("StyleRefinement")
+HasPopup enum
+  0 menu: Unit
+  1 listbox: Unit
+  2 tree: Unit
+  3 grid: Unit
+  4 dialog: Unit
+HighlightStyle struct
+  color: Option(Str)
+  font_weight: Option(F32)
+  font_style: Option(TypeName("FontStyle"))
+  background_color: Option(Str)
+  underline: Option(TypeName("UnderlineStyle"))
+  strikethrough: Option(TypeName("StrikethroughStyle"))
+  fade_out: Option(F32)
+HoverListenerMode enum
+  0 InputModalityAware: Unit
+  1 InputModalityIndependent: Unit
+ImageData enum
+  0 Encoded: NewType(Seq(U8))
+  1 Rgba struct
+    width: U32
+    height: U32
+    pixels: Seq(U8)
+  2 Resource: NewType(Str)
+  3 Refusal: NewType(Str)
+ImageObjectFit enum
+  0 Fill: Unit
+  1 Contain: Unit
+  2 Cover: Unit
+  3 ScaleDown: Unit
+  4 None: Unit
+ImageStyle struct
+  grayscale: Bool
+  object_fit: TypeName("ImageObjectFit")
+InputOptions struct
+  label: Str
+  description: Option(Str)
+  disabled: Bool
+  invalid: Option(TypeName("Invalid"))
+  required: Bool
+  read_only: Bool
+Interactivity struct
+  role: Option(TypeName("Role"))
+  aria: TypeName("Aria")
+  focusable: Bool
+  tab_stop: Option(Bool)
+  tab_index: Option(I32)
+  tab_group: Bool
+  focus: Option(TypeName("StyleRefinement"))
+  in_focus: Option(TypeName("StyleRefinement"))
+  focus_visible: Option(TypeName("StyleRefinement"))
+  key_context: Option(TypeName("KeyContext"))
+  focus_handle: Option(U64)
+  occlude: Bool
+  block_mouse_except_scroll: Bool
+  hover_listener_mode: TypeName("HoverListenerMode")
+  group: Option(Str)
+  hover: Option(TypeName("StyleRefinement"))
+  active: Option(TypeName("StyleRefinement"))
+  group_hover: Option(TypeName("GroupRefinement"))
+  group_active: Option(TypeName("GroupRefinement"))
+  on_click: Option(U32)
+  on_aux_click: Option(U32)
+  on_mouse_down: Option(U32)
+  capture_mouse_down: Option(U32)
+  on_mouse_down_out: Option(U32)
+  on_mouse_up: Option(U32)
+  capture_mouse_up: Option(U32)
+  on_mouse_up_out: Option(U32)
+  on_mouse_pressure: Option(U32)
+  capture_mouse_pressure: Option(U32)
+  on_mouse_move: Option(U32)
+  on_mouse_exit: Option(U32)
+  on_scroll_wheel: Option(U32)
+  on_pinch: Option(U32)
+  capture_pinch: Option(U32)
+  on_key_down: Option(U32)
+  capture_key_down: Option(U32)
+  on_key_up: Option(U32)
+  capture_key_up: Option(U32)
+  on_modifiers_changed: Option(U32)
+  on_hover: Option(U32)
+  on_file_drop_exit: Option(U32)
+  tooltip: Option(TypeName("Tooltip"))
+Invalid enum
+  0 true: Unit
+  1 grammar: Unit
+  2 spelling: Unit
+Key enum
+  0 Named: NewType(TypeName("Named"))
+  1 Character: NewType(Str)
+  2 Unidentified: Unit
+KeyContext struct
+  entries: Seq(TypeName("KeyContextEntry"))
+KeyContextEntry struct
+  key: Str
+  value: Option(Str)
+KeyDown struct
+  state: TypeName("KeyState")
+  repeat: Bool
+  prefer_character_input: Bool
+KeyState struct
+  key: TypeName("Key")
+  modified_key: TypeName("Key")
+  physical_key: TypeName("Physical")
+  location: TypeName("Location")
+  modifiers: TypeName("Modifiers")
+KeyUp struct
+  state: TypeName("KeyState")
+KeyboardButton enum
+  0 Enter: Unit
+  1 Space: Unit
+LinearColorStop struct
+  color: Str
+  percentage: F32
+ListAlignment enum
+  0 Top: Unit
+  1 Bottom: Unit
+ListCommand enum
+  0 Reset struct
+    count: U64
+  1 Splice struct
+    start: U64
+    end: U64
+    count: U64
+  2 Remeasure struct
+    start: U64
+    end: U64
+  3 ScrollTo: NewType(TypeName("ListOffset"))
+  4 ScrollToEnd: Unit
+  5 ScrollToRevealItem: NewType(U64)
+  6 SetFollowMode struct
+    tail: Bool
+  7 PauseFollowingTail: Unit
+ListOffset struct
+  item_ix: U64
+  offset_in_item: F32
+ListRequest struct
+  start: U64
+  end: U64
+ListScroll struct
+  visible_start: U64
+  visible_end: U64
+  count: U64
+  is_scrolled: Bool
+  is_following_tail: Bool
+  offset: TypeName("ListOffset")
+ListSizingBehavior enum
+  0 Infer: Unit
+  1 Auto: Unit
+Live enum
+  0 off: Unit
+  1 polite: Unit
+  2 assertive: Unit
+Location enum
+  0 Standard: Unit
+  1 Left: Unit
+  2 Right: Unit
+  3 Numpad: Unit
+Modifiers struct
+  control: Bool
+  alt: Bool
+  shift: Bool
+  platform: Bool
+  function: Bool
+ModifiersChanged struct
+  modifiers: TypeName("Modifiers")
+  capslock: Bool
+MouseButton enum
+  0 Left: Unit
+  1 Right: Unit
+  2 Middle: Unit
+  3 Back: Unit
+  4 Forward: Unit
+MouseDown struct
+  button: TypeName("MouseButton")
+  position: TypeName("Point")
+  modifiers: TypeName("Modifiers")
+  click_count: U32
+  first_mouse: Bool
+MouseExit struct
+  position: TypeName("Point")
+  pressed_button: Option(TypeName("MouseButton"))
+  modifiers: TypeName("Modifiers")
+MouseMove struct
+  position: TypeName("Point")
+  pressed_button: Option(TypeName("MouseButton"))
+  modifiers: TypeName("Modifiers")
+MousePressure struct
+  pressure: F32
+  stage: TypeName("PressureStage")
+  position: TypeName("Point")
+  modifiers: TypeName("Modifiers")
+MouseUp struct
+  button: TypeName("MouseButton")
+  position: TypeName("Point")
+  modifiers: TypeName("Modifiers")
+  click_count: U32
+Named enum
+  0 Enter: Unit
+  1 Tab: Unit
+  2 Space: Unit
+  3 Escape: Unit
+  4 Backspace: Unit
+  5 Delete: Unit
+  6 Insert: Unit
+  7 ArrowUp: Unit
+  8 ArrowDown: Unit
+  9 ArrowLeft: Unit
+  10 ArrowRight: Unit
+  11 Home: Unit
+  12 End: Unit
+  13 PageUp: Unit
+  14 PageDown: Unit
+  15 Shift: Unit
+  16 Control: Unit
+  17 Alt: Unit
+  18 Super: Unit
+  19 Fn: Unit
+  20 BrowserBack: Unit
+  21 BrowserForward: Unit
+  22 F1: Unit
+  23 F2: Unit
+  24 F3: Unit
+  25 F4: Unit
+  26 F5: Unit
+  27 F6: Unit
+  28 F7: Unit
+  29 F8: Unit
+  30 F9: Unit
+  31 F10: Unit
+  32 F11: Unit
+  33 F12: Unit
+  34 F13: Unit
+  35 F14: Unit
+  36 F15: Unit
+  37 F16: Unit
+  38 F17: Unit
+  39 F18: Unit
+  40 F19: Unit
+  41 F20: Unit
+  42 F21: Unit
+  43 F22: Unit
+  44 F23: Unit
+  45 F24: Unit
+  46 F25: Unit
+  47 F26: Unit
+  48 F27: Unit
+  49 F28: Unit
+  50 F29: Unit
+  51 F30: Unit
+  52 F31: Unit
+  53 F32: Unit
+  54 F33: Unit
+  55 F34: Unit
+  56 F35: Unit
+NativeCode enum
+  0 Unidentified: Unit
+  1 Android: NewType(U32)
+  2 MacOS: NewType(U16)
+  3 Windows: NewType(U16)
+  4 Xkb: NewType(U32)
+Node enum
+  0 RichText struct
+    id: Option(TypeName("WireRepr"))
+    style: TypeName("StyleRefinement")
+    text: Str
+    runs: TypeName("Runs")
+    font_family_overrides: Seq(Tuple([TypeName("Range"), Str]))
+    clickable_ranges: Seq(TypeName("Range"))
+    on_click: Option(U32)
+    on_hover: Option(U32)
+    tooltip: Option(TypeName("TooltipResponse"))
+  1 Anchored struct
+    anchor: TypeName("Anchor")
+    fit: TypeName("AnchoredFitMode")
+    position: Option(TupleArray { content: F32, size: 2 })
+    position_mode: TypeName("AnchoredPositionMode")
+    offset: Option(TupleArray { content: F32, size: 2 })
+    children: Seq(TypeName("Node"))
+  2 UniformList struct
+    id: TypeName("WireRepr")
+    path: Seq(TypeName("WireRepr"))
+    route: U32
+    style: TypeName("StyleRefinement")
+    interactivity: TypeName("Interactivity")
+    count: U64
+    measure_index: U64
+    sizing: TypeName("UniformListSizing")
+    horizontal_sizing: TypeName("UniformListHorizontalSizing")
+    y_flipped: Bool
+    scroll_request: Option(TypeName("UniformListScrollRequest"))
+    indices: Seq(U32)
+    children: Seq(TypeName("Node"))
+  3 List struct
+    state: U64
+    path: Seq(TypeName("WireRepr"))
+    item_count: U64
+    alignment: TypeName("ListAlignment")
+    overdraw: F32
+    sizing: TypeName("ListSizingBehavior")
+    following_tail: Bool
+    revision: U64
+    commands: Seq(TypeName("ListCommand"))
+    request_handler: U32
+    scroll_handler: Option(U32)
+    range_start: U64
+    style: TypeName("StyleRefinement")
+    interactivity: TypeName("Interactivity")
+    children: Seq(TypeName("Node"))
+  4 Container: NewType(TypeName("ContainerNode"))
+  5 ResizeHandle struct
+    id: TypeName("WireRepr")
+    style: TypeName("StyleRefinement")
+    interactivity: TypeName("Interactivity")
+    on_press: Option(U32)
+    on_release: Option(U32)
+    on_drag: Option(U32)
+    cursor: Option(TypeName("Cursor"))
+    content: TypeName("Node")
+  6 Deferred struct
+    priority: U64
+    content: TypeName("Node")
+  7 Sensor struct
+    id: TypeName("WireRepr")
+    style: TypeName("StyleRefinement")
+    on_show: Option(U32)
+    on_resize: Option(U32)
+    child: TypeName("Node")
+  8 Text: NewType(TypeName("TextNode"))
+  9 Image struct
+    id: Option(TypeName("WireRepr"))
+    hash: U64
+    data: Option(TypeName("ImageData"))
+    label: Option(Str)
+    image_style: TypeName("ImageStyle")
+    loading: Bool
+    fallback: Bool
+    state_children: Seq(TypeName("Node"))
+    style: TypeName("StyleRefinement")
+    interactivity: TypeName("Interactivity")
+  10 Svg struct
+    id: Option(TypeName("WireRepr"))
+    source: TypeName("SvgSource")
+    transformation: TypeName("SvgTransformation")
+    label: Option(Str)
+    style: TypeName("StyleRefinement")
+    interactivity: TypeName("Interactivity")
+  11 Input struct
+    options: TypeName("InputOptions")
+    id: TypeName("WireRepr")
+    placeholder: Str
+    value: Str
+    on_input: Option(U32)
+    on_submit: Option(U32)
+    secure: Bool
+    style: TypeName("StyleRefinement")
+  12 Editor struct
+    options: TypeName("EditorOptions")
+    id: TypeName("WireRepr")
+    style: TypeName("StyleRefinement")
+    placeholder: Str
+    label: Option(Str)
+    document: TypeName("EditorDocumentRef")
+    on_document: U32
+    editable: Bool
+  13 Space struct
+    style: TypeName("StyleRefinement")
+  14 Overlay struct
+    id: TypeName("WireRepr")
+    label: Option(Str)
+    style: TypeName("StyleRefinement")
+    on_dismiss: Option(U32)
+    children: Seq(TypeName("Node"))
+  15 Canvas struct
+    style: TypeName("StyleRefinement")
+    commands: Seq(TypeName("CanvasCommand"))
+NodeId NewTypeStruct(U64)
+Orientation enum
+  0 horizontal: Unit
+  1 vertical: Unit
+Overflow enum
+  0 Visible: Unit
+  1 Clip: Unit
+  2 Hidden: Unit
+  3 Scroll: Unit
+Patch enum
+  0 Replace struct
+    path: Seq(U32)
+    node: TypeName("Node")
+  1 Props struct
+    path: Seq(U32)
+    node: TypeName("Node")
+  2 Insert struct
+    path: Seq(U32)
+    index: U32
+    node: TypeName("Node")
+  3 Remove struct
+    path: Seq(U32)
+    index: U32
+  4 Move struct
+    path: Seq(U32)
+    from: U32
+    to: U32
+Physical enum
+  0 Unidentified: NewType(TypeName("NativeCode"))
+Pinch struct
+  position: TypeName("Point")
+  delta: F32
+  modifiers: TypeName("Modifiers")
+  phase: TypeName("TouchPhase")
+Pixels NewTypeStruct(F32)
+Point struct
+  x: TypeName("Pixels")
+  y: TypeName("Pixels")
+PointRefinement struct
+  x: Option(TypeName("Overflow"))
+  y: Option(TypeName("Overflow"))
+Position enum
+  0 Relative: Unit
+  1 Absolute: Unit
+PressureStage enum
+  0 Zero: Unit
+  1 Normal: Unit
+  2 Force: Unit
+Range struct
+  start: U64
+  end: U64
+Request struct
+  id: U64
+  kind: Str
+  payload: Seq(U8)
+Result enum
+  0 Ok: NewType(Seq(U8))
+  1 Err: NewType(TypeName("Error"))
+RichTextHover struct
+  index: Option(U32)
+  position: TypeName("Point")
+  pressed_button: Option(TypeName("MouseButton"))
+  modifiers: TypeName("Modifiers")
+Role enum
+  0 unknown: Unit
+  1 textRun: Unit
+  2 cell: Unit
+  3 label: Unit
+  4 image: Unit
+  5 link: Unit
+  6 row: Unit
+  7 listItem: Unit
+  8 listMarker: Unit
+  9 treeItem: Unit
+  10 listBoxOption: Unit
+  11 menuItem: Unit
+  12 menuListOption: Unit
+  13 paragraph: Unit
+  14 genericContainer: Unit
+  15 checkBox: Unit
+  16 radioButton: Unit
+  17 textInput: Unit
+  18 button: Unit
+  19 defaultButton: Unit
+  20 pane: Unit
+  21 rowHeader: Unit
+  22 columnHeader: Unit
+  23 rowGroup: Unit
+  24 list: Unit
+  25 table: Unit
+  26 layoutTableCell: Unit
+  27 layoutTableRow: Unit
+  28 layoutTable: Unit
+  29 switch: Unit
+  30 menu: Unit
+  31 multilineTextInput: Unit
+  32 searchInput: Unit
+  33 dateInput: Unit
+  34 dateTimeInput: Unit
+  35 weekInput: Unit
+  36 monthInput: Unit
+  37 timeInput: Unit
+  38 emailInput: Unit
+  39 numberInput: Unit
+  40 passwordInput: Unit
+  41 phoneNumberInput: Unit
+  42 urlInput: Unit
+  43 abbr: Unit
+  44 alert: Unit
+  45 alertDialog: Unit
+  46 application: Unit
+  47 article: Unit
+  48 audio: Unit
+  49 banner: Unit
+  50 blockquote: Unit
+  51 canvas: Unit
+  52 caption: Unit
+  53 caret: Unit
+  54 code: Unit
+  55 colorWell: Unit
+  56 comboBox: Unit
+  57 editableComboBox: Unit
+  58 complementary: Unit
+  59 comment: Unit
+  60 contentDeletion: Unit
+  61 contentInsertion: Unit
+  62 contentInfo: Unit
+  63 definition: Unit
+  64 descriptionList: Unit
+  65 details: Unit
+  66 dialog: Unit
+  67 disclosureTriangle: Unit
+  68 document: Unit
+  69 embeddedObject: Unit
+  70 emphasis: Unit
+  71 feed: Unit
+  72 figureCaption: Unit
+  73 figure: Unit
+  74 footer: Unit
+  75 form: Unit
+  76 grid: Unit
+  77 gridCell: Unit
+  78 group: Unit
+  79 header: Unit
+  80 heading: Unit
+  81 iframe: Unit
+  82 iframePresentational: Unit
+  83 imeCandidate: Unit
+  84 keyboard: Unit
+  85 legend: Unit
+  86 lineBreak: Unit
+  87 listBox: Unit
+  88 log: Unit
+  89 main: Unit
+  90 mark: Unit
+  91 marquee: Unit
+  92 math: Unit
+  93 menuBar: Unit
+  94 menuItemCheckBox: Unit
+  95 menuItemRadio: Unit
+  96 menuListPopup: Unit
+  97 meter: Unit
+  98 navigation: Unit
+  99 note: Unit
+  100 pluginObject: Unit
+  101 progressIndicator: Unit
+  102 radioGroup: Unit
+  103 region: Unit
+  104 rootWebArea: Unit
+  105 ruby: Unit
+  106 rubyAnnotation: Unit
+  107 scrollBar: Unit
+  108 scrollView: Unit
+  109 search: Unit
+  110 section: Unit
+  111 sectionFooter: Unit
+  112 sectionHeader: Unit
+  113 slider: Unit
+  114 spinButton: Unit
+  115 splitter: Unit
+  116 status: Unit
+  117 strong: Unit
+  118 suggestion: Unit
+  119 svgRoot: Unit
+  120 tab: Unit
+  121 tabList: Unit
+  122 tabPanel: Unit
+  123 term: Unit
+  124 time: Unit
+  125 timer: Unit
+  126 titleBar: Unit
+  127 toolbar: Unit
+  128 tooltip: Unit
+  129 tree: Unit
+  130 treeGrid: Unit
+  131 video: Unit
+  132 webView: Unit
+  133 window: Unit
+  134 pdfActionableHighlight: Unit
+  135 pdfRoot: Unit
+  136 graphicsDocument: Unit
+  137 graphicsObject: Unit
+  138 graphicsSymbol: Unit
+  139 docAbstract: Unit
+  140 docAcknowledgements: Unit
+  141 docAfterword: Unit
+  142 docAppendix: Unit
+  143 docBackLink: Unit
+  144 docBiblioEntry: Unit
+  145 docBibliography: Unit
+  146 docBiblioRef: Unit
+  147 docChapter: Unit
+  148 docColophon: Unit
+  149 docConclusion: Unit
+  150 docCover: Unit
+  151 docCredit: Unit
+  152 docCredits: Unit
+  153 docDedication: Unit
+  154 docEndnote: Unit
+  155 docEndnotes: Unit
+  156 docEpigraph: Unit
+  157 docEpilogue: Unit
+  158 docErrata: Unit
+  159 docExample: Unit
+  160 docFootnote: Unit
+  161 docForeword: Unit
+  162 docGlossary: Unit
+  163 docGlossRef: Unit
+  164 docIndex: Unit
+  165 docIntroduction: Unit
+  166 docNoteRef: Unit
+  167 docNotice: Unit
+  168 docPageBreak: Unit
+  169 docPageFooter: Unit
+  170 docPageHeader: Unit
+  171 docPageList: Unit
+  172 docPart: Unit
+  173 docPreface: Unit
+  174 docPrologue: Unit
+  175 docPullquote: Unit
+  176 docQna: Unit
+  177 docSubtitle: Unit
+  178 docTip: Unit
+  179 docToc: Unit
+  180 listGrid: Unit
+  181 terminal: Unit
+Runs enum
+  0 Highlights: NewType(Seq(Tuple([TypeName("Range"), TypeName("HighlightStyle")])))
+  1 Runs: NewType(Seq(TypeName("TextRun")))
+SanitizeReport struct
+  display_text_truncated: Bool
+ScrollDelta enum
+  0 Lines struct
+    x: F32
+    y: F32
+  1 Pixels struct
+    x: F32
+    y: F32
+ScrollHint enum
+  0 topLeft: Unit
+  1 bottomRight: Unit
+  2 topEdge: Unit
+  3 bottomEdge: Unit
+  4 leftEdge: Unit
+  5 rightEdge: Unit
+ScrollUnit enum
+  0 item: Unit
+  1 page: Unit
+ScrollWheel struct
+  position: TypeName("Point")
+  delta: TypeName("ScrollDelta")
+  modifiers: TypeName("Modifiers")
+  touch_phase: TypeName("TouchPhase")
+Size struct
+  width: TypeName("Pixels")
+  height: TypeName("Pixels")
+SizeRefinement struct
+  width: Option(Str)
+  height: Option(Str)
+StrikethroughStyle struct
+  thickness: TypeName("Pixels")
+  color: Option(Str)
+StyleRefinement struct
+  display: Option(TypeName("Display"))
+  visibility: Option(TypeName("Visibility"))
+  overflow: TypeName("PointRefinement")
+  scrollbar_width: Option(Str)
+  allow_concurrent_scroll: Option(Bool)
+  restrict_scroll_to_axis: Option(Bool)
+  position: Option(TypeName("Position"))
+  inset: TypeName("EdgesRefinement")
+  size: TypeName("SizeRefinement")
+  min_size: TypeName("SizeRefinement")
+  max_size: TypeName("SizeRefinement")
+  aspect_ratio: Option(F32)
+  margin: TypeName("EdgesRefinement")
+  padding: TypeName("EdgesRefinement")
+  border_widths: TypeName("EdgesRefinement")
+  align_items: Option(TypeName("AlignItems"))
+  align_self: Option(TypeName("AlignItems"))
+  align_content: Option(TypeName("AlignContent"))
+  justify_content: Option(TypeName("AlignContent"))
+  gap: TypeName("SizeRefinement")
+  flex_direction: Option(TypeName("FlexDirection"))
+  flex_wrap: Option(TypeName("FlexWrap"))
+  flex_basis: Option(Str)
+  flex_grow: Option(F32)
+  flex_shrink: Option(F32)
+  background: Option(TypeName("Fill"))
+  border_color: Option(Str)
+  border_style: Option(TypeName("BorderStyle"))
+  corner_radii: TypeName("CornersRefinement")
+  box_shadow: Option(Seq(TypeName("BoxShadow")))
+  text: TypeName("TextStyleRefinement")
+  mouse_cursor: Option(TypeName("CursorStyle"))
+  opacity: Option(F32)
+  grid_cols: Option(TypeName("GridTemplate"))
+  grid_rows: Option(TypeName("GridTemplate"))
+  grid_location: Option(TypeName("GridLocation"))
+  debug: Option(Bool)
+  debug_below: Option(Bool)
+SvgSource enum
+  0 None: Unit
+  1 Data struct
+    hash: U64
+    bytes: Option(Seq(U8))
+  2 Asset: NewType(Str)
+  3 External: NewType(Str)
+SvgTransformation struct
+  scale: TupleArray { content: F32, size: 2 }
+  translate: TupleArray { content: F32, size: 2 }
+  rotate: F32
+TextAlign enum
+  0 Left: Unit
+  1 Center: Unit
+  2 Right: Unit
+TextNode struct
+  id: Option(TypeName("WireRepr"))
+  style: TypeName("StyleRefinement")
+  content: Str
+TextOverflow enum
+  0 Truncate: NewType(Str)
+  1 TruncateStart: NewType(Str)
+  2 TruncateMiddle: NewType(Str)
+TextPosition struct
+  node: TypeName("NodeId")
+  characterIndex: U64
+TextRun struct
+  len: U64
+  font_family: Str
+  font_features: Map { key: Str, value: U32 }
+  font_fallbacks: Option(TypeName("FontFallbacks"))
+  font_weight: F32
+  font_style: TypeName("FontStyle")
+  color: Str
+  background_color: Option(Str)
+  underline: Option(TypeName("UnderlineStyle"))
+  strikethrough: Option(TypeName("StrikethroughStyle"))
+TextSelection struct
+  anchor: TypeName("TextPosition")
+  focus: TypeName("TextPosition")
+TextStyleRefinement struct
+  color: Option(Str)
+  font_family: Option(Str)
+  font_features: Option(Map { key: Str, value: U32 })
+  font_fallbacks: Option(TypeName("FontFallbacks"))
+  font_size: Option(Str)
+  line_height: Option(Str)
+  font_weight: Option(F32)
+  font_style: Option(TypeName("FontStyle"))
+  background_color: Option(Str)
+  underline: Option(TypeName("UnderlineStyle"))
+  strikethrough: Option(TypeName("StrikethroughStyle"))
+  white_space: Option(TypeName("WhiteSpace"))
+  text_overflow: Option(TypeName("TextOverflow"))
+  text_align: Option(TypeName("TextAlign"))
+  line_clamp: Option(U64)
+Toggled enum
+  0 false: Unit
+  1 true: Unit
+  2 mixed: Unit
+Tooltip struct
+  request: U32
+  content: Option(TypeName("Node"))
+  hoverable: Bool
+  delay_ms: U64
+TooltipResponse struct
+  request: U32
+  character_index: Option(U32)
+  content: Option(TypeName("Node"))
+TouchPhase enum
+  0 Started: Unit
+  1 Moved: Unit
+  2 Ended: Unit
+  3 Cancelled: Unit
+UnderlineStyle struct
+  thickness: TypeName("Pixels")
+  color: Option(Str)
+  wavy: Bool
+UniformListHorizontalSizing enum
+  0 FitList: Unit
+  1 Unconstrained: Unit
+UniformListScrollRequest struct
+  index: U64
+  strategy: TypeName("UniformListScrollStrategy")
+  offset: U64
+  strict: Bool
+UniformListScrollStrategy enum
+  0 Top: Unit
+  1 Center: Unit
+  2 Bottom: Unit
+  3 Nearest: Unit
+UniformListSizing enum
+  0 Infer: Unit
+  1 Auto: Unit
+Visibility enum
+  0 Visible: Unit
+  1 Hidden: Unit
+WhiteSpace enum
+  0 Normal: Unit
+  1 Nowrap: Unit
+WidgetCommand enum
+  0 EditorAction struct
+    target: Seq(TypeName("WireRepr"))
+    tag: Str
+  1 FocusPrevious: Unit
+  2 FocusNext: Unit
+  3 Focus struct
+    target: Seq(TypeName("WireRepr"))
+  4 FocusHandle struct
+    handle: U64
+  5 CursorFront struct
+    target: Seq(TypeName("WireRepr"))
+  6 CursorEnd struct
+    target: Seq(TypeName("WireRepr"))
+  7 Cursor struct
+    target: Seq(TypeName("WireRepr"))
+    position: U32
+  8 SelectAll struct
+    target: Seq(TypeName("WireRepr"))
+  9 Select struct
+    target: Seq(TypeName("WireRepr"))
+    start: U32
+    end: U32
+  10 Snap struct
+    target: Seq(TypeName("WireRepr"))
+    x: F32
+    y: F32
+  11 SnapEnd struct
+    target: Seq(TypeName("WireRepr"))
+  12 ScrollTo struct
+    target: Seq(TypeName("WireRepr"))
+    x: F32
+    y: F32
+  13 ScrollBy struct
+    target: Seq(TypeName("WireRepr"))
+    x: F32
+    y: F32
+WireRepr enum
+  0 View: NewType(U64)
+  1 Integer: NewType(U64)
+  2 Name: NewType(Str)
+  3 Uuid: NewType(TupleArray { content: U8, size: 16 })
+  4 FocusHandle: NewType(U64)
+  5 NamedInteger: Tuple([Str, U64])
+  6 Path: NewType(Seq(U8))
+  7 CodeLocation struct
+    file: Str
+    line: U32
+    column: U32
+  8 NamedChild struct
+    base: TypeName("ElementIdAtom")
+    names: Seq(Str)
+  9 OpaqueId: NewType(TupleArray { content: U8, size: 20 })
+accesskit::Point struct
+  x: F64
+  y: F64
+
+# tree: gpui's GridLocation, whose Range is not the tree's
+GridLocation struct
+  row: TypeName("Range")
+  column: TypeName("Range")
+Range struct
+  start: TypeName("GridPlacement")
+  end: TypeName("GridPlacement")

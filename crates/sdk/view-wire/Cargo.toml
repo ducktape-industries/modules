@@ -2,9 +2,10 @@
 # tree out, meaning-level events in, requests and responses beside. The guest
 # half is here (`view-guest` and the views under `crates/app/*-view`); the host
 # half is the app repo, which pins this crate by git rev. The format is ours,
-# and `tests/golden.rs` holds its bytes: a shape change trips the golden until
-# the fixtures are regenerated, and `build.rs` hashes them into `WIRE_ID`, which
-# a host checks a view's `.wasm` against before running it.
+# and `tests/golden.rs` holds it: the bytes of what its fixtures sample, and the
+# shape of every type that crosses (`schema.txt`). A change to either trips the
+# golden until it is regenerated, and `build.rs` hashes all of it into
+# `WIRE_ID`, which a host checks a view's `.wasm` against before running it.
 [package]
 name = "view-wire"
 version.workspace = true
@@ -14,6 +15,9 @@ edition.workspace = true
 # Reads the manifest custom section out of a built view: host-only, so the
 # guests skip `wasmparser` entirely.
 manifest = ["dep:wasmparser"]
+# Derives borsh's schema on every method type, for the golden's
+# `schema.txt`: the tests turn it on, nothing built for a guest does.
+schema = ["borsh/unstable__schema", "error/schema", "describe/schema"]
 
 [dependencies]
 wasmparser = { version = "0.251", optional = true }
@@ -43,3 +47,8 @@ rmp-serde = { version = "1", features = ["typed"] }
 [dev-dependencies]
 # The readable twin of the golden fixtures.
 serde_json.workspace = true
+# `schema.txt`: the tree's shape traced through serde, the methods' through
+# borsh's schema (the `schema` feature, on for this crate's own tests).
+serde-reflection = "0.6"
+borsh = { workspace = true, features = ["unstable__schema"] }
+view-wire = { path = ".", features = ["schema"] }

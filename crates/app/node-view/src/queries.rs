@@ -4,7 +4,7 @@ use ducktape_view_guest::borsh_bytes;
 use ducktape_view_guest::host::{Error, pages, wrong_reply};
 use ducktape_view_guest::methods::Query;
 use serde::{Deserialize, Serialize};
-use valset::view::Valset;
+use valset::view::ValsetApi;
 use valset::{Membership, PageRequest, Query as Ask, Reply};
 
 /// What the screen shows: the consensus set as valset answers it, and the
@@ -20,12 +20,12 @@ pub struct Set {
 /// The set, read twice: the consensus keys the program answers, then every
 /// membership behind them.
 pub(crate) async fn set(host: Host) -> Result<Set, Error> {
-    let validators = match host.ask::<Query<Valset>>(Ask::Validators).await? {
+    let validators = match host.ask::<Query<ValsetApi>>(Ask::Validators).await? {
         Reply::Validators(keys) => keys,
         _ => return Err(wrong_reply()),
     };
     let members = pages(None, |after| {
-        let ask = host.ask::<Query<Valset>>(Ask::Memberships {
+        let ask = host.ask::<Query<ValsetApi>>(Ask::Memberships {
             page: PageRequest { after, limit: None },
         });
         async move {

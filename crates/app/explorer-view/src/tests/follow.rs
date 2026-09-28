@@ -8,13 +8,13 @@ fn an_identity_head_re_reads_the_accounts() {
     let mut cx = TestAppContext::new();
     cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
-    let heads = cx.host().stream::<Changes<Identity>>();
+    let heads = cx.host().stream::<Changes<IdentityApi>>();
     cx.open::<Explorer>();
     cx.run_until_parked();
     cx.simulate_click("explorer-tab-accounts");
     cx.run_until_parked();
     assert!(!cx.has_text("Module · chess"));
-    let asked = cx.host().requests::<Query<Identity>>().len();
+    let asked = cx.host().requests::<Query<IdentityApi>>().len();
     let chess = account(
         8,
         "chess",
@@ -22,7 +22,7 @@ fn an_identity_head_re_reads_the_accounts() {
             module: "chess".into(),
         },
     );
-    cx.host().handle::<Query<Identity>>(move |_| {
+    cx.host().handle::<Query<IdentityApi>>(move |_| {
         Ok(identity::Reply::Accounts(identity::PageResponse {
             height: 13,
             items: vec![ada(), scout(), forge(), chess.clone()],
@@ -33,7 +33,7 @@ fn an_identity_head_re_reads_the_accounts() {
     cx.run_until_parked();
     assert!(cx.has_text("Module · chess"), "{:?}", cx.texts());
     assert!(cx.has_text("Agent · managed by Ada · suspended"), "kept");
-    assert_eq!(cx.host().requests::<Query<Identity>>().len(), asked + 1);
+    assert_eq!(cx.host().requests::<Query<IdentityApi>>().len(), asked + 1);
 }
 
 #[test]
@@ -41,13 +41,13 @@ fn a_registry_head_re_reads_the_programs() {
     let mut cx = TestAppContext::new();
     cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
-    let heads = cx.host().stream::<Changes<Registry>>();
+    let heads = cx.host().stream::<Changes<RegistryApi>>();
     cx.open::<Explorer>();
     cx.run_until_parked();
     cx.simulate_click("explorer-tab-programs");
     cx.run_until_parked();
     assert!(cx.has_text("2 programs"));
-    cx.host().handle::<Query<Registry>>(|query| {
+    cx.host().handle::<Query<RegistryApi>>(|query| {
         Ok(match query {
             registry::Query::At(0) => registry::Reply::Programs(vec![
                 entry("chat", 0xab),
@@ -80,7 +80,7 @@ fn an_empty_registry_says_so() {
     let mut cx = TestAppContext::new();
     cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
-    cx.host().handle::<Query<Registry>>(|query| {
+    cx.host().handle::<Query<RegistryApi>>(|query| {
         Ok(match query {
             registry::Query::At(0) => registry::Reply::Programs(Vec::new()),
             registry::Query::Views(0) => registry::Reply::Views(Vec::new()),
@@ -107,7 +107,7 @@ fn refused_accounts_say_why_and_retry_reads_again() {
     cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     cx.host()
-        .refuse::<Query<Identity>>("unavailable", "identity is not running here");
+        .refuse::<Query<IdentityApi>>("unavailable", "identity is not running here");
     cx.open::<Explorer>();
     cx.run_until_parked();
     cx.simulate_click("explorer-tab-accounts");

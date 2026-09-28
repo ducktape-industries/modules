@@ -193,8 +193,8 @@ EOF
 //! The marker a view names this module by in \`module.query\`/\`op.submit\`.
 use ducktape_view_guest::methods::Module;
 
-pub struct $title;
-impl Module for $title {
+pub struct ${title}Api;
+impl Module for ${title}Api {
     const NAME: &'static str = crate::MODULE;
     type Op = crate::Op;
     type Query = crate::Query;
@@ -297,8 +297,7 @@ use ducktape_view_guest::{
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
-// The module, by its own marker (named apart from this view's \`$title\`).
-use $program_snake::view::$title as ${title}Api;
+use $program_snake::view::${title}Api;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct $title {
