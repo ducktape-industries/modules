@@ -13,8 +13,8 @@ use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::{Entity, Theme, wire};
 use forge::{ChangeFilter, ChangeState, Op, PageRequest, PageResponse, Query, Reply};
 
-use crate::api::{ChatApi, ForgeProgram};
-use chat::view::Identity;
+use crate::api::{ChatApi, ForgeApi};
+use chat::view::IdentityApi;
 use ducktape_view_guest::methods::Changes;
 
 #[path = "../../forge/fixtures/loader.rs"]
@@ -205,9 +205,9 @@ pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
     cx.host().handle::<Submit<ChatApi>>(|_| Ok(Vec::new()));
     cx.host().handle::<SubmitForge>(|_| Ok(Vec::new()));
     cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
-    cx.host().never::<Changes<ForgeProgram>>();
+    cx.host().never::<Changes<ForgeApi>>();
     cx.host().never::<Changes<ChatApi>>();
-    cx.host().never::<Changes<Identity>>();
+    cx.host().never::<Changes<IdentityApi>>();
     cx.host().never::<HostVisible>();
     cx.host()
         .never::<ducktape_view_guest::methods::HostOffset>();
@@ -461,9 +461,9 @@ fn a_refused_read_keeps_its_reason_and_offers_one_retry() {
         .handle::<Ask>(|_| Err(refusal("refused-object-not-held")));
     cx.host()
         .handle::<ProgramQuery<ChatApi>>(|_| Ok(chat::Reply::Accounts(accounts())));
-    cx.host().never::<Changes<ForgeProgram>>();
+    cx.host().never::<Changes<ForgeApi>>();
     cx.host().never::<Changes<ChatApi>>();
-    cx.host().never::<Changes<Identity>>();
+    cx.host().never::<Changes<IdentityApi>>();
     cx.host().never::<HostVisible>();
     cx.host()
         .never::<ducktape_view_guest::methods::HostOffset>();

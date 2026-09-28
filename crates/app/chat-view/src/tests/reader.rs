@@ -108,7 +108,7 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
     let props = cx.host().stream::<HostSession>();
     let visible = cx.host().stream::<HostVisible>();
     cx.host().never::<Changes<ChatApi>>();
-    let live = cx.host().stream::<Changes<Identity>>();
+    let live = cx.host().stream::<Changes<IdentityApi>>();
     let view = cx.open::<Chat>();
     cx.run_until_parked();
     props.send(Session {
@@ -178,7 +178,7 @@ fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
     let props = cx.host().stream::<HostSession>();
     let visible = cx.host().stream::<HostVisible>();
     cx.host().never::<Changes<ChatApi>>();
-    let live = cx.host().stream::<Changes<Identity>>();
+    let live = cx.host().stream::<Changes<IdentityApi>>();
     let view = cx.open::<Chat>();
     cx.run_until_parked();
     props.send(Session {

@@ -8,7 +8,7 @@ use ducktape_view_guest::wire;
 use ducktape_view_guest::{Entity, StyleRefinement, Styled};
 
 use crate::api::{Ask, Changes, ChatApi, HostId, HostSession, HostVisible, Session, Submit};
-use ::chat::view::Identity;
+use ::chat::view::IdentityApi;
 
 mod menus;
 mod message;
@@ -152,7 +152,7 @@ fn configure(cx: &mut TestAppContext) {
         })
     });
     cx.host().never::<Changes<ChatApi>>();
-    cx.host().never::<Changes<Identity>>();
+    cx.host().never::<Changes<IdentityApi>>();
     cx.host().handle::<Submit<ChatApi>>(|_| Ok(Vec::new()));
 }
 

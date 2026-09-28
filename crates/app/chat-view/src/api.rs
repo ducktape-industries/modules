@@ -6,4 +6,4 @@ pub use ducktape_view_guest::methods::{
 };
 
 /// The chat program, by its own marker (named apart from this view's `Chat`).
-pub use ::chat::view::Chat as ChatApi;
+pub use ::chat::view::ChatApi;
