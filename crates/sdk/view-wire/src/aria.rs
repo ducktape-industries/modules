@@ -156,8 +156,50 @@ fn decode_custom_actions<'de, D: serde::Deserializer<'de>>(
         "too many aria custom actions",
     )
 }
+/// Actions the host answers itself, whatever a view advertises.
+const HOST_ACTIONS: [Action; 6] = [
+    Action::Click,
+    Action::Focus,
+    Action::Blur,
+    Action::SetValue,
+    Action::ReplaceSelectedText,
+    Action::SetTextSelection,
+];
+
+/// The role a view may give a node: `GenericContainer` and `Unknown` say
+/// nothing (and trip gpui's debug assert), and the window-level roles are
+/// the host's.
+pub(crate) fn view_role(role: Option<gpui::Role>) -> Option<gpui::Role> {
+    use gpui::Role::*;
+    role.filter(|role| {
+        !matches!(
+            role,
+            GenericContainer
+                | Unknown
+                | Window
+                | Application
+                | RootWebArea
+                | Pane
+                | Iframe
+                | IframePresentational
+                | WebView
+                | TitleBar
+        )
+    })
+}
+
+/// A relation target is a path a host can resolve, like a list's.
+fn check_target(path: &[ElementIdWire]) -> Result<(), &'static str> {
+    if path.len() > crate::MAX_DEPTH {
+        return Err("aria relation target is too deep");
+    }
+    path.iter().try_for_each(ElementIdWire::validate_host)
+}
+
 impl Aria {
-    pub(crate) fn sanitize(&mut self) {
+    /// Bounds everything the node's role does not decide; the rest is
+    /// `frame_sanitize::sanitize_interactivity`'s.
+    pub(crate) fn sanitize(&mut self) -> Result<(), &'static str> {
         for field in [
             &mut self.author_id,
             &mut self.label,
@@ -202,5 +244,28 @@ impl Aria {
         {
             *value = (*value).min(1_000_000);
         }
+        if self.live == Some(Live::Off) {
+            self.live = None;
+        }
+        for relation in [
+            &mut self.labelled_by,
+            &mut self.described_by,
+            &mut self.controls,
+        ] {
+            relation.truncate(MAX_ARIA_RELATIONS);
+            relation.iter().try_for_each(|path| check_target(path))?;
+        }
+        self.error_message.as_deref().map_or(Ok(()), check_target)?;
+        let mut seen = std::collections::HashSet::new();
+        self.actions
+            .retain(|(action, _)| !HOST_ACTIONS.contains(action) && seen.insert(*action));
+        self.actions.truncate(MAX_ARIA_ACTIONS);
+        self.custom_actions.truncate(MAX_ARIA_CUSTOM_ACTIONS);
+        let mut seen = std::collections::HashSet::new();
+        self.custom_actions.retain_mut(|(id, description)| {
+            crate::truncate_to(description, MAX_ARIA_TEXT_BYTES);
+            seen.insert(*id)
+        });
+        Ok(())
     }
 }

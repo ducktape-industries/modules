@@ -1,7 +1,18 @@
 use super::*;
 
-pub(super) fn sanitize_interactivity(interactivity: &mut Interactivity) {
-    interactivity.aria.sanitize();
+pub(super) fn sanitize_interactivity(
+    interactivity: &mut Interactivity,
+) -> Result<(), &'static str> {
+    interactivity.aria.sanitize()?;
+    interactivity.role = crate::aria::view_role(interactivity.role);
+    let aria = &mut interactivity.aria;
+    if interactivity.role == Some(gpui::Role::Heading)
+        && aria.level.is_some_and(|level| !(1..=6).contains(&level))
+    {
+        aria.level = None;
+    }
+    // gpui panics (debug) on an active descendant that is the focused node.
+    aria.active_descendant &= !interactivity.focusable;
     for style in [
         &mut interactivity.focus,
         &mut interactivity.in_focus,
@@ -50,4 +61,5 @@ pub(super) fn sanitize_interactivity(interactivity: &mut Interactivity) {
         truncate_string(&mut name);
         *group = name.into();
     }
+    Ok(())
 }

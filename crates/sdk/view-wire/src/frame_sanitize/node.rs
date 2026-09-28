@@ -25,10 +25,12 @@ pub(super) fn sanitize_node(
     }
     if let Node::Container(crate::ContainerNode { interactivity, .. })
     | Node::UniformList { interactivity, .. }
+    | Node::List { interactivity, .. }
+    | Node::ResizeHandle { interactivity, .. }
     | Node::Image { interactivity, .. }
     | Node::Svg { interactivity, .. } = node
     {
-        sanitize_interactivity(interactivity);
+        sanitize_interactivity(interactivity)?;
         if let Some(tooltip) = &mut interactivity.tooltip {
             tooltip.delay_ms = tooltip.delay_ms.min(60_000);
             sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;
@@ -202,7 +204,6 @@ fn sanitize_fields(
             transformation,
             label,
             style,
-            interactivity,
             ..
         } => {
             match source {
@@ -218,7 +219,6 @@ fn sanitize_fields(
             }
             transformation.rotate = signed_bounded(transformation.rotate);
             style_sanitize::sanitize(style);
-            sanitize_interactivity(interactivity);
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
