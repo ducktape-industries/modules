@@ -501,6 +501,54 @@ fn claim(focusable: bool, focus_handle: Option<u64>) -> Interactivity {
 }
 
 #[test]
+fn a_state_its_role_does_not_read_fails() {
+    let selected = |role| Interactivity {
+        aria: Aria {
+            selected: Some(true),
+            ..Default::default()
+        },
+        ..control(role)
+    };
+    fails(
+        UnreadState,
+        el("general", selected(Role::Button), vec![text("general")]),
+    );
+    fails(
+        UnreadState,
+        el("row", selected(Role::ListItem), vec![text("src/lib.rs")]),
+    );
+    let toggled = Interactivity {
+        aria: Aria {
+            toggled: Some(gpui::Toggled::True),
+            ..Default::default()
+        },
+        ..control(Role::Link)
+    };
+    fails(UnreadState, el("open", toggled, vec![text("Open")]));
+}
+
+#[test]
+fn a_state_its_role_reads_passes() {
+    let tab = Interactivity {
+        aria: Aria {
+            selected: Some(true),
+            ..Default::default()
+        },
+        ..control(Role::Tab)
+    };
+    let tabs = labelled(roled(Role::TabList), "Pages");
+    passes(el("tabs", tabs, vec![el("home", tab, vec![text("Home")])]));
+    let pressed = Interactivity {
+        aria: Aria {
+            toggled: Some(gpui::Toggled::False),
+            ..Default::default()
+        },
+        ..control(Role::Button)
+    };
+    passes(el("bold", pressed, vec![text("Bold")]));
+}
+
+#[test]
 fn an_active_descendant_the_host_drops_fails() {
     let quiet = roled(Role::ListBoxOption);
     fails(

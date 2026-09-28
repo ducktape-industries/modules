@@ -201,7 +201,7 @@ fn chips(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoE
                         .text_color(if on { theme.foreground } else { theme.muted })
                         .cursor_pointer()
                         .role(Role::Button)
-                        .aria_selected(on)
+                        .aria_toggled(on.into())
                         .focusable()
                         .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
                             view.only = group;

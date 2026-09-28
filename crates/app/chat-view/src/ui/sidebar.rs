@@ -217,7 +217,9 @@ fn channel_button(
         })
         .hover(|s| s.bg(theme.sidebar_raised))
         .role(ducktape_view_guest::Role::Button)
-        .aria_selected(selected)
+        .when(selected, |row| {
+            row.aria_current(ducktape_view_guest::accesskit::AriaCurrent::Page)
+        })
         .focusable()
         .on_click(click)
         .child(div().text_color(theme.sidebar_muted).child("#"))

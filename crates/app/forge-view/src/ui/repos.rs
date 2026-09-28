@@ -351,7 +351,9 @@ pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
                 })
                 .hover(|style| style.bg(theme.surface))
                 .role(Role::Button)
-                .aria_selected(selected)
+                .when(selected, |item| {
+                    item.aria_current(ducktape_view_guest::accesskit::AriaCurrent::Page)
+                })
                 .focusable()
                 .on_click(open)
                 .child(div().flex_1().truncate().child(name)),

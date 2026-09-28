@@ -263,8 +263,8 @@ pub(crate) fn menu_label(text: &str, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-/// One pick in a dropdown, mono, the picked one raised; `note` sits
-/// faint on its right.
+/// One pick in a dropdown, mono, the picked one raised and checked;
+/// `note` sits faint on its right.
 pub(crate) fn menu_item(
     element_id: ElementId,
     label: String,
@@ -285,8 +285,8 @@ pub(crate) fn menu_item(
         .text_size(design::text::CAPTION)
         .when(selected, |item| item.bg(theme.surface_raised))
         .hover(move |style| style.bg(theme.surface))
-        .role(Role::MenuItem)
-        .aria_selected(selected)
+        .role(Role::MenuItemRadio)
+        .aria_toggled(selected.into())
         .focusable()
         .on_click(click)
         .child(div().flex_1().min_w(px(0.)).truncate().child(label))

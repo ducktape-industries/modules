@@ -58,6 +58,10 @@ pub enum FaultKind {
     /// An active descendant the host drops, as gpui would panic on it: on
     /// a node that takes focus, or after an earlier claim in the frame.
     ActiveDescendant,
+    /// A state its role does not carry, so AT reads nothing of it:
+    /// `selected` outside a tab, tree item, option, row or cell, `toggled`
+    /// outside a toggle or a button.
+    UnreadState,
 }
 
 /// Every fault in the tree, depth first.
@@ -162,6 +166,18 @@ const TOGGLE: [Role; 5] = [
     Role::MenuItemRadio,
 ];
 const MENU_ITEM: [Role; 3] = [Role::MenuItem, Role::MenuItemCheckBox, Role::MenuItemRadio];
+/// The roles that read `selected` (ARIA's aria-selected set).
+const SELECTABLE: [Role; 9] = [
+    Role::Tab,
+    Role::TreeItem,
+    Role::ListBoxOption,
+    Role::MenuListOption,
+    Role::Row,
+    Role::Cell,
+    Role::GridCell,
+    Role::ColumnHeader,
+    Role::RowHeader,
+];
 /// Nothing inside these may be interactive: AT reads each as one control.
 const CONTROL: [Role; 9] = [
     Role::Button,
@@ -238,6 +254,11 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
             _ => None,
         };
         rules.check(state.is_some(), MissingState, || state == Some(false));
+        // a roleless node's state is OrphanAria's
+        rules.check(role.is_some(), UnreadState, || {
+            (aria.selected.is_some() && !is(&SELECTABLE))
+                || (aria.toggled.is_some() && !is(&TOGGLE) && role != Some(Role::Button))
+        });
         rules.check(aria.disabled == Some(true), DisabledButLive, || {
             i.on_click.is_some() || i.on_key_down.is_some()
         });

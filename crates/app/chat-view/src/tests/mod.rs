@@ -193,7 +193,10 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     };
     assert!(style.size.width.is_some(), "channel rows fill the sidebar");
     assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Button));
-    assert_eq!(interactivity.aria.selected, Some(true));
+    assert_eq!(
+        interactivity.aria.current,
+        Some(ducktape_view_guest::accesskit::AriaCurrent::Page)
+    );
     assert!(
         interactivity.on_click.is_some(),
         "channel rows keep their route"
