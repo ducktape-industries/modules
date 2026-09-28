@@ -3,7 +3,7 @@
 use super::*;
 use ducktape_view_guest::methods::{
     Block, BlockPage, ChainBlocks, ChainNetwork, ChainStatus, ClockTicks, NetworkStatus,
-    NodeStatus, Peer, Query, Report, Said,
+    NodeStatus, Peer, Query,
 };
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 
@@ -241,9 +241,9 @@ fn every_key_is_one_row_validators_first() {
     assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Heading));
 }
 
-/// Without `chain.network` the strip's blocks carry the rows: the strip
-/// spans the last 64, read a page at a time; a validator reads by the
-/// blocks it led, one that led none Quiet; a resident Not reported.
+/// Without `chain.network` the strip's blocks carry the validators: the
+/// strip spans the last 64, read a page at a time; a validator reads by the
+/// blocks it led, one that led none Quiet. A resident's cells stay empty.
 #[test]
 fn without_the_network_a_validator_reads_by_its_blocks() {
     let (cx, _) = ready();
@@ -251,20 +251,20 @@ fn without_the_network_a_validator_reads_by_its_blocks() {
     let pages = cx.host().requests::<ChainBlocks>();
     assert_eq!(pages.len(), 4, "{pages:?}");
     assert_eq!(pages[0].before, Some(4201));
-    assert!(texts_of(&cx, "nodes-row-0").contains(&"32 of 64".to_owned()));
+    let this = texts_of(&cx, "nodes-row-0");
+    assert!(this.contains(&"32 of 64".to_owned()) && this.contains(&"this node".to_owned()));
     assert!(texts_of(&cx, "nodes-row-1").contains(&"32 of 64".to_owned()));
     let unlisted = texts_of(&cx, "nodes-row-2");
     assert!(unlisted.contains(&"Quiet".to_owned()), "{unlisted:?}");
     assert!(unlisted.contains(&"not in the last 64".to_owned()));
-    let resident = texts_of(&cx, "nodes-row-3");
-    assert!(resident.contains(&"Doesn't propose".to_owned()));
-    assert!(resident.contains(&"Not reported".to_owned()));
-    // this node knows its own tip; nobody else's height is known
-    let this = texts_of(&cx, "nodes-row-0");
-    assert!(this.contains(&"4,200".to_owned()) && this.contains(&"this node".to_owned()));
+    assert_eq!(
+        texts_of(&cx, "nodes-row-3"),
+        ["0102", "10.0.0.9:4000", "Doesn't propose", "—", "—", "—"]
+    );
+    assert!(!cx.has_text("signed"));
     assert!(cx.has_text(
-        "This node does not report its members' heights. A validator reads by the blocks \
-         it led, and Quiet after 12 blocks without one; a resident reports no height to this node."
+        "This node does not report its validators' signatures. A validator reads by the \
+         blocks it led, and Quiet after 12 blocks without one."
     ));
     cx.assert_accessible();
 }
@@ -292,125 +292,70 @@ fn a_new_head_reads_one_block() {
     assert!(cx.has_text("Proposed · last 64 blocks · 4,138 → 4,201"));
 }
 
-fn said(at: u64, height: u64) -> Option<Said> {
-    Some(Said {
-        at,
-        report: Report::Height {
-            height,
-            tip: [0; 32],
-        },
-    })
-}
-
-/// The members as the node reports them at `at` on its clock.
-fn seen(at: u64) -> NetworkStatus {
+/// Each member's signed height as the node reports it: this node at its
+/// tip, OTHER one behind, UNLISTED stopped at 3,871; the resident signs
+/// nothing.
+fn seen(height: u64) -> NetworkStatus {
+    let peer = |key: [u8; 2], signed| Peer {
+        key: key.to_vec(),
+        signed,
+    };
     NetworkStatus {
-        height: 4200,
-        at,
+        height,
         members: vec![
-            Peer {
-                key: THIS.to_vec(),
-                signed: Some(4200),
-                said: None,
-            },
-            Peer {
-                key: OTHER.to_vec(),
-                signed: Some(4199),
-                said: said(59_000, 4200),
-            },
-            Peer {
-                key: UNLISTED.to_vec(),
-                signed: Some(3871),
-                said: said(10_000, 3871),
-            },
-            Peer {
-                key: RESIDENT.to_vec(),
-                signed: None,
-                said: said(59_500, 4156),
-            },
+            peer(RESIDENT, None),
+            peer(UNLISTED, Some(3871)),
+            peer(OTHER, Some(height - 1)),
+            peer(THIS, Some(height)),
         ],
     }
 }
 
-/// With `chain.network`: a validator's signed height, a resident's reported
-/// one, how far each is from the tip, when it last answered, one word.
+/// With `chain.network`: a validator's signed height, how far it is from
+/// the tip, one word; a resident's row is its key and address.
 #[test]
-fn the_network_fills_height_behind_heard_and_status() {
+fn the_network_fills_height_behind_and_status() {
     let mut cx = TestAppContext::new();
     let ticks = node(&cx);
     cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
-    cx.host().handle::<ChainNetwork>(|()| Ok(seen(60_000)));
+    cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
     cx.open::<Nodes>();
     cx.run_until_parked();
     let row = |cx: &TestAppContext, index: usize| texts_of(cx, &format!("nodes-row-{index}"));
-    let expect = |cx: &TestAppContext, rows: [(usize, &[&str]); 4]| {
-        for (index, expected) in rows {
-            let texts = row(cx, index);
-            for text in expected {
-                assert!(
-                    texts.contains(&text.to_string()),
-                    "row {index}, {text}: {texts:?}"
-                );
-            }
-        }
-    };
-    // the first reply carries answer times from before the node asked:
-    // nobody is Not answering on it yet
-    expect(
-        &cx,
-        [
-            (0, &["4,200", "0", "this node", "In sync"]),
-            (1, &["4,199", "signed", "1", "1s ago", "In sync"]),
-            (2, &["3,871", "signed", "329", "50s ago", "Checking"]),
-            (3, &["4,156", "reported", "44", "0s ago", "44 behind"]),
-        ],
+    assert_eq!(
+        row(&cx, 0)[1..3],
+        ["10.0.0.1:4000".to_owned(), "this node".to_owned()]
     );
-    assert!(!cx.has_text("Not reported") && !cx.has_text("Not answering"));
+    let tail = |cx: &TestAppContext, index: usize| {
+        let texts = row(cx, index);
+        texts[texts.len().saturating_sub(4)..].to_vec()
+    };
+    assert_eq!(tail(&cx, 0), ["4,200", "signed", "0", "In sync"]);
+    assert_eq!(tail(&cx, 1), ["4,199", "signed", "1", "In sync"]);
+    assert_eq!(
+        row(&cx, 2)[row(&cx, 2).len() - 5..],
+        ["3,871", "signed", "329", "Quiet", "since 3,871"]
+    );
+    assert_eq!(tail(&cx, 3), ["Doesn't propose", "—", "—", "—"]);
+    for gone in [
+        "Not reported",
+        "reported",
+        "Heard",
+        "Not answering",
+        "Withheld",
+        "Checking",
+    ] {
+        assert!(!cx.has_text(gone), "{gone}");
+    }
     assert!(cx.has_text(
-        "Height: for a validator, the last block its signature finalized; for a resident, \
-         the height it reports. Heard: when it last answered this node, which asks every second."
+        "Height: the last block a validator's signature finalized, as this node applied \
+         it. Quiet: none for 12 blocks."
     ));
-    // the next one, within ten seconds, can say so; one ask in flight at a
-    // time, again on the clock
+    // one ask in flight at a time, again on the clock
     ticks.send(());
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<ChainNetwork>().len(), 2);
-    expect(
-        &cx,
-        [
-            (0, &["In sync"]),
-            (1, &["In sync"]),
-            (2, &["50s ago", "Not answering"]),
-            (3, &["44 behind"]),
-        ],
-    );
-    // after a 30 s gap the resident's answer is old again, but the reply
-    // cannot say so yet: its row stays as the reply before had it
-    cx.host().handle::<ChainNetwork>(|()| Ok(seen(90_000)));
-    ticks.send(());
-    cx.run_until_parked();
-    expect(
-        &cx,
-        [
-            (0, &["In sync"]),
-            (1, &["In sync"]),
-            (2, &["Not answering"]),
-            (3, &["0s ago", "44 behind"]),
-        ],
-    );
-    cx.host().handle::<ChainNetwork>(|()| Ok(seen(91_000)));
-    ticks.send(());
-    cx.run_until_parked();
-    expect(
-        &cx,
-        [
-            (0, &["In sync"]),
-            (1, &["Not answering"]),
-            (2, &["Not answering"]),
-            (3, &["31s ago", "Not answering"]),
-        ],
-    );
     cx.assert_accessible();
 }
 
@@ -421,12 +366,12 @@ fn a_refused_network_falls_back_and_logs_once() {
     ticks.send(());
     ticks.send(());
     cx.run_until_parked();
-    assert!(cx.has_text("Not reported"));
+    assert!(cx.has_text("32 of 64") && !cx.has_text("signed"));
     let logged = cx
         .host()
         .logs()
         .iter()
-        .filter(|line| line.contains("the network's members"))
+        .filter(|line| line.contains("the validators' signatures"))
         .count();
     assert_eq!(logged, 1, "{:?}", cx.host().logs());
 }

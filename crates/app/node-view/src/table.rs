@@ -1,6 +1,6 @@
 //! The members table: one row per key, validators then residents, each
-//! with the blocks it led of the strip and its Height, Behind, Heard and
-//! Status cells (`row.rs`), then a line on where those come from.
+//! with the blocks it led of the strip and its Height, Behind and Status
+//! cells (`row.rs`), then a line on where those come from.
 use abi::hex;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
@@ -12,14 +12,13 @@ use crate::row::{self, QUIET_PER_VALIDATOR, Row, Status};
 use crate::{Nodes, ui};
 
 const KEY_W: Pixels = px(124.);
-const ADDRESS_W: Pixels = px(140.);
+const ADDRESS_W: Pixels = px(208.);
 const STRIP_W: Pixels = px(392.);
 const HEIGHT_W: Pixels = px(112.);
 const BEHIND_W: Pixels = px(60.);
-const HEARD_W: Pixels = px(92.);
-const STATUS_W: Pixels = px(112.);
+const STATUS_W: Pixels = px(136.);
 /// Every column and the row's padding: the table never squeezes a cell.
-const TABLE_W: Pixels = px(124. + 140. + 392. + 112. + 60. + 92. + 112. + 16.);
+const TABLE_W: Pixels = px(124. + 208. + 392. + 112. + 60. + 136. + 16.);
 
 pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div> {
     let head = view.status.ready().map_or(0, |status| status.height);
@@ -33,12 +32,10 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
             .map(move |(index, node)| {
                 let this = this == Some(node.key.as_slice());
                 let cells = match &view.network {
-                    Loadable::Ready(network) => {
-                        row::shown(node, this, network, view.settled, view.earlier.as_ref())
-                    }
-                    _ => row::unsynced(node, this, head, validators, &view.recent),
+                    Loadable::Ready(network) => row::synced(node, validators, network),
+                    _ => row::unsynced(node, head, validators, &view.recent),
                 };
-                line(index, node, cells, head, &view.recent, theme)
+                line(index, node, this, cells, head, &view.recent, theme)
             })
     };
     let residents = nodes.len() as u64 - validators;
@@ -69,17 +66,17 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
         )
 }
 
-/// Where the Height and Heard columns come from, or why they are empty.
+/// Where the Height column comes from, or what stands in for it.
 fn footnote(view: &Nodes, validators: u64) -> String {
+    let quiet = design::plural(validators * QUIET_PER_VALIDATOR, "block", "blocks");
     match view.network {
-        Loadable::Ready(_) => "Height: for a validator, the last block its signature finalized; \
-             for a resident, the height it reports. Heard: when it last answered this node, \
-             which asks every second."
-            .into(),
+        Loadable::Ready(_) => format!(
+            "Height: the last block a validator's signature finalized, as this node applied \
+             it. Quiet: none for {quiet}."
+        ),
         _ => format!(
-            "This node does not report its members' heights. A validator reads by the blocks \
-             it led, and Quiet after {} without one; a resident reports no height to this node.",
-            design::plural(validators * QUIET_PER_VALIDATOR, "block", "blocks")
+            "This node does not report its validators' signatures. A validator reads by the \
+             blocks it led, and Quiet after {quiet} without one."
         ),
     }
 }
@@ -110,7 +107,6 @@ fn columns(head: u64, theme: &Theme) -> impl IntoElement {
         .child(name(strip, STRIP_W, false))
         .child(name("Height".into(), HEIGHT_W, true))
         .child(name("Behind".into(), BEHIND_W, true))
-        .child(name("Heard".into(), HEARD_W, true))
         .child(name("Status".into(), STATUS_W, false).pl_4())
 }
 
@@ -134,6 +130,7 @@ fn cell(width: Pixels, right: bool) -> Div {
 fn line(
     index: usize,
     node: &Node,
+    this: bool,
     cells: Row,
     head: u64,
     recent: &Recent,
@@ -144,11 +141,10 @@ fn line(
         true => "—".to_owned(),
         false => node.address.clone(),
     };
-    let height = match cells.height {
-        Some((height, backed)) => cell(HEIGHT_W, true)
-            .child(design::mono(design::grouped(height)))
-            .children((!backed.is_empty()).then(|| muted(backed.into())))
-            .text_size(design::text::SECONDARY),
+    let height = match cells.signed {
+        Some(signed) => cell(HEIGHT_W, true)
+            .child(design::mono(design::grouped(signed)))
+            .child(muted("signed".into())),
         None => cell(HEIGHT_W, true).child(muted("—".into())),
     };
     let behind = match cells.behind {
@@ -167,12 +163,13 @@ fn line(
         .text_size(design::text::SECONDARY)
         .child(cell(KEY_W, false).child(design::mono(design::short_hex(&hex(&node.key)))))
         .child(
-            cell(ADDRESS_W, false).child(design::mono(address).text_color(theme.muted).truncate()),
+            cell(ADDRESS_W, false)
+                .child(design::mono(address).text_color(theme.muted).truncate())
+                .children(this.then(|| muted("this node".into()))),
         )
         .child(cell(STRIP_W, false).child(strip(node, head, recent, theme)))
         .child(height)
         .child(cell(BEHIND_W, true).child(design::mono(behind)))
-        .child(cell(HEARD_W, true).child(muted(cells.heard)))
         .child(
             cell(STATUS_W, false)
                 .pl_4()
@@ -223,21 +220,24 @@ fn status(index: usize, status: &Status, theme: &Theme) -> impl IntoElement {
     let parts: Vec<AnyElement> = match status {
         Status::InSync => vec![badge(theme.success, theme.success_soft)],
         Status::Behind(_) | Status::Ahead(_) => vec![badge(theme.warning, theme.warning_soft)],
-        Status::NotAnswering => vec![badge(theme.danger, theme.danger_soft)],
-        Status::Withheld | Status::NotReported | Status::Checking => {
-            vec![badge(theme.muted, theme.surface_raised)]
-        }
+        Status::Blank => vec![caption(status.word())],
         // no block of the strip names who led it (yet, or ever: a node
         // that state-synced past their certificates)
         Status::Led { of: 0, .. } => vec![caption("Not known".into())],
         Status::Led { .. } => vec![caption(status.word())],
-        Status::Quiet { since, of } => vec![
-            badge(theme.warning, theme.warning_soft),
-            caption(match since {
-                Some(since) => format!("since {}", design::grouped(*since)),
-                None => format!("not in the last {}", design::grouped(*of)),
-            }),
-        ],
+        Status::Quiet { since, of } => {
+            let mut parts = vec![badge(theme.warning, theme.warning_soft)];
+            match (since, of) {
+                (Some(since), _) => {
+                    parts.push(caption(format!("since {}", design::grouped(*since))))
+                }
+                (None, 0) => {}
+                (None, of) => {
+                    parts.push(caption(format!("not in the last {}", design::grouped(*of))))
+                }
+            }
+            parts
+        }
     };
     div().flex().items_center().gap_1().children(parts)
 }

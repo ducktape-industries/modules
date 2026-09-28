@@ -1,13 +1,13 @@
 //! Nodes: one sheet for the network this app talks to. The connected node's
 //! own numbers head it (height, last block, block time, the epoch), then
-//! every member once, validators then residents: its key and address, the
-//! blocks it led of the last 64, and how far it is from this node's tip as
-//! `chain.network` reports it (a validator's signed height, a resident's
-//! reported one, when it last answered, one status word).
+//! every member once, validators then residents: its key and address, and
+//! for a validator the blocks it led of the last 64 and how far its
+//! signature is from this node's tip as `chain.network` reports it (one
+//! status word: In sync, N behind, N ahead, Quiet). A resident's sync state
+//! is not reported: its row is its key and address.
 //!
-//! Where the node does not serve `chain.network` the sheet says what it can
-//! without it: a validator by the blocks it led (Quiet when it led none for
-//! a while), a resident "Not reported".
+//! Where the node does not serve `chain.network` a validator reads by the
+//! blocks it led, Quiet when it led none for a while.
 //!
 //! The members are valset's (`queries.rs`), re-read on its live heads; the
 //! status, the network and the strip's blocks (`recent.rs`) follow the
@@ -36,17 +36,10 @@ pub struct Nodes {
     /// the connected node's own status
     pub(crate) status: Loadable<NodeStatus>,
     pub(crate) nodes: Loadable<Vec<Node>>,
-    /// every member as the connected node sees it; `Failed` where it does
-    /// not serve `chain.network`
+    /// each member's signed height as the connected node sees it; `Failed`
+    /// where it does not serve `chain.network`
     pub(crate) network: Loadable<NetworkStatus>,
     pub(crate) recent: Recent,
-    /// the reply before the one on screen, kept while that one came first
-    /// or after a gap and so cannot yet call a member Not answering
-    /// (`row::shown`)
-    #[serde(skip)]
-    pub(crate) earlier: Option<NetworkStatus>,
-    #[serde(skip)]
-    pub(crate) settled: bool,
     /// clock ticks since the view opened, and the tick the node last
     /// answered its status on and the one its height last moved on
     #[serde(skip)]
@@ -162,8 +155,9 @@ impl Nodes {
         cx.notify();
     }
 
-    /// Every member as the node sees it. A refusal (a node that does not
-    /// serve it) is logged once and the sheet falls back until an answer.
+    /// Each member's signed height as the node sees it. A refusal (an app or
+    /// node that does not serve it) is logged once and the sheet falls back
+    /// until an answer.
     pub(crate) fn read_network(&mut self, cx: &mut Context<Self>) {
         if std::mem::replace(&mut self.asking.network, true) {
             return;
@@ -174,18 +168,11 @@ impl Nodes {
             let _ = this.update(cx, |view, cx| {
                 view.asking.network = false;
                 match answer {
-                    Ok(network) => {
-                        let earlier = view.network.ready().cloned();
-                        view.settled = earlier.as_ref().is_some_and(|earlier| {
-                            network.at.saturating_sub(earlier.at) <= row::SETTLE_MS
-                        });
-                        view.earlier = earlier.filter(|_| !view.settled);
-                        view.network = Loadable::Ready(network);
-                    }
+                    Ok(network) => view.network = Loadable::Ready(network),
                     Err(refusal) => {
                         if view.network.failed().is_none() {
                             cx.host()
-                                .log_refused("nodes", "the network's members", &refusal);
+                                .log_refused("nodes", "the validators' signatures", &refusal);
                         }
                         view.network = Loadable::Failed(refusal);
                     }
@@ -243,7 +230,7 @@ impl Nodes {
 export_view!(
     Nodes,
     "Nodes",
-    "The network this app talks to: its height and epoch, and every member with the blocks it led and how far it is from the tip.",
+    "The network this app talks to: its height and epoch, and every member, with how far each validator's signature is from the tip.",
     [Chain, Module, Host, Clock]
 );
 

@@ -1,10 +1,10 @@
 //! The row words, one state each: the fold of valset's answers, the strip's
-//! window, and every Height, Behind, Heard and Status a row can read.
-use ducktape_view_guest::methods::{Block, BlockPage, NetworkStatus, Peer, Report, Said};
+//! window, and every Height, Behind and Status a row can read.
+use ducktape_view_guest::methods::{Block, BlockPage, NetworkStatus, Peer};
 
 use crate::queries::{Node, fold};
 use crate::recent::{Recent, WINDOW};
-use crate::row::{Row, Status, shown, synced, unsynced};
+use crate::row::{Row, Status, synced, unsynced};
 
 fn member(key: u8, role: valset::Role) -> valset::Membership {
     valset::Membership {
@@ -156,10 +156,10 @@ fn strip(last: u64) -> Recent {
 #[test]
 fn a_validator_reads_quiet_past_four_blocks_a_validator() {
     let validator = node(7, true);
-    let row = unsynced(&validator, false, 100, 4, &strip(84));
+    let row = unsynced(&validator, 100, 4, &strip(84));
     assert_eq!(row.status, Status::Led { count: 1, of: 64 });
     assert_eq!(row.status.word(), "1 of 64");
-    let row = unsynced(&validator, false, 100, 4, &strip(83));
+    let row = unsynced(&validator, 100, 4, &strip(83));
     assert_eq!(
         row.status,
         Status::Quiet {
@@ -167,7 +167,7 @@ fn a_validator_reads_quiet_past_four_blocks_a_validator() {
             of: 64
         }
     );
-    let row = unsynced(&validator, false, 100, 4, &strip(0));
+    let row = unsynced(&validator, 100, 4, &strip(0));
     assert_eq!(
         row.status,
         Status::Quiet {
@@ -175,164 +175,72 @@ fn a_validator_reads_quiet_past_four_blocks_a_validator() {
             of: 64
         }
     );
-    assert_eq!(
-        (row.height, row.behind, row.heard.as_str()),
-        (None, None, "—")
-    );
+    assert_eq!((row.signed, row.behind), (None, None));
 }
 
+/// A resident's cells say nothing, with or without `chain.network`.
 #[test]
-fn without_the_network_a_resident_is_not_reported_and_this_node_knows_itself() {
-    let recent = Recent::default();
-    let resident = unsynced(&node(2, false), false, 100, 4, &recent);
-    assert_eq!(resident.status.word(), "Not reported");
-    let this = unsynced(&node(2, false), true, 100, 4, &recent);
-    assert_eq!(
-        this,
-        Row {
-            height: Some((100, "")),
-            behind: Some(0),
-            heard: "this node".into(),
-            status: Status::InSync,
-        }
-    );
+fn a_residents_row_is_blank() {
+    let resident = node(2, false);
+    let blank = Row {
+        signed: None,
+        behind: None,
+        status: Status::Blank,
+    };
+    assert_eq!(unsynced(&resident, 100, 4, &Recent::default()), blank);
+    let network = network(vec![peer(2, Some(100))]);
+    assert_eq!(synced(&resident, 4, &network), blank);
+    assert_eq!(blank.status.word(), "—");
 }
 
 fn network(members: Vec<Peer>) -> NetworkStatus {
     NetworkStatus {
         height: 4_295,
-        at: 1_000_000,
         members,
     }
 }
 
-fn peer(key: u8, signed: Option<u64>, said: Option<(u64, Report)>) -> Peer {
+fn peer(key: u8, signed: Option<u64>) -> Peer {
     Peer {
         key: vec![key],
         signed,
-        said: said.map(|(at, report)| Said { at, report }),
     }
 }
 
-fn height(height: u64) -> Report {
-    Report::Height {
-        height,
-        tip: [0; 32],
-    }
-}
-
+/// Four validators: In sync within 2 blocks, then N behind, then Quiet
+/// past 16; one this node has seen sign nothing is Quiet too.
 #[test]
-fn every_word_the_network_gives_a_row() {
-    let heard = 999_000;
+fn every_word_a_validators_signature_gives() {
     let cases = [
-        // a validator by its signature, within two blocks
+        (Some(4_295), Some(0), Status::InSync),
+        (Some(4_293), Some(2), Status::InSync),
+        (Some(4_292), Some(3), Status::Behind(3)),
+        (Some(4_279), Some(16), Status::Behind(16)),
         (
-            true,
-            peer(1, Some(4_293), Some((heard, height(4_295)))),
-            "4,293 signed",
-            "2",
-            "In sync",
+            Some(4_278),
+            Some(17),
+            Status::Quiet {
+                since: Some(4_278),
+                of: 0,
+            },
         ),
-        // a resident by its report
-        (
-            false,
-            peer(1, None, Some((heard, height(4_251)))),
-            "4,251 reported",
-            "44",
-            "44 behind",
-        ),
-        // a member past this node's tip: this node lags
-        (
-            false,
-            peer(1, None, Some((heard, height(4_300)))),
-            "4,300 reported",
-            "-5",
-            "5 ahead",
-        ),
-        // an answer older than three seconds
-        (
-            true,
-            peer(1, Some(3_871), Some((996_999, height(3_871)))),
-            "3,871 signed",
-            "424",
-            "Not answering",
-        ),
-        // never answered
-        (false, peer(1, None, None), "—", "—", "Not answering"),
-        // keeps its height to itself
-        (
-            false,
-            peer(1, None, Some((heard, Report::Withheld))),
-            "—",
-            "—",
-            "Withheld",
-        ),
-        // a validator whose signature this node has not seen reads its report
-        (
-            true,
-            peer(1, None, Some((heard, height(4_294)))),
-            "4,294 reported",
-            "1",
-            "In sync",
-        ),
+        (Some(4_298), Some(-3), Status::Ahead(3)),
+        (None, None, Status::Quiet { since: None, of: 0 }),
     ];
-    for (validator, peer, shown, behind, word) in cases {
-        let row = synced(&node(1, validator), false, &network(vec![peer.clone()]));
-        let height = row.height.map_or("—".to_owned(), |(h, by)| {
-            format!("{} {by}", ducktape_view_guest::design::grouped(h))
-        });
-        let behind_shown = row.behind.map_or("—".to_owned(), |b| b.to_string());
+    for (signed, behind, status) in cases {
+        let row = synced(&node(1, true), 4, &network(vec![peer(1, signed)]));
         assert_eq!(
-            (
-                height.as_str(),
-                behind_shown.as_str(),
-                row.status.word().as_str()
-            ),
-            (shown, behind, word),
-            "{peer:?}"
+            row,
+            Row {
+                signed,
+                behind,
+                status
+            }
         );
     }
-}
-
-#[test]
-fn heard_is_the_nodes_clock_minus_the_answer() {
-    let peer = peer(1, None, Some((940_000, height(4_295))));
-    let row = synced(&node(1, false), false, &network(vec![peer]));
-    assert_eq!(row.heard, "1m ago");
-    // this node never asks itself: its own tip, and its word
-    let row = synced(&node(1, false), true, &network(vec![]));
-    assert_eq!(
-        (row.height, row.heard.as_str(), row.status),
-        (Some((4_295, "")), "this node", Status::InSync)
-    );
-}
-
-/// Until two replies come within ten seconds of each other, a member the
-/// reply calls Not answering reads as the reply before had it, or Checking.
-#[test]
-fn an_early_reply_does_not_call_anyone_not_answering() {
-    let stale = network(vec![peer(1, Some(4_290), Some((900_000, height(4_290))))]);
-    let before = NetworkStatus {
-        at: 800_000,
-        members: vec![peer(1, Some(4_000), Some((799_500, height(4_000))))],
-        ..stale.clone()
-    };
-    let validator = node(1, true);
-    assert_eq!(
-        synced(&validator, false, &stale).status,
-        Status::NotAnswering
-    );
-    assert_eq!(
-        shown(&validator, false, &stale, false, None).status.word(),
-        "Checking"
-    );
-    let row = shown(&validator, false, &stale, false, Some(&before));
-    assert_eq!(
-        (row.height, row.status),
-        (Some((4_000, "signed")), Status::Behind(295))
-    );
-    assert_eq!(
-        shown(&validator, false, &stale, true, Some(&before)).status,
-        Status::NotAnswering
-    );
+    // a validator the reply does not list reads as one that signed nothing
+    let row = synced(&node(9, true), 4, &network(vec![]));
+    assert_eq!(row.status.word(), "Quiet");
+    assert_eq!(Status::Behind(1_200).word(), "1,200 behind");
+    assert_eq!(Status::Ahead(3).word(), "3 ahead");
 }
