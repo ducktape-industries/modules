@@ -26,7 +26,7 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
   `design`'s `segmented`, `icon_button` and `divider` take the words
   assistive technology reads, so an unnamed one does not compile.
 - `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`
-  (`src/interactivity.rs`, `src/interactivity/stateful.rs`): listeners and
+  (`src/interactivity.rs`): listeners and
   focus become wire routes.
 
 ## The methods

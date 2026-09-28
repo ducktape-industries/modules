@@ -1,7 +1,13 @@
 //! GPUI-shaped interaction recipes lowered into driver-owned frame routes.
 
-use crate::{App, Div, Lowering, Window, slots, wire};
-use gpui::{ClickEvent, ElementId, FileDropEvent, MouseButton, SharedString, StyleRefinement};
+use crate::{
+    AnyElement, AnyView, App, Div, Element, IntoElement, Lowering, ParentElement, Window, slots,
+    wire,
+};
+use gpui::{
+    ClickEvent, ElementId, FileDropEvent, MouseButton, SharedString, StyleRefinement, Styled,
+    accesskit,
+};
 use std::time::Duration;
 
 mod bindings;
@@ -372,8 +378,298 @@ impl InteractiveElement for Div {
 
 mod lowering;
 
-mod stateful;
-pub use stateful::{Stateful, StatefulInteractiveElement};
+/// The stateful wrapper returned by [`InteractiveElement::id`].
+pub struct Stateful<E> {
+    pub(crate) element: E,
+}
+
+impl<E: Styled> Styled for Stateful<E> {
+    fn style(&mut self) -> &mut StyleRefinement {
+        self.element.style()
+    }
+}
+
+impl<E: Element> Element for Stateful<E> {
+    fn id(&self) -> Option<ElementId> {
+        self.element.id()
+    }
+
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        Element::lower(Box::new(self.element), lowering)
+    }
+}
+
+impl<E: Element> IntoElement for Stateful<E> {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl<E: ParentElement> ParentElement for Stateful<E> {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.element.extend(elements);
+    }
+}
+
+impl<E: InteractiveElement> InteractiveElement for Stateful<E> {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        self.element.interactivity()
+    }
+}
+
+/// Stateful interaction methods with GPUI's public names and signatures where
+/// the value can be represented by the guest wire contract.
+pub trait StatefulInteractiveElement: InteractiveElement {
+    fn role(mut self, role: gpui::Role) -> Self {
+        self.interactivity().role = Some(role);
+        self
+    }
+    fn focusable(mut self) -> Self {
+        self.interactivity().focusable = true;
+        self
+    }
+    fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.interactivity().aria.author_id = Some(id.into());
+        self
+    }
+    fn aria_label(mut self, value: impl Into<SharedString>) -> Self {
+        self.interactivity().aria.label = Some(value.into());
+        self
+    }
+    fn aria_description(mut self, value: impl Into<SharedString>) -> Self {
+        self.interactivity().aria.description = Some(value.into());
+        self
+    }
+    fn aria_keyshortcuts(mut self, value: impl Into<SharedString>) -> Self {
+        self.interactivity().aria.keyshortcuts = Some(value.into());
+        self
+    }
+    fn aria_active_descendant(mut self) -> Self {
+        self.interactivity().aria.active_descendant = true;
+        self
+    }
+    fn aria_value(mut self, value: impl Into<SharedString>) -> Self {
+        self.interactivity().aria.value = Some(value.into());
+        self
+    }
+    fn aria_placeholder(mut self, value: impl Into<SharedString>) -> Self {
+        self.interactivity().aria.placeholder = Some(value.into());
+        self
+    }
+    fn aria_selected(mut self, value: bool) -> Self {
+        self.interactivity().aria.selected = Some(value);
+        self
+    }
+    fn aria_expanded(mut self, value: bool) -> Self {
+        self.interactivity().aria.expanded = Some(value);
+        self
+    }
+    fn aria_disabled(mut self, value: bool) -> Self {
+        self.interactivity().aria.disabled = Some(value);
+        self
+    }
+    fn aria_numeric_value(mut self, value: f64) -> Self {
+        self.interactivity().aria.numeric_value = Some(value);
+        self
+    }
+    fn aria_numeric_value_step(mut self, value: f64) -> Self {
+        self.interactivity().aria.numeric_value_step = Some(value);
+        self
+    }
+    fn aria_min_numeric_value(mut self, value: f64) -> Self {
+        self.interactivity().aria.min_numeric_value = Some(value);
+        self
+    }
+    fn aria_max_numeric_value(mut self, value: f64) -> Self {
+        self.interactivity().aria.max_numeric_value = Some(value);
+        self
+    }
+    fn aria_level(mut self, value: usize) -> Self {
+        self.interactivity().aria.level = Some(value);
+        self
+    }
+    fn aria_position_in_set(mut self, value: usize) -> Self {
+        self.interactivity().aria.position_in_set = Some(value);
+        self
+    }
+    fn aria_size_of_set(mut self, value: usize) -> Self {
+        self.interactivity().aria.size_of_set = Some(value);
+        self
+    }
+    fn aria_row_index(mut self, value: usize) -> Self {
+        self.interactivity().aria.row_index = Some(value);
+        self
+    }
+    fn aria_column_index(mut self, value: usize) -> Self {
+        self.interactivity().aria.column_index = Some(value);
+        self
+    }
+    fn aria_row_count(mut self, value: usize) -> Self {
+        self.interactivity().aria.row_count = Some(value);
+        self
+    }
+    fn aria_column_count(mut self, value: usize) -> Self {
+        self.interactivity().aria.column_count = Some(value);
+        self
+    }
+    fn aria_toggled(mut self, value: gpui::Toggled) -> Self {
+        self.interactivity().aria.toggled = Some(value);
+        self
+    }
+    fn aria_orientation(mut self, value: gpui::Orientation) -> Self {
+        self.interactivity().aria.orientation = Some(value);
+        self
+    }
+    fn aria_live(mut self, value: accesskit::Live) -> Self {
+        self.interactivity().aria.live = Some(value);
+        self
+    }
+    fn aria_busy(mut self, value: bool) -> Self {
+        self.interactivity().aria.busy = value;
+        self
+    }
+    fn aria_required(mut self, value: bool) -> Self {
+        self.interactivity().aria.required = value;
+        self
+    }
+    fn aria_invalid(mut self, value: accesskit::Invalid) -> Self {
+        self.interactivity().aria.invalid = Some(value);
+        self
+    }
+    fn aria_read_only(mut self, value: bool) -> Self {
+        self.interactivity().aria.read_only = value;
+        self
+    }
+    fn aria_has_popup(mut self, value: accesskit::HasPopup) -> Self {
+        self.interactivity().aria.has_popup = Some(value);
+        self
+    }
+    fn aria_current(mut self, value: accesskit::AriaCurrent) -> Self {
+        self.interactivity().aria.current = Some(value);
+        self
+    }
+    /// `id` is a sibling's: an element in the same id scope as this one.
+    fn aria_labelled_by(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().labelled_by.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_described_by(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().described_by.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_controls(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().controls.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_error_message(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().error_message = Some(id.into());
+        self
+    }
+    /// A custom action assistive technology offers by `description`. Its
+    /// request is [`accesskit::Action::CustomAction`] with
+    /// `ActionData::CustomAction(id)`: one [`Self::on_a11y_action`]
+    /// handler answers every custom action a node has.
+    fn custom_action(mut self, id: i32, description: impl Into<String>) -> Self {
+        self.interactivity()
+            .aria
+            .custom_actions
+            .push((id, description.into()));
+        self
+    }
+    /// Answers `action` when assistive technology requests it; the host
+    /// keeps click and focus, so those are never asked here.
+    fn on_a11y_action(
+        mut self,
+        action: accesskit::Action,
+        listener: impl Fn(&Option<accesskit::ActionData>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity()
+            .a11y_actions
+            .push((action, Box::new(listener)));
+        self
+    }
+    fn overflow_scroll(mut self) -> Self {
+        self.interactivity().base_style.overflow.x = Some(gpui::Overflow::Scroll);
+        self.interactivity().base_style.overflow.y = Some(gpui::Overflow::Scroll);
+        self
+    }
+    fn overflow_x_scroll(mut self) -> Self {
+        self.interactivity().base_style.overflow.x = Some(gpui::Overflow::Scroll);
+        self
+    }
+    fn overflow_y_scroll(mut self) -> Self {
+        self.interactivity().base_style.overflow.y = Some(gpui::Overflow::Scroll);
+        self
+    }
+    fn restrict_scroll_to_axis(mut self) -> Self {
+        self.interactivity().base_style.restrict_scroll_to_axis = Some(true);
+        self
+    }
+    fn active(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
+        self.interactivity().active = Some(f(StyleRefinement::default()));
+        self
+    }
+    fn group_active(
+        mut self,
+        group: impl Into<SharedString>,
+        f: impl FnOnce(StyleRefinement) -> StyleRefinement,
+    ) -> Self {
+        self.interactivity().group_active = Some((group.into(), f(StyleRefinement::default())));
+        self
+    }
+    fn on_click(mut self, listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.interactivity().on_click = Some(Box::new(listener));
+        self
+    }
+    fn on_aux_click(
+        mut self,
+        listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity().on_aux_click = Some(Box::new(listener));
+        self
+    }
+    fn on_hover(mut self, listener: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
+        self.interactivity().on_hover = Some(Box::new(listener));
+        self
+    }
+    fn hover_listener_mode(mut self, mode: gpui::HoverListenerMode) -> Self {
+        self.interactivity().hover_listener_mode = mode;
+        self
+    }
+    fn tooltip(
+        mut self,
+        build_tooltip: impl Fn(&mut Window, &mut App) -> AnyView + 'static,
+    ) -> Self {
+        self.interactivity().tooltip = Some(TooltipBuilder {
+            build: Box::new(build_tooltip),
+            hoverable: false,
+        });
+        self
+    }
+    fn hoverable_tooltip(
+        mut self,
+        build_tooltip: impl Fn(&mut Window, &mut App) -> AnyView + 'static,
+    ) -> Self {
+        self.interactivity().tooltip = Some(TooltipBuilder {
+            build: Box::new(build_tooltip),
+            hoverable: true,
+        });
+        self
+    }
+    fn tooltip_show_delay(mut self, delay: Duration) -> Self {
+        self.interactivity().tooltip_show_delay = Some(delay);
+        self
+    }
+}
+
+impl<T: InteractiveElement> StatefulInteractiveElement for Stateful<T> {}
+
+impl<E> gpui::prelude::FluentBuilder for Stateful<E> {}
 
 #[cfg(test)]
 mod tests;
