@@ -1,7 +1,7 @@
 //! Helpers for a guest's own tests: build events the host would send, and
 //! read the tree a frame carries.
 
-use crate::wire::{Event, FaultKind, Frame, Node};
+use crate::wire::{Event, Frame, Node};
 
 /// Every text the tree shows, depth first: text nodes and the value or
 /// placeholder of an input or editor.
@@ -43,31 +43,10 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
     }
 }
 
-/// The fault kinds the view tests hold today. The other six (`NoRole`,
-/// `OrphanAria`, `NestedInteractive`, `Unreachable`, `Orphan`, `BareHandle`)
-/// widened past what the views pass; each joins as the views are fixed,
-/// and this list goes when it names every kind.
-const GATED: [FaultKind; 10] = [
-    FaultKind::Unnamed,
-    FaultKind::UnlabeledInput,
-    FaultKind::GlyphName,
-    FaultKind::MissingState,
-    FaultKind::DisabledButLive,
-    FaultKind::RangeUnnamed,
-    FaultKind::ActionUnhandled,
-    FaultKind::DuplicateKey,
-    FaultKind::StatusNotLive,
-    FaultKind::ErrorNoText,
-];
-
 /// Panics listing each node assistive technology cannot name, place or
 /// reach, by its key path and fault.
 pub(crate) fn assert_accessible(tree: &Node) {
-    let faults: Vec<_> = crate::wire::audit(tree)
-        .faults
-        .into_iter()
-        .filter(|fault| GATED.contains(&fault.kind))
-        .collect();
+    let faults = crate::wire::audit(tree).faults;
     assert!(
         faults.is_empty(),
         "{} accessibility fault(s):\n{}",

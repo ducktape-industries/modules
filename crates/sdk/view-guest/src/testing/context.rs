@@ -91,6 +91,8 @@ impl TestAppContext {
     pub fn run_until_parked(&mut self) {
         self.dispatch(Vec::new());
     }
+    /// Ticks until the view parks, holding every frame it sends to
+    /// `view_wire::audit`.
     fn dispatch(&mut self, mut events: Vec<Event>) {
         for _ in 0..10_000 {
             events.extend(self.host.take_events());
@@ -106,6 +108,9 @@ impl TestAppContext {
                     )
                     .expect("valid view patches");
                 }
+            }
+            if let Some(root) = &frame.root {
+                assert_accessible(root);
             }
             let busy = frame.busy;
             self.frame = frame;
@@ -180,8 +185,8 @@ mod tests {
     use super::*;
     use crate::methods::Capability;
     use crate::{
-        Context, InteractiveElement, ParentElement, Render, Task, Window, methods::Changes,
-        testing::Probe,
+        Context, InteractiveElement, ParentElement, Render, StatefulInteractiveElement, Task,
+        Window, methods::Changes, testing::Probe,
     };
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
@@ -262,5 +267,32 @@ mod tests {
     #[should_panic(expected = "undeclared_capability")]
     fn a_method_the_manifest_leaves_out_fails_the_test() {
         TestAppContext::new().open::<Undeclared>();
+    }
+
+    /// A button with nothing to say for itself.
+    #[derive(Default, Serialize, Deserialize)]
+    struct Nameless;
+    impl View for Nameless {
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self
+        }
+    }
+    impl Capabilities for Nameless {
+        const CAPABILITIES: &'static [Capability] = &[];
+    }
+    impl Render for Nameless {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+            crate::div()
+                .id("nameless")
+                .role(crate::Role::Button)
+                .focusable()
+                .on_click(|_, _, _| {})
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Unnamed at nameless")]
+    fn every_frame_a_view_sends_is_audited() {
+        TestAppContext::new().open::<Nameless>();
     }
 }

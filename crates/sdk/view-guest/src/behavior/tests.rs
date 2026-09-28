@@ -61,6 +61,10 @@ impl Render for BehaviorView {
                     ElementId::Name("behavior-resize".into()),
                     div().child("base"),
                 )
+                .role(Role::Splitter)
+                .aria_label("Resize the base")
+                .focusable()
+                .on_key_down(|_, _, _| {})
                 .on_drag(dragged),
             )
             .on_show(measured)

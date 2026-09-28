@@ -18,6 +18,8 @@ impl Render for Counter {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("button")
+            .role(Role::Button)
+            .focusable()
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.clicks += 1;
                 cx.notify();

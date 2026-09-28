@@ -87,6 +87,8 @@ another.
 `testing::TestAppContext` (`src/testing/context.rs`) opens a view over a
 `FakeHost` (`src/testing/fake_host.rs`): `handle::<Method>`, `refuse`,
 `stream`, `requests`; then `simulate_click`, `texts`, `assert_accessible`.
+Every frame the view sends is held to `view_wire::audit`: a fault panics with
+its kind and key path, so each screen a test reaches is gated.
 It holds the view to its `export_view!` capabilities as the app does: a method
 whose capability the manifest leaves out panics with `undeclared_capability`.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,
