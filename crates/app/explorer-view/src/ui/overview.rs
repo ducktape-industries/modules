@@ -3,31 +3,41 @@ use super::*;
 
 /// A stat keeps this much of the row; the four fold two by two below it.
 const STAT_MIN_W: Pixels = px(200.);
-/// The latest blocks keep this much.
+/// The latest blocks keep this much beside the transactions.
 const PANEL_MIN_W: Pixels = px(320.);
 /// The latest transactions keep the width they have alone at the view's
 /// narrowest, its `MIN_WINDOW_WIDTH` less the scroll bar: any narrower, a
-/// row's fixed columns (hash, signer, age) leave the op's title no room. So
-/// they sit beside the blocks from 944 px of page, and wrap under them below.
+/// row's fixed columns (hash, signer, age) leave the op's title no room.
 const TXS_MIN_W: Pixels = px(624.);
 
+/// Whether the latest transactions fit beside the latest blocks, in the
+/// view's width less the page's scroll bar: from a 960 px view. Before the
+/// first measure, side by side.
+fn side_by_side(view: &Explorer) -> bool {
+    let gutter = f32::from(design::size::SCROLLBAR);
+    view.width
+        .is_none_or(|width| width - gutter >= f32::from(PANEL_MIN_W + TXS_MIN_W))
+}
+
 pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
+    let side = side_by_side(view);
+    // side by side, the panels fill the page's height and the rule between
+    // them runs to its foot; narrower, each takes the page's width and its
+    // own height, the transactions right under the blocks
+    let latest = div()
+        .id("explorer-latest")
+        .flex()
+        .when(side, |row| row.flex_wrap().flex_1())
+        .when(!side, |column| column.flex_col())
+        .child(latest_blocks(view, side, cx, theme))
+        .child(latest_txs(view, side, cx, theme));
     div()
         .id("explorer-overview")
         .flex()
         .flex_col()
         .flex_1()
         .child(stats(view, theme))
-        .child(
-            // narrower than the two minimums together, the transactions
-            // wrap under the blocks
-            div()
-                .flex()
-                .flex_wrap()
-                .flex_1()
-                .child(latest_blocks(view, cx, theme))
-                .child(latest_txs(view, cx, theme)),
-        )
+        .child(latest)
         .into_any_element()
 }
 
@@ -137,7 +147,7 @@ fn stat(
         )
 }
 
-fn latest_blocks(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
+fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoElement {
     let all = link(
         "explorer-all-blocks".into(),
         "All blocks →".into(),
@@ -150,11 +160,14 @@ fn latest_blocks(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
     let blocks = block_lines(&view.chain.blocks, LATEST, view.chain.now(), cx, theme);
     div()
         .id("explorer-latest-blocks")
-        .flex_1()
-        .min_w(PANEL_MIN_W)
-        .max_w(LATEST_BLOCKS_W)
-        .border_r_1()
-        .border_color(theme.border)
+        .when(side, |panel| {
+            panel
+                .flex_1()
+                .min_w(PANEL_MIN_W)
+                .max_w(LATEST_BLOCKS_W)
+                .border_r_1()
+                .border_color(theme.border)
+        })
         .child(heading(
             "explorer-latest-blocks-heading",
             "Latest activity",
@@ -164,7 +177,7 @@ fn latest_blocks(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         .children(blocks)
 }
 
-fn latest_txs(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
+fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoElement {
     let all = link(
         "explorer-all-txs".into(),
         "All transactions →".into(),
@@ -193,8 +206,7 @@ fn latest_txs(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
     });
     div()
         .id("explorer-latest-txs")
-        .flex_1()
-        .min_w(TXS_MIN_W)
+        .when(side, |panel| panel.flex_1().min_w(TXS_MIN_W))
         .child(heading(
             "explorer-latest-txs-heading",
             "Latest transactions",

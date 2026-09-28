@@ -140,6 +140,9 @@ pub struct Explorer {
     /// What the view follows (`watch.rs`); dropping them unsubscribes.
     #[serde(skip)]
     pub(crate) followers: Vec<Task<()>>,
+    /// the view's measured width; `None` until the first measure
+    #[serde(skip)]
+    pub(crate) width: Option<f32>,
 }
 
 impl Explorer {
