@@ -196,24 +196,50 @@ fn the_head_names_the_network_and_this_node() {
     cx.assert_accessible();
 }
 
+/// Every status badge's text colour, in row order.
+fn badge_inks(node: &ducktape_view_guest::wire::Node, inks: &mut Vec<ducktape_view_guest::Hsla>) {
+    use ducktape_view_guest::wire::{ElementIdWire, Node};
+    if let Node::Container(container) = node {
+        if let Some(ElementIdWire::NamedInteger(name, _)) = &container.id
+            && name == "nodes-status-word"
+        {
+            inks.extend(container.style.text.color);
+        }
+        for child in &container.children {
+            badge_inks(child, inks);
+        }
+    }
+}
+
 /// A node that stops answering keeps its last numbers and says so after
-/// three silent seconds; the last block ages meanwhile.
+/// three silent seconds; the last block ages meanwhile. Its rows are what
+/// it said then: every badge goes grey under the last answer's age.
 #[test]
 fn a_silent_node_reads_not_answering() {
     let (mut cx, ticks) = ready();
+    cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
     cx.host().never::<ChainStatus>();
     for _ in 0..3 {
         ticks.send(());
     }
     cx.run_until_parked();
     assert!(
-        cx.has_text("In sync") && cx.has_text("3s ago"),
+        cx.has_text("In sync") && cx.has_text("3s ago") && !cx.has_text("Last answer 3s ago"),
         "{:?}",
         cx.texts()
     );
+    let theme = ducktape_view_guest::Theme::light();
+    let inks = |cx: &TestAppContext| {
+        let mut inks = Vec::new();
+        badge_inks(cx.find("nodes-table").expect("the table"), &mut inks);
+        inks
+    };
+    assert_eq!(inks(&cx), [theme.success, theme.success, theme.warning]);
     ticks.send(());
     cx.run_until_parked();
     assert!(cx.has_text("Not answering") && cx.has_text("4,200"));
+    assert!(cx.has_text("Last answer 4s ago"), "{:?}", cx.texts());
+    assert_eq!(inks(&cx), [theme.muted; 3]);
 }
 
 /// One table, each key once: validators in seat order (a seated key valset
@@ -352,13 +378,47 @@ fn the_network_fills_height_behind_and_status() {
         assert!(!cx.has_text(gone), "{gone}");
     }
     assert!(cx.has_text(
-        "Height: the last block a validator's signature finalized, as this node applied \
-         it. Quiet: none for 12 blocks."
+        "Height: the newest block the validator voted to finalize. Quiet: none for 12 blocks."
     ));
+    assert!(!cx.has_text("This node doesn't vote, so it can't see the validators' votes."));
     // one ask in flight at a time, again on the clock
     ticks.send(());
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<ChainNetwork>().len(), 2);
+    cx.assert_accessible();
+}
+
+/// A node that does not validate hears no votes: it says so once, and no
+/// validator reads Quiet for the votes it cannot hear.
+#[test]
+fn a_node_that_does_not_vote_says_so() {
+    let mut cx = TestAppContext::new();
+    node(&cx);
+    let resident = || NodeStatus {
+        identity: RESIDENT.to_vec(),
+        ..status()
+    };
+    cx.host().handle::<ChainStatus>(move |()| Ok(resident()));
+    cx.host().stream::<Changes<Valset>>();
+    respond(&mut cx);
+    let unheard = |key: [u8; 2]| Peer {
+        key: key.to_vec(),
+        signed: None,
+    };
+    let deaf = NetworkStatus {
+        height: 4200,
+        members: [RESIDENT, UNLISTED, OTHER, THIS].map(unheard).to_vec(),
+    };
+    cx.host().handle::<ChainNetwork>(move |()| Ok(deaf.clone()));
+    cx.open::<Nodes>();
+    cx.run_until_parked();
+    assert!(cx.has_text("This node doesn't vote, so it can't see the validators' votes."));
+    for index in 0..3 {
+        let texts = texts_of(&cx, &format!("nodes-row-{index}"));
+        assert_eq!(texts[texts.len() - 3..], ["—", "—", "—"], "row {index}");
+    }
+    assert!(texts_of(&cx, "nodes-row-3").contains(&"this node".to_owned()));
+    assert!(!cx.has_text("Quiet") && !cx.has_text("signed") && cx.find("nodes-footnote").is_none());
     cx.assert_accessible();
 }
 

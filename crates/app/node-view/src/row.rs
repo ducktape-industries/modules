@@ -7,19 +7,18 @@ use ducktape_view_guest::methods::NetworkStatus;
 use crate::queries::Node;
 use crate::recent::Recent;
 
-/// A validator whose signed height is this many blocks from the tip,
-/// either way, still reads In sync: a live one may miss a quorum.
+/// A validator whose vote is this many blocks under the tip still reads
+/// In sync: a live one's newest vote may still be in flight.
 pub const IN_SYNC: u64 = 2;
-/// A validator that signed (or, without `chain.network`, led) no block for
-/// this many blocks per validator reads Quiet.
+/// A validator that voted for (or, without `chain.network`, led) no block
+/// for this many blocks per validator reads Quiet.
 pub const QUIET_PER_VALIDATOR: u64 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Status {
     InSync,
     Behind(u64),
-    Ahead(u64),
-    /// a validator that stopped: the last block it signed (or led), where
+    /// a validator that stopped: the last block it voted for (or led), where
     /// known, and without `chain.network` the blocks the strip looked at
     Quiet {
         since: Option<u64>,
@@ -41,7 +40,6 @@ impl Status {
         match self {
             Status::InSync => "In sync".into(),
             Status::Behind(blocks) => format!("{} behind", design::grouped(*blocks)),
-            Status::Ahead(blocks) => format!("{} ahead", design::grouped(*blocks)),
             Status::Quiet { .. } => "Quiet".into(),
             Status::Led { count, of } => {
                 format!("{} of {}", design::grouped(*count), design::grouped(*of))
@@ -53,21 +51,24 @@ impl Status {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
-    /// the newest block the validator's signature finalized
+    /// the newest block this node applied that the validator voted to
+    /// finalize, as this node heard it
     pub signed: Option<u64>,
-    /// the connected node's tip minus that height
-    pub behind: Option<i64>,
+    /// the connected node's tip minus that height; never negative, as the
+    /// node counts no vote for a block it has not applied
+    pub behind: Option<u64>,
     pub status: Status,
 }
 
-const BLANK: Row = Row {
+/// A resident's cells, and a validator's where this node hears no votes.
+pub const BLANK: Row = Row {
     signed: None,
     behind: None,
     status: Status::Blank,
 };
 
-/// A row as `chain.network` has it: a validator by the newest block its
-/// signature finalized, from the tip the node answered at.
+/// A row as `chain.network` has it: a validator by the newest block it
+/// voted to finalize, from the tip the node answered at.
 pub fn synced(node: &Node, validators: u64, network: &NetworkStatus) -> Row {
     if !node.validator {
         return BLANK;
@@ -77,16 +78,14 @@ pub fn synced(node: &Node, validators: u64, network: &NetworkStatus) -> Row {
         .iter()
         .find(|peer| peer.key == node.key)
         .and_then(|peer| peer.signed);
-    let behind = signed.map(|signed| network.height as i64 - signed as i64);
-    let quiet = (validators * QUIET_PER_VALIDATOR) as i64;
+    let behind = signed.map(|signed| network.height.saturating_sub(signed));
     let status = match behind {
         None => Status::Quiet { since: None, of: 0 },
-        Some(behind) if behind > quiet => Status::Quiet {
+        Some(behind) if behind > validators * QUIET_PER_VALIDATOR => Status::Quiet {
             since: signed,
             of: 0,
         },
-        Some(behind) if behind > IN_SYNC as i64 => Status::Behind(behind as u64),
-        Some(behind) if behind < -(IN_SYNC as i64) => Status::Ahead(behind.unsigned_abs()),
+        Some(behind) if behind > IN_SYNC => Status::Behind(behind),
         Some(_) => Status::InSync,
     };
     Row {

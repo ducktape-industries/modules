@@ -208,7 +208,8 @@ fn peer(key: u8, signed: Option<u64>) -> Peer {
 }
 
 /// Four validators: In sync within 2 blocks, then N behind, then Quiet
-/// past 16; one this node has seen sign nothing is Quiet too.
+/// past 16; one this node has heard no vote from is Quiet too. No vote
+/// counts before its block is applied, so none reads ahead.
 #[test]
 fn every_word_a_validators_signature_gives() {
     let cases = [
@@ -224,7 +225,6 @@ fn every_word_a_validators_signature_gives() {
                 of: 0,
             },
         ),
-        (Some(4_298), Some(-3), Status::Ahead(3)),
         (None, None, Status::Quiet { since: None, of: 0 }),
     ];
     for (signed, behind, status) in cases {
@@ -242,5 +242,4 @@ fn every_word_a_validators_signature_gives() {
     let row = synced(&node(9, true), 4, &network(vec![]));
     assert_eq!(row.status.word(), "Quiet");
     assert_eq!(Status::Behind(1_200).word(), "1,200 behind");
-    assert_eq!(Status::Ahead(3).word(), "3 ahead");
 }

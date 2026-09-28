@@ -1,10 +1,11 @@
 //! Nodes: one sheet for the network this app talks to. The connected node's
 //! own numbers head it (height, last block, block time, the epoch), then
 //! every member once, validators then residents: its key and address, and
-//! for a validator the blocks it led of the last 64 and how far its
-//! signature is from this node's tip as `chain.network` reports it (one
-//! status word: In sync, N behind, N ahead, Quiet). A resident's sync state
-//! is not reported: its row is its key and address.
+//! for a validator the blocks it led of the last 64 and how far its newest
+//! finalize vote is from this node's tip as `chain.network` reports it (one
+//! status word: In sync, N behind, Quiet). A resident's sync state is not
+//! reported: its row is its key and address. A node that is not a validator
+//! hears no votes, so then no validator's is reported either.
 //!
 //! Where the node does not serve `chain.network` a validator reads by the
 //! blocks it led, Quiet when it led none for a while.
@@ -36,8 +37,8 @@ pub struct Nodes {
     /// the connected node's own status
     pub(crate) status: Loadable<NodeStatus>,
     pub(crate) nodes: Loadable<Vec<Node>>,
-    /// each member's signed height as the connected node sees it; `Failed`
-    /// where it does not serve `chain.network`
+    /// each validator's newest finalize vote as the connected node heard
+    /// it; `Failed` where it does not serve `chain.network`
     pub(crate) network: Loadable<NetworkStatus>,
     pub(crate) recent: Recent,
     /// clock ticks since the view opened, and the tick the node last
@@ -158,9 +159,9 @@ impl Nodes {
         cx.notify();
     }
 
-    /// Each member's signed height as the node sees it. A refusal (an app or
-    /// node that does not serve it) is logged once and the sheet falls back
-    /// until an answer.
+    /// Each validator's newest finalize vote as the node heard it. A
+    /// refusal (an app or node that does not serve it) is logged once and
+    /// the sheet falls back until an answer.
     pub(crate) fn read_network(&mut self, cx: &mut Context<Self>) {
         if std::mem::replace(&mut self.asking.network, true) {
             return;

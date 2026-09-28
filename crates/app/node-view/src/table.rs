@@ -35,6 +35,13 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
     let head = view.status.ready().map_or(0, |status| status.height);
     let this = view.status.ready().map(|status| status.identity.as_slice());
     let validators = nodes.iter().filter(|node| node.validator).count() as u64;
+    // only a validator runs the engine that hears the votes: a node that
+    // is not one answers `chain.network` with none
+    let deaf = view.network.ready().is_some()
+        && !nodes
+            .iter()
+            .any(|node| node.validator && this == Some(node.key.as_slice()));
+    let answering = view.answering();
     let strip = strip_fits(view);
     let rows = |validator: bool| {
         nodes
@@ -44,20 +51,35 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
             .map(move |(index, node)| {
                 let this = this == Some(node.key.as_slice());
                 let cells = match &view.network {
+                    Loadable::Ready(_) if deaf => row::BLANK,
                     Loadable::Ready(network) => row::synced(node, validators, network),
                     _ => row::unsynced(node, head, validators, &view.recent),
                 };
                 let marks = strip.then(|| self::strip(node, head, &view.recent, theme));
-                line(index, node, this, cells, marks, theme)
+                line(index, node, this, cells, marks, answering, theme)
             })
     };
     let residents = nodes.len() as u64 - validators;
+    let no_votes = deaf.then(|| {
+        note(
+            "nodes-no-votes",
+            "This node doesn't vote, so it can't see the validators' votes.".into(),
+            theme,
+        )
+    });
+    // the rows are what the node last said: how long ago, once it is silent
+    let silent = (!answering).then(|| {
+        let age = design::ago((view.ticks - view.answered) * 1000, 0);
+        note("nodes-last-answer", format!("Last answer {age} ago"), theme)
+    });
     div()
         .id("nodes-table")
         .w_full()
         .min_w(px(WORDS_W + if strip { f32::from(STRIP_W) } else { 0. }))
         .flex()
         .flex_col()
+        .children(no_votes)
+        .children(silent)
         .child(columns(head, strip, theme))
         .child(ui::section(
             "nodes-validators",
@@ -71,12 +93,18 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
             theme,
         ))
         .children(rows(false))
-        .child(
+        // with no votes to read, the line above says why the cells are empty
+        .children((!deaf).then(|| {
             design::quiet(footnote(view, validators), theme)
                 .id("nodes-footnote")
                 .pt_2()
-                .px_2(),
-        )
+                .px_2()
+        }))
+}
+
+/// One plain line over the table: why its rows read as they do.
+fn note(id: &'static str, text: String, theme: &Theme) -> impl IntoElement {
+    design::quiet(text, theme).id(id).pb_2().px_2()
 }
 
 /// Where the Height column comes from, or what stands in for it.
@@ -84,8 +112,7 @@ fn footnote(view: &Nodes, validators: u64) -> String {
     let quiet = design::plural(validators * QUIET_PER_VALIDATOR, "block", "blocks");
     match view.network {
         Loadable::Ready(_) => format!(
-            "Height: the last block a validator's signature finalized, as this node applied \
-             it. Quiet: none for {quiet}."
+            "Height: the newest block the validator voted to finalize. Quiet: none for {quiet}."
         ),
         _ => format!(
             "This node does not report its validators' signatures. A validator reads by the \
@@ -155,6 +182,7 @@ fn line(
     this: bool,
     cells: Row,
     strip: Option<Div>,
+    answering: bool,
     theme: &Theme,
 ) -> impl IntoElement {
     let muted = |text: String| div().text_color(theme.muted).child(text);
@@ -170,10 +198,7 @@ fn line(
     };
     // an empty cell reads as Height's and Status's do: a quiet dash
     let behind = match cells.behind {
-        Some(behind) if behind < 0 => {
-            design::mono(format!("−{}", design::grouped(behind.unsigned_abs())))
-        }
-        Some(behind) => design::mono(design::grouped(behind as u64)),
+        Some(behind) => design::mono(design::grouped(behind)),
         None => muted("—".into()),
     };
     div()
@@ -197,7 +222,7 @@ fn line(
         .child(
             cell(STATUS_W, false)
                 .pl_4()
-                .child(status(index, &cells.status, theme)),
+                .child(status(index, &cells.status, answering, theme)),
         )
 }
 
@@ -227,11 +252,16 @@ fn strip(node: &Node, head: u64, recent: &Recent, theme: &Theme) -> Div {
     div().flex().items_center().gap(px(3.)).children(marks)
 }
 
-/// The status as one word in its colours; the counts without `chain.network`
-/// as a quiet caption.
-fn status(index: usize, status: &Status, theme: &Theme) -> impl IntoElement {
+/// The status as one word in its colours, grey while the node is silent
+/// (the word is what it said then); the counts without `chain.network` as a
+/// quiet caption.
+fn status(index: usize, status: &Status, answering: bool, theme: &Theme) -> impl IntoElement {
     let id = ElementId::named_usize("nodes-status-word", index);
     let badge = |foreground, background| {
+        let (foreground, background) = match answering {
+            true => (foreground, background),
+            false => (theme.muted, theme.surface_raised),
+        };
         design::badge(id.clone(), status.word(), foreground, background).into_any_element()
     };
     let caption = |text: String| {
@@ -243,7 +273,7 @@ fn status(index: usize, status: &Status, theme: &Theme) -> impl IntoElement {
     };
     let parts: Vec<AnyElement> = match status {
         Status::InSync => vec![badge(theme.success, theme.success_soft)],
-        Status::Behind(_) | Status::Ahead(_) => vec![badge(theme.warning, theme.warning_soft)],
+        Status::Behind(_) => vec![badge(theme.warning, theme.warning_soft)],
         Status::Blank => vec![
             div()
                 .text_color(theme.muted)

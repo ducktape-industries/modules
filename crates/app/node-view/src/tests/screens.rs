@@ -1,7 +1,7 @@
 //! The node-less screen dumps: each state of the sheet, light and dark, for
 //! the app's renderer (`ducktape-app --render-tree <json>`). A network like
-//! the design's: five validators (in sync, one block short, 12 behind,
-//! 3 ahead, stopped at 3,871) and three residents, at 4,295.
+//! the design's: five validators (in sync, one block short, 12 behind, two
+//! short, stopped at 3,871) and three residents, at 4,295.
 use super::*;
 use ducktape_view_guest::Theme;
 
@@ -16,17 +16,18 @@ fn key(index: usize) -> Vec<u8> {
         .collect()
 }
 
-fn sheet_status(height: u64) -> NodeStatus {
+/// The connected node's status; `this` is its member index.
+fn sheet_status(this: usize) -> NodeStatus {
     NodeStatus {
         chain_id: "testkit".into(),
         time: 1_790_121_600_000,
         block_time_ms: 1000,
         epoch_length: 64,
-        height,
+        height: HEIGHT,
         tip: [0xb2; 32],
         root: [0x41; 32],
         epoch: 67,
-        identity: key(0),
+        identity: key(this),
         contract: 1,
     }
 }
@@ -75,16 +76,27 @@ fn sheet_valset(cx: &TestAppContext) {
     });
 }
 
-/// Each validator's signed height; `quiet` is the fifth's (None: never
-/// seen signing).
-fn sheet_network(quiet: Option<u64>) -> NetworkStatus {
-    let signed = [
-        Some(HEIGHT),
-        Some(HEIGHT - 1),
-        Some(HEIGHT - 12),
-        Some(HEIGHT + 3),
-        quiet,
-    ];
+/// The validators' newest votes in the design's network; the fifth's
+/// stopped at 3,871.
+const SYNCED: [Option<u64>; VALIDATORS] = [
+    Some(HEIGHT),
+    Some(HEIGHT - 1),
+    Some(HEIGHT - 12),
+    Some(HEIGHT - 2),
+    Some(3871),
+];
+/// Around Quiet's edge (20 blocks for five): 5 and 20 behind, 21 behind,
+/// and one never heard.
+const BEHIND: [Option<u64>; VALIDATORS] = [
+    Some(HEIGHT),
+    Some(HEIGHT - 5),
+    Some(HEIGHT - 20),
+    Some(HEIGHT - 21),
+    None,
+];
+
+/// Each validator's newest vote as this node heard it (None: not heard).
+fn sheet_network(signed: [Option<u64>; VALIDATORS]) -> NetworkStatus {
     NetworkStatus {
         height: HEIGHT,
         members: (0..MEMBERS)
@@ -96,17 +108,19 @@ fn sheet_network(quiet: Option<u64>) -> NetworkStatus {
     }
 }
 
-/// The sheet over canned answers: `network` None is a node (or app) that
-/// does not serve `chain.network`; `known` false a node with no proposers.
+/// The sheet over canned answers from member `this`: `network` None is a
+/// node (or app) that does not serve `chain.network`; `known` false a node
+/// with no proposers.
 fn sheet(
     network: Option<NetworkStatus>,
     known: bool,
+    this: usize,
 ) -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
     let ticks = cx.host().stream::<ClockTicks>();
     cx.host().stream::<Changes<Valset>>();
     cx.host()
-        .handle::<ChainStatus>(|()| Ok(sheet_status(HEIGHT)));
+        .handle::<ChainStatus>(move |()| Ok(sheet_status(this)));
     cx.host()
         .handle::<ChainBlocks>(move |page| Ok(sheet_blocks(page, known)));
     match network {
@@ -124,23 +138,31 @@ fn sheet(
     (cx, ticks)
 }
 
+/// A node that stops answering after the sheet is up.
+fn silent((mut cx, ticks): (TestAppContext, StreamSender<ClockTicks>)) -> TestAppContext {
+    cx.host().never::<ChainStatus>();
+    cx.host().never::<ChainNetwork>();
+    for _ in 0..=SILENT_TICKS {
+        ticks.send(());
+    }
+    cx.run_until_parked();
+    cx
+}
+
 /// One named state, and the window it is drawn in.
 fn screen(state: &str) -> TestAppContext {
+    let quiet_unsigned = [SYNCED[0], SYNCED[1], SYNCED[2], SYNCED[3], None];
+    // a resident is not seated: its node hears no votes
+    let resident = || sheet(Some(sheet_network([None; VALIDATORS])), true, VALIDATORS);
     match state {
-        "synced" | "synced-680" | "synced-narrow" => sheet(Some(sheet_network(Some(3871))), true).0,
-        "quiet-unsigned" => sheet(Some(sheet_network(None)), true).0,
-        "fallback" => sheet(None, true).0,
-        "fallback-unknown" => sheet(None, false).0,
-        "not-answering" => {
-            let (mut cx, ticks) = sheet(Some(sheet_network(Some(3871))), true);
-            cx.host().never::<ChainStatus>();
-            cx.host().never::<ChainNetwork>();
-            for _ in 0..=SILENT_TICKS {
-                ticks.send(());
-            }
-            cx.run_until_parked();
-            cx
-        }
+        "synced" | "synced-680" | "synced-narrow" => sheet(Some(sheet_network(SYNCED)), true, 0).0,
+        "quiet-unsigned" => sheet(Some(sheet_network(quiet_unsigned)), true, 0).0,
+        "fallback" => sheet(None, true, 0).0,
+        "fallback-unknown" => sheet(None, false, 0).0,
+        "not-answering" => silent(sheet(Some(sheet_network(SYNCED)), true, 0)),
+        "behind-quiet" => sheet(Some(sheet_network(BEHIND)), true, 0).0,
+        "resident" => resident().0,
+        "resident-not-answering" => silent(resident()),
         "loading" => {
             let mut cx = TestAppContext::new();
             cx.host().stream::<ClockTicks>();
@@ -168,12 +190,11 @@ fn screen(state: &str) -> TestAppContext {
             let mut cx = TestAppContext::new();
             cx.host().stream::<ClockTicks>();
             cx.host().stream::<Changes<Valset>>();
-            cx.host()
-                .handle::<ChainStatus>(|()| Ok(sheet_status(HEIGHT)));
+            cx.host().handle::<ChainStatus>(|()| Ok(sheet_status(0)));
             cx.host()
                 .handle::<ChainBlocks>(|page| Ok(sheet_blocks(page, true)));
             cx.host()
-                .handle::<ChainNetwork>(|()| Ok(sheet_network(Some(3871))));
+                .handle::<ChainNetwork>(|()| Ok(sheet_network(SYNCED)));
             match state {
                 "members-refused" => cx
                     .host()
@@ -193,7 +214,7 @@ fn screen(state: &str) -> TestAppContext {
     }
 }
 
-const SCREENS: [(&str, u32, u32); 11] = [
+const SCREENS: [(&str, u32, u32); 14] = [
     ("synced", 1100, 680),
     ("synced-680", 680, 620),
     ("synced-narrow", 320, 620),
@@ -205,6 +226,9 @@ const SCREENS: [(&str, u32, u32); 11] = [
     ("status-refused", 1100, 680),
     ("members-refused", 1100, 680),
     ("members-empty", 1100, 680),
+    ("behind-quiet", 1100, 680),
+    ("resident", 1100, 680),
+    ("resident-not-answering", 1100, 680),
 ];
 
 /// `NODE_SCREEN_EXPORT=1` writes each state's tree, light and dark, and a
