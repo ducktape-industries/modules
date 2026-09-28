@@ -109,16 +109,6 @@ impl TestAppContext {
                     .expect("valid view patches");
                 }
             }
-            if let Some(root) = &frame.root {
-                let mut hosted = Frame {
-                    root: Some(root.clone()),
-                    tooltip_responses: frame.tooltip_responses.clone(),
-                    ..Frame::default()
-                };
-                if let Err(refused) = crate::wire::sanitize(&mut hosted) {
-                    panic!("the host refuses this frame: {refused}");
-                }
-            }
             assert_frame_accessible(&frame);
             let busy = frame.busy;
             self.frame = frame;
@@ -305,6 +295,29 @@ mod tests {
     #[should_panic(expected = "Unnamed at nameless")]
     fn a_frame_driver_tick_returns_is_audited() {
         Driver::<Nameless>::new().tick(Vec::new());
+    }
+
+    /// Twins: two siblings with one typed id, which the audit (it keys on
+    /// names) passes and the host refuses.
+    #[derive(Default, Serialize, Deserialize)]
+    struct Twins;
+    impl View for Twins {
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self
+        }
+    }
+    impl Render for Twins {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+            crate::div()
+                .child(crate::div().id(1usize))
+                .child(crate::div().id(1usize))
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "the host refuses this frame")]
+    fn a_frame_driver_tick_returns_is_held_to_the_host_sanitizer() {
+        Driver::<Twins>::new().tick(Vec::new());
     }
 
     /// A target whose tooltip is the nameless button.

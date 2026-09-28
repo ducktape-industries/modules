@@ -43,9 +43,20 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
     }
 }
 
+/// The host's sanitizer, which must take the frame, and
 /// [`assert_accessible`] on each tree the frame carries: its root and
 /// every tooltip's content, which the host renders too.
 pub(crate) fn assert_frame_accessible(frame: &Frame) {
+    if let Some(root) = &frame.root {
+        let mut hosted = Frame {
+            root: Some(root.clone()),
+            tooltip_responses: frame.tooltip_responses.clone(),
+            ..Frame::default()
+        };
+        if let Err(refused) = crate::wire::sanitize(&mut hosted) {
+            panic!("the host refuses this frame: {refused}");
+        }
+    }
     let tooltips = frame
         .tooltip_responses
         .iter()
