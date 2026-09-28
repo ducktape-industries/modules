@@ -317,14 +317,22 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
     drawn_with(&draft, "c", &choices);
 }
 
-/// The known fault: the @-mention rows are menu items with no menu, which
-/// no key reaches (the keys stay in the editor). The honest shape is an
+/// The known faults, each and no other: the @-mention rows are menu items
+/// with no menu, which no key reaches (the keys stay in the editor) and
+/// whose `selected` a menu item does not carry. The honest shape is an
 /// EditableComboBox editor whose active descendant is the picked option,
 /// a wire change of its own; this test fails once that lands.
 #[test]
-#[should_panic(expected = "Orphan at c >  > c/mention/<@1>")]
 fn the_mention_menu_is_not_yet_reachable() {
-    drawn_with(&caret("@A", 2), "c", &roster());
+    use wire::FaultKind::{Orphan, Unreachable, UnreadState};
+    let at = |kind| wire::Fault {
+        path: vec!["c".into(), String::new(), "c/mention/<@1>".into()],
+        kind,
+    };
+    assert_eq!(
+        wire::audit(&lowered(&caret("@A", 2), "c", &roster())),
+        [at(UnreadState), at(Unreachable), at(Orphan)]
+    );
 }
 
 #[test]
