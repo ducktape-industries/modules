@@ -451,8 +451,6 @@ EditorKeyClaim struct
   key: TypeName("Key")
   modifiers: TypeName("Modifiers")
   command: Bool
-EditorOptions struct
-  binding: Option(TypeName("EditorBinding"))
 EditorPatch struct
   start_byte: U32
   end_byte: U32
@@ -1065,7 +1063,7 @@ Node enum
     secure: Bool
     style: TypeName("StyleRefinement")
   12 Editor struct
-    options: TypeName("EditorOptions")
+    binding: Option(TypeName("EditorBinding"))
     id: TypeName("WireRepr")
     style: TypeName("StyleRefinement")
     placeholder: Str

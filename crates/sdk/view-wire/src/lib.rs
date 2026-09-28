@@ -110,9 +110,7 @@ pub mod mouse;
 pub use interactivity::{DispatchPhase, HoverListenerMode, KeyContext, Tooltip, TooltipResponse};
 
 mod protocol;
-pub use protocol::{
-    EditorOptions, Error, Event, Frame, InputOptions, Request, RichTextHover, code,
-};
+pub use protocol::{Error, Event, Frame, InputOptions, Request, RichTextHover, code};
 
 mod frame_sanitize;
 pub(crate) use frame_sanitize::{Budgets, finite, sanitize_tree, spend_text, truncate_to};

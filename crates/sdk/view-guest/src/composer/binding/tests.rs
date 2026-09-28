@@ -261,14 +261,14 @@ fn restored_mention_draft_keeps_its_document_and_binding() {
     let wire::Node::Editor {
         document,
         on_document: _,
-        options,
+        binding,
         ..
     } = editor_node(&root)
     else {
         unreachable!()
     };
     assert_eq!(document.document, "c");
-    assert!(options.binding.is_some());
+    assert!(binding.is_some());
 }
 
 #[test]
@@ -398,11 +398,10 @@ fn key_state(claim: &wire::EditorKeyClaim) -> wire::keyboard::KeyState {
 fn claimed(draft: &Draft) -> Vec<wire::EditorKeyClaim> {
     // the key claims, with the menu open or shut
     let root = lowered(draft, "c", &roster());
-    let wire::Node::Editor { options, .. } = editor_node(&root) else {
+    let wire::Node::Editor { binding, .. } = editor_node(&root) else {
         unreachable!()
     };
-    options
-        .binding
+    binding
         .as_ref()
         .expect("the field carries its binding")
         .claims
@@ -550,13 +549,13 @@ fn click_binding_and_document_routes_dispatch_through_the_driver() {
     let wire::Node::Editor {
         document,
         on_document,
-        options,
+        binding,
         ..
     } = editor_node(frame.root.as_ref().expect("composer frame"))
     else {
         unreachable!()
     };
-    let binding = options.binding.as_ref().expect("composer binding");
+    let binding = binding.as_ref().expect("composer binding");
     driver.tick(vec![wire::Event::EditorRequest {
         handler: binding.on_request,
         request: wire::EditorRequest {

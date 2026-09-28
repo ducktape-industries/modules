@@ -48,7 +48,7 @@ fn editor_element_lowers_identity_style_and_document_without_author_routes() {
         placeholder,
         label,
         document,
-        options,
+        binding,
         ..
     } = frame.root.unwrap()
     else {
@@ -60,5 +60,5 @@ fn editor_element_lowers_identity_style_and_document_without_author_routes() {
     assert_eq!(label.as_deref(), Some("Message"));
     assert_eq!(document.document, "app:draft");
     assert_eq!(document.byte_len, 5);
-    assert!(options.binding.is_some());
+    assert!(binding.is_some());
 }

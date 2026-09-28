@@ -146,9 +146,7 @@ impl<P: 'static, V: 'static> Element for EditorElement<P, V> {
             move |transaction| transaction_route(EditorElementEvent::Transaction(transaction)),
         );
         wire::Node::Editor {
-            options: Box::new(wire::EditorOptions {
-                binding: Some(Box::new(binding)),
-            }),
+            binding: Some(Box::new(binding)),
             id,
             style,
             placeholder,

@@ -280,9 +280,3 @@ pub struct InputOptions {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub read_only: bool,
 }
-
-/// A native multiline editor's guest binding; state faces share input semantics.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct EditorOptions {
-    pub binding: Option<Box<EditorBinding>>,
-}
