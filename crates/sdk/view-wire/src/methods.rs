@@ -220,6 +220,7 @@ pub struct NodeStatus {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct NetworkStatus {
     pub height: u64,
     pub members: Vec<Peer>,
@@ -233,6 +234,7 @@ pub struct NetworkStatus {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Peer {
     pub key: Vec<u8>,
     pub signed: Option<u64>,
