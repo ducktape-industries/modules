@@ -48,6 +48,9 @@ pub struct Nodes {
     pub(crate) answered: u64,
     #[serde(skip)]
     pub(crate) moved: u64,
+    /// the sheet's measured width; `None` until the first measure
+    #[serde(skip)]
+    pub(crate) width: Option<f32>,
     /// the asks in flight: the clock asks again only once one lands
     #[serde(skip)]
     pub(crate) asking: Asking,

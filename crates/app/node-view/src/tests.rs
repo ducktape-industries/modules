@@ -161,6 +161,8 @@ fn the_head_names_the_network_and_this_node() {
     cx.open::<Nodes>();
     cx.run_until_parked();
     assert!(cx.has_text("The node is unavailable. Try again."));
+    // no table without the height it reads
+    assert!(cx.find("nodes-table").is_none());
     cx.host().handle::<ChainStatus>(|()| Ok(status()));
     cx.simulate_click("nodes-status-retry");
     cx.run_until_parked();
@@ -357,6 +359,28 @@ fn the_network_fills_height_behind_and_status() {
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<ChainNetwork>().len(), 2);
     cx.assert_accessible();
+}
+
+/// A sheet too narrow for the strip (the desk opens a window at 60% of its
+/// width) keeps every other column and leaves the strip out.
+#[test]
+fn a_narrow_sheet_keeps_the_status_and_leaves_the_strip_out() {
+    let mut cx = TestAppContext::new();
+    node(&cx);
+    cx.host().stream::<Changes<Valset>>();
+    respond(&mut cx);
+    cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
+    cx.open::<Nodes>();
+    cx.run_until_parked();
+    let strip = |cx: &TestAppContext| cx.texts().iter().any(|text| text.starts_with("Proposed"));
+    assert!(strip(&cx) && cx.has_text("Doesn't propose"));
+    cx.simulate_measure("nodes-viewport", 680., 620.);
+    cx.run_until_parked();
+    assert!(!strip(&cx) && !cx.has_text("Doesn't propose"));
+    assert!(cx.has_text("4,199") && cx.has_text("In sync") && cx.has_text("since 3,871"));
+    cx.simulate_measure("nodes-viewport", 1100., 680.);
+    cx.run_until_parked();
+    assert!(strip(&cx));
 }
 
 /// A node that stops serving `chain.network` falls back, and logs it once.
