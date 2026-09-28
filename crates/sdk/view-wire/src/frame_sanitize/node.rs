@@ -171,17 +171,9 @@ fn sanitize_fields(
                 sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;
             }
         }
-        Node::Text(crate::TextNode {
-            style,
-            content,
-            heading,
-            ..
-        }) => {
+        Node::Text(crate::TextNode { style, content, .. }) => {
             style_sanitize::sanitize(style);
             spend_text(content, budgets);
-            if heading.is_some_and(|level| !(1..=6).contains(&level)) {
-                *heading = None;
-            }
         }
         Node::Image {
             data,

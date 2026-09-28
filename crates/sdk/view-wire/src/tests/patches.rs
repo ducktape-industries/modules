@@ -350,8 +350,6 @@ fn a_hostile_frame_is_pulled_into_range() {
             id: Some(ElementIdWire::Name("k".repeat(MAX_STRING_BYTES).into())),
             style: gpui::StyleRefinement::default(),
             content: "é".repeat(MAX_STRING_BYTES),
-            heading: None,
-            live: None,
         }),
         deep,
         wide,

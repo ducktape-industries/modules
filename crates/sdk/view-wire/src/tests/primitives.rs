@@ -180,8 +180,6 @@ fn a_text_with_no_heading_or_live_region_round_trips() {
         id: Some(ElementIdWire::Name("text".into())),
         style: gpui::StyleRefinement::default(),
         content: "huge".into(),
-        heading: None,
-        live: None,
     });
     assert_eq!(decode::<Node>(&encode(&text)).unwrap(), text);
 }

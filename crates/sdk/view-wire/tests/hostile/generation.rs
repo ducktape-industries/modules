@@ -25,6 +25,7 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
                 cursor: Some(mouse::Cursor::ResizingHorizontally),
                 content: Box::new(node),
                 style: gpui::StyleRefinement::default(),
+                interactivity: Interactivity::default(),
             },
             3 => Node::Sensor {
                 id: gen_id(rng),

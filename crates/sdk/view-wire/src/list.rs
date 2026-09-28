@@ -178,6 +178,7 @@ mod variable_tests {
             scroll_handler: Some(2),
             range_start: 99_990,
             style: gpui::StyleRefinement::default(),
+            interactivity: Default::default(),
             children: (0..children)
                 .map(|_| Node::Space {
                     style: gpui::StyleRefinement::default(),

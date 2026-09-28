@@ -119,11 +119,6 @@ pub(super) fn gen_text(rng: &mut Rng) -> Node {
             gpui::StyleRefinement::default()
         },
         content: gen_string(rng),
-        // 0 and 7 are outside 1..=6, for the sanitizer to drop.
-        heading: rng.next_bool().then(|| rng.next_range(8) as u8),
-        live: rng
-            .next_bool()
-            .then(|| *rng.choose(&[Live::Polite, Live::Assertive])),
     })
 }
 

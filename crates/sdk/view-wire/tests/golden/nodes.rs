@@ -73,11 +73,23 @@ pub fn every_node() -> Node {
             scroll_handler: Some(5),
             range_start: 0,
             style: style(),
+            interactivity: every_aria(),
             children: vec![text("item")],
         },
         Node::ResizeHandle {
             id: id("handle"),
             style: style(),
+            interactivity: Interactivity {
+                role: Some(gpui::Role::Splitter),
+                aria: Aria {
+                    label: Some("Resize".into()),
+                    orientation: Some(gpui::Orientation::Vertical),
+                    ..Default::default()
+                },
+                focusable: true,
+                on_key_down: Some(9),
+                ..Default::default()
+            },
             on_press: Some(6),
             on_release: Some(7),
             on_drag: Some(8),
@@ -177,6 +189,33 @@ pub fn every_node() -> Node {
         interactivity: Interactivity::default(),
         children,
     })
+}
+
+/// Every `Aria` field the host reads past phase 1, set: `Invalid::True` and
+/// `AriaCurrent::False` are the strings `"true"` and `"false"`, not booleans.
+fn every_aria() -> Interactivity {
+    Interactivity {
+        role: Some(gpui::Role::ListBox),
+        aria: Aria {
+            label: Some("rows".into()),
+            live: Some(Live::Polite),
+            busy: true,
+            required: true,
+            read_only: true,
+            invalid: Some(Invalid::True),
+            has_popup: Some(HasPopup::Listbox),
+            current: Some(AriaCurrent::False),
+            labelled_by: vec![vec![id("root"), id("caption")]],
+            described_by: vec![vec![id("root"), id("hint")]],
+            controls: vec![vec![id("root"), id("panel")]],
+            error_message: Some(vec![id("root"), id("error")]),
+            actions: vec![(Action::ScrollIntoView, 10), (Action::CustomAction, 11)],
+            custom_actions: vec![(3, "Pin".into())],
+            ..Default::default()
+        },
+        focusable: true,
+        ..Default::default()
+    }
 }
 
 pub fn node_variant(node: &Node) -> &'static str {

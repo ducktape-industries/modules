@@ -123,6 +123,7 @@ impl Element for ResizeHandle {
             cursor: self.cursor.map(wire_cursor),
             content: Box::new(lowering.lower(self.child)),
             style: StyleRefinement::default(),
+            interactivity: wire::Interactivity::default(),
         }
     }
 }

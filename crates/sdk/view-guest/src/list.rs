@@ -304,6 +304,7 @@ impl Element for List {
             scroll_handler,
             range_start: range.start,
             style,
+            interactivity: wire::Interactivity::default(),
             children,
         }
     }

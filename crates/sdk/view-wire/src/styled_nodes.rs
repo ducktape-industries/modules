@@ -1,6 +1,6 @@
 //! GPUI-styled wire payloads; the host assigns these refinements unchanged
 //! after the frame sanitizer has checked them.
-use crate::{ElementIdWire, Interactivity, Live, Node, decode_children};
+use crate::{ElementIdWire, Interactivity, Node, decode_children};
 use gpui::{StyleRefinement, Styled};
 use serde::{Deserialize, Serialize};
 
@@ -24,8 +24,6 @@ pub struct TextNode {
     pub id: Option<ElementIdWire>,
     pub style: StyleRefinement,
     pub content: String,
-    pub heading: Option<u8>,
-    pub live: Option<Live>,
 }
 impl Styled for TextNode {
     fn style(&mut self) -> &mut StyleRefinement {

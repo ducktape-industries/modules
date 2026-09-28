@@ -402,8 +402,6 @@ impl Element for SharedString {
             id: None,
             style: StyleRefinement::default(),
             content: self.to_string(),
-            heading: None,
-            live: None,
         })
     }
 }

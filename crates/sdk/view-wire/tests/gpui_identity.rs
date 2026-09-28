@@ -12,8 +12,6 @@ fn text(id: ElementIdWire, content: &str) -> Node {
         id: Some(id),
         style: gpui::StyleRefinement::default(),
         content: content.into(),
-        heading: None,
-        live: None,
     })
 }
 

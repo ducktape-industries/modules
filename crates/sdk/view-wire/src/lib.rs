@@ -59,7 +59,11 @@ pub use snapshot::MAX_SNAPSHOT_BYTES;
 
 mod aria;
 pub mod click;
-pub use aria::Aria;
+pub use aria::{
+    Aria, MAX_ARIA_ACTIONS, MAX_ARIA_CUSTOM_ACTIONS, MAX_ARIA_RELATIONS, MAX_ARIA_TEXT_BYTES,
+};
+/// gpui's own accessibility vocabulary, the one `Aria` and [`Event::A11yAction`] speak.
+pub use gpui::accesskit::{Action, ActionData, AriaCurrent, HasPopup, Invalid, Live};
 mod element_id;
 pub use element_id::{ElementIdAtom, ElementIdWire, MAX_ELEMENT_ID_DEPTH};
 mod style;
@@ -87,8 +91,8 @@ mod styled_nodes;
 pub use styled_nodes::{ContainerNode, TextNode};
 mod node;
 pub use node::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Live, Node,
-    SvgSource, SvgTransformation,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Node, SvgSource,
+    SvgTransformation,
 };
 mod accessibility;
 pub use accessibility::{Fault, FaultKind, accessibility_faults};

@@ -200,6 +200,12 @@ pub enum Event {
     /// The host no longer holds the tree the guest is patching — a patch it
     /// could not apply, a tree it dropped — and wants the next frame whole.
     Resync,
+    /// An assistive-technology action request on the node that advertised
+    /// `(action, handler)` in [`Aria::actions`](crate::Aria::actions).
+    A11yAction {
+        handler: u32,
+        data: Option<ActionData>,
+    },
 }
 
 /// Why a request failed, as the guest gets it: the one [`Error`] — a stable

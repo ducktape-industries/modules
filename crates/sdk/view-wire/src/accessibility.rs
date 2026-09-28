@@ -133,8 +133,6 @@ mod tests {
             id: Some(ElementIdWire::Name(key.into())),
             style: StyleRefinement::default(),
             content: content.into(),
-            heading: None,
-            live: None,
         })
     }
 

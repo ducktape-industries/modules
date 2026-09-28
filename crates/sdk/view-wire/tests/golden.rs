@@ -24,13 +24,14 @@ use view_wire::list::{
 };
 use view_wire::methods::{self, Method, Module};
 use view_wire::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, CanvasCommand, CanvasShape, ContainerNode,
-    DispatchPhase, EditorCursor, EditorDecision, EditorEditKind, EditorHistoryEffect, EditorPatch,
-    EditorRequest, EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId,
-    ElementIdWire, Error, Event, Frame, ImageData, ImageObjectFit, ImageStyle, Interactivity,
-    ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node, Patch,
-    Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource, SvgTransformation,
-    TextNode, TooltipResponse, WidgetCommand, click, interactivity, keyboard, mouse,
+    Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
+    CanvasCommand, CanvasShape, ContainerNode, DispatchPhase, EditorCursor, EditorDecision,
+    EditorEditKind, EditorHistoryEffect, EditorPatch, EditorRequest, EditorRequestInput,
+    EditorResponse, EditorTransactionEvent, EditorTransactionId, ElementIdWire, Error, Event,
+    Frame, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid, ListAlignment,
+    ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node, Patch, Request,
+    RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource, SvgTransformation, TextNode,
+    TooltipResponse, WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -39,7 +40,7 @@ const MESSAGE: &str =
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
 const NODE_VARIANTS: usize = 16;
-const EVENT_VARIANTS: usize = 34;
+const EVENT_VARIANTS: usize = 35;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -86,8 +87,6 @@ fn text(content: &str) -> Node {
         id: Some(id(content)),
         style: style(),
         content: content.into(),
-        heading: Some(2),
-        live: Some(Live::Polite),
     })
 }
 

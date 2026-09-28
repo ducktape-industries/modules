@@ -230,6 +230,7 @@ impl<V: View> Driver<V> {
                 self.app.notify();
                 None
             }
+            wire::Event::A11yAction { handler, data } => self.route(handler, &data),
         }
     }
 
