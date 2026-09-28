@@ -16,3 +16,110 @@ impl Window {
         slots::host(&self.slots).notify::<crate::methods::HostWidget>(command);
     }
 }
+#[cfg(test)]
+mod tests {
+    use crate::methods::{HostWidget, Method};
+    use crate::{Context, Driver, ElementId, Host, Input, Render, View, Window, host, wire};
+    use serde::{Deserialize, Serialize};
+
+    fn target(name: &str) -> wire::WidgetTarget {
+        vec![wire::ElementIdWire::Name(name.into())]
+    }
+
+    async fn perform(host: Host, command: wire::WidgetCommand) -> Result<Vec<u8>, host::Error> {
+        host.request(HostWidget::KIND, &wire::encode(&command))
+            .await
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct WidgetView(bool);
+    impl View for WidgetView {
+        fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+            let host = cx.host();
+            cx.spawn(async move |this, cx| {
+                perform(
+                    host,
+                    wire::WidgetCommand::Focus {
+                        target: target("App/draft"),
+                    },
+                )
+                .await
+                .unwrap();
+                this.update(cx, |view, cx| {
+                    view.0 = true;
+                    cx.notify();
+                })
+                .unwrap();
+            })
+            .detach();
+            Self(false)
+        }
+    }
+    impl Render for WidgetView {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl crate::IntoElement {
+            Input::new(ElementId::Name("App/draft".into()), "Draft")
+                .on_input(cx.listener(|_, _: &String, _, _| {}))
+        }
+    }
+
+    #[test]
+    fn widget_futures_wait_for_the_hosts_acknowledgment() {
+        let mut driver = Driver::<WidgetView>::new();
+        let frame = driver.tick(vec![]);
+        let [focus] = frame.requests.as_slice() else {
+            panic!("one focus request: {:?}", frame.requests)
+        };
+        assert_eq!(focus.kind, HostWidget::KIND);
+        assert_eq!(
+            wire::decode::<wire::WidgetCommand>(&focus.payload).unwrap(),
+            wire::WidgetCommand::Focus {
+                target: target("App/draft")
+            }
+        );
+        driver.tick(vec![]);
+        driver
+            .entity()
+            .read(|view| assert!(!view.0, "the future waits for the answer"));
+        driver.tick(vec![wire::Event::Response {
+            id: focus.id,
+            result: Ok(wire::encode(&())),
+            done: true,
+        }]);
+        driver.entity().read(|view| assert!(view.0));
+    }
+
+    #[test]
+    fn window_dispatch_enqueues_commands_in_order() {
+        let host = Host::default();
+        let mut window = Window::new(crate::slots::Context::with_host(host.clone()));
+        // Window mutations enqueue synchronously; explicit request futures wait for acknowledgments.
+        window.focus("first");
+        window.focus("second");
+        let requests = host.drain_outbox();
+        assert_eq!(requests.len(), 2);
+        for (request, name) in requests.iter().zip(["first", "second"]) {
+            assert_eq!(
+                wire::decode::<wire::WidgetCommand>(&request.payload).unwrap(),
+                wire::WidgetCommand::Focus {
+                    target: target(name)
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn focus_handle_schedules_its_opaque_host_command() {
+        let mut app = crate::App::for_driver();
+        let handle = app.focus_handle();
+        let mut window = app.window();
+        handle.focus(&mut window, &mut app);
+        let requests = app.host().drain_outbox();
+        let [request] = requests.as_slice() else {
+            panic!("one focus command")
+        };
+        assert_eq!(
+            wire::decode::<wire::WidgetCommand>(&request.payload).unwrap(),
+            wire::WidgetCommand::FocusHandle { handle: 0 }
+        );
+    }
+}

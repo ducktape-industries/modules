@@ -1,5 +1,6 @@
 //! State transfer into a fresh root entity without replaying construction.
-use crate::{slots, Driver, View};
+//! The bytes are the view's own serde as the wire's named MessagePack.
+use crate::{App, Driver, View, slots, wire};
 impl<V: View> Driver<V> {
     pub fn snapshot(&self) -> Result<Vec<u8>, String> {
         if slots::editor_pending(&self.app.inner.slots)
@@ -10,11 +11,13 @@ impl<V: View> Driver<V> {
         {
             return Err("guest has pending work; snapshot after it settles".into());
         }
-        self.entity
-            .read(|view| serde_json::to_vec(view).map_err(|error| error.to_string()))
+        self.entity.read(|view| wire::try_encode(view))
     }
     pub fn from_snapshot(bytes: &[u8]) -> Result<Self, String> {
-        let view = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        Self::initialize(Some(view))
+        Self::from_snapshot_in(App::for_driver(), bytes)
+    }
+    pub(crate) fn from_snapshot_in(app: App, bytes: &[u8]) -> Result<Self, String> {
+        let view = wire::decode(bytes)?;
+        Ok(Self::initialize_in(app, Some(view)))
     }
 }

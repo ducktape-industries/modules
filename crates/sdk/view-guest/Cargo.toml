@@ -2,11 +2,11 @@
 # primitives and typed tests. The host half lives in the app repo.
 [package]
 name = "view-guest"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 publish = false
 license = "MIT"
-description = "Renderer-independent WASM view execution and host protocol"
+description = "The guest half of the view wire: gpui-shaped contexts, elements and host methods for a wasm view"
 
 [dependencies]
 error = { workspace = true }
@@ -15,10 +15,12 @@ futures.workspace = true
 view-wire.workspace = true
 design.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 gpui.workspace = true
 view-guest-derive = { path = "../view-guest-derive" }
 unicode-segmentation = "1"
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [[example]]
 name = "exported_view"

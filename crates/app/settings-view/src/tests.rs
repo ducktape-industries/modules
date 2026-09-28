@@ -152,6 +152,15 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
     }
     (cx, props)
 }
+// at 480 the Agents page's "Create agent" and "Add key" are cut
+#[test]
+fn the_view_is_laid_out_from_560() {
+    assert_eq!(
+        <Settings as ducktape_view_guest::View>::MIN_WINDOW_WIDTH,
+        560
+    );
+}
+
 #[test]
 fn four_states_are_honest() {
     assert!(fixture("loading", false).has_text("Reading your account…"));
@@ -171,7 +180,6 @@ fn four_states_are_honest() {
     // the node's status is the Nodes view's, the app's preferences the gear's
     assert!(!cx.has_text("Node"));
     assert!(cx.find("settings/app/body").is_none());
-    cx.assert_accessible();
 }
 
 /// The left menu lists Agents only for an account that manages agents,
@@ -349,7 +357,6 @@ fn a_suspended_agents_key_reads_as_such_and_creates_nothing() {
     assert!(cx.has_text("Scout"), "{:?}", cx.texts());
     assert!(cx.has_text("This key belongs to Scout, suspended by its manager."));
     assert!(cx.find("settings/account/create").is_none());
-    cx.assert_accessible();
 }
 #[test]
 fn unregistered_key_creates_an_account() {
@@ -357,7 +364,6 @@ fn unregistered_key_creates_an_account() {
     assert!(cx.has_text(
         "Your key isn't linked to an account yet. An account gives you a name others see."
     ));
-    cx.assert_accessible();
 
     // Empty name never reaches the host: identity's own rule (a name is not
     // empty) is mirrored inline.
@@ -431,6 +437,47 @@ fn create_account_disables_controls_while_busy() {
         panic!("settings/account/create/name input")
     };
     assert!(options.disabled);
+}
+
+/// Every field says what it is for; the hint drawn in it stays a hint.
+#[test]
+fn a_field_is_named_apart_from_its_hint() {
+    fn named(cx: &TestAppContext, key: &str) -> (String, String) {
+        let Some(wire::Node::Input {
+            options,
+            placeholder,
+            ..
+        }) = cx.find(key)
+        else {
+            panic!("no field {key}");
+        };
+        (options.label.clone(), placeholder.clone())
+    }
+    let pair = |name: &str, hint: &str| (name.to_owned(), hint.to_owned());
+    let cx = fixture("unregistered", false);
+    assert_eq!(
+        named(&cx, "settings/account/create/name"),
+        pair("Name the new account", "Account name")
+    );
+    let mut cx = fixture("ready", false);
+    cx.simulate_click("settings/nav/agents");
+    cx.simulate_click("settings/agents/12/rename");
+    cx.run_until_parked();
+    for (key, name, hint) in [
+        (
+            "settings/agents/create/name",
+            "Name the new agent",
+            "Agent name",
+        ),
+        (
+            "settings/agents/key/request",
+            "Paste an agent's key request",
+            "Agent key request",
+        ),
+        ("settings/agents/12/name", "Rename Scout", "New name"),
+    ] {
+        assert_eq!(named(&cx, key), pair(name, hint));
+    }
 }
 
 #[test]
@@ -508,7 +555,6 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<Submit<IdentityApi>>().len(), 2);
     assert!(!cx.has_text("That isn’t a key request for one of your agents."));
-    cx.assert_accessible();
 }
 
 /// The manager alone renames, suspends, resumes and revokes an agent from
@@ -632,7 +678,6 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     for action in ["rename", "suspend", "resume", "revoke"] {
         assert!(cx.find(&format!("settings/agents/12/{action}")).is_none());
     }
-    cx.assert_accessible();
 }
 
 /// Identity's live heads re-read the account in place: a rename made

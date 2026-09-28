@@ -10,7 +10,7 @@ use crate::ui::components::{
     badge, button, empty_state, id, path_text, quiet, ref_label, short_hex,
 };
 use crate::ui::scroller;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 use forge::ChangeState;
 
 /// A review's body and comments start under its author's name, past the
@@ -302,6 +302,7 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
                 &forge.reply,
                 "forge-reply",
                 |forge: &mut Forge| Some(&mut forge.reply),
+                "Reply",
             )
             .min_h(design::size::CONTROL)
             .flex_1()
@@ -311,8 +312,7 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Reply in this change")
-            .label("Reply"),
+            .placeholder("Reply in this change"),
         )
         .child(
             button(id("forge-reply-send"), "Send", theme, send)

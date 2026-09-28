@@ -26,7 +26,7 @@ mod watch;
 
 pub use state::*;
 
-use ducktape_view_guest::view::View;
+use ducktape_view_guest::View;
 use ducktape_view_guest::{Context, IntoElement, Render, Window, export_view};
 
 /// Rows asked per page.
@@ -35,7 +35,7 @@ const PAGE: usize = 64;
 const WINDOW: usize = 256;
 
 impl View for Chat {
-    const PREFERRED_WINDOW_SIZE: &'static str = "1180,760";
+    const MIN_WINDOW_WIDTH: u32 = 560;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut chat = Self::default();
@@ -44,7 +44,7 @@ impl View for Chat {
     }
 
     /// Follows the host again and re-reads what the snapshot showed.
-    fn restored(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn restored(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         // a send in flight when the snapshot was taken never came back:
         // park its body as a failed send the composer can restore
         for draft in self.drafts.values_mut() {
@@ -60,7 +60,7 @@ impl View for Chat {
         }
         if let Some(room) = &self.room {
             let (id, thread) = (room.id.clone(), room.thread.as_ref().map(|t| t.root));
-            self.open(id, window, cx);
+            self.open(id, cx);
             if let Some(root) = thread {
                 self.open_thread(root, cx);
             }

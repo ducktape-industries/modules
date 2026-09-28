@@ -3,14 +3,6 @@ use super::*;
 
 pub fn every_node() -> Node {
     let children = vec![
-        Node::Qr {
-            id: id("qr"),
-            code: Qr {
-                payload: Some(b"duck://x".to_vec()),
-                ..Default::default()
-            },
-            style: style(),
-        },
         Node::RichText {
             id: Some(id("rich")),
             style: style(),
@@ -40,14 +32,6 @@ pub fn every_node() -> Node {
             position_mode: AnchoredPositionMode::Window,
             offset: Some([3.0, 4.0]),
             children: vec![text("anchored")],
-        },
-        Node::Float {
-            id: id("float"),
-            x: 1.5,
-            y: 2.5,
-            scale: 1.0,
-            style: style(),
-            content: boxed("floating"),
         },
         Node::UniformList {
             id: id("uniform"),
@@ -89,90 +73,39 @@ pub fn every_node() -> Node {
             scroll_handler: Some(5),
             range_start: 0,
             style: style(),
+            interactivity: every_aria(),
             children: vec![text("item")],
         },
         Node::ResizeHandle {
             id: id("handle"),
             style: style(),
+            interactivity: Interactivity {
+                role: Some(gpui::Role::Splitter),
+                aria: Aria {
+                    label: Some("Resize".into()),
+                    orientation: Some(gpui::Orientation::Vertical),
+                    ..Default::default()
+                },
+                focusable: true,
+                on_key_down: Some(9),
+                ..Default::default()
+            },
             on_press: Some(6),
             on_release: Some(7),
             on_drag: Some(8),
             cursor: Some(mouse::Cursor::ResizingColumn),
             content: boxed("divider"),
         },
-        Node::MouseArea {
-            id: id("area"),
-            role: Some(Role::Row),
-            label: Some("an area".into()),
-            expanded: Some(false),
-            selected: Some(true),
-            checked: None,
-            on_press: Some(9),
-            on_release: None,
-            on_double_click: Some(10),
-            on_right_press: None,
-            on_right_release: None,
-            on_middle_press: None,
-            on_middle_release: None,
-            on_enter: Some(11),
-            on_exit: Some(12),
-            on_move: Some(13),
-            on_press_at: Some(14),
-            on_scroll: Some(15),
-            content: boxed("under the pointer"),
-        },
-        Node::Tooltip {
-            id: id("tip"),
-            position: Default::default(),
-            delay_ms: 300,
-            snap: true,
-            style: style(),
-            children: vec![text("hover me"), text("the tip")],
-        },
-        Node::Responsive {
-            id: id("responsive"),
-            content: boxed("sized"),
-        },
-        Node::Lazy {
-            id: id("lazy"),
-            generation: 5,
-            content: boxed("memoized"),
-        },
         Node::Deferred {
             priority: 1,
             content: boxed("later"),
         },
-        Node::When {
-            id: id("when"),
-            condition: Default::default(),
-            children: vec![text("conditional")],
-        },
         Node::Sensor {
             id: id("sensor"),
             style: style(),
-            reset: Some(SurfaceValue::I64(3)),
             on_show: Some(16),
             on_resize: Some(17),
-            on_hide: Some(18),
-            anticipate: Some(40.0),
-            delay: Some(16.0),
             child: boxed("measured"),
-        },
-        Node::Scroll {
-            on_scroll: Some(19),
-            virtual_rows: false,
-            id: id("scroll"),
-            direction: ScrollDirection::Vertical,
-            style: style(),
-            bar_hidden: false,
-            bar_width: Some(8.0),
-            bar_margin: Some(2.0),
-            scroller_width: Some(6.0),
-            bar_spacing: Some(1.0),
-            anchor_x: ScrollAnchor::Start,
-            anchor_y: ScrollAnchor::Keep,
-            auto_scroll: true,
-            content: boxed("scrolled"),
         },
         text("plain"),
         Node::Image {
@@ -194,15 +127,6 @@ pub fn every_node() -> Node {
             style: style(),
             interactivity: Interactivity::default(),
         },
-        Node::ImageViewer {
-            id: id("viewer"),
-            hash: 43,
-            data: Some(ImageData::Resource("blob:sha256:00".into())),
-            label: None,
-            fit: Some(ContentFit::Contain),
-            style: style(),
-            options: Default::default(),
-        },
         Node::Svg {
             id: Some(id("svg")),
             source: SvgSource::Data {
@@ -219,11 +143,16 @@ pub fn every_node() -> Node {
             interactivity: Interactivity::default(),
         },
         Node::Input {
-            options: Default::default(),
+            options: view_wire::InputOptions {
+                invalid: Some(Invalid::True),
+                required: true,
+                read_only: true,
+                ..Default::default()
+            },
             id: id("input"),
             placeholder: "Name".into(),
             value: "x".into(),
-            on_input: 20,
+            on_input: Some(20),
             on_submit: Some(21),
             secure: false,
             style: style(),
@@ -238,81 +167,7 @@ pub fn every_node() -> Node {
             on_document: 22,
             editable: true,
         },
-        Node::Button {
-            id: id("button"),
-            content: ButtonContent::Label("Go".into()),
-            label: None,
-            role: Some(Role::Tab),
-            checked: None,
-            expanded: None,
-            selected: Some(true),
-            description: Some("does the thing".into()),
-            on_press: Some(23),
-            style: style(),
-        },
         Node::Space { style: style() },
-        Node::Rule {
-            id: id("rule"),
-            axis: Axis::Row,
-            style: style(),
-        },
-        Node::Toggle {
-            id: id("toggle"),
-            kind: ToggleKind::Switch,
-            label: "Dark".into(),
-            checked: true,
-            on_toggle: Some(24),
-            style: style(),
-        },
-        Node::Radio {
-            id: id("radio"),
-            label: "One".into(),
-            selected: false,
-            on_select: 25,
-            style: style(),
-        },
-        Node::Slider {
-            id: id("slider"),
-            label: Some("volume".into()),
-            value: 0.5,
-            min: 0.0,
-            max: 1.0,
-            step: 0.1,
-            on_change: 26,
-            on_release: Some(27),
-            axis: Axis::Row,
-            style: style(),
-        },
-        Node::ComboBox {
-            id: id("combo"),
-            state_key: "combo".into(),
-            options: vec!["a".into(), "b".into()],
-            selected: Some(1),
-            reset: 0,
-            placeholder: "pick".into(),
-            label: None,
-            on_select: 28,
-            style: style(),
-            settings: Default::default(),
-        },
-        Node::PickList {
-            settings: Default::default(),
-            id: id("pick"),
-            options: vec!["a".into(), "b".into()],
-            selected: None,
-            placeholder: Some("pick".into()),
-            label: Some("choice".into()),
-            on_select: 29,
-            style: style(),
-        },
-        Node::Progress {
-            id: id("progress"),
-            value: 0.25,
-            min: 0.0,
-            max: 1.0,
-            axis: Axis::Row,
-            style: style(),
-        },
         Node::Overlay {
             id: id("overlay"),
             label: Some("dialog".into()),
@@ -332,16 +187,6 @@ pub fn every_node() -> Node {
                 stroke: None,
             }],
         },
-        Node::Surface {
-            id: id("surface"),
-            style: style(),
-            name: "forge_code".into(),
-            args: vec![SurfaceValue::Record {
-                name: "Preview".into(),
-                fields: vec![("text".into(), SurfaceValue::Str("x".into()))],
-            }],
-            on_event: Some(31),
-        },
     ];
     Node::Container(ContainerNode {
         id: Some(id("root")),
@@ -351,41 +196,50 @@ pub fn every_node() -> Node {
     })
 }
 
+/// Every `Aria` field the host reads past phase 1, set: `Invalid::True` and
+/// `AriaCurrent::False` are the strings `"true"` and `"false"`, not booleans.
+fn every_aria() -> Interactivity {
+    Interactivity {
+        role: Some(gpui::Role::ListBox),
+        aria: Aria {
+            label: Some("rows".into()),
+            live: Some(Live::Polite),
+            busy: true,
+            required: true,
+            read_only: true,
+            invalid: Some(Invalid::True),
+            has_popup: Some(HasPopup::Listbox),
+            current: Some(AriaCurrent::False),
+            labelled_by: vec![vec![id("root"), id("caption")]],
+            described_by: vec![vec![id("root"), id("hint")]],
+            controls: vec![vec![id("root"), id("panel")]],
+            error_message: Some(vec![id("root"), id("error")]),
+            actions: vec![(Action::ScrollIntoView, 10), (Action::CustomAction, 11)],
+            custom_actions: vec![(3, "Pin".into())],
+            ..Default::default()
+        },
+        focusable: true,
+        ..Default::default()
+    }
+}
+
 pub fn node_variant(node: &Node) -> &'static str {
     match node {
-        Node::Qr { .. } => "Qr",
         Node::RichText { .. } => "RichText",
         Node::Anchored { .. } => "Anchored",
-        Node::Float { .. } => "Float",
         Node::UniformList { .. } => "UniformList",
         Node::List { .. } => "List",
         Node::Container(_) => "Container",
         Node::ResizeHandle { .. } => "ResizeHandle",
-        Node::MouseArea { .. } => "MouseArea",
-        Node::Tooltip { .. } => "Tooltip",
-        Node::Responsive { .. } => "Responsive",
-        Node::Lazy { .. } => "Lazy",
         Node::Deferred { .. } => "Deferred",
-        Node::When { .. } => "When",
         Node::Sensor { .. } => "Sensor",
-        Node::Scroll { .. } => "Scroll",
         Node::Text(_) => "Text",
         Node::Image { .. } => "Image",
-        Node::ImageViewer { .. } => "ImageViewer",
         Node::Svg { .. } => "Svg",
         Node::Input { .. } => "Input",
         Node::Editor { .. } => "Editor",
-        Node::Button { .. } => "Button",
         Node::Space { .. } => "Space",
-        Node::Rule { .. } => "Rule",
-        Node::Toggle { .. } => "Toggle",
-        Node::Radio { .. } => "Radio",
-        Node::Slider { .. } => "Slider",
-        Node::ComboBox { .. } => "ComboBox",
-        Node::PickList { .. } => "PickList",
-        Node::Progress { .. } => "Progress",
         Node::Overlay { .. } => "Overlay",
         Node::Canvas { .. } => "Canvas",
-        Node::Surface { .. } => "Surface",
     }
 }

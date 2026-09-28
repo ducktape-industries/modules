@@ -5,6 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Error {
     pub code: String,
     pub message: String,

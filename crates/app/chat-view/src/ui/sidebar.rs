@@ -41,7 +41,7 @@ fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         cx.notify();
         chat.search_submit(cx)
     });
-    let input = Input::new("chat-sidebar-search")
+    let input = Input::new("chat-sidebar-search", "Search messages")
         .h(design::size::CONTROL)
         .flex_1()
         .px_2()
@@ -52,7 +52,6 @@ fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         .text_color(theme.sidebar_foreground)
         .value(chat.search.draft.clone())
         .placeholder("Search messages…")
-        .label("Search messages")
         .on_input(typed)
         .on_submit(submit);
     let searching = !chat.search.query.is_empty() || !chat.search.draft.trim().is_empty();
@@ -67,14 +66,16 @@ fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         .flex_1()
         .child(input)
         .when(searching, |el| {
+            // the rail's ink at rest, as the field beside it
             el.child(
-                div()
-                    .id("chat-sidebar-clear-search")
-                    .px_1()
-                    .role(ducktape_view_guest::Role::Button)
-                    .focusable()
-                    .on_click(clear)
-                    .child("✕"),
+                design::icon_button(
+                    "chat-sidebar-clear-search",
+                    "✕",
+                    "Clear search",
+                    theme,
+                    clear,
+                )
+                .text_color(theme.sidebar_foreground),
             )
         })
 }
@@ -196,9 +197,9 @@ fn channel_button(
     theme: &Theme,
 ) -> AnyElement {
     let id = info.channel.id.clone();
-    let click = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let click = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
-        chat.choose(id.clone(), window, cx)
+        chat.choose(id.clone(), cx)
     });
     let unread = chat.unread(info) && !selected;
     let mut row = div()
@@ -216,7 +217,9 @@ fn channel_button(
         })
         .hover(|s| s.bg(theme.sidebar_raised))
         .role(ducktape_view_guest::Role::Button)
-        .aria_selected(selected)
+        .when(selected, |row| {
+            row.aria_current(ducktape_view_guest::accesskit::AriaCurrent::Page)
+        })
         .focusable()
         .on_click(click)
         .child(div().text_color(theme.sidebar_muted).child("#"))
@@ -275,9 +278,9 @@ fn dm_button(
     let agent = names.is_some_and(|n| crate::message::agent(n, &Principal::Account(peer)));
     let unread = chat.unread(info) && !selected;
     let id = info.channel.id.clone();
-    let click = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let click = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
-        chat.choose(id.clone(), window, cx)
+        chat.choose(id.clone(), cx)
     });
     let mut row = div()
         .id(format!("chat-sidebar-dm-{peer}"))

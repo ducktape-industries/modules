@@ -18,6 +18,7 @@ fn list(start: usize, len: usize, edited: Option<usize>) -> Node {
         scroll_handler: None,
         range_start: start,
         style: StyleRefinement::default(),
+        interactivity: Default::default(),
         children: (start..start + len)
             .map(|item| {
                 Node::Text(TextNode {
@@ -27,8 +28,6 @@ fn list(start: usize, len: usize, edited: Option<usize>) -> Node {
                         true => format!("row {item} edited"),
                         false => format!("row {item}"),
                     },
-                    heading: None,
-                    live: None,
                 })
             })
             .collect(),

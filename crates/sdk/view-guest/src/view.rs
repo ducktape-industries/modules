@@ -1,6 +1,5 @@
 //! A serializable root view and small loading conveniences.
 use crate::host::Error;
-pub use crate::methods::{Method, Module, Query, Submit};
 use crate::{Context, IntoElement, Task, Window};
 use futures::{Stream, StreamExt};
 use serde::de::DeserializeOwned;
@@ -16,7 +15,54 @@ pub trait Capabilities {
     const CAPABILITIES: &'static [crate::methods::Capability];
 }
 pub trait View: Render + Serialize + DeserializeOwned {
-    const PREFERRED_WINDOW_SIZE: &'static str = "none";
+    /// The narrowest content width, in logical px, at which every essential
+    /// element is visible and nothing is clipped. The app never lays the
+    /// view out narrower, and never sizes a window holding it narrower
+    /// unless the desk or screen itself is narrower. `export_view!` writes
+    /// it into the manifest:
+    ///
+    /// ```
+    /// # use serde::{Deserialize, Serialize};
+    /// # use view_guest::{Context, IntoElement, Render, View, Window, div};
+    /// #[derive(Serialize, Deserialize)]
+    /// struct Wide;
+    /// impl View for Wide {
+    ///     const MIN_WINDOW_WIDTH: u32 = 640;
+    ///     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+    ///         Wide
+    ///     }
+    /// }
+    /// # impl Render for Wide {
+    /// #     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    /// #         div()
+    /// #     }
+    /// # }
+    /// view_guest::export_view!(Wide, "Wide", "", []);
+    /// # fn main() {}
+    /// ```
+    ///
+    /// Outside `1..=8192` the view does not compile:
+    ///
+    /// ```compile_fail,E0080
+    /// # use serde::{Deserialize, Serialize};
+    /// # use view_guest::{Context, IntoElement, Render, View, Window, div};
+    /// #[derive(Serialize, Deserialize)]
+    /// struct Zero;
+    /// impl View for Zero {
+    ///     const MIN_WINDOW_WIDTH: u32 = 0;
+    ///     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+    ///         Zero
+    ///     }
+    /// }
+    /// # impl Render for Zero {
+    /// #     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    /// #         div()
+    /// #     }
+    /// # }
+    /// view_guest::export_view!(Zero, "Zero", "", []);
+    /// # fn main() {}
+    /// ```
+    const MIN_WINDOW_WIDTH: u32 = 480;
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self;
     fn restored(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {}
 }
@@ -178,12 +224,6 @@ impl<V: View> Context<'_, V> {
         })
         .detach();
     }
-}
-#[macro_export]
-macro_rules! export_view {
-    ($view:ty, $name:expr, $description:expr, [$($capability:ident),* $(,)?]) => {
-        $crate::export_driver!($view, $name, $description, [$($capability),*]);
-    };
 }
 
 #[cfg(test)]

@@ -1,5 +1,11 @@
 use super::*;
 
+/// Builds one random tree of exactly `depth` levels of nesting with `width`
+/// extra siblings injected at one random level, entirely with an
+/// iterative loop rather than recursion — the wire's own stress test
+/// (`deep_chain_bytes` in `src/tests.rs`) builds a deep chain the same way,
+/// because a recursive builder would blow its own stack before `decode`
+/// ever got a chance to refuse anything.
 fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
     let mut node = gen_leaf(rng);
     let width_level = if depth == 0 { 0 } else { rng.next_range(depth) };
@@ -10,8 +16,8 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
             node = gen_list(rng, children);
             continue;
         }
-        node = match rng.next_range(8) {
-            7 => Node::ResizeHandle {
+        node = match rng.next_range(5) {
+            4 => Node::ResizeHandle {
                 id: gen_id(rng),
                 on_press: rng.next_bool().then(|| rng.next_u64() as u32),
                 on_release: rng.next_bool().then(|| rng.next_u64() as u32),
@@ -19,81 +25,21 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
                 cursor: Some(mouse::Cursor::ResizingHorizontally),
                 content: Box::new(node),
                 style: gpui::StyleRefinement::default(),
+                interactivity: Interactivity::default(),
             },
-            6 => Node::Tooltip {
+            3 => Node::Sensor {
                 id: gen_id(rng),
-                position: TooltipPosition::Bottom,
-                delay_ms: rng.next_u64(),
-                snap: rng.next_bool(),
-                style: gen_native_style(rng),
-                children: vec![node, gen_leaf(rng)],
-            },
-            4 => Node::Sensor {
-                id: gen_id(rng),
-                reset: None,
                 on_show: rng.next_bool().then(|| rng.next_u64() as u32),
                 on_resize: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_hide: rng.next_bool().then(|| rng.next_u64() as u32),
-                anticipate: gen_opt_f32(rng),
-                delay: gen_opt_f32(rng),
                 child: Box::new(node),
-                style: gpui::StyleRefinement::default(),
+                style: gen_native_style(rng),
             },
-            5 => Node::MouseArea {
-                id: gen_id(rng),
-                role: gen_opt_role(rng),
-                label: rng.next_bool().then(|| gen_string(rng)),
-                expanded: rng.next_bool().then(|| rng.next_bool()),
-                selected: rng.next_bool().then(|| rng.next_bool()),
-                checked: rng.next_bool().then(|| rng.next_bool()),
-                on_press: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_release: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_double_click: None,
-                on_right_press: None,
-                on_right_release: None,
-                on_middle_press: None,
-                on_middle_release: None,
-                on_enter: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_exit: None,
-                on_move: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_press_at: None,
-                on_scroll: rng.next_bool().then(|| rng.next_u64() as u32),
+            2 => Node::Deferred {
+                priority: rng.next_range(64),
                 content: Box::new(node),
             },
             0 => gen_container(rng, vec![node]),
-            1 => gen_list(rng, vec![node]),
-            2 => Node::Scroll {
-                on_scroll: Some(7),
-                virtual_rows: rng.next_bool(),
-                id: gen_id(rng),
-                direction: *rng.choose(&[
-                    ScrollDirection::Vertical,
-                    ScrollDirection::Horizontal,
-                    ScrollDirection::Both,
-                ]),
-                style: gen_native_style(rng),
-                bar_hidden: rng.next_bool(),
-                bar_width: gen_opt_f32(rng),
-                bar_margin: gen_opt_f32(rng),
-                scroller_width: gen_opt_f32(rng),
-                bar_spacing: gen_opt_f32(rng),
-                anchor_x: gen_anchor(rng),
-                anchor_y: gen_anchor(rng),
-                auto_scroll: rng.next_bool(),
-                content: Box::new(node),
-            },
-            _ => Node::Button {
-                checked: rng.next_bool().then(|| rng.next_bool()),
-                expanded: rng.next_bool().then(|| rng.next_bool()),
-                selected: rng.next_bool().then(|| rng.next_bool()),
-                role: gen_opt_role(rng),
-                description: rng.next_bool().then(|| gen_string(rng)),
-                id: gen_id(rng),
-                content: ButtonContent::Child(Box::new(node)),
-                label: rng.next_bool().then(|| gen_string(rng)),
-                on_press: rng.next_bool().then(|| rng.next_u64() as u32),
-                style: gpui::StyleRefinement::default(),
-            },
+            _ => gen_list(rng, vec![node]),
         };
     }
     node
@@ -121,8 +67,6 @@ pub(super) fn gen_frame_with(rng: &mut Rng, depth: usize, width: usize) -> Frame
         editor_decisions: Vec::new(),
         editor_documents: Vec::new(),
         tooltip_responses: Vec::new(),
-        mouse_interest: rng.next_bool(),
-        event_interest: Default::default(),
         root: Some(root),
         requests,
         cancels,
@@ -169,11 +113,6 @@ pub(super) fn gen_patch_tree(rng: &mut Rng) -> Node {
     gen_tree(rng, depth, width)
 }
 
-/// One random patch against `root` as it stands. A `hostile` sender's
-/// indices are sometimes past the list, its list edits sometimes aimed at
-/// a node with no list, and its `Props` sometimes a whole subtree; the
-/// other kind of sender is what a real diff emits, so a whole sequence of
-/// its patches applies and the invariant is checked on the result.
 /// A node whose children are a list the host can insert into, remove from
 /// and reorder — as opposed to a fixed set of slots. Written out here rather
 /// than routed through `Node::child_list_mut`, so a variant that gains or
@@ -182,15 +121,18 @@ pub(super) fn is_list_node(node: &Node) -> bool {
     matches!(
         node,
         Node::Container(view_wire::ContainerNode { .. })
-            | Node::Tooltip { .. }
             | Node::Overlay { .. }
-            | Node::When { .. }
             | Node::Anchored { .. }
             | Node::Image { .. }
             | Node::UniformList { .. }
     )
 }
 
+/// One random patch against `root` as it stands. A `hostile` sender's
+/// indices are sometimes past the list, its list edits sometimes aimed at
+/// a node with no list, and its `Props` sometimes a whole subtree; the
+/// other kind of sender is what a real diff emits, so a whole sequence of
+/// its patches applies and the invariant is checked on the result.
 pub(super) fn gen_patch(rng: &mut Rng, root: &Node, hostile: bool) -> Patch {
     let path = gen_path(rng, root, hostile);
     let mut node = Some(root);
@@ -266,7 +208,7 @@ pub(super) fn gen_patch(rng: &mut Rng, root: &Node, hostile: bool) -> Patch {
 /// string is generated the same hostile way as everything else.
 pub(super) fn gen_frame(rng: &mut Rng, i: usize) -> Frame {
     let (depth, width) = if i == 0 {
-        // Exactly one tree per run goes just over each method, not far over
+        // Exactly one tree per run goes just over each budget, not far over
         // it, and only once. `sanitize` stops at MAX_NODES regardless of
         // how much wider the input tree claims to be, so repeating the
         // saturating case only wastes wall clock without adding coverage.
@@ -301,7 +243,7 @@ pub(super) fn gen_frame_bounded(rng: &mut Rng) -> Frame {
 /// caller — a panic keeps its original message, seed included, instead of
 /// being replaced by a generic "thread panicked" one. Building and encoding
 /// a tree recurses once per level of nesting the same way decoding does
-/// (see `lib.rs`'s own `deep_chain_bytes`), so the frames this file builds
+/// (see `deep_chain_bytes` in `src/tests.rs`), so the frames this file builds
 /// up to `2 * MAX_DEPTH` levels deep get the same headroom.
 pub(super) fn on_big_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
     let handle = std::thread::Builder::new()
@@ -312,29 +254,4 @@ pub(super) fn on_big_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'st
         Ok(value) => value,
         Err(payload) => std::panic::resume_unwind(payload),
     }
-}
-
-pub(super) fn build_frame(seed: u64, i: usize) -> Frame {
-    on_big_stack(move || {
-        let mut rng = Rng::new(seed);
-        gen_frame(&mut rng, i)
-    })
-}
-
-pub(super) fn build_and_encode(seed: u64, i: usize) -> (Frame, Vec<u8>) {
-    on_big_stack(move || {
-        let mut rng = Rng::new(seed);
-        let frame = gen_frame(&mut rng, i);
-        let bytes = encode(&frame);
-        (frame, bytes)
-    })
-}
-
-pub(super) fn build_and_encode_bounded(seed: u64) -> (Frame, Vec<u8>) {
-    on_big_stack(move || {
-        let mut rng = Rng::new(seed);
-        let frame = gen_frame_bounded(&mut rng);
-        let bytes = encode(&frame);
-        (frame, bytes)
-    })
 }

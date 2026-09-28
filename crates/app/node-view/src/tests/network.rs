@@ -71,7 +71,6 @@ fn the_network_fills_height_behind_and_status() {
     ticks.send(());
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<ChainNetwork>().len(), 2);
-    cx.assert_accessible();
 }
 
 /// A node that reports no vote of its own hears none: a resident, and a
@@ -100,7 +99,6 @@ fn a_node_that_is_not_voting_says_so() {
         assert!(texts_of(&cx, &format!("nodes-row-{marked}")).contains(&"this node".to_owned()));
         assert!(!cx.has_text("Quiet") && !cx.has_text("voted"));
         assert!(cx.find("nodes-footnote").is_none());
-        cx.assert_accessible();
     }
 }
 
@@ -192,7 +190,6 @@ fn a_node_without_the_network_says_so_and_logs_once() {
     }
     assert!(!cx.has_text("Quiet") && !cx.has_text("voted"));
     assert!(cx.find("nodes-footnote").is_none());
-    cx.assert_accessible();
     let logged = cx
         .host()
         .logs()

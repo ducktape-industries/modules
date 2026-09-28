@@ -1,31 +1,13 @@
 use serde::{Deserialize, Serialize};
+use std::rc::Rc;
 use view_guest::{
-    wire, Context, Driver, Editor, EditorBinding, EditorElement, EditorElementEvent, ElementId,
-    Render, Styled, View, Window,
+    Callback, Context, Driver, Editor, EditorBinding, EditorElement, ElementId, Render, Styled,
+    View, Window, wire,
 };
 
 #[derive(Serialize, Deserialize)]
 struct EditorView {
-    #[serde(with = "editor_snapshot")]
     editor: Editor,
-}
-
-mod editor_snapshot {
-    use super::*;
-
-    pub fn serialize<S: serde::Serializer>(
-        editor: &Editor,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bytes(&editor.snapshot())
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Editor, D::Error> {
-        let bytes = Vec::<u8>::deserialize(deserializer)?;
-        Editor::restore(&bytes).ok_or_else(|| serde::de::Error::custom("invalid editor"))
-    }
 }
 
 impl View for EditorView {
@@ -48,14 +30,10 @@ impl Render for EditorView {
             &self.editor,
             "app:draft",
             binding,
-            |event| match event {
-                EditorElementEvent::Document(_) => (),
-                EditorElementEvent::Observed(()) => (),
-                EditorElementEvent::Transaction(_) => (),
-            },
+            |_| -> Callback<Self> { Rc::new(|_, _, _| {}) },
+            "Message",
         )
         .placeholder("Write a message")
-        .label("Message")
         .w_full()
     }
 }

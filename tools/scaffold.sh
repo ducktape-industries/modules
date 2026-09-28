@@ -289,7 +289,7 @@ EOF
 use ducktape_view_guest::methods::{Changes, Query};
 use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::{
     Context, Host, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Task, Theme, View, Window, div, px,
@@ -307,7 +307,7 @@ pub struct $title {
 }
 
 impl View for $title {
-    const PREFERRED_WINDOW_SIZE: &'static str = "480,320";
+    const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::default();
@@ -410,7 +410,6 @@ fn ready() -> TestAppContext {
 fn the_ready_screen_shows_the_count() {
     let cx = ready();
     assert!(cx.has_text("Count: 5"), "{:?}", cx.texts());
-    cx.assert_accessible();
     if std::env::var_os("${upper}_SCREEN_EXPORT").is_none() {
         return;
     }

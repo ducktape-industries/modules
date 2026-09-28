@@ -1,5 +1,5 @@
 use crate::{
-    host::{malformed, Error},
+    host::{Error, malformed},
     methods::{self, Method},
     wire::{Event, Frame, Request},
 };

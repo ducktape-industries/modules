@@ -7,9 +7,10 @@ use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::wire::{ContainerNode, Node, TextNode};
 use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
 
+// the list and the detail fit at 320, the desk's smallest window
 #[test]
-fn the_window_opens_wide_enough_for_the_list_and_the_detail() {
-    assert_eq!(<Members as View>::PREFERRED_WINDOW_SIZE, "960,640");
+fn the_view_is_laid_out_from_320() {
+    assert_eq!(<Members as View>::MIN_WINDOW_WIDTH, 320);
 }
 
 #[test]
@@ -428,10 +429,33 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
 #[test]
 fn the_list_and_the_detail_are_accessible() {
     let (mut cx, _) = ready();
-    cx.assert_accessible();
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
-    cx.assert_accessible();
+}
+
+#[test]
+fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
+    let (mut cx, _) = ready();
+    let of = |cx: &TestAppContext, key: &str| match cx.find(key) {
+        Some(Node::Container(ContainerNode { interactivity, .. })) => interactivity.clone(),
+        _ => panic!("{key} is a container"),
+    };
+    let list = of(&cx, "members-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(list.focusable);
+    for (number, other) in [(7, 11), (11, 7)] {
+        cx.simulate_key_down("members-list", "down");
+        let (row, other) = (
+            of(&cx, &format!("members-row-{number}")),
+            of(&cx, &format!("members-row-{other}")),
+        );
+        assert_eq!(row.role, Some(ducktape_view_guest::Role::ListBoxOption));
+        // a focusable row would lose the flag to the host's sanitizer
+        assert!(!row.focusable && row.aria.active_descendant);
+        assert_eq!(row.aria.selected, Some(true));
+        assert!(!other.aria.active_descendant);
+        assert_eq!(other.aria.selected, Some(false));
+    }
 }
 
 #[test]

@@ -16,8 +16,6 @@ fn container(style: StyleRefinement) -> Node {
             id: None,
             style: StyleRefinement::default(),
             content: "stable child".into(),
-            heading: None,
-            live: None,
         })],
     })
 }
@@ -96,8 +94,6 @@ fn text_styles_are_bounded_in_the_same_walk() {
             id: None,
             style: StyleRefinement::default().text_size(px(1e20)).w(px(1e20)),
             content: "text".into(),
-            heading: None,
-            live: None,
         })),
         ..Default::default()
     };
@@ -107,17 +103,6 @@ fn text_styles_are_bounded_in_the_same_walk() {
     };
     assert_eq!(style.size.width, Some(px(8192.).into()));
     assert_eq!(style.text.font_size, Some(px(512.).into()));
-}
-
-#[test]
-fn fingerprints_keep_refinement_field_names() {
-    let width = container(StyleRefinement::default().w(px(12.)));
-    let height = container(StyleRefinement::default().h(px(12.)));
-    let padding = container(StyleRefinement::default().pl(px(12.)));
-    let margin = container(StyleRefinement::default().ml(px(12.)));
-    assert_ne!(width.fingerprint(), height.fingerprint());
-    assert_ne!(padding.fingerprint(), margin.fingerprint());
-    assert_eq!(width.fingerprint(), width.clone().fingerprint());
 }
 
 #[test]
@@ -168,8 +153,6 @@ fn anchored_preserves_local_offsets_and_bounds_untrusted_coordinates() {
                 .w(gpui::px(f32::INFINITY))
                 .h(gpui::px(-1.0)),
             content: String::new(),
-            heading: None,
-            live: None,
         })],
     };
     for (x, y, expected) in [

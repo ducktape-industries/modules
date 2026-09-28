@@ -1,27 +1,29 @@
 //! GPUI-shaped interaction recipes lowered into driver-owned frame routes.
 
 use crate::{
-    wire, AnyElement, AnyView, App, Div, Element, IntoElement, Lowering, ParentElement, Window,
+    AnyElement, AnyView, App, Div, Element, IntoElement, Lowering, ParentElement, Window, slots,
+    wire,
 };
 use gpui::{
     ClickEvent, ElementId, FileDropEvent, MouseButton, SharedString, StyleRefinement, Styled,
-    WindowControlArea,
+    accesskit,
 };
 use std::time::Duration;
 
 mod bindings;
-pub(crate) use bindings::ClickListener;
-use bindings::*;
+use bindings::ButtonBinding;
+pub(crate) use bindings::EventListener;
 
 mod focus;
 pub use focus::FocusHandle;
 
 struct TooltipBuilder {
-    build: ViewBuilder,
+    build: slots::TooltipBuilder,
     hoverable: bool,
 }
 
-type ViewBuilder = Box<dyn Fn(&mut Window, &mut App) -> AnyView + 'static>;
+/// An assistive-technology action's listener, as gpui takes it.
+type A11yListener = Box<dyn FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App)>;
 
 /// The explicit state carried by guest interactivity until frame lowering.
 #[derive(Default)]
@@ -42,26 +44,32 @@ pub struct Interactivity {
     pub(crate) active: Option<StyleRefinement>,
     pub(crate) group_hover: Option<(SharedString, StyleRefinement)>,
     pub(crate) group_active: Option<(SharedString, StyleRefinement)>,
-    pub(crate) on_click: Option<ClickListener>,
-    pub(crate) on_aux_click: Option<ClickListener>,
-    mouse_down: Vec<MouseDownBinding>,
-    capture_mouse_down: Vec<MouseDownListener>,
-    mouse_down_out: Vec<MouseDownListener>,
-    mouse_up: Vec<MouseUpBinding>,
-    capture_mouse_up: Vec<MouseUpListener>,
-    mouse_up_out: Vec<MouseUpBinding>,
-    mouse_pressure: Vec<MousePressureListener>,
-    capture_mouse_pressure: Vec<MousePressureListener>,
-    mouse_move: Vec<MouseMoveListener>,
-    mouse_exit: Vec<MouseExitListener>,
-    scroll_wheel: Vec<ScrollWheelListener>,
-    pinch: Vec<PinchListener>,
-    capture_pinch: Vec<PinchListener>,
-    key_down: Vec<KeyDownListener>,
-    capture_key_down: Vec<KeyDownListener>,
-    key_up: Vec<KeyUpListener>,
-    capture_key_up: Vec<KeyUpListener>,
-    modifiers_changed: Vec<ModifiersChangedListener>,
+    /// Relation targets: siblings' ids, lowered to their paths.
+    labelled_by: Vec<ElementId>,
+    described_by: Vec<ElementId>,
+    controls: Vec<ElementId>,
+    error_message: Option<ElementId>,
+    a11y_actions: Vec<(gpui::accesskit::Action, A11yListener)>,
+    pub(crate) on_click: Option<EventListener<ClickEvent>>,
+    pub(crate) on_aux_click: Option<EventListener<ClickEvent>>,
+    mouse_down: Vec<ButtonBinding<gpui::MouseDownEvent>>,
+    capture_mouse_down: Vec<EventListener<gpui::MouseDownEvent>>,
+    mouse_down_out: Vec<EventListener<gpui::MouseDownEvent>>,
+    mouse_up: Vec<ButtonBinding<gpui::MouseUpEvent>>,
+    capture_mouse_up: Vec<EventListener<gpui::MouseUpEvent>>,
+    mouse_up_out: Vec<ButtonBinding<gpui::MouseUpEvent>>,
+    mouse_pressure: Vec<EventListener<gpui::MousePressureEvent>>,
+    capture_mouse_pressure: Vec<EventListener<gpui::MousePressureEvent>>,
+    mouse_move: Vec<EventListener<gpui::MouseMoveEvent>>,
+    mouse_exit: Vec<EventListener<gpui::MouseExitEvent>>,
+    scroll_wheel: Vec<EventListener<gpui::ScrollWheelEvent>>,
+    pinch: Vec<EventListener<gpui::PinchEvent>>,
+    capture_pinch: Vec<EventListener<gpui::PinchEvent>>,
+    key_down: Vec<EventListener<gpui::KeyDownEvent>>,
+    capture_key_down: Vec<EventListener<gpui::KeyDownEvent>>,
+    key_up: Vec<EventListener<gpui::KeyUpEvent>>,
+    capture_key_up: Vec<EventListener<gpui::KeyUpEvent>>,
+    modifiers_changed: Vec<EventListener<gpui::ModifiersChangedEvent>>,
     on_hover: Option<EventListener<bool>>,
     hover_listener_mode: gpui::HoverListenerMode,
     on_file_drop_exit: Vec<EventListener<FileDropEvent>>,
@@ -69,7 +77,6 @@ pub struct Interactivity {
     tooltip_show_delay: Option<Duration>,
     occlude: bool,
     block_mouse_except_scroll: bool,
-    window_control_area: Option<WindowControlArea>,
     pub(crate) base_style: StyleRefinement,
     pub(crate) id: Option<ElementId>,
 }
@@ -144,7 +151,7 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_down.push(MouseDownBinding {
+        self.interactivity().mouse_down.push(ButtonBinding {
             button: Some(button),
             listener: Box::new(listener),
         });
@@ -165,7 +172,7 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_down.push(MouseDownBinding {
+        self.interactivity().mouse_down.push(ButtonBinding {
             button: None,
             listener: Box::new(listener),
         });
@@ -185,7 +192,7 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up.push(MouseUpBinding {
+        self.interactivity().mouse_up.push(ButtonBinding {
             button: Some(button),
             listener: Box::new(listener),
         });
@@ -206,7 +213,7 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up.push(MouseUpBinding {
+        self.interactivity().mouse_up.push(ButtonBinding {
             button: None,
             listener: Box::new(listener),
         });
@@ -218,7 +225,7 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up_out.push(MouseUpBinding {
+        self.interactivity().mouse_up_out.push(ButtonBinding {
             button: Some(button),
             listener: Box::new(listener),
         });
@@ -342,11 +349,6 @@ pub trait InteractiveElement: Sized {
         self
     }
 
-    fn window_control_area(mut self, area: WindowControlArea) -> Self {
-        self.interactivity().window_control_area = Some(area);
-        self
-    }
-
     fn block_mouse_except_scroll(mut self) -> Self {
         self.interactivity().block_mouse_except_scroll = true;
         self
@@ -373,6 +375,8 @@ impl InteractiveElement for Div {
         &mut self.interactivity
     }
 }
+
+mod lowering;
 
 /// The stateful wrapper returned by [`InteractiveElement::id`].
 pub struct Stateful<E> {
@@ -518,6 +522,83 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self.interactivity().aria.orientation = Some(value);
         self
     }
+    // `aria_live` through `aria_error_message` and `custom_action` are the
+    // names planned for the fork, which has none of them yet; the host
+    // delivers each through its aria patch until it does.
+    fn aria_live(mut self, value: accesskit::Live) -> Self {
+        self.interactivity().aria.live = Some(value);
+        self
+    }
+    fn aria_busy(mut self, value: bool) -> Self {
+        self.interactivity().aria.busy = value;
+        self
+    }
+    fn aria_required(mut self, value: bool) -> Self {
+        self.interactivity().aria.required = value;
+        self
+    }
+    fn aria_invalid(mut self, value: accesskit::Invalid) -> Self {
+        self.interactivity().aria.invalid = Some(value);
+        self
+    }
+    fn aria_read_only(mut self, value: bool) -> Self {
+        self.interactivity().aria.read_only = value;
+        self
+    }
+    fn aria_has_popup(mut self, value: accesskit::HasPopup) -> Self {
+        self.interactivity().aria.has_popup = Some(value);
+        self
+    }
+    fn aria_current(mut self, value: accesskit::AriaCurrent) -> Self {
+        self.interactivity().aria.current = Some(value);
+        self
+    }
+    /// `id` is a sibling's: an element in the same id scope as this one.
+    fn aria_labelled_by(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().labelled_by.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_described_by(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().described_by.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_controls(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().controls.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_error_message(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().error_message = Some(id.into());
+        self
+    }
+    /// A custom action assistive technology offers by `description`. Its
+    /// request is [`accesskit::Action::CustomAction`] with
+    /// `ActionData::CustomAction(id)`: one [`Self::on_a11y_action`]
+    /// handler answers every custom action a node has.
+    fn custom_action(mut self, id: i32, description: impl Into<String>) -> Self {
+        self.interactivity()
+            .aria
+            .custom_actions
+            .push((id, description.into()));
+        self
+    }
+    /// Answers `action` when assistive technology requests it: gpui's own
+    /// setter and signature. Unlike gpui, the host keeps Click, Focus, Blur,
+    /// SetValue, ReplaceSelectedText and SetTextSelection, and hears only
+    /// the first listener per action; `view_wire::audit` faults the rest
+    /// (ActionUnhandled).
+    fn on_a11y_action(
+        mut self,
+        action: accesskit::Action,
+        listener: impl FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity()
+            .a11y_actions
+            .push((action, Box::new(listener)));
+        self
+    }
     fn overflow_scroll(mut self) -> Self {
         self.interactivity().base_style.overflow.x = Some(gpui::Overflow::Scroll);
         self.interactivity().base_style.overflow.y = Some(gpui::Overflow::Scroll);
@@ -594,6 +675,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
 
 impl<T: InteractiveElement> StatefulInteractiveElement for Stateful<T> {}
 
-mod lowering;
-
 impl<E> gpui::prelude::FluentBuilder for Stateful<E> {}
+
+#[cfg(test)]
+mod tests;

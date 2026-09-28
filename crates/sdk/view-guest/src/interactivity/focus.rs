@@ -1,4 +1,4 @@
-use super::{wire, App, Window};
+use super::{App, Window, wire};
 
 /// A guest-app-local focus allocation. Native GPUI focus handles cannot cross
 /// the wasm boundary, so the host maps this opaque token to one native handle.

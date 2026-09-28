@@ -3,7 +3,7 @@
 use super::{booted, change_screen, change_screen_as, opened};
 use crate::api::{ChatApi, SubmitForge};
 use crate::state::ChangeTab;
-use ducktape_view_guest::view::Submit;
+use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::wire;
 use forge::{LineComment, Op, Side, Verdict};
 
@@ -135,7 +135,7 @@ fn a_repository_filter_does_not_carry_into_its_change_search() {
     let (mut cx, _view) = booted("default");
     cx.simulate_input("forge-repos-search", "proj");
     cx.run_until_parked();
-    cx.simulate_click("forge-repo-project");
+    cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
@@ -261,7 +261,15 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     cx.run_until_parked();
     view.read(|forge| assert!(forge.viewed.contains("project#1:src/lib.rs")));
     assert!(cx.has_text("✓"));
-    cx.simulate_click("forge-file-src/lib.rs");
+    let Some(wire::Node::Container(tick)) = cx.find("forge-viewed-src/lib.rs") else {
+        panic!("the viewed tick");
+    };
+    assert_eq!(
+        tick.interactivity.aria.toggled,
+        Some(true.into()),
+        "checked"
+    );
+    cx.simulate_click("forge-file-src/lib.rs-open");
     cx.run_until_parked();
     view.read(|forge| {
         assert_eq!(
@@ -269,6 +277,26 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
             Some(b"src/lib.rs".as_slice())
         )
     });
+    // the row holds the tick beside its press; the shown file is current
+    let row = super::control(&cx, "forge-file-src/lib.rs");
+    assert_eq!(
+        row.interactivity.role,
+        Some(ducktape_view_guest::Role::ListItem)
+    );
+    assert!(!row.interactivity.focusable && row.interactivity.on_click.is_none());
+    let open = super::control(&cx, "forge-file-src/lib.rs-open");
+    assert_eq!(
+        open.interactivity.role,
+        Some(ducktape_view_guest::Role::Button)
+    );
+    assert_eq!(
+        open.interactivity.aria.current,
+        Some(ducktape_view_guest::accesskit::AriaCurrent::True)
+    );
+    assert!(!super::holds(
+        &wire::Node::Container(open),
+        "forge-viewed-src/lib.rs"
+    ));
     cx.simulate_click("forge-files-all");
     cx.run_until_parked();
     view.read(|forge| assert!(forge.nav().diff_path.is_none()));
@@ -590,6 +618,20 @@ fn a_merged_change_lists_the_commits_it_merged() {
         )),
         "{asked:?}"
     );
+}
+
+/// A reader who cannot write (the session dropped) sees the verdicts, and
+/// picks none.
+#[test]
+fn a_reader_without_write_picks_no_verdict() {
+    let (mut cx, view) = change_screen("default", ChangeTab::Files);
+    view.update(&mut cx, |forge, _, cx| {
+        forge.start_review(cx);
+        forge.finishing(true, cx);
+        forge.session.connected = false;
+    });
+    cx.run_until_parked();
+    assert!(super::disabled(&cx, "forge-verdict-approve"));
 }
 
 /// A reader who neither owns nor writes the repository sees Close and Merge

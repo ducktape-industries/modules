@@ -5,7 +5,7 @@ use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{AnyElement, ClickEvent, Context, ParentElement, Styled, Theme, div, px};
 
 use chat::MsgRow;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 
 use super::timeline;
 use crate::composer::Target;
@@ -92,19 +92,13 @@ fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<im
             .items_center()
             .gap_2()
             .child(div().flex_1().child(chat.confirmation.clone()))
-            .child(
-                div()
-                    .id("chat-room-confirmation-dismiss")
-                    .px_1()
-                    .text_color(theme.muted)
-                    .cursor_pointer()
-                    .hover(|style| style.text_color(theme.foreground))
-                    .role(ducktape_view_guest::Role::Button)
-                    .aria_label("Dismiss")
-                    .focusable()
-                    .on_click(dismiss)
-                    .child("✕"),
-            ),
+            .child(design::icon_button(
+                "chat-room-confirmation-dismiss",
+                "✕",
+                "Dismiss",
+                theme,
+                dismiss,
+            )),
     )
 }
 
@@ -351,9 +345,9 @@ fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyE
     let seq = row.seq;
     // seq is per channel: two channels' hits at one seq are two rows
     let key = format!("chat-search-hit-{id}-{seq}");
-    let open = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let open = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
-        chat.open_hit(id.clone(), seq, window, cx)
+        chat.open_hit(id.clone(), seq, cx)
     });
     div()
         .id(key)
@@ -439,9 +433,18 @@ pub fn composer(
             })) as crate::composer::Click),
         ),
     };
-    crate::composer::view::<Chat>(
+    // what the field is; the hint, drawn in it, says what to write
+    let label = match target {
+        Target::Post { thread: None, .. } => "New message",
+        Target::Post {
+            thread: Some(_), ..
+        } => "Reply",
+        Target::Edit { .. } => "Edited message",
+    };
+    crate::composer::view(
         draft,
         &key,
+        label,
         hint,
         commit,
         cancel,

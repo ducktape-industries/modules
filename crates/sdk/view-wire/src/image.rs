@@ -60,35 +60,15 @@ impl ImageData {
     }
 }
 
-// A wire frame is capped at 8 MiB by hosts. Reject a collection header before
-// allocating, even when callers decode ImageData directly. The smaller shared
-// picture allowance is applied by frame sanitization, without truncating data.
+// Bounded by the frame, not the picture allowance: frame sanitization applies
+// that, dropping a picture whole rather than truncating it. A collection header
+// is refused before allocating, even when ImageData is decoded on its own.
 fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-    struct Bytes;
-    impl<'de> serde::de::Visitor<'de> for Bytes {
-        type Value = Vec<u8>;
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("bounded raster bytes")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            const LIMIT: usize = 8 << 20;
-            if seq.size_hint().is_some_and(|size| size > LIMIT) {
-                return Err(serde::de::Error::custom("raster byte limit exceeded"));
-            }
-            let mut bytes = Vec::new();
-            while let Some(byte) = seq.next_element()? {
-                if bytes.len() == LIMIT {
-                    return Err(serde::de::Error::custom("raster byte limit exceeded"));
-                }
-                bytes.push(byte);
-            }
-            Ok(bytes)
-        }
-    }
-    deserializer.deserialize_seq(Bytes)
+    crate::bounded_vec(
+        deserializer,
+        crate::MAX_FRAME_BYTES,
+        "raster byte limit exceeded",
+    )
 }
 
 #[cfg(test)]
@@ -114,7 +94,7 @@ mod tests {
         let mut malicious = vec![0x81, 0xa7];
         malicious.extend_from_slice(b"Encoded");
         malicious.push(0xdd);
-        malicious.extend_from_slice(&((8u32 << 20) + 1).to_be_bytes());
+        malicious.extend_from_slice(&(crate::MAX_FRAME_BYTES as u32 + 1).to_be_bytes());
         let error = crate::decode::<ImageData>(&malicious)
             .unwrap_err()
             .to_string();
@@ -146,59 +126,5 @@ mod tests {
         let mut excess = Some(ImageData::Encoded(vec![1]));
         ImageData::sanitize(&mut excess, &mut budget);
         assert_eq!(excess, None);
-    }
-}
-
-/// Copied native viewer settings; absent values retain the host's defaults.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct ViewerOptions {
-    pub padding: Option<f32>,
-    pub scale_bounds: Option<(f32, f32)>,
-    pub scale_step: Option<f32>,
-}
-impl ViewerOptions {
-    pub(crate) fn sanitize(&mut self) {
-        super::bound_optional(&mut self.padding);
-        if let Some((min, max)) = &mut self.scale_bounds {
-            (*min, *max) = viewer_scale_bounds(f64::from(*min), f64::from(*max));
-        }
-        if let Some(step) = &mut self.scale_step {
-            *step = viewer_scale_bounds(f64::from(*step), f64::from(*step)).0;
-        }
-    }
-}
-
-/// Converts viewer scale bounds to a finite, positive, ordered `f32` range.
-pub fn viewer_scale_bounds(min: f64, max: f64) -> (f32, f32) {
-    let positive = |value: f64| {
-        let value = value as f32;
-        if value.is_nan() {
-            f32::EPSILON
-        } else {
-            value.clamp(f32::EPSILON, f32::MAX)
-        }
-    };
-    let min = positive(min);
-    let max = positive(max);
-    (min.min(max), min.max(max))
-}
-
-#[cfg(test)]
-mod viewer_tests {
-    use super::*;
-    #[test]
-    fn viewer_options_keep_native_positive_ordered_finite_bounds() {
-        let mut options = ViewerOptions {
-            padding: Some(f32::NAN),
-            scale_bounds: Some((f32::INFINITY, f32::NAN)),
-            scale_step: Some(f32::NEG_INFINITY),
-        };
-        options.sanitize();
-        assert_eq!(options.padding, Some(0.0));
-        assert_eq!(options.scale_bounds, Some((f32::EPSILON, f32::MAX)));
-        assert_eq!(options.scale_step, Some(f32::EPSILON));
-        options.scale_bounds = Some((4.0, 0.5));
-        options.sanitize();
-        assert_eq!(options.scale_bounds, Some((0.5, 4.0)));
     }
 }

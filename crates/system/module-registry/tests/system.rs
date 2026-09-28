@@ -52,6 +52,8 @@ fn program(name: &str) -> Vec<u8> {
 const PROBE: &[u8] = include_bytes!("fixture_probe.wasm");
 const NETWORK: &[u8] = b"net";
 const EPOCH_LENGTH: u64 = 4;
+/// Room for a resident or two beside the two founding validators.
+const MEMBER_CAP: u32 = 8;
 const TIME: u64 = 1_700_000_000_000;
 const PROBE_SIGNER: u64 = 9;
 
@@ -109,11 +111,16 @@ struct Net {
 
 impl Net {
     async fn found(context: Ctx, dir: &std::path::Path) -> Net {
-        Net::found_with(context, dir, Vec::new()).await
+        Net::found_with(context, dir, Vec::new(), MEMBER_CAP).await
     }
 
-    /// The system set and the probe, then `apps`.
-    async fn found_with(context: Ctx, dir: &std::path::Path, apps: Vec<Founding>) -> Net {
+    /// The system set and the probe, then `apps`, under `member_cap`.
+    async fn found_with(
+        context: Ctx,
+        dir: &std::path::Path,
+        apps: Vec<Founding>,
+        member_cap: u32,
+    ) -> Net {
         let genesis = Genesis {
             network: NETWORK.to_vec(),
             roles: Roles {
@@ -138,6 +145,7 @@ impl Net {
             limits: Limits::default(),
             epoch_length: EPOCH_LENGTH,
             time: TIME,
+            member_cap,
         };
         let (host, applied) = Host::found(context, "net", dir, block_id(0), genesis)
             .await

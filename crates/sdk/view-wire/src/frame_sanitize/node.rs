@@ -25,10 +25,21 @@ pub(super) fn sanitize_node(
     }
     if let Node::Container(crate::ContainerNode { interactivity, .. })
     | Node::UniformList { interactivity, .. }
+    | Node::List { interactivity, .. }
+    | Node::ResizeHandle { interactivity, .. }
     | Node::Image { interactivity, .. }
     | Node::Svg { interactivity, .. } = node
     {
-        sanitize_interactivity(interactivity);
+        sanitize_interactivity(interactivity)?;
+        // gpui panics (debug) on a second claim in one frame under a
+        // focused node; the first in tree order keeps it.
+        // ponytail: one per frame, where gpui allows one per focused
+        // subtree; count per focusable ancestor when a screen claims in
+        // two composites at once.
+        let aria = &mut interactivity.aria;
+        if aria.active_descendant {
+            aria.active_descendant = !std::mem::replace(&mut budgets.active_descendant, true);
+        }
         if let Some(tooltip) = &mut interactivity.tooltip {
             tooltip.delay_ms = tooltip.delay_ms.min(60_000);
             sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;
@@ -78,9 +89,8 @@ fn sanitize_fields(
     match node {
         Node::Container(crate::ContainerNode { style, .. })
         | Node::ResizeHandle { style, .. }
-        | Node::Rule { style, .. }
+        | Node::Sensor { style, .. }
         | Node::Space { style } => style_sanitize::sanitize(style),
-        Node::Responsive { .. } | Node::Lazy { .. } => {}
         Node::UniformList {
             id,
             path,
@@ -125,43 +135,6 @@ fn sanitize_fields(
             *range_start = (*range_start).min(*item_count);
             children.truncate(MAX_LIST_ROWS.min(item_count.saturating_sub(*range_start)));
         }
-        Node::Sensor {
-            style,
-            reset,
-            anticipate,
-            delay,
-            ..
-        } => {
-            style_sanitize::sanitize(style);
-            if let Some(value) = reset
-                && !value.bound(0, budgets, false)
-            {
-                *reset = None;
-            }
-            bound_optional(anticipate);
-            if let Some(delay) = delay {
-                *delay = finite(*delay).max(0.0);
-            }
-        }
-        Node::MouseArea { label, .. } => label.iter_mut().for_each(truncate_string),
-        Node::Float {
-            x, y, scale, style, ..
-        } => {
-            *x = finite(*x).clamp(-MAX_PIXELS, MAX_PIXELS);
-            *y = finite(*y).clamp(-MAX_PIXELS, MAX_PIXELS);
-            *scale = finite(*scale).clamp(f32::EPSILON, MAX_PIXELS);
-            style_sanitize::sanitize(style);
-        }
-        Node::Tooltip {
-            delay_ms,
-            style,
-            children,
-            ..
-        } => {
-            style_sanitize::sanitize(style);
-            *delay_ms = (*delay_ms).min(60_000);
-            children.truncate(2);
-        }
         Node::Overlay {
             label,
             style,
@@ -194,24 +167,6 @@ fn sanitize_fields(
             }
         }
         Node::Deferred { priority, .. } => *priority = (*priority).min(16),
-        Node::When { condition, .. } => condition.sanitize(),
-        Node::Scroll {
-            bar_width,
-            bar_margin,
-            scroller_width,
-            bar_spacing,
-            style,
-            ..
-        } => {
-            for number in [bar_width, bar_margin, scroller_width, bar_spacing] {
-                bound_optional(number);
-            }
-            style_sanitize::sanitize(style);
-        }
-        Node::Qr { code, style, .. } => {
-            code.sanitize(budgets);
-            style_sanitize::sanitize(style);
-        }
         Node::RichText {
             style,
             text,
@@ -227,29 +182,9 @@ fn sanitize_fields(
                 sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;
             }
         }
-        Node::Text(crate::TextNode {
-            style,
-            content,
-            heading,
-            ..
-        }) => {
+        Node::Text(crate::TextNode { style, content, .. }) => {
             style_sanitize::sanitize(style);
             spend_text(content, budgets);
-            if heading.is_some_and(|level| !(1..=6).contains(&level)) {
-                *heading = None;
-            }
-        }
-        Node::ImageViewer {
-            data,
-            label,
-            options,
-            style,
-            ..
-        } => {
-            ImageData::sanitize(data, budgets);
-            label.iter_mut().for_each(truncate_string);
-            options.sanitize();
-            style_sanitize::sanitize(style);
         }
         Node::Image {
             data,
@@ -278,7 +213,6 @@ fn sanitize_fields(
             transformation,
             label,
             style,
-            interactivity,
             ..
         } => {
             match source {
@@ -294,7 +228,6 @@ fn sanitize_fields(
             }
             transformation.rotate = signed_bounded(transformation.rotate);
             style_sanitize::sanitize(style);
-            sanitize_interactivity(interactivity);
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
@@ -323,105 +256,12 @@ fn sanitize_fields(
         } => {
             style_sanitize::sanitize(style);
             if let Some(presentation) = &mut options.presentation {
-                presentation.sanitize(budgets);
-            }
-            if let Some(rich) = &mut options.rich {
-                for item in &mut rich.toolbar {
-                    spend_text(&mut item.label, budgets);
-                }
+                presentation.sanitize();
             }
             spend_text(placeholder, budgets);
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
-        }
-        Node::Button {
-            content,
-            label,
-            description,
-            style,
-            ..
-        } => {
-            if let ButtonContent::Label(label) = content {
-                spend_text(label, budgets);
-            }
-            label.iter_mut().for_each(truncate_string);
-            if let Some(description) = description {
-                spend_text(description, budgets);
-            }
-            style_sanitize::sanitize(style);
-        }
-        Node::Toggle { label, style, .. } | Node::Radio { label, style, .. } => {
-            spend_text(label, budgets);
-            style_sanitize::sanitize(style);
-        }
-        Node::Slider {
-            label,
-            value,
-            min,
-            max,
-            step,
-            style,
-            ..
-        } => {
-            label.iter_mut().for_each(truncate_string);
-            for number in [value, min, max, step] {
-                *number = finite(*number);
-            }
-            style_sanitize::sanitize(style);
-        }
-        Node::ComboBox {
-            state_key,
-            options,
-            selected,
-            placeholder,
-            label,
-            settings,
-            style,
-            ..
-        } => {
-            spend_text(state_key, budgets);
-            settings.sanitize(budgets);
-            style_sanitize::sanitize(style);
-            menu_options(options, selected, budgets);
-            spend_text(placeholder, budgets);
-            label.iter_mut().for_each(truncate_string);
-        }
-        Node::PickList {
-            settings,
-            options,
-            selected,
-            placeholder,
-            label,
-            style,
-            ..
-        } => {
-            label.iter_mut().for_each(truncate_string);
-            settings.sanitize(budgets);
-            style_sanitize::sanitize(style);
-            menu_options(options, selected, budgets);
-            if let Some(placeholder) = placeholder {
-                spend_text(placeholder, budgets);
-            }
-        }
-        Node::Progress {
-            value,
-            min,
-            max,
-            style,
-            ..
-        } => {
-            for number in [value, min, max] {
-                *number = finite(*number);
-            }
-            style_sanitize::sanitize(style);
-        }
-        Node::Surface {
-            name, args, style, ..
-        } => {
-            spend_text(name, budgets);
-            style_sanitize::sanitize(style);
-            surface_args(args, budgets);
         }
     }
     Ok(())
@@ -488,35 +328,6 @@ fn list_commands(commands: &mut Vec<ListCommand>, item_count: usize) {
     }
 }
 
-/// A menu's options: at most [`MAX_OPTIONS`], each spent from the frame's
-/// text budget, and a selection that points past them dropped.
-fn menu_options(options: &mut Vec<String>, selected: &mut Option<u32>, budgets: &mut Budgets) {
-    options.truncate(MAX_OPTIONS);
-    for option in options.iter_mut() {
-        spend_text(option, budgets);
-    }
-    if selected.is_some_and(|index| index as usize >= options.len()) {
-        *selected = None;
-    }
-}
-
-/// A surface's arguments: at most [`MAX_SURFACE_ARGS`], cut where the frame's
-/// surface values run out, and a value past its own bounds made `Unit`.
-fn surface_args(args: &mut Vec<SurfaceValue>, budgets: &mut Budgets) {
-    args.truncate(MAX_SURFACE_ARGS);
-    let mut kept = 0;
-    for value in args.iter_mut() {
-        if budgets.surface_values == 0 {
-            break;
-        }
-        if !value.bound(0, budgets, false) {
-            *value = SurfaceValue::Unit;
-        }
-        kept += 1;
-    }
-    args.truncate(kept);
-}
-
 /// The children, in tree order, on what is left of the node budget.
 fn sanitize_children(
     node: &mut Node,
@@ -530,8 +341,6 @@ fn sanitize_children(
     // lay out, rather than ten thousand empty nodes it still has to walk.
     if let Node::Container(crate::ContainerNode { children, .. })
     | Node::List { children, .. }
-    | Node::When { children, .. }
-    | Node::Tooltip { children, .. }
     | Node::Overlay { children, .. }
     | Node::Anchored { children, .. }
     | Node::Image {

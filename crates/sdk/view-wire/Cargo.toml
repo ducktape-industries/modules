@@ -2,38 +2,35 @@
 # tree out, meaning-level events in, requests and responses beside. The guest
 # half is here (`view-guest` and the views under `crates/app/*-view`); the host
 # half is the app repo, which pins this crate by git rev. The format is ours,
-# and `tests/golden.rs` holds its bytes: a shape change trips the golden and
-# starts a new `WIRE_EPOCH`, which is what a host checks a view's `.wasm` against
-# before running it.
+# and `tests/golden.rs` holds it: the bytes of what its fixtures sample, and the
+# shape of every type that crosses (`schema.txt`). A change to either trips the
+# golden until it is regenerated, and `build.rs` hashes all of it into
+# `WIRE_ID`, which a host checks a view's `.wasm` against before running it.
 [package]
 name = "view-wire"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [features]
 # Reads the manifest custom section out of a built view: host-only, so the
 # guests skip `wasmparser` entirely.
 manifest = ["dep:wasmparser"]
-# Derives a view's snapshot layout from its own serde impls. A dev-dependency
-# feature: the tracer never enters wasm, so a guest builds without either crate.
-schema = ["dep:serde-reflection", "dep:sha2"]
+# Derives borsh's schema on every method type, for the golden's
+# `schema.txt`: the tests turn it on, nothing built for a guest does.
+schema = ["borsh/unstable__schema", "error/schema", "describe/schema"]
 
 [dependencies]
 wasmparser = { version = "0.251", optional = true }
-serde-reflection = { version = "0.6", optional = true }
-sha2 = { version = "0.10", optional = true }
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
 gpui.workspace = true
+# No code use: enables serde on gpui's re-exported accesskit types (Role,
+# Toggled, Live, Action, ActionData, ...), which `Interactivity`, `Aria` and
+# `Event::A11yAction` serialize.
 accesskit = { version = "0.24.0", features = ["serde"] }
 rmp-serde = "1"
-# The data plane: every host method carries borsh, the codec the program abi is
-# written in, so a program's bytes ride a method without a second encoding.
-borsh = { version = "1", default-features = false, features = ["derive", "std"] }
+borsh.workspace = true
 slotmap = "1.0.6"
 uuid = "1.1.2"
-# `task` and `subscription` share the SDK futures runtime.
-futures = "0.3"
-design = { path = "../design" }
 # `Error` is the one error type: the same for an error a module wrote and one
 # the host wrote.
 error = { workspace = true, features = ["serde"] }
@@ -50,3 +47,8 @@ rmp-serde = { version = "1", features = ["typed"] }
 [dev-dependencies]
 # The readable twin of the golden fixtures.
 serde_json.workspace = true
+# `schema.txt`: the tree's shape traced through serde, the methods' through
+# borsh's schema (the `schema` feature, on for this crate's own tests).
+serde-reflection = "0.6"
+borsh = { workspace = true, features = ["unstable__schema"] }
+view-wire = { path = ".", features = ["schema"] }

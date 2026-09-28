@@ -7,7 +7,7 @@ data through a fixed table of methods. This page is the whole surface.
 ## What is gpui and what is ours
 
 The rule: we re-implement only what touches the host or the wire; everything
-else is the gpui fork `Cargo.toml` pins (`gpui-pre`, rev `5545e01`),
+else is the gpui fork `Cargo.toml` pins (`gpui-pre`, at the rev it names),
 re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
 `Hsla`, `StyleRefinement`, `Styled`, `ElementId`, `SharedString`, the
 `*Event` types, `Role`, ...). Ours, defined in this crate:
@@ -16,13 +16,18 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
   `Task` (`src/executor.rs`), `Window` (`src/window.rs`): the entity graph
   and the tick loop run inside the guest, so the host never sees a closure.
 - `div`, `uniform_list`, `list`, `Input`, `Editor`, `img`/`Img`, `svg`/`Svg`,
-  `canvas`/`Canvas`, `surface`, `InteractiveText`/`StyledText`, `sensor`,
+  `canvas`/`Canvas`, `InteractiveText`/`StyledText`, `sensor`,
   `resize_handle`, `modal_overlay` (`src/element.rs`, `src/list.rs`,
   `src/editor.rs`, `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
   crossed as per-frame indices.
+- A control is named from birth: `Input::new(id, label)`,
+  `EditorElement::new(…, label)`, `modal_overlay(id, label, …)`, and
+  `design`'s `segmented`, `icon_button` and `divider` take the words
+  assistive technology reads; the audit catches one given none.
 - `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`
-  (`src/interactivity.rs`): listeners and focus become wire routes.
+  (`src/interactivity.rs`): listeners and
+  focus become wire routes.
 
 ## The methods
 
@@ -51,18 +56,20 @@ change. Read "who am I" from `account`; no view asks identity for it.
 ## Lifecycle, snapshot
 
 `View` (`src/view.rs`): `new(window, cx)` on first mount, `restored` after a
-snapshot came back, `PREFERRED_WINDOW_SIZE` as `"w,h"` or `"none"`. The
-snapshot is the view's own serde (`src/snapshot.rs`), refused while work is
-pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
-`view-wire/src/snapshot.rs`). Derive `Serialize`/`Deserialize` and keep
+snapshot came back, `MIN_WINDOW_WIDTH` the narrowest width in px it works at
+(default 480, `1..=8192` or it does not compile): the app never lays it out
+narrower, and a narrower window scrolls it sideways. The
+snapshot is the view's own serde as the wire's named MessagePack
+(`src/snapshot.rs`), refused while work is pending; a host holds it to
+`view_wire::MAX_SNAPSHOT_BYTES` (8 MiB, `view-wire/src/snapshot.rs`). Derive `Serialize`/`Deserialize` and keep
 `Task`s out of the state (`Loadable` does).
 
 ## Exporting
 
-`export_view!(View, "Name", "description", [Module, Host])` (`src/view.rs`)
+`export_view!(View, "Name", "description", [Module, Host])` (`src/lib.rs`)
 writes the five wasm exports and the manifest section `ducktape.view.manifest`
 (`view-wire/src/manifest.rs`: header, name, description, capabilities,
-preferred size, `WIRE_EPOCH`). Each capability is a `methods::Capability`
+`MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`). Each capability is a `methods::Capability`
 variant, the `<capability>` half of the kinds the view asks through; another
 name is a compile error.
 
@@ -72,13 +79,18 @@ import, `ducktape_view.panicked`, and exactly five function exports,
 view in `VIEWS`, runs `wasm-opt`, checks the ABI and prints the size;
 `make view-wasm-check`
 proves nothing in `VIEW_LINKABLE` reaches `VIEW_FORBIDDEN`. Wire bytes are
-pinned by `view-wire/tests/golden.rs`: a shape change is a new `WIRE_EPOCH`.
+pinned by `view-wire/tests/golden.rs`: a shape change fails it until the
+fixtures are regenerated with `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID`
+(`view-wire/build.rs` hashes them); a host refuses a view built against
+another.
 
 ## Testing
 
 `testing::TestAppContext` (`src/testing/context.rs`) opens a view over a
 `FakeHost` (`src/testing/fake_host.rs`): `handle::<Method>`, `refuse`,
-`stream`, `requests`; then `simulate_click`, `texts`, `assert_accessible`.
+`stream`, `requests`; then `simulate_click`, `texts`.
+Every frame the view sends is held to `view_wire::audit`: a fault panics with
+its kind and key path, so each screen a test reaches is gated.
 It holds the view to its `export_view!` capabilities as the app does: a method
 whose capability the manifest leaves out panics with `undeclared_capability`.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,

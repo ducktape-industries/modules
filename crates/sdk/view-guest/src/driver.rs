@@ -1,4 +1,7 @@
-use super::*;
+use crate::context::Callback;
+use crate::{
+    App, Context, Entity, Host, IntoElement, Lowering, Theme, View, executor, px, slots, wire,
+};
 
 const MAX_ROUNDS: usize = 8;
 
@@ -21,12 +24,9 @@ impl<V: View> Default for Driver<V> {
 }
 impl<V: View> Driver<V> {
     pub fn new() -> Self {
-        Self::initialize(None).expect("view initializes")
+        Self::initialize_in(App::for_driver(), None)
     }
-    pub(crate) fn initialize(restored: Option<V>) -> Result<Self, String> {
-        Self::initialize_in(App::for_driver(), restored)
-    }
-    pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Result<Self, String> {
+    pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Self {
         let entity = Entity::reserve(&app);
         let mut window = app.window();
         let mut cx = Context {
@@ -41,12 +41,12 @@ impl<V: View> Driver<V> {
             None => V::new(&mut window, &mut cx),
         };
         *entity.value.borrow_mut() = Some(value);
-        Ok(Self {
+        Self {
             app,
             entity,
             last_root: None,
             busy: false,
-        })
+        }
     }
     pub fn entity(&self) -> Entity<V> {
         self.entity.clone()
@@ -60,11 +60,14 @@ impl<V: View> Driver<V> {
     /// A frame with the whole tree in it, patched or not: what a test reads.
     /// The host gets [`Driver::tick_wire`]'s, which leaves the tree out
     /// when the host can keep or patch its own.
+    /// It is held to the host's sanitizer and to `view_wire::audit`, as a
+    /// test's frames are.
     pub fn tick(&mut self, events: Vec<wire::Event>) -> wire::Frame {
         let mut frame = self.tick_wire(events);
         if frame.root.is_none() {
             frame.root = self.last_root.clone();
         }
+        crate::testing::assert_frame_accessible(&frame);
         frame
     }
 
@@ -96,17 +99,11 @@ impl<V: View> Driver<V> {
     /// back for the view to run; everything else has already happened.
     fn dispatch(&mut self, event: wire::Event) -> Option<Callback<V>> {
         match event {
-            wire::Event::Observation { .. }
-            | wire::Event::Mouse { .. }
-            | wire::Event::Keyboard { .. } => None,
             wire::Event::Message(index) => {
                 let slots = self.app.inner.slots.clone();
                 let mut window = self.app.window();
-                if slots::run_message_route(&slots, index, &mut window, &mut self.app) {
-                    None
-                } else {
-                    slots::take_message::<Callback<V>>(&slots, index)
-                }
+                slots::run_message_route(&slots, index, &mut window, &mut self.app);
+                None
             }
             wire::Event::Click { handler, event } | wire::Event::AuxClick { handler, event } => {
                 let slots = self.app.inner.slots.clone();
@@ -156,9 +153,6 @@ impl<V: View> Driver<V> {
                 self.tooltip(request, character_index);
                 None
             }
-            wire::Event::Surface { handler, value } => {
-                self.route_or_handle(handler, value, |value| value)
-            }
             wire::Event::Input { handler, text } => {
                 self.route_or_handle(handler, text, |text| text)
             }
@@ -180,15 +174,6 @@ impl<V: View> Driver<V> {
             wire::Event::EditorTransaction { handler, event } => {
                 self.editor_transaction(handler, event)
             }
-            wire::Event::Toggle { handler, on } => self.handle(handler, on),
-            wire::Event::Slide { handler, value } => self.handle(handler, value),
-            wire::Event::Pointer { handler, x, y } => self.handle(handler, (x, y)),
-            wire::Event::Scroll {
-                handler,
-                dx,
-                dy,
-                pixels,
-            } => self.handle(handler, (dx, dy, pixels)),
             wire::Event::ScrollOffset {
                 handler,
                 x,
@@ -202,10 +187,12 @@ impl<V: View> Driver<V> {
                 start,
                 end,
             } => {
-                if self
-                    .app
-                    .request_uniform_list_range(path, route, start as usize, end as usize)
-                {
+                if self.app.inner.uniform_lists.request_range(
+                    path,
+                    route,
+                    start as usize,
+                    end as usize,
+                ) {
                     self.app.notify();
                 }
                 None
@@ -217,7 +204,7 @@ impl<V: View> Driver<V> {
                 scrollable,
                 scrolled_to_end,
             } => {
-                self.app.update_uniform_list_state(
+                self.app.inner.uniform_lists.update_state(
                     &path,
                     route,
                     top_index as usize,
@@ -246,6 +233,7 @@ impl<V: View> Driver<V> {
                 self.app.notify();
                 None
             }
+            wire::Event::A11yAction { handler, data } => self.route(handler, &data),
         }
     }
 
@@ -266,7 +254,7 @@ impl<V: View> Driver<V> {
         }
     }
 
-    fn handle<H: 'static>(&mut self, handler: u32, value: H) -> Option<Callback<V>> {
+    fn handle<H: 'static>(&self, handler: u32, value: H) -> Option<Callback<V>> {
         slots::run_handler::<H, Callback<V>>(&self.app.inner.slots, handler, value)
     }
 
@@ -292,7 +280,7 @@ impl<V: View> Driver<V> {
     }
 
     fn editor_document(
-        &mut self,
+        &self,
         handler: u32,
         message: wire::editor_document::EditorDocumentMessage,
     ) -> Option<Callback<V>> {
@@ -308,23 +296,16 @@ impl<V: View> Driver<V> {
     }
 
     fn editor_transaction(
-        &mut self,
+        &self,
         handler: u32,
         event: wire::EditorTransactionEvent,
     ) -> Option<Callback<V>> {
-        if let wire::EditorTransactionEvent::Fault { id, .. }
-        | wire::EditorTransactionEvent::Cancelled { id, .. } = &event
-        {
-            slots::finish_editor_transfer(
-                &self.app.inner.slots,
-                &wire::editor_document::EditorTransferId {
-                    instance: id.instance,
-                    document: id.document.clone(),
-                    reset: id.reset,
-                    serial: id.sequence,
-                    attempt: id.attempt,
-                },
-            );
+        if matches!(
+            event,
+            wire::EditorTransactionEvent::Fault { .. }
+                | wire::EditorTransactionEvent::Cancelled { .. }
+        ) {
+            slots::finish_editor_transfer(&self.app.inner.slots, &event.id().into());
         }
         if let wire::EditorTransactionEvent::Cancelled { id, .. } = &event {
             if !slots::editor_matches_pending(&self.app.inner.slots, id) {
@@ -366,8 +347,6 @@ impl<V: View> Driver<V> {
             editor_decisions,
             editor_documents: slots::take_editor_documents(&self.app.inner.slots),
             tooltip_responses: slots::take_tooltip_responses(&self.app.inner.slots),
-            mouse_interest: slots::mouse_interest(&self.app.inner.slots),
-            event_interest: slots::event_interest(&self.app.inner.slots),
             root,
             patches,
             requests: self.app.host().drain_outbox(),
@@ -431,7 +410,7 @@ impl<V: View> Driver<V> {
                 source: wire::SvgSource::Data { bytes, .. },
                 ..
             } => *bytes = None,
-            wire::Node::Image { data, .. } | wire::Node::ImageViewer { data, .. } => *data = None,
+            wire::Node::Image { data, .. } => *data = None,
             _ => {}
         });
         self.last_root = Some(kept);

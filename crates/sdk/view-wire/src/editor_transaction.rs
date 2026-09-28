@@ -1,4 +1,5 @@
-//! Atomic editor patch validation shared by native and guest transaction lanes.
+//! Editor transaction protocol: patches, key claims, requests, decisions and
+//! their bounded decoders.
 use serde::{Deserialize, Serialize};
 
 use crate::EditorCursor;
@@ -76,6 +77,223 @@ pub fn patched_editor_text(
         return Err(EditorPatchError::Cursor);
     }
     Ok(result)
+}
+
+/// Explicit claims are evaluated by the native host after IME processing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditorKeyClaim {
+    pub key: crate::keyboard::Key,
+    pub modifiers: gpui::Modifiers,
+    /// Add the host platform's command modifier (platform on macOS, control elsewhere).
+    pub command: bool,
+}
+impl EditorKeyClaim {
+    pub fn matches(&self, key: &crate::keyboard::KeyState, macos: bool) -> bool {
+        let mut modifiers = self.modifiers;
+        if self.command {
+            if macos {
+                modifiers.platform = true;
+            } else {
+                modifiers.control = true;
+            }
+        }
+        self.key == key.key && modifiers == key.modifiers
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditorBinding {
+    #[serde(deserialize_with = "decode_claims")]
+    pub claims: Vec<EditorKeyClaim>,
+    pub on_request: u32,
+    pub on_event: u32,
+}
+
+/// The response must echo all fields, including the retry attempt and observation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditorTransactionId {
+    pub instance: u64,
+    #[serde(deserialize_with = "decode_name")]
+    pub document: String,
+    pub reset: u64,
+    pub sequence: u64,
+    pub attempt: u32,
+    pub text_revision: u64,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditorRequest {
+    pub id: EditorTransactionId,
+    pub state: crate::editor_document::EditorDocumentRef,
+    pub input: EditorRequestInput,
+    pub input_time_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorRequestInput {
+    Key {
+        key: crate::keyboard::KeyState,
+        repeat: bool,
+    },
+    Interaction {
+        action: crate::editor_presentation::EditorInteraction,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorHistoryEffect {
+    Native,
+    NewGroup,
+    ExtendPrevious,
+    Undo,
+    Redo,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorEditKind {
+    Insert,
+    Backspace,
+    Cursor,
+    GuestPatch,
+    Undo,
+    Redo,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorDecision {
+    DefaultEditorAction,
+    Noop,
+    Apply {
+        #[serde(deserialize_with = "decode_patches")]
+        patches: Vec<EditorPatch>,
+        cursor: EditorCursor,
+        history: EditorHistoryEffect,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditorResponse {
+    pub id: EditorTransactionId,
+    pub decision: EditorDecision,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorFault {
+    Overflow,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorTransactionEvent {
+    Interaction {
+        id: EditorTransactionId,
+        state: crate::editor_document::EditorDocumentRef,
+        action: crate::editor_presentation::EditorInteraction,
+        input_time_ms: u64,
+    },
+    Commit {
+        id: EditorTransactionId,
+        /// The exact accepted request; unclaimed native edits have no origin.
+        origin: Option<EditorRequestInput>,
+        before: crate::editor_document::EditorDocumentRef,
+        after: crate::editor_document::EditorDocumentRef,
+        #[serde(deserialize_with = "decode_patches")]
+        patches: Vec<EditorPatch>,
+        kind: EditorEditKind,
+        history: EditorHistoryEffect,
+        input_time_ms: u64,
+    },
+    Fault {
+        id: EditorTransactionId,
+        state: crate::editor_document::EditorDocumentRef,
+        reason: EditorFault,
+    },
+    Cancelled {
+        id: EditorTransactionId,
+        state: crate::editor_document::EditorDocumentRef,
+    },
+}
+
+impl EditorTransactionEvent {
+    pub fn id(&self) -> &EditorTransactionId {
+        match self {
+            Self::Interaction { id, .. }
+            | Self::Commit { id, .. }
+            | Self::Fault { id, .. }
+            | Self::Cancelled { id, .. } => id,
+        }
+    }
+}
+
+pub const MAX_EDITOR_CLAIMS: usize = 32;
+pub const MAX_EDITOR_RESPONSES: usize = 128;
+
+fn decode_claims<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorKeyClaim>, D::Error> {
+    crate::bounded_vec(d, MAX_EDITOR_CLAIMS, "editor claim limit")
+}
+fn decode_patches<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorPatch>, D::Error> {
+    crate::bounded_vec(d, MAX_EDITOR_PATCHES, "editor patch limit")
+}
+pub(crate) fn decode_responses<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<EditorResponse>, D::Error> {
+    crate::bounded_vec(d, MAX_EDITOR_RESPONSES, "editor response limit")
+}
+
+thread_local! {
+    static REPLACEMENT_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+pub(crate) fn reset_decode_budget() {
+    REPLACEMENT_BYTES.with(|bytes| bytes.set(0));
+}
+fn decode_replacement<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    decode_text(d, MAX_EDITOR_PATCH_BYTES, true)
+}
+/// A document id, tag, label, kind or attribute: a name, not a document.
+pub(crate) const MAX_EDITOR_NAME_BYTES: usize = 1024;
+pub(crate) fn decode_name<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    decode_text(d, MAX_EDITOR_NAME_BYTES, false)
+}
+fn decode_text<'de, D: serde::Deserializer<'de>>(
+    d: D,
+    limit: usize,
+    replacement: bool,
+) -> Result<String, D::Error> {
+    struct Text {
+        limit: usize,
+        replacement: bool,
+    }
+    impl<'de> serde::de::Visitor<'de> for Text {
+        type Value = String;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("bounded editor text")
+        }
+        fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<String, E> {
+            if value.len() > self.limit {
+                return Err(E::custom("editor text limit"));
+            }
+            if self.replacement {
+                let accepted = REPLACEMENT_BYTES.with(|bytes| {
+                    match bytes
+                        .get()
+                        .checked_add(value.len())
+                        .filter(|n| *n <= MAX_EDITOR_PATCH_BYTES)
+                    {
+                        Some(next) => {
+                            bytes.set(next);
+                            true
+                        }
+                        None => false,
+                    }
+                });
+                if !accepted {
+                    return Err(E::custom("editor aggregate replacement limit"));
+                }
+            }
+            Ok(value.to_owned())
+        }
+    }
+    d.deserialize_str(Text { limit, replacement })
 }
 
 #[cfg(test)]
@@ -190,278 +408,6 @@ mod tests {
             );
         }
     }
-}
-
-/// Explicit claims are evaluated by the native host after IME processing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditorKeyClaim {
-    pub key: crate::keyboard::Key,
-    pub modifiers: crate::keyboard::Modifiers,
-    /// Add the host platform's command modifier (logo on macOS, control elsewhere).
-    pub command: bool,
-}
-impl EditorKeyClaim {
-    pub fn matches(&self, key: &crate::keyboard::KeyState, macos: bool) -> bool {
-        let mut modifiers = self.modifiers;
-        if self.command {
-            if macos {
-                modifiers.logo = true;
-            } else {
-                modifiers.control = true;
-            }
-        }
-        self.key == key.key && modifiers == key.modifiers
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditorBinding {
-    /// An authored factory owns its routes; plain renderings inherit a document factory.
-    pub authored: bool,
-    #[serde(deserialize_with = "decode_claims")]
-    pub claims: Vec<EditorKeyClaim>,
-    pub on_request: u32,
-    pub on_event: u32,
-}
-
-/// The response must echo all fields, including the retry attempt and observation.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditorTransactionId {
-    pub instance: u64,
-    #[serde(deserialize_with = "decode_document")]
-    pub document: String,
-    pub reset: u64,
-    pub sequence: u64,
-    pub attempt: u32,
-    pub text_revision: u64,
-    pub revision: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditorRequest {
-    pub id: EditorTransactionId,
-    pub state: crate::editor_document::EditorDocumentRef,
-    pub input: EditorRequestInput,
-    pub input_time_ms: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EditorRequestInput {
-    RichEdit {
-        edit: Box<crate::editor_rich::RichEdit>,
-    },
-    Key {
-        key: crate::keyboard::KeyState,
-        repeat: bool,
-    },
-    Interaction {
-        action: crate::editor_presentation::EditorInteraction,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EditorHistoryEffect {
-    Native,
-    NewGroup,
-    ExtendPrevious,
-    Undo,
-    Redo,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EditorEditKind {
-    Insert,
-    Paste,
-    ImeCommit,
-    Enter,
-    Backspace,
-    Delete,
-    Indent,
-    Unindent,
-    Cut,
-    Cursor,
-    GuestPatch,
-    Undo,
-    Redo,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EditorDecision {
-    DefaultEditorAction,
-    Noop,
-    Apply {
-        #[serde(deserialize_with = "decode_patches")]
-        patches: Vec<EditorPatch>,
-        cursor: EditorCursor,
-        history: EditorHistoryEffect,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditorResponse {
-    pub id: EditorTransactionId,
-    pub decision: EditorDecision,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EditorFault {
-    Overflow,
-    Timeout,
-    Conflicts,
-    InvalidResponse,
-    Limit,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EditorTransactionEvent {
-    Interaction {
-        id: EditorTransactionId,
-        state: crate::editor_document::EditorDocumentRef,
-        action: crate::editor_presentation::EditorInteraction,
-        input_time_ms: u64,
-    },
-    Commit {
-        id: EditorTransactionId,
-        /// The exact accepted request; unclaimed native edits have no origin.
-        origin: Option<EditorRequestInput>,
-        before: crate::editor_document::EditorDocumentRef,
-        after: crate::editor_document::EditorDocumentRef,
-        #[serde(deserialize_with = "decode_patches")]
-        patches: Vec<EditorPatch>,
-        kind: EditorEditKind,
-        history: EditorHistoryEffect,
-        input_time_ms: u64,
-    },
-    Fault {
-        id: EditorTransactionId,
-        state: crate::editor_document::EditorDocumentRef,
-        reason: EditorFault,
-    },
-    Cancelled {
-        id: EditorTransactionId,
-        state: crate::editor_document::EditorDocumentRef,
-    },
-}
-
-pub const MAX_EDITOR_CLAIMS: usize = 32;
-pub const MAX_EDITOR_RESPONSES: usize = 128;
-
-pub(crate) fn decode_bounded<'de, D, T, const LIMIT: usize>(
-    deserializer: D,
-) -> Result<Vec<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    struct Bounded<T, const LIMIT: usize>(std::marker::PhantomData<T>);
-    impl<'de, T: Deserialize<'de>, const LIMIT: usize> serde::de::Visitor<'de> for Bounded<T, LIMIT> {
-        type Value = Vec<T>;
-        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("a bounded editor transaction sequence")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            if seq.size_hint().is_some_and(|n| n > LIMIT) {
-                return Err(serde::de::Error::custom("editor transaction count limit"));
-            }
-            let mut out = Vec::new();
-            while let Some(item) = seq.next_element()? {
-                if out.len() == LIMIT {
-                    return Err(serde::de::Error::custom("editor transaction count limit"));
-                }
-                out.push(item);
-            }
-            Ok(out)
-        }
-    }
-    deserializer.deserialize_seq(Bounded::<T, LIMIT>(std::marker::PhantomData))
-}
-fn decode_claims<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorKeyClaim>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_CLAIMS>(d)
-}
-fn decode_patches<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<EditorPatch>, D::Error> {
-    decode_bounded::<D, _, MAX_EDITOR_PATCHES>(d)
-}
-pub(crate) fn decode_responses<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Vec<EditorResponse>, D::Error> {
-    let responses = decode_bounded::<D, _, MAX_EDITOR_RESPONSES>(d)?;
-    let bytes: usize = responses
-        .iter()
-        .map(|response: &EditorResponse| match &response.decision {
-            EditorDecision::Apply { patches, .. } => {
-                patches.iter().map(|patch| patch.replacement.len()).sum()
-            }
-            _ => 0,
-        })
-        .sum();
-    if bytes > MAX_EDITOR_PATCH_BYTES {
-        return Err(serde::de::Error::custom(
-            "editor response aggregate byte limit",
-        ));
-    }
-    Ok(responses)
-}
-
-thread_local! {
-    static REPLACEMENT_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-pub(crate) fn reset_decode_budget() {
-    REPLACEMENT_BYTES.with(|bytes| bytes.set(0));
-}
-fn decode_replacement<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-    decode_text(d, MAX_EDITOR_PATCH_BYTES, true)
-}
-pub(crate) fn decode_document<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-    decode_text(d, 1024, false)
-}
-fn decode_text<'de, D: serde::Deserializer<'de>>(
-    d: D,
-    limit: usize,
-    replacement: bool,
-) -> Result<String, D::Error> {
-    struct Text {
-        limit: usize,
-        replacement: bool,
-    }
-    impl<'de> serde::de::Visitor<'de> for Text {
-        type Value = String;
-        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("bounded editor text")
-        }
-        fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<String, E> {
-            if value.len() > self.limit {
-                return Err(E::custom("editor text limit"));
-            }
-            if self.replacement {
-                let accepted = REPLACEMENT_BYTES.with(|bytes| {
-                    match bytes
-                        .get()
-                        .checked_add(value.len())
-                        .filter(|n| *n <= MAX_EDITOR_PATCH_BYTES)
-                    {
-                        Some(next) => {
-                            bytes.set(next);
-                            true
-                        }
-                        None => false,
-                    }
-                });
-                if !accepted {
-                    return Err(E::custom("editor aggregate replacement limit"));
-                }
-            }
-            Ok(value.to_owned())
-        }
-    }
-    d.deserialize_str(Text { limit, replacement })
-}
-
-#[cfg(test)]
-mod protocol_tests {
-    use super::*;
 
     fn response(replacement: String) -> EditorResponse {
         EditorResponse {
@@ -515,11 +461,10 @@ mod protocol_tests {
     #[test]
     fn decoder_rejects_excess_claims_and_responses() {
         let binding = EditorBinding {
-            authored: true,
             claims: vec![
                 EditorKeyClaim {
                     key: crate::keyboard::Key::Named(crate::keyboard::Named::Tab),
-                    modifiers: crate::keyboard::Modifiers::default(),
+                    modifiers: gpui::Modifiers::default(),
                     command: false,
                 };
                 MAX_EDITOR_CLAIMS + 1

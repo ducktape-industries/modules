@@ -1,14 +1,14 @@
 use super::*;
 
 /// Cuts `text` down to [`MAX_STRING_BYTES`] on a char boundary, in place.
-/// Shared by [`sanitize`] (a guest's outbound frame) and the host's inbound
-/// edit path (a user's keystroke or paste into an [`Node::Input`]) — one
-/// bound on any string either side of the wire sends the other.
+/// The host's bound on a field's inbound text too: what it sends as
+/// `Event::Input` is cut the same way a frame's strings are.
 pub fn truncate_string(text: &mut String) {
     truncate_to(text, MAX_STRING_BYTES);
 }
 
-pub(super) fn truncate_to(text: &mut String, limit: usize) {
+/// Cuts `text` down to `limit` bytes on a char boundary, in place.
+pub(crate) fn truncate_to(text: &mut String, limit: usize) {
     if text.len() <= limit {
         return;
     }
@@ -26,9 +26,6 @@ pub(crate) fn bounded(value: f32) -> f32 {
     }
 }
 
-/// A number that is not a size: a slider or progress value is the app's,
-/// so it is made finite and nothing more. The host clamps it into the range
-/// it lays out.
 /// A pixel measure that may point either way (a paint-only inset), bounded
 /// on both sides; NaN reads as 0.
 pub(crate) fn signed_bounded(value: f32) -> f32 {
@@ -38,15 +35,12 @@ pub(crate) fn signed_bounded(value: f32) -> f32 {
     }
 }
 
+/// A number that is not a size (a list's overdraw, a picture's transform):
+/// it is made finite and nothing more. The host clamps it into the range
+/// it lays out.
 pub(crate) fn finite(value: f32) -> f32 {
     match value.is_nan() {
         true => 0.0,
         false => value.clamp(f32::MIN, f32::MAX),
-    }
-}
-
-pub(crate) fn bound_optional(value: &mut Option<f32>) {
-    if let Some(value) = value {
-        *value = bounded(*value);
     }
 }

@@ -264,7 +264,7 @@ fn grant_field(
         .gap(design::space::SM)
         .items_center()
         .child(
-            Input::new(id("forge-settings-grant-input"))
+            Input::new(id("forge-settings-grant-input"), "Grant write access")
                 .h(design::size::CONTROL)
                 .w(GRANT_W)
                 .px_2()
@@ -274,7 +274,6 @@ fn grant_field(
                 .text_color(theme.foreground)
                 .value(form.grant.clone())
                 .placeholder("Search members")
-                .label("Grant write access")
                 .on_input(typed),
         )
         .child(

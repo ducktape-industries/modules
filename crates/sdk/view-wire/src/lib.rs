@@ -6,29 +6,31 @@
 //! scroll. The guest never learns where anything landed, which is the point:
 //! there is nothing in it to draw with.
 //!
-//! Interaction goes back as MEANING, not input. A button carries the index of
-//! the message the guest queued for it this frame ([`Node::Button`]'s
-//! `on_press`); the host sends [`Event::Message`] with that index and the
-//! guest runs its own handler. A text field carries a handler index; the host
-//! owns the text and sends [`Event::Input`] with what it now reads; a
-//! multiline editor the same, with [`Event::EditorTransaction`]. A
-//! checkbox, slider or pick list likewise carries a handler index and the
-//! host sends the new value ([`Event::Toggle`], [`Event::Slide`],
-//! [`Event::Select`]).
+//! Interaction goes back as MEANING, not input. An element's
+//! [`Interactivity`] carries, per listener (`on_click`, `on_mouse_down`,
+//! `on_key_down`, ...), the index of the handler the guest registered this
+//! frame; the host sends [`Event::Click`], [`Event::MouseDown`],
+//! [`Event::KeyDown`] and the rest with that index and the guest runs its
+//! own handler. A text field carries a handler index; the host owns the text
+//! and sends [`Event::Input`] with what it now reads; a multiline editor the
+//! same, with [`Event::EditorTransaction`]. A rich text's clickable ranges
+//! answer with [`Event::Select`] and the index of the range clicked.
 //!
 //! The types here are the one definition of the format: the guest serializes
 //! them and the host deserializes the same code, so a field neither side can
 //! drop silently. A host that reads a frame from an untrusted module runs
 //! [`sanitize`] first.
 
-/// Exact named-MessagePack protocol implemented by this build. Bump on serialized shape changes,
-/// in the SAME commit as the shape change: a view built against the old shape is
-/// refused at load instead of faulting on its first frame.
-/// This is independent of the calling convention ([`abi`]) and the manifest text format.
-/// `tests/golden.rs` holds the bytes of every node, event and method: it fails on
-/// any change and says to bump this and regenerate with `WIRE_GOLDEN_WRITE=1`.
-/// Within an epoch the methods only grow; a moved or dropped method is a new epoch.
-pub const WIRE_EPOCH: u32 = 1;
+/// The wire this build speaks, computed by `build.rs` from the committed
+/// golden files: the bytes of what the fixtures sample (`frame.bin`,
+/// `methods.bin`) and the shape of every type that crosses (`schema.txt`:
+/// each field and variant the tree reaches, each method's kind, target,
+/// request and reply). No one bumps it by hand: a shape change fails the
+/// golden until it is regenerated, and regenerating moves it. A string's
+/// grammar (a colour, a length) and a method's encode function count only
+/// as far as the fixtures' bytes sample them. A view's manifest carries the
+/// id it was built with, and a host refuses any other.
+pub const WIRE_ID: &str = include!(concat!(env!("OUT_DIR"), "/wire_id.rs"));
 
 /// For `skip_serializing_if`: a value that says nothing is left out.
 pub(crate) fn is_default<T: Default + PartialEq>(value: &T) -> bool {
@@ -38,61 +40,45 @@ pub(crate) fn is_default<T: Default + PartialEq>(value: &T) -> bool {
 pub mod abi;
 pub mod manifest;
 pub mod methods;
-#[cfg(feature = "schema")]
-pub mod schema;
 
 mod sanitization;
 pub use sanitization::SanitizeReport;
 
-mod subscription;
-pub mod task;
-pub use subscription::{Recipe, Subscription};
-pub use task::Task;
-
-use serde::{Deserialize, Serialize};
-
 mod editor;
 pub mod editor_document;
 pub mod editor_presentation;
-pub mod editor_rich;
 pub mod editor_transaction;
 pub use editor_transaction::{
     EditorBinding, EditorDecision, EditorEditKind, EditorFault, EditorHistoryEffect,
     EditorKeyClaim, EditorPatch, EditorPatchError, EditorRequest, EditorRequestInput,
-    EditorResponse, EditorTransactionEvent, EditorTransactionId, MAX_EDITOR_PATCHES,
-    patched_editor_text,
+    EditorResponse, EditorTransactionEvent, EditorTransactionId, patched_editor_text,
 };
 
-pub use editor::{EditorCursor, EditorPosition, EditorState, editor_lines};
+pub use editor::{EditorCursor, EditorPosition, editor_lines, editor_offset, editor_position};
 
 mod image;
-pub use image::{ImageData, ViewerOptions, viewer_scale_bounds};
+pub use image::ImageData;
 
 mod snapshot;
-pub use snapshot::{MAX_SNAPSHOT_BYTES, Snapshot, SnapshotValue};
+pub use snapshot::MAX_SNAPSHOT_BYTES;
 
 mod aria;
 pub mod click;
-pub use aria::Aria;
+pub use aria::{
+    Aria, MAX_ARIA_ACTIONS, MAX_ARIA_CUSTOM_ACTIONS, MAX_ARIA_RELATIONS, MAX_ARIA_TEXT_BYTES,
+};
+/// gpui's own accessibility vocabulary, the one `Aria` and [`Event::A11yAction`] speak.
+pub use gpui::accesskit::{Action, ActionData, AriaCurrent, HasPopup, Invalid, Live};
+mod element_id;
+pub use element_id::{ElementIdAtom, ElementIdWire, MAX_ELEMENT_ID_DEPTH};
 mod style;
 mod style_sanitize;
-pub use style::{
-    ElementIdAtom, ElementIdWire, GroupRefinement, Interactivity, MAX_ELEMENT_ID_DEPTH,
-};
+pub use style::{GroupRefinement, Interactivity};
 
-mod combo;
-pub use combo::{ComboIcon, ComboOptions};
-mod pick;
-pub use pick::{PickHandle, PickIcon, PickOptions};
-
-mod tooltip;
-pub use tooltip::TooltipPosition;
 mod qr;
-pub use qr::{MAX_QR_CODES, MAX_QR_PAYLOAD_BYTES, Qr, QrCorrection, QrSize, QrVersion};
+pub use qr::{Qr, QrCorrection, QrSize, QrVersion};
 mod rich_text;
-pub use rich_text::{
-    HighlightStyle as RichTextHighlightStyle, Runs as RichTextRuns, TextRun as RichTextRun,
-};
+pub use rich_text::{HighlightStyle as RichTextHighlightStyle, Runs as RichTextRuns};
 mod canvas;
 pub mod list;
 pub use canvas::{
@@ -103,52 +89,42 @@ pub use list::{
     ListAlignment, ListCommand, ListKey, ListOffset, ListRequest, ListScroll, ListSizingBehavior,
     MAX_LIST_COMMANDS, MAX_LIST_ITEMS, MAX_LIST_ROWS,
 };
-mod query;
-pub use query::{ContainerQuery, MAX_QUERY_OPS, QueryOp};
-
-mod window;
-pub use window::{WindowCommand, WindowControlArea};
-
 mod widget;
 pub use widget::{WidgetCommand, WidgetTarget};
-
-mod surface;
-pub use surface::{MAX_SURFACE_DEPTH, MAX_SURFACE_VALUES, SurfaceValue, sanitize_surface_event};
 
 mod styled_nodes;
 pub use styled_nodes::{ContainerNode, TextNode};
 mod node;
 pub use node::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, ButtonContent, ImageObjectFit, ImageStyle, Live,
-    Node, Role, SvgSource, SvgTransformation,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Node, SvgSource,
+    SvgTransformation,
 };
 mod accessibility;
-pub use accessibility::{Fault, FaultKind, accessibility_faults};
+pub use accessibility::{Fault, FaultKind, audit};
 mod patch;
 pub use patch::{MAX_PATCHES, Patch, apply, diff};
 
-pub mod events;
 pub mod interactivity;
 pub mod keyboard;
 pub mod mouse;
-pub use interactivity::{
-    DispatchPhase, HoverListenerMode, KeyContext, RichTextTooltip, Tooltip, TooltipResponse,
-};
+pub use interactivity::{DispatchPhase, HoverListenerMode, KeyContext, Tooltip, TooltipResponse};
 
 mod protocol;
-pub use protocol::*;
+pub use protocol::{
+    EditorOptions, Error, Event, Frame, InputOptions, Request, RichTextHover, code,
+};
 
 mod frame_sanitize;
-#[cfg(test)]
-pub(crate) use frame_sanitize::text_amounts;
-pub use frame_sanitize::*;
-pub(crate) use frame_sanitize::{bound_optional, bounded, finite};
+pub(crate) use frame_sanitize::{Budgets, finite, sanitize_tree, spend_text, truncate_to};
+pub use frame_sanitize::{
+    MAX_DEPTH, MAX_FRAME_BYTES, MAX_NODES, MAX_PICTURE_BYTES_PER_FRAME, MAX_PIXELS,
+    MAX_STRING_BYTES, MAX_TEXT_BYTES_PER_FRAME, MAX_TEXT_PIXELS, MAX_UNIFORM_LIST_COUNT,
+    MAX_UNIFORM_LIST_ROWS, sanitize, truncate_string,
+};
 
 mod codec;
-#[cfg(test)]
-pub(crate) use codec::MAX_DECODED_NODES;
-pub(crate) use codec::{budget, decode_child, decode_children};
-pub use codec::{decode, encode, encoded_size, encoded_size_exceeds};
+pub use codec::{MAX_DECODED_NODES, decode, encode, encoded_size, try_encode};
+pub(crate) use codec::{bounded_vec, budget, decode_child, decode_children};
 
 #[cfg(test)]
 mod tests;

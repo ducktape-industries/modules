@@ -14,6 +14,17 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
     assert!(cx.has_text("Latest activity") && cx.has_text("Latest transactions"));
     assert!(cx.has_text("Post in #design") && cx.has_text("Ada") && cx.has_text("#3"));
     assert!(cx.has_text("mystery · 4 bytes") && cx.has_text("02020202…0202"));
+    // the page tabs sit in a named tab list
+    let Some(ducktape_view_guest::wire::Node::Container(bar)) = cx.find("explorer-tabs") else {
+        panic!("a tab list");
+    };
+    assert_eq!(
+        (
+            bar.interactivity.role,
+            bar.interactivity.aria.label.as_deref()
+        ),
+        (Some(ducktape_view_guest::Role::TabList), Some("Pages"))
+    );
     assert!(
         cx.has_text("6f6f6f6f…6f6f"),
         "block 11's hash, shortened: {texts:?}"
@@ -32,7 +43,6 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
         }],
         "13 blocks is the whole archive: one page"
     );
-    cx.assert_accessible();
 }
 
 #[test]
@@ -52,7 +62,6 @@ fn a_block_opens_with_its_fields_its_proposer_and_its_transactions() {
         "no receipts: {texts:?}"
     );
     assert!(!texts.iter().any(|t| t.contains("State root")), "{texts:?}");
-    cx.assert_accessible();
     cx.simulate_click("explorer-next");
     cx.run_until_parked();
     assert!(cx.has_text("mystery · 4 bytes"));
@@ -84,7 +93,6 @@ fn a_transaction_shows_its_block_signer_and_operation() {
         cx.has_text("Rejected") && cx.has_text("the inbox is full") && cx.has_text("capacity"),
         "{texts:?}"
     );
-    cx.assert_accessible();
     cx.simulate_click("explorer-from");
     cx.run_until_parked();
     assert!(
@@ -113,7 +121,6 @@ fn a_rejected_transaction_says_so_and_why() {
         !cx.has_text("Accepted") && !cx.has_text("Messages"),
         "{texts:?}"
     );
-    cx.assert_accessible();
 }
 
 #[test]
@@ -147,7 +154,6 @@ fn an_account_shows_its_devices_and_what_it_used_in_the_window() {
     );
     assert!(cx.has_text("Programs used") && cx.has_text("2 tx"));
     assert!(!cx.has_text("mystery · 4 bytes"), "not Ada's");
-    cx.assert_accessible();
 }
 
 #[test]
@@ -162,7 +168,6 @@ fn programs_lists_what_runs_and_what_is_scheduled() {
         cx.has_text("1 view") && cx.has_text("explorer") && cx.has_text("view only"),
         "a view-only entry is listed beside the programs"
     );
-    cx.assert_accessible();
 }
 
 #[test]

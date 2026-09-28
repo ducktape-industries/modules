@@ -118,7 +118,6 @@ fn a_page_copies_its_link_once_the_session_names_a_chain() {
         "duck://testkit-0a1b2c3d/explorer/block/11"
     );
     assert!(cx.has_text("Copied the link."));
-    cx.assert_accessible();
 }
 
 #[test]

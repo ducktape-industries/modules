@@ -4,15 +4,12 @@ use super::{Draft, MentionChoice};
 use crate::context::Callback;
 use crate::prelude::*;
 use crate::{
-    wire, App, EditorDocumentUpdate, EditorElement, EditorElementEvent, EditorTransaction, View,
+    App, EditorDocumentUpdate, EditorElement, EditorElementEvent, EditorTransaction, View, wire,
 };
 use std::rc::Rc;
 
-#[path = "binding_editor.rs"]
-mod binding_editor;
-#[cfg(test)]
-pub(crate) use binding_editor::key_tag;
-use binding_editor::{editor, matching_choices};
+mod editor;
+use editor::{editor, matching_choices};
 
 #[derive(Clone, Debug)]
 pub struct Change {
@@ -24,7 +21,7 @@ pub struct Change {
 
 pub enum Event<V> {
     Document(EditorDocumentUpdate),
-    Transaction(EditorTransaction<Callback<V>>),
+    Transaction(EditorTransaction<V>),
     Committed(Change),
     Action(String),
 }
@@ -84,9 +81,6 @@ impl Draft {
     }
 }
 
-const TEXT_INSET: f32 = design::spacing::MD as f32;
-const CONTROL_INSET: f32 = design::spacing::XXS as f32;
-
 /// Dresses a mark's sign as what it does: bold, italic, code, quote.
 type Face = fn(crate::Div) -> crate::Div;
 
@@ -111,13 +105,14 @@ impl RenderOnce for Mark {
             .flex()
             .items_center()
             .justify_center()
-            .size(px(design::height::CONTROL as f32))
-            .text_size(px(design::type_scale::BODY as f32))
+            .size(crate::design::size::CONTROL)
+            .text_size(crate::design::text::BODY)
             .text_color(theme.muted)
             .child(sign);
         if let Some(on_click) = self.on_click {
             mark = mark
                 .hover(move |style| style.bg(theme.surface_raised).text_color(theme.foreground))
+                .focusable()
                 .on_click(on_click);
         }
         mark
@@ -149,16 +144,16 @@ impl RenderOnce for ActionButton {
             .flex()
             .items_center()
             .justify_center()
-            .h(px(design::height::CONTROL as f32))
+            .h(crate::design::size::CONTROL)
             .px_2()
             .border_1()
             .border_color(border)
             .bg(background)
             .text_color(foreground)
-            .text_size(px(design::type_scale::SECONDARY as f32))
+            .text_size(crate::design::text::SECONDARY)
             .child(self.label);
         if let Some(on_click) = self.on_click {
-            button = button.on_click(on_click);
+            button = button.focusable().on_click(on_click);
         }
         button
     }
@@ -183,7 +178,7 @@ impl RenderOnce for MentionItem {
             .w_full()
             .flex()
             .items_center()
-            .min_h(px(design::height::ROW as f32))
+            .min_h(crate::design::size::ROW)
             .px_2()
             .bg(if self.selected {
                 theme.accent_soft
@@ -195,7 +190,7 @@ impl RenderOnce for MentionItem {
             } else {
                 theme.foreground
             })
-            .text_size(px(design::type_scale::BODY as f32))
+            .text_size(crate::design::text::BODY)
             .child(self.label);
         if let Some(on_click) = self.on_click {
             row = row.on_click(on_click);
@@ -204,9 +199,13 @@ impl RenderOnce for MentionItem {
     }
 }
 
+/// A press that acts on the draft. A pointer press focuses the control it
+/// lands on, so the press hands the keys back to `editor` first: the
+/// typing goes on where it was.
 fn press<V: View + 'static>(
     editable: bool,
     tag: String,
+    editor: &str,
     handle: &Handle<V>,
     cx: &Context<V>,
 ) -> Option<Click> {
@@ -214,8 +213,10 @@ fn press<V: View + 'static>(
         return None;
     }
     let handle = handle.clone();
+    let editor = ElementId::Name(editor.to_owned().into());
     Some(Box::new(cx.listener(
         move |view, _: &ClickEvent, window, cx| {
+            window.focus(editor.clone());
             handle(view, Event::Action(tag.clone()), window, cx);
             cx.notify();
         },
@@ -223,9 +224,12 @@ fn press<V: View + 'static>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn view<V: View + 'static>(
+pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context<V>) + 'static>(
     draft: &Draft,
     key: &str,
+    // what the field is, for assistive technology ("New message"); the
+    // hint is what to write in it ("Message #general") and is drawn
+    label: &str,
     hint: &str,
     // what the commit button says: "Send" for a new message, "Save" for an
     // edit; the composer does not guess from the draft
@@ -236,13 +240,15 @@ pub fn view<V: View + 'static>(
     editable: bool,
     choices: &[MentionChoice],
     cx: &mut Context<V>,
-    handle: impl Fn(&mut V, Event<V>, &mut Window, &mut Context<V>) + 'static,
-) -> impl IntoElement {
+    handle: F,
+) -> impl IntoElement + use<V, F> {
     let handle: Handle<V> = Rc::new(handle);
+    let editor_id = format!("{key}/editor");
     let editor = editor(
         draft,
-        &format!("{key}/editor"),
+        &editor_id,
         key,
+        label,
         hint,
         editable,
         choices,
@@ -261,7 +267,13 @@ pub fn view<V: View + 'static>(
                 id: ElementId::Name(format!("{key}/mention/{}", choice.token).into()),
                 label: format!("@{}", choice.label).into(),
                 selected: index == selected,
-                on_click: press(editable, format!("mention:{}", choice.token), &handle, cx),
+                on_click: press(
+                    editable,
+                    format!("mention:{}", choice.token),
+                    &editor_id,
+                    &handle,
+                    cx,
+                ),
             })
             .collect::<Vec<_>>();
         if !menu.is_empty() {
@@ -280,7 +292,7 @@ pub fn view<V: View + 'static>(
     if !draft.note.is_empty() {
         rows.push(
             div()
-                .mx(px(TEXT_INSET))
+                .mx(crate::design::space::MD)
                 .text_sm()
                 .text_color(cx.global::<Theme>().danger)
                 .child(draft.note.clone())
@@ -290,7 +302,7 @@ pub fn view<V: View + 'static>(
     if draft.failed_send.is_some() {
         rows.push(
             div()
-                .mx(px(TEXT_INSET))
+                .mx(crate::design::space::MD)
                 .flex()
                 .items_center()
                 .gap_2()
@@ -302,14 +314,14 @@ pub fn view<V: View + 'static>(
                     id: ElementId::Name(format!("{key}/restore").into()),
                     label: "Restore".into(),
                     primary: false,
-                    on_click: press(editable, "restore".into(), &handle, cx),
+                    on_click: press(editable, "restore".into(), &editor_id, &handle, cx),
                 })
                 .into_any_element(),
         );
     }
 
     let mut toolbar = div()
-        .mx(px(CONTROL_INSET))
+        .mx(crate::design::space::XXS)
         .flex()
         .items_center()
         .gap(px(2.));
@@ -330,7 +342,7 @@ pub fn view<V: View + 'static>(
             sign: sign.into(),
             label: label.into(),
             face,
-            on_click: press(editable, tag.into(), &handle, cx),
+            on_click: press(editable, tag.into(), &editor_id, &handle, cx),
         });
     }
     let sendable = editable && draft.can_send(draft.editor.state_view().text);
@@ -347,7 +359,7 @@ pub fn view<V: View + 'static>(
         id: ElementId::Name(format!("{key}/send").into()),
         label: commit.to_owned().into(),
         primary: true,
-        on_click: press(sendable, "send".into(), &handle, cx),
+        on_click: press(sendable, "send".into(), &editor_id, &handle, cx),
     });
     rows.push(toolbar.into_any_element());
 
@@ -359,10 +371,9 @@ pub fn view<V: View + 'static>(
         .border_1()
         .border_color(cx.global::<Theme>().border)
         .bg(cx.global::<Theme>().background)
-        .pb(px(CONTROL_INSET))
+        .pb(crate::design::space::XXS)
         .children(rows)
 }
 
 #[cfg(test)]
-#[path = "binding_tests.rs"]
 mod tests;

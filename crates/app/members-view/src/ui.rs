@@ -2,8 +2,8 @@
 //! Colour is kept for what it says: the agent tint on an agent's avatar, and
 //! the badges of a standing. Everything else is the window, grey captions
 //! and hairlines.
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design::{self, size, space, text};
-use ducktape_view_guest::view::Loadable;
 use ducktape_view_guest::{
     AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, ParentElement, Pixels, Role, SharedString, Stateful, StatefulInteractiveElement,
@@ -46,6 +46,7 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
         (true, _) => screen
             .child(design::divider(
                 "members-list-resize",
+                "Resize the member list",
                 &theme,
                 cx,
                 |view, dx| {
@@ -147,7 +148,7 @@ fn list_pane(
                 .px(space::BLOCK)
                 .pb(space::MD)
                 .child(
-                    Input::new("members-filter")
+                    Input::new("members-filter", "Filter members")
                         .h(size::CONTROL)
                         .w_full()
                         .px_2()
@@ -158,7 +159,6 @@ fn list_pane(
                         .text_color(theme.foreground)
                         .value(view.filter.clone())
                         .placeholder("Filter by name or number")
-                        .label("Filter members")
                         .on_input(typed),
                 )
                 .child(chips(view, cx, theme)),
@@ -201,7 +201,7 @@ fn chips(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoE
                         .text_color(if on { theme.foreground } else { theme.muted })
                         .cursor_pointer()
                         .role(Role::Button)
-                        .aria_selected(on)
+                        .aria_toggled(on.into())
                         .focusable()
                         .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
                             view.only = group;
@@ -273,6 +273,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
         .overflow_y_scroll()
         .flex()
         .flex_col()
+        .role(Role::ListBox)
         .aria_label("Members")
         .focusable()
         .on_key_down(stepped);
@@ -332,9 +333,11 @@ fn member_row(
         .when(!selected, |row| {
             row.hover(move |style| style.bg(theme.surface))
         })
-        .role(Role::Button)
+        // the list holds focus and the arrows; the chosen row is the one
+        // assistive technology is told is active
+        .role(Role::ListBoxOption)
         .aria_selected(selected)
-        .focusable()
+        .when(selected, |row| row.aria_active_descendant())
         .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(number, cx)))
         .child(avatar(row, size::AVATAR, dim, &theme))
         .child(

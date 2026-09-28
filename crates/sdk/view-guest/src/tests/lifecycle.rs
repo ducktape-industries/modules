@@ -1,4 +1,4 @@
-use crate::{wire, Context, Driver, InteractiveElement, ParentElement, Render, Task, View, Window};
+use crate::{Context, Driver, InteractiveElement, ParentElement, Render, Task, View, Window, wire};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 

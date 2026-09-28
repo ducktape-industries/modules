@@ -5,7 +5,7 @@
 //! way, and a refusal replaces it with the reason inline. Nothing is guessed
 //! into the lists — the next query reconciles them.
 use ducktape_view_guest::methods::HostId;
-use ducktape_view_guest::view::Submit;
+use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::{Context, Editor, Window};
 
 use crate::api::{ChatApi, SubmitForge};
@@ -333,8 +333,7 @@ impl Forge {
             return;
         };
         let channel = change.channel.clone();
-        self.reply
-            .replace(Editor::default(), self.reply.reset_revision());
+        self.reply.replace(Editor::default());
         cx.notify();
         cx.spawn(async move |this, cx| {
             let host = cx.host();

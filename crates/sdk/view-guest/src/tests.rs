@@ -53,6 +53,8 @@ impl Render for Probe {
         });
         div()
             .id("press")
+            .role(crate::Role::Button)
+            .focusable()
             .on_click(press)
             .child(self.received.len().to_string())
     }
@@ -406,7 +408,12 @@ fn listener_guard_detects_missing_notify() {
     impl Render for Silent {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let press = cx.listener(|view, _: &ClickEvent, _, _| view.0 = true);
-            div().id("silent").on_click(press).child("Silent")
+            div()
+                .id("silent")
+                .role(crate::Role::Button)
+                .focusable()
+                .on_click(press)
+                .child("Silent")
         }
     }
     let mut driver = Driver::<Silent>::new();
@@ -465,6 +472,7 @@ fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
         .read(|view| assert_eq!(view.received.len(), 40));
 }
 
+mod lifecycle;
 mod primitive_tests;
 
 #[test]
@@ -491,15 +499,20 @@ fn notifying_during_render_requests_another_frame() {
 }
 
 #[test]
-fn the_manifest_bytes_parse_back_with_the_epoch_and_the_methods() {
+fn the_manifest_bytes_parse_back_with_the_min_width_and_the_wire_id() {
     use wire::methods::Capability;
     const CAPABILITIES: &[Capability] = &[Capability::Clock, Capability::Module];
-    let bytes: [u8; manifest_len("App", "Words", CAPABILITIES, "640,480")] =
-        manifest_bytes("App", "Words", CAPABILITIES, "640,480");
+    let bytes: [u8; manifest_len("App", "Words", CAPABILITIES, 560)] =
+        manifest_bytes("App", "Words", CAPABILITIES, 560);
     let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
-    assert_eq!(manifest.wire_epoch, wire::WIRE_EPOCH);
-    assert_eq!(manifest.methods, wire::methods::METHODS_REVISION);
+    assert_eq!(manifest.min_width, 560);
+    assert_eq!(manifest.wire_id, wire::WIRE_ID);
     assert_eq!(manifest.capabilities, CAPABILITIES);
     assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
-    assert!(!manifest.needs_newer_methods());
+    // a view that declares nothing is laid out from 480, as before
+    assert_eq!(<Probe as View>::MIN_WINDOW_WIDTH, 480);
+    let bytes: [u8; manifest_len("App", "", &[], Probe::MIN_WINDOW_WIDTH)] =
+        manifest_bytes("App", "", &[], Probe::MIN_WINDOW_WIDTH);
+    let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
+    assert_eq!(manifest.min_width, 480);
 }

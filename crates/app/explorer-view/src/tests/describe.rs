@@ -24,7 +24,6 @@ fn an_op_reads_as_its_program_describes_it_through_the_host() {
         "the account link opens Ada: {:?}",
         cx.texts()
     );
-    cx.assert_accessible();
 }
 
 #[test]

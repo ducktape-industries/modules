@@ -32,6 +32,7 @@ pub const SECTION: &str = "ducktape.describe";
 /// An op as a person reads it: what it does, and its parts.
 #[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Description {
     /// `Post in #design`
     pub title: String,
@@ -40,6 +41,7 @@ pub struct Description {
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Field {
     pub label: String,
     pub value: Value,
@@ -48,6 +50,7 @@ pub struct Field {
 /// What a value is, so a reader shows it as that.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub enum Value {
     Text(String),
     /// an identity account number

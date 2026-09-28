@@ -4,37 +4,6 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ButtonContent {
-    Label(String),
-    #[serde(deserialize_with = "decode_child")]
-    Child(Box<Node>),
-}
-
-/// What a [`Node::MouseArea`] or a [`Node::Button`] is to assistive
-/// technology. Every other interactive node's variant is its role, and a
-/// button without one is a button.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Role {
-    Button,
-    Link,
-    Tab,
-    MenuItem,
-    Row,
-    Checkbox,
-    Switch,
-}
-
-/// How assistive technology announces a change to a [`Node::Text`] it is
-/// not focused on.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Live {
-    /// When the reader is idle.
-    Polite,
-    /// At once, interrupting.
-    Assertive,
-}
-
 /// The reference point used by the native GPUI anchored element.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Anchor {
@@ -98,12 +67,6 @@ pub struct SvgTransformation {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum Node {
-    /// A payload encoded and painted by the host.
-    Qr {
-        id: ElementIdWire,
-        code: Qr,
-        style: gpui::StyleRefinement,
-    },
     /// One native GPUI paragraph with optional interactive byte ranges.
     RichText {
         id: Option<ElementIdWire>,
@@ -114,7 +77,8 @@ pub enum Node {
         clickable_ranges: Vec<std::ops::Range<usize>>,
         on_click: Option<u32>,
         on_hover: Option<u32>,
-        tooltip: Option<crate::RichTextTooltip>,
+        /// The response cache for the paragraph's native tooltip.
+        tooltip: Option<crate::TooltipResponse>,
     },
     /// A native GPUI anchored element. The host owns fitting and clipping.
     Anchored {
@@ -125,16 +89,6 @@ pub enum Node {
         offset: Option<[f32; 2]>,
         #[serde(deserialize_with = "decode_children")]
         children: Vec<Node>,
-    },
-    /// Floating content the host offsets from its own origin.
-    Float {
-        id: ElementIdWire,
-        x: f32,
-        y: f32,
-        scale: f32,
-        style: gpui::StyleRefinement,
-        #[serde(deserialize_with = "decode_child")]
-        content: Box<Node>,
     },
     /// A GPUI uniform-height list. The host owns the native viewport; the
     /// guest carries only the row indices the host has requested.
@@ -173,6 +127,8 @@ pub enum Node {
         scroll_handler: Option<u32>,
         range_start: usize,
         style: gpui::StyleRefinement,
+        #[serde(default, skip_serializing_if = "crate::is_default")]
+        interactivity: Interactivity,
         #[serde(deserialize_with = "decode_children")]
         children: Vec<Node>,
     },
@@ -181,6 +137,8 @@ pub enum Node {
     ResizeHandle {
         id: ElementIdWire,
         style: gpui::StyleRefinement,
+        #[serde(default, skip_serializing_if = "crate::is_default")]
+        interactivity: Interactivity,
         on_press: Option<u32>,
         on_release: Option<u32>,
         on_drag: Option<u32>,
@@ -188,111 +146,22 @@ pub enum Node {
         #[serde(deserialize_with = "decode_child")]
         content: Box<Node>,
     },
-    /// A region that reports what the pointer does over its one child. The
-    /// discrete routes carry per-frame message indices like a button's
-    /// `on_press`; `on_move` and `on_press_at` carry a handler index the
-    /// host answers with [`Event::Pointer`], `on_scroll` one it answers
-    /// with [`Event::Scroll`]. The node paints nothing of its own.
-    MouseArea {
-        id: ElementIdWire,
-        /// `None` is an area assistive technology does not announce.
-        role: Option<Role>,
-        /// The accessible name of an area no text inside names.
-        label: Option<String>,
-        expanded: Option<bool>,
-        selected: Option<bool>,
-        checked: Option<bool>,
-        on_press: Option<u32>,
-        on_release: Option<u32>,
-        on_double_click: Option<u32>,
-        on_right_press: Option<u32>,
-        on_right_release: Option<u32>,
-        on_middle_press: Option<u32>,
-        on_middle_release: Option<u32>,
-        on_enter: Option<u32>,
-        on_exit: Option<u32>,
-        on_move: Option<u32>,
-        /// Fires for a left press even when the child took it — a button
-        /// inside the area — where `on_press` does not.
-        on_press_at: Option<u32>,
-        on_scroll: Option<u32>,
-        #[serde(deserialize_with = "decode_child")]
-        content: Box<Node>,
-    },
-    Tooltip {
-        id: ElementIdWire,
-        position: TooltipPosition,
-        delay_ms: u64,
-        snap: bool,
-        style: gpui::StyleRefinement,
-        /// Content followed by tip; extra children are discarded by sanitization.
-        #[serde(deserialize_with = "decode_children")]
-        children: Vec<Node>,
-    },
-    /// Supplies widget-local dimensions to descendant container conditions.
-    Responsive {
-        id: ElementIdWire,
-        #[serde(deserialize_with = "decode_child")]
-        content: Box<Node>,
-    },
-    /// A guest-memoized subtree. Generation changes whenever cached content or
-    /// its callable routes are rebuilt, including a rebuild after eviction.
-    Lazy {
-        id: ElementIdWire,
-        generation: u64,
-        #[serde(deserialize_with = "decode_child")]
-        content: Box<Node>,
-    },
-    /// A deferred draw. Unlike [`Node::Lazy`], this is never a guest cache.
+    /// A deferred draw, painted after everything in the frame that is not.
     Deferred {
         priority: usize,
         #[serde(deserialize_with = "decode_child")]
         content: Box<Node>,
     },
-    /// Splices selected children into the surrounding layout. It adds no box.
-    When {
-        id: ElementIdWire,
-        condition: ContainerQuery,
-        #[serde(deserialize_with = "decode_children")]
-        children: Vec<Node>,
-    },
     /// Watches its child's laid-out size. `on_show` hears the size when the
-    /// child first comes into view (within `anticipate` pixels of it),
-    /// `on_resize` every change after, both as [`Event::Size`]; `on_hide`
-    /// is the message for leaving view. `delay` is milliseconds a size
-    /// must hold before it is reported.
+    /// child first comes into view, `on_resize` every change after, both as
+    /// [`Event::Size`].
     Sensor {
         id: ElementIdWire,
         style: gpui::StyleRefinement,
-        /// Copied continuity value for `key=`, independent of widget identity.
-        reset: Option<SurfaceValue>,
         on_show: Option<u32>,
         on_resize: Option<u32>,
-        on_hide: Option<u32>,
-        anticipate: Option<f32>,
-        delay: Option<f32>,
         #[serde(deserialize_with = "decode_child")]
         child: Box<Node>,
-    },
-    Scroll {
-        on_scroll: Option<u32>,
-        virtual_rows: bool,
-        id: ElementIdWire,
-        direction: ScrollDirection,
-        style: gpui::StyleRefinement,
-        /// No scroll bar is drawn; the content still scrolls.
-        bar_hidden: bool,
-        bar_width: Option<f32>,
-        bar_margin: Option<f32>,
-        scroller_width: Option<f32>,
-        /// Space between the bar and the content, which shrinks the content.
-        bar_spacing: Option<f32>,
-        anchor_x: ScrollAnchor,
-        anchor_y: ScrollAnchor,
-        /// Follow content that grows while the reader sits at the end.
-        auto_scroll: bool,
-        #[serde(deserialize_with = "decode_child")]
-        content: Box<Node>,
     },
     Text(TextNode),
     /// A raster picture sent once per typed content hash.
@@ -309,16 +178,6 @@ pub enum Node {
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
         interactivity: Interactivity,
-    },
-    /// A native zoom/pan viewer sharing the raster picture cache and budgets.
-    ImageViewer {
-        id: ElementIdWire,
-        hash: u64,
-        data: Option<ImageData>,
-        label: Option<String>,
-        fit: Option<ContentFit>,
-        style: gpui::StyleRefinement,
-        options: ViewerOptions,
     },
     /// A vector picture. Its bytes cross ONCE: the frame that first shows a
     /// picture carries them under `hash`, and every frame after — a changed
@@ -340,14 +199,14 @@ pub enum Node {
         placeholder: String,
         /// Copied document state, adopted by reset and host observation revision.
         value: String,
-        on_input: u32,
+        on_input: Option<u32>,
         on_submit: Option<u32>,
         secure: bool,
         style: gpui::StyleRefinement,
     },
-    /// A multiline text editor. The host owns the `text_editor::Content` —
-    /// native widget interaction — and the guest sees document state, unlike
-    /// [`Node::Input`]. Presentation crosses as copied data.
+    /// A multiline text editor. The host owns the native editor's text and
+    /// selection — native widget interaction — and the guest sees document
+    /// state, unlike [`Node::Input`]. Presentation crosses as copied data.
     Editor {
         options: Box<EditorOptions>,
         id: ElementIdWire,
@@ -361,94 +220,7 @@ pub enum Node {
         on_document: u32,
         editable: bool,
     },
-    Button {
-        id: ElementIdWire,
-        content: ButtonContent,
-        /// The accessible name of a button whose content is not a plain
-        /// label.
-        label: Option<String>,
-        /// `None` is a button.
-        role: Option<Role>,
-        checked: Option<bool>,
-        expanded: Option<bool>,
-        selected: Option<bool>,
-        description: Option<String>,
-        /// `None` is a disabled button.
-        on_press: Option<u32>,
-        style: gpui::StyleRefinement,
-    },
     Space {
-        style: gpui::StyleRefinement,
-    },
-    Rule {
-        id: ElementIdWire,
-        axis: Axis,
-        style: gpui::StyleRefinement,
-    },
-    /// A checkbox or a toggler: a labelled bool.
-    Toggle {
-        id: ElementIdWire,
-        kind: ToggleKind,
-        label: String,
-        checked: bool,
-        /// `None` is a disabled control.
-        on_toggle: Option<u32>,
-        style: gpui::StyleRefinement,
-    },
-    /// One radio button. Its value is the guest's business: selecting it
-    /// sends the message the guest queued for it.
-    Radio {
-        id: ElementIdWire,
-        label: String,
-        selected: bool,
-        on_select: u32,
-        style: gpui::StyleRefinement,
-    },
-    Slider {
-        id: ElementIdWire,
-        /// The accessible name.
-        label: Option<String>,
-        value: f32,
-        min: f32,
-        max: f32,
-        step: f32,
-        on_change: u32,
-        on_release: Option<u32>,
-        axis: Axis,
-        style: gpui::StyleRefinement,
-    },
-    ComboBox {
-        id: ElementIdWire,
-        state_key: String,
-        options: Vec<String>,
-        selected: Option<u32>,
-        reset: u64,
-        placeholder: String,
-        /// The accessible name.
-        label: Option<String>,
-        on_select: u32,
-        style: gpui::StyleRefinement,
-        settings: Box<ComboOptions>,
-    },
-    PickList {
-        settings: Box<PickOptions>,
-        id: ElementIdWire,
-        /// Every option as the guest shows it; the host answers with an
-        /// index into this list.
-        options: Vec<String>,
-        selected: Option<u32>,
-        placeholder: Option<String>,
-        /// The accessible name.
-        label: Option<String>,
-        on_select: u32,
-        style: gpui::StyleRefinement,
-    },
-    Progress {
-        id: ElementIdWire,
-        value: f32,
-        min: f32,
-        max: f32,
-        axis: Axis,
         style: gpui::StyleRefinement,
     },
     /// A base plus an optional modal layer. Closing removes the second child.
@@ -466,20 +238,6 @@ pub enum Node {
         style: gpui::StyleRefinement,
         #[serde(deserialize_with = "canvas::decode_parts")]
         commands: Vec<CanvasCommand>,
-    },
-    /// A region the host paints itself: `name` picks a surface the
-    /// embedding host registered, `args` are the typed values the guest
-    /// hands it; `on_event` routes a returned value to its handler. The guest
-    /// never sees what is drawn there, and the host repaints it on its own clock — a live video tile, a sweeping hand —
-    /// without a guest tick. A name the host has not registered renders as
-    /// a visible placeholder. It takes the size its parent gives it: wrap it
-    /// in a sized [`Node::Container`] to set one.
-    Surface {
-        id: ElementIdWire,
-        style: gpui::StyleRefinement,
-        name: String,
-        args: Vec<SurfaceValue>,
-        on_event: Option<u32>,
     },
 }
 

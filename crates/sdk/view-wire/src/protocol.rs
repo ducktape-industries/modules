@@ -12,21 +12,6 @@ pub struct RichTextHover {
 /// Something the host tells the guest.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Event {
-    /// Observation only: widgets already handled this event once.
-    Observation {
-        event: events::Event,
-        captured: bool,
-    },
-    /// A mouse interaction in logical coordinates local to the guest surface.
-    Mouse {
-        event: mouse::Event,
-        captured: bool,
-    },
-    /// A keyboard interaction after the mounted native widgets handled it.
-    Keyboard {
-        event: keyboard::Event,
-        captured: bool,
-    },
     /// The user activated the widget the guest gave this message index to
     /// (a button press, an input submit). Indices are per frame: they name
     /// entries in the table the guest filled while building the tree it
@@ -112,11 +97,6 @@ pub enum Event {
         /// Native InteractiveText byte index; ordinary tooltips use None.
         character_index: Option<u32>,
     },
-    /// A registered host surface emitted its declared result value.
-    Surface {
-        handler: u32,
-        value: SurfaceValue,
-    },
     /// A text field's content changed. `handler` indexes the guest's
     /// per-frame input-handler table; `text` is the whole value the host now
     /// holds.
@@ -143,18 +123,7 @@ pub enum Event {
     Theme {
         dark: bool,
     },
-    /// A checkbox or toggler flipped. `handler` indexes the guest's
-    /// per-frame handler table; `on` is the state it now shows.
-    Toggle {
-        handler: u32,
-        on: bool,
-    },
-    /// A slider moved to `value`.
-    Slide {
-        handler: u32,
-        value: f32,
-    },
-    /// A pick list chose the option at `index` in the node's `options`.
+    /// A rich text's clickable range at `index`.
     Select {
         handler: u32,
         index: u32,
@@ -180,32 +149,11 @@ pub enum Event {
         width: f32,
         height: f32,
     },
-    /// The pointer is at (`x`, `y`) inside a [`Node::MouseArea`], in the
-    /// area's own coordinates — the DOM's `offsetX`/`offsetY`, never the
-    /// window's. Carries a move (`on_move`) or a left press (`on_press_at`).
-    ///
-    /// A host sends at most ONE move per handler per redraw frame, the last
-    /// position it saw, as a browser delivers one `pointermove` per frame:
-    /// the pointer crosses a thousand pixels a second and every event is a
-    /// guest tick. A press is never coalesced.
-    Pointer {
-        handler: u32,
-        x: f32,
-        y: f32,
-    },
     /// Accumulated logical-pixel movement of a grabbed resize handle.
     Drag {
         handler: u32,
         dx: f64,
         dy: f64,
-    },
-    /// The wheel turned over a [`Node::MouseArea`] by (`dx`, `dy`), in
-    /// pixels when `pixels` is set and in lines otherwise.
-    Scroll {
-        handler: u32,
-        dx: f32,
-        dy: f32,
-        pixels: bool,
     },
     /// A scrollable's content offset in logical pixels and anchor-relative
     /// fractions, emitted only when its native viewport changes. No window
@@ -252,6 +200,12 @@ pub enum Event {
     /// The host no longer holds the tree the guest is patching — a patch it
     /// could not apply, a tree it dropped — and wants the next frame whole.
     Resync,
+    /// An assistive-technology action request on the node that advertised
+    /// `(action, handler)` in [`Aria::actions`](crate::Aria::actions).
+    A11yAction {
+        handler: u32,
+        data: Option<ActionData>,
+    },
 }
 
 /// Why a request failed, as the guest gets it: the one [`Error`] — a stable
@@ -291,10 +245,6 @@ pub struct Frame {
     pub editor_documents: Vec<editor_document::EditorDocumentMessage>,
     /// Tooltip subtrees built only after a native hover request.
     pub tooltip_responses: Vec<TooltipResponse>,
-    /// The current subscription requests guest-local mouse observations.
-    pub mouse_interest: bool,
-    /// Live subscriptions opt into each copied event category.
-    pub event_interest: events::Interest,
     /// The tree to show. `None` with `unchanged` set means "what you have";
     /// `None` otherwise means "what you have, with `patches` applied".
     pub root: Option<Node>,
@@ -316,56 +266,24 @@ pub struct Frame {
     pub busy: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Axis {
-    Column,
-    Row,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ScrollDirection {
-    Vertical,
-    Horizontal,
-    Both,
-}
-
 /// Copied input accessibility and native layout options.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InputOptions {
     pub label: String,
     pub description: Option<String>,
     pub disabled: bool,
+    /// The value is wrong; `description` says why (AX-108).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<Invalid>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
 }
 
 /// Copied native multiline editor presentation; state faces share input semantics.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EditorOptions {
-    pub rich: Option<Box<editor_rich::RichPresentation>>,
     pub binding: Option<Box<EditorBinding>>,
     pub presentation: Option<Box<editor_presentation::EditorPresentation>>,
-}
-
-/// Where a scroll's offset is measured from. `Keep` rests at the start and
-/// holds the visible rows still when content lands above them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub enum ScrollAnchor {
-    #[default]
-    Start,
-    End,
-    Keep,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ContentFit {
-    Contain,
-    Cover,
-    Fill,
-    None,
-    ScaleDown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ToggleKind {
-    Checkbox,
-    Switch,
 }

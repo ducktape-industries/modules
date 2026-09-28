@@ -56,7 +56,9 @@ pub fn card(
             theme.background
         })
         .hover(|style| style.bg(theme.surface_raised))
-        .role(ducktape_view_guest::Role::Button)
+        // it holds reactions, links and the replies button, which a button
+        // may not
+        .role(ducktape_view_guest::Role::Article)
         .aria_label(format!(
             "Select message, shows its actions: {}: {}",
             message.author, message.body

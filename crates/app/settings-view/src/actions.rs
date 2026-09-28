@@ -1,8 +1,8 @@
 //! What the reader's presses do: reads again, each form's submit, and the
 //! invite. A refusal lands on the form it came from.
 use ducktape_view_guest::Context;
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::methods::ClipboardWrite;
-use ducktape_view_guest::view::Loadable;
 
 use crate::api::{CreateInvite, IdentityApi, InviteCreate, Session, Submit};
 use crate::state::{Form, Problem, Section, TTL};

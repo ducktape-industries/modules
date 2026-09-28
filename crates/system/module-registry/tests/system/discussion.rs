@@ -90,7 +90,7 @@ fn push_request(store: &MemoryObjects, refs: &[(Oid, &str)]) -> Vec<u8> {
 fn a_change_and_its_channel_land_in_one_block() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
-        let mut net = Net::found_with(context, dir.path(), apps()).await;
+        let mut net = Net::found_with(context, dir.path(), apps(), MEMBER_CAP).await;
         let author = public(AUTHOR);
         let create = identity::Op::Create {
             name: "Ada".into(),

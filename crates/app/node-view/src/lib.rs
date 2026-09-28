@@ -74,7 +74,7 @@ pub(crate) const SILENT_TICKS: u64 = 3;
 const UNSUPPORTED: &str = "unknown_request";
 
 impl View for Nodes {
-    const PREFERRED_WINDOW_SIZE: &'static str = "1100,680";
+    const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::default();

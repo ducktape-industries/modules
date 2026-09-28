@@ -72,7 +72,6 @@ design = { path = "crates/sdk/design" }
 view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }
 conformance = { path = "crates/sdk/conformance" }
-view-guest = { path = "crates/sdk/view-guest" }
 ducktape-view-guest = { path = "crates/sdk/view-guest", package = "view-guest" }
 gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "79bdf74455094b943794cc32aa136a48f445cdb9", default-features = false }
 module-registry = { path = "crates/system/module-registry" }
@@ -83,9 +82,9 @@ forge = { path = "crates/app/forge" }
 
 # ---- the host the founding suite runs the boot set on, the probe fixture it
 # seats and the key schemes it signs with (dev-dependencies only)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "5363ad5c9816aa989b7c9c4292ae7646b7ce82f4" }
-fixture-probe = { git = "https://github.com/ducktape-industries/ducktape", rev = "5363ad5c9816aa989b7c9c4292ae7646b7ce82f4" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "5363ad5c9816aa989b7c9c4292ae7646b7ce82f4" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "91fe268db80907cf63d27b5218b832f0b7e81399" }
+fixture-probe = { git = "https://github.com/ducktape-industries/ducktape", rev = "91fe268db80907cf63d27b5218b832f0b7e81399" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "91fe268db80907cf63d27b5218b832f0b7e81399" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 

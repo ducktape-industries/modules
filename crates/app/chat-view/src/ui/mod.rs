@@ -80,9 +80,7 @@ fn with_menu(chat: &Chat, screen: AnyElement, cx: &mut Context<Chat>, theme: &Th
         chat.close_menu();
         cx.notify();
     });
-    let overlay = modal_overlay(MENU_OVERLAY, screen, menu)
-        .label("Message menu")
-        .on_dismiss(dismiss);
+    let overlay = modal_overlay(MENU_OVERLAY, "Message menu", screen, menu).on_dismiss(dismiss);
     // a confirm asks before anything else happens: it dims the room
     let confirming = chat
         .menu
@@ -109,8 +107,7 @@ fn with_create(
         chat.create = None;
         cx.notify();
     });
-    let overlay = modal_overlay("chat-create-overlay", screen, create)
-        .label("Create channel")
+    let overlay = modal_overlay("chat-create-overlay", "Create channel", screen, create)
         .flex()
         .items_center()
         .justify_center()
@@ -131,6 +128,7 @@ fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEle
         .child(sidebar::render(chat, cx, theme))
         .child(design::divider(
             "chat-sidebar-resize",
+            "Resize the room list",
             theme,
             cx,
             |chat, dx| {
@@ -151,14 +149,26 @@ fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEle
         return panes.child(design::over("chat-side-over", pane, theme));
     }
     let divider = match details {
-        true => design::divider("chat-details-resize", theme, cx, |chat, dx| {
-            chat.layout.details -= dx;
-            chat.layout.clamp();
-        }),
-        false => design::divider("chat-thread-resize", theme, cx, |chat, dx| {
-            chat.layout.thread -= dx;
-            chat.layout.clamp();
-        }),
+        true => design::divider(
+            "chat-details-resize",
+            "Resize channel details",
+            theme,
+            cx,
+            |chat, dx| {
+                chat.layout.details -= dx;
+                chat.layout.clamp();
+            },
+        ),
+        false => design::divider(
+            "chat-thread-resize",
+            "Resize the thread",
+            theme,
+            cx,
+            |chat, dx| {
+                chat.layout.thread -= dx;
+                chat.layout.clamp();
+            },
+        ),
     };
     panes.child(divider).child(pane)
 }

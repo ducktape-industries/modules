@@ -1,6 +1,6 @@
 //! The product's visual system: bundled fonts, the type scale, and the one
 //! palette both the native shell (through the kit's theme) and the WASM
-//! views (through `ducktape_view_guest::kit`) paint with.
+//! views (through `ducktape_view_guest::design`) paint with.
 
 /// Font identity. The native shell loads these files into GPUI's text system.
 /// Guest wire text names the same families. Replace an asset and its family

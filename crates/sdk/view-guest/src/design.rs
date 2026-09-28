@@ -1,17 +1,23 @@
 //! The shapes every view repeats, in one visual language: the design tokens
 //! (re-exported whole), the type scale, heights and spacing as [`Pixels`]
-//! (`text`, `size`, `space`), and the empty state,
-//! button, refused-with-retry screen, quiet line, heading and mono run views
-//! used to copy between them. The number formatters sit here for the same
-//! reason.
+//! (`text`, `size`, `space`), and the empty state, refused-with-retry
+//! screen, quiet line, heading and mono run views used to copy between
+//! them, and the controls: buttons, tabs, the segmented choice, the switch
+//! and the row it sits in, and the pane divider. The number and time
+//! formatters (`format.rs`) and Explorer's link paths (`explorer.rs`) sit
+//! beside them for the same reason.
 pub use ::design::*;
+
+pub mod explorer;
+mod format;
+pub use format::{ago, clock, date, day, grouped, initial, local, plural, set_utc_offset};
 
 use crate::prelude::*;
 use crate::{Div, FontWeight, Hsla, Pixels, Stateful};
 
 /// [`type_scale`] as sizes an element takes.
 pub mod text {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const TITLE: Pixels = px(::design::type_scale::TITLE as f32);
     pub const SECTION: Pixels = px(::design::type_scale::SECTION as f32);
@@ -23,7 +29,7 @@ pub mod text {
 
 /// [`height`] as sizes an element takes.
 pub mod size {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const ROW: Pixels = px(::design::height::ROW as f32);
     pub const CONTROL: Pixels = px(::design::height::CONTROL as f32);
@@ -37,7 +43,7 @@ pub mod size {
 
 /// [`spacing`] as gaps and insets an element takes.
 pub mod space {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const HAIR: Pixels = px(::design::spacing::HAIR as f32);
     pub const XXS: Pixels = px(::design::spacing::XXS as f32);
@@ -166,7 +172,9 @@ pub enum Kind {
 }
 
 /// A button. Disabled keeps it visible, drops the click and says so.
-/// Selected is the chosen one: fg text on the window and an fg edge.
+/// Selected is the chosen one: fg text on the window and an fg edge. A
+/// button told whether it is selected is a toggle, pressed or not; one
+/// never told is a plain button.
 #[derive(IntoElement)]
 pub struct Button<F>
 where
@@ -177,7 +185,7 @@ where
     theme: Theme,
     enabled: bool,
     kind: Kind,
-    selected: bool,
+    selected: Option<bool>,
     click: F,
 }
 
@@ -196,7 +204,7 @@ where
         theme: *theme,
         enabled: true,
         kind: Kind::Plain,
-        selected: false,
+        selected: None,
         click,
     }
 }
@@ -214,7 +222,7 @@ where
         self
     }
     pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
+        self.selected = Some(selected);
         self
     }
 }
@@ -225,6 +233,7 @@ where
 {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let theme = self.theme;
+        let selected = self.selected == Some(true);
         let mut element = div()
             .id(self.id)
             .px_2()
@@ -234,7 +243,7 @@ where
             .child(self.label);
         // The chosen one is the ink one: fg text on the window, an fg edge
         // around it; the rest stay quiet.
-        element = match (self.kind, self.selected) {
+        element = match (self.kind, selected) {
             // a primary that cannot run greys out but keeps its place
             (Kind::Primary, _) if !self.enabled => {
                 element.bg(theme.faint).text_color(theme.primary_foreground)
@@ -262,8 +271,11 @@ where
                 .border_1()
                 .border_color(theme.border_strong),
         };
-        if self.selected {
-            element = element.font_weight(FontWeight::MEDIUM).aria_selected(true);
+        if let Some(pressed) = self.selected {
+            element = element.aria_toggled(pressed.into());
+        }
+        if selected {
+            element = element.font_weight(FontWeight::MEDIUM);
         }
         if !self.enabled {
             return match self.kind {
@@ -271,7 +283,7 @@ where
                 _ => element.text_color(theme.muted).aria_disabled(true),
             };
         }
-        element = match (self.kind, self.selected) {
+        element = match (self.kind, selected) {
             (Kind::Quiet, false) => element.hover(move |style| style.text_color(theme.foreground)),
             (Kind::Plain, false) => element
                 .hover(move |style| style.bg(theme.surface_raised))
@@ -281,6 +293,30 @@ where
         };
         element.focusable().on_click(self.click)
     }
+}
+
+/// A control drawn as a glyph alone (a cross, a plus): muted until the
+/// pointer is on it. `name` is what it does, in words, since the glyph
+/// says nothing to a screen reader.
+pub fn icon_button(
+    id: impl Into<ElementId>,
+    glyph: impl IntoElement,
+    name: impl Into<SharedString>,
+    theme: &Theme,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let theme = *theme;
+    div()
+        .id(id)
+        .px_1()
+        .text_color(theme.muted)
+        .cursor_pointer()
+        .hover(move |style| style.text_color(theme.foreground))
+        .role(Role::Button)
+        .aria_label(name)
+        .focusable()
+        .on_click(click)
+        .child(glyph)
 }
 
 /// A tab: quiet text, the chosen one fg and underlined, no fill. A caller
@@ -321,10 +357,11 @@ pub fn tab(
 }
 
 /// A few choices side by side in one box, the picked one ink-filled: a
-/// state filter, an object format, an invite's lifetime. The segments are
-/// [`segment`]s; the box draws the edge they share.
+/// state filter, an object format, an invite's lifetime. `label` names the
+/// choice; the segments are [`segment`]s; the box draws the edge they share.
 pub fn segmented(
     id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
     theme: &Theme,
     segments: impl IntoIterator<Item = Stateful<Div>>,
 ) -> Stateful<Div> {
@@ -338,6 +375,7 @@ pub fn segmented(
         .border_r_1()
         .border_color(theme.border_strong)
         .role(Role::RadioGroup)
+        .aria_label(label)
         .children(segments)
 }
 
@@ -369,7 +407,7 @@ pub fn segment(
                 .hover(move |style| style.text_color(theme.foreground)),
         })
         .role(Role::RadioButton)
-        .aria_selected(selected)
+        .aria_toggled(selected.into())
         .focusable()
         .on_click(click)
         .child(label.into())
@@ -402,7 +440,7 @@ pub fn switch(
         .when(on, |pill| pill.justify_end())
         .role(Role::Switch)
         .aria_label(label.into())
-        .aria_selected(on)
+        .aria_toggled(on.into())
         .child(knob);
     match enabled {
         true => element.cursor_pointer().focusable().on_click(toggle),
@@ -477,19 +515,48 @@ pub fn avatar(name: &str, size: Pixels, theme: &Theme) -> Div {
         .child(initial(name))
 }
 
+/// How far an arrow key moves a [`divider`]; shift moves it four times as far.
+const STEP: f32 = 8.;
+
 /// The line between two panes, dragged to move it: `drag` takes the
-/// horizontal delta (and clamps the layout it moves).
+/// horizontal delta (and clamps the layout it moves). `label` names it
+/// ("Resize the room list"); focused, left and right move it by [`STEP`].
 pub fn divider<V: crate::View>(
     id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
     theme: &Theme,
     cx: &mut crate::Context<V>,
     drag: impl Fn(&mut V, f32) + 'static,
 ) -> crate::ResizeHandle {
-    let dragged = cx.listener(move |view, delta: &(Pixels, Pixels), _window, cx| {
-        drag(view, delta.0.into());
+    let drag = std::rc::Rc::new(drag);
+    let dragged = cx.listener({
+        let drag = drag.clone();
+        move |view, delta: &(Pixels, Pixels), _window, cx| {
+            drag(view, delta.0.into());
+            cx.notify();
+        }
+    });
+    let stepped = cx.listener(move |view, event: &KeyDownEvent, _window, cx| {
+        let step = match event.keystroke.modifiers.shift {
+            true => STEP * 4.,
+            false => STEP,
+        };
+        let delta = match event.keystroke.key.as_str() {
+            "left" => -step,
+            "right" => step,
+            _ => return,
+        };
+        drag(view, delta);
         cx.notify();
     });
-    crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border)).on_drag(dragged)
+    crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border))
+        .on_drag(dragged)
+        .role(Role::Splitter)
+        .aria_label(label)
+        .aria_orientation(gpui::Orientation::Vertical)
+        .focusable()
+        .tab_stop(true)
+        .on_key_down(stepped)
 }
 
 /// Whether a side pane `side` wide fits in `width` beside what the screen
@@ -535,51 +602,12 @@ pub fn badge(
         .child(label.into())
 }
 
-/// Explorer's pages as short `duck://explorer/<path>` links: the one
-/// spelling every view opens a block, a transaction or an account by.
-/// Explorer's own `Route::path` writes the same paths through these.
-pub mod explorer {
-    /// `block/<height>`
-    pub fn block_path(height: u64) -> String {
-        format!("block/{height}")
-    }
-
-    /// `tx/<hash hex>`
-    pub fn tx_path(hash: &[u8]) -> String {
-        let hex: String = hash.iter().map(|byte| format!("{byte:02x}")).collect();
-        format!("tx/{hex}")
-    }
-
-    /// `account/<number>`
-    pub fn account_path(number: u64) -> String {
-        format!("account/{number}")
-    }
-
-    /// `duck://explorer/<path>`: the host opens Explorer at `path`.
-    pub fn link(path: &str) -> String {
-        format!("duck://explorer/{path}")
-    }
-}
-
 /// `block 1,024`, quiet and mono, opening Explorer at that block. A view
 /// that draws it on a clickable card replaces the click (`on_click`) with
 /// its own that claims it and opens the same [`explorer::link`].
 pub fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> Stateful<Div> {
     let label = format!("block {}", grouped(height));
     explorer_link(id, label, explorer::block_path(height), theme)
-}
-
-/// A transaction's short hash, opening Explorer at that transaction.
-pub fn tx_link(id: impl Into<ElementId>, hash: &[u8], theme: &Theme) -> Stateful<Div> {
-    let path = explorer::tx_path(hash);
-    let label = short_hex(&path["tx/".len()..]);
-    explorer_link(id, label, path, theme)
-}
-
-/// `account 7`, opening Explorer at that account.
-pub fn account_link(id: impl Into<ElementId>, number: u64, theme: &Theme) -> Stateful<Div> {
-    let label = format!("account {number}");
-    explorer_link(id, label, explorer::account_path(number), theme)
 }
 
 /// Subdued mono text that underlines under the pointer and opens
@@ -607,164 +635,146 @@ fn explorer_link(
         .child(label)
 }
 
-/// `6230` → `6,230`.
-pub fn grouped(number: u64) -> String {
-    let digits = number.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
-}
-
-/// An avatar's letter: the first grapheme of `name`, uppercased where
-/// that applies (`alice` → `A`, `김민지` → `김`), else `•`.
-pub fn initial(name: &str) -> String {
-    unicode_segmentation::UnicodeSegmentation::graphemes(name.trim_start(), true)
-        .next()
-        .map_or_else(|| "•".into(), str::to_uppercase)
-}
-
-thread_local! {
-    static UTC_OFFSET_MINUTES: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
-}
-
-/// Sets the reader's UTC offset in minutes, as `host.offset` hands it, for
-/// [`date`], [`day`], [`clock`] and [`local`]. Until a view sets it they
-/// read UTC.
-pub fn set_utc_offset(minutes: i32) {
-    UTC_OFFSET_MINUTES.set(minutes);
-}
-
-/// A UTC time in milliseconds shifted into the reader's zone: the instant
-/// whose UTC reading is the reader's wall clock. Day arithmetic on it
-/// (`local(t) / 86_400_000`) falls on the reader's midnights.
-pub fn local(millis: u64) -> u64 {
-    let shift = i64::from(UTC_OFFSET_MINUTES.get()) * 60_000;
-    millis.saturating_add_signed(shift)
-}
-
-/// A time in milliseconds as the reader's date: `24 Sep 2026, 05:12:07`.
-pub fn date(millis: u64) -> String {
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let seconds = local(millis) / 1000;
-    let (days, of_day) = (seconds / 86_400, seconds % 86_400);
-    // days since 1970-01-01 to a civil date (Howard Hinnant's algorithm)
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{day} {} {year}, {:02}:{:02}:{:02}",
-        MONTHS[(month - 1) as usize],
-        of_day / 3_600,
-        of_day % 3_600 / 60,
-        of_day % 60
-    )
-}
-
-/// How long before `now` a time in milliseconds was: `2s`, `3m`, `4h`, `5d`.
-pub fn ago(now: u64, then: u64) -> String {
-    let seconds = now.saturating_sub(then) / 1000;
-    match seconds {
-        0..60 => format!("{seconds}s"),
-        60..3_600 => format!("{}m", seconds / 60),
-        3_600..86_400 => format!("{}h", seconds / 3_600),
-        _ => format!("{}d", seconds / 86_400),
-    }
-}
-
-/// A time in milliseconds as the reader's day: `24 Sep 2026`.
-pub fn day(millis: u64) -> String {
-    let date = date(millis);
-    date.split_once(", ")
-        .map_or(date.clone(), |(day, _)| day.to_owned())
-}
-
-/// A time in milliseconds as the reader's clock time: `3:42 PM`.
-pub fn clock(millis: u64) -> String {
-    let minutes = local(millis) / 60_000 % 1_440;
-    let (hour, minute) = (minutes / 60, minutes % 60);
-    let half = if hour < 12 { "AM" } else { "PM" };
-    format!("{}:{minute:02} {half}", (hour + 11) % 12 + 1)
-}
-
-/// `1 block`, `1,200 blocks`.
-pub fn plural(count: u64, one: &str, many: &str) -> String {
-    format!("{} {}", grouped(count), if count == 1 { one } else { many })
-}
-
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::{App, Lowering, wire};
+    use gpui::Toggled;
+
+    fn lower(element: impl IntoElement) -> wire::Node {
+        let mut app = App::for_driver();
+        let mut window = app.window();
+        Lowering::new(&mut window, &mut app).lower(element)
+    }
+
+    fn interactivity(node: &wire::Node) -> &wire::Interactivity {
+        match node {
+            wire::Node::Container(wire::ContainerNode { interactivity, .. })
+            | wire::Node::ResizeHandle { interactivity, .. } => interactivity,
+            other => panic!("no interactivity: {other:?}"),
+        }
+    }
+
+    fn faults(node: &wire::Node) -> Vec<wire::FaultKind> {
+        wire::audit(node)
+            .into_iter()
+            .map(|fault| fault.kind)
+            .collect()
+    }
+
     #[test]
-    fn counts_read_grouped_and_agreed() {
-        assert_eq!(super::grouped(0), "0");
-        assert_eq!(super::grouped(999), "999");
-        assert_eq!(super::grouped(6230), "6,230");
-        assert_eq!(super::grouped(1_048_576), "1,048,576");
-        assert_eq!(super::plural(1, "block", "blocks"), "1 block");
-        assert_eq!(super::plural(1200, "block", "blocks"), "1,200 blocks");
+    fn an_icon_button_is_a_focusable_button_named_in_words() {
+        let theme = Theme::light();
+        let node = lower(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
+        let control = interactivity(&node);
+        assert_eq!(control.role, Some(Role::Button));
+        assert_eq!(control.aria.label.as_deref(), Some("Close"));
+        assert!(control.focusable && control.on_click.is_some());
+        assert_eq!(faults(&node), []);
+    }
+
+    #[test]
+    fn a_segmented_choice_is_a_radio_group_with_its_name() {
+        let theme = Theme::light();
+        let node = lower(segmented(
+            "format",
+            "Object format",
+            &theme,
+            [segment("sha1", "SHA-1", true, &theme, |_, _, _| {})],
+        ));
+        let group = interactivity(&node);
+        assert_eq!(group.role, Some(Role::RadioGroup));
+        assert_eq!(group.aria.label.as_deref(), Some("Object format"));
+    }
+
+    #[test]
+    fn a_switch_that_is_on_reports_toggled_true() {
+        let theme = Theme::light();
+        for (on, toggled) in [(true, Toggled::True), (false, Toggled::False)] {
+            let node = lower(switch("dark", "Dark", on, true, &theme, |_, _, _| {}));
+            let control = interactivity(&node);
+            assert_eq!(control.role, Some(Role::Switch));
+            assert_eq!(control.aria.toggled, Some(toggled));
+            assert_eq!(control.aria.selected, None);
+            assert_eq!(faults(&node), []);
+        }
+    }
+
+    #[test]
+    fn the_picked_segment_reports_toggled_true() {
+        let theme = Theme::light();
+        let node = lower(segment("sha1", "SHA-1", true, &theme, |_, _, _| {}));
+        let control = interactivity(&node);
+        assert_eq!(control.role, Some(Role::RadioButton));
+        assert_eq!(control.aria.toggled, Some(Toggled::True));
+        assert_eq!(control.aria.selected, None);
+    }
+
+    #[test]
+    fn a_button_is_a_toggle_only_once_told_it_is_selected() {
+        let theme = Theme::light();
+        let plain = lower(button("save", "Save", &theme, |_, _, _| {}));
+        assert_eq!(interactivity(&plain).aria.toggled, None);
+        for (selected, toggled) in [(true, Toggled::True), (false, Toggled::False)] {
+            let node = lower(button("tree", "Tree", &theme, |_, _, _| {}).selected(selected));
+            let control = interactivity(&node);
+            assert_eq!(control.role, Some(Role::Button));
+            assert_eq!(control.aria.toggled, Some(toggled));
+            assert_eq!(control.aria.selected, None);
+        }
+    }
+
+    #[derive(Default, serde::Serialize, serde::Deserialize)]
+    struct Panes {
+        moved: Vec<f32>,
+    }
+
+    impl crate::Capabilities for Panes {
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    }
+
+    impl crate::View for Panes {
+        fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
+            Self::default()
+        }
+    }
+
+    impl crate::Render for Panes {
+        fn render(&mut self, _: &mut Window, cx: &mut crate::Context<Self>) -> impl IntoElement {
+            let theme = Theme::light();
+            divider(
+                "panes-resize",
+                "Resize the list",
+                &theme,
+                cx,
+                |panes: &mut Self, dx| panes.moved.push(dx),
+            )
+        }
+    }
+
+    #[test]
+    fn a_divider_is_a_named_focusable_splitter_the_arrows_move() {
+        let mut cx = crate::testing::TestAppContext::new();
+        let panes = cx.open::<Panes>();
+        let node = cx.find("panes-resize").expect("the divider").clone();
+        let handle = interactivity(&node);
+        assert_eq!(handle.role, Some(Role::Splitter));
+        assert_eq!(handle.aria.label.as_deref(), Some("Resize the list"));
+        assert_eq!(handle.aria.orientation, Some(gpui::Orientation::Vertical));
+        assert!(handle.focusable && handle.tab_stop == Some(true));
+        assert_eq!(faults(&node), []);
+        for keystroke in ["left", "right", "shift-left", "shift-right", "up", "a"] {
+            cx.simulate_key_down("panes-resize", keystroke);
+        }
+        cx.simulate_drag("panes-resize", 5., 0.);
+        panes.read(|panes| assert_eq!(panes.moved, [-8., 8., -32., 32., 5.]));
     }
 
     #[test]
     fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
-        assert!(super::docks(1000., 576., 320.));
-        assert!(super::docks(896., 576., 320.));
-        assert!(!super::docks(895., 576., 320.));
-        assert!(!super::docks(720., 400., 440.));
-    }
-
-    #[test]
-    fn a_time_reads_as_its_day_and_clock() {
-        // 24 Sep 2026, 15:42:07 UTC
-        let at = 1_790_264_527_000;
-        assert_eq!(super::date(at), "24 Sep 2026, 15:42:07");
-        assert_eq!(super::day(at), "24 Sep 2026");
-        assert_eq!(super::clock(at), "3:42 PM");
-        assert_eq!(super::clock(0), "12:00 AM");
-        assert_eq!(super::clock(12 * 3_600_000 + 5 * 60_000), "12:05 PM");
-    }
-
-    #[test]
-    fn a_utc_instant_reads_in_the_readers_offset() {
-        // 24 Sep 2026, 15:42:07 UTC
-        let at = 1_790_264_527_000;
-        super::set_utc_offset(540); // Seoul: past midnight, the next day
-        assert_eq!(super::date(at), "25 Sep 2026, 00:42:07");
-        assert_eq!(super::day(at), "25 Sep 2026");
-        assert_eq!(super::clock(at), "12:42 AM");
-        super::set_utc_offset(-330);
-        assert_eq!(super::clock(at), "10:12 AM");
-        super::set_utc_offset(-60); // before the epoch holds at the epoch
-        assert_eq!(super::clock(0), "12:00 AM");
-        super::set_utc_offset(0);
-        assert_eq!(super::clock(at), "3:42 PM");
-    }
-
-    #[test]
-    fn explorer_links_spell_explorers_paths() {
-        use super::explorer::*;
-        assert_eq!(link(&block_path(30)), "duck://explorer/block/30");
-        assert_eq!(link(&tx_path(&[0xab, 0x01])), "duck://explorer/tx/ab01");
-        assert_eq!(link(&account_path(7)), "duck://explorer/account/7");
-    }
-
-    #[test]
-    fn an_initial_is_the_first_grapheme() {
-        assert_eq!(super::initial("alice park"), "A");
-        assert_eq!(super::initial("김민지"), "김");
-        assert_eq!(super::initial(" 한글"), "한");
-        assert_eq!(super::initial("e\u{301}va"), "E\u{301}");
-        assert_eq!(super::initial(""), "•");
+        assert!(docks(1000., 576., 320.));
+        assert!(docks(896., 576., 320.));
+        assert!(!docks(895., 576., 320.));
+        assert!(!docks(720., 400., 440.));
     }
 }

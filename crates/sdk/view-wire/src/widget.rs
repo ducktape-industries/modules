@@ -4,15 +4,15 @@ use serde::{Deserialize, Serialize};
 /// Full authored typed ancestry of one mounted element, including the target.
 pub type WidgetTarget = Vec<crate::ElementIdWire>;
 
-/// Payload of `host.widget`. Mutation requests return an encoded unit;
-/// `Focused` returns an encoded bool. Targets are the tree's qualified keys.
+/// Payload of `host.widget`: a mutation of the mounted tree, answered with
+/// an encoded unit. Targets are the tree's qualified keys.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum WidgetCommand {
     /// Queue a guest-defined action after native edits on this editor settle.
     /// The host sends EditorInteraction::Action through its transaction lane.
     EditorAction {
         target: WidgetTarget,
-        #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+        #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
         tag: String,
     },
     FocusPrevious,
@@ -22,9 +22,6 @@ pub enum WidgetCommand {
     },
     FocusHandle {
         handle: u64,
-    },
-    Focused {
-        target: WidgetTarget,
     },
     CursorFront {
         target: WidgetTarget,
@@ -57,10 +54,6 @@ pub enum WidgetCommand {
         x: f32,
         y: f32,
     },
-    ScrollToKey {
-        target: WidgetTarget,
-        key: u64,
-    },
     ScrollBy {
         target: WidgetTarget,
         x: f32,
@@ -75,7 +68,6 @@ impl WidgetCommand {
             Self::FocusPrevious | Self::FocusNext | Self::FocusHandle { .. } => return Ok(()),
             Self::EditorAction { target, .. }
             | Self::Focus { target }
-            | Self::Focused { target }
             | Self::CursorFront { target }
             | Self::CursorEnd { target }
             | Self::Cursor { target, .. }
@@ -84,8 +76,7 @@ impl WidgetCommand {
             | Self::Snap { target, .. }
             | Self::SnapEnd { target }
             | Self::ScrollTo { target, .. }
-            | Self::ScrollBy { target, .. }
-            | Self::ScrollToKey { target, .. } => target,
+            | Self::ScrollBy { target, .. } => target,
         };
         if target.is_empty() || target.len() > crate::MAX_DEPTH {
             return Err("widget target path is empty or too deep".into());

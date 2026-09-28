@@ -3,7 +3,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use crate::methods::{self, Method};
@@ -68,7 +67,7 @@ struct Slot {
 struct Registry {
     next_id: u64,
     outbox: Vec<Request>,
-    pending: HashMap<u64, Arc<Mutex<Slot>>>,
+    pending: HashMap<u64, Rc<RefCell<Slot>>>,
     cancels: Vec<u64>,
     diagnostics: HashMap<u64, String>,
 }
@@ -91,8 +90,8 @@ impl Registry {
 pub struct Host(Rc<RefCell<Registry>>);
 
 impl Host {
-    fn open(&self, kind: &str, payload: &[u8]) -> (u64, Arc<Mutex<Slot>>) {
-        let slot = Arc::new(Mutex::new(Slot::default()));
+    fn open(&self, kind: &str, payload: &[u8]) -> (u64, Rc<RefCell<Slot>>) {
+        let slot = Rc::new(RefCell::new(Slot::default()));
         let mut registry = self.0.borrow_mut();
         let id = registry.ask(kind, payload);
         registry.pending.insert(id, slot.clone());
@@ -115,7 +114,7 @@ impl Host {
     }
     pub(crate) fn raw_subscribe(&self, kind: &str, payload: &[u8]) -> Subscription {
         let (id, slot) = self.open(kind, payload);
-        slot.lock().expect("stream slot").stream = true;
+        slot.borrow_mut().stream = true;
         Subscription {
             id,
             slot,
@@ -127,7 +126,7 @@ impl Host {
     pub fn ask<D: Method>(
         &self,
         request: D::Request,
-    ) -> impl Future<Output = Result<D::Reply, Error>> + 'static {
+    ) -> impl Future<Output = Result<D::Reply, Error>> + 'static + use<D> {
         let response = self.request(D::KIND, &D::encode_request(&request));
         self.remember(response.id, &request);
         async move { D::decode_reply(&response.await?).map_err(malformed) }
@@ -136,7 +135,7 @@ impl Host {
     pub fn subscribe<D: Method>(
         &self,
         request: D::Request,
-    ) -> impl Stream<Item = Result<D::Reply, Error>> + Unpin + 'static {
+    ) -> impl Stream<Item = Result<D::Reply, Error>> + Unpin + 'static + use<D> {
         let subscription = self.raw_subscribe(D::KIND, &D::encode_request(&request));
         self.remember(subscription.id, &request);
         subscription
@@ -179,11 +178,11 @@ impl Host {
             .borrow()
             .pending
             .values()
-            .any(|slot| !slot.lock().expect("request slot").stream)
+            .any(|slot| !slot.borrow().stream)
     }
     pub(crate) fn waiting_stream(&self, waker: &Waker) -> bool {
         self.0.borrow().pending.values().any(|slot| {
-            let slot = slot.lock().expect("stream slot");
+            let slot = slot.borrow();
             slot.stream
                 && !slot.closed
                 && slot.answers.is_empty()
@@ -198,14 +197,14 @@ impl Host {
             .borrow()
             .pending
             .get(&id)
-            .is_some_and(|slot| slot.lock().expect("request slot").stream)
+            .is_some_and(|slot| slot.borrow().stream)
     }
 }
 
 /// The host's eventual answer to a [`Host::ask`].
 pub(crate) struct Response {
     id: u64,
-    slot: Arc<Mutex<Slot>>,
+    slot: Rc<RefCell<Slot>>,
     host: Host,
 }
 
@@ -219,7 +218,7 @@ impl Future for Response {
     type Output = Answer;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Answer> {
-        let mut slot = self.slot.lock().expect("response slot");
+        let mut slot = self.slot.borrow_mut();
         match slot.answers.pop_front() {
             Some(answer) => Poll::Ready(answer),
             None if slot.closed => Poll::Ready(Err(Error::new(
@@ -237,7 +236,7 @@ impl Future for Response {
 /// Every answer the host sends to a [`Host::subscribe`], until it closes.
 pub(crate) struct Subscription {
     id: u64,
-    slot: Arc<Mutex<Slot>>,
+    slot: Rc<RefCell<Slot>>,
     host: Host,
 }
 
@@ -251,7 +250,7 @@ impl Stream for Subscription {
     type Item = Answer;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Answer>> {
-        let mut slot = self.slot.lock().expect("subscription slot");
+        let mut slot = self.slot.borrow_mut();
         if std::mem::take(&mut slot.yield_next) {
             cx.waker().wake_by_ref();
             return Poll::Pending;
@@ -290,11 +289,12 @@ impl Host {
         std::mem::take(&mut self.0.borrow_mut().cancels)
     }
 
-    /// Delivers one answer; an id nobody waits for is dropped.
+    /// Ends a stream: its subscriber reads `None` next; an id nobody waits
+    /// for is ignored.
     pub(crate) fn close_stream(&self, id: u64) {
         let slot = self.0.borrow_mut().pending.remove(&id);
         if let Some(slot) = slot {
-            let mut slot = slot.lock().expect("answer slot");
+            let mut slot = slot.borrow_mut();
             slot.closed = true;
             if let Some(waker) = slot.waker.take() {
                 waker.wake();
@@ -302,6 +302,7 @@ impl Host {
         }
     }
 
+    /// Delivers one answer; an id nobody waits for is dropped.
     pub(crate) fn fulfill(&self, id: u64, answer: Answer, done: bool) {
         let slot = {
             let mut registry = self.0.borrow_mut();
@@ -312,7 +313,7 @@ impl Host {
             }
         };
         if let Some(slot) = slot {
-            let mut slot = slot.lock().expect("answer slot");
+            let mut slot = slot.borrow_mut();
             slot.answers.push_back(answer);
             slot.closed |= done;
             if let Some(waker) = slot.waker.take() {
@@ -324,7 +325,7 @@ impl Host {
 
 #[cfg(test)]
 mod pages_tests {
-    use super::{pages, Page};
+    use super::{Page, pages};
 
     /// A listing of 0..10 served three rows a page.
     fn listing(after: Option<Vec<u8>>) -> std::future::Ready<Result<Page<u8>, super::Error>> {

@@ -30,15 +30,13 @@ struct Tables {
     editor_receiver: Option<EditorReceiver>,
     editor_pending: Vec<crate::wire::EditorTransactionId>,
     host: crate::Host,
-    mouse_interest: bool,
-    event_interest: crate::wire::events::Interest,
     messages: Routes<Rc<dyn Any>>,
     handlers: Routes<Rc<dyn Any>>,
     clicks: Routes<ClickRoute>,
     tooltips: Routes<TooltipRoute>,
     row: Option<Row>,
     tooltip_responses: Vec<crate::wire::TooltipResponse>,
-    pictures: HashSet<(bool, u64)>,
+    pictures: HashSet<u64>,
 }
 
 /// A route table. Routes taken while a list row lowers get ids from the row
@@ -118,12 +116,14 @@ impl Context {
         context
     }
 
-    fn tables(&self) -> Rc<RefCell<Tables>> {
-        self.0.clone()
-    }
-
     pub(crate) fn identity(&self) -> Weak<()> {
         Arc::downgrade(&self.0.borrow().identity)
+    }
+
+    /// Whether `identity` is this driver's: a route from another driver, or
+    /// from one already dropped, never runs here.
+    pub(crate) fn owns(&self, identity: &Weak<()>) -> bool {
+        Weak::ptr_eq(identity, &self.identity())
     }
 }
 
@@ -135,10 +135,10 @@ pub fn picture(context: &Context, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u
     bytes.hash(&mut hasher);
     let hash = hasher.finish();
     let mut tables = context.0.borrow_mut();
-    if tables.pictures.len() >= 4_096 && !tables.pictures.contains(&(false, hash)) {
+    if tables.pictures.len() >= 4_096 && !tables.pictures.contains(&hash) {
         tables.pictures.clear();
     }
-    let first = tables.pictures.insert((false, hash));
+    let first = tables.pictures.insert(hash);
     (hash, first.then(|| bytes.to_vec()))
 }
 
@@ -151,17 +151,14 @@ pub fn handler<A: 'static, M: 'static>(
     context: &Context,
     handler: Box<dyn Fn(A) -> Option<M>>,
 ) -> u32 {
-    let tables = context.tables();
-    let mut tables = tables.borrow_mut();
-    let tables = &mut *tables;
+    let tables = &mut *context.0.borrow_mut();
     let handler: Rc<dyn Any> = Rc::new(handler);
     tables.handlers.push(&mut tables.row, handler, "handler")
 }
 
 pub(crate) fn reset(context: &Context) {
-    let tables = context.tables();
     let old = {
-        let mut tables = tables.borrow_mut();
+        let mut tables = context.0.borrow_mut();
         (
             std::mem::take(&mut tables.messages),
             std::mem::take(&mut tables.handlers),
@@ -197,25 +194,12 @@ pub(crate) fn take_tooltip_responses(context: &Context) -> Vec<crate::wire::Tool
     std::mem::take(&mut context.0.borrow_mut().tooltip_responses)
 }
 
-pub(crate) fn take_message<M: Clone + 'static>(context: &Context, index: u32) -> Option<M> {
-    let tables = context.tables();
-    let message = {
-        let tables = tables.borrow();
-        tables.messages.get(index)?
-    };
-    message.downcast_ref::<M>().cloned()
-}
-
 pub(crate) fn run_handler<A: 'static, M: 'static>(
     context: &Context,
     index: u32,
     value: A,
 ) -> Option<M> {
-    let tables = context.tables();
-    let handler = {
-        let tables = tables.borrow();
-        tables.handlers.get(index)?
-    };
+    let handler = context.0.borrow().handlers.get(index)?;
     handler.downcast_ref::<Box<dyn Fn(A) -> Option<M>>>()?(value)
 }
 
@@ -223,8 +207,7 @@ pub(crate) fn route<A: 'static>(
     context: &Context,
     listener: impl Fn(&A, &mut crate::Window, &mut crate::App) + 'static,
 ) -> u32 {
-    let tables = context.tables();
-    let tables = &mut *tables.borrow_mut();
+    let tables = &mut *context.0.borrow_mut();
     let route: Rc<dyn Any> = Rc::new(EventRoute::<A>(Rc::new(listener)));
     tables.handlers.push(&mut tables.row, route, "handler")
 }
@@ -233,8 +216,7 @@ pub(crate) fn message_route(
     context: &Context,
     listener: impl Fn(&(), &mut crate::Window, &mut crate::App) + 'static,
 ) -> u32 {
-    let tables = context.tables();
-    let tables = &mut *tables.borrow_mut();
+    let tables = &mut *context.0.borrow_mut();
     let route: Rc<dyn Any> = Rc::new(EventRoute::<()>(Rc::new(listener)));
     tables.messages.push(&mut tables.row, route, "message")
 }
@@ -246,11 +228,7 @@ pub(crate) fn run_route<A: 'static>(
     window: &mut crate::Window,
     app: &mut crate::App,
 ) -> bool {
-    let tables = context.tables();
-    let handler = {
-        let tables = tables.borrow();
-        tables.handlers.get(index)
-    };
+    let handler = context.0.borrow().handlers.get(index);
     let Some(route) =
         handler.and_then(|route| route.downcast_ref::<EventRoute<A>>().map(|r| r.0.clone()))
     else {
@@ -266,26 +244,14 @@ pub(crate) fn run_message_route(
     window: &mut crate::Window,
     app: &mut crate::App,
 ) -> bool {
-    let tables = context.tables();
-    let route = {
-        let tables = tables.borrow();
-        tables.messages.get(index).and_then(|route| {
-            route
-                .downcast_ref::<EventRoute<()>>()
-                .map(|route| route.0.clone())
-        })
-    };
+    let route = context.0.borrow().messages.get(index).and_then(|route| {
+        route
+            .downcast_ref::<EventRoute<()>>()
+            .map(|route| route.0.clone())
+    });
     let Some(route) = route else { return false };
     route(&(), window, app);
     true
-}
-
-pub(crate) fn event_interest(context: &Context) -> crate::wire::events::Interest {
-    context.0.borrow().event_interest
-}
-
-pub(crate) fn mouse_interest(context: &Context) -> bool {
-    context.0.borrow().mouse_interest
 }
 
 pub(crate) fn click(

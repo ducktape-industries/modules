@@ -50,8 +50,6 @@ impl Element for PathProbe {
                 .map(|id| wire::ElementIdWire::from_gpui(id).unwrap()),
             style: StyleRefinement::default(),
             content: "probe".into(),
-            heading: None,
-            live: None,
         })
     }
 }
@@ -88,10 +86,6 @@ fn lower(element: impl IntoElement) -> wire::Node {
 
 fn named(name: &'static str) -> wire::ElementIdWire {
     wire_id(ElementId::Name(name.into()))
-}
-
-fn wire_id(id: ElementId) -> wire::ElementIdWire {
-    wire::ElementIdWire::from_gpui(id).unwrap()
 }
 
 #[test]

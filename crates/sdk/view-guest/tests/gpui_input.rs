@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use view_guest::prelude::*;
-use view_guest::{wire, Driver, ElementId, Input, View, Window};
+use view_guest::{Driver, ElementId, Input, View, Window, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Form {
@@ -20,10 +20,9 @@ impl Render for Form {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let id = ElementId::NamedChild(Arc::new(ElementId::Name("chat".into())), "search".into());
         div().child(
-            Input::new(id)
+            Input::new(id, "Search messages")
                 .value(self.value.clone())
                 .placeholder("Search")
-                .label("Search messages")
                 .w(px(240.))
                 .on_input(cx.listener(|view, text: &String, _, cx| {
                     view.value = text.clone();
@@ -37,7 +36,15 @@ impl Render for Form {
     }
 }
 
-fn input(frame: &wire::Frame) -> (&wire::ElementIdWire, u32, u32, &gpui::StyleRefinement) {
+type Lowered<'a> = (
+    &'a wire::ElementIdWire,
+    u32,
+    u32,
+    &'a gpui::StyleRefinement,
+    &'a str,
+);
+
+fn input(frame: &wire::Frame) -> Lowered<'_> {
     let wire::Node::Container(view_guest::wire::ContainerNode { children, .. }) =
         frame.root.as_ref().expect("root")
     else {
@@ -45,15 +52,16 @@ fn input(frame: &wire::Frame) -> (&wire::ElementIdWire, u32, u32, &gpui::StyleRe
     };
     let wire::Node::Input {
         id,
-        on_input,
+        on_input: Some(on_input),
         on_submit: Some(on_submit),
         style,
+        options,
         ..
     } = &children[0]
     else {
         panic!("input child")
     };
-    (id, *on_input, *on_submit, style)
+    (id, *on_input, *on_submit, style, &options.label)
 }
 
 #[test]
@@ -62,8 +70,9 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
     let mut second = Driver::<Form>::new();
     let first_frame = first.tick(vec![]);
     let second_frame = second.tick(vec![]);
-    let (id, first_input, first_submit, style) = input(&first_frame);
-    let (second_id, second_input, second_submit, _) = input(&second_frame);
+    let (id, first_input, first_submit, style, label) = input(&first_frame);
+    let (second_id, second_input, second_submit, _, _) = input(&second_frame);
+    assert_eq!(label, "Search messages");
     assert_eq!(id, second_id);
     assert_eq!(first_input, second_input);
     assert_eq!(first_submit, second_submit);

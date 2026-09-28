@@ -1,13 +1,12 @@
 use crate::prelude::*;
 use crate::testing::TestAppContext;
-use crate::{modal_overlay, resize_handle, sensor, surface, wire, View};
+use crate::{View, modal_overlay, resize_handle, sensor, wire};
 
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 struct BehaviorView {
     measured: (f32, f32),
     dragged: (f32, f32),
     dismissed: bool,
-    surface_event: String,
 }
 
 impl crate::Capabilities for BehaviorView {
@@ -53,34 +52,25 @@ impl Render for BehaviorView {
             view.dismissed = true;
             cx.notify();
         });
-        let surface_event = cx.listener(|view, event: &wire::SurfaceValue, _, cx| {
-            if let wire::SurfaceValue::Str(value) = event {
-                view.surface_event = value.clone();
-            }
-            cx.notify();
-        });
         modal_overlay(
             ElementId::Name("behavior-overlay".into()),
+            "Behavior dialog",
             sensor(
                 ElementId::Name("behavior-sensor".into()),
                 resize_handle(
                     ElementId::Name("behavior-resize".into()),
-                    div().child("base").child(
-                        surface(
-                            ElementId::Name("behavior-surface".into()),
-                            "test",
-                            vec![wire::SurfaceValue::Bool(true)],
-                        )
-                        .on_event(surface_event),
-                    ),
+                    div().child("base"),
                 )
+                .role(Role::Splitter)
+                .aria_label("Resize the base")
+                .focusable()
+                .on_key_down(|_, _, _| {})
                 .on_drag(dragged),
             )
             .on_show(measured)
             .size_full(),
             div().child("modal"),
         )
-        .label("Behavior dialog")
         .flex()
         .items_center()
         .justify_center()
@@ -121,12 +111,10 @@ fn behavior_elements_lower_typed_routes_and_children() {
     ));
     cx.simulate_measure("behavior-sensor", 321., 123.);
     cx.simulate_drag("behavior-resize", 12., -3.);
-    cx.simulate_surface("behavior-surface", wire::SurfaceValue::Str("opened".into()));
     cx.simulate_dismiss("behavior-overlay");
     view.read(|view| {
         assert_eq!(view.measured, (321., 123.));
         assert_eq!(view.dragged, (12., -3.));
-        assert_eq!(view.surface_event, "opened");
         assert!(view.dismissed);
     });
 }
@@ -139,4 +127,27 @@ fn sensor_style_is_opt_in() {
         panic!("default sensor")
     };
     assert_eq!(*style, crate::StyleRefinement::default());
+}
+
+#[test]
+fn a_resize_handle_carries_role_name_focus_and_keys_to_the_wire() {
+    let mut app = crate::App::for_driver();
+    let mut window = app.window();
+    let handle = resize_handle("pane-resize", div())
+        .role(Role::Splitter)
+        .aria_label("Resize the pane")
+        .focusable()
+        .on_key_down(|_, _, _| {});
+    let node = crate::Lowering::new(&mut window, &mut app).lower(handle);
+    let wire::Node::ResizeHandle {
+        id, interactivity, ..
+    } = node
+    else {
+        panic!("a resize handle")
+    };
+    assert_eq!(id, wire::ElementIdWire::Name("pane-resize".into()));
+    assert_eq!(interactivity.role, Some(Role::Splitter));
+    assert_eq!(interactivity.aria.label.as_deref(), Some("Resize the pane"));
+    assert!(interactivity.focusable);
+    assert!(interactivity.on_key_down.is_some());
 }

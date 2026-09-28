@@ -253,7 +253,9 @@ fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> 
         .gap(design::space::XL)
         .px(PAGE_X)
         .border_b_1()
-        .border_color(theme.border);
+        .border_color(theme.border)
+        .role(Role::TabList)
+        .aria_label("Change");
     for tab in ChangeTab::ALL {
         let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change_tab(tab, cx));
         bar = bar.child(crate::ui::components::tab(
@@ -275,7 +277,7 @@ fn tab_count(forge: &Forge, tab: ChangeTab) -> Option<u64> {
         ChangeTab::Conversation => {
             let (change, _, _, _) = forge.change()?;
             match forge.messages.get(&change.channel)? {
-                ducktape_view_guest::view::Loadable::Ready(rows) => Some(rows.len() as u64),
+                ducktape_view_guest::Loadable::Ready(rows) => Some(rows.len() as u64),
                 _ => None,
             }
         }
@@ -409,26 +411,26 @@ fn file_row(
         .text_size(px(10.))
         .role(Role::CheckBox)
         .aria_label(format!("Viewed {label}"))
-        .aria_selected(viewed)
+        .aria_toggled(viewed.into())
         .focusable()
         // a tick is not also a click on the row
         .occlude()
         .on_click(tick)
         .child(if viewed { "✓" } else { "" });
-    let mut row = div()
-        .id(id(format!("forge-file-{label}")))
-        .h(px(30.))
-        .px(design::space::BLOCK)
+    let mut press = div()
+        .id(id(format!("forge-file-{label}-open")))
+        .flex_1()
+        .min_w(px(0.))
+        .self_stretch()
         .flex()
         .items_center()
         .gap(design::space::SM)
-        .when(selected, |row| row.bg(theme.surface_raised))
-        .hover(move |style| style.bg(theme.surface))
         .role(Role::Button)
-        .aria_selected(selected)
+        .when(selected, |press| {
+            press.aria_current(ducktape_view_guest::accesskit::AriaCurrent::True)
+        })
         .focusable()
         .on_click(pick)
-        .child(check)
         .child(
             design::mono(label.clone())
                 .flex_1()
@@ -442,14 +444,14 @@ fn file_row(
                 }),
         );
     if comments > 0 {
-        row = row.child(badge(
+        press = press.child(badge(
             id(format!("forge-file-comments-{label}")),
             comments.to_string(),
             theme.muted,
             theme.surface_raised,
         ));
     }
-    row = row.child(
+    press = press.child(
         div()
             .flex()
             .gap(design::space::XXS)
@@ -470,6 +472,19 @@ fn file_row(
                 )
             }),
     );
+    // the tick sits beside the row's press, as a button may not hold it
+    let row = div()
+        .id(id(format!("forge-file-{label}")))
+        .h(px(30.))
+        .px(design::space::BLOCK)
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .when(selected, |row| row.bg(theme.surface_raised))
+        .hover(move |style| style.bg(theme.surface))
+        .role(Role::ListItem)
+        .child(check)
+        .child(press);
     Some(row.into_any_element())
 }
 
@@ -617,6 +632,8 @@ fn finish_panel(
         .bg(theme.background)
         .shadow_lg()
         .occlude()
+        .role(Role::Dialog)
+        .aria_label("Finish your review")
         .on_mouse_down_out(fold)
         .child(
             div()
@@ -663,6 +680,7 @@ fn review_body(body: &Editor, document: String, theme: &Theme) -> impl IntoEleme
         body,
         document,
         |forge: &mut Forge| forge.review_mut().map(|review| &mut review.body),
+        "Review body",
     )
     .min_h(design::size::CONTROL * 2.5)
     .w_full()
@@ -672,7 +690,6 @@ fn review_body(body: &Editor, document: String, theme: &Theme) -> impl IntoEleme
     .bg(theme.background)
     .text_color(theme.foreground)
     .placeholder("What this review says overall")
-    .label("Review body")
 }
 
 /// The three verdicts as radio rows, each with what it means.
@@ -688,7 +705,8 @@ fn verdicts(
         .flex()
         .flex_col()
         .gap(design::space::SM)
-        .role(Role::RadioGroup);
+        .role(Role::RadioGroup)
+        .aria_label("Verdict");
     for (verdict, slug, about) in [
         (Verdict::Comment, "comment", "Feedback without a verdict."),
         (Verdict::Approve, "approve", "Ready to merge as it is."),
@@ -719,10 +737,11 @@ fn verdicts(
                 .items_start()
                 .gap(design::space::SM)
                 .role(Role::RadioButton)
-                .aria_selected(on)
-                .when(!forge.may_write(), |row| row.aria_disabled(true))
-                .focusable()
-                .on_click(pick)
+                .aria_toggled(on.into())
+                .map(|row| match forge.may_write() {
+                    true => row.focusable().on_click(pick),
+                    false => row.aria_disabled(true),
+                })
                 .child(dot)
                 .child(
                     div().flex().flex_col().child(verdict_label(verdict)).child(

@@ -536,7 +536,7 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
         .bg(theme.surface)
         .child(quiet(open.anchor(), theme))
         .child(
-            Input::new(id("forge-comment-body"))
+            Input::new(id("forge-comment-body"), "Line comment")
                 .h(design::size::CONTROL)
                 .w_full()
                 .px_2()
@@ -546,7 +546,6 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                 .text_color(theme.foreground)
                 .value(open.body)
                 .placeholder("What should change here?")
-                .label("Line comment")
                 .on_input(typed),
         );
     if !review.error.is_empty() {

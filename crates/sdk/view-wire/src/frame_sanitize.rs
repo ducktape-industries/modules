@@ -1,5 +1,8 @@
 use crate::*;
 
+/// The most bytes one encoded frame may be: a host refuses a longer one
+/// before decoding it, and no raster payload may claim more.
+pub const MAX_FRAME_BYTES: usize = 8 << 20;
 /// A tree deeper than this is cut off: a guest cannot make the host's
 /// layout recurse without bound.
 pub const MAX_DEPTH: usize = 64;
@@ -33,22 +36,16 @@ pub const MAX_TEXT_BYTES_PER_FRAME: usize = MAX_STRING_BYTES;
 /// picture once, so this bounds what a frame can make the host parse, not
 /// what an app can show over its life; an icon is a few kilobytes.
 pub const MAX_PICTURE_BYTES_PER_FRAME: usize = 1 << 20;
-/// The most options one [`Node::PickList`] may offer: a menu, not a table.
-/// Each option is shaped text and spends the frame's text budget too.
-pub const MAX_OPTIONS: usize = 256;
-
 /// A uniform list may describe a large logical list without allocating rows.
 pub const MAX_UNIFORM_LIST_COUNT: usize = 65_536;
 /// A frame and one host range request carry at most this many uniform rows.
 pub const MAX_UNIFORM_LIST_ROWS: usize = 256;
 
-/// Maximum positional values supplied to one host surface.
-pub const MAX_SURFACE_ARGS: usize = 256;
 /// Text and spacing sizes are pixels; nothing on a screen needs more.
-pub(crate) const MAX_PIXELS: f32 = 8192.0;
+pub const MAX_PIXELS: f32 = 8192.0;
 /// A text size, which is not a length: every glyph at it is rasterized and
 /// cached, so a screenful of 8192 px text is an atlas no screen asked for.
-pub(crate) const MAX_TEXT_PIXELS: f32 = 512.0;
+pub const MAX_TEXT_PIXELS: f32 = 512.0;
 
 /// Pulls a frame from an untrusted module into what the host is willing to
 /// lay out: the tree is truncated past [`MAX_DEPTH`] and [`MAX_NODES`],
@@ -92,7 +89,6 @@ pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, &'static str> {
 // Sanitization may shorten display text, but never an authoritative document.
 pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> {
     let mut pending = vec![root];
-    let mut surface_values = Vec::new();
     let mut references = Vec::new();
     let mut display = 0usize;
     while let Some(node) = pending.pop() {
@@ -114,115 +110,24 @@ pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> 
                 }
             }
             Node::Editor {
-                placeholder,
-                label,
-                options,
-                ..
+                placeholder, label, ..
             } => {
                 add(placeholder);
                 if let Some(label) = label {
                     add(label);
                 }
-                if let Some(rich) = &options.rich {
-                    for item in &rich.toolbar {
-                        add(&item.label);
-                    }
-                }
             }
-            Node::Image { label, .. }
-            | Node::ImageViewer { label, .. }
-            | Node::Svg { label, .. }
-            | Node::MouseArea { label, .. }
-            | Node::Slider { label, .. }
-            | Node::Overlay { label, .. } => {
-                if let Some(label) = label {
-                    add(label);
-                }
-            }
-            // Unknown surfaces display their name in the native placeholder.
-            Node::Surface { name, args, .. } => {
-                add(name);
-                surface_values.extend(args);
-            }
-            Node::Button {
-                content,
-                label,
-                description,
-                ..
-            } => {
-                if let ButtonContent::Label(text) = content {
-                    add(text);
-                }
-                if let Some(label) = label {
-                    add(label);
-                }
-                if let Some(description) = description {
-                    add(description);
-                }
-            }
-            Node::Toggle { label, .. } | Node::Radio { label, .. } => add(label),
-            Node::ComboBox {
-                options,
-                placeholder,
-                label,
-                ..
-            } => {
-                for option in options {
-                    add(option);
-                }
-                add(placeholder);
-                if let Some(label) = label {
-                    add(label);
-                }
-            }
-            Node::PickList {
-                options,
-                placeholder,
-                label,
-                ..
-            } => {
-                for option in options {
-                    add(option);
-                }
-                if let Some(placeholder) = placeholder {
-                    add(placeholder);
-                }
+            Node::Image { label, .. } | Node::Svg { label, .. } | Node::Overlay { label, .. } => {
                 if let Some(label) = label {
                     add(label);
                 }
             }
             _ => {}
         }
-        if let Node::Editor {
-            document, options, ..
-        } = node
-        {
-            if let Some(rich) = &options.rich {
-                rich.document.validate()?;
-                if rich.toolbar.len() > editor_presentation::MAX_EDITOR_MENU_ITEMS {
-                    return Err("rich toolbar limit");
-                }
-            }
+        if let Node::Editor { document, .. } = node {
             references.push(document);
         }
         pending.extend(node.children());
-    }
-    // Surface strings share the display budget (for example a code preview).
-    // Record/type names are routing metadata, not the textual payload itself.
-    while let Some(value) = surface_values.pop() {
-        match value {
-            SurfaceValue::Str(text) => display = display.saturating_add(text.len()),
-            SurfaceValue::List(items) => surface_values.extend(items),
-            SurfaceValue::Option(Some(item)) => surface_values.push(item.as_ref()),
-            SurfaceValue::Record { fields, .. } => {
-                surface_values.extend(fields.iter().map(|(_, value)| value));
-            }
-            SurfaceValue::Unit
-            | SurfaceValue::Bool(_)
-            | SurfaceValue::I64(_)
-            | SurfaceValue::F64(_)
-            | SurfaceValue::Option(None) => {}
-        }
     }
     editor_document::validate_editor_document_refs(references.iter().copied())
         .map_err(|_| "invalid editor document references or budget")?;
@@ -279,12 +184,12 @@ fn finish_typed_scope(scopes: &mut IdentityScopes, started: bool) {
 /// What is left of a frame's per-frame budgets while its tree is walked.
 pub(crate) struct Budgets {
     pub(crate) nodes: usize,
-    pub(crate) qr_codes: usize,
     pub(crate) canvas_parts: usize,
-    pub(crate) surface_values: usize,
     pub(crate) text: usize,
     pub(crate) pictures: usize,
     pub(crate) list_items: usize,
+    /// A node already claimed the active descendant.
+    pub(crate) active_descendant: bool,
 }
 
 impl Budgets {
@@ -294,9 +199,8 @@ impl Budgets {
             text: MAX_TEXT_BYTES_PER_FRAME,
             pictures: MAX_PICTURE_BYTES_PER_FRAME,
             list_items: MAX_LIST_ITEMS,
-            surface_values: MAX_SURFACE_VALUES,
             canvas_parts: MAX_CANVAS_PARTS,
-            qr_codes: MAX_QR_CODES,
+            active_descendant: false,
         }
     }
 }
@@ -323,8 +227,7 @@ use node::sanitize_node;
 
 mod numbers;
 pub use numbers::truncate_string;
-use numbers::truncate_to;
-pub(crate) use numbers::{bound_optional, bounded, finite, signed_bounded};
+pub(crate) use numbers::{bounded, finite, signed_bounded, truncate_to};
 
 mod interactivity;
 use interactivity::sanitize_interactivity;

@@ -2,7 +2,7 @@
 //! account it holds), and what that lets them do in the open room.
 use chat::Principal;
 use ducktape_view_guest::Context;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 
 use crate::Chat;
 use crate::api::Session;
