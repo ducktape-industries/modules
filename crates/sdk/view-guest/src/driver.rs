@@ -60,11 +60,13 @@ impl<V: View> Driver<V> {
     /// A frame with the whole tree in it, patched or not: what a test reads.
     /// The host gets [`Driver::tick_wire`]'s, which leaves the tree out
     /// when the host can keep or patch its own.
+    /// It is held to `view_wire::audit`, as a test's frames are.
     pub fn tick(&mut self, events: Vec<wire::Event>) -> wire::Frame {
         let mut frame = self.tick_wire(events);
         if frame.root.is_none() {
             frame.root = self.last_root.clone();
         }
+        crate::testing::assert_frame_accessible(&frame);
         frame
     }
 

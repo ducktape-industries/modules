@@ -64,7 +64,17 @@ fn drawn(draft: &Draft) -> wire::Node {
     drawn_with(draft, "c", &[])
 }
 
+/// The composer's tree, held to the audit as a view's tests hold it.
 fn drawn_with(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
+    let tree = lowered(draft, key, choices);
+    crate::testing::assert_accessible(&tree);
+    tree
+}
+
+/// The composer's tree unaudited: only for what the tree carries beside
+/// the open @-mention menu, whose faults are
+/// `the_mention_menu_is_not_yet_reachable`'s to name.
+fn lowered(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
     let mut app = App::for_driver();
     let entity = Entity::reserve(&app);
     let mut window = app.window();
@@ -251,19 +261,12 @@ fn restored_editor_presentation_keeps_mention_highlights_and_document_routes() {
 
 #[test]
 fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
-    let choices = vec![MentionChoice {
-        token: "<@1>".into(),
-        label: "Ada".into(),
-    }];
-    let mut draft = Draft::from_body("@A", &choices);
-    draft.editor.move_to(wire::EditorCursor {
-        position: wire::EditorPosition { line: 0, column: 2 },
-        selection: None,
-    });
+    let choices = roster();
+    let mut draft = caret("@A", 2);
     draft.failed_send = Some(Send {
         body: "older".into(),
     });
-    let root = drawn_with(&draft, "c", &choices);
+    let root = lowered(&draft, "c", &choices);
     for (key, label) in [
         ("c/bold", "Bold"),
         ("c/italic", "Italic"),
@@ -288,6 +291,22 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
     assert!(interactivity.on_click.is_some());
     assert_eq!(interactivity.role, Some(Role::MenuItem));
     assert_eq!(interactivity.aria.label.as_deref(), Some("@Ada"));
+    // with the menu shut, the whole composer passes the audit
+    draft.editor.move_to(wire::EditorCursor {
+        position: wire::EditorPosition { line: 0, column: 0 },
+        selection: None,
+    });
+    drawn_with(&draft, "c", &choices);
+}
+
+/// The known fault: the @-mention rows are menu items with no menu, which
+/// no key reaches (the keys stay in the editor). The honest shape is an
+/// EditableComboBox editor whose active descendant is the picked option,
+/// a wire change of its own; this test fails once that lands.
+#[test]
+#[should_panic(expected = "Orphan at c >  > c/mention/<@1>")]
+fn the_mention_menu_is_not_yet_reachable() {
+    drawn_with(&caret("@A", 2), "c", &roster());
 }
 
 #[test]
@@ -357,7 +376,8 @@ fn key_state(claim: &wire::EditorKeyClaim) -> wire::keyboard::KeyState {
 }
 
 fn claimed(draft: &Draft) -> Vec<wire::EditorKeyClaim> {
-    let root = drawn_with(draft, "c", &roster());
+    // the key claims, with the menu open or shut
+    let root = lowered(draft, "c", &roster());
     let wire::Node::Editor { options, .. } = editor_node(&root) else {
         unreachable!()
     };

@@ -53,17 +53,21 @@ impl View for PointerSurface {
 }
 impl Render for PointerSurface {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div().id("surface").on_mouse_down(
-            MouseButton::Right,
-            cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                this.seen.push((
-                    event.click_count,
-                    event.modifiers.shift,
-                    event.position.x.as_f32(),
-                ));
-                cx.notify();
-            }),
-        )
+        div()
+            .id("surface")
+            .role(Role::Group)
+            .aria_label("Surface")
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    this.seen.push((
+                        event.click_count,
+                        event.modifiers.shift,
+                        event.position.x.as_f32(),
+                    ));
+                    cx.notify();
+                }),
+            )
     }
 }
 
@@ -241,15 +245,24 @@ impl View for FocusSurface {
         Self
     }
 }
+/// A button named `key` holding `handle`.
+fn focused(key: &'static str, handle: &FocusHandle) -> view_guest::Stateful<view_guest::Div> {
+    div()
+        .id(key)
+        .role(Role::Button)
+        .aria_label(key)
+        .track_focus(handle)
+}
+
 impl Render for FocusSurface {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let first = cx.focus_handle();
         let same = first.clone();
         let unrelated = cx.focus_handle();
         div()
-            .child(div().id("first").track_focus(&first))
-            .child(div().id("same").track_focus(&same))
-            .child(div().id("other").track_focus(&unrelated))
+            .child(focused("first", &first))
+            .child(focused("same", &same))
+            .child(focused("other", &unrelated))
     }
 }
 

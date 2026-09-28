@@ -422,6 +422,8 @@ mod tests {
                     view.rendered.push(index);
                     div()
                         .id(format!("row-{index}"))
+                        .role(Role::Button)
+                        .focusable()
                         .on_click(|_, _, _| {})
                         .child(index.to_string())
                         .into_any_element()

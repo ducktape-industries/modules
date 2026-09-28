@@ -1,4 +1,4 @@
-use super::{FakeHost, assert_accessible, find, texts};
+use super::{FakeHost, assert_frame_accessible, find, texts};
 use crate::{
     App, Capabilities, Driver, Entity, View,
     host::Host,
@@ -118,8 +118,8 @@ impl TestAppContext {
                 if let Err(refused) = crate::wire::sanitize(&mut hosted) {
                     panic!("the host refuses this frame: {refused}");
                 }
-                assert_accessible(root);
             }
+            assert_frame_accessible(&frame);
             let busy = frame.busy;
             self.frame = frame;
             events = self.host.take_events();
@@ -299,5 +299,48 @@ mod tests {
     #[should_panic(expected = "Unnamed at nameless")]
     fn every_frame_a_view_sends_is_audited() {
         TestAppContext::new().open::<Nameless>();
+    }
+
+    #[test]
+    #[should_panic(expected = "Unnamed at nameless")]
+    fn a_frame_driver_tick_returns_is_audited() {
+        Driver::<Nameless>::new().tick(Vec::new());
+    }
+
+    /// A target whose tooltip is the nameless button.
+    #[derive(Default, Serialize, Deserialize)]
+    struct NamelessTip;
+    impl View for NamelessTip {
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self
+        }
+    }
+    impl Capabilities for NamelessTip {
+        const CAPABILITIES: &'static [Capability] = &[];
+    }
+    impl Render for NamelessTip {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+            crate::div()
+                .id("target")
+                .child("Target")
+                .tooltip(|_, cx| cx.new(|_| Nameless).into())
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Unnamed at nameless")]
+    fn a_tooltip_the_host_draws_is_audited() {
+        let mut cx = TestAppContext::new();
+        cx.open::<NamelessTip>();
+        let Some(Node::Container(crate::wire::ContainerNode { interactivity, .. })) =
+            cx.find("target")
+        else {
+            panic!("the target")
+        };
+        let request = interactivity.tooltip.as_ref().expect("a tooltip").request;
+        cx.dispatch(vec![Event::TooltipRequest {
+            request,
+            character_index: None,
+        }]);
     }
 }

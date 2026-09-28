@@ -43,6 +43,20 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
     }
 }
 
+/// [`assert_accessible`] on each tree the frame carries: its root and
+/// every tooltip's content, which the host renders too.
+pub(crate) fn assert_frame_accessible(frame: &Frame) {
+    let tooltips = frame
+        .tooltip_responses
+        .iter()
+        .filter_map(|response| response.content.as_deref());
+    frame
+        .root
+        .iter()
+        .chain(tooltips)
+        .for_each(assert_accessible);
+}
+
 /// Panics listing each node assistive technology cannot name, place or
 /// reach, by its key path and fault.
 pub(crate) fn assert_accessible(tree: &Node) {
