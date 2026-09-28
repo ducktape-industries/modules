@@ -293,6 +293,20 @@ fn custom_actions_are_cut_to_the_bound_unique_and_short() {
     for (_, description) in &kept.custom_actions {
         assert_eq!(description.len(), MAX_ARIA_TEXT_BYTES);
     }
+    let unique = aria(Aria {
+        custom_actions: (0..MAX_ARIA_CUSTOM_ACTIONS as i32 + 4)
+            .map(|id| (id, "Pin".into()))
+            .collect(),
+        ..Default::default()
+    });
+    assert_eq!(
+        unique
+            .custom_actions
+            .iter()
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>(),
+        (0..MAX_ARIA_CUSTOM_ACTIONS as i32).collect::<Vec<_>>()
+    );
 }
 
 #[test]
