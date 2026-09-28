@@ -3,7 +3,7 @@ use ducktape_view_guest::Host;
 use ducktape_view_guest::host::{Error, pages, wrong_reply};
 use ducktape_view_guest::methods::Query;
 use serde::{Deserialize, Serialize};
-use valset::view::Valset;
+use valset::view::ValsetApi;
 use valset::{Membership, PageRequest, Query as Ask, Reply, Role};
 
 /// One member of the network, once: its key, the address it is reached at
@@ -55,12 +55,12 @@ pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
 /// The set, read twice: the consensus keys the program answers, then every
 /// membership behind them.
 pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
-    let validators = match host.ask::<Query<Valset>>(Ask::Validators).await? {
+    let validators = match host.ask::<Query<ValsetApi>>(Ask::Validators).await? {
         Reply::Validators(keys) => keys,
         _ => return Err(wrong_reply()),
     };
     let members = pages(None, |after| {
-        let ask = host.ask::<Query<Valset>>(Ask::Memberships {
+        let ask = host.ask::<Query<ValsetApi>>(Ask::Memberships {
             page: PageRequest { after, limit: None },
         });
         async move {

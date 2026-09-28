@@ -93,7 +93,7 @@ fn page<T>(items: Vec<T>) -> valset::PageResponse<T> {
 }
 
 fn respond(cx: &mut TestAppContext) {
-    cx.host().handle::<Query<Valset>>(|query| {
+    cx.host().handle::<Query<ValsetApi>>(|query| {
         Ok(match query {
             valset::Query::Validators => {
                 valset::Reply::Validators(vec![THIS.to_vec(), OTHER.to_vec(), UNLISTED.to_vec()])
@@ -112,7 +112,7 @@ fn respond(cx: &mut TestAppContext) {
 fn ready() -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
     let ticks = node(&cx);
-    cx.host().stream::<Changes<Valset>>();
+    cx.host().stream::<Changes<ValsetApi>>();
     respond(&mut cx);
     cx.open::<Nodes>();
     cx.run_until_parked();
@@ -172,7 +172,7 @@ fn the_root_tracks_the_shared_theme() {
 #[test]
 fn the_head_names_the_network_and_this_node() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<Valset>>();
+    cx.host().stream::<Changes<ValsetApi>>();
     let ticks = node(&cx);
     cx.host()
         .refuse::<ChainStatus>("unavailable", "The node is unavailable. Try again.");
@@ -285,8 +285,8 @@ fn a_new_head_reads_one_block() {
 fn loading_waits_for_the_host() {
     let mut cx = TestAppContext::new();
     node(&cx);
-    cx.host().stream::<Changes<Valset>>();
-    cx.host().never::<Query<Valset>>();
+    cx.host().stream::<Changes<ValsetApi>>();
+    cx.host().never::<Query<ValsetApi>>();
     cx.open::<Nodes>();
     cx.run_until_parked();
     assert!(cx.has_text("Reading the members…"));
@@ -296,8 +296,8 @@ fn loading_waits_for_the_host() {
 fn an_empty_set_says_so() {
     let mut cx = TestAppContext::new();
     node(&cx);
-    cx.host().stream::<Changes<Valset>>();
-    cx.host().handle::<Query<Valset>>(|query| {
+    cx.host().stream::<Changes<ValsetApi>>();
+    cx.host().handle::<Query<ValsetApi>>(|query| {
         Ok(match query {
             valset::Query::Validators => valset::Reply::Validators(vec![]),
             valset::Query::Memberships { .. } => valset::Reply::Memberships(page(vec![])),
@@ -313,9 +313,9 @@ fn an_empty_set_says_so() {
 fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     let mut cx = TestAppContext::new();
     node(&cx);
-    cx.host().stream::<Changes<Valset>>();
+    cx.host().stream::<Changes<ValsetApi>>();
     cx.host()
-        .refuse::<Query<Valset>>("unavailable", "valset is not running here");
+        .refuse::<Query<ValsetApi>>("unavailable", "valset is not running here");
     cx.open::<Nodes>();
     cx.run_until_parked();
     assert!(cx.has_text("valset is not running here"));
@@ -323,18 +323,18 @@ fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     cx.simulate_click("nodes-retry");
     cx.run_until_parked();
     assert!(cx.has_text("10.0.0.1:4000"));
-    assert_eq!(cx.host().requests::<Query<Valset>>().len(), 3);
+    assert_eq!(cx.host().requests::<Query<ValsetApi>>().len(), 3);
 }
 
 #[test]
 fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
     let mut cx = TestAppContext::new();
     node(&cx);
-    let feed = cx.host().stream::<Changes<Valset>>();
+    let feed = cx.host().stream::<Changes<ValsetApi>>();
     respond(&mut cx);
     cx.open::<Nodes>();
     cx.run_until_parked();
-    cx.host().handle::<Query<Valset>>(|query| {
+    cx.host().handle::<Query<ValsetApi>>(|query| {
         Ok(match query {
             valset::Query::Validators => valset::Reply::Validators(vec![THIS.to_vec()]),
             valset::Query::Memberships { .. } => {
@@ -356,12 +356,12 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
     restored.host().stream::<ClockTicks>();
     restored.host().never::<ChainStatus>();
     restored.host().never::<ChainNetwork>();
-    restored.host().stream::<Changes<Valset>>();
-    restored.host().never::<Query<Valset>>();
+    restored.host().stream::<Changes<ValsetApi>>();
+    restored.host().never::<Query<ValsetApi>>();
     restored.restore::<Nodes>(&bytes).unwrap();
     restored.run_until_parked();
     assert!(restored.has_text("10.9.9.9:4000") && restored.has_text("Workshop"));
-    assert_eq!(restored.host().requests::<Query<Valset>>().len(), 1);
+    assert_eq!(restored.host().requests::<Query<ValsetApi>>().len(), 1);
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn a_refused_live_head_is_logged_and_the_set_stays() {
     let mut cx = TestAppContext::new();
     node(&cx);
     cx.host()
-        .refuse::<Changes<Valset>>("unavailable", "no live heads here");
+        .refuse::<Changes<ValsetApi>>("unavailable", "no live heads here");
     respond(&mut cx);
     cx.open::<Nodes>();
     cx.run_until_parked();

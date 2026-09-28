@@ -19,10 +19,10 @@ pub(crate) use ducktape_view_guest::methods::{
     NodeStatus, Outcome, Query, Receipt, Session, Tx, Value,
 };
 pub(crate) use ducktape_view_guest::testing::{StreamSender, TestAppContext};
-pub(crate) use identity::view::Identity;
+pub(crate) use identity::view::IdentityApi;
 pub(crate) use module_registry as registry;
-pub(crate) use module_registry::view::Registry;
-pub(crate) use valset::view::Valset;
+pub(crate) use module_registry::view::RegistryApi;
+pub(crate) use valset::view::ValsetApi;
 
 pub(crate) const ADA: [u8; 32] = [1; 32];
 pub(crate) const STRANGER: [u8; 32] = [2; 32];
@@ -210,7 +210,7 @@ pub(crate) fn node(
             BlockRef::Id(id) => chain.into_iter().find(|block| block.id == id),
         })
     });
-    host.handle::<Query<Identity>>(|query| match query {
+    host.handle::<Query<IdentityApi>>(|query| match query {
         identity::Query::List { .. } => {
             Ok(identity::Reply::Accounts(module_registry::PageResponse {
                 height: 1,
@@ -220,7 +220,7 @@ pub(crate) fn node(
         }
         other => panic!("unexpected identity query: {other:?}"),
     });
-    host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
+    host.handle::<Query<ValsetApi>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
     feeds
@@ -235,7 +235,7 @@ pub(crate) fn entry(program: &str, code: u8) -> registry::Entry {
 }
 
 pub(crate) fn respond(cx: &mut TestAppContext) {
-    cx.host().handle::<Query<Registry>>(|query| {
+    cx.host().handle::<Query<RegistryApi>>(|query| {
         Ok(match query {
             registry::Query::At(0) => {
                 registry::Reply::Programs(vec![entry("chat", 0xab), entry("identity", 0xcd)])
@@ -332,14 +332,14 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
             BlockRef::Id(id) => chain.iter().find(|block| block.id == id).cloned(),
         })
     });
-    host.handle::<Query<Identity>>(|_| {
+    host.handle::<Query<IdentityApi>>(|_| {
         Ok(identity::Reply::Accounts(module_registry::PageResponse {
             height: 1,
             items: vec![ada()],
             next: None,
         }))
     });
-    host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
+    host.handle::<Query<ValsetApi>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
 }
@@ -348,9 +348,9 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
 pub(crate) fn follow(cx: &TestAppContext) {
     cx.host()
         .stream::<ducktape_view_guest::methods::HostOffset>();
-    cx.host().stream::<Changes<Identity>>();
-    cx.host().stream::<Changes<Valset>>();
-    cx.host().stream::<Changes<Registry>>();
+    cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<ValsetApi>>();
+    cx.host().stream::<Changes<RegistryApi>>();
 }
 
 /// A restore that must read nothing: every ask left unanswered.
@@ -362,8 +362,8 @@ pub(crate) fn quiet_host(cx: &TestAppContext) {
     host.never::<HostSession>();
     host.never::<HostRoute>();
     host.never::<ChainBlocks>();
-    host.never::<Query<Identity>>();
-    host.never::<Query<Valset>>();
-    host.never::<Query<Registry>>();
+    host.never::<Query<IdentityApi>>();
+    host.never::<Query<ValsetApi>>();
+    host.never::<Query<RegistryApi>>();
     host.never::<ModuleDescribe>();
 }

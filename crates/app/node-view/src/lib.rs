@@ -20,7 +20,7 @@ use ducktape_view_guest::{
     Context, IntoElement, Loadable, Render, Task, View, Window, export_view,
 };
 use serde::{Deserialize, Serialize};
-use valset::view::Valset;
+use valset::view::ValsetApi;
 
 mod queries;
 mod recent;
@@ -83,7 +83,7 @@ impl View for Nodes {
     }
 
     fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let heads = cx.host().subscribe::<Changes<Valset>>(());
+        let heads = cx.host().subscribe::<Changes<ValsetApi>>(());
         let ticks = cx.host().subscribe::<ClockTicks>(TICK);
         self.followers = vec![
             cx.for_each(heads, |view, head, _, cx| match head {
