@@ -18,7 +18,16 @@ impl Interactivity {
         aria.actions = self
             .a11y_actions
             .into_iter()
-            .map(|(action, listener)| (action, lowering.route(listener)))
+            .map(|(action, listener)| {
+                // gpui's listener is FnMut; a route is called through `&`
+                let listener = std::cell::RefCell::new(listener);
+                let route = lowering.route(
+                    move |data: &Option<wire::ActionData>, window: &mut Window, app: &mut App| {
+                        (listener.borrow_mut())(data.as_ref(), window, app)
+                    },
+                );
+                (action, route)
+            })
             .collect();
         let id = self.id.map(crate::element::wire_id);
         let tooltip = self.tooltip.map(|tooltip| {

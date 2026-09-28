@@ -22,6 +22,9 @@ struct TooltipBuilder {
     hoverable: bool,
 }
 
+/// An assistive-technology action's listener, as gpui takes it.
+type A11yListener = Box<dyn FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App)>;
+
 /// The explicit state carried by guest interactivity until frame lowering.
 #[derive(Default)]
 pub struct Interactivity {
@@ -46,10 +49,7 @@ pub struct Interactivity {
     described_by: Vec<ElementId>,
     controls: Vec<ElementId>,
     error_message: Option<ElementId>,
-    a11y_actions: Vec<(
-        gpui::accesskit::Action,
-        EventListener<Option<wire::ActionData>>,
-    )>,
+    a11y_actions: Vec<(gpui::accesskit::Action, A11yListener)>,
     pub(crate) on_click: Option<EventListener<ClickEvent>>,
     pub(crate) on_aux_click: Option<EventListener<ClickEvent>>,
     mouse_down: Vec<ButtonBinding<gpui::MouseDownEvent>>,
@@ -522,6 +522,9 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self.interactivity().aria.orientation = Some(value);
         self
     }
+    // `aria_live` through `aria_error_message` and `custom_action` are the
+    // names planned for the fork, which has none of them yet; the host
+    // delivers each through its aria patch until it does.
     fn aria_live(mut self, value: accesskit::Live) -> Self {
         self.interactivity().aria.live = Some(value);
         self
@@ -581,12 +584,13 @@ pub trait StatefulInteractiveElement: InteractiveElement {
             .push((id, description.into()));
         self
     }
-    /// Answers `action` when assistive technology requests it; the host
-    /// keeps click and focus, so those are never asked here.
+    /// Answers `action` when assistive technology requests it: gpui's own
+    /// setter and signature. The host keeps click and focus, so those are
+    /// never asked here.
     fn on_a11y_action(
         mut self,
         action: accesskit::Action,
-        listener: impl Fn(&Option<accesskit::ActionData>, &mut Window, &mut App) + 'static,
+        listener: impl FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity()
             .a11y_actions

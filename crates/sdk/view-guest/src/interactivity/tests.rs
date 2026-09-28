@@ -104,14 +104,19 @@ impl Render for Stepper {
             .role(Role::SpinButton)
             .aria_label("Count")
             .aria_numeric_value(f64::from(self.count))
-            .on_a11y_action(
-                Action::Increment,
-                cx.listener(|view: &mut Self, data: &Option<ActionData>, _, cx| {
+            .on_a11y_action(Action::Increment, {
+                let step = cx.listener(|view: &mut Self, data: &Option<ActionData>, _, cx| {
                     view.count += 1;
                     view.data = data.clone();
                     cx.notify();
-                }),
-            )
+                });
+                // gpui's shape: FnMut, handed the data by reference
+                let mut asked = Vec::new();
+                move |data: Option<&ActionData>, window: &mut Window, app: &mut App| {
+                    asked.push(data.cloned());
+                    step(asked.last().expect("just asked"), window, app)
+                }
+            })
     }
 }
 
