@@ -124,7 +124,7 @@ pub use frame_sanitize::{
 
 mod codec;
 pub use codec::{MAX_DECODED_NODES, decode, encode, encoded_size, try_encode};
-pub(crate) use codec::{bounded_vec, budget, decode_child, decode_children};
+pub(crate) use codec::{bounded_vec, decode_child, decode_children};
 
 #[cfg(test)]
 mod tests;

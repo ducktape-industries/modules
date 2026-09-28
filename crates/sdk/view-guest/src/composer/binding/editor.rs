@@ -79,7 +79,6 @@ pub(super) fn editor<V: 'static>(
     editable: bool,
     choices: &[MentionChoice],
     handle: Handle<V>,
-    accent: gpui::Hsla,
 ) -> EditorElement<Change, V> {
     let effect = move |event: Event<V>| {
         let handle = handle.clone();
@@ -187,26 +186,6 @@ pub(super) fn editor<V: 'static>(
         let wire::editor_presentation::EditorInteraction::Action { tag } = request.action;
         interacting.decide(tag, &interaction_choices, request.state)
     });
-    let mut presentation = wire::editor_presentation::EditorPresentation {
-        formats: vec![wire::editor_presentation::EditorFormat {
-            style: gpui::StyleRefinement::default().text_color(accent),
-        }],
-        ..Default::default()
-    };
-    for mention in &draft.mentions {
-        let start = wire::editor_position(draft.editor.state_view().text, mention.range.start);
-        let end = wire::editor_position(draft.editor.state_view().text, mention.range.end);
-        if start.line == end.line {
-            presentation
-                .spans
-                .push(wire::editor_presentation::EditorSpan {
-                    line: start.line,
-                    start: start.column,
-                    end: end.column,
-                    format: 0,
-                });
-        }
-    }
     let route_effect = effect;
     EditorElement::new(
         ElementId::Name(key.into()),
@@ -230,5 +209,4 @@ pub(super) fn editor<V: 'static>(
     .p(crate::design::space::MD)
     .text_size(crate::design::text::BODY)
     .whitespace_normal()
-    .presentation(presentation)
 }

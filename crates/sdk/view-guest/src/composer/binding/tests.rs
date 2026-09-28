@@ -2,7 +2,7 @@ use super::super::Send;
 use super::editor::{editor, key_tag};
 use super::*;
 use crate::{
-    App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, Theme, View, Window, wire,
+    App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, View, Window, wire,
 };
 use gpui::Modifiers;
 use serde::{Deserialize, Serialize};
@@ -141,7 +141,6 @@ fn two_drafts_at_one_key_are_two_documents_the_host_can_tell_apart() {
             true,
             &[],
             handle,
-            Theme::default().accent,
         );
         let wire::Node::Editor { id, document, .. } =
             Lowering::new(&mut window, &mut app).lower(field)
@@ -174,7 +173,6 @@ fn discarded_composer_editor_does_not_register_routes_before_lowering() {
         true,
         &[],
         handle.clone(),
-        Theme::default().accent,
     ));
     let field = editor(
         &Draft::default(),
@@ -185,7 +183,6 @@ fn discarded_composer_editor_does_not_register_routes_before_lowering() {
         true,
         &[],
         handle,
-        Theme::default().accent,
     );
     let mut window = app.window();
     let wire::Node::Editor { on_document, .. } = Lowering::new(&mut window, &mut app).lower(field)
@@ -255,7 +252,7 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
 }
 
 #[test]
-fn restored_editor_presentation_keeps_mention_highlights_and_document_routes() {
+fn restored_mention_draft_keeps_its_document_and_binding() {
     let choices = vec![MentionChoice {
         token: "<@1>".into(),
         label: "Ada".into(),
@@ -272,9 +269,7 @@ fn restored_editor_presentation_keeps_mention_highlights_and_document_routes() {
     };
     assert_eq!(document.document, "c");
     assert!(options.binding.is_some());
-    let presentation = options.presentation.as_ref().expect("editor presentation");
-    assert_eq!(presentation.formats.len(), 1);
-    assert_eq!(presentation.spans.len(), 1);
+    assert!(options.presentation.is_none());
 }
 
 #[test]

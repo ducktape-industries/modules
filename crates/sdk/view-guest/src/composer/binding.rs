@@ -253,7 +253,6 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
         editable,
         choices,
         handle.clone(),
-        cx.global::<Theme>().accent,
     );
     let mut rows: Vec<AnyElement> = Vec::new();
 
