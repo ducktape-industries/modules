@@ -156,98 +156,6 @@ pub fn mono(text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
-/// A person's round initial at `size`, on the raised surface. A caller
-/// recolours it (an agent, a speaker) with `bg` / `text_color`.
-pub fn avatar(name: &str, size: Pixels, theme: &Theme) -> Div {
-    div()
-        .size(size)
-        .flex_shrink_0()
-        .rounded_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(theme.surface_raised)
-        .text_color(theme.muted)
-        .text_size(size * 0.45)
-        .child(initial(name))
-}
-
-/// Whether a side pane `side` wide fits in `width` beside what the screen
-/// `keeps` (its list and its body's narrowest). When it does not, the pane
-/// floats over the body ([`over`]) and the body keeps its whole width.
-pub fn docks(width: f32, keeps: f32, side: f32) -> bool {
-    width >= keeps + side
-}
-
-/// A side pane that does not [`docks`]: it covers the whole of its
-/// `relative` parent, list and body alike, at the pane's own width no
-/// more, so nothing underneath stays half in view; a click on it stops
-/// there. The pane carries its own close control.
-pub fn over(
-    id: impl Into<ElementId>,
-    pane: impl IntoElement + Styled,
-    theme: &Theme,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .absolute()
-        .inset_0()
-        .flex()
-        .bg(theme.background)
-        .occlude()
-        .child(pane.w_full().h_full())
-}
-
-/// A small tag: a state, a role, a count, in its own colours.
-pub fn badge(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    foreground: Hsla,
-    background: Hsla,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .px_1()
-        .py_0p5()
-        .bg(background)
-        .text_color(foreground)
-        .text_size(text::CAPTION)
-        .child(label.into())
-}
-
-/// `block 1,024`, quiet and mono, opening Explorer at that block. A view
-/// that draws it on a clickable card replaces the click (`on_click`) with
-/// its own that claims it and opens the same [`explorer::link`].
-pub fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> Stateful<Div> {
-    let label = format!("block {}", grouped(height));
-    explorer_link(id, label, explorer::block_path(height), theme)
-}
-
-/// Subdued mono text that underlines under the pointer and opens
-/// Explorer at `path` through `link.open`.
-fn explorer_link(
-    id: impl Into<ElementId>,
-    label: String,
-    path: String,
-    theme: &Theme,
-) -> Stateful<Div> {
-    let theme = *theme;
-    let link = explorer::link(&path);
-    div()
-        .id(id)
-        .text_size(text::CAPTION)
-        .text_color(theme.muted)
-        .font_family(fonts::FAMILY_MONO)
-        .whitespace_nowrap()
-        .cursor_pointer()
-        .hover(move |style| style.text_color(theme.foreground).text_decoration_1())
-        .role(Role::Link)
-        .aria_label(format!("Open {label} in Explorer"))
-        .focusable()
-        .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&link))
-        .child(label)
-}
-
 /// What a [`Button`] is among its neighbours.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Kind {
@@ -591,6 +499,22 @@ pub fn setting_row(
         )
 }
 
+/// A person's round initial at `size`, on the raised surface. A caller
+/// recolours it (an agent, a speaker) with `bg` / `text_color`.
+pub fn avatar(name: &str, size: Pixels, theme: &Theme) -> Div {
+    div()
+        .size(size)
+        .flex_shrink_0()
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(theme.surface_raised)
+        .text_color(theme.muted)
+        .text_size(size * 0.45)
+        .child(initial(name))
+}
+
 /// How far an arrow key moves a [`divider`]; shift moves it four times as far.
 const STEP: f32 = 8.;
 
@@ -635,5 +559,223 @@ pub fn divider<V: crate::View>(
         .on_key_down(stepped)
 }
 
+/// Whether a side pane `side` wide fits in `width` beside what the screen
+/// `keeps` (its list and its body's narrowest). When it does not, the pane
+/// floats over the body ([`over`]) and the body keeps its whole width.
+pub fn docks(width: f32, keeps: f32, side: f32) -> bool {
+    width >= keeps + side
+}
+
+/// A side pane that does not [`docks`]: it covers the whole of its
+/// `relative` parent, list and body alike, at the pane's own width no
+/// more, so nothing underneath stays half in view; a click on it stops
+/// there. The pane carries its own close control.
+pub fn over(
+    id: impl Into<ElementId>,
+    pane: impl IntoElement + Styled,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .absolute()
+        .inset_0()
+        .flex()
+        .bg(theme.background)
+        .occlude()
+        .child(pane.w_full().h_full())
+}
+
+/// A small tag: a state, a role, a count, in its own colours.
+pub fn badge(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    foreground: Hsla,
+    background: Hsla,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .px_1()
+        .py_0p5()
+        .bg(background)
+        .text_color(foreground)
+        .text_size(text::CAPTION)
+        .child(label.into())
+}
+
+/// `block 1,024`, quiet and mono, opening Explorer at that block. A view
+/// that draws it on a clickable card replaces the click (`on_click`) with
+/// its own that claims it and opens the same [`explorer::link`].
+pub fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> Stateful<Div> {
+    let label = format!("block {}", grouped(height));
+    explorer_link(id, label, explorer::block_path(height), theme)
+}
+
+/// Subdued mono text that underlines under the pointer and opens
+/// Explorer at `path` through `link.open`.
+fn explorer_link(
+    id: impl Into<ElementId>,
+    label: String,
+    path: String,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let theme = *theme;
+    let link = explorer::link(&path);
+    div()
+        .id(id)
+        .text_size(text::CAPTION)
+        .text_color(theme.muted)
+        .font_family(fonts::FAMILY_MONO)
+        .whitespace_nowrap()
+        .cursor_pointer()
+        .hover(move |style| style.text_color(theme.foreground).text_decoration_1())
+        .role(Role::Link)
+        .aria_label(format!("Open {label} in Explorer"))
+        .focusable()
+        .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&link))
+        .child(label)
+}
+
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::{App, Lowering, wire};
+    use gpui::Toggled;
+
+    fn lower(element: impl IntoElement) -> wire::Node {
+        let mut app = App::for_driver();
+        let mut window = app.window();
+        Lowering::new(&mut window, &mut app).lower(element)
+    }
+
+    fn interactivity(node: &wire::Node) -> &wire::Interactivity {
+        match node {
+            wire::Node::Container(wire::ContainerNode { interactivity, .. })
+            | wire::Node::ResizeHandle { interactivity, .. } => interactivity,
+            other => panic!("no interactivity: {other:?}"),
+        }
+    }
+
+    fn faults(node: &wire::Node) -> Vec<wire::FaultKind> {
+        wire::audit(node)
+            .faults
+            .into_iter()
+            .map(|fault| fault.kind)
+            .collect()
+    }
+
+    #[test]
+    fn an_icon_button_is_a_focusable_button_named_in_words() {
+        let theme = Theme::light();
+        let node = lower(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
+        let control = interactivity(&node);
+        assert_eq!(control.role, Some(Role::Button));
+        assert_eq!(control.aria.label.as_deref(), Some("Close"));
+        assert!(control.focusable && control.on_click.is_some());
+        assert_eq!(faults(&node), []);
+    }
+
+    #[test]
+    fn a_segmented_choice_is_a_radio_group_with_its_name() {
+        let theme = Theme::light();
+        let node = lower(segmented(
+            "format",
+            "Object format",
+            &theme,
+            [segment("sha1", "SHA-1", true, &theme, |_, _, _| {})],
+        ));
+        let group = interactivity(&node);
+        assert_eq!(group.role, Some(Role::RadioGroup));
+        assert_eq!(group.aria.label.as_deref(), Some("Object format"));
+    }
+
+    #[test]
+    fn a_switch_that_is_on_reports_toggled_true() {
+        let theme = Theme::light();
+        for (on, toggled) in [(true, Toggled::True), (false, Toggled::False)] {
+            let node = lower(switch("dark", "Dark", on, true, &theme, |_, _, _| {}));
+            let control = interactivity(&node);
+            assert_eq!(control.role, Some(Role::Switch));
+            assert_eq!(control.aria.toggled, Some(toggled));
+            assert_eq!(control.aria.selected, None);
+            assert_eq!(faults(&node), []);
+        }
+    }
+
+    #[test]
+    fn the_picked_segment_reports_toggled_true() {
+        let theme = Theme::light();
+        let node = lower(segment("sha1", "SHA-1", true, &theme, |_, _, _| {}));
+        let control = interactivity(&node);
+        assert_eq!(control.role, Some(Role::RadioButton));
+        assert_eq!(control.aria.toggled, Some(Toggled::True));
+        assert_eq!(control.aria.selected, None);
+    }
+
+    #[test]
+    fn a_button_is_a_toggle_only_once_told_it_is_selected() {
+        let theme = Theme::light();
+        let plain = lower(button("save", "Save", &theme, |_, _, _| {}));
+        assert_eq!(interactivity(&plain).aria.toggled, None);
+        for (selected, toggled) in [(true, Toggled::True), (false, Toggled::False)] {
+            let node = lower(button("tree", "Tree", &theme, |_, _, _| {}).selected(selected));
+            let control = interactivity(&node);
+            assert_eq!(control.role, Some(Role::Button));
+            assert_eq!(control.aria.toggled, Some(toggled));
+            assert_eq!(control.aria.selected, None);
+        }
+    }
+
+    #[derive(Default, serde::Serialize, serde::Deserialize)]
+    struct Panes {
+        moved: Vec<f32>,
+    }
+
+    impl crate::Capabilities for Panes {
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    }
+
+    impl crate::View for Panes {
+        fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
+            Self::default()
+        }
+    }
+
+    impl crate::Render for Panes {
+        fn render(&mut self, _: &mut Window, cx: &mut crate::Context<Self>) -> impl IntoElement {
+            let theme = Theme::light();
+            divider(
+                "panes-resize",
+                "Resize the list",
+                &theme,
+                cx,
+                |panes: &mut Self, dx| panes.moved.push(dx),
+            )
+        }
+    }
+
+    #[test]
+    fn a_divider_is_a_named_focusable_splitter_the_arrows_move() {
+        let mut cx = crate::testing::TestAppContext::new();
+        let panes = cx.open::<Panes>();
+        let node = cx.find("panes-resize").expect("the divider").clone();
+        let handle = interactivity(&node);
+        assert_eq!(handle.role, Some(Role::Splitter));
+        assert_eq!(handle.aria.label.as_deref(), Some("Resize the list"));
+        assert_eq!(handle.aria.orientation, Some(gpui::Orientation::Vertical));
+        assert!(handle.focusable && handle.tab_stop == Some(true));
+        assert_eq!(faults(&node), []);
+        for keystroke in ["left", "right", "shift-left", "shift-right", "up", "a"] {
+            cx.simulate_key_down("panes-resize", keystroke);
+        }
+        cx.simulate_drag("panes-resize", 5., 0.);
+        panes.read(|panes| assert_eq!(panes.moved, [-8., 8., -32., 32., 5.]));
+    }
+
+    #[test]
+    fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
+        assert!(docks(1000., 576., 320.));
+        assert!(docks(896., 576., 320.));
+        assert!(!docks(895., 576., 320.));
+        assert!(!docks(720., 400., 440.));
+    }
+}
