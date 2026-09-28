@@ -201,8 +201,10 @@ mod tests {
         ] {
             assert!(parse(invalid).is_none(), "accepted {invalid:?}");
         }
+        // every line valid on its own (`480` is hex, so a wire id too): only
+        // the seventh line refuses it
         assert!(
-            Manifest::parse("ducktape.view.manifest\nApp\n\n\nnone\n480\n0123abcd").is_none(),
+            Manifest::parse("ducktape.view.manifest\nApp\n\n\n480\n480\n0123abcd").is_none(),
             "a seventh line accepted"
         );
     }
