@@ -22,7 +22,8 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
   crossed as per-frame indices.
 - `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`
-  (`src/interactivity.rs`): listeners and focus become wire routes.
+  (`src/interactivity.rs`, `src/interactivity/stateful.rs`): listeners and
+  focus become wire routes.
 
 ## The methods
 
