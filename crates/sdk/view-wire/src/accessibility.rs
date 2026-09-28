@@ -59,8 +59,10 @@ pub enum FaultKind {
 
 /// Every fault in the tree, depth first.
 ///
-/// **Interactive**: a node whose [`Interactivity`] has any `on_*` or
-/// `capture_*` route, is `focusable`, or advertises `aria.actions`; and
+/// **Interactive**: a node whose [`Interactivity`] answers a click, an
+/// aux click, a mouse down or a key, is `focusable`, or advertises
+/// `aria.actions` (what AT can press or focus: a hover, a move or a wheel
+/// alone is the pointer's); and
 /// every [`Node::Input`], [`Node::Editor`] and [`Node::RichText`] with a
 /// clickable range. **Named**: a non-blank `aria.label`, else a container's
 /// descendant text, a picture's or overlay's `label`, a field's label; all
@@ -316,35 +318,21 @@ fn interactive(node: &Node) -> bool {
             clickable_ranges, ..
         } => !clickable_ranges.is_empty(),
         _ => interactivity(node)
-            .is_some_and(|i| routed(i) || i.focusable || !i.aria.actions.is_empty()),
+            .is_some_and(|i| pressed(i) || i.focusable || !i.aria.actions.is_empty()),
     }
 }
 
-/// Any `on_*` or `capture_*` route; one entry per listener field.
-fn routed(i: &Interactivity) -> bool {
+/// A route a press or a key reaches.
+fn pressed(i: &Interactivity) -> bool {
     [
         i.on_click,
         i.on_aux_click,
         i.on_mouse_down,
         i.capture_mouse_down,
-        i.on_mouse_down_out,
-        i.on_mouse_up,
-        i.capture_mouse_up,
-        i.on_mouse_up_out,
-        i.on_mouse_pressure,
-        i.capture_mouse_pressure,
-        i.on_mouse_move,
-        i.on_mouse_exit,
-        i.on_scroll_wheel,
-        i.on_pinch,
-        i.capture_pinch,
         i.on_key_down,
         i.capture_key_down,
         i.on_key_up,
         i.capture_key_up,
-        i.on_modifiers_changed,
-        i.on_hover,
-        i.on_file_drop_exit,
     ]
     .iter()
     .any(Option::is_some)

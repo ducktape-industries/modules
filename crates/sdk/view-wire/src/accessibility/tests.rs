@@ -211,6 +211,22 @@ fn an_interactive_node_with_a_role_passes() {
 }
 
 #[test]
+fn a_node_only_the_pointer_hears_needs_no_role() {
+    passes(el(
+        "row",
+        Interactivity {
+            on_hover: Some(1),
+            on_mouse_move: Some(2),
+            on_mouse_down_out: Some(3),
+            on_scroll_wheel: Some(4),
+            on_modifiers_changed: Some(5),
+            ..Default::default()
+        },
+        vec![button("open", "Open")],
+    ));
+}
+
+#[test]
 fn a_roled_control_overlay_or_picture_nothing_names_fails() {
     fails(
         Unnamed,
