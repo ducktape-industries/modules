@@ -138,3 +138,50 @@ fn an_a11y_action_reaches_the_listener_its_route_names_with_its_data() {
         assert_eq!(view.data, data);
     });
 }
+
+/// A message that offers one custom action, Pin, as id 1.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Pinned {
+    heard: Vec<i32>,
+}
+
+impl View for Pinned {
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self::default()
+    }
+}
+
+impl Render for Pinned {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let heard = cx.listener(|view: &mut Self, id: &i32, _, cx| {
+            view.heard.push(*id);
+            cx.notify();
+        });
+        div()
+            .id("message")
+            .role(Role::Article)
+            .aria_label("Message")
+            .custom_action(1, "Pin")
+            .on_a11y_action(Action::CustomAction, move |data, window, app| {
+                if let Some(ActionData::CustomAction(id)) = data {
+                    heard(id, window, app)
+                }
+            })
+    }
+}
+
+#[test]
+fn a_custom_action_the_node_does_not_offer_is_not_heard() {
+    let mut driver = Driver::<Pinned>::new();
+    let root = driver.tick(Vec::new()).root.expect("a tree");
+    let &[(Action::CustomAction, handler)] = aria(&root).actions.as_slice() else {
+        panic!("one custom route: {:?}", aria(&root).actions);
+    };
+    for id in [2, 1] {
+        driver.tick(vec![wire::Event::A11yAction {
+            handler,
+            data: Some(ActionData::CustomAction(id)),
+        }]);
+    }
+    driver.entity().read(|view| assert_eq!(view.heard, [1]));
+}

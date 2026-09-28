@@ -15,14 +15,22 @@ impl Interactivity {
         aria.described_by = self.described_by.into_iter().map(path).collect();
         aria.controls = self.controls.into_iter().map(path).collect();
         aria.error_message = self.error_message.map(path);
+        let offered: std::rc::Rc<[i32]> = aria.custom_actions.iter().map(|(id, _)| *id).collect();
         aria.actions = self
             .a11y_actions
             .into_iter()
             .map(|(action, listener)| {
                 // gpui's listener is FnMut; a route is called through `&`
                 let listener = std::cell::RefCell::new(listener);
+                let offered = offered.clone();
                 let route = lowering.route(
                     move |data: &Option<wire::ActionData>, window: &mut Window, app: &mut App| {
+                        // a custom action the node does not offer is not its to answer
+                        if let Some(wire::ActionData::CustomAction(id)) = data
+                            && !offered.contains(id)
+                        {
+                            return;
+                        }
                         (listener.borrow_mut())(data.as_ref(), window, app)
                     },
                 );
