@@ -87,12 +87,6 @@ macro_rules! methods {
 
         /// Every kind, so a host can assert it answers each one.
         pub const ALL: &[&str] = &[$($also,)* $($kind),*];
-
-        /// Which methods a view was built against, in its manifest, so a host
-        /// with fewer refuses it at load rather than at the call. Within a
-        /// wire epoch the methods only grow (a moved or dropped one is a new
-        /// epoch: `tests/golden.rs`), so their count names the set.
-        pub const METHODS_REVISION: u32 = ALL.len() as u32;
     };
 }
 

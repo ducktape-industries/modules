@@ -5,9 +5,10 @@
 //! field, a variant, a `gpui::StyleRefinement` change from a fork bump —
 //! fails here. The methods are a map keyed by kind: an existing kind whose
 //! bytes moved, or a kind that went away, fails; a kind new since the
-//! fixture passes, since no view built before it can call it. A failure is
-//! fixed by bumping `WIRE_EPOCH` in the same commit and regenerating with
-//! `WIRE_GOLDEN_WRITE=1`, which also records new kinds.
+//! fixture passes until the next regeneration records it. A failure means
+//! the wire changed; if that was intended, regenerate with
+//! `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID` (`build.rs` hashes the
+//! `.bin` fixtures).
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -32,7 +33,8 @@ use view_wire::{
     TextNode, TooltipResponse, WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
-const MESSAGE: &str = "the wire changed: bump WIRE_EPOCH and regenerate with WIRE_GOLDEN_WRITE=1";
+const MESSAGE: &str =
+    "the wire changed: if intended, regenerate with WIRE_GOLDEN_WRITE=1 (this changes WIRE_ID)";
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.

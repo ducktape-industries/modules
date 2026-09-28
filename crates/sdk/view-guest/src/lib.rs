@@ -89,14 +89,7 @@ mod slots;
 mod driver;
 pub use driver::Driver;
 
-const fn digits(number: u32) -> usize {
-    match number.checked_ilog10() {
-        Some(log) => log as usize + 1,
-        None => 1,
-    }
-}
-
-const MANIFEST_HEADER: &str = "ducktape.view.manifest.v2\n";
+const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
 
 /// The length of [`manifest_bytes`] over the same arguments.
 pub const fn manifest_len(
@@ -113,9 +106,7 @@ pub const fn manifest_len(
         + 1
         + preferred_size.len()
         + 1
-        + digits(wire::WIRE_EPOCH)
-        + 1
-        + digits(wire::methods::METHODS_REVISION);
+        + wire::WIRE_ID.len();
     let mut i = 0;
     while i < capabilities.len() {
         len += capabilities[i].as_str().len() + 1;
@@ -124,8 +115,8 @@ pub const fn manifest_len(
     len
 }
 
-/// The `v2` manifest text, with the current wire epoch and methods revision,
-/// at compile time.
+/// The manifest text (`view_wire::manifest`: header, name, description,
+/// capabilities, preferred size, [`wire::WIRE_ID`]), at compile time.
 pub const fn manifest_bytes<const N: usize>(
     name: &str,
     description: &str,
@@ -147,9 +138,7 @@ pub const fn manifest_bytes<const N: usize>(
     at = put(&mut out, at, b"\n");
     at = put(&mut out, at, preferred_size.as_bytes());
     at = put(&mut out, at, b"\n");
-    at = put_number(&mut out, at, wire::WIRE_EPOCH);
-    at = put(&mut out, at, b"\n");
-    at = put_number(&mut out, at, wire::methods::METHODS_REVISION);
+    at = put(&mut out, at, wire::WIRE_ID.as_bytes());
     assert!(at == N);
     out
 }
@@ -161,17 +150,6 @@ const fn put(out: &mut [u8], at: usize, bytes: &[u8]) -> usize {
         i += 1;
     }
     at + bytes.len()
-}
-
-const fn put_number(out: &mut [u8], at: usize, mut number: u32) -> usize {
-    let end = at + digits(number);
-    let mut i = end;
-    while i > at {
-        i -= 1;
-        out[i] = b'0' + (number % 10) as u8;
-        number /= 10;
-    }
-    end
 }
 
 /// The manifest section and the wasm32 exports ([`wire::abi`]) for a view.

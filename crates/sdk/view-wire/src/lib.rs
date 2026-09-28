@@ -21,14 +21,11 @@
 //! drop silently. A host that reads a frame from an untrusted module runs
 //! [`sanitize`] first.
 
-/// Exact named-MessagePack protocol implemented by this build. Bump on serialized shape changes,
-/// in the SAME commit as the shape change: a view built against the old shape is
-/// refused at load instead of faulting on its first frame.
-/// This is independent of the calling convention ([`abi`]) and the manifest text format.
-/// `tests/golden.rs` holds the bytes of every node, event and method: it fails on
-/// any change and says to bump this and regenerate with `WIRE_GOLDEN_WRITE=1`.
-/// Within an epoch the methods only grow; a moved or dropped method is a new epoch.
-pub const WIRE_EPOCH: u32 = 2;
+/// The wire this build speaks, computed by `build.rs` from the committed
+/// golden bytes (`tests/golden/*.bin`: every node, event and method), so no
+/// one bumps it by hand: regenerating the golden moves it. A view's manifest
+/// carries the id it was built with, and a host refuses any other.
+pub const WIRE_ID: &str = include!(concat!(env!("OUT_DIR"), "/wire_id.rs"));
 
 /// For `skip_serializing_if`: a value that says nothing is left out.
 pub(crate) fn is_default<T: Default + PartialEq>(value: &T) -> bool {

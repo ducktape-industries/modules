@@ -62,7 +62,7 @@ snapshot is the view's own serde as the wire's named MessagePack
 `export_view!(View, "Name", "description", [Module, Host])` (`src/lib.rs`)
 writes the five wasm exports and the manifest section `ducktape.view.manifest`
 (`view-wire/src/manifest.rs`: header, name, description, capabilities,
-preferred size, `WIRE_EPOCH`). Each capability is a `methods::Capability`
+preferred size, `WIRE_ID`). Each capability is a `methods::Capability`
 variant, the `<capability>` half of the kinds the view asks through; another
 name is a compile error.
 
@@ -72,7 +72,10 @@ import, `ducktape_view.panicked`, and exactly five function exports,
 view in `VIEWS`, runs `wasm-opt`, checks the ABI and prints the size;
 `make view-wasm-check`
 proves nothing in `VIEW_LINKABLE` reaches `VIEW_FORBIDDEN`. Wire bytes are
-pinned by `view-wire/tests/golden.rs`: a shape change is a new `WIRE_EPOCH`.
+pinned by `view-wire/tests/golden.rs`: a shape change fails it until the
+fixtures are regenerated with `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID`
+(`view-wire/build.rs` hashes them); a host refuses a view built against
+another.
 
 ## Testing
 

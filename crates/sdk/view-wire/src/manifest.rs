@@ -24,9 +24,8 @@ impl PreferredSize {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
-    pub wire_epoch: u32,
-    /// the [`crate::methods::METHODS_REVISION`] the view was built against
-    pub methods: u32,
+    /// the [`crate::WIRE_ID`] the view was built against
+    pub wire_id: String,
     pub name: String,
     pub description: String,
     pub capabilities: Vec<Capability>,
@@ -41,6 +40,7 @@ pub struct Manifest {
 const MAX_NAME_BYTES: usize = 64;
 const MAX_DESCRIPTION_BYTES: usize = 256;
 const MAX_CAPABILITIES: usize = 16;
+const MAX_WIRE_ID_BYTES: usize = 16;
 
 /// Extracts exactly one current manifest from a view's core module.
 /// Returns `None` for missing, duplicate, malformed, or out-of-bounds metadata.
@@ -72,7 +72,7 @@ pub fn read_manifest(bytes: &[u8]) -> Option<Manifest> {
 }
 
 impl Manifest {
-    /// Parses the strict seven-line `ducktape.view.manifest.v2` text and its
+    /// Parses the strict six-line `ducktape.view.manifest` text and its
     /// bounds. A capability this host does not know refuses the whole
     /// manifest: a grant is never silently narrowed.
     pub fn parse(text: &str) -> Option<Self> {
@@ -80,7 +80,7 @@ impl Manifest {
             return None;
         }
         let mut lines = text.split('\n');
-        if lines.next()? != "ducktape.view.manifest.v2" {
+        if lines.next()? != "ducktape.view.manifest" {
             return None;
         }
         let name = lines.next()?.to_owned();
@@ -104,14 +104,12 @@ impl Manifest {
                 )?)
             }
         };
-        let wire_epoch = canonical(lines.next()?)?;
-        let methods = canonical(lines.next()?)?;
+        let wire_id = lines.next()?.to_owned();
         if lines.next().is_some() {
             return None;
         }
         let manifest = Self {
-            wire_epoch,
-            methods,
+            wire_id,
             name,
             description,
             capabilities,
@@ -125,49 +123,23 @@ impl Manifest {
             && self.name.len() <= MAX_NAME_BYTES
             && self.description.len() <= MAX_DESCRIPTION_BYTES
             && self.capabilities.len() <= MAX_CAPABILITIES
+            && !self.wire_id.is_empty()
+            && self.wire_id.len() <= MAX_WIRE_ID_BYTES
+            && self
+                .wire_id
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
     }
-}
-
-/// A positive number written the one way: no sign, no leading zero.
-fn canonical(text: &str) -> Option<u32> {
-    let number = text.parse::<u32>().ok()?;
-    (number != 0 && number.to_string() == text).then_some(number)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn manifest_requires_an_explicit_canonical_wire_epoch() {
-        let current = "ducktape.view.manifest.v2\nSized\nDescription\nclock,\nnone\n1\n1";
-        assert!(
-            Manifest::parse(current).is_some(),
-            "current epoch manifest rejected"
-        );
-        assert!(
-            Manifest::parse("ducktape.view.manifest\nSized\nDescription\nclock,\nnone").is_none(),
-            "a header that is not ours, short one line, must not parse"
-        );
-        for epoch in ["", "0", "01", "+1", "-1", " 1", "1 ", "4294967296"] {
-            assert!(
-                Manifest::parse(&format!(
-                    "ducktape.view.manifest.v2\nSized\n\n\nnone\n{epoch}\n1"
-                ))
-                .is_none(),
-                "accepted {epoch:?}"
-            );
-        }
-        assert!(
-            Manifest::parse("ducktape.view.manifest.v2\nSized\n\n\nnone\n2\n1").is_some(),
-            "unsupported is distinct from malformed"
-        );
-    }
-
     #[cfg(feature = "manifest")]
     #[test]
     fn extraction_rejects_duplicate_and_truncated_sections() {
         let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-        let text = b"ducktape.view.manifest.v2\nSized\n\n\n640.5,480.25\n1\n1";
+        let text = b"ducktape.view.manifest\nSized\n\n\n640.5,480.25\n0123abcd";
         let mut section = vec![
             0,
             (1 + MANIFEST_SECTION.len() + text.len()) as u8,
@@ -201,29 +173,29 @@ mod tests {
         );
     }
 
-    // Claim: untrusted module metadata has one strict current format and a
+    // Claim: untrusted module metadata has one strict format and a
     // finite positive bounded preferred size. Dropping those guards is Red.
     #[test]
     fn manifest_format_and_preferred_size_are_strict() {
         let good =
-            "ducktape.view.manifest.v2\nSized\nDescription\nclock,store,\n640.5,480.25\n1\n1";
+            "ducktape.view.manifest\nSized\nDescription\nclock,store,\n640.5,480.25\n0123abcd";
         let parsed = Manifest::parse(good).unwrap();
         assert_eq!(parsed.preferred_size.unwrap().dimensions(), [640.5, 480.25]);
         assert_eq!(parsed.capabilities, [Capability::Clock, Capability::Store]);
         assert!(
-            Manifest::parse("ducktape.view.manifest.v2\nDefault\n\n\nnone\n1\n1")
+            Manifest::parse("ducktape.view.manifest\nDefault\n\n\nnone\n0123abcd")
                 .unwrap()
                 .preferred_size
                 .is_none()
         );
         for invalid in [
-            "Sized\nDescription\nclock,", // no header
-            "ducktape.view.manifest.v1\nSized\nDescription\nclock,\nnone\n1", // no older format
-            "ducktape.view.manifest.v2\nSized\nDescription\n\nnone",
-            "ducktape.view.manifest.v2\nSized\nDescription\n\nnone\n1\n1\nextra",
-            "ducktape.view.manifest.v2\nSized\nDescription\nclock\nnone\n1\n1",
-            "ducktape.view.manifest.v2\nSized\nDescription\nclock,,\nnone\n1\n1",
-            "ducktape.view.manifest.v2\nSized\nDescription\nclock,storage,\nnone\n1\n1",
+            "Sized\nDescription\nclock,",                                // no header
+            "ducktape.view\nSized\nDescription\nclock,\nnone\n0123abcd", // another header
+            "ducktape.view.manifest\nSized\nDescription\n\nnone",
+            "ducktape.view.manifest\nSized\nDescription\n\nnone\n0123abcd\nextra",
+            "ducktape.view.manifest\nSized\nDescription\nclock\nnone\n0123abcd",
+            "ducktape.view.manifest\nSized\nDescription\nclock,,\nnone\n0123abcd",
+            "ducktape.view.manifest\nSized\nDescription\nclock,storage,\nnone\n0123abcd",
         ] {
             assert!(
                 Manifest::parse(invalid).is_none(),
@@ -245,7 +217,7 @@ mod tests {
         ] {
             assert!(
                 Manifest::parse(&format!(
-                    "ducktape.view.manifest.v2\nSized\nDescription\n\n{invalid}\n1\n1"
+                    "ducktape.view.manifest\nSized\nDescription\n\n{invalid}\n0123abcd"
                 ))
                 .is_none(),
                 "accepted {invalid}"
@@ -264,16 +236,19 @@ mod tests {
         assert_eq!(hashes[0].finish(), hashes[1].finish());
     }
 
+    // Claim: the wire id is short lowercase hex, so a host can show it in a
+    // refusal; a different id still parses, since refusing it is the host's.
     #[test]
-    fn a_manifest_names_its_methods_revision_canonically() {
-        let manifest = Manifest::parse("ducktape.view.manifest.v2\nApp\n\n\nnone\n2\n7").unwrap();
-        assert_eq!((manifest.wire_epoch, manifest.methods), (2, 7));
-        for invalid in [
-            "ducktape.view.manifest.v2\nApp\n\n\nnone\n2",
-            "ducktape.view.manifest.v2\nApp\n\n\nnone\n2\n0",
-            "ducktape.view.manifest.v2\nApp\n\n\nnone\n2\n07",
-        ] {
-            assert!(Manifest::parse(invalid).is_none(), "accepted {invalid:?}");
+    fn the_wire_id_is_bounded_lowercase_hex() {
+        let parse =
+            |id: &str| Manifest::parse(&format!("ducktape.view.manifest\nApp\n\n\nnone\n{id}"));
+        assert_eq!(
+            parse("0123456789abcdef").unwrap().wire_id,
+            "0123456789abcdef"
+        );
+        assert!(parse(crate::WIRE_ID).is_some());
+        for invalid in ["", "0123456789abcdef0", "ABCDEF", "xyz", " 0a", "0a "] {
+            assert!(parse(invalid).is_none(), "accepted {invalid:?}");
         }
     }
 }

@@ -492,14 +492,13 @@ fn notifying_during_render_requests_another_frame() {
 }
 
 #[test]
-fn the_manifest_bytes_parse_back_with_the_epoch_and_the_methods() {
+fn the_manifest_bytes_parse_back_with_the_wire_id() {
     use wire::methods::Capability;
     const CAPABILITIES: &[Capability] = &[Capability::Clock, Capability::Module];
     let bytes: [u8; manifest_len("App", "Words", CAPABILITIES, "640,480")] =
         manifest_bytes("App", "Words", CAPABILITIES, "640,480");
     let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
-    assert_eq!(manifest.wire_epoch, wire::WIRE_EPOCH);
-    assert_eq!(manifest.methods, wire::methods::METHODS_REVISION);
+    assert_eq!(manifest.wire_id, wire::WIRE_ID);
     assert_eq!(manifest.capabilities, CAPABILITIES);
     assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
 }
