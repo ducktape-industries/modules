@@ -1,0 +1,249 @@
+//! The node-less screen dumps: each state of the sheet, light and dark, for
+//! the app's renderer (`ducktape-app --render-tree <json>`). A network like
+//! the design's: five validators (in sync, one block short, 12 behind,
+//! 3 ahead, stopped at 3,871) and three residents, at 4,295.
+use super::*;
+use ducktape_view_guest::Theme;
+
+const HEIGHT: u64 = 4295;
+const VALIDATORS: usize = 5;
+const MEMBERS: usize = 8;
+
+/// A member's key: 32 bytes that read apart in their short hex.
+fn key(index: usize) -> Vec<u8> {
+    (0..32u32)
+        .map(|byte| (byte * 151 + index as u32 * 89 + 36) as u8)
+        .collect()
+}
+
+fn sheet_status(height: u64) -> NodeStatus {
+    NodeStatus {
+        chain_id: "testkit".into(),
+        time: 1_790_121_600_000,
+        block_time_ms: 1000,
+        epoch_length: 64,
+        height,
+        tip: [0xb2; 32],
+        root: [0x41; 32],
+        epoch: 67,
+        identity: key(0),
+        contract: 1,
+    }
+}
+
+/// Who led `height`: the first four in turn, the fourth only up to 4,250;
+/// `None` for a node that keeps no certificates.
+fn leader(height: u64, known: bool) -> Option<Vec<u8>> {
+    let turn = match height > 4250 {
+        true => height % 3,
+        false => height % 4,
+    };
+    known.then(|| key(turn as usize))
+}
+
+fn sheet_blocks(page: BlockPage, known: bool) -> Vec<Block> {
+    let below = page.before.unwrap_or(HEIGHT + 1);
+    (below.saturating_sub(page.limit as u64)..below)
+        .rev()
+        .map(|height| Block {
+            height,
+            proposer: leader(height, known),
+            ..Block::default()
+        })
+        .collect()
+}
+
+fn sheet_valset(cx: &TestAppContext) {
+    cx.host().handle::<Query<Valset>>(|query| {
+        Ok(match query {
+            valset::Query::Validators => {
+                valset::Reply::Validators((0..VALIDATORS).map(key).collect())
+            }
+            valset::Query::Memberships { .. } => valset::Reply::Memberships(page(
+                (0..MEMBERS)
+                    .map(|index| {
+                        let (port, role) = match index < VALIDATORS {
+                            true => (44571 + index, valset::Role::Validator),
+                            false => (44581 + index - VALIDATORS, valset::Role::Resident),
+                        };
+                        membership(&key(index), &format!("127.0.0.1:{port}"), role)
+                    })
+                    .collect(),
+            )),
+            other => panic!("unexpected query: {other:?}"),
+        })
+    });
+}
+
+/// Each validator's signed height; `quiet` is the fifth's (None: never
+/// seen signing).
+fn sheet_network(quiet: Option<u64>) -> NetworkStatus {
+    let signed = [
+        Some(HEIGHT),
+        Some(HEIGHT - 1),
+        Some(HEIGHT - 12),
+        Some(HEIGHT + 3),
+        quiet,
+    ];
+    NetworkStatus {
+        height: HEIGHT,
+        members: (0..MEMBERS)
+            .map(|index| Peer {
+                key: key(index),
+                signed: signed.get(index).copied().flatten(),
+            })
+            .collect(),
+    }
+}
+
+/// The sheet over canned answers: `network` None is a node (or app) that
+/// does not serve `chain.network`; `known` false a node with no proposers.
+fn sheet(
+    network: Option<NetworkStatus>,
+    known: bool,
+) -> (TestAppContext, StreamSender<ClockTicks>) {
+    let mut cx = TestAppContext::new();
+    let ticks = cx.host().stream::<ClockTicks>();
+    cx.host().stream::<Changes<Valset>>();
+    cx.host()
+        .handle::<ChainStatus>(|()| Ok(sheet_status(HEIGHT)));
+    cx.host()
+        .handle::<ChainBlocks>(move |page| Ok(sheet_blocks(page, known)));
+    match network {
+        Some(network) => cx
+            .host()
+            .handle::<ChainNetwork>(move |()| Ok(network.clone())),
+        None => cx.host().refuse::<ChainNetwork>(
+            "unknown_request",
+            "This node doesn't report its validators' signatures.",
+        ),
+    }
+    sheet_valset(&cx);
+    cx.open::<Nodes>();
+    cx.run_until_parked();
+    (cx, ticks)
+}
+
+/// One named state, and the window it is drawn in.
+fn screen(state: &str) -> TestAppContext {
+    match state {
+        "synced" | "synced-680" | "synced-narrow" => sheet(Some(sheet_network(Some(3871))), true).0,
+        "quiet-unsigned" => sheet(Some(sheet_network(None)), true).0,
+        "fallback" => sheet(None, true).0,
+        "fallback-unknown" => sheet(None, false).0,
+        "not-answering" => {
+            let (mut cx, ticks) = sheet(Some(sheet_network(Some(3871))), true);
+            cx.host().never::<ChainStatus>();
+            cx.host().never::<ChainNetwork>();
+            for _ in 0..=SILENT_TICKS {
+                ticks.send(());
+            }
+            cx.run_until_parked();
+            cx
+        }
+        "loading" => {
+            let mut cx = TestAppContext::new();
+            cx.host().stream::<ClockTicks>();
+            cx.host().stream::<Changes<Valset>>();
+            cx.host().never::<ChainStatus>();
+            cx.host().never::<ChainNetwork>();
+            cx.host().never::<Query<Valset>>();
+            cx.open::<Nodes>();
+            cx.run_until_parked();
+            cx
+        }
+        "status-refused" => {
+            let mut cx = TestAppContext::new();
+            cx.host().stream::<ClockTicks>();
+            cx.host().stream::<Changes<Valset>>();
+            cx.host()
+                .refuse::<ChainStatus>("unavailable", "The node is unavailable. Try again.");
+            cx.host().never::<ChainNetwork>();
+            sheet_valset(&cx);
+            cx.open::<Nodes>();
+            cx.run_until_parked();
+            cx
+        }
+        "members-refused" | "members-empty" => {
+            let mut cx = TestAppContext::new();
+            cx.host().stream::<ClockTicks>();
+            cx.host().stream::<Changes<Valset>>();
+            cx.host()
+                .handle::<ChainStatus>(|()| Ok(sheet_status(HEIGHT)));
+            cx.host()
+                .handle::<ChainBlocks>(|page| Ok(sheet_blocks(page, true)));
+            cx.host()
+                .handle::<ChainNetwork>(|()| Ok(sheet_network(Some(3871))));
+            match state {
+                "members-refused" => cx
+                    .host()
+                    .refuse::<Query<Valset>>("unavailable", "valset is not running here"),
+                _ => cx.host().handle::<Query<Valset>>(|query| {
+                    Ok(match query {
+                        valset::Query::Validators => valset::Reply::Validators(vec![]),
+                        _ => valset::Reply::Memberships(page(vec![])),
+                    })
+                }),
+            }
+            cx.open::<Nodes>();
+            cx.run_until_parked();
+            cx
+        }
+        other => panic!("no screen {other}"),
+    }
+}
+
+const SCREENS: [(&str, u32, u32); 11] = [
+    ("synced", 1100, 680),
+    ("synced-680", 680, 620),
+    ("synced-narrow", 320, 620),
+    ("quiet-unsigned", 1100, 680),
+    ("fallback", 1100, 680),
+    ("fallback-unknown", 1100, 680),
+    ("not-answering", 1100, 680),
+    ("loading", 1100, 680),
+    ("status-refused", 1100, 680),
+    ("members-refused", 1100, 680),
+    ("members-empty", 1100, 680),
+];
+
+/// `NODE_SCREEN_EXPORT=1` writes each state's tree, light and dark, and a
+/// manifest for the app's `dev/screens` capture.
+#[test]
+fn export_node_screens() {
+    if std::env::var_os("NODE_SCREEN_EXPORT").is_none() {
+        return;
+    }
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../target/node-screens");
+    std::fs::create_dir_all(&out).unwrap();
+    let mut manifest = Vec::new();
+    for (index, (state, width, height)) in SCREENS.iter().enumerate() {
+        for dark in [false, true] {
+            let mut cx = screen(state);
+            cx.simulate_measure("nodes-viewport", *width as f32, *height as f32);
+            cx.run_until_parked();
+            if dark {
+                cx.set_global(Theme::dark());
+            }
+            let theme = if dark { "dark" } else { "light" };
+            let name = format!("{:02}-{state}-{theme}", index + 1);
+            std::fs::write(
+                out.join(format!("{name}.json")),
+                serde_json::to_vec(cx.root()).unwrap(),
+            )
+            .unwrap();
+            manifest.push(serde_json::json!({
+                "name": name,
+                "theme": theme,
+                "width": width,
+                "height": height,
+                "how": "TestAppContext + FakeHost over canned node answers",
+            }));
+        }
+    }
+    std::fs::write(
+        out.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+}

@@ -8,6 +8,7 @@ use ducktape_view_guest::methods::{
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 
 mod rows;
+mod screens;
 
 /// This node: a validator in seat 1.
 const THIS: [u8; 2] = [0xab, 0xcd];

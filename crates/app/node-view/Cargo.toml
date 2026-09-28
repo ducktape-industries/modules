@@ -17,3 +17,6 @@ abi.workspace = true
 ducktape-view-guest.workspace = true
 valset = { workspace = true, features = ["view"] }
 serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
