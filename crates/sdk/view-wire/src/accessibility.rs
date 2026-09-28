@@ -2,7 +2,7 @@
 //! or reach: the view tests ask [`audit`] of every frame (`view-guest`
 //! testing); the host may, on a decoded frame.
 
-use crate::aria::view_role;
+use crate::aria::{HOST_ACTIONS, view_role};
 use crate::{Action, Aria, ContainerNode, Interactivity, Node, TextNode};
 use gpui::Role;
 
@@ -47,7 +47,10 @@ pub enum FaultKind {
     /// A resize handle that is not a named, focusable splitter that moves
     /// by key (AX-118).
     BareHandle,
-    /// An advertised action the node cannot answer (AX-116).
+    /// An advertised action the node cannot answer: custom actions with
+    /// no route, a step without a value, an expand without its state, an
+    /// action the host keeps, or a second listener for one action; the
+    /// host drops the last two (AX-116).
     ActionUnhandled,
     /// An earlier sibling already holds this `key` (AX-015).
     DuplicateKey,
@@ -316,10 +319,17 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
         let custom = !aria.custom_actions.is_empty();
         let steps = has(Action::Increment) || has(Action::Decrement);
         let expands = has(Action::Expand) || has(Action::Collapse);
-        rules.check(custom || steps || expands, ActionUnhandled, || {
+        let dropped = aria.actions.iter().enumerate().any(|(index, (action, _))| {
+            HOST_ACTIONS.contains(action)
+                || aria.actions[..index]
+                    .iter()
+                    .any(|(earlier, _)| earlier == action)
+        });
+        rules.check(custom || !aria.actions.is_empty(), ActionUnhandled, || {
             (custom && !has(Action::CustomAction))
                 || (steps && aria.numeric_value.is_none())
                 || (expands && aria.expanded.is_none())
+                || dropped
         });
     }
     rules.check(duplicate, DuplicateKey, || true);

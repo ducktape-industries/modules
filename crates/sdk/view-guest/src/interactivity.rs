@@ -585,8 +585,10 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self
     }
     /// Answers `action` when assistive technology requests it: gpui's own
-    /// setter and signature. The host keeps click and focus, so those are
-    /// never asked here.
+    /// setter and signature. Unlike gpui, the host keeps Click, Focus, Blur,
+    /// SetValue, ReplaceSelectedText and SetTextSelection, and hears only
+    /// the first listener per action; `view_wire::audit` faults the rest
+    /// (ActionUnhandled).
     fn on_a11y_action(
         mut self,
         action: accesskit::Action,

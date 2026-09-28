@@ -157,7 +157,7 @@ fn decode_custom_actions<'de, D: serde::Deserializer<'de>>(
     )
 }
 /// Actions the host answers itself, whatever a view advertises.
-const HOST_ACTIONS: [Action; 6] = [
+pub(crate) const HOST_ACTIONS: [Action; 6] = [
     Action::Click,
     Action::Focus,
     Action::Blur,

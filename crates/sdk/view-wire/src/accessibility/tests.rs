@@ -651,6 +651,21 @@ fn an_action_the_node_cannot_answer_fails() {
         ..control(Role::Button)
     };
     fails(ActionUnhandled, el("more", expand, vec![text("More")]));
+    // the host keeps a click, and hears one listener per action
+    for actions in [
+        vec![(Action::Click, 2)],
+        vec![(Action::Expand, 2), (Action::Expand, 3)],
+    ] {
+        let dropped = Interactivity {
+            aria: Aria {
+                actions,
+                expanded: Some(false),
+                ..Default::default()
+            },
+            ..control(Role::Button)
+        };
+        fails(ActionUnhandled, el("more", dropped, vec![text("More")]));
+    }
 }
 
 #[test]
