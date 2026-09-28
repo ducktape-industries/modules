@@ -91,8 +91,8 @@ impl TestAppContext {
     pub fn run_until_parked(&mut self) {
         self.dispatch(Vec::new());
     }
-    /// Ticks until the view parks, holding every frame it sends to
-    /// `view_wire::audit`.
+    /// Ticks until the view parks, holding every frame it sends to the
+    /// host's sanitizer, which must take it, and to `view_wire::audit`.
     fn dispatch(&mut self, mut events: Vec<Event>) {
         for _ in 0..10_000 {
             events.extend(self.host.take_events());
@@ -110,6 +110,14 @@ impl TestAppContext {
                 }
             }
             if let Some(root) = &frame.root {
+                let mut hosted = Frame {
+                    root: Some(root.clone()),
+                    tooltip_responses: frame.tooltip_responses.clone(),
+                    ..Frame::default()
+                };
+                if let Err(refused) = crate::wire::sanitize(&mut hosted) {
+                    panic!("the host refuses this frame: {refused}");
+                }
                 assert_accessible(root);
             }
             let busy = frame.busy;
