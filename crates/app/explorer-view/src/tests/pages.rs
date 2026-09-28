@@ -183,6 +183,24 @@ fn the_scheduled_changes_survive_a_snapshot() {
     assert!(restored.has_text("Remove") && restored.has_text("at 120"));
 }
 
+/// The latest transactions sit beside the latest blocks only with the width
+/// they have alone at the view's narrowest, its minimum less the scroll bar:
+/// narrower, their rows' titles went to nothing (a window from 654 px to
+/// about 1,000). The two panels' minimums decide where they wrap: side by
+/// side from 944 px of page, 320 + 624.
+#[test]
+fn the_latest_transactions_wrap_under_the_blocks_before_their_titles_squeeze() {
+    use ducktape_view_guest::{design, px};
+    let (cx, _) = ready();
+    let min_width = |id: &str| match cx.find(id) {
+        Some(ducktape_view_guest::wire::Node::Container(panel)) => panel.style.min_size.width,
+        _ => panic!("no {id}"),
+    };
+    let alone = px(<Explorer as View>::MIN_WINDOW_WIDTH as f32) - design::size::SCROLLBAR;
+    assert_eq!(min_width("explorer-latest-txs"), Some(alone.into()));
+    assert_eq!(min_width("explorer-latest-blocks"), Some(px(320.).into()));
+}
+
 #[test]
 fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();

@@ -3,8 +3,13 @@ use super::*;
 
 /// A stat keeps this much of the row; the four fold two by two below it.
 const STAT_MIN_W: Pixels = px(200.);
-/// A latest-rows panel keeps this much; past it, the transactions wrap under.
+/// The latest blocks keep this much.
 const PANEL_MIN_W: Pixels = px(320.);
+/// The latest transactions keep the width they have alone at the view's
+/// narrowest, its `MIN_WINDOW_WIDTH` less the scroll bar: any narrower, a
+/// row's fixed columns (hash, signer, age) leave the op's title no room. So
+/// they sit beside the blocks from 944 px of page, and wrap under them below.
+const TXS_MIN_W: Pixels = px(624.);
 
 pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     div()
@@ -14,7 +19,8 @@ pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         .flex_1()
         .child(stats(view, theme))
         .child(
-            // narrow, the transactions wrap under the blocks
+            // narrower than the two minimums together, the transactions
+            // wrap under the blocks
             div()
                 .flex()
                 .flex_wrap()
@@ -188,7 +194,7 @@ fn latest_txs(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
     div()
         .id("explorer-latest-txs")
         .flex_1()
-        .min_w(PANEL_MIN_W)
+        .min_w(TXS_MIN_W)
         .child(heading(
             "explorer-latest-txs-heading",
             "Latest transactions",
