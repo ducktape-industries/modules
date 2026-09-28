@@ -446,10 +446,7 @@ to.
 
 `cargo test -p poll` runs one module's tests; `make test` everything (the
 founding suite under `crates/system/module-registry/tests` builds the
-boot set itself and founds ducktape's host over it). The founding suite
-also links the kernel's own `guest`, so `-p guest` beside `-p
-module-registry` is ambiguous to cargo; alone it picks the workspace's, and
-`-p "path+file://$PWD/crates/sdk/guest"` names it anywhere.
+boot set itself and founds ducktape's host over it).
 
 ## 9. The edit loop
 

@@ -7,8 +7,9 @@ WASM_OPT ?= wasm-opt
 PROGRAM_LINKABLE := abi guest store
 
 # The ducktape checkout the probe fixture the founding suite seats is copied
-# from (crates/kernel/fixtures, `make kernel-fixtures` there). The probe is a
-# dev-dependency only, which cargo cannot build for wasm32 from here.
+# from (crates/kernel/fixtures, `make kernel-fixtures` there). The probe
+# links the kernel's own `guest` to build for wasm32, which this workspace
+# never does; only its built bytes come over, as `probe-fixture` below.
 DUCKTAPE ?= ../core
 
 # Every program, system and app: root members whose program ABI (the guest

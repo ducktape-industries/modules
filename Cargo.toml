@@ -23,10 +23,10 @@
 # A view links its module by path and reads its types; a view is a cdylib for
 # wasm32-unknown-unknown on `view-guest`. The host that runs the programs
 # (runtime, state, blobs, host, node, consensus, the daemon) lives in ducktape,
-# and `crates/sdk/abi` and `crates/sdk/guest` are copies of its
-# `crates/kernel/abi` and `crates/kernel/guest`: the `[patch]` below makes the
-# host the suite links compile against the copies, so a copy that drifts from
-# the kernel fails the build here.
+# and `crates/sdk/abi` is a copy of its `crates/kernel/abi`: the `[patch]`
+# below makes the host the suite links compile against the copy, so a copy
+# that drifts from the kernel fails the build here. `guest` is its own
+# module SDK, not a copy of the kernel's guest, so it carries no patch.
 
 [workspace]
 resolver = "2"
@@ -80,10 +80,12 @@ identity = { path = "crates/system/identity" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
 
-# ---- the host the founding suite runs the boot set on, the probe fixture it
-# seats and the key schemes it signs with (dev-dependencies only)
+# ---- the host the founding suite runs the boot set on and the key schemes
+# it signs with (dev-dependencies only); the probe fixture it seats is a
+# prebuilt wasm binary, `make probe-fixture`, not a Cargo dependency (its
+# `Step` script type is mirrored in module-registry's test, next to the
+# binary it scripts)
 host = { git = "https://github.com/ducktape-industries/ducktape", rev = "91fe268db80907cf63d27b5218b832f0b7e81399" }
-fixture-probe = { git = "https://github.com/ducktape-industries/ducktape", rev = "91fe268db80907cf63d27b5218b832f0b7e81399" }
 keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "91fe268db80907cf63d27b5218b832f0b7e81399" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"

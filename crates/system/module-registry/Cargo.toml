@@ -35,7 +35,6 @@ identity = { workspace = true }
 valset = { workspace = true }
 commonware-cryptography = { workspace = true }
 commonware-runtime = { workspace = true }
-fixture-probe = { workspace = true }
 host = { workspace = true }
 keyscheme = { workspace = true, features = ["testkit"] }
 # the drift test reads `cargo metadata`
