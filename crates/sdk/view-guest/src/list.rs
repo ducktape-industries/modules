@@ -1,5 +1,8 @@
-use crate::{AnyElement, App, Element, IntoElement, Lowering, Window, wire};
-use gpui::{Pixels, StyleRefinement, Styled, px};
+use crate::{
+    AnyElement, App, Element, InteractiveElement, Interactivity, IntoElement, Lowering,
+    StatefulInteractiveElement, Window, wire,
+};
+use gpui::{ElementId, Pixels, StyleRefinement, Styled, px};
 use std::{
     cell::RefCell,
     ops::Range,
@@ -228,7 +231,7 @@ impl Inner {
 pub struct List {
     state: ListState,
     render_item: ItemRenderer,
-    style: StyleRefinement,
+    interactivity: Interactivity,
     sizing_behavior: ListSizingBehavior,
 }
 pub fn list(
@@ -238,7 +241,7 @@ pub fn list(
     List {
         state,
         render_item: Box::new(render_item),
-        style: StyleRefinement::default(),
+        interactivity: Interactivity::default(),
         sizing_behavior: ListSizingBehavior::default(),
     }
 }
@@ -250,17 +253,29 @@ impl List {
 }
 impl Styled for List {
     fn style(&mut self) -> &mut StyleRefinement {
-        &mut self.style
+        &mut self.interactivity.base_style
     }
 }
+impl InteractiveElement for List {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        &mut self.interactivity
+    }
+}
+impl StatefulInteractiveElement for List {}
 impl Element for List {
+    fn id(&self) -> Option<ElementId> {
+        self.interactivity.id.clone()
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let Self {
             state,
             mut render_item,
-            style,
+            interactivity,
             sizing_behavior,
         } = *self;
+        let style = interactivity.base_style.clone();
+        let (_, interactivity) = interactivity.into_wire(lowering);
         let request_state = state.clone();
         let request_handler =
             lowering.route(move |request: &wire::ListRequest, _, _| request_state.request(request));
@@ -304,7 +319,7 @@ impl Element for List {
             scroll_handler,
             range_start: range.start,
             style,
-            interactivity: wire::Interactivity::default(),
+            interactivity,
             children,
         }
     }

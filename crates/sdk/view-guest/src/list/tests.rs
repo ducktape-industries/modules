@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    Context, Driver, InteractiveElement, ParentElement, Render, StatefulInteractiveElement, View,
-    div,
-};
+use crate::{Context, Driver, ParentElement, Render, Role, View, div};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -221,4 +218,24 @@ fn list_handles_and_requested_windows_are_driver_isolated() {
     second
         .entity()
         .read(|view| assert_eq!(view.rendered.last().copied(), Some(1_999)));
+}
+
+#[test]
+fn a_list_carries_its_role_and_name_to_the_wire() {
+    let mut app = App::for_driver();
+    let mut window = app.window();
+    let rows = list(
+        ListState::new(3, ListAlignment::Top, px(40.)),
+        |index, _, _| div().child(index.to_string()).into_any_element(),
+    )
+    .role(Role::ListBox)
+    .aria_label("Members")
+    .focusable();
+    let node = Lowering::new(&mut window, &mut app).lower(rows);
+    let wire::Node::List { interactivity, .. } = node else {
+        panic!("a list")
+    };
+    assert_eq!(interactivity.role, Some(Role::ListBox));
+    assert_eq!(interactivity.aria.label.as_deref(), Some("Members"));
+    assert!(interactivity.focusable);
 }

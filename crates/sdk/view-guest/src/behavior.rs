@@ -3,7 +3,10 @@ use crate::Element;
 
 use crate::element::wire_id;
 use crate::interactivity::EventListener;
-use crate::{AnyElement, App, ElementId, IntoElement, Lowering, Window, wire};
+use crate::{
+    AnyElement, App, ElementId, InteractiveElement, Interactivity, IntoElement, Lowering,
+    StatefulInteractiveElement, Window, wire,
+};
 use gpui::{CursorStyle, Hsla, Pixels, StyleRefinement, Styled};
 
 pub struct Sensor {
@@ -72,15 +75,17 @@ impl Styled for Sensor {
 }
 
 pub struct ResizeHandle {
-    id: ElementId,
+    interactivity: Interactivity,
     child: AnyElement,
     on_drag: Option<EventListener<(Pixels, Pixels)>>,
     cursor: Option<CursorStyle>,
 }
 
 pub fn resize_handle(id: impl Into<ElementId>, child: impl IntoElement) -> ResizeHandle {
+    let mut interactivity = Interactivity::default();
+    interactivity.id = Some(id.into());
     ResizeHandle {
-        id: id.into(),
+        interactivity,
         child: child.into_any_element(),
         on_drag: None,
         cursor: Some(CursorStyle::ResizeLeftRight),
@@ -109,21 +114,30 @@ impl IntoElement for ResizeHandle {
     }
 }
 
+impl InteractiveElement for ResizeHandle {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        &mut self.interactivity
+    }
+}
+impl StatefulInteractiveElement for ResizeHandle {}
+
 impl Element for ResizeHandle {
     fn id(&self) -> Option<ElementId> {
-        Some(self.id.clone())
+        self.interactivity.id.clone()
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        let style = self.interactivity.base_style.clone();
+        let (id, interactivity) = self.interactivity.into_wire(lowering);
         wire::Node::ResizeHandle {
-            id: wire_id(self.id),
+            id: id.expect("a resize handle has an id"),
             on_press: None,
             on_release: None,
             on_drag: self.on_drag.map(|listener| lowering.route(listener)),
             cursor: self.cursor.map(wire_cursor),
             content: Box::new(lowering.lower(self.child)),
-            style: StyleRefinement::default(),
-            interactivity: wire::Interactivity::default(),
+            style,
+            interactivity,
         }
     }
 }

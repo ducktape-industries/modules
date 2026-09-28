@@ -124,3 +124,26 @@ fn sensor_style_is_opt_in() {
     };
     assert_eq!(*style, crate::StyleRefinement::default());
 }
+
+#[test]
+fn a_resize_handle_carries_role_name_focus_and_keys_to_the_wire() {
+    let mut app = crate::App::for_driver();
+    let mut window = app.window();
+    let handle = resize_handle("pane-resize", div())
+        .role(Role::Splitter)
+        .aria_label("Resize the pane")
+        .focusable()
+        .on_key_down(|_, _, _| {});
+    let node = crate::Lowering::new(&mut window, &mut app).lower(handle);
+    let wire::Node::ResizeHandle {
+        id, interactivity, ..
+    } = node
+    else {
+        panic!("a resize handle")
+    };
+    assert_eq!(id, wire::ElementIdWire::Name("pane-resize".into()));
+    assert_eq!(interactivity.role, Some(Role::Splitter));
+    assert_eq!(interactivity.aria.label.as_deref(), Some("Resize the pane"));
+    assert!(interactivity.focusable);
+    assert!(interactivity.on_key_down.is_some());
+}
