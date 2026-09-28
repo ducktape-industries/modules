@@ -112,6 +112,7 @@ impl RenderOnce for Mark {
         if let Some(on_click) = self.on_click {
             mark = mark
                 .hover(move |style| style.bg(theme.surface_raised).text_color(theme.foreground))
+                .focusable()
                 .on_click(on_click);
         }
         mark
@@ -152,7 +153,7 @@ impl RenderOnce for ActionButton {
             .text_size(crate::design::text::SECONDARY)
             .child(self.label);
         if let Some(on_click) = self.on_click {
-            button = button.on_click(on_click);
+            button = button.focusable().on_click(on_click);
         }
         button
     }
@@ -198,9 +199,13 @@ impl RenderOnce for MentionItem {
     }
 }
 
+/// A press that acts on the draft. A pointer press focuses the control it
+/// lands on, so the press hands the keys back to `editor` first: the
+/// typing goes on where it was.
 fn press<V: View + 'static>(
     editable: bool,
     tag: String,
+    editor: &str,
     handle: &Handle<V>,
     cx: &Context<V>,
 ) -> Option<Click> {
@@ -208,8 +213,10 @@ fn press<V: View + 'static>(
         return None;
     }
     let handle = handle.clone();
+    let editor = ElementId::Name(editor.to_owned().into());
     Some(Box::new(cx.listener(
         move |view, _: &ClickEvent, window, cx| {
+            window.focus(editor.clone());
             handle(view, Event::Action(tag.clone()), window, cx);
             cx.notify();
         },
@@ -233,9 +240,10 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
     handle: F,
 ) -> impl IntoElement + use<V, F> {
     let handle: Handle<V> = Rc::new(handle);
+    let editor_id = format!("{key}/editor");
     let editor = editor(
         draft,
-        &format!("{key}/editor"),
+        &editor_id,
         key,
         hint,
         editable,
@@ -255,7 +263,13 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
                 id: ElementId::Name(format!("{key}/mention/{}", choice.token).into()),
                 label: format!("@{}", choice.label).into(),
                 selected: index == selected,
-                on_click: press(editable, format!("mention:{}", choice.token), &handle, cx),
+                on_click: press(
+                    editable,
+                    format!("mention:{}", choice.token),
+                    &editor_id,
+                    &handle,
+                    cx,
+                ),
             })
             .collect::<Vec<_>>();
         if !menu.is_empty() {
@@ -296,7 +310,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
                     id: ElementId::Name(format!("{key}/restore").into()),
                     label: "Restore".into(),
                     primary: false,
-                    on_click: press(editable, "restore".into(), &handle, cx),
+                    on_click: press(editable, "restore".into(), &editor_id, &handle, cx),
                 })
                 .into_any_element(),
         );
@@ -324,7 +338,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
             sign: sign.into(),
             label: label.into(),
             face,
-            on_click: press(editable, tag.into(), &handle, cx),
+            on_click: press(editable, tag.into(), &editor_id, &handle, cx),
         });
     }
     let sendable = editable && draft.can_send(draft.editor.state_view().text);
@@ -341,7 +355,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
         id: ElementId::Name(format!("{key}/send").into()),
         label: commit.to_owned().into(),
         primary: true,
-        on_click: press(sendable, "send".into(), &handle, cx),
+        on_click: press(sendable, "send".into(), &editor_id, &handle, cx),
     });
     rows.push(toolbar.into_any_element());
 

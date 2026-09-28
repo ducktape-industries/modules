@@ -277,6 +277,7 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
             panic!("missing composer action {key}");
         };
         assert!(interactivity.on_click.is_some(), "{key} has no route");
+        assert!(interactivity.focusable, "{key} takes no focus");
         assert_eq!(interactivity.aria.label.as_deref(), Some(label));
     }
     let Some(wire::Node::Container(crate::wire::ContainerNode { interactivity, .. })) =
@@ -492,10 +493,18 @@ fn no_claimed_key_but_tab_and_backspace_asks_the_app_for_its_default() {
 fn click_binding_and_document_routes_dispatch_through_the_driver() {
     let mut driver = Driver::<ComposerView>::new();
     let frame = driver.tick(Vec::new());
-    driver.tick(crate::testing::press(&frame, "c/bold"));
+    let pressed = driver.tick(crate::testing::press(&frame, "c/bold"));
     driver
         .entity()
         .read(|view| assert!(view.events.iter().any(|event| event == "action:bold")));
+    // the press focused the mark; the keys go back to the editor
+    assert!(pressed.requests.iter().any(|request| {
+        request.kind == <crate::methods::HostWidget as crate::methods::Method>::KIND
+            && wire::decode::<wire::WidgetCommand>(&request.payload).unwrap()
+                == wire::WidgetCommand::Focus {
+                    target: vec![wire::ElementIdWire::Name("c/editor".into())],
+                }
+    }));
 
     let frame = driver.tick(Vec::new());
     let wire::Node::Editor {
