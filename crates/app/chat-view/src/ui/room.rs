@@ -433,9 +433,18 @@ pub fn composer(
             })) as crate::composer::Click),
         ),
     };
+    // what the field is; the hint, drawn in it, says what to write
+    let label = match target {
+        Target::Post { thread: None, .. } => "New message",
+        Target::Post {
+            thread: Some(_), ..
+        } => "Reply",
+        Target::Edit { .. } => "Edited message",
+    };
     crate::composer::view(
         draft,
         &key,
+        label,
         hint,
         commit,
         cancel,

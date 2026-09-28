@@ -227,6 +227,9 @@ fn press<V: View + 'static>(
 pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context<V>) + 'static>(
     draft: &Draft,
     key: &str,
+    // what the field is, for assistive technology ("New message"); the
+    // hint is what to write in it ("Message #general") and is drawn
+    label: &str,
     hint: &str,
     // what the commit button says: "Send" for a new message, "Save" for an
     // edit; the composer does not guess from the draft
@@ -245,6 +248,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
         draft,
         &editor_id,
         key,
+        label,
         hint,
         editable,
         choices,

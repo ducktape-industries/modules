@@ -33,6 +33,7 @@ impl Render for ComposerView {
         view(
             &draft,
             "c",
+            "New message",
             "Message #general",
             "Send",
             None,
@@ -85,6 +86,7 @@ fn lowered(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
     let element = view(
         draft,
         key,
+        "New message",
         "Message #general",
         "Send",
         None,
@@ -134,6 +136,7 @@ fn two_drafts_at_one_key_are_two_documents_the_host_can_tell_apart() {
             draft,
             "c/editor",
             document,
+            "New message",
             "Message",
             true,
             &[],
@@ -166,6 +169,7 @@ fn discarded_composer_editor_does_not_register_routes_before_lowering() {
         &Draft::default(),
         "c/editor",
         "discarded",
+        "New message",
         "Message",
         true,
         &[],
@@ -176,6 +180,7 @@ fn discarded_composer_editor_does_not_register_routes_before_lowering() {
         &Draft::default(),
         "c/editor",
         "lowered",
+        "New message",
         "Message",
         true,
         &[],
@@ -196,6 +201,19 @@ fn the_send_is_the_only_primary_and_is_dead_on_an_empty_draft() {
     assert!(clickable(&empty, "c/send").is_none());
     let typed = drawn(&Draft::from_body("hello", &[]));
     assert!(clickable(&typed, "c/send").is_some());
+}
+
+#[test]
+fn the_field_is_named_apart_from_the_hint_drawn_in_it() {
+    let root = drawn(&Draft::default());
+    let wire::Node::Editor {
+        label, placeholder, ..
+    } = editor_node(&root)
+    else {
+        unreachable!()
+    };
+    assert_eq!(label.as_deref(), Some("New message"));
+    assert_eq!(placeholder, "Message #general");
 }
 
 #[test]

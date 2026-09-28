@@ -284,6 +284,30 @@ fn a_menu_opening_leaves_the_timeline_where_it_was() {
     assert_eq!(list_path(cx.root()), Some(closed));
 }
 
+/// The room's and a thread's fields are named for what they are, apart
+/// from the hint drawn in them.
+#[test]
+fn a_field_is_named_apart_from_its_hint() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        cx.notify();
+        chat.open_thread(1, cx);
+    });
+    cx.run_until_parked();
+    for (key, name, hint) in [
+        ("draft-general/editor", "New message", "Message #General"),
+        ("draft-general-1/editor", "Reply", "Reply in thread"),
+    ] {
+        let Some(wire::Node::Editor {
+            label, placeholder, ..
+        }) = cx.find(key)
+        else {
+            panic!("no field {key}");
+        };
+        assert_eq!((label.as_deref(), placeholder.as_str()), (Some(name), hint));
+    }
+}
+
 /// A thread with nothing under its root says so, and its reply field takes
 /// the keys once the replies are read.
 #[test]

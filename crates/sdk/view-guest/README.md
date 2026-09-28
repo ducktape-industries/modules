@@ -24,7 +24,7 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
 - A control is named from birth: `Input::new(id, label)`,
   `EditorElement::new(…, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words
-  assistive technology reads, so an unnamed one does not compile.
+  assistive technology reads; the audit catches one given none.
 - `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`
   (`src/interactivity.rs`): listeners and
   focus become wire routes.

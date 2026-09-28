@@ -74,6 +74,7 @@ pub(super) fn editor<V: 'static>(
     draft: &Draft,
     key: &str,
     document_key: &str,
+    label: &str,
     placeholder: &str,
     editable: bool,
     choices: &[MentionChoice],
@@ -219,8 +220,7 @@ pub(super) fn editor<V: 'static>(
                 EditorElementEvent::Transaction(transaction) => Event::Transaction(transaction),
             })
         },
-        // the hint says what the draft is for: it names the field too
-        placeholder,
+        label,
     )
     .placeholder(placeholder)
     .editable(editable)
