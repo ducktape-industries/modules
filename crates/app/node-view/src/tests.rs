@@ -7,6 +7,7 @@ use ducktape_view_guest::methods::{
 };
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 
+mod network;
 mod rows;
 mod screens;
 
@@ -53,8 +54,10 @@ fn node(cx: &TestAppContext) -> StreamSender<ClockTicks> {
     let ticks = cx.host().stream::<ClockTicks>();
     cx.host().handle::<ChainStatus>(|()| Ok(status()));
     cx.host().handle::<ChainBlocks>(|page| Ok(blocks(page)));
-    cx.host()
-        .refuse::<ChainNetwork>("node_failed", "404: not found");
+    cx.host().refuse::<ChainNetwork>(
+        "unknown_request",
+        "This node doesn't report its validators' signatures.",
+    );
     ticks
 }
 
@@ -196,52 +199,6 @@ fn the_head_names_the_network_and_this_node() {
     cx.assert_accessible();
 }
 
-/// Every status badge's text colour, in row order.
-fn badge_inks(node: &ducktape_view_guest::wire::Node, inks: &mut Vec<ducktape_view_guest::Hsla>) {
-    use ducktape_view_guest::wire::{ElementIdWire, Node};
-    if let Node::Container(container) = node {
-        if let Some(ElementIdWire::NamedInteger(name, _)) = &container.id
-            && name == "nodes-status-word"
-        {
-            inks.extend(container.style.text.color);
-        }
-        for child in &container.children {
-            badge_inks(child, inks);
-        }
-    }
-}
-
-/// A node that stops answering keeps its last numbers and says so after
-/// three silent seconds; the last block ages meanwhile. Its rows are what
-/// it said then: every badge goes grey under the last answer's age.
-#[test]
-fn a_silent_node_reads_not_answering() {
-    let (mut cx, ticks) = ready();
-    cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
-    cx.host().never::<ChainStatus>();
-    for _ in 0..3 {
-        ticks.send(());
-    }
-    cx.run_until_parked();
-    assert!(
-        cx.has_text("In sync") && cx.has_text("3s ago") && !cx.has_text("Last answer 3s ago"),
-        "{:?}",
-        cx.texts()
-    );
-    let theme = ducktape_view_guest::Theme::light();
-    let inks = |cx: &TestAppContext| {
-        let mut inks = Vec::new();
-        badge_inks(cx.find("nodes-table").expect("the table"), &mut inks);
-        inks
-    };
-    assert_eq!(inks(&cx), [theme.success, theme.success, theme.warning]);
-    ticks.send(());
-    cx.run_until_parked();
-    assert!(cx.has_text("Not answering") && cx.has_text("4,200"));
-    assert!(cx.has_text("Last answer 4s ago"), "{:?}", cx.texts());
-    assert_eq!(inks(&cx), [theme.muted; 3]);
-}
-
 /// One table, each key once: validators in seat order (a seated key valset
 /// holds no membership for among them), then residents.
 #[test]
@@ -290,7 +247,7 @@ fn without_the_network_a_validator_reads_by_its_blocks() {
         texts_of(&cx, "nodes-row-3"),
         ["0102", "10.0.0.9:4000", "Doesn't propose", "—", "—", "—"]
     );
-    assert!(!cx.has_text("signed"));
+    assert!(!cx.has_text("voted"));
     assert!(cx.has_text(
         "This node does not report its validators' signatures. A validator reads by the \
          blocks it led, and Quiet after 12 blocks without one."
@@ -319,146 +276,6 @@ fn a_new_head_reads_one_block() {
         })
     );
     assert!(cx.has_text("Proposed · last 64 blocks · 4,138 → 4,201"));
-}
-
-/// Each member's signed height as the node reports it: this node at its
-/// tip, OTHER one behind, UNLISTED stopped at 3,871; the resident signs
-/// nothing.
-fn seen(height: u64) -> NetworkStatus {
-    let peer = |key: [u8; 2], signed| Peer {
-        key: key.to_vec(),
-        signed,
-    };
-    NetworkStatus {
-        height,
-        members: vec![
-            peer(RESIDENT, None),
-            peer(UNLISTED, Some(3871)),
-            peer(OTHER, Some(height - 1)),
-            peer(THIS, Some(height)),
-        ],
-    }
-}
-
-/// With `chain.network`: a validator's signed height, how far it is from
-/// the tip, one word; a resident's row is its key and address.
-#[test]
-fn the_network_fills_height_behind_and_status() {
-    let mut cx = TestAppContext::new();
-    let ticks = node(&cx);
-    cx.host().stream::<Changes<Valset>>();
-    respond(&mut cx);
-    cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
-    cx.open::<Nodes>();
-    cx.run_until_parked();
-    let row = |cx: &TestAppContext, index: usize| texts_of(cx, &format!("nodes-row-{index}"));
-    assert_eq!(
-        row(&cx, 0)[1..3],
-        ["10.0.0.1:4000".to_owned(), "this node".to_owned()]
-    );
-    let tail = |cx: &TestAppContext, index: usize| {
-        let texts = row(cx, index);
-        texts[texts.len().saturating_sub(4)..].to_vec()
-    };
-    assert_eq!(tail(&cx, 0), ["4,200", "signed", "0", "In sync"]);
-    assert_eq!(tail(&cx, 1), ["4,199", "signed", "1", "In sync"]);
-    assert_eq!(
-        row(&cx, 2)[row(&cx, 2).len() - 5..],
-        ["3,871", "signed", "329", "Quiet", "since 3,871"]
-    );
-    assert_eq!(tail(&cx, 3), ["Doesn't propose", "—", "—", "—"]);
-    for gone in [
-        "Not reported",
-        "reported",
-        "Heard",
-        "Not answering",
-        "Withheld",
-        "Checking",
-    ] {
-        assert!(!cx.has_text(gone), "{gone}");
-    }
-    assert!(cx.has_text(
-        "Height: the newest block the validator voted to finalize. Quiet: none for 12 blocks."
-    ));
-    assert!(!cx.has_text("This node doesn't vote, so it can't see the validators' votes."));
-    // one ask in flight at a time, again on the clock
-    ticks.send(());
-    cx.run_until_parked();
-    assert_eq!(cx.host().requests::<ChainNetwork>().len(), 2);
-    cx.assert_accessible();
-}
-
-/// A node that does not validate hears no votes: it says so once, and no
-/// validator reads Quiet for the votes it cannot hear.
-#[test]
-fn a_node_that_does_not_vote_says_so() {
-    let mut cx = TestAppContext::new();
-    node(&cx);
-    let resident = || NodeStatus {
-        identity: RESIDENT.to_vec(),
-        ..status()
-    };
-    cx.host().handle::<ChainStatus>(move |()| Ok(resident()));
-    cx.host().stream::<Changes<Valset>>();
-    respond(&mut cx);
-    let unheard = |key: [u8; 2]| Peer {
-        key: key.to_vec(),
-        signed: None,
-    };
-    let deaf = NetworkStatus {
-        height: 4200,
-        members: [RESIDENT, UNLISTED, OTHER, THIS].map(unheard).to_vec(),
-    };
-    cx.host().handle::<ChainNetwork>(move |()| Ok(deaf.clone()));
-    cx.open::<Nodes>();
-    cx.run_until_parked();
-    assert!(cx.has_text("This node doesn't vote, so it can't see the validators' votes."));
-    for index in 0..3 {
-        let texts = texts_of(&cx, &format!("nodes-row-{index}"));
-        assert_eq!(texts[texts.len() - 3..], ["—", "—", "—"], "row {index}");
-    }
-    assert!(texts_of(&cx, "nodes-row-3").contains(&"this node".to_owned()));
-    assert!(!cx.has_text("Quiet") && !cx.has_text("signed") && cx.find("nodes-footnote").is_none());
-    cx.assert_accessible();
-}
-
-/// A sheet too narrow for the strip (the desk opens a window at 60% of its
-/// width) keeps every other column and leaves the strip out.
-#[test]
-fn a_narrow_sheet_keeps_the_status_and_leaves_the_strip_out() {
-    let mut cx = TestAppContext::new();
-    node(&cx);
-    cx.host().stream::<Changes<Valset>>();
-    respond(&mut cx);
-    cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
-    cx.open::<Nodes>();
-    cx.run_until_parked();
-    let strip = |cx: &TestAppContext| cx.texts().iter().any(|text| text.starts_with("Proposed"));
-    assert!(strip(&cx) && cx.has_text("Doesn't propose"));
-    cx.simulate_measure("nodes-viewport", 680., 620.);
-    cx.run_until_parked();
-    assert!(!strip(&cx) && !cx.has_text("Doesn't propose"));
-    assert!(cx.has_text("4,199") && cx.has_text("In sync") && cx.has_text("since 3,871"));
-    cx.simulate_measure("nodes-viewport", 1100., 680.);
-    cx.run_until_parked();
-    assert!(strip(&cx));
-}
-
-/// A node that stops serving `chain.network` falls back, and logs it once.
-#[test]
-fn a_refused_network_falls_back_and_logs_once() {
-    let (mut cx, ticks) = ready();
-    ticks.send(());
-    ticks.send(());
-    cx.run_until_parked();
-    assert!(cx.has_text("32 of 64") && !cx.has_text("signed"));
-    let logged = cx
-        .host()
-        .logs()
-        .iter()
-        .filter(|line| line.contains("the validators' signatures"))
-        .count();
-    assert_eq!(logged, 1, "{:?}", cx.host().logs());
 }
 
 #[test]

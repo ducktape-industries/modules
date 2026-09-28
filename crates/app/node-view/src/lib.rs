@@ -4,8 +4,9 @@
 //! for a validator the blocks it led of the last 64 and how far its newest
 //! finalize vote is from this node's tip as `chain.network` reports it (one
 //! status word: In sync, N behind, Quiet). A resident's sync state is not
-//! reported: its row is its key and address. A node that is not a validator
-//! hears no votes, so then no validator's is reported either.
+//! reported: its row is its key and address. A node that is not voting (it
+//! reports no vote of its own) hears none, so then no validator's is
+//! reported either.
 //!
 //! Where the node does not serve `chain.network` a validator reads by the
 //! blocks it led, Quiet when it led none for a while.
@@ -71,6 +72,8 @@ pub(crate) struct Asking {
 const TICK: i64 = 1_000;
 /// Ticks without a status answer before the node reads Not answering.
 pub(crate) const SILENT_TICKS: u64 = 3;
+/// The refusal of an app or node that does not serve `chain.network`.
+const UNSUPPORTED: &str = "unknown_request";
 
 impl View for Nodes {
     const PREFERRED_WINDOW_SIZE: &'static str = "1100,680";
@@ -159,9 +162,11 @@ impl Nodes {
         cx.notify();
     }
 
-    /// Each validator's newest finalize vote as the node heard it. A
-    /// refusal (an app or node that does not serve it) is logged once and
-    /// the sheet falls back until an answer.
+    /// Each validator's newest finalize vote as the node heard it. An app
+    /// or node that does not serve it (`unknown_request`), or a refusal
+    /// before any answer, is logged once and the sheet falls back until an
+    /// answer; any other refusal (a node restarting, a dropped link) keeps
+    /// the last answer, as the status does.
     pub(crate) fn read_network(&mut self, cx: &mut Context<Self>) {
         if std::mem::replace(&mut self.asking.network, true) {
             return;
@@ -173,12 +178,18 @@ impl Nodes {
                 view.asking.network = false;
                 match answer {
                     Ok(network) => view.network = Loadable::Ready(network),
-                    Err(refusal) => {
+                    Err(refusal)
+                        if refusal.code == UNSUPPORTED || view.network.ready().is_none() =>
+                    {
                         if view.network.failed().is_none() {
                             cx.host()
-                                .log_refused("nodes", "the validators' signatures", &refusal);
+                                .log_refused("nodes", "the validators' votes", &refusal);
                         }
                         view.network = Loadable::Failed(refusal);
+                    }
+                    Err(refusal) => {
+                        cx.host()
+                            .log_refused("nodes", "the validators' votes", &refusal)
                     }
                 }
                 cx.notify();

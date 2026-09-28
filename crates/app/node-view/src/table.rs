@@ -8,41 +8,59 @@ use ducktape_view_guest::{Div, Loadable, Stateful};
 
 use crate::queries::Node;
 use crate::recent::Recent;
-use crate::row::{self, QUIET_PER_VALIDATOR, Row, Status};
+use crate::row::{self, QUIET, QUIET_PER_VALIDATOR, Row, Status};
 use crate::{Nodes, ui};
 
-const KEY_W: Pixels = px(112.);
+const KEY_W: Pixels = px(104.);
 const ADDRESS_W: Pixels = px(196.);
 const STRIP_W: Pixels = px(392.);
 const HEIGHT_W: Pixels = px(112.);
 const BEHIND_W: Pixels = px(60.);
 const STATUS_W: Pixels = px(136.);
-/// Every column but the strip, and the row's padding: the table never
-/// squeezes a cell.
-const WORDS_W: f32 = 112. + 196. + 112. + 60. + 136. + 16.;
-/// The sheet's padding either side (`p_5`).
-const INSET: f32 = 20.;
+/// Key, Height, Behind and Status, and the row's padding: the columns every
+/// width keeps. The table never squeezes a cell.
+const WORDS_W: f32 = 104. + 112. + 60. + 136. + 16.;
+/// The sheet's inset either side, in pixels so the columns count against it.
+pub(crate) const INSET: f32 = 16.;
 
-/// Whether the strip fits beside the other columns. A narrower sheet (the
-/// desk opens a window at 60% of its width; 680) keeps every other column
-/// and leaves the strip out, rather than scrolling Status out of sight.
-fn strip_fits(view: &Nodes) -> bool {
+/// Whether `extra` fits beside the columns every width keeps, in the
+/// sheet's width less its inset and the scroller's gutter: Address from
+/// 672 px, Address and the strip from 1,064. The app lays a view out at 480
+/// at the least, where the kept columns fit; before the first measure,
+/// every column.
+fn fits(view: &Nodes, extra: f32) -> bool {
+    let gutter = f32::from(design::size::SCROLLBAR);
     view.width
-        .is_none_or(|width| width - 2. * INSET >= WORDS_W + f32::from(STRIP_W))
+        .is_none_or(|width| width - 2. * INSET - gutter >= WORDS_W + extra)
+}
+
+/// Whether the Address column fits.
+fn address_fits(view: &Nodes) -> bool {
+    fits(view, f32::from(ADDRESS_W))
+}
+
+/// Whether the strip fits beside the other columns. A narrower sheet keeps
+/// every other column and leaves the strip out, rather than scrolling Status
+/// out of sight.
+fn strip_fits(view: &Nodes) -> bool {
+    fits(view, f32::from(ADDRESS_W) + f32::from(STRIP_W))
 }
 
 pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div> {
     let head = view.status.ready().map_or(0, |status| status.height);
     let this = view.status.ready().map(|status| status.identity.as_slice());
     let validators = nodes.iter().filter(|node| node.validator).count() as u64;
-    // only a validator runs the engine that hears the votes: a node that
-    // is not one answers `chain.network` with none
-    let deaf = view.network.ready().is_some()
-        && !nodes
+    // only a node seated as a validator hears the votes, its own among
+    // them: without its own, it hears none (a resident, one not seated yet,
+    // one catching up after a restart)
+    let deaf = view.network.ready().is_some_and(|network| {
+        !network
+            .members
             .iter()
-            .any(|node| node.validator && this == Some(node.key.as_slice()));
+            .any(|peer| this == Some(peer.key.as_slice()) && peer.signed.is_some())
+    });
     let answering = view.answering();
-    let strip = strip_fits(view);
+    let (address, strip) = (address_fits(view), strip_fits(view));
     let rows = |validator: bool| {
         nodes
             .iter()
@@ -52,18 +70,18 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
                 let this = this == Some(node.key.as_slice());
                 let cells = match &view.network {
                     Loadable::Ready(_) if deaf => row::BLANK,
-                    Loadable::Ready(network) => row::synced(node, validators, network),
+                    Loadable::Ready(network) => row::synced(node, network),
                     _ => row::unsynced(node, head, validators, &view.recent),
                 };
                 let marks = strip.then(|| self::strip(node, head, &view.recent, theme));
-                line(index, node, this, cells, marks, answering, theme)
+                line(index, node, this, cells, marks, view, theme)
             })
     };
     let residents = nodes.len() as u64 - validators;
     let no_votes = deaf.then(|| {
         note(
             "nodes-no-votes",
-            "This node doesn't vote, so it can't see the validators' votes.".into(),
+            "This node isn't voting right now, so it can't see the validators' votes.".into(),
             theme,
         )
     });
@@ -75,12 +93,14 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
     div()
         .id("nodes-table")
         .w_full()
-        .min_w(px(WORDS_W + if strip { f32::from(STRIP_W) } else { 0. }))
+        .min_w(px(WORDS_W
+            + if address { f32::from(ADDRESS_W) } else { 0. }
+            + if strip { f32::from(STRIP_W) } else { 0. }))
         .flex()
         .flex_col()
         .children(no_votes)
         .children(silent)
-        .child(columns(head, strip, theme))
+        .child(columns(head, address, strip, theme))
         .child(ui::section(
             "nodes-validators",
             format!("Validators · {validators}"),
@@ -109,20 +129,21 @@ fn note(id: &'static str, text: String, theme: &Theme) -> impl IntoElement {
 
 /// Where the Height column comes from, or what stands in for it.
 fn footnote(view: &Nodes, validators: u64) -> String {
-    let quiet = design::plural(validators * QUIET_PER_VALIDATOR, "block", "blocks");
     match view.network {
         Loadable::Ready(_) => format!(
-            "Height: the newest block the validator voted to finalize. Quiet: none for {quiet}."
+            "Height: the newest block the validator voted to finalize. Quiet: none for {}.",
+            design::plural(QUIET, "block", "blocks")
         ),
         _ => format!(
             "This node does not report its validators' signatures. A validator reads by the \
-             blocks it led, and Quiet after {quiet} without one."
+             blocks it led, and Quiet after {} without one.",
+            design::plural(validators * QUIET_PER_VALIDATOR, "block", "blocks")
         ),
     }
 }
 
 /// The column names; the strip's names its span.
-fn columns(head: u64, strip: bool, theme: &Theme) -> impl IntoElement {
+fn columns(head: u64, address: bool, strip: bool, theme: &Theme) -> impl IntoElement {
     let span = Recent::span(head);
     let label = format!(
         "Proposed · last {} · {} → {}",
@@ -143,7 +164,7 @@ fn columns(head: u64, strip: bool, theme: &Theme) -> impl IntoElement {
         .text_size(design::text::CAPTION)
         .text_color(theme.muted)
         .child(name("Key".into(), KEY_W, false))
-        .child(name("Address".into(), ADDRESS_W, false))
+        .children(address.then(|| name("Address".into(), ADDRESS_W, false)))
         .child(stretch(strip.then_some(label)))
         .child(name("Height".into(), HEIGHT_W, true))
         .child(name("Behind".into(), BEHIND_W, true))
@@ -182,18 +203,35 @@ fn line(
     this: bool,
     cells: Row,
     strip: Option<Div>,
-    answering: bool,
+    view: &Nodes,
     theme: &Theme,
 ) -> impl IntoElement {
     let muted = |text: String| div().text_color(theme.muted).child(text);
-    let address = match node.address.is_empty() {
-        true => "—".to_owned(),
-        false => node.address.clone(),
+    let address = address_fits(view);
+    // without the Address column, this node's mark goes under its key
+    let key = design::mono(design::short_hex(&hex(&node.key)));
+    let key = match this && !address {
+        true => cell(KEY_W, false)
+            .flex_col()
+            .items_start()
+            .gap_0()
+            .child(key)
+            .child(muted("this node".into()).text_size(design::text::CAPTION)),
+        false => cell(KEY_W, false).child(key),
     };
+    let address = address.then(|| {
+        let address = match node.address.is_empty() {
+            true => "—".to_owned(),
+            false => node.address.clone(),
+        };
+        cell(ADDRESS_W, false)
+            .child(design::mono(address).text_color(theme.muted).truncate())
+            .children(this.then(|| muted("this node".into())))
+    });
     let height = match cells.signed {
         Some(signed) => cell(HEIGHT_W, true)
             .child(design::mono(design::grouped(signed)))
-            .child(muted("signed".into())),
+            .child(muted("voted".into())),
         None => cell(HEIGHT_W, true).child(muted("—".into())),
     };
     // an empty cell reads as Height's and Status's do: a quiet dash
@@ -210,20 +248,17 @@ fn line(
         .border_b_1()
         .border_color(theme.border)
         .text_size(design::text::SECONDARY)
-        .child(cell(KEY_W, false).child(design::mono(design::short_hex(&hex(&node.key)))))
-        .child(
-            cell(ADDRESS_W, false)
-                .child(design::mono(address).text_color(theme.muted).truncate())
-                .children(this.then(|| muted("this node".into()))),
-        )
+        .child(key)
+        .children(address)
         .child(stretch(strip))
         .child(height)
         .child(cell(BEHIND_W, true).child(behind))
-        .child(
-            cell(STATUS_W, false)
-                .pl_4()
-                .child(status(index, &cells.status, answering, theme)),
-        )
+        .child(cell(STATUS_W, false).pl_4().child(status(
+            index,
+            &cells.status,
+            view.answering(),
+            theme,
+        )))
 }
 
 /// The last blocks, one mark each, oldest first: ink where this key led,

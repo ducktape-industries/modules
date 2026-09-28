@@ -85,13 +85,13 @@ const SYNCED: [Option<u64>; VALIDATORS] = [
     Some(HEIGHT - 2),
     Some(3871),
 ];
-/// Around Quiet's edge (20 blocks for five): 5 and 20 behind, 21 behind,
-/// and one never heard.
+/// Around Quiet's edge (20 blocks): 5 and 19 behind, 20 behind, and one
+/// never heard.
 const BEHIND: [Option<u64>; VALIDATORS] = [
     Some(HEIGHT),
     Some(HEIGHT - 5),
+    Some(HEIGHT - 19),
     Some(HEIGHT - 20),
-    Some(HEIGHT - 21),
     None,
 ];
 
@@ -163,6 +163,20 @@ fn screen(state: &str) -> TestAppContext {
         "behind-quiet" => sheet(Some(sheet_network(BEHIND)), true, 0).0,
         "resident" => resident().0,
         "resident-not-answering" => silent(resident()),
+        // a validator in valset not seated yet: no vote of its own
+        "promoted" => {
+            let own = [None, SYNCED[1], SYNCED[2], SYNCED[3], SYNCED[4]];
+            sheet(Some(sheet_network(own)), true, 0).0
+        }
+        // the node restarts past the app's retries: the votes stay
+        "refused-after-answer" => {
+            let (mut cx, ticks) = sheet(Some(sheet_network(SYNCED)), true, 0);
+            cx.host()
+                .refuse::<ChainNetwork>("unavailable", "The node could not be reached.");
+            ticks.send(());
+            cx.run_until_parked();
+            cx
+        }
         "loading" => {
             let mut cx = TestAppContext::new();
             cx.host().stream::<ClockTicks>();
@@ -214,10 +228,11 @@ fn screen(state: &str) -> TestAppContext {
     }
 }
 
-const SCREENS: [(&str, u32, u32); 14] = [
+const SCREENS: [(&str, u32, u32); 16] = [
     ("synced", 1100, 680),
     ("synced-680", 680, 620),
-    ("synced-narrow", 320, 620),
+    // drawn in the app's frame: laid out at 480, scrolled sideways
+    ("synced-narrow", 320, 800),
     ("quiet-unsigned", 1100, 680),
     ("fallback", 1100, 680),
     ("fallback-unknown", 1100, 680),
@@ -229,7 +244,39 @@ const SCREENS: [(&str, u32, u32); 14] = [
     ("behind-quiet", 1100, 680),
     ("resident", 1100, 680),
     ("resident-not-answering", 1100, 680),
+    ("promoted", 1100, 680),
+    ("refused-after-answer", 1100, 680),
 ];
+
+/// The states drawn at every width the desk gives a view, from the app's
+/// narrowest layout up.
+const SWEEP: [&str; 4] = ["synced", "resident", "not-answering", "behind-quiet"];
+const WIDTHS: [u32; 6] = [480, 560, 680, 768, 1064, 1280];
+
+/// The app's frame around a view (`runtime/widget.rs`): laid out at 480
+/// at the least, a narrower window scrolls it sideways.
+const APP_MIN_WIDTH: f32 = 480.;
+
+fn in_app_frame(root: &ducktape_view_guest::wire::Node) -> ducktape_view_guest::wire::Node {
+    use ducktape_view_guest::wire::{ContainerNode, ElementIdWire, Node};
+    use ducktape_view_guest::{Styled, px};
+    let inner = ContainerNode {
+        children: vec![root.clone()],
+        ..Default::default()
+    }
+    .size_full()
+    .min_w(px(APP_MIN_WIDTH));
+    let mut frame = ContainerNode {
+        id: Some(ElementIdWire::Name("app-frame".into())),
+        children: vec![Node::Container(inner)],
+        ..Default::default()
+    }
+    .size_full()
+    .overflow_hidden();
+    // `overflow_x_scroll`, which the SDK keeps to interactive elements
+    frame.style.overflow.x = serde_json::from_value(serde_json::json!("Scroll")).unwrap();
+    Node::Container(frame)
+}
 
 /// `NODE_SCREEN_EXPORT=1` writes each state's tree, light and dark, and a
 /// manifest for the app's `dev/screens` capture.
@@ -240,20 +287,37 @@ fn export_node_screens() {
     }
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../target/node-screens");
     std::fs::create_dir_all(&out).unwrap();
+    let screens = SCREENS
+        .iter()
+        .enumerate()
+        .map(|(index, (state, width, height))| {
+            (format!("{:02}-{state}", index + 1), *state, *width, *height)
+        })
+        .chain(SWEEP.iter().flat_map(|state| {
+            WIDTHS
+                .iter()
+                .map(move |width| (format!("w{width}-{state}"), *state, *width, 800))
+        }));
     let mut manifest = Vec::new();
-    for (index, (state, width, height)) in SCREENS.iter().enumerate() {
+    for (name, state, width, height) in screens {
+        let framed = (width as f32) < APP_MIN_WIDTH;
         for dark in [false, true] {
             let mut cx = screen(state);
-            cx.simulate_measure("nodes-viewport", *width as f32, *height as f32);
+            let laid_out = (width as f32).max(APP_MIN_WIDTH);
+            cx.simulate_measure("nodes-viewport", laid_out, height as f32);
             cx.run_until_parked();
             if dark {
                 cx.set_global(Theme::dark());
             }
             let theme = if dark { "dark" } else { "light" };
-            let name = format!("{:02}-{state}-{theme}", index + 1);
+            let name = format!("{name}-{theme}");
+            let tree = match framed {
+                true => in_app_frame(cx.root()),
+                false => cx.root().clone(),
+            };
             std::fs::write(
                 out.join(format!("{name}.json")),
-                serde_json::to_vec(cx.root()).unwrap(),
+                serde_json::to_vec(&tree).unwrap(),
             )
             .unwrap();
             manifest.push(serde_json::json!({

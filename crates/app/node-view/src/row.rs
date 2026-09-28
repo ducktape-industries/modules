@@ -10,8 +10,11 @@ use crate::recent::Recent;
 /// A validator whose vote is this many blocks under the tip still reads
 /// In sync: a live one's newest vote may still be in flight.
 pub const IN_SYNC: u64 = 2;
-/// A validator that voted for (or, without `chain.network`, led) no block
-/// for this many blocks per validator reads Quiet.
+/// A validator that voted for none of this many blocks reads Quiet: every
+/// validator votes on every block, whatever the set's size.
+pub const QUIET: u64 = 20;
+/// Without `chain.network`, a validator that led none of this many blocks
+/// per validator reads Quiet: the lead goes round the set.
 pub const QUIET_PER_VALIDATOR: u64 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,8 +71,9 @@ pub const BLANK: Row = Row {
 };
 
 /// A row as `chain.network` has it: a validator by the newest block it
-/// voted to finalize, from the tip the node answered at.
-pub fn synced(node: &Node, validators: u64, network: &NetworkStatus) -> Row {
+/// voted to finalize, from the tip the node answered at. `behind` blocks
+/// passed without its vote, so Quiet starts at [`QUIET`] behind.
+pub fn synced(node: &Node, network: &NetworkStatus) -> Row {
     if !node.validator {
         return BLANK;
     }
@@ -81,7 +85,7 @@ pub fn synced(node: &Node, validators: u64, network: &NetworkStatus) -> Row {
     let behind = signed.map(|signed| network.height.saturating_sub(signed));
     let status = match behind {
         None => Status::Quiet { since: None, of: 0 },
-        Some(behind) if behind > validators * QUIET_PER_VALIDATOR => Status::Quiet {
+        Some(behind) if behind >= QUIET => Status::Quiet {
             since: signed,
             of: 0,
         },
@@ -96,14 +100,15 @@ pub fn synced(node: &Node, validators: u64, network: &NetworkStatus) -> Row {
 }
 
 /// A row without `chain.network`: a validator is read by the blocks it led
-/// of the strip.
+/// of the strip, Quiet once [`QUIET_PER_VALIDATOR`] per validator passed
+/// without one.
 pub fn unsynced(node: &Node, head: u64, validators: u64, recent: &Recent) -> Row {
     if !node.validator {
         return BLANK;
     }
     let (count, last, of) = recent.proposed(&node.key, head);
     let silence = last.map_or(of, |last| head - last);
-    let status = match silence > validators * QUIET_PER_VALIDATOR {
+    let status = match silence >= validators * QUIET_PER_VALIDATOR {
         true => Status::Quiet { since: last, of },
         false => Status::Led { count, of },
     };

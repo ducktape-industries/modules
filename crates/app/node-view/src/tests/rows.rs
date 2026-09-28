@@ -142,7 +142,7 @@ fn a_short_archive_ends_the_asking() {
     assert_eq!(recent.next(10), None);
 }
 
-/// Four validators: Quiet after 16 blocks without leading one.
+/// Four validators: Quiet once 16 blocks passed without leading one.
 fn strip(last: u64) -> Recent {
     let mut recent = Recent::default();
     let page = BlockPage {
@@ -154,16 +154,17 @@ fn strip(last: u64) -> Recent {
 }
 
 #[test]
-fn a_validator_reads_quiet_past_four_blocks_a_validator() {
+fn a_validator_reads_quiet_at_four_blocks_a_validator() {
     let validator = node(7, true);
-    let row = unsynced(&validator, 100, 4, &strip(84));
+    let row = unsynced(&validator, 100, 4, &strip(85));
     assert_eq!(row.status, Status::Led { count: 1, of: 64 });
     assert_eq!(row.status.word(), "1 of 64");
-    let row = unsynced(&validator, 100, 4, &strip(83));
+    // 85..=100: 16 blocks without one
+    let row = unsynced(&validator, 100, 4, &strip(84));
     assert_eq!(
         row.status,
         Status::Quiet {
-            since: Some(83),
+            since: Some(84),
             of: 64
         }
     );
@@ -189,7 +190,7 @@ fn a_residents_row_is_blank() {
     };
     assert_eq!(unsynced(&resident, 100, 4, &Recent::default()), blank);
     let network = network(vec![peer(2, Some(100))]);
-    assert_eq!(synced(&resident, 4, &network), blank);
+    assert_eq!(synced(&resident, &network), blank);
     assert_eq!(blank.status.word(), "—");
 }
 
@@ -207,28 +208,29 @@ fn peer(key: u8, signed: Option<u64>) -> Peer {
     }
 }
 
-/// Four validators: In sync within 2 blocks, then N behind, then Quiet
-/// past 16; one this node has heard no vote from is Quiet too. No vote
-/// counts before its block is applied, so none reads ahead.
+/// In sync within 2 blocks, then N behind, then Quiet at 20: the
+/// footnote's "none for 20 blocks", 4,276..=4,295 without its vote, for a
+/// set of any size. One this node has heard no vote from is Quiet too. No
+/// vote counts before its block is applied, so none reads ahead.
 #[test]
-fn every_word_a_validators_signature_gives() {
+fn every_word_a_validators_vote_gives() {
     let cases = [
         (Some(4_295), Some(0), Status::InSync),
         (Some(4_293), Some(2), Status::InSync),
         (Some(4_292), Some(3), Status::Behind(3)),
-        (Some(4_279), Some(16), Status::Behind(16)),
+        (Some(4_276), Some(19), Status::Behind(19)),
         (
-            Some(4_278),
-            Some(17),
+            Some(4_275),
+            Some(20),
             Status::Quiet {
-                since: Some(4_278),
+                since: Some(4_275),
                 of: 0,
             },
         ),
         (None, None, Status::Quiet { since: None, of: 0 }),
     ];
     for (signed, behind, status) in cases {
-        let row = synced(&node(1, true), 4, &network(vec![peer(1, signed)]));
+        let row = synced(&node(1, true), &network(vec![peer(1, signed)]));
         assert_eq!(
             row,
             Row {
@@ -239,7 +241,7 @@ fn every_word_a_validators_signature_gives() {
         );
     }
     // a validator the reply does not list reads as one that signed nothing
-    let row = synced(&node(9, true), 4, &network(vec![]));
+    let row = synced(&node(9, true), &network(vec![]));
     assert_eq!(row.status.word(), "Quiet");
     assert_eq!(Status::Behind(1_200).word(), "1,200 behind");
 }

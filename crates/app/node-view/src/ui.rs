@@ -17,7 +17,7 @@ pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement 
         .flex()
         .flex_col()
         .gap_3()
-        .p_5()
+        .p(px(table::INSET))
         .size_full()
         .bg(theme.background)
         .text_color(theme.foreground)
@@ -44,13 +44,15 @@ fn measured(view: &mut Nodes, size: &(Pixels, Pixels), _: &mut Window, cx: &mut 
     cx.notify();
 }
 
-/// The network's name, and whether this node answers, with its key.
+/// The network's name, and whether this node answers, with its key; the
+/// latter on a row of its own where both do not fit.
 fn head(view: &Nodes, theme: &Theme) -> impl IntoElement {
     let status = view.status.ready();
     let title = status.map_or("Nodes".into(), |status| status.chain_id.clone());
     div()
         .id("nodes-head")
         .flex()
+        .flex_wrap()
         .items_center()
         .gap_2()
         .child(design::heading("nodes-title", title, 1, theme).flex_1())
@@ -75,8 +77,9 @@ fn pulse(answering: bool, status: &NodeStatus, theme: &Theme) -> impl IntoElemen
         .child(design::mono(design::short_hex(&hex(&status.identity))).text_color(theme.muted))
 }
 
-/// This node's numbers, the epoch's progress, and when the next one starts;
-/// or why they are not here.
+/// This node's numbers, the epoch's progress, and when the next one starts,
+/// wrapping onto a second row where they do not fit; or why they are not
+/// here.
 fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     let status = match &view.status {
         Loadable::Ready(status) => status,
@@ -104,8 +107,10 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     div()
         .id("nodes-status")
         .flex()
+        .flex_wrap()
         .items_end()
-        .gap_6()
+        .gap_x_6()
+        .gap_y_3()
         .pb_3()
         .border_b_1()
         .border_color(theme.border)

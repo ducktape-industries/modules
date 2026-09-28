@@ -219,8 +219,8 @@ pub struct NodeStatus {
     pub identity: Vec<u8>,
     pub contract: u32,
 }
-/// Every member of the epoch as the connected node sees it: its tip, and
-/// the members in key order.
+/// Every member of the epoch as the connected node sees it: its applied
+/// tip, and the members in key order. No member's `signed` exceeds `height`.
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
@@ -228,9 +228,12 @@ pub struct NetworkStatus {
     pub height: u64,
     pub members: Vec<Peer>,
 }
-/// One member: the newest block the node applied whose finalization
-/// carries this key's signature; `None` where it signed none since the
-/// node started (a resident never does).
+/// One member: the newest block the connected node applied that this key
+/// sent a finalize vote for, as the node's consensus engine heard it. A
+/// vote for a block not applied yet counts once it is. `None` for a
+/// resident, for a validator not heard since the node started or began
+/// validating, and for every member while the node is not itself seated as
+/// a validator: it runs no engine, so it hears no votes.
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
