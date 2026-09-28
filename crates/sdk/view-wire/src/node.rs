@@ -206,9 +206,12 @@ pub enum Node {
     },
     /// A multiline text editor. The host owns the native editor's text and
     /// selection — native widget interaction — and the guest sees document
-    /// state, unlike [`Node::Input`]. Presentation crosses as copied data.
+    /// state, unlike [`Node::Input`]. Its style, placeholder and label cross
+    /// as copied data.
     Editor {
-        options: Box<EditorOptions>,
+        /// The guest's key claims and request/event routes. `None` claims no
+        /// key, and no transaction reaches the guest.
+        binding: Option<Box<EditorBinding>>,
         id: ElementIdWire,
         style: gpui::StyleRefinement,
         placeholder: String,

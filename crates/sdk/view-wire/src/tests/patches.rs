@@ -292,7 +292,7 @@ fn every_shaped_string_spends_the_same_budget() {
             style: gpui::StyleRefinement::default(),
         },
         Node::Editor {
-            options: Default::default(),
+            binding: None,
             id: ElementIdWire::Name("App/e".into()),
             style: gpui::StyleRefinement::default(),
             placeholder: long.clone(),

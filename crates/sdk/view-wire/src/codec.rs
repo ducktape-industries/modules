@@ -15,7 +15,7 @@ pub const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
 ///
 /// [`MAX_FRAME_BYTES`] of input is no protection: a chain deep
 /// enough to overflow a host thread's stack is a few tens of kilobytes.
-pub(crate) mod budget {
+mod budget {
     use std::cell::Cell;
 
     use super::{MAX_DECODED_NODES, MAX_DEPTH};
@@ -37,7 +37,11 @@ pub(crate) mod budget {
             if depth > MAX_DEPTH {
                 return Err("a tree deeper than the host renders");
             }
-            spend(1)?;
+            let nodes = NODES.get() + 1;
+            if nodes > MAX_DECODED_NODES {
+                return Err("more nodes than the host holds");
+            }
+            NODES.set(nodes);
             DEPTH.set(depth);
             Ok(Self(()))
         }
@@ -47,16 +51,6 @@ pub(crate) mod budget {
         fn drop(&mut self) {
             DEPTH.set(DEPTH.get().saturating_sub(1));
         }
-    }
-
-    /// Native paragraph spans share the same aggregate allocation allowance as nodes.
-    pub(crate) fn spend(count: usize) -> Result<(), &'static str> {
-        let nodes = NODES.get().saturating_add(count);
-        if nodes > MAX_DECODED_NODES {
-            return Err("more nodes than the host holds");
-        }
-        NODES.set(nodes);
-        Ok(())
     }
 
     /// A fresh budget for one top-level [`decode`](super::decode). The depth

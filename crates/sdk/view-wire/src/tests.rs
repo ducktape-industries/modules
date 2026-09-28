@@ -22,7 +22,7 @@ fn document_reference(document: &str, byte_len: u32) -> editor_document::EditorD
 
 fn editor(key: &str, placeholder: &str, document: editor_document::EditorDocumentRef) -> Node {
     Node::Editor {
-        options: Default::default(),
+        binding: None,
         id: ElementIdWire::Name(key.into()),
         style: gpui::StyleRefinement::default(),
         placeholder: placeholder.into(),

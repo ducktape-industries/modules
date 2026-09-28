@@ -438,8 +438,6 @@ EditorEditKind enum
   5 Redo: Unit
 EditorFault enum
   0 Overflow: Unit
-EditorFormat struct
-  style: TypeName("StyleRefinement")
 EditorHistoryEffect enum
   0 Native: Unit
   1 NewGroup: Unit
@@ -453,9 +451,6 @@ EditorKeyClaim struct
   key: TypeName("Key")
   modifiers: TypeName("Modifiers")
   command: Bool
-EditorOptions struct
-  binding: Option(TypeName("EditorBinding"))
-  presentation: Option(TypeName("EditorPresentation"))
 EditorPatch struct
   start_byte: U32
   end_byte: U32
@@ -463,10 +458,6 @@ EditorPatch struct
 EditorPosition struct
   line: U32
   column: U32
-EditorPresentation struct
-  formats: Seq(TypeName("EditorFormat"))
-  spans: Seq(TypeName("EditorSpan"))
-  style: TypeName("StyleRefinement")
 EditorRequest struct
   id: TypeName("EditorTransactionId")
   state: TypeName("EditorDocumentRef")
@@ -481,11 +472,6 @@ EditorRequestInput enum
 EditorResponse struct
   id: TypeName("EditorTransactionId")
   decision: TypeName("EditorDecision")
-EditorSpan struct
-  line: U32
-  start: U32
-  end: U32
-  format: U16
 EditorTransactionEvent enum
   0 Interaction struct
     id: TypeName("EditorTransactionId")
@@ -1077,7 +1063,7 @@ Node enum
     secure: Bool
     style: TypeName("StyleRefinement")
   12 Editor struct
-    options: TypeName("EditorOptions")
+    binding: Option(TypeName("EditorBinding"))
     id: TypeName("WireRepr")
     style: TypeName("StyleRefinement")
     placeholder: Str

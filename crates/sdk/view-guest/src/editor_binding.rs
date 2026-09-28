@@ -36,7 +36,7 @@ pub struct EditorKeyRequest<'a> {
 pub struct EditorInteractionRequest<'a> {
     pub id: &'a wire::EditorTransactionId,
     pub state: EditorStateView<'a>,
-    pub action: &'a wire::editor_presentation::EditorInteraction,
+    pub action: &'a wire::EditorInteraction,
     pub input_time_ms: u64,
 }
 #[derive(Clone, Copy, Debug)]
@@ -44,7 +44,7 @@ pub enum EditorTransactionEvent<'a> {
     Interaction {
         id: &'a wire::EditorTransactionId,
         state: EditorStateView<'a>,
-        action: &'a wire::editor_presentation::EditorInteraction,
+        action: &'a wire::EditorInteraction,
         input_time_ms: u64,
     },
     Commit {

@@ -46,12 +46,12 @@ pub use sanitization::SanitizeReport;
 
 mod editor;
 pub mod editor_document;
-pub mod editor_presentation;
 pub mod editor_transaction;
 pub use editor_transaction::{
     EditorBinding, EditorDecision, EditorEditKind, EditorFault, EditorHistoryEffect,
-    EditorKeyClaim, EditorPatch, EditorPatchError, EditorRequest, EditorRequestInput,
-    EditorResponse, EditorTransactionEvent, EditorTransactionId, patched_editor_text,
+    EditorInteraction, EditorKeyClaim, EditorPatch, EditorPatchError, EditorRequest,
+    EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId,
+    patched_editor_text,
 };
 
 pub use editor::{EditorCursor, EditorPosition, editor_lines, editor_offset, editor_position};
@@ -110,9 +110,7 @@ pub mod mouse;
 pub use interactivity::{DispatchPhase, HoverListenerMode, KeyContext, Tooltip, TooltipResponse};
 
 mod protocol;
-pub use protocol::{
-    EditorOptions, Error, Event, Frame, InputOptions, Request, RichTextHover, code,
-};
+pub use protocol::{Error, Event, Frame, InputOptions, Request, RichTextHover, code};
 
 mod frame_sanitize;
 pub(crate) use frame_sanitize::{Budgets, finite, sanitize_tree, spend_text, truncate_to};
@@ -124,7 +122,7 @@ pub use frame_sanitize::{
 
 mod codec;
 pub use codec::{MAX_DECODED_NODES, decode, encode, encoded_size, try_encode};
-pub(crate) use codec::{bounded_vec, budget, decode_child, decode_children};
+pub(crate) use codec::{bounded_vec, decode_child, decode_children};
 
 #[cfg(test)]
 mod tests;
