@@ -1,6 +1,5 @@
 //! A serializable root view and small loading conveniences.
 use crate::host::Error;
-pub use crate::methods::{Method, Module, Query, Submit};
 use crate::{Context, IntoElement, Task, Window};
 use futures::{Stream, StreamExt};
 use serde::de::DeserializeOwned;
@@ -178,12 +177,6 @@ impl<V: View> Context<'_, V> {
         })
         .detach();
     }
-}
-#[macro_export]
-macro_rules! export_view {
-    ($view:ty, $name:expr, $description:expr, [$($capability:ident),* $(,)?]) => {
-        $crate::export_driver!($view, $name, $description, [$($capability),*]);
-    };
 }
 
 #[cfg(test)]

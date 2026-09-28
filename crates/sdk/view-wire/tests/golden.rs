@@ -1,13 +1,15 @@
-//! The wire's bytes, committed. One `Frame` holding every `Node` variant,
-//! one of every `Event`, and one request and reply through every method in
-//! `methods::ALL`, encoded into `tests/golden/{frame,methods}.bin` with a JSON
-//! twin beside each for readable diffs. Any byte of the frame that moves — a
-//! field, a variant, a `gpui::StyleRefinement` change from a fork bump —
-//! fails here. The methods are a map keyed by kind: an existing kind whose
-//! bytes moved, or a kind that went away, fails; a kind new since the
-//! fixture passes, since no view built before it can call it. A failure is
-//! fixed by bumping `WIRE_EPOCH` in the same commit and regenerating with
-//! `WIRE_GOLDEN_WRITE=1`, which also records new kinds.
+//! The wire, committed: its bytes and its shape. One `Frame` holding every
+//! `Node` variant, one of every `Event`, and one request and reply through
+//! every method in `methods::ALL`, encoded into
+//! `tests/golden/{frame,methods}.bin` with a JSON twin beside each for
+//! readable diffs; and the shape of every type that crosses, in
+//! `tests/golden/schema.txt` (`golden/schema.rs`). The bytes fail on any
+//! sampled byte that moves, and miss what no fixture samples: a variant no
+//! fixture uses, a field left out as empty (every fixture style is), a
+//! method kind new since the fixture. The shape holds exactly those. A
+//! failure means the wire changed; if that was intended, regenerate with
+//! `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID` (`build.rs` hashes all
+//! three files).
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -23,23 +25,22 @@ use view_wire::list::{
 };
 use view_wire::methods::{self, Method, Module};
 use view_wire::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, Axis, ButtonContent, CanvasCommand, CanvasShape,
-    ContainerNode, ContentFit, DispatchPhase, EditorCursor, EditorDecision, EditorEditKind,
-    EditorHistoryEffect, EditorPatch, EditorRequest, EditorRequestInput, EditorResponse,
-    EditorTransactionEvent, EditorTransactionId, ElementIdWire, Error, Event, Frame, ImageData,
-    ImageObjectFit, ImageStyle, Interactivity, ListAlignment, ListOffset, ListRequest, ListScroll,
-    ListSizingBehavior, Live, Node, Patch, Qr, Request, RichTextHighlightStyle, RichTextHover,
-    RichTextRuns, Role, ScrollAnchor, ScrollDirection, SurfaceValue, SvgSource, SvgTransformation,
-    TextNode, ToggleKind, TooltipResponse, WidgetCommand, click, events, interactivity, keyboard,
-    mouse,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, CanvasCommand, CanvasShape, ContainerNode,
+    DispatchPhase, EditorCursor, EditorDecision, EditorEditKind, EditorHistoryEffect, EditorPatch,
+    EditorRequest, EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId,
+    ElementIdWire, Error, Event, Frame, ImageData, ImageObjectFit, ImageStyle, Interactivity,
+    ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node, Patch,
+    Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource, SvgTransformation,
+    TextNode, TooltipResponse, WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
-const MESSAGE: &str = "the wire changed: bump WIRE_EPOCH and regenerate with WIRE_GOLDEN_WRITE=1";
+const MESSAGE: &str =
+    "the wire changed: if intended, regenerate with WIRE_GOLDEN_WRITE=1 (this changes WIRE_ID)";
 
-/// Bumped by hand with the enum: `variant` below fails to compile until
+/// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 34;
-const EVENT_VARIANTS: usize = 42;
+const NODE_VARIANTS: usize = 16;
+const EVENT_VARIANTS: usize = 34;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -134,7 +135,7 @@ fn key_state() -> keyboard::KeyState {
         modified_key: keyboard::Key::Character("\n".into()),
         physical_key: keyboard::Physical::Unidentified(keyboard::NativeCode::MacOS(36)),
         location: keyboard::Location::Standard,
-        modifiers: keyboard::Modifiers {
+        modifiers: gpui::Modifiers {
             shift: true,
             ..Default::default()
         },
@@ -148,9 +149,12 @@ fn at(x: f32, y: f32) -> gpui::Point<Pixels> {
 #[path = "golden/events.rs"]
 mod events_fixture;
 /// Every `Node` variant once, in one tree. Exhaustive by construction: a
-/// variant added to `Node` must be added here, or `variant` will not build.
+/// variant added to `Node` must be added here, or `node_variant` will not build.
 #[path = "golden/nodes.rs"]
 mod nodes;
+/// The wire's shape, hashed into `WIRE_ID` beside the bytes.
+#[path = "golden/schema.rs"]
+mod schema;
 use events_fixture::{event_variant, every_event, every_frame};
 use nodes::{every_node, node_variant};
 
@@ -379,7 +383,8 @@ fn every_method_carries_the_committed_bytes() {
 }
 
 /// The committed kinds whose bytes `built` changed or dropped. A kind only
-/// `built` has is new, and passes.
+/// `built` has is new, and passes here: the shape names every kind, so
+/// `schema.txt` fails for it instead.
 fn moved(committed: &Methods, built: &Methods) -> Vec<String> {
     committed
         .iter()

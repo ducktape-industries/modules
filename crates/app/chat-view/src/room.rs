@@ -2,32 +2,24 @@
 //! what the reader has read.
 use chat::{ChannelInfo, MsgRow, Principal};
 use ducktape_view_guest::Context;
+use ducktape_view_guest::Loadable;
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::view::Loadable;
-use ducktape_view_guest::wire;
 
 use crate::composer::Target;
 use crate::queries;
 use crate::{Chat, PAGE, Pane, Room, Thread, WINDOW, links};
 
-pub(crate) const STREAM_KEY: &str = "chat/room/stream";
-
 impl Chat {
     /// A room the reader chose: opened here, and named to the host so its
     /// tray, links and notices follow.
-    pub(crate) fn choose(
-        &mut self,
-        id: String,
-        window: &mut ducktape_view_guest::Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn choose(&mut self, id: String, cx: &mut Context<Self>) {
         self.create = None;
         self.search_clear();
         match links::channel_link(&self.session.chain_id, &id, None) {
             Some(link) => cx.host().open_link(&link),
             None => cx.host().log("no room link: the session names no chain"),
         }
-        self.open(id, window, cx);
+        self.open(id, cx);
         // read to the head this view knows now, not at the next list: a
         // reader who opens a room and quits has read it
         if let Some(list) = self.channels.ready().cloned() {
@@ -37,23 +29,12 @@ impl Chat {
         self.settle_badge(cx);
     }
 
-    pub(crate) fn open(
-        &mut self,
-        id: String,
-        window: &mut ducktape_view_guest::Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_at(id, 0, window, cx);
+    pub(crate) fn open(&mut self, id: String, cx: &mut Context<Self>) {
+        self.open_at(id, 0, cx);
     }
 
     /// The room at its live tail (`land` 0) or around a landing seq.
-    pub(crate) fn open_at(
-        &mut self,
-        id: String,
-        land: u64,
-        window: &mut ducktape_view_guest::Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn open_at(&mut self, id: String, land: u64, cx: &mut Context<Self>) {
         let viewer = self.viewer();
         let same = self.room.as_ref().is_some_and(|room| room.id == id);
         if !same {
@@ -99,9 +80,6 @@ impl Chat {
         room.members = cx.load(queries::members(cx.host(), members_id), |chat| {
             &mut room_of(chat).members
         });
-        if land > 0 {
-            self.reveal(STREAM_KEY, land, window, cx);
-        }
     }
 
     /// The newest window landed: the rows, and whether older ones remain.
@@ -434,20 +412,6 @@ impl Chat {
             .iter()
             .map(|row| (row.principal.clone(), names.member(&row.principal)))
             .collect()
-    }
-
-    /// Scroll a stream to the row with `seq`.
-    pub(crate) fn reveal(
-        &mut self,
-        target: &str,
-        seq: u64,
-        window: &mut ducktape_view_guest::Window,
-        _cx: &mut Context<Self>,
-    ) {
-        window.dispatch(wire::WidgetCommand::ScrollToKey {
-            target: vec![wire::ElementIdWire::Name(target.to_owned().into())],
-            key: wire::ListKey::from(seq as i64).virtual_key(),
-        });
     }
 }
 

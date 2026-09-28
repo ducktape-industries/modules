@@ -1,15 +1,17 @@
-//! Renderer-independent execution of dynamically loaded WASM views.
+//! The guest half of the view wire: gpui-shaped contexts and elements lowered
+//! to `view_wire::Node`, and the host methods a wasm view asks through.
 pub use gpui::prelude::FluentBuilder;
 extern crate self as ducktape_view_guest;
 
 pub use gpui::{
-    hsla, px, rems, rgb, Anchor, AnchoredFitMode, AnchoredPositionMode, ClickEvent, CursorStyle,
-    Edges, ElementId, FileDropEvent, FontStyle, FontWeight, Global, HighlightStyle,
-    HoverListenerMode, Hsla, KeyDownEvent, KeyUpEvent, ListHorizontalSizingBehavior,
-    ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent,
-    MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point,
-    Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString, StrikethroughStyle,
-    StyleRefinement, Styled, TextRun, TextStyle, UnderlineStyle, WindowControlArea,
+    Anchor, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId, FileDropEvent,
+    FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode, Hsla,
+    KeyDownEvent, KeyUpEvent, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
+    ListScrollEvent, ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+    MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent,
+    Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
+    StrikethroughStyle, StyleRefinement, Styled, TextRun, TextStyle, UnderlineStyle, hsla, px,
+    rems, rgb,
 };
 pub use view_guest_derive::IntoElement;
 pub use view_wire as wire;
@@ -21,38 +23,36 @@ mod interactivity;
 mod list;
 mod primitives;
 mod rich_text;
-mod surface;
 mod view_element;
-pub use behavior::{modal_overlay, resize_handle, sensor, ModalOverlay, ResizeHandle, Sensor};
+pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
 pub use element::{
-    div, uniform_list, AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement,
-    RenderOnce, UniformList, UniformListScrollHandle,
+    AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, UniformList,
+    UniformListScrollHandle, div, uniform_list,
 };
 pub use interactivity::{
     FocusHandle, InteractiveElement, Interactivity, Stateful, StatefulInteractiveElement,
 };
-pub use list::{list, FollowMode, List, ListAlignment, ListOffset, ListScrollEvent, ListState};
+pub use list::{List, ListState, list};
 pub use primitives::{
-    anchored, canvas, deferred, img, svg, Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img,
-    StyledImage, Svg, Transformation,
+    Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img, StyledImage, Svg, Transformation,
+    anchored, canvas, deferred, img, svg,
 };
 pub use rich_text::{InteractiveText, StyledText};
-pub use surface::{surface, Surface};
 pub use view_element::{AnyView, ViewElement};
 
 /// Traits and primitives used to compose guest GPUI elements.
 pub mod prelude {
     pub use crate::{
-        anchored, canvas, deferred, div, hsla, img, list, modal_overlay, px, rems, resize_handle,
-        rgb, sensor, surface, svg, uniform_list, AnyElement, AnyView, App, ClickEvent, Context,
-        Element, ElementId, FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global,
-        HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText, IntoElement,
-        KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
-        ListScrollEvent, ListSizingBehavior, ListState, ModifiersChangedEvent, MouseButton,
-        MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent,
-        ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollStrategy,
-        ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-        StyledText, Theme, UniformListScrollHandle, Window, WindowControlArea,
+        AnyElement, AnyView, App, ClickEvent, Context, Element, ElementId, FileDropEvent,
+        FluentBuilder, FocusHandle, FollowMode, Global, HoverListenerMode, Hsla, Input,
+        InteractiveElement, InteractiveText, IntoElement, KeyDownEvent, KeyUpEvent, List,
+        ListAlignment, ListHorizontalSizingBehavior, ListOffset, ListScrollEvent,
+        ListSizingBehavior, ListState, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+        MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ParentElement,
+        PinchEvent, Pixels, Render, RenderOnce, Role, ScrollStrategy, ScrollWheelEvent,
+        SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Theme,
+        UniformListScrollHandle, Window, anchored, canvas, deferred, div, hsla, img, list,
+        modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
     };
 }
 mod editor;
@@ -61,8 +61,8 @@ mod editor_documents;
 mod editor_element;
 pub use editor::Editor;
 pub use editor_binding::{
-    EditorBinding, EditorInteractionRequest, EditorKeyRequest, EditorRichRequest, EditorStateView,
-    EditorTransaction, EditorTransactionEvent,
+    EditorBinding, EditorInteractionRequest, EditorKeyRequest, EditorStateView, EditorTransaction,
+    EditorTransactionEvent,
 };
 pub use editor_documents::EditorDocumentUpdate;
 pub use editor_element::{EditorElement, EditorElementEvent};
@@ -72,35 +72,24 @@ pub mod design;
 pub mod host;
 pub mod store;
 pub mod testing;
-pub mod widget;
-pub mod window;
+mod window;
 
 mod snapshot;
-pub mod view;
+mod view;
 pub use view::{Capabilities, Loadable, Render, View};
 pub use wire::methods;
 mod context;
-pub use context::{App, AsyncApp, Context, Entity, Released, WeakEntity};
+pub use context::{App, AsyncApp, Callback, Context, Entity, Released, WeakEntity};
 mod executor;
 pub use executor::Task;
 pub use host::Host;
 pub use window::Window;
-#[cfg(test)]
-mod behavior_tests;
 mod slots;
-use context::Callback;
 
 mod driver;
 pub use driver::Driver;
 
-const fn digits(number: u32) -> usize {
-    match number.checked_ilog10() {
-        Some(log) => log as usize + 1,
-        None => 1,
-    }
-}
-
-const MANIFEST_HEADER: &str = "ducktape.view.manifest.v2\n";
+const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
 
 /// The length of [`manifest_bytes`] over the same arguments.
 pub const fn manifest_len(
@@ -117,9 +106,7 @@ pub const fn manifest_len(
         + 1
         + preferred_size.len()
         + 1
-        + digits(wire::WIRE_EPOCH)
-        + 1
-        + digits(wire::methods::METHODS_REVISION);
+        + wire::WIRE_ID.len();
     let mut i = 0;
     while i < capabilities.len() {
         len += capabilities[i].as_str().len() + 1;
@@ -128,8 +115,8 @@ pub const fn manifest_len(
     len
 }
 
-/// The `v2` manifest text, with the current wire epoch and methods revision,
-/// at compile time.
+/// The manifest text (`view_wire::manifest`: header, name, description,
+/// capabilities, preferred size, [`wire::WIRE_ID`]), at compile time.
 pub const fn manifest_bytes<const N: usize>(
     name: &str,
     description: &str,
@@ -151,9 +138,7 @@ pub const fn manifest_bytes<const N: usize>(
     at = put(&mut out, at, b"\n");
     at = put(&mut out, at, preferred_size.as_bytes());
     at = put(&mut out, at, b"\n");
-    at = put_number(&mut out, at, wire::WIRE_EPOCH);
-    at = put(&mut out, at, b"\n");
-    at = put_number(&mut out, at, wire::methods::METHODS_REVISION);
+    at = put(&mut out, at, wire::WIRE_ID.as_bytes());
     assert!(at == N);
     out
 }
@@ -167,22 +152,11 @@ const fn put(out: &mut [u8], at: usize, bytes: &[u8]) -> usize {
     at + bytes.len()
 }
 
-const fn put_number(out: &mut [u8], at: usize, mut number: u32) -> usize {
-    let end = at + digits(number);
-    let mut i = end;
-    while i > at {
-        i -= 1;
-        out[i] = b'0' + (number % 10) as u8;
-        number /= 10;
-    }
-    end
-}
-
-/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view. `export_view!` invokes this internally.
+/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view.
 /// Each capability is a [`wire::methods::Capability`] variant, the
 /// `<capability>` half of the method kinds the view asks through.
 #[macro_export]
-macro_rules! export_driver {
+macro_rules! export_view {
     ($app:ty, $name:expr, $description:expr, [$($capability:ident),* $(,)?]) => {
         impl $crate::Capabilities for $app {
             const CAPABILITIES: &'static [$crate::wire::methods::Capability] =
@@ -214,7 +188,7 @@ macro_rules! export_driver {
             }
 
             #[unsafe(export_name = "init")]
-            extern "C" fn init(_macos: u32) {
+            extern "C" fn init() {
                 $crate::exports::init::<$app>()
             }
 
@@ -229,14 +203,14 @@ macro_rules! export_driver {
             }
 
             #[unsafe(export_name = "restore")]
-            extern "C" fn restore(ptr: u32, len: u32, _macos: u32) -> u64 {
+            extern "C" fn restore(ptr: u32, len: u32) -> u64 {
                 $crate::exports::restore::<$app>(ptr, len)
             }
         }
     };
 }
 
-/// The guest's half of [`wire::abi`]: what `export_driver!` builds the five
+/// The guest's half of [`wire::abi`]: what `export_view!` builds the five
 /// exports from. A module runs one app, so its driver lives here.
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
@@ -244,7 +218,7 @@ pub mod exports {
     use std::any::Any;
     use std::cell::RefCell;
 
-    use crate::{wire, Driver, View};
+    use crate::{Driver, View, wire};
 
     #[link(wasm_import_module = "ducktape_view")]
     unsafe extern "C" {
@@ -364,6 +338,3 @@ pub mod exports {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod lifecycle_tests;

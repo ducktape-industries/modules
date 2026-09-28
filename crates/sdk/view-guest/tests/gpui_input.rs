@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use view_guest::prelude::*;
-use view_guest::{wire, Driver, ElementId, Input, View, Window};
+use view_guest::{Driver, ElementId, Input, View, Window, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Form {
@@ -45,7 +45,7 @@ fn input(frame: &wire::Frame) -> (&wire::ElementIdWire, u32, u32, &gpui::StyleRe
     };
     let wire::Node::Input {
         id,
-        on_input,
+        on_input: Some(on_input),
         on_submit: Some(on_submit),
         style,
         ..

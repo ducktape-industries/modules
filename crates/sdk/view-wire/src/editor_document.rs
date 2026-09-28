@@ -15,25 +15,18 @@ pub const MAX_EDITOR_DOCUMENTS: usize = 16;
 pub const MAX_EDITOR_LIVE_BYTES: usize = 4 * MAX_EDITOR_DOCUMENT_BYTES;
 pub const MAX_EDITOR_PROJECTION_BYTES: usize = 8 * MAX_EDITOR_DOCUMENT_BYTES;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct EditorDocumentUsage {
-    pub documents: usize,
-    pub live_bytes: usize,
-    pub projection_bytes: usize,
-}
-
 /// Validate all references before allocating projections or changing a live
 /// document. Repeated bindings must describe exactly the same logical state.
 pub fn validate_editor_document_refs<'a>(
     references: impl IntoIterator<Item = &'a EditorDocumentRef>,
-) -> Result<EditorDocumentUsage, EditorTransferError> {
+) -> Result<(), EditorTransferError> {
     let mut documents = HashMap::new();
-    let mut usage = EditorDocumentUsage::default();
+    let mut projection_bytes = 0usize;
+    let mut live_bytes = 0usize;
     for reference in references {
         reference.validate()?;
         let bytes = reference.byte_len as usize;
-        usage.projection_bytes = usage
-            .projection_bytes
+        projection_bytes = projection_bytes
             .checked_add(bytes)
             .filter(|total| *total <= MAX_EDITOR_PROJECTION_BYTES)
             .ok_or(EditorTransferError::Limit)?;
@@ -44,8 +37,7 @@ pub fn validate_editor_document_refs<'a>(
                 if documents.len() == MAX_EDITOR_DOCUMENTS {
                     return Err(EditorTransferError::Limit);
                 }
-                usage.live_bytes = usage
-                    .live_bytes
+                live_bytes = live_bytes
                     .checked_add(bytes)
                     .filter(|total| *total <= MAX_EDITOR_LIVE_BYTES)
                     .ok_or(EditorTransferError::Limit)?;
@@ -53,8 +45,7 @@ pub fn validate_editor_document_refs<'a>(
             }
         }
     }
-    usage.documents = documents.len();
-    Ok(usage)
+    Ok(())
 }
 
 pub(crate) fn native_editor_boundary(text: &str, at: usize) -> bool {
@@ -121,7 +112,7 @@ pub fn editor_changed_span(
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorDocumentRef {
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub document: String,
     pub reset: u64,
     pub text_revision: u64,
@@ -133,7 +124,7 @@ pub struct EditorDocumentRef {
 impl EditorDocumentRef {
     pub fn validate(&self) -> Result<(), EditorTransferError> {
         if self.document.is_empty()
-            || self.document.len() > 1024
+            || self.document.len() > crate::editor_transaction::MAX_EDITOR_NAME_BYTES
             || self.byte_len as usize > MAX_EDITOR_DOCUMENT_BYTES
         {
             return Err(EditorTransferError::Limit);
@@ -163,11 +154,36 @@ impl EditorDocumentRef {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorTransferId {
     pub instance: u64,
-    #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
+    #[serde(deserialize_with = "crate::editor_transaction::decode_name")]
     pub document: String,
     pub reset: u64,
     pub serial: u64,
     pub attempt: u32,
+}
+
+/// A transaction's transfer: the same slot, the transaction's sequence as
+/// the transfer serial.
+impl From<&crate::EditorTransactionId> for EditorTransferId {
+    fn from(id: &crate::EditorTransactionId) -> Self {
+        Self {
+            instance: id.instance,
+            document: id.document.clone(),
+            reset: id.reset,
+            serial: id.sequence,
+            attempt: id.attempt,
+        }
+    }
+}
+
+impl EditorTransferId {
+    /// The target validates and names this id's document and reset.
+    fn check_target(&self, target: &EditorDocumentRef) -> Result<(), EditorTransferError> {
+        target.validate()?;
+        if self.document != target.document || self.reset != target.reset {
+            return Err(EditorTransferError::Identity);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,7 +257,9 @@ impl EditorDocumentMessage {
 
     pub fn validate(&self) -> Result<(), EditorTransferError> {
         let id = self.id();
-        if id.document.is_empty() || id.document.len() > 1024 {
+        if id.document.is_empty()
+            || id.document.len() > crate::editor_transaction::MAX_EDITOR_NAME_BYTES
+        {
             return Err(EditorTransferError::Identity);
         }
         let target = match self {
@@ -260,10 +278,7 @@ impl EditorDocumentMessage {
             _ => None,
         };
         if let Some(target) = target {
-            target.validate()?;
-            if id.document != target.document || id.reset != target.reset {
-                return Err(EditorTransferError::Identity);
-            }
+            id.check_target(target)?;
         }
         Ok(())
     }
@@ -272,8 +287,8 @@ impl EditorDocumentMessage {
 pub(crate) fn decode_messages<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<EditorDocumentMessage>, D::Error> {
-    let messages =
-        crate::editor_transaction::decode_bounded::<D, EditorDocumentMessage, 1>(deserializer)?;
+    let messages: Vec<EditorDocumentMessage> =
+        crate::bounded_vec(deserializer, 1, "one editor document message per frame")?;
     for message in &messages {
         message
             .validate()
@@ -303,10 +318,7 @@ impl EditorTransferSender {
         id: EditorTransferId,
         target: EditorDocumentRef,
     ) -> Result<Self, EditorTransferError> {
-        target.validate()?;
-        if id.document != target.document || id.reset != target.reset {
-            return Err(EditorTransferError::Identity);
-        }
+        id.check_target(&target)?;
         Ok(Self {
             id,
             target,
@@ -373,17 +385,17 @@ impl EditorTransferSender {
     }
 }
 
-/// One bounded byte buffer, also usable by application-owned document loading.
-/// No partial string can be observed. UTF-8 may cross any raw chunk boundary.
+/// One bounded byte buffer. No partial string can be observed. UTF-8 may
+/// cross any raw chunk boundary.
 #[derive(Debug)]
-pub struct EditorChunkAssembler {
+struct EditorChunkAssembler {
     expected: usize,
     next: usize,
     bytes: Vec<u8>,
 }
 
 impl EditorChunkAssembler {
-    pub fn new(byte_len: usize) -> Result<Self, EditorTransferError> {
+    fn new(byte_len: usize) -> Result<Self, EditorTransferError> {
         if byte_len > MAX_EDITOR_DOCUMENT_BYTES {
             return Err(EditorTransferError::Limit);
         }
@@ -394,7 +406,7 @@ impl EditorChunkAssembler {
         })
     }
 
-    pub fn push(&mut self, index: u8, bytes: &[u8]) -> Result<(), EditorTransferError> {
+    fn push(&mut self, index: u8, bytes: &[u8]) -> Result<(), EditorTransferError> {
         if usize::from(index) != self.next || self.bytes.len() == self.expected {
             return Err(EditorTransferError::Order);
         }
@@ -407,11 +419,12 @@ impl EditorChunkAssembler {
         Ok(())
     }
 
-    pub fn buffered_bytes(&self) -> usize {
+    #[cfg(test)]
+    fn buffered_bytes(&self) -> usize {
         self.bytes.len()
     }
 
-    pub fn finish(self) -> Result<String, EditorTransferError> {
+    fn finish(self) -> Result<String, EditorTransferError> {
         if self.bytes.len() != self.expected
             || self.next != self.expected.div_ceil(MAX_EDITOR_CHUNK_BYTES)
         {
@@ -437,10 +450,7 @@ impl EditorTransferReceiver {
         id: EditorTransferId,
         target: EditorDocumentRef,
     ) -> Result<Self, EditorTransferError> {
-        target.validate()?;
-        if id.document != target.document || id.reset != target.reset {
-            return Err(EditorTransferError::Identity);
-        }
+        id.check_target(&target)?;
         Ok(Self {
             id,
             target,
@@ -449,7 +459,8 @@ impl EditorTransferReceiver {
         })
     }
 
-    pub fn buffered_bytes(&self) -> usize {
+    #[cfg(test)]
+    fn buffered_bytes(&self) -> usize {
         self.assembler
             .as_ref()
             .map_or(0, EditorChunkAssembler::buffered_bytes)
@@ -511,65 +522,8 @@ impl EditorTransferReceiver {
 }
 
 fn decode_chunk<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-    struct Chunk;
-    impl<'de> serde::de::Visitor<'de> for Chunk {
-        type Value = Vec<u8>;
-        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("at most 64 KiB of raw editor bytes")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<u8>, A::Error> {
-            if seq.size_hint().is_some_and(|n| n > MAX_EDITOR_CHUNK_BYTES) {
-                return Err(serde::de::Error::custom("editor chunk byte limit"));
-            }
-            let mut bytes = Vec::with_capacity(seq.size_hint().unwrap_or(0));
-            while let Some(byte) = seq.next_element()? {
-                if bytes.len() == MAX_EDITOR_CHUNK_BYTES {
-                    return Err(serde::de::Error::custom("editor chunk byte limit"));
-                }
-                bytes.push(byte);
-            }
-            Ok(bytes)
-        }
-    }
-    d.deserialize_seq(Chunk)
+    crate::bounded_vec(d, MAX_EDITOR_CHUNK_BYTES, "editor chunk byte limit")
 }
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod boundary_query_tests {
-    use super::*;
-    use unicode_segmentation::UnicodeSegmentation;
-
-    #[test]
-    fn direct_queries_match_native_boundaries_for_context_sensitive_unicode() {
-        for text in [
-            "",
-            "a\r\nb\n\rc",
-            "e\u{301}",
-            "🇰🇷🇨🇦🇺🇸🇬",
-            "👩🏽‍👩‍👧‍👦",
-            "\u{600}a",
-            "क्‍ष",
-        ] {
-            let expected: Vec<_> = text
-                .grapheme_indices(true)
-                .map(|(at, _)| at)
-                .chain(std::iter::once(text.len()))
-                .filter(|at| {
-                    !(*at > 0
-                        && *at < text.len()
-                        && matches!(&text.as_bytes()[at - 1..=*at], b"\r\n" | b"\n\r"))
-                })
-                .collect();
-            for at in 0..=text.len() + 1 {
-                assert_eq!(
-                    native_editor_boundary(text, at),
-                    expected.contains(&at),
-                    "{text:?} byte {at}"
-                );
-            }
-        }
-    }
-}

@@ -83,7 +83,10 @@ fn a_patch_the_tree_cannot_take_is_refused() {
     assert_eq!(
         refused(Patch::Props {
             path: vec![0],
-            node: button(ButtonContent::Child(Box::new(Node::empty())))
+            node: Node::Deferred {
+                priority: 0,
+                content: Box::new(Node::empty())
+            }
         }),
         "props of another arity"
     );
@@ -283,24 +286,28 @@ fn every_shaped_string_spends_the_same_budget() {
             id: ElementIdWire::Name("App/i".into()),
             placeholder: long.clone(),
             value: long.clone(),
-            on_input: 0,
+            on_input: Some(0),
             on_submit: None,
             secure: false,
             style: gpui::StyleRefinement::default(),
         },
-        Node::Button {
-            checked: None,
-            expanded: None,
-            selected: None,
-            role: None,
-            description: Some("Details".into()),
-            id: ElementIdWire::Name("App/b".into()),
-            content: ButtonContent::Label(long.clone()),
-            label: Some(long),
-            on_press: None,
+        Node::Editor {
+            options: Default::default(),
+            id: ElementIdWire::Name("App/e".into()),
             style: gpui::StyleRefinement::default(),
+            placeholder: long.clone(),
+            label: Some("Details".into()),
+            document: document_reference("app:draft", 0),
+            on_document: 1,
+            editable: true,
         },
-        text("tail"),
+        Node::Overlay {
+            id: ElementIdWire::Name("App/o".into()),
+            label: Some(long),
+            style: gpui::StyleRefinement::default(),
+            on_dismiss: None,
+            children: vec![text("tail")],
+        },
     ]));
     let Node::Input {
         placeholder, value, ..
@@ -313,19 +320,22 @@ fn every_shaped_string_spends_the_same_budget() {
     // so it answers to the per-string cap alone.
     assert_eq!(placeholder.len(), MAX_TEXT_BYTES_PER_FRAME);
     assert!(value.is_empty());
-    let Node::Button {
-        content,
-        label,
-        description,
-        ..
+    let Node::Editor {
+        placeholder, label, ..
     } = &children[1]
     else {
         panic!()
     };
-    assert_eq!(*content, ButtonContent::Label(String::new()));
-    assert_eq!(description.as_deref(), Some(""));
+    assert!(placeholder.is_empty());
+    assert_eq!(label.as_deref(), Some(""));
+    let Node::Overlay {
+        label, children, ..
+    } = &children[2]
+    else {
+        panic!()
+    };
     assert_eq!(label.as_deref().map(str::len), Some(MAX_STRING_BYTES));
-    assert_eq!(children[2], text(""));
+    assert_eq!(children[0], text(""));
 }
 
 #[test]

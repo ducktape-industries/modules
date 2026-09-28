@@ -1,5 +1,6 @@
 //! Lossless serde adapters for GPUI rich text values.
-use super::*;
+use crate::{Budgets, finite, spend_text, style_sanitize};
+use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -209,6 +210,7 @@ pub(super) fn sanitize(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ElementIdWire, Frame, Interactivity, Node};
 
     #[test]
     fn hostile_utf8_ranges_and_run_lengths_never_reach_gpui() {

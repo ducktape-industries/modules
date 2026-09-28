@@ -1,7 +1,6 @@
 use super::*;
 
 pub(super) fn sanitize_interactivity(interactivity: &mut Interactivity) {
-    interactivity.window_control_area = None;
     interactivity.aria.sanitize();
     for style in [
         &mut interactivity.focus,

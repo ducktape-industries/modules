@@ -2,18 +2,15 @@
 use crate::Element;
 
 use crate::element::wire_id;
-use crate::{wire, AnyElement, App, ElementId, IntoElement, Lowering, Window};
+use crate::interactivity::EventListener;
+use crate::{AnyElement, App, ElementId, IntoElement, Lowering, Window, wire};
 use gpui::{CursorStyle, Hsla, Pixels, StyleRefinement, Styled};
-
-type SizeListener = Box<dyn Fn(&(Pixels, Pixels), &mut Window, &mut App)>;
-type DragListener = Box<dyn Fn(&(Pixels, Pixels), &mut Window, &mut App)>;
-type UnitListener = Box<dyn Fn(&(), &mut Window, &mut App)>;
 
 pub struct Sensor {
     id: ElementId,
     child: AnyElement,
-    on_show: Option<SizeListener>,
-    on_resize: Option<SizeListener>,
+    on_show: Option<EventListener<(Pixels, Pixels)>>,
+    on_resize: Option<EventListener<(Pixels, Pixels)>>,
     style: StyleRefinement,
 }
 
@@ -60,12 +57,8 @@ impl Element for Sensor {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         wire::Node::Sensor {
             id: wire_id(self.id),
-            reset: None,
             on_show: self.on_show.map(|listener| lowering.route(listener)),
             on_resize: self.on_resize.map(|listener| lowering.route(listener)),
-            on_hide: None,
-            anticipate: None,
-            delay: None,
             child: Box::new(lowering.lower(self.child)),
             style: self.style,
         }
@@ -81,7 +74,7 @@ impl Styled for Sensor {
 pub struct ResizeHandle {
     id: ElementId,
     child: AnyElement,
-    on_drag: Option<DragListener>,
+    on_drag: Option<EventListener<(Pixels, Pixels)>>,
     cursor: Option<CursorStyle>,
 }
 
@@ -141,7 +134,7 @@ pub struct ModalOverlay {
     label: Option<String>,
     style: StyleRefinement,
     backdrop: Hsla,
-    on_dismiss: Option<UnitListener>,
+    on_dismiss: Option<EventListener<()>>,
 }
 
 pub fn modal_overlay(
@@ -235,3 +228,6 @@ fn wire_cursor(cursor: CursorStyle) -> wire::mouse::Cursor {
 impl gpui::prelude::FluentBuilder for Sensor {}
 impl gpui::prelude::FluentBuilder for ResizeHandle {}
 impl gpui::prelude::FluentBuilder for ModalOverlay {}
+
+#[cfg(test)]
+mod tests;

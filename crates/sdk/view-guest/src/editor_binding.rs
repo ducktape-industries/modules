@@ -1,5 +1,6 @@
 //! Guest-local decisions borrow the canonical document owned by application state.
-use crate::{slots, wire, Editor};
+use crate::context::Callback;
+use crate::{Editor, slots, wire};
 use std::rc::Rc;
 
 pub use wire::EditorDecision;
@@ -39,13 +40,6 @@ pub struct EditorInteractionRequest<'a> {
     pub input_time_ms: u64,
 }
 #[derive(Clone, Copy, Debug)]
-pub struct EditorRichRequest<'a> {
-    pub id: &'a wire::EditorTransactionId,
-    pub state: EditorStateView<'a>,
-    pub edit: &'a wire::editor_rich::RichEdit,
-    pub input_time_ms: u64,
-}
-#[derive(Clone, Copy, Debug)]
 pub enum EditorTransactionEvent<'a> {
     Interaction {
         id: &'a wire::EditorTransactionId,
@@ -73,21 +67,17 @@ pub enum EditorTransactionEvent<'a> {
 
 type Decide = Rc<dyn for<'a> Fn(EditorKeyRequest<'a>) -> EditorDecision>;
 type Interact = Rc<dyn for<'a> Fn(EditorInteractionRequest<'a>) -> EditorDecision>;
-type Rich = Rc<dyn for<'a> Fn(EditorRichRequest<'a>) -> EditorDecision>;
 type Observe<P> = Rc<dyn for<'a> Fn(EditorTransactionEvent<'a>) -> Option<P>>;
 pub struct EditorBinding<P> {
-    authored: bool,
     claims: Vec<wire::EditorKeyClaim>,
     decide: Decide,
     interact: Option<Interact>,
-    rich: Option<Rich>,
     on_event: Observe<P>,
 }
-struct Callbacks<M> {
+struct Callbacks<V> {
     decide: Decide,
     interact: Option<Interact>,
-    rich: Option<Rich>,
-    on_event: Observe<M>,
+    on_event: Observe<Callback<V>>,
 }
 impl<P: 'static> EditorBinding<P> {
     pub fn new(
@@ -100,20 +90,11 @@ impl<P: 'static> EditorBinding<P> {
             "editor claim limit"
         );
         Self {
-            authored: true,
             claims,
             decide: Rc::new(decide),
             interact: None,
-            rich: None,
             on_event: Rc::new(on_event),
         }
-    }
-    pub fn on_rich_edit(
-        mut self,
-        decide: impl for<'a> Fn(EditorRichRequest<'a>) -> EditorDecision + 'static,
-    ) -> Self {
-        self.rich = Some(Rc::new(decide));
-        self
     }
     pub fn on_interaction(
         mut self,
@@ -122,22 +103,21 @@ impl<P: 'static> EditorBinding<P> {
         self.interact = Some(Rc::new(decide));
         self
     }
-    pub(crate) fn register<M: 'static>(
+    pub(crate) fn register<V: 'static>(
         self,
         context: &slots::Context,
-        route: impl Fn(P) -> M + 'static,
-        wrap: impl Fn(EditorTransaction<M>) -> M + 'static,
+        route: impl Fn(P) -> Callback<V> + 'static,
+        wrap: impl Fn(EditorTransaction<V>) -> Callback<V> + 'static,
     ) -> wire::EditorBinding {
         let observe = self.on_event;
         let callbacks = Rc::new(Callbacks {
             decide: self.decide,
             interact: self.interact,
-            rich: self.rich,
             on_event: Rc::new(move |event| observe(event).map(&route)),
         });
         // Existing handler storage already supplies bounded frame-local lifetime
         // and memo capture. No second callback registry or copied document.
-        let map = slots::handler::<(), Rc<Callbacks<M>>>(
+        let map = slots::handler::<(), Rc<Callbacks<V>>>(
             context,
             Box::new(move |()| Some(callbacks.clone())),
         );
@@ -145,30 +125,29 @@ impl<P: 'static> EditorBinding<P> {
         let wrap = Rc::new(wrap);
         let request_wrap = wrap.clone();
         let request_identity = identity.clone();
-        let on_request = slots::handler::<wire::EditorRequest, M>(
+        let on_request = slots::handler::<wire::EditorRequest, Callback<V>>(
             context,
             Box::new(move |request| {
                 Some(request_wrap(EditorTransaction {
                     event: Transaction::Request(request),
                     map,
                     identity: request_identity.clone(),
-                    message: std::marker::PhantomData,
+                    view: std::marker::PhantomData,
                 }))
             }),
         );
-        let on_event = slots::handler::<wire::EditorTransactionEvent, M>(
+        let on_event = slots::handler::<wire::EditorTransactionEvent, Callback<V>>(
             context,
             Box::new(move |event| {
                 Some(wrap(EditorTransaction {
                     event: Transaction::Event(event),
                     map,
                     identity: identity.clone(),
-                    message: std::marker::PhantomData,
+                    view: std::marker::PhantomData,
                 }))
             }),
         );
         wire::EditorBinding {
-            authored: self.authored,
             claims: self.claims,
             on_request,
             on_event,
@@ -177,13 +156,11 @@ impl<P: 'static> EditorBinding<P> {
 }
 impl EditorBinding<()> {
     pub fn plain() -> Self {
-        let mut binding = EditorBinding::new(
+        EditorBinding::new(
             Vec::new(),
             |_| EditorDecision::DefaultEditorAction,
             |_| None,
-        );
-        binding.authored = false;
-        binding
+        )
     }
 }
 #[derive(Clone, Debug)]
@@ -191,84 +168,54 @@ enum Transaction {
     Request(wire::EditorRequest),
     Event(wire::EditorTransactionEvent),
 }
-pub struct EditorTransaction<M> {
+pub struct EditorTransaction<V> {
     event: Transaction,
     map: u32,
     identity: std::sync::Weak<()>,
-    message: std::marker::PhantomData<fn() -> M>,
+    view: std::marker::PhantomData<fn() -> V>,
 }
-impl<M> Clone for EditorTransaction<M> {
+impl<V> Clone for EditorTransaction<V> {
     fn clone(&self) -> Self {
         Self {
             event: self.event.clone(),
             map: self.map,
             identity: self.identity.clone(),
-            message: std::marker::PhantomData,
+            view: std::marker::PhantomData,
         }
     }
 }
-impl<M> std::fmt::Debug for EditorTransaction<M> {
+impl<V> std::fmt::Debug for EditorTransaction<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("EditorTransaction")
             .field(&self.event)
             .finish()
     }
 }
-impl<M: 'static> EditorTransaction<M> {
-    pub fn apply(self, editor: &mut Editor, cx: &mut crate::App) -> Option<M> {
+impl<V: 'static> EditorTransaction<V> {
+    pub fn apply(self, editor: &mut Editor, cx: &mut crate::App) -> Option<Callback<V>> {
         self.apply_in(editor, &cx.inner.slots)
     }
 
-    fn apply_in(self, editor: &mut Editor, context: &slots::Context) -> Option<M> {
-        if !std::sync::Weak::ptr_eq(&self.identity, &context.identity())
-            || self.identity.upgrade().is_none()
-        {
+    fn apply_in(self, editor: &mut Editor, context: &slots::Context) -> Option<Callback<V>> {
+        if !context.owns(&self.identity) {
             return None;
         }
-        let callbacks = slots::run_handler::<(), Rc<Callbacks<M>>>(context, self.map, ())?;
+        let callbacks = slots::run_handler::<(), Rc<Callbacks<V>>>(context, self.map, ())?;
         match self.event {
             Transaction::Request(request) => {
                 if !slots::editor_request_current(context, &request.id) {
                     return None;
                 }
                 if editor.document_reference(request.id.document.clone()) != request.state {
-                    if request.state.reset == editor.reset_revision() {
-                        if let Err(reason) = slots::request_editor_mirror(context, &request) {
-                            slots::editor_document_failure(
-                                context,
-                                wire::editor_document::EditorTransferId {
-                                    instance: request.id.instance,
-                                    document: request.id.document.clone(),
-                                    reset: request.id.reset,
-                                    serial: request.id.sequence,
-                                    attempt: request.id.attempt,
-                                },
-                                reason,
-                            );
-                        }
+                    if request.state.reset == editor.reset_revision()
+                        && let Err(reason) = slots::request_editor_mirror(context, &request)
+                    {
+                        slots::editor_document_failure(context, (&request.id).into(), reason);
                     }
                     return None;
                 }
                 let state = EditorStateView::new(editor.text_ref(), &request.state);
                 let decision = match &request.input {
-                    wire::EditorRequestInput::RichEdit { edit } => callbacks
-                        .rich
-                        .as_ref()
-                        .filter(|_| {
-                            edit.document.validate().is_ok()
-                                && edit
-                                    .before
-                                    .as_ref()
-                                    .is_none_or(|before| before.validate().is_ok())
-                        })
-                        .map_or(EditorDecision::Noop, |decide| {
-                            decide(EditorRichRequest {
-                                id: &request.id,
-                                state,
-                                edit,
-                                input_time_ms: request.input_time_ms,
-                            })
-                        }),
                     wire::EditorRequestInput::Key { key, repeat } => {
                         (callbacks.decide)(EditorKeyRequest {
                             id: &request.id,
@@ -300,12 +247,7 @@ impl<M: 'static> EditorTransaction<M> {
                 None
             }
             Transaction::Event(event) => {
-                let id = match &event {
-                    wire::EditorTransactionEvent::Interaction { id, .. }
-                    | wire::EditorTransactionEvent::Commit { id, .. }
-                    | wire::EditorTransactionEvent::Fault { id, .. }
-                    | wire::EditorTransactionEvent::Cancelled { id, .. } => id,
-                };
+                let id = event.id();
                 if !slots::editor_matches_pending(context, id) {
                     return None;
                 }

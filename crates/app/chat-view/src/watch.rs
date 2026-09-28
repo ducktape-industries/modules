@@ -31,11 +31,11 @@ impl Chat {
             }),
             // `duck://<chain>/chat/<channel>[/<seq>]`: a link opened into
             // this view (a notice's, say) names the room and the message
-            cx.for_each(routes, |chat, route, window, cx| match route {
+            cx.for_each(routes, |chat, route, _, cx| match route {
                 Ok(route) => {
                     if let Some((channel, seq)) = links::route_target(&route) {
                         chat.search_clear();
-                        chat.open_at(channel, seq, window, cx);
+                        chat.open_at(channel, seq, cx);
                         chat.settle_badge(cx);
                     }
                 }

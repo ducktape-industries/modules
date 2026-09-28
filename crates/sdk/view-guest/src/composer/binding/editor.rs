@@ -3,7 +3,8 @@
 use super::*;
 use crate::wire;
 use crate::{EditorBinding, EditorStateView, EditorTransactionEvent};
-use wire::keyboard::{Key, Modifiers, Named};
+use gpui::Modifiers;
+use wire::keyboard::{Key, Named};
 
 pub(super) fn matching_choices<'a>(
     choices: &'a [MentionChoice],
@@ -17,13 +18,13 @@ pub(super) fn matching_choices<'a>(
         .collect()
 }
 
-pub(crate) fn key_tag(
+pub(super) fn key_tag(
     draft: &Draft,
     choices: &[MentionChoice],
     state: EditorStateView<'_>,
     key: &wire::keyboard::KeyState,
 ) -> String {
-    let command = key.modifiers.control || key.modifiers.logo;
+    let command = key.modifiers.control || key.modifiers.platform;
     if command {
         return match (&key.key, key.modifiers.shift) {
             (Key::Character(key), false) if key == "z" => "undo",
@@ -78,7 +79,7 @@ pub(super) fn editor<V: 'static>(
     choices: &[MentionChoice],
     handle: Handle<V>,
     accent: gpui::Hsla,
-) -> EditorElement<Change, Callback<V>> {
+) -> EditorElement<Change, V> {
     let effect = move |event: Event<V>| {
         let handle = handle.clone();
         let event = std::cell::RefCell::new(Some(event));
@@ -182,25 +183,18 @@ pub(super) fn editor<V: 'static>(
         if !editable {
             return wire::EditorDecision::Noop;
         }
-        match request.action {
-            wire::editor_presentation::EditorInteraction::Action { tag } => {
-                interacting.decide(tag, &interaction_choices, request.state)
-            }
-            _ => wire::EditorDecision::Noop,
-        }
+        let wire::editor_presentation::EditorInteraction::Action { tag } = request.action;
+        interacting.decide(tag, &interaction_choices, request.state)
     });
     let mut presentation = wire::editor_presentation::EditorPresentation {
         formats: vec![wire::editor_presentation::EditorFormat {
             style: gpui::StyleRefinement::default().text_color(accent),
-            ..Default::default()
         }],
         ..Default::default()
     };
     for mention in &draft.mentions {
-        let start =
-            super::super::editing::position(draft.editor.state_view().text, mention.range.start);
-        let end =
-            super::super::editing::position(draft.editor.state_view().text, mention.range.end);
+        let start = wire::editor_position(draft.editor.state_view().text, mention.range.start);
+        let end = wire::editor_position(draft.editor.state_view().text, mention.range.end);
         if start.line == end.line {
             presentation
                 .spans
@@ -231,8 +225,8 @@ pub(super) fn editor<V: 'static>(
     .w_full()
     .min_h(px(40.))
     .max_h(px(200.))
-    .p(px(super::TEXT_INSET))
-    .text_size(px(design::type_scale::BODY as f32))
+    .p(crate::design::space::MD)
+    .text_size(crate::design::text::BODY)
     .whitespace_normal()
     .presentation(presentation);
     if !placeholder.is_empty() {

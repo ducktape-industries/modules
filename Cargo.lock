@@ -6447,7 +6447,6 @@ dependencies = [
 name = "view-guest-derive"
 version = "0.1.0"
 dependencies = [
- "proc-macro2",
  "quote",
  "syn 2.0.119",
 ]
@@ -6459,19 +6458,17 @@ dependencies = [
  "accesskit",
  "borsh",
  "describe",
- "design",
  "error",
- "futures",
  "gpui-pre",
  "memchr",
  "rmp-serde",
  "serde",
  "serde-reflection",
  "serde_json",
- "sha2 0.10.9",
  "slotmap",
  "unicode-segmentation",
  "uuid",
+ "view-wire",
  "wasmparser 0.251.0",
 ]
 

@@ -1,4 +1,7 @@
 use super::*;
+use std::cell::Cell;
+use std::collections::HashMap;
+use std::rc::Weak;
 
 type UniformProcessor = Box<dyn Fn(Range<usize>, &mut Window, &mut App) -> Vec<AnyElement>>;
 
@@ -7,7 +10,7 @@ type UniformProcessor = Box<dyn Fn(Range<usize>, &mut Window, &mut App) -> Vec<A
 pub struct UniformListScrollHandle(Rc<RefCell<UniformListScrollState>>);
 
 #[derive(Default)]
-pub(crate) struct UniformListScrollState {
+struct UniformListScrollState {
     pub(crate) request: Option<wire::list::UniformListScrollRequest>,
     pub(crate) y_flipped: bool,
     pub(crate) top_index: usize,
@@ -189,9 +192,12 @@ impl Element for UniformList {
             .expect("uniform list lowers inside its authored scope");
         let measure_index = self.measure_index.min(count.saturating_sub(1));
         let scroll = self.scroll.as_ref().map(|handle| &handle.0);
-        let (route, ranges) = lowering
-            .app
-            .uniform_list_route(&path, count, measure_index, scroll);
+        let (route, ranges) =
+            lowering
+                .app
+                .inner
+                .uniform_lists
+                .route(&path, count, measure_index, scroll);
         let mut indices = Vec::new();
         let mut children = Vec::new();
         'ranges: for range in ranges {
@@ -247,7 +253,140 @@ impl IntoElement for UniformList {
     }
 }
 
-impl gpui::prelude::FluentBuilder for Div {}
-impl gpui::prelude::FluentBuilder for Input {}
-impl gpui::prelude::FluentBuilder for AnyElement {}
 impl gpui::prelude::FluentBuilder for UniformList {}
+
+const MAX_UNIFORM_LISTS: usize = 128;
+
+struct UniformListRoute {
+    route: u32,
+    count: usize,
+    measure_index: usize,
+    ranges: Vec<Range<usize>>,
+    scroll: Option<Weak<RefCell<UniformListScrollState>>>,
+}
+
+/// The uniform lists one driver has lowered, by authored path: each keeps
+/// the route id the host answers with, the row ranges the host asked for,
+/// and the scroll handle it reports into. The oldest is forgotten past
+/// [`MAX_UNIFORM_LISTS`].
+pub(crate) struct UniformLists {
+    lists: RefCell<HashMap<Vec<wire::ElementIdWire>, UniformListRoute>>,
+    // Route 0 is never given out.
+    next_route: Cell<u32>,
+}
+
+impl Default for UniformLists {
+    fn default() -> Self {
+        Self {
+            lists: RefCell::default(),
+            next_route: Cell::new(1),
+        }
+    }
+}
+
+impl UniformLists {
+    /// The route and row ranges to lower for the list at `path`, registering
+    /// it on first sight. `count` and `measure_index` arrive clamped by
+    /// [`UniformList::lower`]; the measurement row is always among the ranges.
+    fn route(
+        &self,
+        path: &[wire::ElementIdWire],
+        count: usize,
+        measure_index: usize,
+        scroll: Option<&Rc<RefCell<UniformListScrollState>>>,
+    ) -> (u32, Vec<Range<usize>>) {
+        let mut lists = self.lists.borrow_mut();
+        if !lists.contains_key(path) {
+            if lists.len() == MAX_UNIFORM_LISTS
+                && let Some(old) = lists.keys().next().cloned()
+            {
+                lists.remove(&old);
+            }
+            let route = self.next_route.get();
+            self.next_route.set(route.wrapping_add(1).max(1));
+            lists.insert(
+                path.to_vec(),
+                UniformListRoute {
+                    route,
+                    count,
+                    measure_index,
+                    ranges: Vec::new(),
+                    scroll: scroll.map(Rc::downgrade),
+                },
+            );
+        }
+        let state = lists.get_mut(path).expect("uniform-list route inserted");
+        state.count = count;
+        let previous_measure_index = state.measure_index;
+        state.measure_index = measure_index;
+        state.scroll = scroll.map(Rc::downgrade);
+        state.ranges.retain_mut(|range| {
+            range.start = range.start.min(count);
+            range.end = range.end.min(count);
+            range.start < range.end
+        });
+        if previous_measure_index != state.measure_index {
+            let previous = previous_measure_index..previous_measure_index.saturating_add(1);
+            state.ranges.retain(|range| range != &previous);
+        }
+        let measurement = state.measure_index..state.measure_index.saturating_add(1).min(count);
+        if count > 0 && !state.ranges.iter().any(|range| range == &measurement) {
+            state.ranges.insert(0, measurement);
+        }
+        (state.route, state.ranges.clone())
+    }
+
+    /// The host asked for rows `start..end` of the list at `path`: whether
+    /// that changes what the next frame lowers.
+    pub(crate) fn request_range(
+        &self,
+        path: Vec<wire::ElementIdWire>,
+        route: u32,
+        start: usize,
+        end: usize,
+    ) -> bool {
+        let mut lists = self.lists.borrow_mut();
+        let Some(state) = lists.get_mut(&path) else {
+            return false;
+        };
+        if state.route != route || start >= end || start >= state.count {
+            return false;
+        }
+        let end = end
+            .min(state.count)
+            .min(start.saturating_add(wire::MAX_UNIFORM_LIST_ROWS));
+        if end <= start {
+            return false;
+        }
+        let next = if start == 0 { 0..end } else { start..end };
+        let changed = !state.ranges.iter().any(|range| range == &next);
+        if changed {
+            let measurement = state.measure_index..state.measure_index + 1;
+            state.ranges.retain(|range| range == &measurement);
+            state.ranges.push(next);
+        }
+        changed
+    }
+
+    /// What the host reports about the list at `path`, written into the
+    /// scroll handle that tracks it.
+    pub(crate) fn update_state(
+        &self,
+        path: &[wire::ElementIdWire],
+        route: u32,
+        top_index: usize,
+        scrollable: bool,
+        scrolled_to_end: Option<bool>,
+    ) {
+        let lists = self.lists.borrow();
+        let Some(state) = lists.get(path).filter(|state| state.route == route) else {
+            return;
+        };
+        if let Some(scroll) = state.scroll.as_ref().and_then(Weak::upgrade) {
+            let mut scroll = scroll.borrow_mut();
+            scroll.top_index = top_index;
+            scroll.scrollable = scrollable;
+            scroll.scrolled_to_end = scrolled_to_end;
+        }
+    }
+}

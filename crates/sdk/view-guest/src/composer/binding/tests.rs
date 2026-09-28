@@ -1,14 +1,13 @@
-use super::super::editing;
 use super::super::Send;
-use super::binding_editor::editor;
-use super::key_tag;
+use super::editor::{editor, key_tag};
 use super::*;
 use crate::{
-    wire, App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, Theme, View, Window,
+    App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, Theme, View, Window, wire,
 };
+use gpui::Modifiers;
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
-use wire::keyboard::{Key, Modifiers, Named};
+use wire::keyboard::{Key, Named};
 
 #[derive(Default, Serialize, Deserialize)]
 struct ComposerView {
@@ -244,10 +243,7 @@ fn restored_editor_presentation_keeps_mention_highlights_and_document_routes() {
         unreachable!()
     };
     assert_eq!(document.document, "c");
-    assert!(options
-        .binding
-        .as_ref()
-        .is_some_and(|binding| binding.authored));
+    assert!(options.binding.is_some());
     let presentation = options.presentation.as_ref().expect("editor presentation");
     assert_eq!(presentation.formats.len(), 1);
     assert_eq!(presentation.spans.len(), 1);
@@ -338,7 +334,7 @@ fn caret(body: &str, at: usize) -> Draft {
     let mut draft = Draft::from_body(body, &choices);
     let text = draft.editor.text();
     draft.editor.move_to(wire::EditorCursor {
-        position: editing::position(&text, at),
+        position: wire::editor_position(&text, at),
         selection: None,
     });
     draft
@@ -446,7 +442,7 @@ fn forward_delete_removes_what_is_ahead_of_the_caret() {
     let at = mention.mentions[0].range.start;
     let text = mention.editor.text();
     mention.editor.move_to(wire::EditorCursor {
-        position: editing::position(&text, at),
+        position: wire::editor_position(&text, at),
         selection: None,
     });
     assert_eq!(removed(&mention).as_deref(), Some("Hi  there"));

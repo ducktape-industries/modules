@@ -23,7 +23,7 @@ pub fn editor_lines(text: &str) -> impl Iterator<Item = &str> {
     std::iter::from_fn(move || {
         let text = remaining.take()?;
         // ASCII delimiters are UTF-8 boundaries. The portable byte search skips
-        // whole words of ordinary prose on repeated presentation validations.
+        // whole words of ordinary prose on repeated line scans.
         let end = memchr::memchr2(b'\r', b'\n', text.as_bytes()).unwrap_or(text.len());
         if end < text.len() {
             let ending = &text[end..];
@@ -36,6 +36,34 @@ pub fn editor_lines(text: &str) -> impl Iterator<Item = &str> {
         }
         Some(&text[..end])
     })
+}
+
+/// The byte offset of `position` in `text`: a column past the line's end
+/// lands at the end of the line, a line past the last at the end of the text.
+pub fn editor_offset(text: &str, position: EditorPosition) -> usize {
+    let Some(line) = editor_lines(text).nth(position.line as usize) else {
+        return text.len();
+    };
+    let start = line.as_ptr() as usize - text.as_ptr() as usize;
+    start + (position.column as usize).min(line.len())
+}
+
+/// The position of byte `at` in `text`, snapped back to a char boundary.
+pub fn editor_position(text: &str, mut at: usize) -> EditorPosition {
+    at = at.min(text.len());
+    while !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    let (line, source) = editor_lines(text)
+        .enumerate()
+        .take_while(|(_, line)| line.as_ptr() as usize - text.as_ptr() as usize <= at)
+        .last()
+        .expect("editor has at least one logical line");
+    let start = source.as_ptr() as usize - text.as_ptr() as usize;
+    EditorPosition {
+        line: line as u32,
+        column: (at - start).min(source.len()) as u32,
+    }
 }
 
 impl EditorPosition {
@@ -66,16 +94,6 @@ impl EditorCursor {
     }
 }
 
-/// A complete host observation, fenced by the guest's authoritative reset revision.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditorState {
-    pub text: String,
-    pub cursor: EditorCursor,
-    pub reset: u64,
-    /// Monotonic host observation order within the instance.
-    pub revision: u64,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +119,25 @@ mod tests {
         ] {
             assert_eq!(editor_lines(text).collect::<Vec<_>>(), expected);
         }
+    }
+
+    #[test]
+    fn offsets_and_positions_agree_on_every_terminator() {
+        for ending in ["\n", "\r\n", "\r", "\n\r"] {
+            let text = format!("a{ending}bc");
+            let second = EditorPosition { line: 1, column: 1 };
+            let at = 1 + ending.len() + 1;
+            assert_eq!(editor_offset(&text, second), at, "{ending:?}");
+            assert_eq!(editor_position(&text, at), second, "{ending:?}");
+        }
+        assert_eq!(
+            editor_offset("a\nb", EditorPosition { line: 5, column: 9 }),
+            3
+        );
+        assert_eq!(
+            editor_position("한", 1),
+            EditorPosition { line: 0, column: 0 }
+        );
     }
 
     #[test]

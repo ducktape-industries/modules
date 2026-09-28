@@ -3,7 +3,7 @@ use super::*;
 impl Interactivity {
     pub(crate) fn into_wire(
         self,
-        lowering: &mut Lowering<'_>,
+        lowering: &Lowering<'_>,
     ) -> (Option<wire::ElementIdWire>, wire::Interactivity) {
         let id = self.id.map(crate::element::wire_id);
         let tooltip = self.tooltip.map(|tooltip| {
@@ -33,12 +33,6 @@ impl Interactivity {
             focus_handle: self.focus_handle.map(|handle| handle.id),
             occlude: self.occlude,
             block_mouse_except_scroll: self.block_mouse_except_scroll,
-            window_control_area: self.window_control_area.map(|area| match area {
-                WindowControlArea::Drag => wire::WindowControlArea::Drag,
-                WindowControlArea::Close => wire::WindowControlArea::Close,
-                WindowControlArea::Max => wire::WindowControlArea::Max,
-                WindowControlArea::Min => wire::WindowControlArea::Min,
-            }),
             hover_listener_mode: match self.hover_listener_mode {
                 gpui::HoverListenerMode::InputModalityAware => {
                     wire::HoverListenerMode::InputModalityAware
@@ -58,12 +52,18 @@ impl Interactivity {
                 .map(|(group, style)| wire::GroupRefinement { group, style }),
             on_click: self.on_click.map(|listener| lowering.click(listener)),
             on_aux_click: self.on_aux_click.map(|listener| lowering.click(listener)),
-            on_mouse_down: route_mouse_down(self.mouse_down, lowering),
+            on_mouse_down: route_buttons(self.mouse_down, lowering, |e: &gpui::MouseDownEvent| {
+                e.button
+            }),
             capture_mouse_down: route_plain(self.capture_mouse_down, lowering),
             on_mouse_down_out: route_plain(self.mouse_down_out, lowering),
-            on_mouse_up: route_mouse_up(self.mouse_up, lowering),
+            on_mouse_up: route_buttons(self.mouse_up, lowering, |e: &gpui::MouseUpEvent| e.button),
             capture_mouse_up: route_plain(self.capture_mouse_up, lowering),
-            on_mouse_up_out: route_mouse_up(self.mouse_up_out, lowering),
+            on_mouse_up_out: route_buttons(
+                self.mouse_up_out,
+                lowering,
+                |e: &gpui::MouseUpEvent| e.button,
+            ),
             on_mouse_pressure: route_plain(self.mouse_pressure, lowering),
             capture_mouse_pressure: route_plain(self.capture_mouse_pressure, lowering),
             on_mouse_move: route_plain(self.mouse_move, lowering),
@@ -86,7 +86,7 @@ impl Interactivity {
 
 fn route_plain<E: 'static>(
     listeners: Vec<EventListener<E>>,
-    lowering: &mut Lowering<'_>,
+    lowering: &Lowering<'_>,
 ) -> Option<u32> {
     (!listeners.is_empty()).then(|| {
         lowering.route(move |event: &E, window, app| {
@@ -97,23 +97,17 @@ fn route_plain<E: 'static>(
     })
 }
 
-fn route_mouse_down(listeners: Vec<MouseDownBinding>, lowering: &mut Lowering<'_>) -> Option<u32> {
+/// One route for a list of button listeners: each runs for its button, or
+/// for any button when it names none.
+fn route_buttons<E: 'static>(
+    listeners: Vec<ButtonBinding<E>>,
+    lowering: &Lowering<'_>,
+    button: fn(&E) -> MouseButton,
+) -> Option<u32> {
     (!listeners.is_empty()).then(|| {
-        lowering.route(move |event: &gpui::MouseDownEvent, window, app| {
+        lowering.route(move |event: &E, window, app| {
             for binding in &listeners {
-                if binding.button.is_none_or(|button| button == event.button) {
-                    (binding.listener)(event, window, app);
-                }
-            }
-        })
-    })
-}
-
-fn route_mouse_up(listeners: Vec<MouseUpBinding>, lowering: &mut Lowering<'_>) -> Option<u32> {
-    (!listeners.is_empty()).then(|| {
-        lowering.route(move |event: &gpui::MouseUpEvent, window, app| {
-            for binding in &listeners {
-                if binding.button.is_none_or(|button| button == event.button) {
+                if binding.button.is_none_or(|wanted| wanted == button(event)) {
                     (binding.listener)(event, window, app);
                 }
             }

@@ -10,7 +10,7 @@ use crate::ui::components::{
     badge, button, empty_state, id, path_text, quiet, ref_label, short_hex,
 };
 use crate::ui::scroller;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 use forge::ChangeState;
 
 /// A review's body and comments start under its author's name, past the

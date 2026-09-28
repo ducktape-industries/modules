@@ -196,9 +196,9 @@ fn channel_button(
     theme: &Theme,
 ) -> AnyElement {
     let id = info.channel.id.clone();
-    let click = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let click = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
-        chat.choose(id.clone(), window, cx)
+        chat.choose(id.clone(), cx)
     });
     let unread = chat.unread(info) && !selected;
     let mut row = div()
@@ -275,9 +275,9 @@ fn dm_button(
     let agent = names.is_some_and(|n| crate::message::agent(n, &Principal::Account(peer)));
     let unread = chat.unread(info) && !selected;
     let id = info.channel.id.clone();
-    let click = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let click = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
-        chat.choose(id.clone(), window, cx)
+        chat.choose(id.clone(), cx)
     });
     let mut row = div()
         .id(format!("chat-sidebar-dm-{peer}"))

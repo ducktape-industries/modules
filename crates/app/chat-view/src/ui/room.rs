@@ -5,7 +5,7 @@ use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{AnyElement, ClickEvent, Context, ParentElement, Styled, Theme, div, px};
 
 use chat::MsgRow;
-use ducktape_view_guest::view::Loadable;
+use ducktape_view_guest::Loadable;
 
 use super::timeline;
 use crate::composer::Target;
@@ -351,9 +351,9 @@ fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyE
     let seq = row.seq;
     // seq is per channel: two channels' hits at one seq are two rows
     let key = format!("chat-search-hit-{id}-{seq}");
-    let open = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let open = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
-        chat.open_hit(id.clone(), seq, window, cx)
+        chat.open_hit(id.clone(), seq, cx)
     });
     div()
         .id(key)
@@ -439,7 +439,7 @@ pub fn composer(
             })) as crate::composer::Click),
         ),
     };
-    crate::composer::view::<Chat>(
+    crate::composer::view(
         draft,
         &key,
         hint,

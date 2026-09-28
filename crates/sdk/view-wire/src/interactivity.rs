@@ -5,7 +5,7 @@
 //! windows, or action objects: those stay on the host side of the wire.
 
 use crate::{click, keyboard, mouse};
-use gpui::{Bounds, Pixels, Point};
+use gpui::{Pixels, Point};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_KEY_CONTEXT_ENTRIES: usize = 64;
@@ -67,7 +67,7 @@ pub enum TouchPhase {
 pub struct MouseDown {
     pub button: click::MouseButton,
     pub position: Point<Pixels>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub click_count: u32,
     pub first_mouse: bool,
 }
@@ -76,7 +76,7 @@ pub struct MouseDown {
 pub struct MouseUp {
     pub button: click::MouseButton,
     pub position: Point<Pixels>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub click_count: u32,
 }
 
@@ -84,14 +84,14 @@ pub struct MouseUp {
 pub struct MouseMove {
     pub position: Point<Pixels>,
     pub pressed_button: Option<click::MouseButton>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MouseExit {
     pub position: Point<Pixels>,
     pub pressed_button: Option<click::MouseButton>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -99,7 +99,7 @@ pub struct MousePressure {
     pub pressure: f32,
     pub stage: PressureStage,
     pub position: Point<Pixels>,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -114,7 +114,7 @@ pub enum PressureStage {
 pub struct ScrollWheel {
     pub position: Point<Pixels>,
     pub delta: mouse::ScrollDelta,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub touch_phase: TouchPhase,
 }
 
@@ -122,7 +122,7 @@ pub struct ScrollWheel {
 pub struct Pinch {
     pub position: Point<Pixels>,
     pub delta: f32,
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub phase: TouchPhase,
 }
 
@@ -140,7 +140,7 @@ pub struct KeyUp {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModifiersChanged {
-    pub modifiers: keyboard::Modifiers,
+    pub modifiers: gpui::Modifiers,
     pub capslock: bool,
 }
 
@@ -170,47 +170,16 @@ pub struct TooltipResponse {
     pub content: Option<Box<crate::Node>>,
 }
 
-/// One bounded response cache for a native `InteractiveText` tooltip.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RichTextTooltip {
-    pub request: u32,
-    pub character_index: Option<u32>,
-    pub content: Option<Box<crate::Node>>,
-}
+// The conversions between these payloads and the gpui events and keystrokes
+// they describe. Key names and modifiers round-trip; `key_char` is carried
+// only when gpui sent one, else the key itself stands in, so a chord
+// (`cmd-s`, `key_char: None`) comes back with `key_char: Some("s")`.
 
-pub fn point(x: f32, y: f32) -> Point<Pixels> {
+fn point(x: f32, y: f32) -> Point<Pixels> {
     gpui::point(gpui::px(x), gpui::px(y))
 }
 
-pub fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
-    Bounds {
-        origin: point(x, y),
-        size: gpui::size(gpui::px(width), gpui::px(height)),
-    }
-}
-
-fn button(value: click::MouseButton) -> gpui::MouseButton {
-    match value {
-        click::MouseButton::Left => gpui::MouseButton::Left,
-        click::MouseButton::Right => gpui::MouseButton::Right,
-        click::MouseButton::Middle => gpui::MouseButton::Middle,
-        click::MouseButton::Back => gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
-        click::MouseButton::Forward => {
-            gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward)
-        }
-    }
-}
-
-fn modifiers(value: keyboard::Modifiers) -> gpui::Modifiers {
-    gpui::Modifiers {
-        shift: value.shift,
-        control: value.control,
-        alt: value.alt,
-        platform: value.logo,
-        function: value.function,
-    }
-}
-
+/// The name gpui gives a key in a `Keystroke`: the inverse of [`wire_key`].
 fn key_name(value: &keyboard::Key) -> String {
     match value {
         keyboard::Key::Character(value) => value.clone(),
@@ -234,75 +203,132 @@ fn key_name(value: &keyboard::Key) -> String {
             keyboard::Named::Shift => "shift",
             keyboard::Named::Super => "platform",
             keyboard::Named::Fn => "function",
+            keyboard::Named::BrowserBack => "back",
+            keyboard::Named::BrowserForward => "forward",
             value => return format!("{value:?}").to_ascii_lowercase(),
         }
         .into(),
     }
 }
 
-fn keystroke(value: &keyboard::KeyState) -> gpui::Keystroke {
-    gpui::Keystroke {
-        modifiers: modifiers(value.modifiers),
-        key: key_name(&value.key),
-        key_char: match &value.modified_key {
-            keyboard::Key::Character(value) => Some(value.clone()),
-            _ => None,
-        },
+impl From<&keyboard::KeyState> for gpui::Keystroke {
+    fn from(value: &keyboard::KeyState) -> Self {
+        Self {
+            modifiers: value.modifiers,
+            key: key_name(&value.key),
+            key_char: match &value.modified_key {
+                keyboard::Key::Character(value) => Some(value.clone()),
+                _ => None,
+            },
+        }
     }
 }
 
-fn touch_phase(value: TouchPhase) -> gpui::TouchPhase {
-    match value {
-        TouchPhase::Started => gpui::TouchPhase::Started,
-        TouchPhase::Moved => gpui::TouchPhase::Moved,
-        TouchPhase::Ended => gpui::TouchPhase::Ended,
-        TouchPhase::Cancelled => gpui::TouchPhase::Cancelled,
+impl From<gpui::TouchPhase> for TouchPhase {
+    fn from(value: gpui::TouchPhase) -> Self {
+        match value {
+            gpui::TouchPhase::Started => Self::Started,
+            gpui::TouchPhase::Moved => Self::Moved,
+            gpui::TouchPhase::Ended => Self::Ended,
+            gpui::TouchPhase::Cancelled => Self::Cancelled,
+        }
     }
 }
 
+impl From<TouchPhase> for gpui::TouchPhase {
+    fn from(value: TouchPhase) -> Self {
+        match value {
+            TouchPhase::Started => Self::Started,
+            TouchPhase::Moved => Self::Moved,
+            TouchPhase::Ended => Self::Ended,
+            TouchPhase::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+/// The key behind a gpui `Keystroke` name: every name gpui emits, and a
+/// character for anything else.
 fn wire_key(value: &str) -> keyboard::Key {
     use keyboard::Named;
-    match value {
-        "enter" => keyboard::Key::Named(Named::Enter),
-        "tab" => keyboard::Key::Named(Named::Tab),
-        "space" => keyboard::Key::Named(Named::Space),
-        "escape" => keyboard::Key::Named(Named::Escape),
-        "backspace" => keyboard::Key::Named(Named::Backspace),
-        "delete" => keyboard::Key::Named(Named::Delete),
-        "insert" => keyboard::Key::Named(Named::Insert),
-        "up" => keyboard::Key::Named(Named::ArrowUp),
-        "down" => keyboard::Key::Named(Named::ArrowDown),
-        "left" => keyboard::Key::Named(Named::ArrowLeft),
-        "right" => keyboard::Key::Named(Named::ArrowRight),
-        "pageup" => keyboard::Key::Named(Named::PageUp),
-        "pagedown" => keyboard::Key::Named(Named::PageDown),
-        _ => keyboard::Key::Character(value.to_owned()),
-    }
+    let named = match value {
+        "enter" => Named::Enter,
+        "tab" => Named::Tab,
+        "space" => Named::Space,
+        "escape" => Named::Escape,
+        "backspace" => Named::Backspace,
+        "delete" => Named::Delete,
+        "insert" => Named::Insert,
+        "up" => Named::ArrowUp,
+        "down" => Named::ArrowDown,
+        "left" => Named::ArrowLeft,
+        "right" => Named::ArrowRight,
+        "home" => Named::Home,
+        "end" => Named::End,
+        "pageup" => Named::PageUp,
+        "pagedown" => Named::PageDown,
+        "shift" => Named::Shift,
+        "control" => Named::Control,
+        "alt" => Named::Alt,
+        "platform" => Named::Super,
+        "function" => Named::Fn,
+        "back" => Named::BrowserBack,
+        "forward" => Named::BrowserForward,
+        "f1" => Named::F1,
+        "f2" => Named::F2,
+        "f3" => Named::F3,
+        "f4" => Named::F4,
+        "f5" => Named::F5,
+        "f6" => Named::F6,
+        "f7" => Named::F7,
+        "f8" => Named::F8,
+        "f9" => Named::F9,
+        "f10" => Named::F10,
+        "f11" => Named::F11,
+        "f12" => Named::F12,
+        "f13" => Named::F13,
+        "f14" => Named::F14,
+        "f15" => Named::F15,
+        "f16" => Named::F16,
+        "f17" => Named::F17,
+        "f18" => Named::F18,
+        "f19" => Named::F19,
+        "f20" => Named::F20,
+        "f21" => Named::F21,
+        "f22" => Named::F22,
+        "f23" => Named::F23,
+        "f24" => Named::F24,
+        "f25" => Named::F25,
+        "f26" => Named::F26,
+        "f27" => Named::F27,
+        "f28" => Named::F28,
+        "f29" => Named::F29,
+        "f30" => Named::F30,
+        "f31" => Named::F31,
+        "f32" => Named::F32,
+        "f33" => Named::F33,
+        "f34" => Named::F34,
+        "f35" => Named::F35,
+        _ => return keyboard::Key::Character(value.to_owned()),
+    };
+    keyboard::Key::Named(named)
 }
 
-fn wire_modifiers(value: gpui::Modifiers) -> keyboard::Modifiers {
-    keyboard::Modifiers {
-        shift: value.shift,
-        control: value.control,
-        alt: value.alt,
-        logo: value.platform,
-        function: value.function,
-    }
-}
-
-fn wire_key_state(value: &gpui::Keystroke) -> keyboard::KeyState {
-    let key = wire_key(&value.key);
-    let modified_key = value
-        .key_char
-        .as_deref()
-        .map(|key| keyboard::Key::Character(key.to_owned()))
-        .unwrap_or_else(|| key.clone());
-    keyboard::KeyState {
-        key,
-        modified_key,
-        physical_key: keyboard::Physical::Unidentified(keyboard::NativeCode::Unidentified),
-        location: keyboard::Location::Standard,
-        modifiers: wire_modifiers(value.modifiers),
+impl From<&gpui::Keystroke> for keyboard::KeyState {
+    /// gpui publishes logical keys only: no physical scan code is invented.
+    fn from(value: &gpui::Keystroke) -> Self {
+        let key = wire_key(&value.key);
+        let modified_key = value
+            .key_char
+            .as_deref()
+            .map(|key| keyboard::Key::Character(key.to_owned()))
+            .unwrap_or_else(|| key.clone());
+        Self {
+            key,
+            modified_key,
+            physical_key: keyboard::Physical::Unidentified(keyboard::NativeCode::Unidentified),
+            location: keyboard::Location::Standard,
+            modifiers: value.modifiers,
+        }
     }
 }
 
@@ -311,7 +337,7 @@ impl From<&gpui::MouseDownEvent> for MouseDown {
         Self {
             button: value.button.into(),
             position: value.position,
-            modifiers: wire_modifiers(value.modifiers),
+            modifiers: value.modifiers,
             click_count: value.click_count.min(u32::MAX as usize) as u32,
             first_mouse: value.first_mouse,
         }
@@ -323,7 +349,7 @@ impl From<&gpui::MouseUpEvent> for MouseUp {
         Self {
             button: value.button.into(),
             position: value.position,
-            modifiers: wire_modifiers(value.modifiers),
+            modifiers: value.modifiers,
             click_count: value.click_count.min(u32::MAX as usize) as u32,
         }
     }
@@ -334,7 +360,7 @@ impl From<&gpui::MouseMoveEvent> for MouseMove {
         Self {
             position: value.position,
             pressed_button: value.pressed_button.map(Into::into),
-            modifiers: wire_modifiers(value.modifiers),
+            modifiers: value.modifiers,
         }
     }
 }
@@ -344,7 +370,7 @@ impl From<&gpui::MouseExitEvent> for MouseExit {
         Self {
             position: value.position,
             pressed_button: value.pressed_button.map(Into::into),
-            modifiers: wire_modifiers(value.modifiers),
+            modifiers: value.modifiers,
         }
     }
 }
@@ -359,7 +385,7 @@ impl From<&gpui::MousePressureEvent> for MousePressure {
                 gpui::PressureStage::Force => PressureStage::Force,
             },
             position: value.position,
-            modifiers: wire_modifiers(value.modifiers),
+            modifiers: value.modifiers,
         }
     }
 }
@@ -379,13 +405,8 @@ impl From<&gpui::ScrollWheelEvent> for ScrollWheel {
         Self {
             position: value.position,
             delta,
-            modifiers: wire_modifiers(value.modifiers),
-            touch_phase: match value.touch_phase {
-                gpui::TouchPhase::Started => TouchPhase::Started,
-                gpui::TouchPhase::Moved => TouchPhase::Moved,
-                gpui::TouchPhase::Ended => TouchPhase::Ended,
-                gpui::TouchPhase::Cancelled => TouchPhase::Cancelled,
-            },
+            modifiers: value.modifiers,
+            touch_phase: value.touch_phase.into(),
         }
     }
 }
@@ -395,13 +416,8 @@ impl From<&gpui::PinchEvent> for Pinch {
         Self {
             position: value.position,
             delta: value.delta,
-            modifiers: wire_modifiers(value.modifiers),
-            phase: match value.phase {
-                gpui::TouchPhase::Started => TouchPhase::Started,
-                gpui::TouchPhase::Moved => TouchPhase::Moved,
-                gpui::TouchPhase::Ended => TouchPhase::Ended,
-                gpui::TouchPhase::Cancelled => TouchPhase::Cancelled,
-            },
+            modifiers: value.modifiers,
+            phase: value.phase.into(),
         }
     }
 }
@@ -409,7 +425,7 @@ impl From<&gpui::PinchEvent> for Pinch {
 impl From<&gpui::KeyDownEvent> for KeyDown {
     fn from(value: &gpui::KeyDownEvent) -> Self {
         Self {
-            state: wire_key_state(&value.keystroke),
+            state: (&value.keystroke).into(),
             repeat: value.is_held,
             prefer_character_input: value.prefer_character_input,
         }
@@ -419,7 +435,7 @@ impl From<&gpui::KeyDownEvent> for KeyDown {
 impl From<&gpui::KeyUpEvent> for KeyUp {
     fn from(value: &gpui::KeyUpEvent) -> Self {
         Self {
-            state: wire_key_state(&value.keystroke),
+            state: (&value.keystroke).into(),
         }
     }
 }
@@ -427,7 +443,7 @@ impl From<&gpui::KeyUpEvent> for KeyUp {
 impl From<&gpui::ModifiersChangedEvent> for ModifiersChanged {
     fn from(value: &gpui::ModifiersChangedEvent) -> Self {
         Self {
-            modifiers: wire_modifiers(value.modifiers),
+            modifiers: value.modifiers,
             capslock: value.capslock.on,
         }
     }
@@ -436,9 +452,9 @@ impl From<&gpui::ModifiersChangedEvent> for ModifiersChanged {
 impl MouseDown {
     pub fn into_gpui(self) -> gpui::MouseDownEvent {
         gpui::MouseDownEvent {
-            button: button(self.button),
+            button: self.button.into(),
             position: self.position,
-            modifiers: modifiers(self.modifiers),
+            modifiers: self.modifiers,
             click_count: self.click_count as usize,
             first_mouse: self.first_mouse,
         }
@@ -448,9 +464,9 @@ impl MouseDown {
 impl MouseUp {
     pub fn into_gpui(self) -> gpui::MouseUpEvent {
         gpui::MouseUpEvent {
-            button: button(self.button),
+            button: self.button.into(),
             position: self.position,
-            modifiers: modifiers(self.modifiers),
+            modifiers: self.modifiers,
             click_count: self.click_count as usize,
         }
     }
@@ -460,8 +476,8 @@ impl MouseMove {
     pub fn into_gpui(self) -> gpui::MouseMoveEvent {
         gpui::MouseMoveEvent {
             position: self.position,
-            pressed_button: self.pressed_button.map(button),
-            modifiers: modifiers(self.modifiers),
+            pressed_button: self.pressed_button.map(Into::into),
+            modifiers: self.modifiers,
         }
     }
 }
@@ -470,8 +486,8 @@ impl MouseExit {
     pub fn into_gpui(self) -> gpui::MouseExitEvent {
         gpui::MouseExitEvent {
             position: self.position,
-            pressed_button: self.pressed_button.map(button),
-            modifiers: modifiers(self.modifiers),
+            pressed_button: self.pressed_button.map(Into::into),
+            modifiers: self.modifiers,
         }
     }
 }
@@ -486,7 +502,7 @@ impl MousePressure {
                 PressureStage::Force => gpui::PressureStage::Force,
             },
             position: self.position,
-            modifiers: modifiers(self.modifiers),
+            modifiers: self.modifiers,
         }
     }
 }
@@ -499,8 +515,8 @@ impl ScrollWheel {
                 mouse::ScrollDelta::Pixels { x, y } => gpui::ScrollDelta::Pixels(point(x, y)),
                 mouse::ScrollDelta::Lines { x, y } => gpui::ScrollDelta::Lines(gpui::point(x, y)),
             },
-            modifiers: modifiers(self.modifiers),
-            touch_phase: touch_phase(self.touch_phase),
+            modifiers: self.modifiers,
+            touch_phase: self.touch_phase.into(),
         }
     }
 }
@@ -510,8 +526,8 @@ impl Pinch {
         gpui::PinchEvent {
             position: self.position,
             delta: self.delta,
-            modifiers: modifiers(self.modifiers),
-            phase: touch_phase(self.phase),
+            modifiers: self.modifiers,
+            phase: self.phase.into(),
         }
     }
 }
@@ -519,7 +535,7 @@ impl Pinch {
 impl KeyDown {
     pub fn into_gpui(self) -> gpui::KeyDownEvent {
         gpui::KeyDownEvent {
-            keystroke: keystroke(&self.state),
+            keystroke: (&self.state).into(),
             is_held: self.repeat,
             prefer_character_input: self.prefer_character_input,
         }
@@ -529,7 +545,7 @@ impl KeyDown {
 impl KeyUp {
     pub fn into_gpui(self) -> gpui::KeyUpEvent {
         gpui::KeyUpEvent {
-            keystroke: keystroke(&self.state),
+            keystroke: (&self.state).into(),
         }
     }
 }
@@ -537,8 +553,56 @@ impl KeyUp {
 impl ModifiersChanged {
     pub fn into_gpui(self) -> gpui::ModifiersChangedEvent {
         gpui::ModifiersChangedEvent {
-            modifiers: modifiers(self.modifiers),
+            modifiers: self.modifiers,
             capslock: gpui::Capslock { on: self.capslock },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_gpui_key_name_survives_the_wire() {
+        let names = [
+            "enter",
+            "tab",
+            "space",
+            "escape",
+            "backspace",
+            "delete",
+            "insert",
+        ]
+        .into_iter()
+        .chain([
+            "up", "down", "left", "right", "home", "end", "pageup", "pagedown",
+        ])
+        .chain([
+            "shift", "control", "alt", "platform", "function", "back", "forward",
+        ])
+        .chain(["a", "é"])
+        .map(str::to_owned)
+        .chain((1..=35).map(|n| format!("f{n}")));
+        for name in names {
+            // gpui fills `key_char` for a printable key outside a chord and
+            // leaves it empty for a named one.
+            let printable = name.chars().count() == 1;
+            let keystroke = gpui::Keystroke {
+                modifiers: gpui::Modifiers {
+                    platform: !printable,
+                    ..Default::default()
+                },
+                key: name.clone(),
+                key_char: printable.then(|| name.clone()),
+            };
+            let state = keyboard::KeyState::from(&keystroke);
+            assert_eq!(
+                matches!(state.key, keyboard::Key::Named(_)),
+                !printable,
+                "{name}"
+            );
+            assert_eq!(gpui::Keystroke::from(&state), keystroke, "{name}");
         }
     }
 }

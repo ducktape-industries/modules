@@ -5,15 +5,15 @@ use serde::{Deserialize, Serialize};
 /// [`sanitize`]'s truncation still shapes any tree a real view sends, and
 /// few enough that a hostile one cannot make the host allocate its way
 /// through a frame's worth of nodes every tick.
-pub(crate) const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
+pub const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
 
 /// Bounds what a decode may descend into, since decoding is recursive: a
 /// [`Node`] holds its children and serde builds them from the inside out, so
 /// a chain of containers is a chain of stack frames. The tree the host walks
 /// afterwards — [`sanitize`], the renderer, `Drop` — recurses the same way,
-/// which is why the limit is the method rather than each walk.
+/// which is why the limit sits at decode rather than in each walk.
 ///
-/// [`MAX_FRAME_BYTES`-sized](Frame) input is no protection: a chain deep
+/// [`MAX_FRAME_BYTES`] of input is no protection: a chain deep
 /// enough to overflow a host thread's stack is a few tens of kilobytes.
 pub(crate) mod budget {
     use std::cell::Cell;
@@ -105,38 +105,76 @@ pub(crate) fn decode_children<'de, D: serde::Deserializer<'de>>(
     deserializer.deserialize_seq(Children)
 }
 
+/// Decodes a sequence of at most `limit` elements and refuses a longer one
+/// as `message`: a length header past the limit is refused before any
+/// element is read, and nothing is reserved from the header.
+pub(crate) fn bounded_vec<'de, D, T>(
+    deserializer: D,
+    limit: usize,
+    message: &'static str,
+) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Values<T>(usize, &'static str, std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Values<T> {
+        type Value = Vec<T>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.1)
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            if seq.size_hint().is_some_and(|len| len > self.0) {
+                return Err(serde::de::Error::custom(self.1));
+            }
+            let mut values = Vec::new();
+            while let Some(value) = seq.next_element()? {
+                if values.len() == self.0 {
+                    return Err(serde::de::Error::custom(self.1));
+                }
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+    deserializer.deserialize_seq(Values(limit, message, std::marker::PhantomData))
+}
+
 pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {
     let mut bytes = Vec::new();
-    write(value, &mut bytes);
+    write(value, &mut bytes).expect("wire types are plain data");
     bytes
 }
 
-// Share one serializer instantiation for buffers, size counting, and subtree fingerprints.
-// Distinct writer types otherwise duplicate the entire node serialization graph.
+/// [`encode`] for a value whose serde is not the wire's own — a view's
+/// state, whatever it derives or writes by hand — so a `Serialize` that
+/// refuses (an unsized sequence, a custom error) is an answer, not a panic
+/// inside the guest.
+pub fn try_encode<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    write(value, &mut bytes).map_err(|error| error.to_string())?;
+    Ok(bytes)
+}
+
+// One serializer instantiation for buffers and size counting: a second writer
+// type would duplicate the entire node serialization graph.
 #[inline(never)]
-fn try_write<T: Serialize>(
+fn write<T: Serialize>(
     value: &T,
     writer: &mut dyn std::io::Write,
 ) -> Result<(), rmp_serde::encode::Error> {
     value.serialize(&mut rmp_serde::Serializer::new(writer).with_struct_map())
 }
 
-pub(crate) fn write<T: Serialize>(value: &T, writer: &mut dyn std::io::Write) {
-    try_write(value, writer).expect("wire types are plain data");
-}
-
-/// Counts bytes, and refuses them past `limit`.
-struct Count {
-    bytes: u64,
-    limit: u64,
-}
+/// Counts bytes without keeping them.
+struct Count(u64);
 
 impl std::io::Write for Count {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.bytes += bytes.len() as u64;
-        if self.bytes > self.limit {
-            return Err(std::io::ErrorKind::FileTooLarge.into());
-        }
+        self.0 += bytes.len() as u64;
         Ok(bytes.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -146,24 +184,13 @@ impl std::io::Write for Count {
 
 /// How many bytes [`encode`] would write, without writing them.
 pub fn encoded_size<T: Serialize>(value: &T) -> u64 {
-    let mut count = Count {
-        bytes: 0,
-        limit: u64::MAX,
-    };
-    write(value, &mut count);
-    count.bytes
-}
-
-/// Whether [`encode`] would write more than `limit` bytes: it stops counting
-/// there, so asking about a large tree costs no more than `limit`.
-pub fn encoded_size_exceeds<T: Serialize>(value: &T, limit: u64) -> bool {
-    let mut count = Count { bytes: 0, limit };
-    try_write(value, &mut count).is_err()
+    let mut count = Count(0);
+    write(value, &mut count).expect("wire types are plain data");
+    count.0
 }
 
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, String> {
     budget::reset();
-    surface::reset_decode_budget();
     editor_transaction::reset_decode_budget();
     canvas::reset_decode_budget();
     let mut deserializer = rmp_serde::Deserializer::new(std::io::Cursor::new(bytes));
@@ -172,4 +199,25 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, String> {
         return Err("trailing MessagePack bytes".into());
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    /// A `Serialize` written by hand that refuses.
+    struct Refusing;
+
+    impl serde::Serialize for Refusing {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("not while a transfer is open"))
+        }
+    }
+
+    #[test]
+    fn a_views_own_serde_answers_instead_of_panicking() {
+        assert_eq!(
+            super::try_encode(&Refusing).unwrap_err(),
+            "not while a transfer is open"
+        );
+        assert_eq!(super::try_encode(&7u8).unwrap(), super::encode(&7u8));
+    }
 }

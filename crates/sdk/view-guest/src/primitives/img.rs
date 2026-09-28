@@ -1,7 +1,7 @@
 use crate::interactivity::{
     InteractiveElement, Interactivity, Stateful, StatefulInteractiveElement,
 };
-use crate::{wire, AnyElement, Element, IntoElement, Lowering};
+use crate::{AnyElement, Element, IntoElement, Lowering, wire};
 use gpui::{
     ImageSource as GpuiImageSource, ObjectFit, RenderImage, Resource, StyleRefinement, Styled,
 };
@@ -152,7 +152,7 @@ fn object_fit(value: ObjectFit) -> wire::ImageObjectFit {
     }
 }
 
-fn image_data(source: ImageSource, lowering: &mut Lowering<'_>) -> (u64, Option<wire::ImageData>) {
+fn image_data(source: ImageSource, lowering: &Lowering<'_>) -> (u64, Option<wire::ImageData>) {
     match source {
         GpuiImageSource::Image(image) => {
             let (hash, bytes) = lowering.picture(image.bytes());
@@ -172,7 +172,7 @@ fn image_data(source: ImageSource, lowering: &mut Lowering<'_>) -> (u64, Option<
 
 fn render_image_data(
     image: &Arc<RenderImage>,
-    lowering: &mut Lowering<'_>,
+    lowering: &Lowering<'_>,
 ) -> (u64, Option<wire::ImageData>) {
     match image.frame_count() {
         0 => refusal("render image has no frames".into()),

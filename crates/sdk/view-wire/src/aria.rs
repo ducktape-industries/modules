@@ -66,11 +66,7 @@ impl Aria {
         .flatten()
         {
             let mut text = field.to_string();
-            let mut end = text.len().min(1024);
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
+            crate::truncate_to(&mut text, 1024);
             *field = text.into();
         }
         for value in [

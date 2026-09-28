@@ -6,8 +6,8 @@
 //! which exists in a wasm guest. Lowering turns this small recipe into wire
 //! data once per frame.
 
-use crate::interactivity::{ClickListener, Interactivity};
-use crate::{slots, wire, App, Window};
+use crate::interactivity::{EventListener, Interactivity};
+use crate::{App, Window, slots, wire};
 use gpui::{
     ElementId, ListHorizontalSizingBehavior, ListSizingBehavior, Overflow, ScrollStrategy,
     SharedString, StyleRefinement, Styled,
@@ -16,8 +16,6 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
-
-type InputListener<T> = Box<dyn Fn(&T, &mut Window, &mut App)>;
 
 /// A guest element that can be lowered by the driver.
 ///
@@ -90,6 +88,8 @@ impl IntoElement for AnyElement {
     }
 }
 
+impl gpui::prelude::FluentBuilder for AnyElement {}
+
 /// The explicit lowering context for one driver frame.
 pub struct Lowering<'a> {
     window: &'a mut Window,
@@ -113,11 +113,7 @@ impl<'a> Lowering<'a> {
         }
     }
 
-    pub fn window(&mut self) -> &mut Window {
-        self.window
-    }
-
-    pub fn app(&mut self) -> &mut App {
+    pub(crate) fn app(&mut self) -> &mut App {
         self.app
     }
 
@@ -125,8 +121,7 @@ impl<'a> Lowering<'a> {
         (self.window, self.app)
     }
 
-    #[doc(hidden)]
-    pub fn render_once(&mut self, component: impl RenderOnce) -> wire::Node {
+    pub(crate) fn render_once(&mut self, component: impl RenderOnce) -> wire::Node {
         let element = component.render(self.window, self.app).into_element();
         self.lower_element(element)
     }
@@ -151,41 +146,41 @@ impl<'a> Lowering<'a> {
         &self.authored_path
     }
 
-    pub(crate) fn click(&mut self, listener: ClickListener) -> u32 {
+    pub(crate) fn click(&self, listener: EventListener<gpui::ClickEvent>) -> u32 {
         slots::click(&self.app.inner.slots, listener)
     }
 
     pub(crate) fn route<A: 'static>(
-        &mut self,
+        &self,
         listener: impl Fn(&A, &mut Window, &mut App) + 'static,
     ) -> u32 {
         slots::route(&self.app.inner.slots, listener)
     }
 
-    pub(crate) fn enter_row(&mut self, key: u64) -> Option<slots::Row> {
+    pub(crate) fn enter_row(&self, key: u64) -> Option<slots::Row> {
         slots::enter_row(&self.app.inner.slots, key)
     }
 
-    pub(crate) fn leave_row(&mut self, outer: Option<slots::Row>) {
+    pub(crate) fn leave_row(&self, outer: Option<slots::Row>) {
         slots::leave_row(&self.app.inner.slots, outer)
     }
 
     pub(crate) fn message_route(
-        &mut self,
+        &self,
         listener: impl Fn(&(), &mut Window, &mut App) + 'static,
     ) -> u32 {
         slots::message_route(&self.app.inner.slots, listener)
     }
 
-    pub(crate) fn picture(&mut self, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u8>>) {
+    pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u8>>) {
         slots::picture(&self.app.inner.slots, bytes)
     }
 
-    pub(crate) fn tooltip(&mut self, build: slots::TooltipBuilder) -> u32 {
+    pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
         slots::tooltip(&self.app.inner.slots, build)
     }
 
-    pub(crate) fn rich_text_tooltip(&mut self, build: slots::RichTextTooltipBuilder) -> u32 {
+    pub(crate) fn rich_text_tooltip(&self, build: slots::RichTextTooltipBuilder) -> u32 {
         slots::rich_text_tooltip(&self.app.inner.slots, build)
     }
 }
@@ -262,6 +257,8 @@ impl IntoElement for Div {
     }
 }
 
+impl gpui::prelude::FluentBuilder for Div {}
+
 /// Construct an empty guest container.
 pub fn div() -> Div {
     Div::default()
@@ -276,8 +273,8 @@ pub struct Input {
     options: wire::InputOptions,
     secure: bool,
     style: StyleRefinement,
-    on_input: Option<InputListener<String>>,
-    on_submit: Option<InputListener<()>>,
+    on_input: Option<EventListener<String>>,
+    on_submit: Option<EventListener<()>>,
 }
 
 impl Input {
@@ -354,7 +351,7 @@ impl Element for Input {
             id,
             placeholder: this.placeholder,
             value: this.value,
-            on_input: on_input.unwrap_or(u32::MAX),
+            on_input,
             on_submit,
             secure: this.secure,
             style: this.style,
@@ -369,6 +366,8 @@ impl IntoElement for Input {
         self
     }
 }
+
+impl gpui::prelude::FluentBuilder for Input {}
 
 /// Add children to an element recipe.
 pub trait ParentElement {
@@ -453,8 +452,8 @@ pub trait RenderOnce: 'static {
 }
 
 mod uniform_list;
-pub(crate) use uniform_list::UniformListScrollState;
-pub use uniform_list::{uniform_list, UniformList, UniformListScrollHandle};
+pub(crate) use uniform_list::UniformLists;
+pub use uniform_list::{UniformList, UniformListScrollHandle, uniform_list};
 
 #[cfg(test)]
 mod tests;

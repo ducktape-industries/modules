@@ -1,5 +1,5 @@
 //! GPUI-shaped rich text recipes lowered into one native host paragraph.
-use crate::{wire, App, Element, ElementId, IntoElement, Lowering, Window};
+use crate::{App, Element, ElementId, IntoElement, Lowering, Window, wire};
 use gpui::{
     HighlightStyle, MouseMoveEvent, SharedString, StyleRefinement, Styled, TextRun, TextStyle,
 };
@@ -7,7 +7,6 @@ use std::ops::Range;
 
 type ClickListener = Box<dyn Fn(usize, &mut Window, &mut App)>;
 type HoverListener = Box<dyn Fn(Option<usize>, MouseMoveEvent, &mut Window, &mut App)>;
-type TooltipBuilder = Box<dyn Fn(usize, &mut Window, &mut App) -> Option<crate::AnyView>>;
 
 pub struct StyledText {
     text: SharedString,
@@ -92,7 +91,7 @@ impl StyledText {
         clickable_ranges: Vec<Range<usize>>,
         on_click: Option<u32>,
         on_hover: Option<u32>,
-        tooltip: Option<wire::RichTextTooltip>,
+        tooltip: Option<wire::TooltipResponse>,
     ) -> wire::Node {
         let runs = match self.runs {
             Some(runs) => wire::RichTextRuns::Runs(runs.into_iter().map(Into::into).collect()),
@@ -143,7 +142,7 @@ pub struct InteractiveText {
     clickable_ranges: Vec<Range<usize>>,
     on_click: Option<ClickListener>,
     on_hover: Option<HoverListener>,
-    tooltip: Option<TooltipBuilder>,
+    tooltip: Option<crate::slots::RichTextTooltipBuilder>,
 }
 
 impl InteractiveText {
@@ -230,7 +229,7 @@ impl Element for InteractiveText {
                 )
             })
         });
-        let tooltip = tooltip.map(|builder| wire::RichTextTooltip {
+        let tooltip = tooltip.map(|builder| wire::TooltipResponse {
             request: lowering.rich_text_tooltip(builder),
             character_index: None,
             content: None,

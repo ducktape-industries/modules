@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use view_guest::prelude::*;
-use view_guest::{testing::TestAppContext, wire, Driver, View};
+use view_guest::{Driver, View, testing::TestAppContext, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Counter {
@@ -85,8 +85,8 @@ fn pointer_listener_preserves_payload_and_routes_after_frame_reset() {
     assert_eq!(interactivity.on_mouse_down, Some(handler));
     let event = wire::interactivity::MouseDown {
         button: wire::click::MouseButton::Right,
-        position: wire::interactivity::point(12.5, 7.0),
-        modifiers: wire::keyboard::Modifiers {
+        position: gpui::point(gpui::px(12.5), gpui::px(7.0)),
+        modifiers: gpui::Modifiers {
             shift: true,
             ..Default::default()
         },

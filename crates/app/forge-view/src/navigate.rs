@@ -170,8 +170,7 @@ impl Forge {
         self.nav.diff_path = None;
         self.nav.dock = None;
         self.closing = None;
-        self.reply
-            .replace(Default::default(), self.reply.reset_revision());
+        self.reply.replace(Default::default());
         self.moved(cx);
     }
 

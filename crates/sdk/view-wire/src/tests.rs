@@ -1,4 +1,5 @@
 use super::*;
+use crate::frame_sanitize::text_amounts;
 
 fn text(content: &str) -> Node {
     Node::Text(crate::TextNode {
@@ -86,54 +87,26 @@ fn uniform(path: Vec<ElementIdWire>) -> Node {
     }
 }
 
-fn button(content: ButtonContent) -> Node {
-    Node::Button {
-        checked: None,
-        expanded: None,
-        selected: None,
-        role: None,
-        description: None,
-        id: ElementIdWire::Name("App/b".into()),
-        content,
-        label: None,
-        on_press: Some(1),
-        style: gpui::StyleRefinement::default(),
-    }
-}
-
-fn mouse_area(key: &str, on_move: Option<u32>, content: Node) -> Node {
-    Node::MouseArea {
+fn sensor(key: &str, on_show: Option<u32>, content: Node) -> Node {
+    Node::Sensor {
         id: ElementIdWire::Name(key.into()),
-        role: None,
-        label: None,
-        expanded: None,
-        selected: None,
-        checked: None,
-        on_press: Some(1),
-        on_release: None,
-        on_double_click: None,
-        on_right_press: None,
-        on_right_release: None,
-        on_middle_press: None,
-        on_middle_release: None,
-        on_enter: Some(2),
-        on_exit: None,
-        on_move,
-        on_press_at: None,
-        on_scroll: Some(3),
-        content: Box::new(content),
+        style: gpui::StyleRefinement::default(),
+        on_show,
+        on_resize: Some(2),
+        child: Box::new(content),
     }
 }
 
+/// Building and encoding a chain this deep recurses as far as decoding
+/// it would, so the hostile frame is made where there is stack for it.
 fn deep_chain_bytes(depth: usize) -> Vec<u8> {
     std::thread::Builder::new()
         .stack_size(512 << 20)
         .spawn(move || {
             let mut node = Node::empty();
             for _ in 0..depth {
-                node = Node::Lazy {
-                    id: ElementIdWire::Integer(0),
-                    generation: 0,
+                node = Node::Deferred {
+                    priority: 0,
                     content: Box::new(node),
                 };
             }

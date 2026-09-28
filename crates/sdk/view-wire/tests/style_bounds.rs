@@ -110,17 +110,6 @@ fn text_styles_are_bounded_in_the_same_walk() {
 }
 
 #[test]
-fn fingerprints_keep_refinement_field_names() {
-    let width = container(StyleRefinement::default().w(px(12.)));
-    let height = container(StyleRefinement::default().h(px(12.)));
-    let padding = container(StyleRefinement::default().pl(px(12.)));
-    let margin = container(StyleRefinement::default().ml(px(12.)));
-    assert_ne!(width.fingerprint(), height.fingerprint());
-    assert_ne!(padding.fingerprint(), margin.fingerprint());
-    assert_eq!(width.fingerprint(), width.clone().fingerprint());
-}
-
-#[test]
 fn actual_gpui_styled_payloads_roundtrip_and_patch_without_replacing_children() {
     let text = TextNode {
         content: "retained child".into(),

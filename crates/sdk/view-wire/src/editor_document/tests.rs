@@ -1,4 +1,5 @@
 use super::*;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[test]
 fn frames_allow_one_document_message_and_reject_a_second_before_delivery() {
@@ -51,14 +52,9 @@ fn document_messages_reject_cross_document_targets_and_unbounded_chunks() {
 #[test]
 fn repeated_bindings_charge_one_document_but_each_native_projection() {
     let (_, reference) = metadata(MAX_EDITOR_DOCUMENT_BYTES);
-    let usage = validate_editor_document_refs(std::iter::repeat_n(&reference, 8)).unwrap();
     assert_eq!(
-        usage,
-        EditorDocumentUsage {
-            documents: 1,
-            live_bytes: MAX_EDITOR_DOCUMENT_BYTES,
-            projection_bytes: MAX_EDITOR_PROJECTION_BYTES,
-        }
+        validate_editor_document_refs(std::iter::repeat_n(&reference, 8)),
+        Ok(())
     );
     assert_eq!(
         validate_editor_document_refs(std::iter::repeat_n(&reference, 9)),
@@ -82,10 +78,8 @@ fn independent_documents_have_separate_count_and_live_byte_limits() {
         })
         .collect();
     assert_eq!(
-        validate_editor_document_refs(&documents[..MAX_EDITOR_DOCUMENTS])
-            .unwrap()
-            .documents,
-        MAX_EDITOR_DOCUMENTS
+        validate_editor_document_refs(&documents[..MAX_EDITOR_DOCUMENTS]),
+        Ok(())
     );
     assert_eq!(
         validate_editor_document_refs(&documents),
@@ -95,12 +89,7 @@ fn independent_documents_have_separate_count_and_live_byte_limits() {
     for reference in &mut full {
         reference.byte_len = MAX_EDITOR_DOCUMENT_BYTES as u32;
     }
-    assert_eq!(
-        validate_editor_document_refs(&full[..4])
-            .unwrap()
-            .live_bytes,
-        MAX_EDITOR_LIVE_BYTES
-    );
+    assert_eq!(validate_editor_document_refs(&full[..4]), Ok(()));
     assert_eq!(
         validate_editor_document_refs(&full),
         Err(EditorTransferError::Limit)
@@ -425,4 +414,35 @@ fn decoder_rejects_advertised_oversized_chunks_before_reading_their_payload() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("editor chunk byte limit"), "{error}");
+}
+
+#[test]
+fn direct_queries_match_native_boundaries_for_context_sensitive_unicode() {
+    for text in [
+        "",
+        "a\r\nb\n\rc",
+        "e\u{301}",
+        "🇰🇷🇨🇦🇺🇸🇬",
+        "👩🏽‍👩‍👧‍👦",
+        "\u{600}a",
+        "क्‍ष",
+    ] {
+        let expected: Vec<_> = text
+            .grapheme_indices(true)
+            .map(|(at, _)| at)
+            .chain(std::iter::once(text.len()))
+            .filter(|at| {
+                !(*at > 0
+                    && *at < text.len()
+                    && matches!(&text.as_bytes()[at - 1..=*at], b"\r\n" | b"\n\r"))
+            })
+            .collect();
+        for at in 0..=text.len() + 1 {
+            assert_eq!(
+                native_editor_boundary(text, at),
+                expected.contains(&at),
+                "{text:?} byte {at}"
+            );
+        }
+    }
 }

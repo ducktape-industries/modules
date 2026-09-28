@@ -2,26 +2,8 @@
 use super::*;
 
 pub fn every_event() -> Vec<Event> {
-    let modifiers = keyboard::Modifiers::default();
+    let modifiers = gpui::Modifiers::default();
     vec![
-        Event::Observation {
-            event: events::Event::Window(events::Window::FileHovered("a.txt".into())),
-            captured: false,
-        },
-        Event::Mouse {
-            event: mouse::Event::WheelScrolled {
-                delta: mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
-            },
-            captured: true,
-        },
-        Event::Keyboard {
-            event: keyboard::Event::Press {
-                state: key_state(),
-                text: Some("\n".into()),
-                repeat: false,
-            },
-            captured: false,
-        },
         Event::Message(3),
         Event::Click {
             handler: 1,
@@ -159,10 +141,6 @@ pub fn every_event() -> Vec<Event> {
             request: 17,
             character_index: Some(3),
         },
-        Event::Surface {
-            handler: 18,
-            value: SurfaceValue::List(vec![SurfaceValue::Bool(true), SurfaceValue::Unit]),
-        },
         Event::Input {
             handler: 19,
             text: "xy".into(),
@@ -207,14 +185,6 @@ pub fn every_event() -> Vec<Event> {
             },
         },
         Event::Theme { dark: true },
-        Event::Toggle {
-            handler: 23,
-            on: true,
-        },
-        Event::Slide {
-            handler: 24,
-            value: 0.5,
-        },
         Event::Select {
             handler: 25,
             index: 1,
@@ -233,21 +203,10 @@ pub fn every_event() -> Vec<Event> {
             width: 100.0,
             height: 50.0,
         },
-        Event::Pointer {
-            handler: 28,
-            x: 12.5,
-            y: 3.0,
-        },
         Event::Drag {
             handler: 29,
             dx: 4.0,
             dy: -2.0,
-        },
-        Event::Scroll {
-            handler: 30,
-            dx: 0.0,
-            dy: -1.0,
-            pixels: false,
         },
         Event::ScrollOffset {
             handler: 31,
@@ -313,13 +272,6 @@ pub fn every_frame() -> Frame {
             character_index: Some(3),
             content: Some(boxed("the tip")),
         }],
-        mouse_interest: true,
-        event_interest: events::Interest {
-            focus: true,
-            close: false,
-            files: true,
-            input_method: false,
-        },
         root: Some(every_node()),
         patches: vec![
             Patch::Replace {
@@ -358,9 +310,6 @@ pub fn every_frame() -> Frame {
 
 pub fn event_variant(event: &Event) -> &'static str {
     match event {
-        Event::Observation { .. } => "Observation",
-        Event::Mouse { .. } => "Mouse",
-        Event::Keyboard { .. } => "Keyboard",
         Event::Message(_) => "Message",
         Event::Click { .. } => "Click",
         Event::MouseDown { .. } => "MouseDown",
@@ -379,20 +328,15 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::FileDropExit { .. } => "FileDropExit",
         Event::AuxClick { .. } => "AuxClick",
         Event::TooltipRequest { .. } => "TooltipRequest",
-        Event::Surface { .. } => "Surface",
         Event::Input { .. } => "Input",
         Event::EditorDocument { .. } => "EditorDocument",
         Event::EditorRequest { .. } => "EditorRequest",
         Event::EditorTransaction { .. } => "EditorTransaction",
         Event::Theme { .. } => "Theme",
-        Event::Toggle { .. } => "Toggle",
-        Event::Slide { .. } => "Slide",
         Event::Select { .. } => "Select",
         Event::RichTextHover { .. } => "RichTextHover",
         Event::Size { .. } => "Size",
-        Event::Pointer { .. } => "Pointer",
         Event::Drag { .. } => "Drag",
-        Event::Scroll { .. } => "Scroll",
         Event::ScrollOffset { .. } => "ScrollOffset",
         Event::UniformListRange { .. } => "UniformListRange",
         Event::UniformListState { .. } => "UniformListState",

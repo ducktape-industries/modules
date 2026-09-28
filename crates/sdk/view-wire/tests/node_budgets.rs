@@ -1,6 +1,7 @@
 //! Every node kind shares the frame's one node and text budget: tooltip
 //! content, anchored children, image state children and picture labels
-//! cannot buy more than the tree they sit in.
+//! cannot buy more than the tree they sit in, and a tooltip's content is
+//! bounded like the tree.
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::*;
 
@@ -14,66 +15,57 @@ fn container(interactivity: Interactivity, children: Vec<Node>) -> Node {
 }
 
 #[test]
-fn window_controls_and_focus_refinements_are_bounded_inside_tooltips() {
-    for area in [
-        WindowControlArea::Drag,
-        WindowControlArea::Close,
-        WindowControlArea::Max,
-        WindowControlArea::Min,
-    ] {
-        let hostile = Interactivity {
-            window_control_area: Some(area),
-            focus: Some(StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.)),
-            in_focus: Some(StyleRefinement::default().m(px(-100.))),
-            focus_visible: Some(StyleRefinement::default().text_size(px(1e20))),
-            ..Default::default()
-        };
-        let root = container(
-            Interactivity {
-                tooltip: Some(Tooltip {
-                    request: 1,
-                    content: Some(Box::new(container(hostile.clone(), vec![]))),
-                    hoverable: true,
-                    delay_ms: u64::MAX,
-                }),
-                ..hostile
-            },
-            vec![],
+fn focus_refinements_are_bounded_inside_tooltips() {
+    let hostile = Interactivity {
+        focus: Some(StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.)),
+        in_focus: Some(StyleRefinement::default().m(px(-100.))),
+        focus_visible: Some(StyleRefinement::default().text_size(px(1e20))),
+        ..Default::default()
+    };
+    let root = container(
+        Interactivity {
+            tooltip: Some(Tooltip {
+                request: 1,
+                content: Some(Box::new(container(hostile.clone(), vec![]))),
+                hoverable: true,
+                delay_ms: u64::MAX,
+            }),
+            ..hostile
+        },
+        vec![],
+    );
+    let mut frame = Frame {
+        root: Some(root),
+        ..Default::default()
+    };
+    view_wire::sanitize(&mut frame).unwrap();
+    let Node::Container(view_wire::ContainerNode { interactivity, .. }) = frame.root.unwrap()
+    else {
+        unreachable!()
+    };
+    let tooltip = interactivity.tooltip.as_ref().unwrap();
+    assert_eq!(tooltip.delay_ms, 60_000);
+    let Node::Container(view_wire::ContainerNode {
+        interactivity: nested,
+        ..
+    }) = tooltip.content.as_deref().unwrap()
+    else {
+        unreachable!()
+    };
+    for interaction in [&interactivity, nested] {
+        assert_eq!(
+            interaction.focus.as_ref().unwrap().size.width,
+            Some(px(0.).into())
         );
-        let mut frame = Frame {
-            root: Some(root),
-            ..Default::default()
-        };
-        view_wire::sanitize(&mut frame).unwrap();
-        let Node::Container(view_wire::ContainerNode { interactivity, .. }) = frame.root.unwrap()
-        else {
-            unreachable!()
-        };
-        let tooltip = interactivity.tooltip.as_ref().unwrap();
-        assert_eq!(tooltip.delay_ms, 60_000);
-        let Node::Container(view_wire::ContainerNode {
-            interactivity: nested,
-            ..
-        }) = tooltip.content.as_deref().unwrap()
-        else {
-            unreachable!()
-        };
-        for interaction in [&interactivity, nested] {
-            assert_eq!(interaction.window_control_area, None);
-            assert_eq!(
-                interaction.focus.as_ref().unwrap().size.width,
-                Some(px(0.).into())
-            );
-            assert_eq!(interaction.focus.as_ref().unwrap().opacity, Some(1.));
-            assert_eq!(
-                interaction.in_focus.as_ref().unwrap().margin.left,
-                Some(px(0.).into())
-            );
-            assert_eq!(
-                interaction.focus_visible.as_ref().unwrap().text.font_size,
-                Some(px(512.).into())
-            );
-        }
+        assert_eq!(interaction.focus.as_ref().unwrap().opacity, Some(1.));
+        assert_eq!(
+            interaction.in_focus.as_ref().unwrap().margin.left,
+            Some(px(0.).into())
+        );
+        assert_eq!(
+            interaction.focus_visible.as_ref().unwrap().text.font_size,
+            Some(px(512.).into())
+        );
     }
 }
 

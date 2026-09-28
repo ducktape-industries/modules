@@ -1,8 +1,8 @@
-use super::{assert_accessible, find, texts, FakeHost};
+use super::{FakeHost, assert_accessible, find, texts};
 use crate::{
+    App, Capabilities, Driver, Entity, View,
     host::Host,
     wire::{Event, Frame, Node},
-    App, Capabilities, Driver, Entity, View,
 };
 
 trait TestDriver {
@@ -45,7 +45,7 @@ impl TestAppContext {
     }
     pub fn open<V: View + Capabilities>(&mut self) -> Entity<V> {
         self.host.declare(V::CAPABILITIES);
-        let driver = Driver::<V>::initialize_in(self.fresh_app(), None).expect("view initializes");
+        let driver = Driver::<V>::initialize_in(self.fresh_app(), None);
         let entity = driver.entity();
         self.host.reset_connection();
         self.driver = Some(Box::new(driver));
@@ -58,8 +58,7 @@ impl TestAppContext {
     }
     pub fn restore<V: View + Capabilities>(&mut self, bytes: &[u8]) -> Result<Entity<V>, String> {
         self.host.declare(V::CAPABILITIES);
-        let value = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        let driver = Driver::<V>::initialize_in(self.fresh_app(), Some(value))?;
+        let driver = Driver::<V>::from_snapshot_in(self.fresh_app(), bytes)?;
         let entity = driver.entity();
         self.host.reset_connection();
         self.driver = Some(Box::new(driver));
@@ -171,9 +170,6 @@ impl TestAppContext {
     pub fn simulate_dismiss(&mut self, key: &str) {
         self.dispatch(super::dismiss(&self.frame, key));
     }
-    pub fn simulate_surface(&mut self, key: &str, value: crate::wire::SurfaceValue) {
-        self.dispatch(super::surface(&self.frame, key, value));
-    }
 }
 
 #[cfg(test)]
@@ -181,8 +177,8 @@ mod tests {
     use super::*;
     use crate::methods::Capability;
     use crate::{
-        methods::Changes, testing::Probe, Context, InteractiveElement, ParentElement, Render, Task,
-        Window,
+        Context, InteractiveElement, ParentElement, Render, Task, Window, methods::Changes,
+        testing::Probe,
     };
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
@@ -231,6 +227,7 @@ mod tests {
         cx.run_until_parked();
         assert!(cx.has_text("1"));
         let snapshot = cx.snapshot().unwrap();
+        assert!(snapshot[0] >= 0x80, "a named MessagePack map, not JSON");
         feed.send(None);
         let restored = cx.restore::<LiveView>(&snapshot).unwrap();
         restored.read(|view| assert_eq!(view.items, 1));

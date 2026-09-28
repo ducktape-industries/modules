@@ -1,17 +1,17 @@
 //! Bounds applied before a guest refinement reaches native layout or painting.
 //! The host still clips the entire view slot: local clipping cannot contain a
 //! deferred or anchored element on its own.
+use crate::{MAX_PIXELS, MAX_TEXT_PIXELS, truncate_to};
 use gpui::{
     AbsoluteLength, DefiniteLength, Fill, GridPlacement, Hsla, Length, StyleRefinement, px,
 };
 
-const MAX_PIXELS: f32 = 8192.;
-const MAX_FONT_PIXELS: f32 = 512.;
 const MAX_REMS: f32 = 256.;
 const MAX_GRID: u16 = 64;
 const MAX_SHADOWS: usize = 4;
 
-fn finite(value: &mut f32, min: f32, max: f32) {
+/// Clamps in place; a non-finite value becomes `min`.
+pub(crate) fn clamp_finite(value: &mut f32, min: f32, max: f32) {
     *value = if value.is_finite() {
         value.clamp(min, max)
     } else {
@@ -22,16 +22,16 @@ fn absolute(value: &mut AbsoluteLength, max: f32) {
     match value {
         AbsoluteLength::Pixels(value) => {
             let mut number = f32::from(*value);
-            finite(&mut number, 0., max);
+            clamp_finite(&mut number, 0., max);
             *value = px(number);
         }
-        AbsoluteLength::Rems(value) => finite(&mut value.0, 0., (max / 32.).min(MAX_REMS)),
+        AbsoluteLength::Rems(value) => clamp_finite(&mut value.0, 0., (max / 32.).min(MAX_REMS)),
     }
 }
 fn definite(value: &mut DefiniteLength, max: f32) {
     match value {
         DefiniteLength::Absolute(value) => absolute(value, max),
-        DefiniteLength::Fraction(value) => finite(value, 0., 1.),
+        DefiniteLength::Fraction(value) => clamp_finite(value, 0., 1.),
     }
 }
 fn length(value: &mut Length) {
@@ -41,15 +41,8 @@ fn length(value: &mut Length) {
 }
 pub(crate) fn sanitize_hsla(value: &mut Hsla) {
     for number in [&mut value.h, &mut value.s, &mut value.l, &mut value.a] {
-        finite(number, 0., 1.);
+        clamp_finite(number, 0., 1.);
     }
-}
-fn truncate(value: &mut String, max: usize) {
-    let mut end = value.len().min(max);
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value.truncate(end);
 }
 fn grid(value: &mut GridPlacement) {
     match value {
@@ -120,13 +113,13 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
         .into_iter()
         .flatten()
     {
-        finite(value, 0., 1024.);
+        clamp_finite(value, 0., 1024.);
     }
     if let Some(value) = &mut style.aspect_ratio {
-        finite(value, 1. / 1024., 1024.);
+        clamp_finite(value, 1. / 1024., 1024.);
     }
     if let Some(value) = &mut style.opacity {
-        finite(value, 0., 1.);
+        clamp_finite(value, 0., 1.);
     }
     if let Some(value) = &mut style.border_color {
         sanitize_hsla(value);
@@ -146,12 +139,12 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
             sanitize_hsla(&mut shadow.color);
             for offset in [&mut shadow.offset.x, &mut shadow.offset.y] {
                 let mut number = f32::from(*offset);
-                finite(&mut number, -128., 128.);
+                clamp_finite(&mut number, -128., 128.);
                 *offset = px(number);
             }
             for radius in [&mut shadow.blur_radius, &mut shadow.spread_radius] {
                 let mut number = f32::from(*radius);
-                finite(&mut number, 0., 128.);
+                clamp_finite(&mut number, 0., 128.);
                 *radius = px(number);
             }
         }
@@ -180,30 +173,30 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
         sanitize_hsla(value);
     }
     if let Some(value) = &mut text.font_size {
-        absolute(value, MAX_FONT_PIXELS);
+        absolute(value, MAX_TEXT_PIXELS);
     }
     if let Some(value) = &mut text.line_height {
         match value {
-            DefiniteLength::Absolute(value) => absolute(value, MAX_FONT_PIXELS),
-            DefiniteLength::Fraction(value) => finite(value, 0., 8.),
+            DefiniteLength::Absolute(value) => absolute(value, MAX_TEXT_PIXELS),
+            DefiniteLength::Fraction(value) => clamp_finite(value, 0., 8.),
         }
     }
     if let Some(value) = &mut text.font_weight {
-        finite(&mut value.0, 1., 1000.);
+        clamp_finite(&mut value.0, 1., 1000.);
     }
     if let Some(value) = &mut text.line_clamp {
         *value = (*value).clamp(1, 1024);
     }
     if let Some(value) = &mut text.font_family {
         let mut name = value.to_string();
-        truncate(&mut name, 256);
+        truncate_to(&mut name, 256);
         *value = name.into();
     }
     if let Some(fallbacks) = &mut text.font_fallbacks {
         let fonts = std::sync::Arc::make_mut(&mut fallbacks.0);
         fonts.truncate(16);
         for name in fonts {
-            truncate(name, 256);
+            truncate_to(name, 256);
         }
     }
     if let Some(features) = &mut text.font_features {
@@ -216,12 +209,12 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
         | gpui::TextOverflow::TruncateStart(value)
         | gpui::TextOverflow::TruncateMiddle(value)) = overflow;
         let mut string = value.to_string();
-        truncate(&mut string, 32);
+        truncate_to(&mut string, 32);
         *value = string.into();
     }
     if let Some(value) = &mut text.underline {
         let mut thickness = f32::from(value.thickness);
-        finite(&mut thickness, 0., 32.);
+        clamp_finite(&mut thickness, 0., 32.);
         value.thickness = px(thickness);
         if let Some(value) = &mut value.color {
             sanitize_hsla(value);
@@ -229,7 +222,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     }
     if let Some(value) = &mut text.strikethrough {
         let mut thickness = f32::from(value.thickness);
-        finite(&mut thickness, 0., 32.);
+        clamp_finite(&mut thickness, 0., 32.);
         value.thickness = px(thickness);
         if let Some(value) = &mut value.color {
             sanitize_hsla(value);
@@ -239,25 +232,6 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     {
         style.debug = None;
         style.debug_below = None;
-    }
-}
-
-pub(crate) fn sanitize_text(style: &mut gpui::TextStyleRefinement, budgets: &mut crate::Budgets) {
-    let mut refinement = StyleRefinement {
-        text: std::mem::take(style),
-        ..Default::default()
-    };
-    sanitize(&mut refinement);
-    *style = refinement.text;
-    if let Some(family) = &mut style.font_family {
-        let mut value = family.to_string();
-        crate::spend_text(&mut value, budgets);
-        *family = value.into();
-    }
-    if let Some(fallbacks) = &mut style.font_fallbacks {
-        for family in std::sync::Arc::make_mut(&mut fallbacks.0) {
-            crate::spend_text(family, budgets);
-        }
     }
 }
 
@@ -352,7 +326,7 @@ mod tests {
             column: GridPlacement::Auto..GridPlacement::Auto,
         });
         sanitize(&mut style);
-        assert_eq!(style.text.font_size, Some(px(MAX_FONT_PIXELS).into()));
+        assert_eq!(style.text.font_size, Some(px(MAX_TEXT_PIXELS).into()));
         assert_eq!(style.grid_cols.unwrap().repeat, MAX_GRID);
         assert_eq!(
             style.grid_location.unwrap().row.start,

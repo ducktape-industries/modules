@@ -15,7 +15,6 @@ fn observer(context: &slots::Context, calls: Rc<Cell<usize>>) -> u32 {
     let callbacks = Rc::new(Callbacks::<()> {
         decide: Rc::new(|_| EditorDecision::Noop),
         interact: None,
-        rich: None,
         on_event: Rc::new(move |_| {
             calls.set(calls.get() + 1);
             None
@@ -32,7 +31,7 @@ fn transaction(
         event: Transaction::Event(event),
         map,
         identity: context.identity(),
-        message: std::marker::PhantomData,
+        view: std::marker::PhantomData,
     }
 }
 fn commit(
@@ -66,16 +65,15 @@ fn a_large_caret_commit_borrows_one_canonical_text_for_both_history_views() {
     let callbacks = Rc::new(Callbacks::<()> {
         decide: Rc::new(|_| EditorDecision::Noop),
         interact: None,
-        rich: None,
         on_event: Rc::new(move |event| {
             let EditorTransactionEvent::Commit { before, after, .. } = event else {
                 panic!("expected caret commit");
             };
             assert_eq!(
-                    before.text.as_ptr(),
-                    after.text.as_ptr(),
-                    "metadata-only commit must borrow the same canonical text, not copy/compare one MiB"
-                );
+                before.text.as_ptr(),
+                after.text.as_ptr(),
+                "metadata-only commit must borrow the same canonical text, not copy/compare one MiB"
+            );
             assert_ne!(
                 before.cursor, after.cursor,
                 "before/after selection metadata stays distinct"
@@ -126,7 +124,7 @@ fn cancellation_after_reset_notifies_without_replacing_the_new_document() {
     let state = editor.document_reference(current.document.clone());
     let calls = Rc::new(Cell::new(0));
     let map = observer(&context, calls.clone());
-    editor.replace(Editor::new("new"), 0);
+    editor.replace(Editor::new("new"));
     transaction(
         &context,
         wire::EditorTransactionEvent::Cancelled { id: current, state },

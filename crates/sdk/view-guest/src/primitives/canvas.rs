@@ -1,4 +1,4 @@
-use crate::{wire, Element, IntoElement, Lowering};
+use crate::{Element, IntoElement, Lowering, wire};
 use gpui::{StyleRefinement, Styled};
 
 /// A bounded declarative host canvas. Native GPUI closures cannot cross the guest ABI.

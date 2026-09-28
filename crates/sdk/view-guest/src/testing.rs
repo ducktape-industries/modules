@@ -1,10 +1,10 @@
 //! Helpers for a guest's own tests: build events the host would send, and
 //! read the tree a frame carries.
 
-use crate::wire::{ButtonContent, Event, Frame, Node};
+use crate::wire::{Event, Frame, Node};
 
-/// Every text the tree shows, depth first: text nodes, button labels, and
-/// the value or placeholder of an input or editor.
+/// Every text the tree shows, depth first: text nodes and the value or
+/// placeholder of an input or editor.
 pub(crate) fn texts(frame: &Frame) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(root) = &frame.root {
@@ -15,25 +15,6 @@ pub(crate) fn texts(frame: &Frame) -> Vec<String> {
 
 fn collect_texts(node: &Node, out: &mut Vec<String>) {
     match node {
-        Node::Container(crate::wire::ContainerNode { children, .. }) => {
-            children.iter().for_each(|child| collect_texts(child, out))
-        }
-        Node::Sensor { child: content, .. }
-        | Node::Float { content, .. }
-        | Node::Deferred { content, .. }
-        | Node::Responsive { content, .. }
-        | Node::Lazy { content, .. }
-        | Node::ResizeHandle { content, .. }
-        | Node::MouseArea { content, .. }
-        | Node::Scroll { content, .. } => collect_texts(content, out),
-        Node::Tooltip { children, .. }
-        | Node::Overlay { children, .. }
-        | Node::UniformList { children, .. }
-        | Node::Anchored { children, .. }
-        | Node::List { children, .. }
-        | Node::When { children, .. } => {
-            children.iter().for_each(|child| collect_texts(child, out))
-        }
         Node::RichText { text, .. } => out.push(text.clone()),
         Node::Text(crate::wire::TextNode { content, .. }) => out.push(content.clone()),
         Node::Input {
@@ -55,47 +36,15 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
                 out.push(placeholder.clone());
             }
         }
-        Node::Button { content, .. } => match content {
-            ButtonContent::Label(label) => out.push(label.clone()),
-            ButtonContent::Child(child) => collect_texts(child, out),
-        },
-        Node::Toggle { label, .. } | Node::Radio { label, .. } => out.push(label.clone()),
-        Node::ComboBox {
-            options,
-            selected,
-            placeholder,
-            ..
-        } => out.push(
-            selected
-                .and_then(|index| options.get(index as usize))
-                .cloned()
-                .unwrap_or_else(|| placeholder.clone()),
-        ),
-        Node::PickList {
-            options,
-            selected,
-            placeholder,
-            ..
-        } => out.push(match selected {
-            Some(index) => options[*index as usize].clone(),
-            None => placeholder.clone().unwrap_or_default(),
-        }),
-        Node::Space { .. }
-        | Node::Rule { .. }
-        | Node::Qr { .. }
-        | Node::Svg { .. }
-        | Node::Image { .. }
-        | Node::ImageViewer { .. }
-        | Node::Slider { .. }
-        | Node::Progress { .. }
-        | Node::Canvas { .. }
-        | Node::Surface { .. } => {}
+        _ => node
+            .children()
+            .iter()
+            .for_each(|child| collect_texts(child, out)),
     }
 }
 
 /// Panics listing each node assistive technology cannot name or place, by
-/// its key path and fault. `ops/build-views.sh` runs every test whose name
-/// holds `accessibility` before it builds a component.
+/// its key path and fault.
 pub(crate) fn assert_accessible(tree: &Node) {
     let faults = crate::wire::accessibility_faults(tree);
     assert!(
@@ -144,49 +93,9 @@ fn find_by<'a>(node: &'a Node, matches: &dyn Fn(&Node) -> bool) -> Option<&'a No
     if matches(node) {
         return Some(node);
     }
-    match node {
-        Node::Container(crate::wire::ContainerNode { children, .. }) => {
-            children.iter().find_map(|child| find_by(child, matches))
-        }
-        Node::Sensor { child: content, .. }
-        | Node::Float { content, .. }
-        | Node::Deferred { content, .. }
-        | Node::Responsive { content, .. }
-        | Node::Lazy { content, .. }
-        | Node::ResizeHandle { content, .. }
-        | Node::MouseArea { content, .. }
-        | Node::Scroll { content, .. } => find_by(content, matches),
-        Node::Tooltip { children, .. }
-        | Node::Overlay { children, .. }
-        | Node::UniformList { children, .. }
-        | Node::Anchored { children, .. }
-        | Node::List { children, .. }
-        | Node::When { children, .. } => children.iter().find_map(|child| find_by(child, matches)),
-
-        Node::Button {
-            content: ButtonContent::Child(child),
-            ..
-        } => find_by(child, matches),
-        Node::Button { .. }
-        | Node::RichText { .. }
-        | Node::Text(crate::wire::TextNode { .. })
-        | Node::Qr { .. }
-        | Node::Svg { .. }
-        | Node::Image { .. }
-        | Node::ImageViewer { .. }
-        | Node::Input { .. }
-        | Node::Editor { .. }
-        | Node::Space { .. }
-        | Node::Rule { .. }
-        | Node::Toggle { .. }
-        | Node::Radio { .. }
-        | Node::Slider { .. }
-        | Node::PickList { .. }
-        | Node::ComboBox { .. }
-        | Node::Progress { .. }
-        | Node::Canvas { .. }
-        | Node::Surface { .. } => None,
-    }
+    node.children()
+        .iter()
+        .find_map(|child| find_by(child, matches))
 }
 
 /// The button whose key, label or accessible name is `name`.
@@ -201,13 +110,6 @@ fn button<'a>(frame: &'a Frame, name: &str) -> Option<&'a Node> {
             node.key() == Some(name)
                 || interactivity.aria.label.as_deref() == Some(name)
                 || labels.iter().any(|label| label == name)
-        }
-        Node::Button {
-            id, content, label, ..
-        } => {
-            id.name() == Some(name)
-                || label.as_deref() == Some(name)
-                || matches!(content, ButtonContent::Label(label) if label == name)
         }
         _ => false,
     })
@@ -234,11 +136,6 @@ pub(crate) fn press(frame: &Frame, name: &str) -> Vec<Event> {
                 event: (&gpui::ClickEvent::default()).into(),
             }]
         }
-        Some(Node::Button {
-            on_press: Some(message),
-            ..
-        }) => vec![Event::Message(*message)],
-        Some(Node::Button { on_press: None, .. }) => panic!("button {name:?} is disabled"),
         _ => panic!("no button {name:?} in {:?}", texts(frame)),
     }
 }
@@ -249,8 +146,11 @@ pub(crate) fn type_into(frame: &Frame, name: &str, text: &str) -> Vec<Event> {
     let Some(Node::Input { on_input, .. }) = input(frame, name) else {
         panic!("no input {name:?} in {:?}", texts(frame));
     };
+    let Some(handler) = on_input else {
+        panic!("input {name:?} has no input route");
+    };
     vec![Event::Input {
-        handler: *on_input,
+        handler: *handler,
         text: text.to_string(),
     }]
 }
@@ -314,20 +214,6 @@ pub(crate) fn dismiss(frame: &Frame, name: &str) -> Vec<Event> {
     vec![Event::Message(*message)]
 }
 
-/// The event a named host-painted surface returns to its guest listener.
-pub(crate) fn surface(frame: &Frame, name: &str, value: crate::wire::SurfaceValue) -> Vec<Event> {
-    let Some(Node::Surface { on_event, .. }) = find(frame, name) else {
-        panic!("no surface {name:?} in {:?}", keys(frame));
-    };
-    let Some(handler) = on_event else {
-        panic!("surface {name:?} has no event route");
-    };
-    vec![Event::Surface {
-        handler: *handler,
-        value,
-    }]
-}
-
 /// Every node key in the tree, depth first.
 pub(crate) fn keys(frame: &Frame) -> Vec<String> {
     let mut out = Vec::new();
@@ -341,49 +227,9 @@ fn collect_keys(node: &Node, out: &mut Vec<String>) {
     if let Some(key) = node.key() {
         out.push(key.to_string());
     }
-    match node {
-        Node::Container(crate::wire::ContainerNode { children, .. }) => {
-            children.iter().for_each(|child| collect_keys(child, out))
-        }
-        Node::Sensor { child: content, .. }
-        | Node::Float { content, .. }
-        | Node::Deferred { content, .. }
-        | Node::Responsive { content, .. }
-        | Node::Lazy { content, .. }
-        | Node::ResizeHandle { content, .. }
-        | Node::MouseArea { content, .. }
-        | Node::Scroll { content, .. } => collect_keys(content, out),
-        Node::Tooltip { children, .. }
-        | Node::Overlay { children, .. }
-        | Node::UniformList { children, .. }
-        | Node::Anchored { children, .. }
-        | Node::List { children, .. }
-        | Node::When { children, .. } => children.iter().for_each(|child| collect_keys(child, out)),
-
-        Node::Button {
-            content: ButtonContent::Child(child),
-            ..
-        } => collect_keys(child, out),
-        Node::Button { .. }
-        | Node::RichText { .. }
-        | Node::Text(crate::wire::TextNode { .. })
-        | Node::Qr { .. }
-        | Node::Svg { .. }
-        | Node::Image { .. }
-        | Node::ImageViewer { .. }
-        | Node::Input { .. }
-        | Node::Editor { .. }
-        | Node::Space { .. }
-        | Node::Rule { .. }
-        | Node::Toggle { .. }
-        | Node::Radio { .. }
-        | Node::Slider { .. }
-        | Node::PickList { .. }
-        | Node::ComboBox { .. }
-        | Node::Progress { .. }
-        | Node::Canvas { .. }
-        | Node::Surface { .. } => {}
-    }
+    node.children()
+        .iter()
+        .for_each(|child| collect_keys(child, out));
 }
 
 mod context;

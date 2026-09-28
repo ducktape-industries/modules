@@ -2,16 +2,21 @@
 //! (re-exported whole), the type scale, heights and spacing as [`Pixels`]
 //! (`text`, `size`, `space`), and the empty state,
 //! button, refused-with-retry screen, quiet line, heading and mono run views
-//! used to copy between them. The number formatters sit here for the same
-//! reason.
+//! used to copy between them, with the number and time formatters
+//! (`format.rs`) and Explorer's link paths (`explorer.rs`) beside them for the
+//! same reason.
 pub use ::design::*;
+
+pub mod explorer;
+mod format;
+pub use format::{ago, clock, date, day, grouped, initial, local, plural, set_utc_offset};
 
 use crate::prelude::*;
 use crate::{Div, FontWeight, Hsla, Pixels, Stateful};
 
 /// [`type_scale`] as sizes an element takes.
 pub mod text {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const TITLE: Pixels = px(::design::type_scale::TITLE as f32);
     pub const SECTION: Pixels = px(::design::type_scale::SECTION as f32);
@@ -23,7 +28,7 @@ pub mod text {
 
 /// [`height`] as sizes an element takes.
 pub mod size {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const ROW: Pixels = px(::design::height::ROW as f32);
     pub const CONTROL: Pixels = px(::design::height::CONTROL as f32);
@@ -37,7 +42,7 @@ pub mod size {
 
 /// [`spacing`] as gaps and insets an element takes.
 pub mod space {
-    use crate::{px, Pixels};
+    use crate::{Pixels, px};
 
     pub const HAIR: Pixels = px(::design::spacing::HAIR as f32);
     pub const XXS: Pixels = px(::design::spacing::XXS as f32);
@@ -535,51 +540,12 @@ pub fn badge(
         .child(label.into())
 }
 
-/// Explorer's pages as short `duck://explorer/<path>` links: the one
-/// spelling every view opens a block, a transaction or an account by.
-/// Explorer's own `Route::path` writes the same paths through these.
-pub mod explorer {
-    /// `block/<height>`
-    pub fn block_path(height: u64) -> String {
-        format!("block/{height}")
-    }
-
-    /// `tx/<hash hex>`
-    pub fn tx_path(hash: &[u8]) -> String {
-        let hex: String = hash.iter().map(|byte| format!("{byte:02x}")).collect();
-        format!("tx/{hex}")
-    }
-
-    /// `account/<number>`
-    pub fn account_path(number: u64) -> String {
-        format!("account/{number}")
-    }
-
-    /// `duck://explorer/<path>`: the host opens Explorer at `path`.
-    pub fn link(path: &str) -> String {
-        format!("duck://explorer/{path}")
-    }
-}
-
 /// `block 1,024`, quiet and mono, opening Explorer at that block. A view
 /// that draws it on a clickable card replaces the click (`on_click`) with
 /// its own that claims it and opens the same [`explorer::link`].
 pub fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> Stateful<Div> {
     let label = format!("block {}", grouped(height));
     explorer_link(id, label, explorer::block_path(height), theme)
-}
-
-/// A transaction's short hash, opening Explorer at that transaction.
-pub fn tx_link(id: impl Into<ElementId>, hash: &[u8], theme: &Theme) -> Stateful<Div> {
-    let path = explorer::tx_path(hash);
-    let label = short_hex(&path["tx/".len()..]);
-    explorer_link(id, label, path, theme)
-}
-
-/// `account 7`, opening Explorer at that account.
-pub fn account_link(id: impl Into<ElementId>, number: u64, theme: &Theme) -> Stateful<Div> {
-    let label = format!("account {number}");
-    explorer_link(id, label, explorer::account_path(number), theme)
 }
 
 /// Subdued mono text that underlines under the pointer and opens
@@ -607,164 +573,13 @@ fn explorer_link(
         .child(label)
 }
 
-/// `6230` → `6,230`.
-pub fn grouped(number: u64) -> String {
-    let digits = number.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
-}
-
-/// An avatar's letter: the first grapheme of `name`, uppercased where
-/// that applies (`alice` → `A`, `김민지` → `김`), else `•`.
-pub fn initial(name: &str) -> String {
-    unicode_segmentation::UnicodeSegmentation::graphemes(name.trim_start(), true)
-        .next()
-        .map_or_else(|| "•".into(), str::to_uppercase)
-}
-
-thread_local! {
-    static UTC_OFFSET_MINUTES: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
-}
-
-/// Sets the reader's UTC offset in minutes, as `host.offset` hands it, for
-/// [`date`], [`day`], [`clock`] and [`local`]. Until a view sets it they
-/// read UTC.
-pub fn set_utc_offset(minutes: i32) {
-    UTC_OFFSET_MINUTES.set(minutes);
-}
-
-/// A UTC time in milliseconds shifted into the reader's zone: the instant
-/// whose UTC reading is the reader's wall clock. Day arithmetic on it
-/// (`local(t) / 86_400_000`) falls on the reader's midnights.
-pub fn local(millis: u64) -> u64 {
-    let shift = i64::from(UTC_OFFSET_MINUTES.get()) * 60_000;
-    millis.saturating_add_signed(shift)
-}
-
-/// A time in milliseconds as the reader's date: `24 Sep 2026, 05:12:07`.
-pub fn date(millis: u64) -> String {
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let seconds = local(millis) / 1000;
-    let (days, of_day) = (seconds / 86_400, seconds % 86_400);
-    // days since 1970-01-01 to a civil date (Howard Hinnant's algorithm)
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{day} {} {year}, {:02}:{:02}:{:02}",
-        MONTHS[(month - 1) as usize],
-        of_day / 3_600,
-        of_day % 3_600 / 60,
-        of_day % 60
-    )
-}
-
-/// How long before `now` a time in milliseconds was: `2s`, `3m`, `4h`, `5d`.
-pub fn ago(now: u64, then: u64) -> String {
-    let seconds = now.saturating_sub(then) / 1000;
-    match seconds {
-        0..60 => format!("{seconds}s"),
-        60..3_600 => format!("{}m", seconds / 60),
-        3_600..86_400 => format!("{}h", seconds / 3_600),
-        _ => format!("{}d", seconds / 86_400),
-    }
-}
-
-/// A time in milliseconds as the reader's day: `24 Sep 2026`.
-pub fn day(millis: u64) -> String {
-    let date = date(millis);
-    date.split_once(", ")
-        .map_or(date.clone(), |(day, _)| day.to_owned())
-}
-
-/// A time in milliseconds as the reader's clock time: `3:42 PM`.
-pub fn clock(millis: u64) -> String {
-    let minutes = local(millis) / 60_000 % 1_440;
-    let (hour, minute) = (minutes / 60, minutes % 60);
-    let half = if hour < 12 { "AM" } else { "PM" };
-    format!("{}:{minute:02} {half}", (hour + 11) % 12 + 1)
-}
-
-/// `1 block`, `1,200 blocks`.
-pub fn plural(count: u64, one: &str, many: &str) -> String {
-    format!("{} {}", grouped(count), if count == 1 { one } else { many })
-}
-
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn counts_read_grouped_and_agreed() {
-        assert_eq!(super::grouped(0), "0");
-        assert_eq!(super::grouped(999), "999");
-        assert_eq!(super::grouped(6230), "6,230");
-        assert_eq!(super::grouped(1_048_576), "1,048,576");
-        assert_eq!(super::plural(1, "block", "blocks"), "1 block");
-        assert_eq!(super::plural(1200, "block", "blocks"), "1,200 blocks");
-    }
-
     #[test]
     fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
         assert!(super::docks(1000., 576., 320.));
         assert!(super::docks(896., 576., 320.));
         assert!(!super::docks(895., 576., 320.));
         assert!(!super::docks(720., 400., 440.));
-    }
-
-    #[test]
-    fn a_time_reads_as_its_day_and_clock() {
-        // 24 Sep 2026, 15:42:07 UTC
-        let at = 1_790_264_527_000;
-        assert_eq!(super::date(at), "24 Sep 2026, 15:42:07");
-        assert_eq!(super::day(at), "24 Sep 2026");
-        assert_eq!(super::clock(at), "3:42 PM");
-        assert_eq!(super::clock(0), "12:00 AM");
-        assert_eq!(super::clock(12 * 3_600_000 + 5 * 60_000), "12:05 PM");
-    }
-
-    #[test]
-    fn a_utc_instant_reads_in_the_readers_offset() {
-        // 24 Sep 2026, 15:42:07 UTC
-        let at = 1_790_264_527_000;
-        super::set_utc_offset(540); // Seoul: past midnight, the next day
-        assert_eq!(super::date(at), "25 Sep 2026, 00:42:07");
-        assert_eq!(super::day(at), "25 Sep 2026");
-        assert_eq!(super::clock(at), "12:42 AM");
-        super::set_utc_offset(-330);
-        assert_eq!(super::clock(at), "10:12 AM");
-        super::set_utc_offset(-60); // before the epoch holds at the epoch
-        assert_eq!(super::clock(0), "12:00 AM");
-        super::set_utc_offset(0);
-        assert_eq!(super::clock(at), "3:42 PM");
-    }
-
-    #[test]
-    fn explorer_links_spell_explorers_paths() {
-        use super::explorer::*;
-        assert_eq!(link(&block_path(30)), "duck://explorer/block/30");
-        assert_eq!(link(&tx_path(&[0xab, 0x01])), "duck://explorer/tx/ab01");
-        assert_eq!(link(&account_path(7)), "duck://explorer/account/7");
-    }
-
-    #[test]
-    fn an_initial_is_the_first_grapheme() {
-        assert_eq!(super::initial("alice park"), "A");
-        assert_eq!(super::initial("김민지"), "김");
-        assert_eq!(super::initial(" 한글"), "한");
-        assert_eq!(super::initial("e\u{301}va"), "E\u{301}");
-        assert_eq!(super::initial(""), "•");
     }
 }
