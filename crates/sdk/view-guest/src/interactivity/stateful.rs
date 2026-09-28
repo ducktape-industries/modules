@@ -4,7 +4,7 @@ use super::{InteractiveElement, Interactivity, TooltipBuilder};
 use crate::{
     AnyElement, AnyView, App, Element, IntoElement, Lowering, ParentElement, Window, wire,
 };
-use gpui::{ClickEvent, ElementId, SharedString, StyleRefinement, Styled};
+use gpui::{ClickEvent, ElementId, SharedString, StyleRefinement, Styled, accesskit};
 use std::time::Duration;
 
 /// The stateful wrapper returned by [`InteractiveElement::id`].
@@ -149,6 +149,77 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     }
     fn aria_orientation(mut self, value: gpui::Orientation) -> Self {
         self.interactivity().aria.orientation = Some(value);
+        self
+    }
+    fn aria_live(mut self, value: accesskit::Live) -> Self {
+        self.interactivity().aria.live = Some(value);
+        self
+    }
+    fn aria_busy(mut self, value: bool) -> Self {
+        self.interactivity().aria.busy = value;
+        self
+    }
+    fn aria_required(mut self, value: bool) -> Self {
+        self.interactivity().aria.required = value;
+        self
+    }
+    fn aria_invalid(mut self, value: accesskit::Invalid) -> Self {
+        self.interactivity().aria.invalid = Some(value);
+        self
+    }
+    fn aria_read_only(mut self, value: bool) -> Self {
+        self.interactivity().aria.read_only = value;
+        self
+    }
+    fn aria_has_popup(mut self, value: accesskit::HasPopup) -> Self {
+        self.interactivity().aria.has_popup = Some(value);
+        self
+    }
+    fn aria_current(mut self, value: accesskit::AriaCurrent) -> Self {
+        self.interactivity().aria.current = Some(value);
+        self
+    }
+    /// `id` is a sibling's: an element in the same id scope as this one.
+    fn aria_labelled_by(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().labelled_by.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_described_by(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().described_by.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_controls(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().controls.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_error_message(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().error_message = Some(id.into());
+        self
+    }
+    /// A custom action assistive technology offers by `description`. Its
+    /// request is [`accesskit::Action::CustomAction`] with
+    /// `ActionData::CustomAction(id)`: one [`Self::on_a11y_action`]
+    /// handler answers every custom action a node has.
+    fn custom_action(mut self, id: i32, description: impl Into<String>) -> Self {
+        self.interactivity()
+            .aria
+            .custom_actions
+            .push((id, description.into()));
+        self
+    }
+    /// Answers `action` when assistive technology requests it; the host
+    /// keeps click and focus, so those are never asked here.
+    fn on_a11y_action(
+        mut self,
+        action: accesskit::Action,
+        listener: impl Fn(&Option<accesskit::ActionData>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity()
+            .a11y_actions
+            .push((action, Box::new(listener)));
         self
     }
     fn overflow_scroll(mut self) -> Self {

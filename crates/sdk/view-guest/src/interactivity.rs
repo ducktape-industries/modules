@@ -35,6 +35,15 @@ pub struct Interactivity {
     pub(crate) active: Option<StyleRefinement>,
     pub(crate) group_hover: Option<(SharedString, StyleRefinement)>,
     pub(crate) group_active: Option<(SharedString, StyleRefinement)>,
+    /// Relation targets: siblings' ids, lowered to their paths.
+    labelled_by: Vec<ElementId>,
+    described_by: Vec<ElementId>,
+    controls: Vec<ElementId>,
+    error_message: Option<ElementId>,
+    a11y_actions: Vec<(
+        gpui::accesskit::Action,
+        EventListener<Option<wire::ActionData>>,
+    )>,
     pub(crate) on_click: Option<EventListener<ClickEvent>>,
     pub(crate) on_aux_click: Option<EventListener<ClickEvent>>,
     mouse_down: Vec<ButtonBinding<gpui::MouseDownEvent>>,
@@ -365,3 +374,6 @@ mod lowering;
 
 mod stateful;
 pub use stateful::{Stateful, StatefulInteractiveElement};
+
+#[cfg(test)]
+mod tests;

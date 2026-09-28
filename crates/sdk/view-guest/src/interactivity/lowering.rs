@@ -5,6 +5,21 @@ impl Interactivity {
         self,
         lowering: &Lowering<'_>,
     ) -> (Option<wire::ElementIdWire>, wire::Interactivity) {
+        let scope = lowering.current_path();
+        // an identified element lowers inside its own scope; its siblings
+        // share the one above
+        let scope = &scope[..scope.len() - usize::from(self.id.is_some())];
+        let path = |target| [scope, &[crate::element::wire_id(target)]].concat();
+        let mut aria = self.aria;
+        aria.labelled_by = self.labelled_by.into_iter().map(path).collect();
+        aria.described_by = self.described_by.into_iter().map(path).collect();
+        aria.controls = self.controls.into_iter().map(path).collect();
+        aria.error_message = self.error_message.map(path);
+        aria.actions = self
+            .a11y_actions
+            .into_iter()
+            .map(|(action, listener)| (action, lowering.route(listener)))
+            .collect();
         let id = self.id.map(crate::element::wire_id);
         let tooltip = self.tooltip.map(|tooltip| {
             let request = lowering.tooltip(tooltip.build);
@@ -21,7 +36,7 @@ impl Interactivity {
         });
         let wire = wire::Interactivity {
             role: self.role,
-            aria: self.aria,
+            aria,
             focusable: self.focusable,
             tab_stop: self.tab_stop,
             tab_index: self.tab_index,
