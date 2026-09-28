@@ -4,17 +4,17 @@
 use ducktape_view_guest::Host;
 use ducktape_view_guest::host::{Error, pages, wrong_reply};
 use ducktape_view_guest::methods::Query;
-use identity::view::Identity;
+use identity::view::IdentityApi;
 use module_registry as registry;
-use module_registry::view::Registry;
-use valset::view::Valset;
+use module_registry::view::RegistryApi;
+use valset::view::ValsetApi;
 
 use crate::state::{Accounts, Network};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
     let list = pages(None, |after| {
-        let ask = host.ask::<Query<Identity>>(identity::Query::List {
+        let ask = host.ask::<Query<IdentityApi>>(identity::Query::List {
             page: identity::PageRequest { after, limit: None },
         });
         async move {
@@ -29,7 +29,10 @@ pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
 }
 
 pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
-    match host.ask::<Query<Valset>>(valset::Query::Validators).await? {
+    match host
+        .ask::<Query<ValsetApi>>(valset::Query::Validators)
+        .await?
+    {
         valset::Reply::Validators(keys) => Ok(keys),
         _ => Err(wrong_reply()),
     }
@@ -41,19 +44,22 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
 /// before the height asked, and it answers no height of its own, so there is
 /// no "as of now" to ask for — the scheduled list is what is still to come.
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
-    let programs = match host.ask::<Query<Registry>>(registry::Query::At(0)).await? {
+    let programs = match host
+        .ask::<Query<RegistryApi>>(registry::Query::At(0))
+        .await?
+    {
         registry::Reply::Programs(programs) => programs,
         _ => return Err(wrong_reply()),
     };
     let views = match host
-        .ask::<Query<Registry>>(registry::Query::Views(0))
+        .ask::<Query<RegistryApi>>(registry::Query::Views(0))
         .await?
     {
         registry::Reply::Views(views) => views,
         _ => return Err(wrong_reply()),
     };
     let changes = pages(None, |after| {
-        let ask = host.ask::<Query<Registry>>(registry::Query::Scheduled {
+        let ask = host.ask::<Query<RegistryApi>>(registry::Query::Scheduled {
             page: registry::PageRequest { after, limit: None },
         });
         async move {
