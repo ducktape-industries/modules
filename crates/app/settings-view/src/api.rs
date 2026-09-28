@@ -4,5 +4,5 @@ pub use ducktape_view_guest::methods::{
     CreateInvite, HostSession, Invite, InviteCreate, Session, Submit,
 };
 
-pub use identity::view::Identity;
-pub use valset::view::Valset;
+pub use identity::view::IdentityApi;
+pub use valset::view::ValsetApi;

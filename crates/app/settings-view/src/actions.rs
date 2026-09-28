@@ -4,7 +4,7 @@ use ducktape_view_guest::Context;
 use ducktape_view_guest::methods::ClipboardWrite;
 use ducktape_view_guest::view::Loadable;
 
-use crate::api::{CreateInvite, Identity, InviteCreate, Session, Submit};
+use crate::api::{CreateInvite, IdentityApi, InviteCreate, Session, Submit};
 use crate::state::{Form, Problem, Section, TTL};
 use crate::{Settings, queries};
 
@@ -68,7 +68,7 @@ impl Settings {
             name,
             scheme: abi::Scheme::Ed25519,
         };
-        let ask = cx.host().ask::<Submit<Identity>>(op);
+        let ask = cx.host().ask::<Submit<IdentityApi>>(op);
         cx.spawn(async move |this, cx| {
             let result = ask.await;
             let _ = this.update(cx, |view, cx| {
@@ -196,7 +196,7 @@ impl Settings {
         pending.busy = true;
         pending.problem = None;
         cx.notify();
-        let ask = cx.host().ask::<Submit<Identity>>(op);
+        let ask = cx.host().ask::<Submit<IdentityApi>>(op);
         cx.spawn(async move |this, cx| {
             let result = ask.await;
             let _ = this.update(cx, |view, cx| {

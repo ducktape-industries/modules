@@ -169,14 +169,14 @@ impl Forge {
                     n,
                     title: Some(form.title.clone()),
                     body: Some(form.body.text()),
-                    reviewers: Some(form.reviewers.clone()),
+                    reviewers: Some(form.reviewers),
                 },
                 "Saving the change".to_owned(),
                 change_key(&repo, n),
             ),
             None => (
                 Op::ChangeOpen {
-                    repo: repo.clone(),
+                    repo,
                     from: Revision::Ref(form.from.clone()),
                     into: form.into.clone(),
                     title: form.title.clone(),

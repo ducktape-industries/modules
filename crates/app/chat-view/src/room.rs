@@ -84,10 +84,9 @@ impl Chat {
                 |chat| &mut room_of(chat).messages,
             )
         } else {
-            let (has_older_id, viewer2) = (id.clone(), viewer.clone());
             let handle = cx.spawn(async move |this, cx| {
                 let host = cx.host();
-                let result = queries::roots(host, has_older_id, viewer2, None, WINDOW).await;
+                let result = queries::roots(host, id, viewer, None, WINDOW).await;
                 let _ = this.update(cx, |chat, cx| {
                     cx.notify();
                     chat.rows_arrived(result)

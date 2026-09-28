@@ -36,8 +36,8 @@ writes `crates/app/poll/` in valset's shape, registers it (`PROGRAMS` and
   with the feature off and gets the types with no host import and no export,
   and a native test runs the real `execute` and `query`.
 - `view` adds `src/view.rs`, the `ducktape_view_guest::methods::Module`
-  marker `poll-view` names the module by (`poll::view::Poll`, imported as
-  `PollApi` beside the view's own `Poll`).
+  marker `poll-view` names the module by: `poll::view::PollApi`, named apart
+  from the module's `Poll` and the view's own `Poll`.
 - `describe` makes the crate's wasm build the `ducktape.describe` module: the
   `describe` export alone, no module, no imports (section 7).
 

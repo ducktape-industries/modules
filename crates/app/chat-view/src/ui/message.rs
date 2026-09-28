@@ -559,7 +559,7 @@ fn block_view(
             .border_color(theme.border_strong)
             .pl_2()
             .text_color(theme.muted)
-            .child(rich_line(id.clone(), spans, names, cx, theme))
+            .child(rich_line(id, spans, names, cx, theme))
             .into_any_element(),
         Block::Paragraph(spans) => match chat::list_item(spans) {
             // a list item: its marker in a hanging gutter, the item beside it
