@@ -248,16 +248,12 @@ fn sanitize_fields(
             style_sanitize::sanitize(style);
         }
         Node::Editor {
-            options,
             style,
             placeholder,
             label,
             ..
         } => {
             style_sanitize::sanitize(style);
-            if let Some(presentation) = &mut options.presentation {
-                presentation.sanitize();
-            }
             spend_text(placeholder, budgets);
             if let Some(label) = label {
                 spend_text(label, budgets);

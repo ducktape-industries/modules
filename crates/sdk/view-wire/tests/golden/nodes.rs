@@ -158,7 +158,7 @@ pub fn every_node() -> Node {
             style: style(),
         },
         Node::Editor {
-            options: Default::default(),
+            binding: None,
             id: id("editor"),
             style: style(),
             placeholder: "Notes".into(),

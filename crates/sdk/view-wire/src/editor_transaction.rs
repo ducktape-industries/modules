@@ -130,6 +130,17 @@ pub struct EditorRequest {
     pub input_time_ms: u64,
 }
 
+/// A guest-authored control action, ordered after pending native input. It
+/// is not an edit or a history commit: the editor event envelope supplies the
+/// instance and canonical document reference.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorInteraction {
+    Action {
+        #[serde(deserialize_with = "decode_name")]
+        tag: String,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditorRequestInput {
     Key {
@@ -137,7 +148,7 @@ pub enum EditorRequestInput {
         repeat: bool,
     },
     Interaction {
-        action: crate::editor_presentation::EditorInteraction,
+        action: EditorInteraction,
     },
 }
 
@@ -188,7 +199,7 @@ pub enum EditorTransactionEvent {
     Interaction {
         id: EditorTransactionId,
         state: crate::editor_document::EditorDocumentRef,
-        action: crate::editor_presentation::EditorInteraction,
+        action: EditorInteraction,
         input_time_ms: u64,
     },
     Commit {

@@ -183,7 +183,7 @@ fn a_frame_round_trips() {
                 style: gpui::StyleRefinement::default(),
             },
             Node::Editor {
-                options: Default::default(),
+                binding: None,
                 id: ElementIdWire::Name("App/e".into()),
                 style: gpui::StyleRefinement::default(),
                 placeholder: "Notes".into(),

@@ -15,10 +15,10 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use gpui::{Bounds, Pixels, StyleRefinement, point, px, size};
+use view_wire::EditorInteraction;
 use view_wire::editor_document::{
     EditorDocumentMessage, EditorDocumentRef, EditorTransfer, EditorTransferError, EditorTransferId,
 };
-use view_wire::editor_presentation::EditorInteraction;
 use view_wire::list::{
     ListCommand, UniformListHorizontalSizing, UniformListScrollRequest, UniformListScrollStrategy,
     UniformListSizing,
