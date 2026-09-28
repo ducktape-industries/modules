@@ -11,7 +11,7 @@ modules in `crates/system/` are one implementation of each.
 | Role | Bound here to | What the kernel does with it |
 |---|---|---|
 | `registry` | `module-registry` | at founding, writes its params (`role::registry::Genesis`: every founding module and view); at each block, before any frame, asks `At(height)` and admits, swaps or drops modules to match the answer |
-| `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes) |
+| `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there |
 | `identity` | `identity` | as it admits a module (at founding, and later off the registry), executes `RegisterModule { module }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfModule(sender)` |
 
 The founding file binds them (ducktape's `[roles]` table; qa's
