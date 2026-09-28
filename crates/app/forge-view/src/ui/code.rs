@@ -22,6 +22,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     if forge.layout.tree_visible() || forge.nav().blob.is_none() {
         columns = columns.child(tree(forge, cx, theme)).child(design::divider(
             id("forge-files-resize"),
+            "Resize the file tree",
             theme,
             cx,
             |forge: &mut Forge, dx| {

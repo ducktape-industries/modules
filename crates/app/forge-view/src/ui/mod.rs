@@ -54,6 +54,7 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
             .child(repos::rail(forge, cx, &theme))
             .child(design::divider(
                 id("forge-rail-resize"),
+                "Resize the repository list",
                 &theme,
                 cx,
                 |forge: &mut Forge, dx| {

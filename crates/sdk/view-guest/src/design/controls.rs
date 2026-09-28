@@ -20,7 +20,9 @@ pub enum Kind {
 }
 
 /// A button. Disabled keeps it visible, drops the click and says so.
-/// Selected is the chosen one: fg text on the window and an fg edge.
+/// Selected is the chosen one: fg text on the window and an fg edge. A
+/// button told whether it is selected is a toggle, pressed or not; one
+/// never told is a plain button.
 #[derive(IntoElement)]
 pub struct Button<F>
 where
@@ -31,7 +33,7 @@ where
     theme: Theme,
     enabled: bool,
     kind: Kind,
-    selected: bool,
+    selected: Option<bool>,
     click: F,
 }
 
@@ -50,7 +52,7 @@ where
         theme: *theme,
         enabled: true,
         kind: Kind::Plain,
-        selected: false,
+        selected: None,
         click,
     }
 }
@@ -68,7 +70,7 @@ where
         self
     }
     pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
+        self.selected = Some(selected);
         self
     }
 }
@@ -79,6 +81,7 @@ where
 {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let theme = self.theme;
+        let selected = self.selected == Some(true);
         let mut element = div()
             .id(self.id)
             .px_2()
@@ -88,7 +91,7 @@ where
             .child(self.label);
         // The chosen one is the ink one: fg text on the window, an fg edge
         // around it; the rest stay quiet.
-        element = match (self.kind, self.selected) {
+        element = match (self.kind, selected) {
             // a primary that cannot run greys out but keeps its place
             (Kind::Primary, _) if !self.enabled => {
                 element.bg(theme.faint).text_color(theme.primary_foreground)
@@ -116,8 +119,11 @@ where
                 .border_1()
                 .border_color(theme.border_strong),
         };
-        if self.selected {
-            element = element.font_weight(FontWeight::MEDIUM).aria_selected(true);
+        if let Some(pressed) = self.selected {
+            element = element.aria_toggled(pressed.into());
+        }
+        if selected {
+            element = element.font_weight(FontWeight::MEDIUM);
         }
         if !self.enabled {
             return match self.kind {
@@ -125,7 +131,7 @@ where
                 _ => element.text_color(theme.muted).aria_disabled(true),
             };
         }
-        element = match (self.kind, self.selected) {
+        element = match (self.kind, selected) {
             (Kind::Quiet, false) => element.hover(move |style| style.text_color(theme.foreground)),
             (Kind::Plain, false) => element
                 .hover(move |style| style.bg(theme.surface_raised))
@@ -249,7 +255,7 @@ pub fn segment(
                 .hover(move |style| style.text_color(theme.foreground)),
         })
         .role(Role::RadioButton)
-        .aria_selected(selected)
+        .aria_toggled(selected.into())
         .focusable()
         .on_click(click)
         .child(label.into())
@@ -282,7 +288,7 @@ pub fn switch(
         .when(on, |pill| pill.justify_end())
         .role(Role::Switch)
         .aria_label(label.into())
-        .aria_selected(on)
+        .aria_toggled(on.into())
         .child(knob);
     match enabled {
         true => element.cursor_pointer().focusable().on_click(toggle),
@@ -341,19 +347,48 @@ pub fn setting_row(
         )
 }
 
+/// How far an arrow key moves a [`divider`]; shift moves it four times as far.
+const STEP: f32 = 8.;
+
 /// The line between two panes, dragged to move it: `drag` takes the
-/// horizontal delta (and clamps the layout it moves).
+/// horizontal delta (and clamps the layout it moves). `label` names it
+/// ("Resize the room list"); focused, left and right move it by [`STEP`].
 pub fn divider<V: crate::View>(
     id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
     theme: &Theme,
     cx: &mut crate::Context<V>,
     drag: impl Fn(&mut V, f32) + 'static,
 ) -> crate::ResizeHandle {
-    let dragged = cx.listener(move |view, delta: &(Pixels, Pixels), _window, cx| {
-        drag(view, delta.0.into());
+    let drag = std::rc::Rc::new(drag);
+    let dragged = cx.listener({
+        let drag = drag.clone();
+        move |view, delta: &(Pixels, Pixels), _window, cx| {
+            drag(view, delta.0.into());
+            cx.notify();
+        }
+    });
+    let stepped = cx.listener(move |view, event: &KeyDownEvent, _window, cx| {
+        let step = match event.keystroke.modifiers.shift {
+            true => STEP * 4.,
+            false => STEP,
+        };
+        let delta = match event.keystroke.key.as_str() {
+            "left" => -step,
+            "right" => step,
+            _ => return,
+        };
+        drag(view, delta);
         cx.notify();
     });
-    crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border)).on_drag(dragged)
+    crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border))
+        .on_drag(dragged)
+        .role(Role::Splitter)
+        .aria_label(label)
+        .aria_orientation(gpui::Orientation::Vertical)
+        .focusable()
+        .tab_stop(true)
+        .on_key_down(stepped)
 }
 
 #[cfg(test)]

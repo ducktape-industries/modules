@@ -128,6 +128,7 @@ fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEle
         .child(sidebar::render(chat, cx, theme))
         .child(design::divider(
             "chat-sidebar-resize",
+            "Resize the room list",
             theme,
             cx,
             |chat, dx| {
@@ -148,14 +149,26 @@ fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEle
         return panes.child(design::over("chat-side-over", pane, theme));
     }
     let divider = match details {
-        true => design::divider("chat-details-resize", theme, cx, |chat, dx| {
-            chat.layout.details -= dx;
-            chat.layout.clamp();
-        }),
-        false => design::divider("chat-thread-resize", theme, cx, |chat, dx| {
-            chat.layout.thread -= dx;
-            chat.layout.clamp();
-        }),
+        true => design::divider(
+            "chat-details-resize",
+            "Resize channel details",
+            theme,
+            cx,
+            |chat, dx| {
+                chat.layout.details -= dx;
+                chat.layout.clamp();
+            },
+        ),
+        false => design::divider(
+            "chat-thread-resize",
+            "Resize the thread",
+            theme,
+            cx,
+            |chat, dx| {
+                chat.layout.thread -= dx;
+                chat.layout.clamp();
+            },
+        ),
     };
     panes.child(divider).child(pane)
 }

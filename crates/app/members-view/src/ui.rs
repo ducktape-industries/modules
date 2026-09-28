@@ -46,6 +46,7 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
         (true, _) => screen
             .child(design::divider(
                 "members-list-resize",
+                "Resize the member list",
                 &theme,
                 cx,
                 |view, dx| {

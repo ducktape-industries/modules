@@ -167,6 +167,9 @@ impl TestAppContext {
     pub fn simulate_drag(&mut self, key: &str, dx: f64, dy: f64) {
         self.dispatch(super::drag(&self.frame, key, dx, dy));
     }
+    pub fn simulate_key_down(&mut self, key: &str, keystroke: &str) {
+        self.dispatch(super::key_down(&self.frame, key, keystroke));
+    }
     pub fn simulate_dismiss(&mut self, key: &str) {
         self.dispatch(super::dismiss(&self.frame, key));
     }

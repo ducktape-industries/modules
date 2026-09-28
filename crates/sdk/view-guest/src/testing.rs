@@ -224,6 +224,36 @@ pub(crate) fn drag(frame: &Frame, name: &str, dx: f64, dy: f64) -> Vec<Event> {
     }]
 }
 
+/// The event the host sends when `keystroke` (gpui's words: `"shift-left"`)
+/// goes down on the focused node with key `name`.
+pub(crate) fn key_down(frame: &Frame, name: &str, keystroke: &str) -> Vec<Event> {
+    let interactivity = match find(frame, name) {
+        Some(
+            Node::Container(crate::wire::ContainerNode { interactivity, .. })
+            | Node::UniformList { interactivity, .. }
+            | Node::List { interactivity, .. }
+            | Node::ResizeHandle { interactivity, .. }
+            | Node::Image { interactivity, .. }
+            | Node::Svg { interactivity, .. },
+        ) => interactivity,
+        _ => panic!("no interactive node {name:?} in {:?}", keys(frame)),
+    };
+    let Some(handler) = interactivity.on_key_down else {
+        panic!("{name:?} has no key route");
+    };
+    let keystroke = gpui::Keystroke::parse(keystroke).expect("a keystroke gpui reads");
+    let event = gpui::KeyDownEvent {
+        keystroke,
+        is_held: false,
+        prefer_character_input: false,
+    };
+    vec![Event::KeyDown {
+        handler,
+        phase: crate::wire::DispatchPhase::Bubble,
+        event: (&event).into(),
+    }]
+}
+
 /// The event the host sends when the modal backdrop dismisses an overlay.
 pub(crate) fn dismiss(frame: &Frame, name: &str) -> Vec<Event> {
     let Some(Node::Overlay { on_dismiss, .. }) = find(frame, name) else {
