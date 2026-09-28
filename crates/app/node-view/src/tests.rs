@@ -360,7 +360,7 @@ fn the_network_fills_height_behind_heard_and_status() {
     expect(
         &cx,
         [
-            (0, &["4,200", "signed", "0", "this node", "In sync"]),
+            (0, &["4,200", "0", "this node", "In sync"]),
             (1, &["4,199", "signed", "1", "1s ago", "In sync"]),
             (2, &["3,871", "signed", "329", "50s ago", "Checking"]),
             (3, &["4,156", "reported", "44", "0s ago", "44 behind"]),

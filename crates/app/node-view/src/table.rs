@@ -227,7 +227,9 @@ fn status(index: usize, status: &Status, theme: &Theme) -> impl IntoElement {
         Status::Withheld | Status::NotReported | Status::Checking => {
             vec![badge(theme.muted, theme.surface_raised)]
         }
-        Status::Led { of: 0, .. } => vec![caption("—".into())],
+        // no block of the strip names who led it (yet, or ever: a node
+        // that state-synced past their certificates)
+        Status::Led { of: 0, .. } => vec![caption("Not known".into())],
         Status::Led { .. } => vec![caption(status.word())],
         Status::Quiet { since, of } => vec![
             badge(theme.warning, theme.warning_soft),

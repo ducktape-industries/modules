@@ -81,10 +81,11 @@ pub fn synced(node: &Node, this: bool, network: &NetworkStatus) -> Row {
         Report::Height { height, .. } => Some(height),
         Report::Withheld => None,
     });
+    // this node's own row is its tip, which it never asks itself about
     let height = match (node.validator, peer.and_then(|peer| peer.signed), reported) {
+        _ if this => Some((network.height, "")),
         (true, Some(signed), _) => Some((signed, "signed")),
         (_, _, Some(reported)) => Some((reported, "reported")),
-        _ if this => Some((network.height, "")),
         _ => None,
     };
     let behind = height.map(|(height, _)| network.height as i64 - height as i64);

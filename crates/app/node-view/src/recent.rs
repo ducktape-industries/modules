@@ -19,6 +19,11 @@ pub struct Recent {
     /// keeps no certificate for it (a block it state-synced past)
     pub led: BTreeMap<u64, Option<Vec<u8>>>,
     /// the lowest height the node's archive keeps, as a short page showed
+    ///
+    /// ponytail: set once and never lowered, so an empty page for a tip the
+    /// node had not archived yet leaves that height a gap until it scrolls
+    /// out, and an archive that later grows below it is not re-read; reset
+    /// it on a reconnect if either shows up.
     pub bottom: u64,
 }
 
