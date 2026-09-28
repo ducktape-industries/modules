@@ -7,9 +7,10 @@ use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::wire::{ContainerNode, Node, TextNode};
 use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
 
+// the list and the detail fit at 320, the desk's smallest window
 #[test]
-fn the_window_opens_wide_enough_for_the_list_and_the_detail() {
-    assert_eq!(<Members as View>::PREFERRED_WINDOW_SIZE, "960,640");
+fn the_view_is_laid_out_from_320() {
+    assert_eq!(<Members as View>::MIN_WINDOW_WIDTH, 320);
 }
 
 #[test]

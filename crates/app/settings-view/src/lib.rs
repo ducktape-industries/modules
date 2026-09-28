@@ -19,7 +19,7 @@ pub use state::Settings;
 use ducktape_view_guest::{Context, IntoElement, Render, View, Window, export_view};
 
 impl View for Settings {
-    const PREFERRED_WINDOW_SIZE: &'static str = "820,940";
+    const MIN_WINDOW_WIDTH: u32 = 560;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self {
