@@ -487,12 +487,18 @@ fn head(
         caption.push(vec![text(devices)]);
     }
     if let Some(standing) = &row.standing {
+        // a validator in the success colours, a resident quiet: Nodes'
+        // memberships drew them so
+        let (foreground, background) = match standing.as_str() {
+            "Validator" => (theme.success, theme.success_soft),
+            _ => (theme.muted, theme.surface_raised),
+        };
         caption.push(vec![
             design::badge(
                 "members-validator",
                 standing.clone(),
-                theme.success,
-                theme.success_soft,
+                foreground,
+                background,
             )
             .into_any_element(),
         ]);
