@@ -96,11 +96,13 @@ impl<'a> Step<'a> {
             .filter_map(|step| interactivity(step.node))
     }
 
-    /// Whether a node above this one holds a role in `roles`, and is
-    /// focusable when `focusable` asks it to be.
-    fn inside(&self, roles: &[Role], focusable: bool) -> bool {
+    /// Whether a node above this one holds a role in `roles`, and, when
+    /// `keyed` asks, takes focus and hears the keys that walk its rows.
+    fn inside(&self, roles: &[Role], keyed: bool) -> bool {
         self.ancestors().any(|above| {
-            (above.focusable || !focusable)
+            (!keyed
+                || above.focusable
+                    && (above.on_key_down.is_some() || above.capture_key_down.is_some()))
                 && view_role(above.role).is_some_and(|role| roles.contains(&role))
         })
     }
@@ -162,7 +164,8 @@ const CONTROL: [Role; 9] = [
     Role::Switch,
     Role::RadioButton,
 ];
-/// A focused one of these reaches its rows by arrow keys, whichever is active.
+/// A focused one of these with a key route reaches its rows by arrow keys,
+/// whichever is active.
 const COMPOSITE: [Role; 8] = [
     Role::Tree,
     Role::ListBox,

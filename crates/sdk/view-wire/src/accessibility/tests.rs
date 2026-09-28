@@ -427,8 +427,8 @@ fn a_click_no_key_reaches_fails() {
     fails(Unreachable, el("open", unfocusable, vec![text("Open")]));
 }
 
-#[test]
-fn a_row_of_a_focused_composite_passes() {
+/// A focusable list box of one pressable row; `keys` routes its arrows.
+fn rooms(keys: Option<u32>) -> Node {
     let option = Interactivity {
         focusable: false,
         aria: Aria {
@@ -440,15 +440,26 @@ fn a_row_of_a_focused_composite_passes() {
     let list = labelled(
         Interactivity {
             focusable: true,
+            on_key_down: keys,
             ..roled(Role::ListBox)
         },
         "Rooms",
     );
-    passes(el(
+    el(
         "rooms",
         list,
         vec![el("general", option, vec![text("general")])],
-    ));
+    )
+}
+
+#[test]
+fn a_row_of_a_focused_composite_the_keys_walk_passes() {
+    passes(rooms(Some(2)));
+}
+
+#[test]
+fn a_row_of_a_focused_composite_no_key_walks_fails() {
+    fails(Unreachable, rooms(None));
 }
 
 #[test]
