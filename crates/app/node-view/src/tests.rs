@@ -302,6 +302,36 @@ fn said(at: u64, height: u64) -> Option<Said> {
     })
 }
 
+/// The members as the node reports them at `at` on its clock.
+fn seen(at: u64) -> NetworkStatus {
+    NetworkStatus {
+        height: 4200,
+        at,
+        members: vec![
+            Peer {
+                key: THIS.to_vec(),
+                signed: Some(4200),
+                said: None,
+            },
+            Peer {
+                key: OTHER.to_vec(),
+                signed: Some(4199),
+                said: said(59_000, 4200),
+            },
+            Peer {
+                key: UNLISTED.to_vec(),
+                signed: Some(3871),
+                said: said(10_000, 3871),
+            },
+            Peer {
+                key: RESIDENT.to_vec(),
+                signed: None,
+                said: said(59_500, 4156),
+            },
+        ],
+    }
+}
+
 /// With `chain.network`: a validator's signed height, a resident's reported
 /// one, how far each is from the tip, when it last answered, one word.
 #[test]
@@ -310,60 +340,77 @@ fn the_network_fills_height_behind_heard_and_status() {
     let ticks = node(&cx);
     cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
-    cx.host().handle::<ChainNetwork>(|()| {
-        Ok(NetworkStatus {
-            height: 4200,
-            at: 60_000,
-            members: vec![
-                Peer {
-                    key: THIS.to_vec(),
-                    signed: Some(4200),
-                    said: None,
-                },
-                Peer {
-                    key: OTHER.to_vec(),
-                    signed: Some(4199),
-                    said: said(59_000, 4200),
-                },
-                Peer {
-                    key: UNLISTED.to_vec(),
-                    signed: Some(3871),
-                    said: said(10_000, 3871),
-                },
-                Peer {
-                    key: RESIDENT.to_vec(),
-                    signed: None,
-                    said: said(59_500, 4156),
-                },
-            ],
-        })
-    });
+    cx.host().handle::<ChainNetwork>(|()| Ok(seen(60_000)));
     cx.open::<Nodes>();
     cx.run_until_parked();
-    let row = |index: usize| texts_of(&cx, &format!("nodes-row-{index}"));
-    for (index, expected) in [
-        (0, &["4,200", "signed", "0", "this node", "In sync"][..]),
-        (1, &["4,199", "signed", "1", "1s ago", "In sync"]),
-        (2, &["3,871", "signed", "329", "50s ago", "Not answering"]),
-        (3, &["4,156", "reported", "44", "0s ago", "44 behind"]),
-    ] {
-        let texts = row(index);
-        for text in expected {
-            assert!(
-                texts.contains(&text.to_string()),
-                "row {index}, {text}: {texts:?}"
-            );
+    let row = |cx: &TestAppContext, index: usize| texts_of(cx, &format!("nodes-row-{index}"));
+    let expect = |cx: &TestAppContext, rows: [(usize, &[&str]); 4]| {
+        for (index, expected) in rows {
+            let texts = row(cx, index);
+            for text in expected {
+                assert!(
+                    texts.contains(&text.to_string()),
+                    "row {index}, {text}: {texts:?}"
+                );
+            }
         }
-    }
-    assert!(!cx.has_text("Not reported"));
+    };
+    // the first reply carries answer times from before the node asked:
+    // nobody is Not answering on it yet
+    expect(
+        &cx,
+        [
+            (0, &["4,200", "signed", "0", "this node", "In sync"]),
+            (1, &["4,199", "signed", "1", "1s ago", "In sync"]),
+            (2, &["3,871", "signed", "329", "50s ago", "Checking"]),
+            (3, &["4,156", "reported", "44", "0s ago", "44 behind"]),
+        ],
+    );
+    assert!(!cx.has_text("Not reported") && !cx.has_text("Not answering"));
     assert!(cx.has_text(
         "Height: for a validator, the last block its signature finalized; for a resident, \
          the height it reports. Heard: when it last answered this node, which asks every second."
     ));
-    // one ask in flight at a time, again on the clock
+    // the next one, within ten seconds, can say so; one ask in flight at a
+    // time, again on the clock
     ticks.send(());
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<ChainNetwork>().len(), 2);
+    expect(
+        &cx,
+        [
+            (0, &["In sync"]),
+            (1, &["In sync"]),
+            (2, &["50s ago", "Not answering"]),
+            (3, &["44 behind"]),
+        ],
+    );
+    // after a 30 s gap the resident's answer is old again, but the reply
+    // cannot say so yet: its row stays as the reply before had it
+    cx.host().handle::<ChainNetwork>(|()| Ok(seen(90_000)));
+    ticks.send(());
+    cx.run_until_parked();
+    expect(
+        &cx,
+        [
+            (0, &["In sync"]),
+            (1, &["In sync"]),
+            (2, &["Not answering"]),
+            (3, &["0s ago", "44 behind"]),
+        ],
+    );
+    cx.host().handle::<ChainNetwork>(|()| Ok(seen(91_000)));
+    ticks.send(());
+    cx.run_until_parked();
+    expect(
+        &cx,
+        [
+            (0, &["In sync"]),
+            (1, &["Not answering"]),
+            (2, &["Not answering"]),
+            (3, &["31s ago", "Not answering"]),
+        ],
+    );
     cx.assert_accessible();
 }
 

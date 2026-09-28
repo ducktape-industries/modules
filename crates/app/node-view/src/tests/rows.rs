@@ -4,7 +4,7 @@ use ducktape_view_guest::methods::{Block, BlockPage, NetworkStatus, Peer, Report
 
 use crate::queries::{Node, fold};
 use crate::recent::{Recent, WINDOW};
-use crate::row::{Row, Status, synced, unsynced};
+use crate::row::{Row, Status, shown, synced, unsynced};
 
 fn member(key: u8, role: valset::Role) -> valset::Membership {
     valset::Membership {
@@ -304,5 +304,35 @@ fn heard_is_the_nodes_clock_minus_the_answer() {
     assert_eq!(
         (row.height, row.heard.as_str(), row.status),
         (Some((4_295, "")), "this node", Status::InSync)
+    );
+}
+
+/// Until two replies come within ten seconds of each other, a member the
+/// reply calls Not answering reads as the reply before had it, or Checking.
+#[test]
+fn an_early_reply_does_not_call_anyone_not_answering() {
+    let stale = network(vec![peer(1, Some(4_290), Some((900_000, height(4_290))))]);
+    let before = NetworkStatus {
+        at: 800_000,
+        members: vec![peer(1, Some(4_000), Some((799_500, height(4_000))))],
+        ..stale.clone()
+    };
+    let validator = node(1, true);
+    assert_eq!(
+        synced(&validator, false, &stale).status,
+        Status::NotAnswering
+    );
+    assert_eq!(
+        shown(&validator, false, &stale, false, None).status.word(),
+        "Checking"
+    );
+    let row = shown(&validator, false, &stale, false, Some(&before));
+    assert_eq!(
+        (row.height, row.status),
+        (Some((4_000, "signed")), Status::Behind(295))
+    );
+    assert_eq!(
+        shown(&validator, false, &stale, true, Some(&before)).status,
+        Status::NotAnswering
     );
 }

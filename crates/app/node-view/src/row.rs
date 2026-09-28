@@ -11,6 +11,10 @@ use crate::recent::Recent;
 pub const IN_SYNC: u64 = 2;
 /// A member whose last answer is older than this (ms) reads Not answering.
 pub const ANSWER_MS: u64 = 3_000;
+/// A `chain.network` reply this long (ms, the node's clock) after the one
+/// before it, or the first, still carries answer times from before the
+/// node asked again: it cannot call anyone Not answering yet.
+pub const SETTLE_MS: u64 = 10_000;
 /// A validator that led no block for this many blocks per validator reads
 /// Quiet (where there is no `chain.network` to say more).
 pub const QUIET_PER_VALIDATOR: u64 = 4;
@@ -23,6 +27,8 @@ pub enum Status {
     NotAnswering,
     Withheld,
     NotReported,
+    /// the first reply, or the first after a gap: not yet known to answer
+    Checking,
     /// no `chain.network`: of the strip's blocks that name a proposer,
     /// how many this validator led
     Led {
@@ -47,6 +53,7 @@ impl Status {
             Status::NotAnswering => "Not answering".into(),
             Status::Withheld => "Withheld".into(),
             Status::NotReported => "Not reported".into(),
+            Status::Checking => "Checking".into(),
             Status::Led { count, of } => {
                 format!("{} of {}", design::grouped(*count), design::grouped(*of))
             }
@@ -100,6 +107,30 @@ pub fn synced(node: &Node, this: bool, network: &NetworkStatus) -> Row {
         behind,
         heard,
         status,
+    }
+}
+
+/// The row on screen: as the reply has it, except that a member it calls
+/// Not answering before the replies settle (`settled`: this reply came
+/// within [`SETTLE_MS`] of the one before) reads as the reply before had
+/// it, or Checking where there is none.
+pub fn shown(
+    node: &Node,
+    this: bool,
+    network: &NetworkStatus,
+    settled: bool,
+    earlier: Option<&NetworkStatus>,
+) -> Row {
+    let row = synced(node, this, network);
+    if settled || row.status != Status::NotAnswering {
+        return row;
+    }
+    match earlier {
+        Some(earlier) => synced(node, this, earlier),
+        None => Row {
+            status: Status::Checking,
+            ..row
+        },
     }
 }
 

@@ -33,7 +33,9 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
             .map(move |(index, node)| {
                 let this = this == Some(node.key.as_slice());
                 let cells = match &view.network {
-                    Loadable::Ready(network) => row::synced(node, this, network),
+                    Loadable::Ready(network) => {
+                        row::shown(node, this, network, view.settled, view.earlier.as_ref())
+                    }
                     _ => row::unsynced(node, this, head, validators, &view.recent),
                 };
                 line(index, node, cells, head, &view.recent, theme)
@@ -222,7 +224,9 @@ fn status(index: usize, status: &Status, theme: &Theme) -> impl IntoElement {
         Status::InSync => vec![badge(theme.success, theme.success_soft)],
         Status::Behind(_) | Status::Ahead(_) => vec![badge(theme.warning, theme.warning_soft)],
         Status::NotAnswering => vec![badge(theme.danger, theme.danger_soft)],
-        Status::Withheld | Status::NotReported => vec![badge(theme.muted, theme.surface_raised)],
+        Status::Withheld | Status::NotReported | Status::Checking => {
+            vec![badge(theme.muted, theme.surface_raised)]
+        }
         Status::Led { of: 0, .. } => vec![caption("—".into())],
         Status::Led { .. } => vec![caption(status.word())],
         Status::Quiet { since, of } => vec![

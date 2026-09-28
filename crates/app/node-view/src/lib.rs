@@ -40,6 +40,13 @@ pub struct Nodes {
     /// not serve `chain.network`
     pub(crate) network: Loadable<NetworkStatus>,
     pub(crate) recent: Recent,
+    /// the reply before the one on screen, kept while that one came first
+    /// or after a gap and so cannot yet call a member Not answering
+    /// (`row::shown`)
+    #[serde(skip)]
+    pub(crate) earlier: Option<NetworkStatus>,
+    #[serde(skip)]
+    pub(crate) settled: bool,
     /// clock ticks since the view opened, and the tick the node last
     /// answered its status on and the one its height last moved on
     #[serde(skip)]
@@ -167,7 +174,14 @@ impl Nodes {
             let _ = this.update(cx, |view, cx| {
                 view.asking.network = false;
                 match answer {
-                    Ok(network) => view.network = Loadable::Ready(network),
+                    Ok(network) => {
+                        let earlier = view.network.ready().cloned();
+                        view.settled = earlier.as_ref().is_some_and(|earlier| {
+                            network.at.saturating_sub(earlier.at) <= row::SETTLE_MS
+                        });
+                        view.earlier = earlier.filter(|_| !view.settled);
+                        view.network = Loadable::Ready(network);
+                    }
                     Err(refusal) => {
                         if view.network.failed().is_none() {
                             cx.host()
