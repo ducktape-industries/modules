@@ -260,12 +260,13 @@ impl Aria {
         self.actions
             .retain(|(action, _)| !HOST_ACTIONS.contains(action) && seen.insert(*action));
         self.actions.truncate(MAX_ARIA_ACTIONS);
-        self.custom_actions.truncate(MAX_ARIA_CUSTOM_ACTIONS);
+        // deduped first, as the actions are, so repeats spend no place
         let mut seen = std::collections::HashSet::new();
         self.custom_actions.retain_mut(|(id, description)| {
             crate::truncate_to(description, MAX_ARIA_TEXT_BYTES);
             seen.insert(*id)
         });
+        self.custom_actions.truncate(MAX_ARIA_CUSTOM_ACTIONS);
         Ok(())
     }
 }

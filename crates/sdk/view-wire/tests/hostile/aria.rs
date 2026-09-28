@@ -350,6 +350,23 @@ fn custom_actions_are_cut_to_the_bound_unique_and_short() {
             .collect::<Vec<_>>(),
         (0..MAX_ARIA_CUSTOM_ACTIONS as i32).collect::<Vec<_>>()
     );
+    // repeats spend no place: a new id after eight of one is kept
+    let repeated = aria(Aria {
+        custom_actions: [1; MAX_ARIA_CUSTOM_ACTIONS]
+            .into_iter()
+            .chain([2])
+            .map(|id| (id, "Pin".into()))
+            .collect(),
+        ..Default::default()
+    });
+    assert_eq!(
+        repeated
+            .custom_actions
+            .iter()
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
 }
 
 #[test]
