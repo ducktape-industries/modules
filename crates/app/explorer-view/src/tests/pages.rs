@@ -183,6 +183,83 @@ fn the_scheduled_changes_survive_a_snapshot() {
     assert!(restored.has_text("Remove") && restored.has_text("at 120"));
 }
 
+/// Narrower than the two panels' minimums together (a 960 px view, less the
+/// scroll bar), the latest transactions go under the latest blocks: a
+/// column, each panel the page's width and its own content's height, so no
+/// stretched gap and no rule left hanging. From 960 they sit side by side as
+/// before, the transactions never narrower than they are alone at the view's
+/// narrowest; narrower, their titles went to nothing.
+#[test]
+fn the_latest_panels_stack_where_the_transactions_would_squeeze() {
+    use ducktape_view_guest::wire::{ContainerNode, Node};
+    use ducktape_view_guest::{StyleRefinement, Styled as _, design, px};
+    let (mut cx, _) = ready();
+    let style = |cx: &TestAppContext, id: &str| -> StyleRefinement {
+        match cx.find(id) {
+            Some(Node::Container(node)) => node.style.clone(),
+            _ => panic!("no {id}"),
+        }
+    };
+    let column = ContainerNode::default().flex_col().style.flex_direction;
+    let alone = px(<Explorer as View>::MIN_WINDOW_WIDTH as f32) - design::size::SCROLLBAR;
+    let breakpoint = f32::from(px(320.) + alone + design::size::SCROLLBAR);
+    assert_eq!(breakpoint, 960.);
+    for width in [640., 900., breakpoint - 1.] {
+        cx.simulate_measure("explorer-viewport", width, 760.);
+        cx.run_until_parked();
+        assert_eq!(
+            style(&cx, "explorer-latest").flex_direction,
+            column,
+            "{width}"
+        );
+        assert_eq!(style(&cx, "explorer-latest").flex_grow, None, "{width}");
+        for panel in ["explorer-latest-blocks", "explorer-latest-txs"] {
+            let style = style(&cx, panel);
+            // the page's width: stretched across the column, nothing caps it
+            assert_eq!(
+                (style.min_size.width, style.max_size.width),
+                (None, None),
+                "{panel} at {width}"
+            );
+            // its own height: nothing grows it down the column
+            assert_eq!(style.flex_grow, None, "{panel} at {width}");
+            assert_eq!(style.border_widths.right, None, "{panel} at {width}");
+        }
+    }
+    for width in [breakpoint, 1200.] {
+        cx.simulate_measure("explorer-viewport", width, 760.);
+        cx.run_until_parked();
+        let row = style(&cx, "explorer-latest");
+        assert_eq!(
+            (row.flex_direction, row.flex_grow),
+            (None, Some(1.)),
+            "{width}"
+        );
+        let blocks = style(&cx, "explorer-latest-blocks");
+        assert_eq!(
+            (
+                blocks.flex_grow,
+                blocks.min_size.width,
+                blocks.max_size.width,
+                blocks.border_widths.right
+            ),
+            (
+                Some(1.),
+                Some(px(320.).into()),
+                Some(px(420.).into()),
+                Some(px(1.).into())
+            ),
+            "{width}"
+        );
+        let txs = style(&cx, "explorer-latest-txs");
+        assert_eq!(
+            (txs.flex_grow, txs.min_size.width),
+            (Some(1.), Some(alone.into())),
+            "{width}"
+        );
+    }
+}
+
 #[test]
 fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();

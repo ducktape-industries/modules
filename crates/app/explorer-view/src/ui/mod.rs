@@ -89,7 +89,7 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
                 .child(note),
         );
     }
-    root.child(
+    let root = root.child(
         div()
             .id("explorer-page")
             .flex_1()
@@ -97,8 +97,24 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
             .flex_col()
             .overflow_y_scroll()
             .child(page(view, cx, &theme)),
-    )
-    .into_any_element()
+    );
+    ducktape_view_guest::sensor("explorer-viewport", root)
+        .size_full()
+        .on_show(cx.listener(measured))
+        .on_resize(cx.listener(measured))
+        .into_any_element()
+}
+
+/// The view's width, as the viewport measures it: the Overview lays its
+/// panels out to it.
+fn measured(
+    view: &mut Explorer,
+    size: &(Pixels, Pixels),
+    _: &mut Window,
+    cx: &mut Context<Explorer>,
+) {
+    view.width = Some(size.0.into());
+    cx.notify();
 }
 
 /// The line under the bar, in words.
