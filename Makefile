@@ -156,7 +156,9 @@ wasm-reproducible:
 	done; echo "no program or view embeds a path of this checkout or home"
 
 ## refreshes the probe fixture the founding suite seats as the authority,
-## from the ducktape checkout at $(DUCKTAPE).
+## from the ducktape checkout at $(DUCKTAPE). Its script type, `Step`, is
+## mirrored by hand next to the binary in system.rs: check it against
+## $(DUCKTAPE)/crates/kernel/fixtures/probe/src/lib.rs too.
 probe-fixture:
 	cp $(DUCKTAPE)/crates/kernel/fixtures/wasm/fixture_probe.wasm crates/system/module-registry/tests/
 

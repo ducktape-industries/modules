@@ -52,8 +52,9 @@ const PROBE: &[u8] = include_bytes!("fixture_probe.wasm");
 
 /// `crates/kernel/fixtures/probe`'s script type, mirrored byte-for-byte
 /// (same two borsh derives, same variant order) since the probe is bytes
-/// here, not a Cargo dependency: `make probe-fixture` refreshes both
-/// together. Only `Op` is scripted by this suite; the rest round-trip
+/// here, not a Cargo dependency: whoever next runs `make probe-fixture`
+/// checks this against `crates/kernel/fixtures/probe/src/lib.rs` at the
+/// new pin. Only `Op` is scripted by this suite; the rest round-trip
 /// through the derives so the discriminants still match the binary's.
 #[derive(BorshSerialize, BorshDeserialize)]
 enum Step {
