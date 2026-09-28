@@ -55,6 +55,9 @@ pub enum FaultKind {
     StatusNotLive,
     /// An invalid text field that does not say why (AX-108).
     ErrorNoText,
+    /// An active descendant the host drops, as gpui would panic on it: on
+    /// a node that takes focus, or after an earlier claim in the frame.
+    ActiveDescendant,
 }
 
 /// Every fault in the tree, depth first.
@@ -71,7 +74,7 @@ pub enum FaultKind {
 /// the audit.
 pub fn audit(root: &Node) -> Vec<Fault> {
     let mut faults = Vec::new();
-    walk(root, None, false, &mut faults);
+    walk(root, None, false, &mut false, &mut faults);
     faults
 }
 
@@ -108,9 +111,16 @@ impl<'a> Step<'a> {
     }
 }
 
-fn walk(node: &Node, parent: Option<&Step<'_>>, duplicate: bool, faults: &mut Vec<Fault>) {
+/// `claimed`: a node earlier in the walk holds the active descendant.
+fn walk(
+    node: &Node,
+    parent: Option<&Step<'_>>,
+    duplicate: bool,
+    claimed: &mut bool,
+    faults: &mut Vec<Fault>,
+) {
     let step = Step { node, parent };
-    let rules = rules(&step, duplicate);
+    let rules = rules(&step, duplicate, claimed);
     let path = (!rules.faults.is_empty()).then(|| step.keys());
     for kind in rules.faults {
         faults.push(Fault {
@@ -126,7 +136,7 @@ fn walk(node: &Node, parent: Option<&Step<'_>>, duplicate: bool, faults: &mut Ve
                 .iter()
                 .any(|earlier| earlier.key() == Some(key))
         });
-        walk(child, Some(&step), duplicate, faults);
+        walk(child, Some(&step), duplicate, claimed, faults);
     }
 }
 
@@ -187,7 +197,7 @@ const TEXT_INPUT: [Role; 8] = [
     Role::UrlInput,
 ];
 
-fn rules(step: &Step<'_>, duplicate: bool) -> Rules {
+fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
     use FaultKind::*;
     let node = step.node;
     let mut rules = Rules::default();
@@ -230,6 +240,11 @@ fn rules(step: &Step<'_>, duplicate: bool) -> Rules {
         rules.check(state.is_some(), MissingState, || state == Some(false));
         rules.check(aria.disabled == Some(true), DisabledButLive, || {
             i.on_click.is_some() || i.on_key_down.is_some()
+        });
+        // as the sanitizer keeps it: a focusable claim is dropped and
+        // spends nothing
+        rules.check(aria.active_descendant, ActiveDescendant, || {
+            i.focusable || i.focus_handle.is_some() || std::mem::replace(claimed, true)
         });
     }
     rules.check(interactive, NestedInteractive, || {

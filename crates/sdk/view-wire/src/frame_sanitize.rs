@@ -188,6 +188,8 @@ pub(crate) struct Budgets {
     pub(crate) text: usize,
     pub(crate) pictures: usize,
     pub(crate) list_items: usize,
+    /// A node already claimed the active descendant.
+    pub(crate) active_descendant: bool,
 }
 
 impl Budgets {
@@ -198,6 +200,7 @@ impl Budgets {
             pictures: MAX_PICTURE_BYTES_PER_FRAME,
             list_items: MAX_LIST_ITEMS,
             canvas_parts: MAX_CANVAS_PARTS,
+            active_descendant: false,
         }
     }
 }

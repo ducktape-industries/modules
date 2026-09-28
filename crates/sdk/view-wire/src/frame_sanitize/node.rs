@@ -31,6 +31,15 @@ pub(super) fn sanitize_node(
     | Node::Svg { interactivity, .. } = node
     {
         sanitize_interactivity(interactivity)?;
+        // gpui panics (debug) on a second claim in one frame under a
+        // focused node; the first in tree order keeps it.
+        // ponytail: one per frame, where gpui allows one per focused
+        // subtree; count per focusable ancestor when a screen claims in
+        // two composites at once.
+        let aria = &mut interactivity.aria;
+        if aria.active_descendant {
+            aria.active_descendant = !std::mem::replace(&mut budgets.active_descendant, true);
+        }
         if let Some(tooltip) = &mut interactivity.tooltip {
             tooltip.delay_ms = tooltip.delay_ms.min(60_000);
             sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;

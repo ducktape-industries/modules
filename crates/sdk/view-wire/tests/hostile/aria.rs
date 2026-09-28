@@ -183,18 +183,61 @@ fn a_heading_level_outside_1_to_6_is_no_level() {
 
 #[test]
 fn a_focusable_node_is_not_its_own_active_descendant() {
-    for focusable in [true, false] {
+    for (focusable, focus_handle) in [(true, None), (false, Some(7)), (false, None)] {
         let node = sanitized(Interactivity {
             role: Some(gpui::Role::ListBoxOption),
             focusable,
+            focus_handle,
             aria: Aria {
                 active_descendant: true,
                 ..Default::default()
             },
             ..Default::default()
         });
-        assert_eq!(node.unwrap().aria.active_descendant, !focusable);
+        assert_eq!(
+            node.unwrap().aria.active_descendant,
+            !focusable && focus_handle.is_none()
+        );
     }
+}
+
+#[test]
+fn only_the_first_active_descendant_in_a_frame_is_kept() {
+    let option = |key: &str| {
+        Node::Container(ContainerNode {
+            id: Some(ElementIdWire::Name(key.into())),
+            style: gpui::StyleRefinement::default(),
+            interactivity: Interactivity {
+                role: Some(gpui::Role::ListBoxOption),
+                aria: Aria {
+                    active_descendant: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            children: Vec::new(),
+        })
+    };
+    let mut frame = Frame {
+        root: Some(Node::Container(ContainerNode {
+            id: None,
+            style: gpui::StyleRefinement::default(),
+            interactivity: Interactivity::default(),
+            children: vec![option("first"), option("second")],
+        })),
+        ..Frame::default()
+    };
+    sanitize(&mut frame).unwrap();
+    let claims: Vec<bool> = frame.root.unwrap().children()[..]
+        .iter()
+        .map(|child| match child {
+            Node::Container(ContainerNode { interactivity, .. }) => {
+                interactivity.aria.active_descendant
+            }
+            _ => unreachable!("a container stays a container"),
+        })
+        .collect();
+    assert_eq!(claims, [true, false]);
 }
 
 #[test]

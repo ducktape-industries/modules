@@ -462,6 +462,66 @@ fn a_row_of_a_focused_composite_no_key_walks_fails() {
     fails(Unreachable, rooms(None));
 }
 
+/// A list box whose options claim the active descendant as `claims` says.
+fn claimed(claims: [Interactivity; 2]) -> Node {
+    let list = labelled(
+        Interactivity {
+            focusable: true,
+            on_key_down: Some(2),
+            ..roled(Role::ListBox)
+        },
+        "Rooms",
+    );
+    let rows = claims
+        .into_iter()
+        .zip(["general", "random"])
+        .map(|(row, name)| {
+            let option = Interactivity {
+                aria: Aria {
+                    selected: Some(false),
+                    ..row.aria
+                },
+                ..row
+            };
+            el(name, option, vec![text(name)])
+        });
+    el("rooms", list, rows.collect())
+}
+
+fn claim(focusable: bool, focus_handle: Option<u64>) -> Interactivity {
+    Interactivity {
+        focusable,
+        focus_handle,
+        aria: Aria {
+            active_descendant: true,
+            ..Default::default()
+        },
+        ..roled(Role::ListBoxOption)
+    }
+}
+
+#[test]
+fn an_active_descendant_the_host_drops_fails() {
+    let quiet = roled(Role::ListBoxOption);
+    fails(
+        ActiveDescendant,
+        claimed([claim(true, None), quiet.clone()]),
+    );
+    fails(ActiveDescendant, claimed([claim(false, Some(7)), quiet]));
+    fails(
+        ActiveDescendant,
+        claimed([claim(false, None), claim(false, None)]),
+    );
+}
+
+#[test]
+fn one_active_descendant_that_takes_no_focus_passes() {
+    passes(claimed([claim(false, None), roled(Role::ListBoxOption)]));
+    // a dropped claim spends nothing
+    let quiet = claimed([claim(true, None), claim(false, None)]);
+    assert_eq!(kinds(&quiet), [ActiveDescendant]);
+}
+
 #[test]
 fn an_item_outside_its_container_fails() {
     fails(
