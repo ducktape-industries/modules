@@ -1,10 +1,117 @@
 //! One tree that breaks each rule, and one that keeps it and every other.
 use super::*;
-use crate::{ElementIdWire, Invalid, Live};
+use crate::{ElementIdWire, InputOptions, Invalid, Live};
 use FaultKind::*;
+use gpui::StyleRefinement;
 
-mod fixtures;
-use fixtures::*;
+fn text(content: &str) -> Node {
+    Node::Text(TextNode {
+        id: None,
+        style: StyleRefinement::default(),
+        content: content.into(),
+    })
+}
+
+fn el(key: &str, interactivity: Interactivity, children: Vec<Node>) -> Node {
+    Node::Container(ContainerNode {
+        id: Some(ElementIdWire::Name(key.into())),
+        style: StyleRefinement::default(),
+        interactivity,
+        children,
+    })
+}
+
+fn roled(role: Role) -> Interactivity {
+    Interactivity {
+        role: Some(role),
+        ..Default::default()
+    }
+}
+
+/// Roled, focusable and answering a click.
+fn control(role: Role) -> Interactivity {
+    Interactivity {
+        focusable: true,
+        on_click: Some(1),
+        ..roled(role)
+    }
+}
+
+fn labelled(interactivity: Interactivity, label: &str) -> Interactivity {
+    Interactivity {
+        aria: Aria {
+            label: Some(label.into()),
+            ..interactivity.aria
+        },
+        ..interactivity
+    }
+}
+
+fn button(key: &str, label: &str) -> Node {
+    el(key, control(Role::Button), vec![text(label)])
+}
+
+fn input(label: &str) -> Node {
+    Node::Input {
+        options: InputOptions {
+            label: label.into(),
+            ..Default::default()
+        },
+        id: ElementIdWire::Name("name".into()),
+        placeholder: String::new(),
+        value: String::new(),
+        on_input: Some(1),
+        on_submit: None,
+        secure: false,
+        style: StyleRefinement::default(),
+    }
+}
+
+/// A paragraph with one clickable byte range.
+fn rich(text: &str, clickable: std::ops::Range<usize>) -> Node {
+    Node::RichText {
+        id: None,
+        style: StyleRefinement::default(),
+        text: text.into(),
+        runs: Default::default(),
+        font_family_overrides: Vec::new(),
+        clickable_ranges: vec![clickable],
+        on_click: Some(1),
+        on_hover: None,
+        tooltip: None,
+    }
+}
+
+fn handle(interactivity: Interactivity) -> Node {
+    Node::ResizeHandle {
+        id: ElementIdWire::Name("divider".into()),
+        style: StyleRefinement::default(),
+        interactivity,
+        on_press: None,
+        on_release: None,
+        on_drag: Some(1),
+        cursor: None,
+        content: Box::new(Node::empty()),
+    }
+}
+
+fn image(interactivity: Interactivity, label: Option<&str>) -> Node {
+    Node::Image {
+        id: None,
+        hash: 1,
+        data: None,
+        label: label.map(Into::into),
+        image_style: crate::ImageStyle {
+            grayscale: false,
+            object_fit: crate::ImageObjectFit::Contain,
+        },
+        loading: false,
+        fallback: false,
+        state_children: Vec::new(),
+        style: StyleRefinement::default(),
+        interactivity,
+    }
+}
 
 fn kinds(tree: &Node) -> Vec<FaultKind> {
     audit(tree).faults.iter().map(|fault| fault.kind).collect()
