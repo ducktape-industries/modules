@@ -147,7 +147,16 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         .px_3()
         .border_b_1()
         .border_color(theme.border)
-        .child(div().h(BAR_H).flex().items_center().children(tabs))
+        .child(
+            div()
+                .id("explorer-tabs")
+                .h(BAR_H)
+                .flex()
+                .items_center()
+                .role(Role::TabList)
+                .aria_label("Pages")
+                .children(tabs),
+        )
         .child(
             div()
                 .flex_1()

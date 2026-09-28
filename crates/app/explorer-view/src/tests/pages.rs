@@ -14,6 +14,17 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
     assert!(cx.has_text("Latest activity") && cx.has_text("Latest transactions"));
     assert!(cx.has_text("Post in #design") && cx.has_text("Ada") && cx.has_text("#3"));
     assert!(cx.has_text("mystery · 4 bytes") && cx.has_text("02020202…0202"));
+    // the page tabs sit in a named tab list
+    let Some(ducktape_view_guest::wire::Node::Container(bar)) = cx.find("explorer-tabs") else {
+        panic!("a tab list");
+    };
+    assert_eq!(
+        (
+            bar.interactivity.role,
+            bar.interactivity.aria.label.as_deref()
+        ),
+        (Some(ducktape_view_guest::Role::TabList), Some("Pages"))
+    );
     assert!(
         cx.has_text("6f6f6f6f…6f6f"),
         "block 11's hash, shortened: {texts:?}"
