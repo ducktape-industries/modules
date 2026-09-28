@@ -106,6 +106,7 @@ pub trait Module {
 /// The envelope of a node method: the program addressed and the bytes it
 /// gets, which the host signs into a frame without reading.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Call {
     pub target: String,
     pub body: Vec<u8>,
@@ -201,6 +202,7 @@ impl<P: Module> Method for Changes<P> {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct NodeStatus {
     pub chain_id: String,
     pub time: u64,
@@ -214,10 +216,12 @@ pub struct NodeStatus {
     pub contract: u32,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct CreateInvite {
     pub ttl_days: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Invite {
     pub invite: String,
     pub notes: Vec<crate::Error>,
@@ -227,12 +231,14 @@ pub struct Invite {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct BlockPage {
     pub before: Option<u64>,
     pub limit: u32,
 }
 /// One finalized block, by height or by its id (the block digest).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub enum BlockRef {
     Height(u64),
     Id([u8; 32]),
@@ -244,6 +250,7 @@ pub enum BlockRef {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Tx {
     pub hash: [u8; 32],
     pub signer: Vec<u8>,
@@ -256,6 +263,7 @@ pub struct Tx {
 /// its messages caused, in order. A nested run's `Applied` stands only
 /// where every run above it applied too: an ancestor's rejection undid it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Receipt {
     pub program: String,
     pub outcome: Outcome,
@@ -265,6 +273,7 @@ pub struct Receipt {
 /// How a run ended: applied with the program's output, or rejected with
 /// its refusal (`code` the refusal's reason token, `message` its sentence).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub enum Outcome {
     Applied { output: Vec<u8> },
     Rejected(crate::Error),
@@ -275,6 +284,7 @@ pub enum Outcome {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Block {
     pub height: u64,
     pub id: [u8; 32],
@@ -288,6 +298,7 @@ pub struct Block {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Head {
     pub height: u64,
     pub time: u64,
@@ -302,6 +313,7 @@ pub struct Head {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Session {
     pub connected: bool,
     pub dark: bool,
@@ -338,6 +350,7 @@ impl Method for HostWidget {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Clipboard {
     pub text: String,
 }
@@ -349,6 +362,7 @@ pub struct Clipboard {
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Notification {
     pub title: String,
     pub body: String,
@@ -359,6 +373,7 @@ pub struct Notification {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub enum Delivery {
     /// Logged, and a banner was raised.
     Banner,

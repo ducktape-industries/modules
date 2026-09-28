@@ -9,6 +9,8 @@ edition.workspace = true
 [features]
 # view-wire carries `Error` across its MessagePack layer.
 serde = ["dep:serde"]
+# view-wire's golden writes the borsh schema of every method.
+schema = ["borsh/unstable__schema"]
 
 [dependencies]
 borsh = { workspace = true }
