@@ -120,6 +120,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
     };
     let choices = design::segmented(
         "settings/ttl",
+        "Expires after",
         theme,
         TTL.into_iter().enumerate().map(|(i, days)| {
             let pick = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
@@ -295,15 +296,17 @@ fn secondary(id: impl Into<String>, text: impl Into<String>, theme: &Theme) -> S
         .child(text.into())
 }
 
-/// A text field over `form`, named by its placeholder.
+/// A text field over `form`: `name` says what it is for, `hint` is drawn
+/// in it while it is empty.
 fn field(
     id: &str,
-    label: &str,
+    name: &str,
+    hint: &str,
     form: &Form,
     theme: &Theme,
     typed: impl Fn(&String, &mut Window, &mut App) + 'static,
 ) -> Input {
-    Input::new(id.to_owned())
+    Input::new(id.to_owned(), name.to_owned())
         .h(design::size::CONTROL)
         .w(FIELD_W)
         .px_2()
@@ -311,8 +314,7 @@ fn field(
         .border_color(theme.border_strong)
         .bg(theme.background)
         .value(form.text.clone())
-        .placeholder(label.to_owned())
-        .label(label.to_owned())
+        .placeholder(hint.to_owned())
         .disabled(form.busy)
         .on_input(typed)
 }

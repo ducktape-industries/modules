@@ -74,6 +74,7 @@ fn registry(traces: &[Trace]) -> Registry {
     }
     let mut registry = tracer.registry_unchecked();
     font_features(&mut registry);
+    action_data(&mut registry);
     let partial: Vec<&String> = registry
         .iter_mut()
         .filter_map(|(name, container)| {
@@ -119,6 +120,44 @@ fn font_features(registry: &mut Registry) {
             );
             field.value = format;
         }
+    }
+}
+
+/// accesskit's `ActionData` (an `A11yAction`'s data), whole. Its `Point` is
+/// accesskit's f64 one, which a trace beside gpui's `Point<Pixels>` would
+/// refuse by name: so it is traced alone, and each container it reaches
+/// that the tree already names otherwise enters as `accesskit::<name>`.
+fn action_data(registry: &mut Registry) {
+    if !registry.contains_key("ActionData") {
+        return;
+    }
+    let mut tracer = tracer();
+    trace::<accesskit::ScrollUnit>(&mut tracer);
+    trace::<accesskit::ScrollHint>(&mut tracer);
+    trace::<accesskit::ActionData>(&mut tracer);
+    let own = tracer.registry().expect("ActionData traces whole alone");
+    let clash: BTreeSet<String> = own
+        .iter()
+        .filter(|&(name, container)| registry.get(name).is_some_and(|tree| tree != container))
+        .map(|(name, _)| name.clone())
+        .filter(|name| name != "ActionData")
+        .collect();
+    for (name, mut container) in own {
+        container
+            .visit_mut(&mut |format| {
+                if let Format::TypeName(name) = format
+                    && clash.contains(name)
+                {
+                    *name = format!("accesskit::{name}");
+                }
+                Ok(())
+            })
+            .unwrap();
+        let name = match clash.contains(&name) {
+            true => format!("accesskit::{name}"),
+            false => name,
+        };
+        registry.insert(name, container);
     }
 }
 
@@ -176,7 +215,6 @@ const TREE: &[Trace] = &[
     trace::<view_wire::ListAlignment>,
     trace::<view_wire::ListCommand>,
     trace::<view_wire::ListSizingBehavior>,
-    trace::<view_wire::Live>,
     trace::<view_wire::RichTextRuns>,
     trace::<view_wire::SvgSource>,
     trace::<view_wire::click::Click>,
@@ -198,6 +236,11 @@ const TREE: &[Trace] = &[
     trace::<view_wire::list::UniformListSizing>,
     trace::<view_wire::mouse::Cursor>,
     trace::<view_wire::mouse::ScrollDelta>,
+    trace::<accesskit::Action>,
+    trace::<accesskit::AriaCurrent>,
+    trace::<accesskit::HasPopup>,
+    trace::<accesskit::Invalid>,
+    trace::<accesskit::Live>,
     trace::<accesskit::Orientation>,
     trace::<accesskit::Role>,
     trace::<accesskit::Toggled>,

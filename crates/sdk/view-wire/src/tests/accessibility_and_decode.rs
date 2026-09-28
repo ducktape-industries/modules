@@ -37,47 +37,6 @@ fn a_sensor_round_trips_diffs_by_props_and_claims_its_key() {
 }
 
 #[test]
-fn a_texts_heading_and_live_region_round_trip() {
-    let mut title = text("Inbox");
-    let Node::Text(crate::TextNode { heading, live, .. }) = &mut title else {
-        unreachable!()
-    };
-    *heading = Some(1);
-    *live = Some(Live::Assertive);
-    let mut status = text("3 new");
-    let Node::Text(crate::TextNode { live, .. }) = &mut status else {
-        unreachable!()
-    };
-    *live = Some(Live::Polite);
-    let frame = Frame {
-        root: Some(column(vec![title, status])),
-        ..Frame::default()
-    };
-    assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
-}
-
-#[test]
-fn a_heading_level_outside_1_to_6_is_no_heading() {
-    for (level, kept) in [
-        (0, None),
-        (1, Some(1)),
-        (6, Some(6)),
-        (7, None),
-        (255, None),
-    ] {
-        let mut node = text("Title");
-        let Node::Text(crate::TextNode { heading, .. }) = &mut node else {
-            unreachable!()
-        };
-        *heading = Some(level);
-        let Node::Text(crate::TextNode { heading, .. }) = sanitized_root(node) else {
-            panic!("still text")
-        };
-        assert_eq!(heading, kept, "level {level}");
-    }
-}
-
-#[test]
 fn a_tree_the_host_would_not_walk_is_refused_before_it_is_built() {
     assert!(decode::<Frame>(&deep_chain_bytes(MAX_DEPTH - 1)).is_ok());
     let refused = decode::<Frame>(&deep_chain_bytes(MAX_DEPTH + 1)).unwrap_err();

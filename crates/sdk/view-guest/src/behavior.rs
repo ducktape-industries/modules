@@ -3,7 +3,10 @@ use crate::Element;
 
 use crate::element::wire_id;
 use crate::interactivity::EventListener;
-use crate::{AnyElement, App, ElementId, IntoElement, Lowering, Window, wire};
+use crate::{
+    AnyElement, App, ElementId, InteractiveElement, Interactivity, IntoElement, Lowering,
+    StatefulInteractiveElement, Window, wire,
+};
 use gpui::{CursorStyle, Hsla, Pixels, StyleRefinement, Styled};
 
 pub struct Sensor {
@@ -72,15 +75,17 @@ impl Styled for Sensor {
 }
 
 pub struct ResizeHandle {
-    id: ElementId,
+    interactivity: Interactivity,
     child: AnyElement,
     on_drag: Option<EventListener<(Pixels, Pixels)>>,
     cursor: Option<CursorStyle>,
 }
 
 pub fn resize_handle(id: impl Into<ElementId>, child: impl IntoElement) -> ResizeHandle {
+    let mut interactivity = Interactivity::default();
+    interactivity.id = Some(id.into());
     ResizeHandle {
-        id: id.into(),
+        interactivity,
         child: child.into_any_element(),
         on_drag: None,
         cursor: Some(CursorStyle::ResizeLeftRight),
@@ -109,20 +114,30 @@ impl IntoElement for ResizeHandle {
     }
 }
 
+impl InteractiveElement for ResizeHandle {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        &mut self.interactivity
+    }
+}
+impl StatefulInteractiveElement for ResizeHandle {}
+
 impl Element for ResizeHandle {
     fn id(&self) -> Option<ElementId> {
-        Some(self.id.clone())
+        self.interactivity.id.clone()
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        let style = self.interactivity.base_style.clone();
+        let (id, interactivity) = self.interactivity.into_wire(lowering);
         wire::Node::ResizeHandle {
-            id: wire_id(self.id),
+            id: id.expect("a resize handle has an id"),
             on_press: None,
             on_release: None,
             on_drag: self.on_drag.map(|listener| lowering.route(listener)),
             cursor: self.cursor.map(wire_cursor),
             content: Box::new(lowering.lower(self.child)),
-            style: StyleRefinement::default(),
+            style,
+            interactivity,
         }
     }
 }
@@ -131,14 +146,17 @@ pub struct ModalOverlay {
     id: ElementId,
     base: AnyElement,
     modal: AnyElement,
-    label: Option<String>,
+    label: String,
     style: StyleRefinement,
     backdrop: Hsla,
     on_dismiss: Option<EventListener<()>>,
 }
 
+/// `modal` over `base`, named `label`: what the dialog is, as assistive
+/// technology announces it.
 pub fn modal_overlay(
     id: impl Into<ElementId>,
+    label: impl Into<String>,
     base: impl IntoElement,
     modal: impl IntoElement,
 ) -> ModalOverlay {
@@ -146,7 +164,7 @@ pub fn modal_overlay(
         id: id.into(),
         base: base.into_any_element(),
         modal: modal.into_any_element(),
-        label: None,
+        label: label.into(),
         style: StyleRefinement::default(),
         backdrop: Hsla::transparent_black(),
         on_dismiss: None,
@@ -154,10 +172,6 @@ pub fn modal_overlay(
 }
 
 impl ModalOverlay {
-    pub fn label(mut self, label: impl Into<String>) -> Self {
-        self.label = Some(label.into());
-        self
-    }
     pub fn backdrop(mut self, color: impl Into<Hsla>) -> Self {
         self.backdrop = color.into();
         self
@@ -183,7 +197,7 @@ impl Element for ModalOverlay {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         wire::Node::Overlay {
             id: wire_id(self.id),
-            label: self.label,
+            label: Some(self.label),
             style: self.style.bg(self.backdrop),
             on_dismiss: self
                 .on_dismiss

@@ -155,6 +155,7 @@ fn create_account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) ->
         cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_account(cx));
     let mut name = field(
         "settings/account/create/name",
+        "Name the new account",
         "Account name",
         form,
         theme,
@@ -241,6 +242,7 @@ fn agents(
         .gap(design::space::SM)
         .child(field(
             "settings/agents/create/name",
+            "Name the new agent",
             "Agent name",
             &view.create_agent,
             theme,
@@ -260,6 +262,7 @@ fn agents(
         .gap(design::space::SM)
         .child(field(
             "settings/agents/key/request",
+            "Paste an agent's key request",
             "Agent key request",
             &view.agent_key,
             theme,
@@ -338,6 +341,7 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
             });
             let input = field(
                 &format!("settings/agents/{number}/name"),
+                &format!("Rename {}", agent.name),
                 "New name",
                 form,
                 theme,

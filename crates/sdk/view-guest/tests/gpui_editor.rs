@@ -31,9 +31,9 @@ impl Render for EditorView {
             "app:draft",
             binding,
             |_| -> Callback<Self> { Rc::new(|_, _, _| {}) },
+            "Message",
         )
         .placeholder("Write a message")
-        .label("Message")
         .w_full()
     }
 }

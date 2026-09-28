@@ -22,6 +22,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     if forge.layout.tree_visible() || forge.nav().blob.is_none() {
         columns = columns.child(tree(forge, cx, theme)).child(design::divider(
             id("forge-files-resize"),
+            "Resize the file tree",
             theme,
             cx,
             |forge: &mut Forge, dx| {
@@ -91,7 +92,7 @@ fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Statefu
         .min_h(px(0.))
         .child(
             div().id(id("forge-tree-header")).p_2().child(
-                Input::new(id("forge-tree-search"))
+                Input::new(id("forge-tree-search"), "Filter the file tree")
                     .h(design::size::ROW)
                     .w_full()
                     .px_2()
@@ -101,7 +102,6 @@ fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Statefu
                     .text_color(theme.foreground)
                     .value(forge.tree_search.clone())
                     .placeholder("Filter files")
-                    .label("Filter files")
                     .on_input(typed),
             ),
         )
@@ -241,6 +241,9 @@ fn tree_row(
         .child(div().flex_1().truncate().child(entry.name.clone()));
     if is_dir {
         line = line.aria_expanded(expanded);
+    }
+    if cursor {
+        line = line.aria_active_descendant();
     }
     if selected {
         line = line.bg(theme.accent_soft);

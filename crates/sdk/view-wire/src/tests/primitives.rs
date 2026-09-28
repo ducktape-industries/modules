@@ -180,8 +180,73 @@ fn a_text_with_no_heading_or_live_region_round_trips() {
         id: Some(ElementIdWire::Name("text".into())),
         style: gpui::StyleRefinement::default(),
         content: "huge".into(),
-        heading: None,
-        live: None,
     });
     assert_eq!(decode::<Node>(&encode(&text)).unwrap(), text);
+}
+
+/// An aria field a view did not set costs no bytes: the default is the
+/// empty map, and one field set alone is a map of one.
+#[test]
+fn an_unset_aria_field_sends_no_bytes() {
+    assert_eq!(encode(&Aria::default()), [0x80]);
+    let target = vec![ElementIdWire::Name("caption".into())];
+    let one_each = [
+        Aria {
+            live: Some(Live::Polite),
+            ..Default::default()
+        },
+        Aria {
+            busy: true,
+            ..Default::default()
+        },
+        Aria {
+            required: true,
+            ..Default::default()
+        },
+        Aria {
+            read_only: true,
+            ..Default::default()
+        },
+        Aria {
+            invalid: Some(Invalid::True),
+            ..Default::default()
+        },
+        Aria {
+            has_popup: Some(HasPopup::Menu),
+            ..Default::default()
+        },
+        Aria {
+            current: Some(AriaCurrent::False),
+            ..Default::default()
+        },
+        Aria {
+            labelled_by: vec![target.clone()],
+            ..Default::default()
+        },
+        Aria {
+            described_by: vec![target.clone()],
+            ..Default::default()
+        },
+        Aria {
+            controls: vec![target.clone()],
+            ..Default::default()
+        },
+        Aria {
+            error_message: Some(target),
+            ..Default::default()
+        },
+        Aria {
+            actions: vec![(Action::Increment, 1)],
+            ..Default::default()
+        },
+        Aria {
+            custom_actions: vec![(1, "Pin".into())],
+            ..Default::default()
+        },
+    ];
+    for aria in one_each {
+        let bytes = encode(&aria);
+        assert_eq!(bytes[0], 0x81, "one key for {aria:?}");
+        assert_eq!(decode::<Aria>(&bytes).unwrap(), aria);
+    }
 }

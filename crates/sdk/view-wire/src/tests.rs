@@ -6,8 +6,6 @@ fn text(content: &str) -> Node {
         id: None,
         style: gpui::StyleRefinement::default(),
         content: content.into(),
-        heading: None,
-        live: None,
     })
 }
 

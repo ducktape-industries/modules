@@ -6,6 +6,7 @@ use crate::{
 };
 use gpui::{
     ClickEvent, ElementId, FileDropEvent, MouseButton, SharedString, StyleRefinement, Styled,
+    accesskit,
 };
 use std::time::Duration;
 
@@ -20,6 +21,9 @@ struct TooltipBuilder {
     build: slots::TooltipBuilder,
     hoverable: bool,
 }
+
+/// An assistive-technology action's listener, as gpui takes it.
+type A11yListener = Box<dyn FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App)>;
 
 /// The explicit state carried by guest interactivity until frame lowering.
 #[derive(Default)]
@@ -40,6 +44,12 @@ pub struct Interactivity {
     pub(crate) active: Option<StyleRefinement>,
     pub(crate) group_hover: Option<(SharedString, StyleRefinement)>,
     pub(crate) group_active: Option<(SharedString, StyleRefinement)>,
+    /// Relation targets: siblings' ids, lowered to their paths.
+    labelled_by: Vec<ElementId>,
+    described_by: Vec<ElementId>,
+    controls: Vec<ElementId>,
+    error_message: Option<ElementId>,
+    a11y_actions: Vec<(gpui::accesskit::Action, A11yListener)>,
     pub(crate) on_click: Option<EventListener<ClickEvent>>,
     pub(crate) on_aux_click: Option<EventListener<ClickEvent>>,
     mouse_down: Vec<ButtonBinding<gpui::MouseDownEvent>>,
@@ -366,6 +376,8 @@ impl InteractiveElement for Div {
     }
 }
 
+mod lowering;
+
 /// The stateful wrapper returned by [`InteractiveElement::id`].
 pub struct Stateful<E> {
     pub(crate) element: E,
@@ -510,6 +522,83 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self.interactivity().aria.orientation = Some(value);
         self
     }
+    // `aria_live` through `aria_error_message` and `custom_action` are the
+    // names planned for the fork, which has none of them yet; the host
+    // delivers each through its aria patch until it does.
+    fn aria_live(mut self, value: accesskit::Live) -> Self {
+        self.interactivity().aria.live = Some(value);
+        self
+    }
+    fn aria_busy(mut self, value: bool) -> Self {
+        self.interactivity().aria.busy = value;
+        self
+    }
+    fn aria_required(mut self, value: bool) -> Self {
+        self.interactivity().aria.required = value;
+        self
+    }
+    fn aria_invalid(mut self, value: accesskit::Invalid) -> Self {
+        self.interactivity().aria.invalid = Some(value);
+        self
+    }
+    fn aria_read_only(mut self, value: bool) -> Self {
+        self.interactivity().aria.read_only = value;
+        self
+    }
+    fn aria_has_popup(mut self, value: accesskit::HasPopup) -> Self {
+        self.interactivity().aria.has_popup = Some(value);
+        self
+    }
+    fn aria_current(mut self, value: accesskit::AriaCurrent) -> Self {
+        self.interactivity().aria.current = Some(value);
+        self
+    }
+    /// `id` is a sibling's: an element in the same id scope as this one.
+    fn aria_labelled_by(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().labelled_by.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_described_by(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().described_by.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_controls(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().controls.push(id.into());
+        self
+    }
+    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
+    fn aria_error_message(mut self, id: impl Into<ElementId>) -> Self {
+        self.interactivity().error_message = Some(id.into());
+        self
+    }
+    /// A custom action assistive technology offers by `description`. Its
+    /// request is [`accesskit::Action::CustomAction`] with
+    /// `ActionData::CustomAction(id)`: one [`Self::on_a11y_action`]
+    /// handler answers every custom action a node has.
+    fn custom_action(mut self, id: i32, description: impl Into<String>) -> Self {
+        self.interactivity()
+            .aria
+            .custom_actions
+            .push((id, description.into()));
+        self
+    }
+    /// Answers `action` when assistive technology requests it: gpui's own
+    /// setter and signature. Unlike gpui, the host keeps Click, Focus, Blur,
+    /// SetValue, ReplaceSelectedText and SetTextSelection, and hears only
+    /// the first listener per action; `view_wire::audit` faults the rest
+    /// (ActionUnhandled).
+    fn on_a11y_action(
+        mut self,
+        action: accesskit::Action,
+        listener: impl FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity()
+            .a11y_actions
+            .push((action, Box::new(listener)));
+        self
+    }
     fn overflow_scroll(mut self) -> Self {
         self.interactivity().base_style.overflow.x = Some(gpui::Overflow::Scroll);
         self.interactivity().base_style.overflow.y = Some(gpui::Overflow::Scroll);
@@ -586,6 +675,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
 
 impl<T: InteractiveElement> StatefulInteractiveElement for Stateful<T> {}
 
-mod lowering;
-
 impl<E> gpui::prelude::FluentBuilder for Stateful<E> {}
+
+#[cfg(test)]
+mod tests;

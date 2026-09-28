@@ -1,5 +1,8 @@
-use crate::{AnyElement, App, Element, IntoElement, Lowering, Window, wire};
-use gpui::{Pixels, StyleRefinement, Styled, px};
+use crate::{
+    AnyElement, App, Element, InteractiveElement, Interactivity, IntoElement, Lowering,
+    StatefulInteractiveElement, Window, wire,
+};
+use gpui::{ElementId, Pixels, StyleRefinement, Styled, px};
 use std::{
     cell::RefCell,
     ops::Range,
@@ -228,7 +231,7 @@ impl Inner {
 pub struct List {
     state: ListState,
     render_item: ItemRenderer,
-    style: StyleRefinement,
+    interactivity: Interactivity,
     sizing_behavior: ListSizingBehavior,
 }
 pub fn list(
@@ -238,7 +241,7 @@ pub fn list(
     List {
         state,
         render_item: Box::new(render_item),
-        style: StyleRefinement::default(),
+        interactivity: Interactivity::default(),
         sizing_behavior: ListSizingBehavior::default(),
     }
 }
@@ -250,17 +253,33 @@ impl List {
 }
 impl Styled for List {
     fn style(&mut self) -> &mut StyleRefinement {
-        &mut self.style
+        &mut self.interactivity.base_style
     }
 }
+impl InteractiveElement for List {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        &mut self.interactivity
+    }
+}
+impl StatefulInteractiveElement for List {}
 impl Element for List {
+    /// None, as gpui's: the host walks a list without entering an id
+    /// scope, so an id a guest gives one (`.id()`) is dropped rather than
+    /// put on a path the host does not know.
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let Self {
             state,
             mut render_item,
-            style,
+            mut interactivity,
             sizing_behavior,
         } = *self;
+        let style = interactivity.base_style.clone();
+        interactivity.id = None;
+        let (_, interactivity) = interactivity.into_wire(lowering);
         let request_state = state.clone();
         let request_handler =
             lowering.route(move |request: &wire::ListRequest, _, _| request_state.request(request));
@@ -304,6 +323,7 @@ impl Element for List {
             scroll_handler,
             range_start: range.start,
             style,
+            interactivity,
             children,
         }
     }
@@ -368,10 +388,7 @@ fn from_wire_offset(v: wire::ListOffset) -> ListOffset {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Context, Driver, InteractiveElement, ParentElement, Render, StatefulInteractiveElement,
-        View, div,
-    };
+    use crate::{Context, Driver, ParentElement, Render, Role, View, div};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
@@ -405,6 +422,8 @@ mod tests {
                     view.rendered.push(index);
                     div()
                         .id(format!("row-{index}"))
+                        .role(Role::Button)
+                        .focusable()
                         .on_click(|_, _, _| {})
                         .child(index.to_string())
                         .into_any_element()
@@ -592,5 +611,74 @@ mod tests {
         second
             .entity()
             .read(|view| assert_eq!(view.rendered.last().copied(), Some(1_999)));
+    }
+
+    #[test]
+    fn a_list_carries_its_role_and_name_to_the_wire() {
+        let mut app = App::for_driver();
+        let mut window = app.window();
+        let rows = list(
+            ListState::new(3, ListAlignment::Top, px(40.)),
+            |index, _, _| div().child(index.to_string()).into_any_element(),
+        )
+        .role(Role::ListBox)
+        .aria_label("Members")
+        .focusable();
+        let node = Lowering::new(&mut window, &mut app).lower(rows);
+        let wire::Node::List { interactivity, .. } = node else {
+            panic!("a list")
+        };
+        assert_eq!(interactivity.role, Some(Role::ListBox));
+        assert_eq!(interactivity.aria.label.as_deref(), Some("Members"));
+        assert!(interactivity.focusable);
+    }
+
+    /// A list a guest gave an id, labelled by the caption beside it.
+    #[derive(Default, Serialize, Deserialize)]
+    struct IdentifiedList;
+    impl View for IdentifiedList {
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self
+        }
+    }
+    impl crate::Capabilities for IdentifiedList {
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    }
+    impl Render for IdentifiedList {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let rows = list(
+                ListState::new(2, ListAlignment::Top, px(20.)),
+                |index, _, _| div().child(index.to_string()).into_any_element(),
+            )
+            .id("rows")
+            .role(Role::List)
+            .aria_labelled_by("caption");
+            div()
+                .id("form")
+                .child(div().id("caption").child("Rows"))
+                .child(rows)
+        }
+    }
+
+    #[test]
+    fn an_id_on_a_list_stays_off_the_path_the_host_checks() {
+        let mut cx = crate::testing::TestAppContext::new();
+        // every frame goes through the host's sanitizer, which refuses a
+        // list whose path is not the one it walked
+        cx.open::<IdentifiedList>();
+        let wire::Node::List {
+            path,
+            interactivity,
+            ..
+        } = &cx.root().children()[1]
+        else {
+            panic!("a list")
+        };
+        let name = |name: &str| wire::ElementIdWire::Name(name.into());
+        assert_eq!(path, &[name("form")]);
+        assert_eq!(
+            interactivity.aria.labelled_by,
+            [vec![name("form"), name("caption")]]
+        );
     }
 }

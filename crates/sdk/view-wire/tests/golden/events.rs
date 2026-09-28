@@ -249,6 +249,10 @@ pub fn every_event() -> Vec<Event> {
             done: true,
         },
         Event::Resync,
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::CustomAction(3)),
+        },
     ]
 }
 
@@ -344,5 +348,6 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::ListScroll { .. } => "ListScroll",
         Event::Response { .. } => "Response",
         Event::Resync => "Resync",
+        Event::A11yAction { .. } => "A11yAction",
     }
 }

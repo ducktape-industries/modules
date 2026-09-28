@@ -18,7 +18,8 @@ pub enum EditorElementEvent<P, V> {
 /// A multiline host editor bound to guest-owned [`Editor`] state.
 ///
 /// GPUI core has no editor widget, so lowering emits the host primitive while
-/// preserving GPUI identity and style values.
+/// preserving GPUI identity and style values. Its label is what assistive
+/// technology calls it: an editor has one from birth.
 pub struct EditorElement<P, V> {
     id: ElementId,
     editor: Editor,
@@ -26,7 +27,7 @@ pub struct EditorElement<P, V> {
     binding: EditorBinding<P>,
     route: Rc<dyn Fn(EditorElementEvent<P, V>) -> Callback<V>>,
     placeholder: String,
-    label: Option<String>,
+    label: String,
     editable: bool,
     style: StyleRefinement,
     presentation: Option<Box<wire::editor_presentation::EditorPresentation>>,
@@ -39,6 +40,7 @@ impl<P: 'static, V: 'static> EditorElement<P, V> {
         document: impl Into<String>,
         binding: EditorBinding<P>,
         route: impl Fn(EditorElementEvent<P, V>) -> Callback<V> + 'static,
+        label: impl Into<String>,
     ) -> Self {
         Self {
             id: id.into(),
@@ -47,7 +49,7 @@ impl<P: 'static, V: 'static> EditorElement<P, V> {
             binding,
             route: Rc::new(route),
             placeholder: String::new(),
-            label: None,
+            label: label.into(),
             editable: true,
             style: StyleRefinement::default(),
             presentation: None,
@@ -56,11 +58,6 @@ impl<P: 'static, V: 'static> EditorElement<P, V> {
 
     pub fn placeholder(mut self, value: impl Into<String>) -> Self {
         self.placeholder = value.into();
-        self
-    }
-
-    pub fn label(mut self, value: impl Into<String>) -> Self {
-        self.label = Some(value.into());
         self
     }
 
@@ -84,6 +81,7 @@ impl<V: 'static> EditorElement<(), V> {
         editor: &Editor,
         document: impl Into<String>,
         field: fn(&mut V) -> Option<&mut Editor>,
+        label: impl Into<String>,
     ) -> Self {
         Self::new(
             id,
@@ -113,6 +111,7 @@ impl<V: 'static> EditorElement<(), V> {
                     }
                 }
             },
+            label,
         )
     }
 }
@@ -162,7 +161,7 @@ impl<P: 'static, V: 'static> Element for EditorElement<P, V> {
             id,
             style,
             placeholder,
-            label,
+            label: Some(label),
             document,
             on_document,
             editable,

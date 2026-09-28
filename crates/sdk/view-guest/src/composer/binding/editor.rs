@@ -74,6 +74,7 @@ pub(super) fn editor<V: 'static>(
     draft: &Draft,
     key: &str,
     document_key: &str,
+    label: &str,
     placeholder: &str,
     editable: bool,
     choices: &[MentionChoice],
@@ -207,7 +208,7 @@ pub(super) fn editor<V: 'static>(
         }
     }
     let route_effect = effect;
-    let mut editor = EditorElement::new(
+    EditorElement::new(
         ElementId::Name(key.into()),
         &draft.editor,
         document_key,
@@ -219,6 +220,7 @@ pub(super) fn editor<V: 'static>(
                 EditorElementEvent::Transaction(transaction) => Event::Transaction(transaction),
             })
         },
+        label,
     )
     .placeholder(placeholder)
     .editable(editable)
@@ -228,9 +230,5 @@ pub(super) fn editor<V: 'static>(
     .p(crate::design::space::MD)
     .text_size(crate::design::text::BODY)
     .whitespace_normal()
-    .presentation(presentation);
-    if !placeholder.is_empty() {
-        editor = editor.label(placeholder);
-    }
-    editor
+    .presentation(presentation)
 }

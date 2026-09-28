@@ -53,9 +53,7 @@
               "Name": "the tip"
             },
             "style": {},
-            "content": "the tip",
-            "heading": 2,
-            "live": "Polite"
+            "content": "the tip"
           }
         }
       }
@@ -137,9 +135,7 @@
                       "Name": "anchored"
                     },
                     "style": {},
-                    "content": "anchored",
-                    "heading": 2,
-                    "live": "Polite"
+                    "content": "anchored"
                   }
                 }
               ]
@@ -182,9 +178,7 @@
                       "Name": "row 0"
                     },
                     "style": {},
-                    "content": "row 0",
-                    "heading": 2,
-                    "live": "Polite"
+                    "content": "row 0"
                   }
                 },
                 {
@@ -193,9 +187,7 @@
                       "Name": "row 1"
                     },
                     "style": {},
-                    "content": "row 1",
-                    "heading": 2,
-                    "live": "Polite"
+                    "content": "row 1"
                   }
                 }
               ]
@@ -235,6 +227,74 @@
               "scroll_handler": 5,
               "range_start": 0,
               "style": {},
+              "interactivity": {
+                "role": "listBox",
+                "aria": {
+                  "label": "rows",
+                  "live": "polite",
+                  "busy": true,
+                  "required": true,
+                  "read_only": true,
+                  "invalid": "true",
+                  "has_popup": "listbox",
+                  "current": "false",
+                  "labelled_by": [
+                    [
+                      {
+                        "Name": "root"
+                      },
+                      {
+                        "Name": "caption"
+                      }
+                    ]
+                  ],
+                  "described_by": [
+                    [
+                      {
+                        "Name": "root"
+                      },
+                      {
+                        "Name": "hint"
+                      }
+                    ]
+                  ],
+                  "controls": [
+                    [
+                      {
+                        "Name": "root"
+                      },
+                      {
+                        "Name": "panel"
+                      }
+                    ]
+                  ],
+                  "error_message": [
+                    {
+                      "Name": "root"
+                    },
+                    {
+                      "Name": "error"
+                    }
+                  ],
+                  "actions": [
+                    [
+                      "scrollIntoView",
+                      10
+                    ],
+                    [
+                      "customAction",
+                      11
+                    ]
+                  ],
+                  "custom_actions": [
+                    [
+                      3,
+                      "Pin"
+                    ]
+                  ]
+                },
+                "focusable": true
+              },
               "children": [
                 {
                   "Text": {
@@ -242,9 +302,7 @@
                       "Name": "item"
                     },
                     "style": {},
-                    "content": "item",
-                    "heading": 2,
-                    "live": "Polite"
+                    "content": "item"
                   }
                 }
               ]
@@ -256,6 +314,15 @@
                 "Name": "handle"
               },
               "style": {},
+              "interactivity": {
+                "role": "splitter",
+                "aria": {
+                  "label": "Resize",
+                  "orientation": "vertical"
+                },
+                "focusable": true,
+                "on_key_down": 9
+              },
               "on_press": 6,
               "on_release": 7,
               "on_drag": 8,
@@ -266,9 +333,7 @@
                     "Name": "divider"
                   },
                   "style": {},
-                  "content": "divider",
-                  "heading": 2,
-                  "live": "Polite"
+                  "content": "divider"
                 }
               }
             }
@@ -282,9 +347,7 @@
                     "Name": "later"
                   },
                   "style": {},
-                  "content": "later",
-                  "heading": 2,
-                  "live": "Polite"
+                  "content": "later"
                 }
               }
             }
@@ -303,9 +366,7 @@
                     "Name": "measured"
                   },
                   "style": {},
-                  "content": "measured",
-                  "heading": 2,
-                  "live": "Polite"
+                  "content": "measured"
                 }
               }
             }
@@ -316,9 +377,7 @@
                 "Name": "plain"
               },
               "style": {},
-              "content": "plain",
-              "heading": 2,
-              "live": "Polite"
+              "content": "plain"
             }
           },
           {
@@ -353,9 +412,7 @@
                       "Name": "while loading"
                     },
                     "style": {},
-                    "content": "while loading",
-                    "heading": 2,
-                    "live": "Polite"
+                    "content": "while loading"
                   }
                 }
               ],
@@ -400,7 +457,10 @@
               "options": {
                 "label": "",
                 "description": null,
-                "disabled": false
+                "disabled": false,
+                "invalid": "true",
+                "required": true,
+                "read_only": true
               },
               "id": {
                 "Name": "input"
@@ -463,9 +523,7 @@
                       "Name": "base"
                     },
                     "style": {},
-                    "content": "base",
-                    "heading": 2,
-                    "live": "Polite"
+                    "content": "base"
                   }
                 },
                 {
@@ -474,9 +532,7 @@
                       "Name": "modal"
                     },
                     "style": {},
-                    "content": "modal",
-                    "heading": 2,
-                    "live": "Polite"
+                    "content": "modal"
                   }
                 }
               ]
@@ -520,9 +576,7 @@
                 "Name": "replaced"
               },
               "style": {},
-              "content": "replaced",
-              "heading": 2,
-              "live": "Polite"
+              "content": "replaced"
             }
           }
         }
@@ -538,9 +592,7 @@
                 "Name": "re-propped"
               },
               "style": {},
-              "content": "re-propped",
-              "heading": 2,
-              "live": "Polite"
+              "content": "re-propped"
             }
           }
         }
@@ -555,9 +607,7 @@
                 "Name": "inserted"
               },
               "style": {},
-              "content": "inserted",
-              "heading": 2,
-              "live": "Polite"
+              "content": "inserted"
             }
           }
         }
@@ -1198,6 +1248,14 @@
         "done": true
       }
     },
-    "Resync"
+    "Resync",
+    {
+      "A11yAction": {
+        "handler": 11,
+        "data": {
+          "customAction": 3
+        }
+      }
+    }
   ]
 ]

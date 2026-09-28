@@ -92,19 +92,13 @@ fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<im
             .items_center()
             .gap_2()
             .child(div().flex_1().child(chat.confirmation.clone()))
-            .child(
-                div()
-                    .id("chat-room-confirmation-dismiss")
-                    .px_1()
-                    .text_color(theme.muted)
-                    .cursor_pointer()
-                    .hover(|style| style.text_color(theme.foreground))
-                    .role(ducktape_view_guest::Role::Button)
-                    .aria_label("Dismiss")
-                    .focusable()
-                    .on_click(dismiss)
-                    .child("✕"),
-            ),
+            .child(design::icon_button(
+                "chat-room-confirmation-dismiss",
+                "✕",
+                "Dismiss",
+                theme,
+                dismiss,
+            )),
     )
 }
 
@@ -439,9 +433,18 @@ pub fn composer(
             })) as crate::composer::Click),
         ),
     };
+    // what the field is; the hint, drawn in it, says what to write
+    let label = match target {
+        Target::Post { thread: None, .. } => "New message",
+        Target::Post {
+            thread: Some(_), ..
+        } => "Reply",
+        Target::Edit { .. } => "Edited message",
+    };
     crate::composer::view(
         draft,
         &key,
+        label,
         hint,
         commit,
         cancel,

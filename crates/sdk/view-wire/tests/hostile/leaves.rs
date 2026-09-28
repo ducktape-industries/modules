@@ -58,6 +58,9 @@ pub(super) fn gen_input(rng: &mut Rng) -> Node {
             label: gen_string(rng),
             description: Some(gen_string(rng)),
             disabled: rng.next_bool(),
+            invalid: rng.next_bool().then_some(Invalid::True),
+            required: rng.next_bool(),
+            read_only: rng.next_bool(),
         },
         id: gen_id(rng),
         placeholder: gen_string(rng),
@@ -119,11 +122,6 @@ pub(super) fn gen_text(rng: &mut Rng) -> Node {
             gpui::StyleRefinement::default()
         },
         content: gen_string(rng),
-        // 0 and 7 are outside 1..=6, for the sanitizer to drop.
-        heading: rng.next_bool().then(|| rng.next_range(8) as u8),
-        live: rng
-            .next_bool()
-            .then(|| *rng.choose(&[Live::Polite, Live::Assertive])),
     })
 }
 

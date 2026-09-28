@@ -21,8 +21,13 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
   `src/editor.rs`, `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
   crossed as per-frame indices.
+- A control is named from birth: `Input::new(id, label)`,
+  `EditorElement::new(…, label)`, `modal_overlay(id, label, …)`, and
+  `design`'s `segmented`, `icon_button` and `divider` take the words
+  assistive technology reads; the audit catches one given none.
 - `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`
-  (`src/interactivity.rs`): listeners and focus become wire routes.
+  (`src/interactivity.rs`): listeners and
+  focus become wire routes.
 
 ## The methods
 
@@ -83,7 +88,9 @@ another.
 
 `testing::TestAppContext` (`src/testing/context.rs`) opens a view over a
 `FakeHost` (`src/testing/fake_host.rs`): `handle::<Method>`, `refuse`,
-`stream`, `requests`; then `simulate_click`, `texts`, `assert_accessible`.
+`stream`, `requests`; then `simulate_click`, `texts`.
+Every frame the view sends is held to `view_wire::audit`: a fault panics with
+its kind and key path, so each screen a test reaches is gated.
 It holds the view to its `export_view!` capabilities as the app does: a method
 whose capability the manifest leaves out panics with `undeclared_capability`.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,

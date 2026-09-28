@@ -284,6 +284,59 @@ fn a_menu_opening_leaves_the_timeline_where_it_was() {
     assert_eq!(list_path(cx.root()), Some(closed));
 }
 
+/// The room's and a thread's fields are named for what they are, apart
+/// from the hint drawn in them.
+#[test]
+fn a_field_is_named_apart_from_its_hint() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        cx.notify();
+        chat.open_thread(1, cx);
+    });
+    cx.run_until_parked();
+    for (key, name, hint) in [
+        ("draft-general/editor", "New message", "Message #General"),
+        ("draft-general-1/editor", "Reply", "Reply in thread"),
+    ] {
+        let Some(wire::Node::Editor {
+            label, placeholder, ..
+        }) = cx.find(key)
+        else {
+            panic!("no field {key}");
+        };
+        assert_eq!((label.as_deref(), placeholder.as_str()), (Some(name), hint));
+    }
+}
+
+/// The emoji search and a new channel's name say what they are for; the
+/// hint drawn in them stays a hint.
+#[test]
+fn a_text_field_is_named_apart_from_its_hint() {
+    let (mut cx, view) = opened();
+    let named = |cx: &TestAppContext, key: &str| {
+        let Some(wire::Node::Input {
+            options,
+            placeholder,
+            ..
+        }) = cx.find(key)
+        else {
+            panic!("no field {key}");
+        };
+        (options.label.clone(), placeholder.clone())
+    };
+    message::hover(&mut cx, &view, 1);
+    cx.simulate_click("chat-message-m1-react");
+    assert_eq!(
+        named(&cx, &ui::menu::focus_key(Pane::Timeline, Mode::Reactions)),
+        ("Find an emoji to react with".into(), "Search emoji".into())
+    );
+    cx.simulate_click("chat-sidebar-new-channel");
+    assert_eq!(
+        named(&cx, "chat-create-name"),
+        ("Name the new channel".into(), "Channel name".into())
+    );
+}
+
 /// A thread with nothing under its root says so, and its reply field takes
 /// the keys once the replies are read.
 #[test]

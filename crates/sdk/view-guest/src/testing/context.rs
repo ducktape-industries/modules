@@ -1,4 +1,4 @@
-use super::{FakeHost, assert_accessible, find, texts};
+use super::{FakeHost, assert_frame_accessible, find, texts};
 use crate::{
     App, Capabilities, Driver, Entity, View,
     host::Host,
@@ -91,6 +91,8 @@ impl TestAppContext {
     pub fn run_until_parked(&mut self) {
         self.dispatch(Vec::new());
     }
+    /// Ticks until the view parks, holding every frame it sends to the
+    /// host's sanitizer, which must take it, and to `view_wire::audit`.
     fn dispatch(&mut self, mut events: Vec<Event>) {
         for _ in 0..10_000 {
             events.extend(self.host.take_events());
@@ -107,6 +109,7 @@ impl TestAppContext {
                     .expect("valid view patches");
                 }
             }
+            assert_frame_accessible(&frame);
             let busy = frame.busy;
             self.frame = frame;
             events = self.host.take_events();
@@ -146,9 +149,6 @@ impl TestAppContext {
         );
         crate::wire::encode(&frame).len()
     }
-    pub fn assert_accessible(&self) {
-        assert_accessible(self.frame.root.as_ref().expect("view has a tree"));
-    }
     pub fn simulate_click(&mut self, key: &str) {
         self.dispatch(super::press(&self.frame, key));
     }
@@ -167,6 +167,9 @@ impl TestAppContext {
     pub fn simulate_drag(&mut self, key: &str, dx: f64, dy: f64) {
         self.dispatch(super::drag(&self.frame, key, dx, dy));
     }
+    pub fn simulate_key_down(&mut self, key: &str, keystroke: &str) {
+        self.dispatch(super::key_down(&self.frame, key, keystroke));
+    }
     pub fn simulate_dismiss(&mut self, key: &str) {
         self.dispatch(super::dismiss(&self.frame, key));
     }
@@ -177,8 +180,8 @@ mod tests {
     use super::*;
     use crate::methods::Capability;
     use crate::{
-        Context, InteractiveElement, ParentElement, Render, Task, Window, methods::Changes,
-        testing::Probe,
+        Context, InteractiveElement, ParentElement, Render, StatefulInteractiveElement, Task,
+        Window, methods::Changes, testing::Probe,
     };
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
@@ -259,5 +262,98 @@ mod tests {
     #[should_panic(expected = "undeclared_capability")]
     fn a_method_the_manifest_leaves_out_fails_the_test() {
         TestAppContext::new().open::<Undeclared>();
+    }
+
+    /// A button with nothing to say for itself.
+    #[derive(Default, Serialize, Deserialize)]
+    struct Nameless;
+    impl View for Nameless {
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self
+        }
+    }
+    impl Capabilities for Nameless {
+        const CAPABILITIES: &'static [Capability] = &[];
+    }
+    impl Render for Nameless {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+            crate::div()
+                .id("nameless")
+                .role(crate::Role::Button)
+                .focusable()
+                .on_click(|_, _, _| {})
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Unnamed at nameless")]
+    fn every_frame_a_view_sends_is_audited() {
+        TestAppContext::new().open::<Nameless>();
+    }
+
+    #[test]
+    #[should_panic(expected = "Unnamed at nameless")]
+    fn a_frame_driver_tick_returns_is_audited() {
+        Driver::<Nameless>::new().tick(Vec::new());
+    }
+
+    /// Twins: two siblings with one typed id, which the audit (it keys on
+    /// names) passes and the host refuses.
+    #[derive(Default, Serialize, Deserialize)]
+    struct Twins;
+    impl View for Twins {
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self
+        }
+    }
+    impl Render for Twins {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+            crate::div()
+                .child(crate::div().id(1usize))
+                .child(crate::div().id(1usize))
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "the host refuses this frame")]
+    fn a_frame_driver_tick_returns_is_held_to_the_host_sanitizer() {
+        Driver::<Twins>::new().tick(Vec::new());
+    }
+
+    /// A target whose tooltip is the nameless button.
+    #[derive(Default, Serialize, Deserialize)]
+    struct NamelessTip;
+    impl View for NamelessTip {
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self
+        }
+    }
+    impl Capabilities for NamelessTip {
+        const CAPABILITIES: &'static [Capability] = &[];
+    }
+    impl Render for NamelessTip {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+            crate::div()
+                .id("target")
+                .child("Target")
+                .tooltip(|_, cx| cx.new(|_| Nameless).into())
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Unnamed at nameless")]
+    fn a_tooltip_the_host_draws_is_audited() {
+        let mut cx = TestAppContext::new();
+        cx.open::<NamelessTip>();
+        let Some(Node::Container(crate::wire::ContainerNode { interactivity, .. })) =
+            cx.find("target")
+        else {
+            panic!("the target")
+        };
+        let request = interactivity.tooltip.as_ref().expect("a tooltip").request;
+        cx.dispatch(vec![Event::TooltipRequest {
+            request,
+            character_index: None,
+        }]);
     }
 }

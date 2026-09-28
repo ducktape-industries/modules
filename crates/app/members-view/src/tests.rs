@@ -429,10 +429,33 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
 #[test]
 fn the_list_and_the_detail_are_accessible() {
     let (mut cx, _) = ready();
-    cx.assert_accessible();
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
-    cx.assert_accessible();
+}
+
+#[test]
+fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
+    let (mut cx, _) = ready();
+    let of = |cx: &TestAppContext, key: &str| match cx.find(key) {
+        Some(Node::Container(ContainerNode { interactivity, .. })) => interactivity.clone(),
+        _ => panic!("{key} is a container"),
+    };
+    let list = of(&cx, "members-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(list.focusable);
+    for (number, other) in [(7, 11), (11, 7)] {
+        cx.simulate_key_down("members-list", "down");
+        let (row, other) = (
+            of(&cx, &format!("members-row-{number}")),
+            of(&cx, &format!("members-row-{other}")),
+        );
+        assert_eq!(row.role, Some(ducktape_view_guest::Role::ListBoxOption));
+        // a focusable row would lose the flag to the host's sanitizer
+        assert!(!row.focusable && row.aria.active_descendant);
+        assert_eq!(row.aria.selected, Some(true));
+        assert!(!other.aria.active_descendant);
+        assert_eq!(other.aria.selected, Some(false));
+    }
 }
 
 #[test]

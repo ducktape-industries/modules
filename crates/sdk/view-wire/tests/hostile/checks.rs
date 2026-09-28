@@ -140,18 +140,9 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             assert!(font_family_overrides.iter().all(|(range, _)| valid(range)));
             assert!(clickable_ranges.iter().all(valid));
         }
-        Node::Text(view_wire::TextNode {
-            content,
-            heading,
-            style,
-            ..
-        }) => {
+        Node::Text(view_wire::TextNode { content, style, .. }) => {
             check_native_style(style);
             check_string(content, ctx, "text content");
-            assert!(
-                heading.is_none_or(|level| (1..=6).contains(&level)),
-                "{ctx}: heading level {heading:?} outside 1..=6"
-            );
         }
         Node::Image {
             data,

@@ -25,10 +25,21 @@ pub(super) fn sanitize_node(
     }
     if let Node::Container(crate::ContainerNode { interactivity, .. })
     | Node::UniformList { interactivity, .. }
+    | Node::List { interactivity, .. }
+    | Node::ResizeHandle { interactivity, .. }
     | Node::Image { interactivity, .. }
     | Node::Svg { interactivity, .. } = node
     {
-        sanitize_interactivity(interactivity);
+        sanitize_interactivity(interactivity)?;
+        // gpui panics (debug) on a second claim in one frame under a
+        // focused node; the first in tree order keeps it.
+        // ponytail: one per frame, where gpui allows one per focused
+        // subtree; count per focusable ancestor when a screen claims in
+        // two composites at once.
+        let aria = &mut interactivity.aria;
+        if aria.active_descendant {
+            aria.active_descendant = !std::mem::replace(&mut budgets.active_descendant, true);
+        }
         if let Some(tooltip) = &mut interactivity.tooltip {
             tooltip.delay_ms = tooltip.delay_ms.min(60_000);
             sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;
@@ -171,17 +182,9 @@ fn sanitize_fields(
                 sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;
             }
         }
-        Node::Text(crate::TextNode {
-            style,
-            content,
-            heading,
-            ..
-        }) => {
+        Node::Text(crate::TextNode { style, content, .. }) => {
             style_sanitize::sanitize(style);
             spend_text(content, budgets);
-            if heading.is_some_and(|level| !(1..=6).contains(&level)) {
-                *heading = None;
-            }
         }
         Node::Image {
             data,
@@ -210,7 +213,6 @@ fn sanitize_fields(
             transformation,
             label,
             style,
-            interactivity,
             ..
         } => {
             match source {
@@ -226,7 +228,6 @@ fn sanitize_fields(
             }
             transformation.rotate = signed_bounded(transformation.rotate);
             style_sanitize::sanitize(style);
-            sanitize_interactivity(interactivity);
             if let Some(label) = label {
                 spend_text(label, budgets);
             }

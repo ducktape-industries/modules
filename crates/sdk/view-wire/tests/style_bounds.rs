@@ -16,8 +16,6 @@ fn container(style: StyleRefinement) -> Node {
             id: None,
             style: StyleRefinement::default(),
             content: "stable child".into(),
-            heading: None,
-            live: None,
         })],
     })
 }
@@ -96,8 +94,6 @@ fn text_styles_are_bounded_in_the_same_walk() {
             id: None,
             style: StyleRefinement::default().text_size(px(1e20)).w(px(1e20)),
             content: "text".into(),
-            heading: None,
-            live: None,
         })),
         ..Default::default()
     };
@@ -157,8 +153,6 @@ fn anchored_preserves_local_offsets_and_bounds_untrusted_coordinates() {
                 .w(gpui::px(f32::INFINITY))
                 .h(gpui::px(-1.0)),
             content: String::new(),
-            heading: None,
-            live: None,
         })],
     };
     for (x, y, expected) in [

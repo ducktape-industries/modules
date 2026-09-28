@@ -43,10 +43,35 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
     }
 }
 
-/// Panics listing each node assistive technology cannot name or place, by
-/// its key path and fault.
+/// The host's sanitizer, which must take the frame, and
+/// [`assert_accessible`] on each tree the frame carries: its root and
+/// every tooltip's content, which the host renders too.
+pub(crate) fn assert_frame_accessible(frame: &Frame) {
+    if let Some(root) = &frame.root {
+        let mut hosted = Frame {
+            root: Some(root.clone()),
+            tooltip_responses: frame.tooltip_responses.clone(),
+            ..Frame::default()
+        };
+        if let Err(refused) = crate::wire::sanitize(&mut hosted) {
+            panic!("the host refuses this frame: {refused}");
+        }
+    }
+    let tooltips = frame
+        .tooltip_responses
+        .iter()
+        .filter_map(|response| response.content.as_deref());
+    frame
+        .root
+        .iter()
+        .chain(tooltips)
+        .for_each(assert_accessible);
+}
+
+/// Panics listing each node assistive technology cannot name, place or
+/// reach, by its key path and fault.
 pub(crate) fn assert_accessible(tree: &Node) {
-    let faults = crate::wire::accessibility_faults(tree);
+    let faults = crate::wire::audit(tree);
     assert!(
         faults.is_empty(),
         "{} accessibility fault(s):\n{}",
@@ -200,6 +225,36 @@ pub(crate) fn drag(frame: &Frame, name: &str, dx: f64, dy: f64) -> Vec<Event> {
         handler: *handler,
         dx,
         dy,
+    }]
+}
+
+/// The event the host sends when `keystroke` (gpui's words: `"shift-left"`)
+/// goes down on the focused node with key `name`.
+pub(crate) fn key_down(frame: &Frame, name: &str, keystroke: &str) -> Vec<Event> {
+    let interactivity = match find(frame, name) {
+        Some(
+            Node::Container(crate::wire::ContainerNode { interactivity, .. })
+            | Node::UniformList { interactivity, .. }
+            | Node::List { interactivity, .. }
+            | Node::ResizeHandle { interactivity, .. }
+            | Node::Image { interactivity, .. }
+            | Node::Svg { interactivity, .. },
+        ) => interactivity,
+        _ => panic!("no interactive node {name:?} in {:?}", keys(frame)),
+    };
+    let Some(handler) = interactivity.on_key_down else {
+        panic!("{name:?} has no key route");
+    };
+    let keystroke = gpui::Keystroke::parse(keystroke).expect("a keystroke gpui reads");
+    let event = gpui::KeyDownEvent {
+        keystroke,
+        is_held: false,
+        prefer_character_input: false,
+    };
+    vec![Event::KeyDown {
+        handler,
+        phase: crate::wire::DispatchPhase::Bubble,
+        event: (&event).into(),
     }]
 }
 

@@ -1,10 +1,11 @@
 //! The shapes every view repeats, in one visual language: the design tokens
 //! (re-exported whole), the type scale, heights and spacing as [`Pixels`]
-//! (`text`, `size`, `space`), and the empty state,
-//! button, refused-with-retry screen, quiet line, heading and mono run views
-//! used to copy between them, with the number and time formatters
-//! (`format.rs`) and Explorer's link paths (`explorer.rs`) beside them for the
-//! same reason.
+//! (`text`, `size`, `space`), and the empty state, refused-with-retry
+//! screen, quiet line, heading and mono run views used to copy between
+//! them, and the controls: buttons, tabs, the segmented choice, the switch
+//! and the row it sits in, and the pane divider. The number and time
+//! formatters (`format.rs`) and Explorer's link paths (`explorer.rs`) sit
+//! beside them for the same reason.
 pub use ::design::*;
 
 pub mod explorer;
@@ -171,7 +172,9 @@ pub enum Kind {
 }
 
 /// A button. Disabled keeps it visible, drops the click and says so.
-/// Selected is the chosen one: fg text on the window and an fg edge.
+/// Selected is the chosen one: fg text on the window and an fg edge. A
+/// button told whether it is selected is a toggle, pressed or not; one
+/// never told is a plain button.
 #[derive(IntoElement)]
 pub struct Button<F>
 where
@@ -182,7 +185,7 @@ where
     theme: Theme,
     enabled: bool,
     kind: Kind,
-    selected: bool,
+    selected: Option<bool>,
     click: F,
 }
 
@@ -201,7 +204,7 @@ where
         theme: *theme,
         enabled: true,
         kind: Kind::Plain,
-        selected: false,
+        selected: None,
         click,
     }
 }
@@ -219,7 +222,7 @@ where
         self
     }
     pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
+        self.selected = Some(selected);
         self
     }
 }
@@ -230,6 +233,7 @@ where
 {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let theme = self.theme;
+        let selected = self.selected == Some(true);
         let mut element = div()
             .id(self.id)
             .px_2()
@@ -239,7 +243,7 @@ where
             .child(self.label);
         // The chosen one is the ink one: fg text on the window, an fg edge
         // around it; the rest stay quiet.
-        element = match (self.kind, self.selected) {
+        element = match (self.kind, selected) {
             // a primary that cannot run greys out but keeps its place
             (Kind::Primary, _) if !self.enabled => {
                 element.bg(theme.faint).text_color(theme.primary_foreground)
@@ -267,8 +271,11 @@ where
                 .border_1()
                 .border_color(theme.border_strong),
         };
-        if self.selected {
-            element = element.font_weight(FontWeight::MEDIUM).aria_selected(true);
+        if let Some(pressed) = self.selected {
+            element = element.aria_toggled(pressed.into());
+        }
+        if selected {
+            element = element.font_weight(FontWeight::MEDIUM);
         }
         if !self.enabled {
             return match self.kind {
@@ -276,7 +283,7 @@ where
                 _ => element.text_color(theme.muted).aria_disabled(true),
             };
         }
-        element = match (self.kind, self.selected) {
+        element = match (self.kind, selected) {
             (Kind::Quiet, false) => element.hover(move |style| style.text_color(theme.foreground)),
             (Kind::Plain, false) => element
                 .hover(move |style| style.bg(theme.surface_raised))
@@ -286,6 +293,30 @@ where
         };
         element.focusable().on_click(self.click)
     }
+}
+
+/// A control drawn as a glyph alone (a cross, a plus): muted until the
+/// pointer is on it. `name` is what it does, in words, since the glyph
+/// says nothing to a screen reader.
+pub fn icon_button(
+    id: impl Into<ElementId>,
+    glyph: impl IntoElement,
+    name: impl Into<SharedString>,
+    theme: &Theme,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let theme = *theme;
+    div()
+        .id(id)
+        .px_1()
+        .text_color(theme.muted)
+        .cursor_pointer()
+        .hover(move |style| style.text_color(theme.foreground))
+        .role(Role::Button)
+        .aria_label(name)
+        .focusable()
+        .on_click(click)
+        .child(glyph)
 }
 
 /// A tab: quiet text, the chosen one fg and underlined, no fill. A caller
@@ -326,10 +357,11 @@ pub fn tab(
 }
 
 /// A few choices side by side in one box, the picked one ink-filled: a
-/// state filter, an object format, an invite's lifetime. The segments are
-/// [`segment`]s; the box draws the edge they share.
+/// state filter, an object format, an invite's lifetime. `label` names the
+/// choice; the segments are [`segment`]s; the box draws the edge they share.
 pub fn segmented(
     id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
     theme: &Theme,
     segments: impl IntoIterator<Item = Stateful<Div>>,
 ) -> Stateful<Div> {
@@ -343,6 +375,7 @@ pub fn segmented(
         .border_r_1()
         .border_color(theme.border_strong)
         .role(Role::RadioGroup)
+        .aria_label(label)
         .children(segments)
 }
 
@@ -374,7 +407,7 @@ pub fn segment(
                 .hover(move |style| style.text_color(theme.foreground)),
         })
         .role(Role::RadioButton)
-        .aria_selected(selected)
+        .aria_toggled(selected.into())
         .focusable()
         .on_click(click)
         .child(label.into())
@@ -407,7 +440,7 @@ pub fn switch(
         .when(on, |pill| pill.justify_end())
         .role(Role::Switch)
         .aria_label(label.into())
-        .aria_selected(on)
+        .aria_toggled(on.into())
         .child(knob);
     match enabled {
         true => element.cursor_pointer().focusable().on_click(toggle),
@@ -482,19 +515,48 @@ pub fn avatar(name: &str, size: Pixels, theme: &Theme) -> Div {
         .child(initial(name))
 }
 
+/// How far an arrow key moves a [`divider`]; shift moves it four times as far.
+const STEP: f32 = 8.;
+
 /// The line between two panes, dragged to move it: `drag` takes the
-/// horizontal delta (and clamps the layout it moves).
+/// horizontal delta (and clamps the layout it moves). `label` names it
+/// ("Resize the room list"); focused, left and right move it by [`STEP`].
 pub fn divider<V: crate::View>(
     id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
     theme: &Theme,
     cx: &mut crate::Context<V>,
     drag: impl Fn(&mut V, f32) + 'static,
 ) -> crate::ResizeHandle {
-    let dragged = cx.listener(move |view, delta: &(Pixels, Pixels), _window, cx| {
-        drag(view, delta.0.into());
+    let drag = std::rc::Rc::new(drag);
+    let dragged = cx.listener({
+        let drag = drag.clone();
+        move |view, delta: &(Pixels, Pixels), _window, cx| {
+            drag(view, delta.0.into());
+            cx.notify();
+        }
+    });
+    let stepped = cx.listener(move |view, event: &KeyDownEvent, _window, cx| {
+        let step = match event.keystroke.modifiers.shift {
+            true => STEP * 4.,
+            false => STEP,
+        };
+        let delta = match event.keystroke.key.as_str() {
+            "left" => -step,
+            "right" => step,
+            _ => return,
+        };
+        drag(view, delta);
         cx.notify();
     });
-    crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border)).on_drag(dragged)
+    crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border))
+        .on_drag(dragged)
+        .role(Role::Splitter)
+        .aria_label(label)
+        .aria_orientation(gpui::Orientation::Vertical)
+        .focusable()
+        .tab_stop(true)
+        .on_key_down(stepped)
 }
 
 /// Whether a side pane `side` wide fits in `width` beside what the screen
@@ -575,11 +637,144 @@ fn explorer_link(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::{App, Lowering, wire};
+    use gpui::Toggled;
+
+    fn lower(element: impl IntoElement) -> wire::Node {
+        let mut app = App::for_driver();
+        let mut window = app.window();
+        Lowering::new(&mut window, &mut app).lower(element)
+    }
+
+    fn interactivity(node: &wire::Node) -> &wire::Interactivity {
+        match node {
+            wire::Node::Container(wire::ContainerNode { interactivity, .. })
+            | wire::Node::ResizeHandle { interactivity, .. } => interactivity,
+            other => panic!("no interactivity: {other:?}"),
+        }
+    }
+
+    fn faults(node: &wire::Node) -> Vec<wire::FaultKind> {
+        wire::audit(node)
+            .into_iter()
+            .map(|fault| fault.kind)
+            .collect()
+    }
+
+    #[test]
+    fn an_icon_button_is_a_focusable_button_named_in_words() {
+        let theme = Theme::light();
+        let node = lower(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
+        let control = interactivity(&node);
+        assert_eq!(control.role, Some(Role::Button));
+        assert_eq!(control.aria.label.as_deref(), Some("Close"));
+        assert!(control.focusable && control.on_click.is_some());
+        assert_eq!(faults(&node), []);
+    }
+
+    #[test]
+    fn a_segmented_choice_is_a_radio_group_with_its_name() {
+        let theme = Theme::light();
+        let node = lower(segmented(
+            "format",
+            "Object format",
+            &theme,
+            [segment("sha1", "SHA-1", true, &theme, |_, _, _| {})],
+        ));
+        let group = interactivity(&node);
+        assert_eq!(group.role, Some(Role::RadioGroup));
+        assert_eq!(group.aria.label.as_deref(), Some("Object format"));
+    }
+
+    #[test]
+    fn a_switch_that_is_on_reports_toggled_true() {
+        let theme = Theme::light();
+        for (on, toggled) in [(true, Toggled::True), (false, Toggled::False)] {
+            let node = lower(switch("dark", "Dark", on, true, &theme, |_, _, _| {}));
+            let control = interactivity(&node);
+            assert_eq!(control.role, Some(Role::Switch));
+            assert_eq!(control.aria.toggled, Some(toggled));
+            assert_eq!(control.aria.selected, None);
+            assert_eq!(faults(&node), []);
+        }
+    }
+
+    #[test]
+    fn the_picked_segment_reports_toggled_true() {
+        let theme = Theme::light();
+        let node = lower(segment("sha1", "SHA-1", true, &theme, |_, _, _| {}));
+        let control = interactivity(&node);
+        assert_eq!(control.role, Some(Role::RadioButton));
+        assert_eq!(control.aria.toggled, Some(Toggled::True));
+        assert_eq!(control.aria.selected, None);
+    }
+
+    #[test]
+    fn a_button_is_a_toggle_only_once_told_it_is_selected() {
+        let theme = Theme::light();
+        let plain = lower(button("save", "Save", &theme, |_, _, _| {}));
+        assert_eq!(interactivity(&plain).aria.toggled, None);
+        for (selected, toggled) in [(true, Toggled::True), (false, Toggled::False)] {
+            let node = lower(button("tree", "Tree", &theme, |_, _, _| {}).selected(selected));
+            let control = interactivity(&node);
+            assert_eq!(control.role, Some(Role::Button));
+            assert_eq!(control.aria.toggled, Some(toggled));
+            assert_eq!(control.aria.selected, None);
+        }
+    }
+
+    #[derive(Default, serde::Serialize, serde::Deserialize)]
+    struct Panes {
+        moved: Vec<f32>,
+    }
+
+    impl crate::Capabilities for Panes {
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    }
+
+    impl crate::View for Panes {
+        fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
+            Self::default()
+        }
+    }
+
+    impl crate::Render for Panes {
+        fn render(&mut self, _: &mut Window, cx: &mut crate::Context<Self>) -> impl IntoElement {
+            let theme = Theme::light();
+            divider(
+                "panes-resize",
+                "Resize the list",
+                &theme,
+                cx,
+                |panes: &mut Self, dx| panes.moved.push(dx),
+            )
+        }
+    }
+
+    #[test]
+    fn a_divider_is_a_named_focusable_splitter_the_arrows_move() {
+        let mut cx = crate::testing::TestAppContext::new();
+        let panes = cx.open::<Panes>();
+        let node = cx.find("panes-resize").expect("the divider").clone();
+        let handle = interactivity(&node);
+        assert_eq!(handle.role, Some(Role::Splitter));
+        assert_eq!(handle.aria.label.as_deref(), Some("Resize the list"));
+        assert_eq!(handle.aria.orientation, Some(gpui::Orientation::Vertical));
+        assert!(handle.focusable && handle.tab_stop == Some(true));
+        assert_eq!(faults(&node), []);
+        for keystroke in ["left", "right", "shift-left", "shift-right", "up", "a"] {
+            cx.simulate_key_down("panes-resize", keystroke);
+        }
+        cx.simulate_drag("panes-resize", 5., 0.);
+        panes.read(|panes| assert_eq!(panes.moved, [-8., 8., -32., 32., 5.]));
+    }
+
     #[test]
     fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
-        assert!(super::docks(1000., 576., 320.));
-        assert!(super::docks(896., 576., 320.));
-        assert!(!super::docks(895., 576., 320.));
-        assert!(!super::docks(720., 400., 440.));
+        assert!(docks(1000., 576., 320.));
+        assert!(docks(896., 576., 320.));
+        assert!(!docks(895., 576., 320.));
+        assert!(!docks(720., 400., 440.));
     }
 }

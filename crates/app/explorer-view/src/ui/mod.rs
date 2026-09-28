@@ -147,7 +147,16 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         .px_3()
         .border_b_1()
         .border_color(theme.border)
-        .child(div().h(BAR_H).flex().items_center().children(tabs))
+        .child(
+            div()
+                .id("explorer-tabs")
+                .h(BAR_H)
+                .flex()
+                .items_center()
+                .role(Role::TabList)
+                .aria_label("Pages")
+                .children(tabs),
+        )
         .child(
             div()
                 .flex_1()
@@ -157,7 +166,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
                 .flex()
                 .items_center()
                 .child(
-                    Input::new("explorer-search")
+                    Input::new("explorer-search", "Search the chain")
                         .w_full()
                         .h(design::size::CONTROL)
                         .px_2()
@@ -167,7 +176,6 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
                         .text_size(design::text::SECONDARY)
                         .value(view.search.clone())
                         .placeholder("Search by height, hash, account or program")
-                        .label("Search the chain")
                         .on_input(typed)
                         .on_submit(submit),
                 ),

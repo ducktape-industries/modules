@@ -122,6 +122,7 @@ mod tests {
                         }
                     }
                 },
+                "Draft",
             )
         }
     }

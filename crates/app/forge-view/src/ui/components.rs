@@ -6,34 +6,39 @@ use ducktape_view_guest::UniformListScrollHandle;
 use ducktape_view_guest::design;
 pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, heading, short_hex};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{AnchoredPositionMode, Edges, MouseDownEvent, Point};
+use ducktape_view_guest::{AnchoredPositionMode, Edges, MouseDownEvent, Point, accesskit};
 
 pub(crate) fn id(text: impl Into<String>) -> ElementId {
     ElementId::Name(text.into().into())
 }
 
-/// A list row: the one interactive line every list of this view uses.
+/// A list row: the one interactive line every list of this view uses. A
+/// row that acts is a list item holding a button of its cells, its
+/// controls beside that button.
 #[derive(IntoElement)]
 pub(crate) struct Row<F>
 where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 {
-    id: ElementId,
+    key: String,
     theme: Theme,
     selected: bool,
     children: Vec<AnyElement>,
+    controls: Vec<AnyElement>,
     click: Option<F>,
 }
 
-pub(crate) fn row<F>(id: impl Into<ElementId>, theme: &Theme) -> Row<F>
+/// A row keyed `key`; its press, when it has one, is `{key}-open`.
+pub(crate) fn row<F>(key: impl Into<String>, theme: &Theme) -> Row<F>
 where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 {
     Row {
-        id: id.into(),
+        key: key.into(),
         theme: *theme,
         selected: false,
         children: Vec::new(),
+        controls: Vec::new(),
         click: None,
     }
 }
@@ -54,6 +59,12 @@ where
         self.children.push(child.into_any_element());
         self
     }
+    /// A control of its own at the row's end (a ref's Compare), beside
+    /// the row's press rather than inside it.
+    pub fn control(mut self, child: impl IntoElement) -> Self {
+        self.controls.push(child.into_any_element());
+        self
+    }
 }
 
 impl<F> RenderOnce for Row<F>
@@ -62,27 +73,38 @@ where
 {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let theme = self.theme;
-        let mut element = div()
-            .id(self.id)
+        let (chosen, hovered) = (theme.accent_soft, theme.hover);
+        let item = div()
+            .id(id(self.key.clone()))
             .w_full()
             .flex()
             .items_center()
             .gap_2()
             .min_h(design::size::CONTROL)
             .px_2()
+            .role(Role::ListItem)
+            .when(self.selected, |item| item.bg(chosen));
+        let Some(click) = self.click else {
+            return item.children(self.children).children(self.controls);
+        };
+        let press = div()
+            .id(id(format!("{}-open", self.key)))
+            .flex_1()
+            .min_w(px(0.))
+            .self_stretch()
+            .flex()
+            .items_center()
+            .gap_2()
+            .role(Role::Button)
+            .when(self.selected, |press| {
+                press.aria_current(accesskit::AriaCurrent::True)
+            })
+            .focusable()
+            .on_click(click)
             .children(self.children);
-        let (chosen, hovered) = (theme.accent_soft, theme.hover);
-        if self.selected {
-            element = element.bg(chosen).aria_selected(true);
-        }
-        if let Some(click) = self.click {
-            element = element
-                .hover(move |style| style.bg(hovered))
-                .role(Role::Button)
-                .focusable()
-                .on_click(click);
-        }
-        element
+        item.hover(move |style| style.bg(hovered))
+            .child(press)
+            .children(self.controls)
     }
 }
 
@@ -241,8 +263,8 @@ pub(crate) fn menu_label(text: &str, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-/// One pick in a dropdown, mono, the picked one raised; `note` sits
-/// faint on its right.
+/// One pick in a dropdown, mono, the picked one raised and checked;
+/// `note` sits faint on its right.
 pub(crate) fn menu_item(
     element_id: ElementId,
     label: String,
@@ -263,8 +285,8 @@ pub(crate) fn menu_item(
         .text_size(design::text::CAPTION)
         .when(selected, |item| item.bg(theme.surface_raised))
         .hover(move |style| style.bg(theme.surface))
-        .role(Role::MenuItem)
-        .aria_selected(selected)
+        .role(Role::MenuItemRadio)
+        .aria_toggled(selected.into())
         .focusable()
         .on_click(click)
         .child(div().flex_1().min_w(px(0.)).truncate().child(label))

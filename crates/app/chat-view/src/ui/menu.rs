@@ -60,8 +60,15 @@ pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<An
         Mode::Reactions => format!("{}reaction-frame", prefix(menu.pane)),
         _ => focus_key(menu.pane, menu.mode),
     };
+    let (role, label) = match menu.mode {
+        Mode::Reactions => (Role::Dialog, "Add reaction"),
+        Mode::Delete => (Role::AlertDialog, "Delete this message?"),
+        _ => (Role::Menu, "Message actions"),
+    };
     let frame = div()
         .id(id)
+        .role(role)
+        .aria_label(label)
         .when_some(size, |frame, (w, h)| {
             frame.w(px(w)).h(px(h)).overflow_hidden()
         })
@@ -182,7 +189,10 @@ fn more_items(chat: &Chat, menu: &Menu) -> Vec<Action> {
 fn actions(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
     let items: Vec<Item> = more_items(chat, menu)
         .into_iter()
-        .map(|action| action_item(action, chat, menu, cx, theme))
+        .map(|action| Item {
+            role: Role::MenuItem,
+            ..action_item(action, chat, menu, cx, theme)
+        })
         .collect();
     div()
         .id("chat-menu-actions")
@@ -319,6 +329,7 @@ fn menu_size(items: usize) -> (f32, f32) {
 #[derive(IntoElement)]
 struct Item {
     id: ElementId,
+    role: Role,
     glyph: Option<String>,
     label: String,
     press: Option<Press>,
@@ -336,6 +347,7 @@ impl Item {
     ) -> Self {
         Self {
             id: id.into(),
+            role: Role::Button,
             glyph: Some(glyph.into()),
             label: label.into(),
             press,
@@ -361,6 +373,7 @@ impl Item {
     ) -> Self {
         Self {
             id: id.into(),
+            role: Role::Button,
             glyph: None,
             label: label.into(),
             press,
@@ -383,7 +396,7 @@ impl RenderOnce for Item {
             .gap_2()
             .bg(self.bg)
             .text_color(if enabled { self.fg } else { self.theme.muted })
-            .role(Role::Button)
+            .role(self.role)
             .aria_label(self.label.clone())
             .aria_disabled(!enabled);
         if let Some(glyph) = self.glyph {

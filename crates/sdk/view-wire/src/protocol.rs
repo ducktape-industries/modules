@@ -200,6 +200,12 @@ pub enum Event {
     /// The host no longer holds the tree the guest is patching — a patch it
     /// could not apply, a tree it dropped — and wants the next frame whole.
     Resync,
+    /// An assistive-technology action request on the node that advertised
+    /// `(action, handler)` in [`Aria::actions`](crate::Aria::actions).
+    A11yAction {
+        handler: u32,
+        data: Option<ActionData>,
+    },
 }
 
 /// Why a request failed, as the guest gets it: the one [`Error`] — a stable
@@ -266,6 +272,13 @@ pub struct InputOptions {
     pub label: String,
     pub description: Option<String>,
     pub disabled: bool,
+    /// The value is wrong; `description` says why (AX-108).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<Invalid>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
 }
 
 /// Copied native multiline editor presentation; state faces share input semantics.

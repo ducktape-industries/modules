@@ -91,6 +91,38 @@ u64 = Primitive(8)
 u8 = Primitive(1)
 
 # tree: named MessagePack, every container by name
+Action enum
+  0 click: Unit
+  1 focus: Unit
+  2 blur: Unit
+  3 collapse: Unit
+  4 expand: Unit
+  5 customAction: Unit
+  6 decrement: Unit
+  7 increment: Unit
+  8 hideTooltip: Unit
+  9 showTooltip: Unit
+  10 replaceSelectedText: Unit
+  11 scrollDown: Unit
+  12 scrollLeft: Unit
+  13 scrollRight: Unit
+  14 scrollUp: Unit
+  15 scrollIntoView: Unit
+  16 scrollToPoint: Unit
+  17 setScrollOffset: Unit
+  18 setTextSelection: Unit
+  19 setSequentialFocusNavigationStartingPoint: Unit
+  20 setValue: Unit
+  21 showContextMenu: Unit
+ActionData enum
+  0 customAction: NewType(I32)
+  1 value: NewType(Str)
+  2 numericValue: NewType(F64)
+  3 scrollUnit: NewType(TypeName("ScrollUnit"))
+  4 scrollHint: NewType(TypeName("ScrollHint"))
+  5 scrollToPoint: NewType(TypeName("accesskit::Point"))
+  6 setScrollOffset: NewType(TypeName("accesskit::Point"))
+  7 setTextSelection: NewType(TypeName("TextSelection"))
 AlignContent enum
   0 Start: Unit
   1 End: Unit
@@ -149,6 +181,27 @@ Aria struct
   column_count: Option(U64)
   toggled: Option(TypeName("Toggled"))
   orientation: Option(TypeName("Orientation"))
+  live: Option(TypeName("Live"))
+  busy: Bool
+  required: Bool
+  read_only: Bool
+  invalid: Option(TypeName("Invalid"))
+  has_popup: Option(TypeName("HasPopup"))
+  current: Option(TypeName("AriaCurrent"))
+  labelled_by: Seq(Seq(TypeName("WireRepr")))
+  described_by: Seq(Seq(TypeName("WireRepr")))
+  controls: Seq(Seq(TypeName("WireRepr")))
+  error_message: Option(Seq(TypeName("WireRepr")))
+  actions: Seq(Tuple([TypeName("Action"), U32]))
+  custom_actions: Seq(Tuple([I32, Str]))
+AriaCurrent enum
+  0 false: Unit
+  1 true: Unit
+  2 page: Unit
+  3 step: Unit
+  4 location: Unit
+  5 date: Unit
+  6 time: Unit
 Background struct
   tag: TypeName("BackgroundTag")
   color_space: TypeName("ColorSpace")
@@ -618,6 +671,9 @@ Event enum
     result: TypeName("Result")
     done: Bool
   33 Resync: Unit
+  34 A11yAction struct
+    handler: U32
+    data: Option(TypeName("ActionData"))
 Fill enum
   0 Color: NewType(TypeName("Background"))
 FlexDirection enum
@@ -659,6 +715,12 @@ GridTemplateMinSize enum
 GroupRefinement struct
   group: Str
   style: TypeName("StyleRefinement")
+HasPopup enum
+  0 menu: Unit
+  1 listbox: Unit
+  2 tree: Unit
+  3 grid: Unit
+  4 dialog: Unit
 HighlightStyle struct
   color: Option(Str)
   font_weight: Option(F32)
@@ -691,6 +753,9 @@ InputOptions struct
   label: Str
   description: Option(Str)
   disabled: Bool
+  invalid: Option(TypeName("Invalid"))
+  required: Bool
+  read_only: Bool
 Interactivity struct
   role: Option(TypeName("Role"))
   aria: TypeName("Aria")
@@ -734,6 +799,10 @@ Interactivity struct
   on_hover: Option(U32)
   on_file_drop_exit: Option(U32)
   tooltip: Option(TypeName("Tooltip"))
+Invalid enum
+  0 true: Unit
+  1 grammar: Unit
+  2 spelling: Unit
 Key enum
   0 Named: NewType(TypeName("Named"))
   1 Character: NewType(Str)
@@ -797,8 +866,9 @@ ListSizingBehavior enum
   0 Infer: Unit
   1 Auto: Unit
 Live enum
-  0 Polite: Unit
-  1 Assertive: Unit
+  0 off: Unit
+  1 polite: Unit
+  2 assertive: Unit
 Location enum
   0 Standard: Unit
   1 Left: Unit
@@ -953,11 +1023,13 @@ Node enum
     scroll_handler: Option(U32)
     range_start: U64
     style: TypeName("StyleRefinement")
+    interactivity: TypeName("Interactivity")
     children: Seq(TypeName("Node"))
   4 Container: NewType(TypeName("ContainerNode"))
   5 ResizeHandle struct
     id: TypeName("WireRepr")
     style: TypeName("StyleRefinement")
+    interactivity: TypeName("Interactivity")
     on_press: Option(U32)
     on_release: Option(U32)
     on_drag: Option(U32)
@@ -1020,6 +1092,7 @@ Node enum
   15 Canvas struct
     style: TypeName("StyleRefinement")
     commands: Seq(TypeName("CanvasCommand"))
+NodeId NewTypeStruct(U64)
 Orientation enum
   0 horizontal: Unit
   1 vertical: Unit
@@ -1277,6 +1350,16 @@ ScrollDelta enum
   1 Pixels struct
     x: F32
     y: F32
+ScrollHint enum
+  0 topLeft: Unit
+  1 bottomRight: Unit
+  2 topEdge: Unit
+  3 bottomEdge: Unit
+  4 leftEdge: Unit
+  5 rightEdge: Unit
+ScrollUnit enum
+  0 item: Unit
+  1 page: Unit
 ScrollWheel struct
   position: TypeName("Point")
   delta: TypeName("ScrollDelta")
@@ -1349,12 +1432,13 @@ TextNode struct
   id: Option(TypeName("WireRepr"))
   style: TypeName("StyleRefinement")
   content: Str
-  heading: Option(U8)
-  live: Option(TypeName("Live"))
 TextOverflow enum
   0 Truncate: NewType(Str)
   1 TruncateStart: NewType(Str)
   2 TruncateMiddle: NewType(Str)
+TextPosition struct
+  node: TypeName("NodeId")
+  characterIndex: U64
 TextRun struct
   len: U64
   font_family: Str
@@ -1366,6 +1450,9 @@ TextRun struct
   background_color: Option(Str)
   underline: Option(TypeName("UnderlineStyle"))
   strikethrough: Option(TypeName("StrikethroughStyle"))
+TextSelection struct
+  anchor: TypeName("TextPosition")
+  focus: TypeName("TextPosition")
 TextStyleRefinement struct
   color: Option(Str)
   font_family: Option(Str)
@@ -1479,6 +1566,9 @@ WireRepr enum
     base: TypeName("ElementIdAtom")
     names: Seq(Str)
   9 OpaqueId: NewType(TupleArray { content: U8, size: 20 })
+accesskit::Point struct
+  x: F64
+  y: F64
 
 # tree: gpui's GridLocation, whose Range is not the tree's
 GridLocation struct

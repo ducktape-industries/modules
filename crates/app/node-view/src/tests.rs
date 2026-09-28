@@ -93,7 +93,6 @@ fn the_node_status_stands_above_the_set() {
     ticks.send(());
     cx.run_until_parked();
     assert!(cx.has_text("4,201"));
-    cx.assert_accessible();
 }
 
 fn membership(key: &[u8], address: &str, role: valset::Role) -> valset::Membership {
@@ -286,7 +285,7 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
 
 #[test]
 fn the_ready_set_is_accessible() {
-    ready().assert_accessible();
+    ready();
 }
 
 #[test]

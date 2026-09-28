@@ -24,5 +24,6 @@ mod hostile {
     use checks::*;
     mod styles;
     use styles::*;
+    mod aria;
     mod cases;
 }

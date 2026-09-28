@@ -111,8 +111,6 @@ fn text() -> Node {
         id: None,
         style: Default::default(),
         content: "row".into(),
-        heading: None,
-        live: None,
     })
 }
 fn anchored(children: Vec<Node>) -> Node {

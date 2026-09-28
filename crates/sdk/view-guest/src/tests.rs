@@ -53,6 +53,8 @@ impl Render for Probe {
         });
         div()
             .id("press")
+            .role(crate::Role::Button)
+            .focusable()
             .on_click(press)
             .child(self.received.len().to_string())
     }
@@ -406,7 +408,12 @@ fn listener_guard_detects_missing_notify() {
     impl Render for Silent {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let press = cx.listener(|view, _: &ClickEvent, _, _| view.0 = true);
-            div().id("silent").on_click(press).child("Silent")
+            div()
+                .id("silent")
+                .role(crate::Role::Button)
+                .focusable()
+                .on_click(press)
+                .child("Silent")
         }
     }
     let mut driver = Driver::<Silent>::new();

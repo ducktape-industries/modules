@@ -57,8 +57,7 @@ mod tests {
     }
     impl Render for WidgetView {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl crate::IntoElement {
-            Input::new(ElementId::Name("App/draft".into()))
-                .label("Draft")
+            Input::new(ElementId::Name("App/draft".into()), "Draft")
                 .on_input(cx.listener(|_, _: &String, _, _| {}))
         }
     }

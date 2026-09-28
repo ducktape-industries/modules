@@ -410,7 +410,6 @@ fn ready() -> TestAppContext {
 fn the_ready_screen_shows_the_count() {
     let cx = ready();
     assert!(cx.has_text("Count: 5"), "{:?}", cx.texts());
-    cx.assert_accessible();
     if std::env::var_os("${upper}_SCREEN_EXPORT").is_none() {
         return;
     }

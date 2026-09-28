@@ -33,6 +33,7 @@ impl Render for ComposerView {
         view(
             &draft,
             "c",
+            "New message",
             "Message #general",
             "Send",
             None,
@@ -64,7 +65,17 @@ fn drawn(draft: &Draft) -> wire::Node {
     drawn_with(draft, "c", &[])
 }
 
+/// The composer's tree, held to the audit as a view's tests hold it.
 fn drawn_with(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
+    let tree = lowered(draft, key, choices);
+    crate::testing::assert_accessible(&tree);
+    tree
+}
+
+/// The composer's tree unaudited: only for what the tree carries beside
+/// the open @-mention menu, whose faults are
+/// `the_mention_menu_is_not_yet_reachable`'s to name.
+fn lowered(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
     let mut app = App::for_driver();
     let entity = Entity::reserve(&app);
     let mut window = app.window();
@@ -75,6 +86,7 @@ fn drawn_with(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node
     let element = view(
         draft,
         key,
+        "New message",
         "Message #general",
         "Send",
         None,
@@ -124,6 +136,7 @@ fn two_drafts_at_one_key_are_two_documents_the_host_can_tell_apart() {
             draft,
             "c/editor",
             document,
+            "New message",
             "Message",
             true,
             &[],
@@ -156,6 +169,7 @@ fn discarded_composer_editor_does_not_register_routes_before_lowering() {
         &Draft::default(),
         "c/editor",
         "discarded",
+        "New message",
         "Message",
         true,
         &[],
@@ -166,6 +180,7 @@ fn discarded_composer_editor_does_not_register_routes_before_lowering() {
         &Draft::default(),
         "c/editor",
         "lowered",
+        "New message",
         "Message",
         true,
         &[],
@@ -186,6 +201,19 @@ fn the_send_is_the_only_primary_and_is_dead_on_an_empty_draft() {
     assert!(clickable(&empty, "c/send").is_none());
     let typed = drawn(&Draft::from_body("hello", &[]));
     assert!(clickable(&typed, "c/send").is_some());
+}
+
+#[test]
+fn the_field_is_named_apart_from_the_hint_drawn_in_it() {
+    let root = drawn(&Draft::default());
+    let wire::Node::Editor {
+        label, placeholder, ..
+    } = editor_node(&root)
+    else {
+        unreachable!()
+    };
+    assert_eq!(label.as_deref(), Some("New message"));
+    assert_eq!(placeholder, "Message #general");
 }
 
 #[test]
@@ -251,19 +279,12 @@ fn restored_editor_presentation_keeps_mention_highlights_and_document_routes() {
 
 #[test]
 fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
-    let choices = vec![MentionChoice {
-        token: "<@1>".into(),
-        label: "Ada".into(),
-    }];
-    let mut draft = Draft::from_body("@A", &choices);
-    draft.editor.move_to(wire::EditorCursor {
-        position: wire::EditorPosition { line: 0, column: 2 },
-        selection: None,
-    });
+    let choices = roster();
+    let mut draft = caret("@A", 2);
     draft.failed_send = Some(Send {
         body: "older".into(),
     });
-    let root = drawn_with(&draft, "c", &choices);
+    let root = lowered(&draft, "c", &choices);
     for (key, label) in [
         ("c/bold", "Bold"),
         ("c/italic", "Italic"),
@@ -277,6 +298,7 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
             panic!("missing composer action {key}");
         };
         assert!(interactivity.on_click.is_some(), "{key} has no route");
+        assert!(interactivity.focusable, "{key} takes no focus");
         assert_eq!(interactivity.aria.label.as_deref(), Some(label));
     }
     let Some(wire::Node::Container(crate::wire::ContainerNode { interactivity, .. })) =
@@ -287,6 +309,30 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
     assert!(interactivity.on_click.is_some());
     assert_eq!(interactivity.role, Some(Role::MenuItem));
     assert_eq!(interactivity.aria.label.as_deref(), Some("@Ada"));
+    // with the menu shut, the whole composer passes the audit
+    draft.editor.move_to(wire::EditorCursor {
+        position: wire::EditorPosition { line: 0, column: 0 },
+        selection: None,
+    });
+    drawn_with(&draft, "c", &choices);
+}
+
+/// The known faults, each and no other: the @-mention rows are menu items
+/// with no menu, which no key reaches (the keys stay in the editor) and
+/// whose `selected` a menu item does not carry. The honest shape is an
+/// EditableComboBox editor whose active descendant is the picked option,
+/// a wire change of its own; this test fails once that lands.
+#[test]
+fn the_mention_menu_is_not_yet_reachable() {
+    use wire::FaultKind::{Orphan, Unreachable, UnreadState};
+    let at = |kind| wire::Fault {
+        path: vec!["c".into(), String::new(), "c/mention/<@1>".into()],
+        kind,
+    };
+    assert_eq!(
+        wire::audit(&lowered(&caret("@A", 2), "c", &roster())),
+        [at(UnreadState), at(Unreachable), at(Orphan)]
+    );
 }
 
 #[test]
@@ -356,7 +402,8 @@ fn key_state(claim: &wire::EditorKeyClaim) -> wire::keyboard::KeyState {
 }
 
 fn claimed(draft: &Draft) -> Vec<wire::EditorKeyClaim> {
-    let root = drawn_with(draft, "c", &roster());
+    // the key claims, with the menu open or shut
+    let root = lowered(draft, "c", &roster());
     let wire::Node::Editor { options, .. } = editor_node(&root) else {
         unreachable!()
     };
@@ -492,10 +539,18 @@ fn no_claimed_key_but_tab_and_backspace_asks_the_app_for_its_default() {
 fn click_binding_and_document_routes_dispatch_through_the_driver() {
     let mut driver = Driver::<ComposerView>::new();
     let frame = driver.tick(Vec::new());
-    driver.tick(crate::testing::press(&frame, "c/bold"));
+    let pressed = driver.tick(crate::testing::press(&frame, "c/bold"));
     driver
         .entity()
         .read(|view| assert!(view.events.iter().any(|event| event == "action:bold")));
+    // the press focused the mark; the keys go back to the editor
+    assert!(pressed.requests.iter().any(|request| {
+        request.kind == <crate::methods::HostWidget as crate::methods::Method>::KIND
+            && wire::decode::<wire::WidgetCommand>(&request.payload).unwrap()
+                == wire::WidgetCommand::Focus {
+                    target: vec![wire::ElementIdWire::Name("c/editor".into())],
+                }
+    }));
 
     let frame = driver.tick(Vec::new());
     let wire::Node::Editor {

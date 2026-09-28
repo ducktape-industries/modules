@@ -23,8 +23,9 @@ schema = ["borsh/unstable__schema", "error/schema", "describe/schema"]
 wasmparser = { version = "0.251", optional = true }
 serde.workspace = true
 gpui.workspace = true
-# No code use: enables serde on gpui's re-exported accesskit Role, Toggled and
-# Orientation, which `Interactivity` and `Aria` serialize.
+# No code use: enables serde on gpui's re-exported accesskit types (Role,
+# Toggled, Live, Action, ActionData, ...), which `Interactivity`, `Aria` and
+# `Event::A11yAction` serialize.
 accesskit = { version = "0.24.0", features = ["serde"] }
 rmp-serde = "1"
 borsh.workspace = true

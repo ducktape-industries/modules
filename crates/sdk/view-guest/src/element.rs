@@ -265,7 +265,8 @@ pub fn div() -> Div {
 }
 
 /// A single-line host text input. GPUI core has no text-input element, so this
-/// recipe carries a typed identity and lowers to the host's native field.
+/// recipe carries a typed identity and lowers to the host's native field. Its
+/// label is what assistive technology calls it: a field has one from birth.
 pub struct Input {
     id: ElementId,
     value: String,
@@ -278,12 +279,15 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn new(id: impl Into<ElementId>) -> Self {
+    pub fn new(id: impl Into<ElementId>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             value: String::new(),
             placeholder: String::new(),
-            options: wire::InputOptions::default(),
+            options: wire::InputOptions {
+                label: label.into(),
+                ..Default::default()
+            },
             secure: false,
             style: StyleRefinement::default(),
             on_input: None,
@@ -301,11 +305,6 @@ impl Input {
         self
     }
 
-    pub fn label(mut self, label: impl Into<String>) -> Self {
-        self.options.label = label.into();
-        self
-    }
-
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.options.description = Some(description.into());
         self
@@ -313,6 +312,22 @@ impl Input {
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.options.disabled = disabled;
+        self
+    }
+
+    /// The value is wrong; [`Self::description`] says why.
+    pub fn invalid(mut self, invalid: gpui::accesskit::Invalid) -> Self {
+        self.options.invalid = Some(invalid);
+        self
+    }
+
+    pub fn required(mut self, required: bool) -> Self {
+        self.options.required = required;
+        self
+    }
+
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.options.read_only = read_only;
         self
     }
 
@@ -402,8 +417,6 @@ impl Element for SharedString {
             id: None,
             style: StyleRefinement::default(),
             content: self.to_string(),
-            heading: None,
-            live: None,
         })
     }
 }

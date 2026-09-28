@@ -4,16 +4,6 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
 
-/// How assistive technology announces a change to a [`Node::Text`] it is
-/// not focused on.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Live {
-    /// When the reader is idle.
-    Polite,
-    /// At once, interrupting.
-    Assertive,
-}
-
 /// The reference point used by the native GPUI anchored element.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Anchor {
@@ -137,6 +127,8 @@ pub enum Node {
         scroll_handler: Option<u32>,
         range_start: usize,
         style: gpui::StyleRefinement,
+        #[serde(default, skip_serializing_if = "crate::is_default")]
+        interactivity: Interactivity,
         #[serde(deserialize_with = "decode_children")]
         children: Vec<Node>,
     },
@@ -145,6 +137,8 @@ pub enum Node {
     ResizeHandle {
         id: ElementIdWire,
         style: gpui::StyleRefinement,
+        #[serde(default, skip_serializing_if = "crate::is_default")]
+        interactivity: Interactivity,
         on_press: Option<u32>,
         on_release: Option<u32>,
         on_drag: Option<u32>,

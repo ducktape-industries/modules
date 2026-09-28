@@ -54,7 +54,8 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
         chat.picker.query = query.clone();
         cx.notify();
     });
-    let search = Input::new(focus_key(menu.pane, Mode::Reactions))
+    let key = focus_key(menu.pane, Mode::Reactions);
+    let search = Input::new(key, "Find an emoji to react with")
         .h(px(SEARCH))
         .w_full()
         .px_2()
@@ -64,7 +65,6 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
         .text_size(design::text::SECONDARY)
         .value(chat.picker.query.clone())
         .placeholder("Search emoji")
-        .label("Search emoji")
         .on_input(typed);
     let first = emoji::search(&chat.picker.query).first().copied();
     match first.filter(|_| chat.may_write()) {
@@ -111,7 +111,9 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         .h(px(TABS))
         .flex()
         .border_b_1()
-        .border_color(theme.border);
+        .border_color(theme.border)
+        .role(Role::TabList)
+        .aria_label("Emoji categories");
     for (index, category) in emoji::CATEGORIES.iter().enumerate() {
         let open = cx.listener(move |chat, _: &ClickEvent, _, cx| {
             chat.picker.tab = index;
