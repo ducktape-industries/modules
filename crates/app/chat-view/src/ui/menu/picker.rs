@@ -54,7 +54,8 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
         chat.picker.query = query.clone();
         cx.notify();
     });
-    let search = Input::new(focus_key(menu.pane, Mode::Reactions), "Search emoji")
+    let key = focus_key(menu.pane, Mode::Reactions);
+    let search = Input::new(key, "Find an emoji to react with")
         .h(px(SEARCH))
         .w_full()
         .px_2()

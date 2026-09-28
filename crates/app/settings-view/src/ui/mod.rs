@@ -296,15 +296,17 @@ fn secondary(id: impl Into<String>, text: impl Into<String>, theme: &Theme) -> S
         .child(text.into())
 }
 
-/// A text field over `form`, named by its placeholder.
+/// A text field over `form`: `name` says what it is for, `hint` is drawn
+/// in it while it is empty.
 fn field(
     id: &str,
-    label: &str,
+    name: &str,
+    hint: &str,
     form: &Form,
     theme: &Theme,
     typed: impl Fn(&String, &mut Window, &mut App) + 'static,
 ) -> Input {
-    Input::new(id.to_owned(), label.to_owned())
+    Input::new(id.to_owned(), name.to_owned())
         .h(design::size::CONTROL)
         .w(FIELD_W)
         .px_2()
@@ -312,7 +314,7 @@ fn field(
         .border_color(theme.border_strong)
         .bg(theme.background)
         .value(form.text.clone())
-        .placeholder(label.to_owned())
+        .placeholder(hint.to_owned())
         .disabled(form.busy)
         .on_input(typed)
 }

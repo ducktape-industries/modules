@@ -92,7 +92,7 @@ fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Statefu
         .min_h(px(0.))
         .child(
             div().id(id("forge-tree-header")).p_2().child(
-                Input::new(id("forge-tree-search"), "Filter files")
+                Input::new(id("forge-tree-search"), "Filter the file tree")
                     .h(design::size::ROW)
                     .w_full()
                     .px_2()

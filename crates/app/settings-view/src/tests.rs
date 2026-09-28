@@ -430,6 +430,47 @@ fn create_account_disables_controls_while_busy() {
     assert!(options.disabled);
 }
 
+/// Every field says what it is for; the hint drawn in it stays a hint.
+#[test]
+fn a_field_is_named_apart_from_its_hint() {
+    fn named(cx: &TestAppContext, key: &str) -> (String, String) {
+        let Some(wire::Node::Input {
+            options,
+            placeholder,
+            ..
+        }) = cx.find(key)
+        else {
+            panic!("no field {key}");
+        };
+        (options.label.clone(), placeholder.clone())
+    }
+    let pair = |name: &str, hint: &str| (name.to_owned(), hint.to_owned());
+    let cx = fixture("unregistered", false);
+    assert_eq!(
+        named(&cx, "settings/account/create/name"),
+        pair("Name the new account", "Account name")
+    );
+    let mut cx = fixture("ready", false);
+    cx.simulate_click("settings/nav/agents");
+    cx.simulate_click("settings/agents/12/rename");
+    cx.run_until_parked();
+    for (key, name, hint) in [
+        (
+            "settings/agents/create/name",
+            "Name the new agent",
+            "Agent name",
+        ),
+        (
+            "settings/agents/key/request",
+            "Paste an agent's key request",
+            "Agent key request",
+        ),
+        ("settings/agents/12/name", "Rename Scout", "New name"),
+    ] {
+        assert_eq!(named(&cx, key), pair(name, hint));
+    }
+}
+
 #[test]
 fn long_host_key_is_truncated_and_non_validator_standing_is_quiet() {
     let mut cx = TestAppContext::new();

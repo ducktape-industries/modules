@@ -308,6 +308,35 @@ fn a_field_is_named_apart_from_its_hint() {
     }
 }
 
+/// The emoji search and a new channel's name say what they are for; the
+/// hint drawn in them stays a hint.
+#[test]
+fn a_text_field_is_named_apart_from_its_hint() {
+    let (mut cx, view) = opened();
+    let named = |cx: &TestAppContext, key: &str| {
+        let Some(wire::Node::Input {
+            options,
+            placeholder,
+            ..
+        }) = cx.find(key)
+        else {
+            panic!("no field {key}");
+        };
+        (options.label.clone(), placeholder.clone())
+    };
+    message::hover(&mut cx, &view, 1);
+    cx.simulate_click("chat-message-m1-react");
+    assert_eq!(
+        named(&cx, &ui::menu::focus_key(Pane::Timeline, Mode::Reactions)),
+        ("Find an emoji to react with".into(), "Search emoji".into())
+    );
+    cx.simulate_click("chat-sidebar-new-channel");
+    assert_eq!(
+        named(&cx, "chat-create-name"),
+        ("Name the new channel".into(), "Channel name".into())
+    );
+}
+
 /// A thread with nothing under its root says so, and its reply field takes
 /// the keys once the replies are read.
 #[test]

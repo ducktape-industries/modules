@@ -394,7 +394,7 @@ fn rail_home(cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
 /// ran past the rail's edge.
 fn rail_search(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Div {
     div().px(design::space::LG).pb(design::space::SM).child(
-        Input::new(id("forge-rail-search"), "Search repositories")
+        Input::new(id("forge-rail-search"), "Filter repositories")
             .h(design::size::CONTROL)
             .px_2()
             .py_1()

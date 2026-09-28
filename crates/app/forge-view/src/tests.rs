@@ -618,6 +618,33 @@ fn a_repo_opens_on_its_readme_and_code_holds_the_tree() {
     view.read(|forge| assert!(forge.nav().blob.is_none()));
 }
 
+/// The rail's and the tree's filters say what they filter; the hint drawn
+/// in them stays a hint.
+#[test]
+fn a_filter_field_is_named_apart_from_its_hint() {
+    let (mut cx, _view) = opened("default");
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    for (key, name, hint) in [
+        (
+            "forge-rail-search",
+            "Filter repositories",
+            "Search repositories",
+        ),
+        ("forge-tree-search", "Filter the file tree", "Filter files"),
+    ] {
+        let Some(wire::Node::Input {
+            options,
+            placeholder,
+            ..
+        }) = cx.find(key)
+        else {
+            panic!("no field {key}");
+        };
+        assert_eq!((options.label.as_str(), placeholder.as_str()), (name, hint));
+    }
+}
+
 #[test]
 fn a_relative_link_opens_its_file_in_the_code_tab() {
     let (mut cx, view) = opened("default");

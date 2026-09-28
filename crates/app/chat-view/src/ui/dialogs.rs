@@ -77,7 +77,7 @@ fn name_field(
         }
         cx.notify();
     });
-    let name = Input::new("chat-create-name", "Channel name")
+    let name = Input::new("chat-create-name", "Name the new channel")
         .h(design::size::CONTROL)
         .px_2()
         .py_1()
