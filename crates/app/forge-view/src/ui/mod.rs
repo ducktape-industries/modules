@@ -153,12 +153,20 @@ fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .border_b_1()
         .border_color(theme.border)
         .child(ref_picker(forge, cx, theme));
+    let mut list = div()
+        .id(id("forge-tab-list"))
+        .h_full()
+        .flex()
+        .items_center()
+        .gap(design::space::XL)
+        .role(Role::TabList)
+        .aria_label("Repository");
     for tab in RepoTab::ALL {
         let open = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_tab(tab, cx));
         let count = (tab == RepoTab::Changes)
             .then(|| forge.open_changes())
             .flatten();
-        tabs = tabs.child(components::tab(
+        list = list.child(components::tab(
             id(format!("forge-tab-{}", tab.slug())),
             tab.label(),
             count,
@@ -168,7 +176,7 @@ fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         ));
     }
     let about = cx.listener(|forge, _: &ClickEvent, _, cx| forge.toggle_dock(Dock::About, cx));
-    tabs = tabs.child(div().flex_1()).child(
+    tabs = tabs.child(list).child(div().flex_1()).child(
         button(id("forge-dock-about"), "About", theme, about)
             .selected(forge.nav().dock == Some(Dock::About))
             .kind(design::Kind::Quiet),

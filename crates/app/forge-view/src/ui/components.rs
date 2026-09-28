@@ -70,6 +70,8 @@ where
             .gap_2()
             .min_h(design::size::CONTROL)
             .px_2()
+            // a row may hold controls (a ref's Compare), which a button may not
+            .role(Role::ListItem)
             .children(self.children);
         let (chosen, hovered) = (theme.accent_soft, theme.hover);
         if self.selected {
@@ -78,7 +80,6 @@ where
         if let Some(click) = self.click {
             element = element
                 .hover(move |style| style.bg(hovered))
-                .role(Role::Button)
                 .focusable()
                 .on_click(click);
         }

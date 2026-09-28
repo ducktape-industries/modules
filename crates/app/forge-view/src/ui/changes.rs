@@ -126,6 +126,7 @@ fn change_row(
                 .flex_none()
                 .rounded_full()
                 .bg(dot)
+                .role(Role::Image)
                 .aria_label(state_label(summary.state)),
         )
         .child(

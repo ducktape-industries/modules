@@ -253,7 +253,9 @@ fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> 
         .gap(design::space::XL)
         .px(PAGE_X)
         .border_b_1()
-        .border_color(theme.border);
+        .border_color(theme.border)
+        .role(Role::TabList)
+        .aria_label("Change");
     for tab in ChangeTab::ALL {
         let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change_tab(tab, cx));
         bar = bar.child(crate::ui::components::tab(
@@ -412,7 +414,7 @@ fn file_row(
         .text_size(px(10.))
         .role(Role::CheckBox)
         .aria_label(format!("Viewed {label}"))
-        .aria_selected(viewed)
+        .aria_toggled(viewed.into())
         .focusable()
         // a tick is not also a click on the row
         .occlude()
@@ -427,7 +429,8 @@ fn file_row(
         .gap(design::space::SM)
         .when(selected, |row| row.bg(theme.surface_raised))
         .hover(move |style| style.bg(theme.surface))
-        .role(Role::Button)
+        // it holds the viewed tick, which a button may not
+        .role(Role::ListItem)
         .aria_selected(selected)
         .focusable()
         .on_click(pick)
@@ -620,6 +623,8 @@ fn finish_panel(
         .bg(theme.background)
         .shadow_lg()
         .occlude()
+        .role(Role::Dialog)
+        .aria_label("Finish your review")
         .on_mouse_down_out(fold)
         .child(
             div()
@@ -691,7 +696,8 @@ fn verdicts(
         .flex()
         .flex_col()
         .gap(design::space::SM)
-        .role(Role::RadioGroup);
+        .role(Role::RadioGroup)
+        .aria_label("Verdict");
     for (verdict, slug, about) in [
         (Verdict::Comment, "comment", "Feedback without a verdict."),
         (Verdict::Approve, "approve", "Ready to merge as it is."),
@@ -722,10 +728,11 @@ fn verdicts(
                 .items_start()
                 .gap(design::space::SM)
                 .role(Role::RadioButton)
-                .aria_selected(on)
-                .when(!forge.may_write(), |row| row.aria_disabled(true))
-                .focusable()
-                .on_click(pick)
+                .aria_toggled(on.into())
+                .map(|row| match forge.may_write() {
+                    true => row.focusable().on_click(pick),
+                    false => row.aria_disabled(true),
+                })
                 .child(dot)
                 .child(
                     div().flex().flex_col().child(verdict_label(verdict)).child(

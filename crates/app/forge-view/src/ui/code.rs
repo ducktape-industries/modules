@@ -242,6 +242,9 @@ fn tree_row(
     if is_dir {
         line = line.aria_expanded(expanded);
     }
+    if cursor {
+        line = line.aria_active_descendant();
+    }
     if selected {
         line = line.bg(theme.accent_soft);
     } else if cursor {

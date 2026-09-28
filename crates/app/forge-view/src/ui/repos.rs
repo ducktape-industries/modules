@@ -94,7 +94,8 @@ fn repo_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(|style| style.bg(theme.surface))
-        .role(Role::Button)
+        // it holds Copy and the activity link, which a button may not
+        .role(Role::ListItem)
         .aria_label(format!("Open {name}"))
         .focusable()
         .on_click(open)

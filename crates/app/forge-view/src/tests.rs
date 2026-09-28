@@ -736,6 +736,11 @@ fn the_tree_walks_by_keyboard() {
     // directories sort first: the first key lands on the first row, src
     press(&mut cx, Key::Down);
     assert_eq!(cursor(&mut cx).as_deref(), Some("src"));
+    // the focused tree tells assistive technology which row is active
+    let Some(wire::Node::Container(row)) = cx.find("forge-tree-src") else {
+        panic!("the src row");
+    };
+    assert!(row.interactivity.aria.active_descendant && !row.interactivity.focusable);
     press(&mut cx, Key::Right);
     view.read(|forge| assert!(forge.nav().expanded.contains(b"src".as_slice())));
     press(&mut cx, Key::Right);

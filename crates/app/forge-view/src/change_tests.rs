@@ -261,6 +261,14 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     cx.run_until_parked();
     view.read(|forge| assert!(forge.viewed.contains("project#1:src/lib.rs")));
     assert!(cx.has_text("✓"));
+    let Some(wire::Node::Container(tick)) = cx.find("forge-viewed-src/lib.rs") else {
+        panic!("the viewed tick");
+    };
+    assert_eq!(
+        tick.interactivity.aria.toggled,
+        Some(true.into()),
+        "checked"
+    );
     cx.simulate_click("forge-file-src/lib.rs");
     cx.run_until_parked();
     view.read(|forge| {
@@ -590,6 +598,20 @@ fn a_merged_change_lists_the_commits_it_merged() {
         )),
         "{asked:?}"
     );
+}
+
+/// A reader who cannot write (the session dropped) sees the verdicts, and
+/// picks none.
+#[test]
+fn a_reader_without_write_picks_no_verdict() {
+    let (mut cx, view) = change_screen("default", ChangeTab::Files);
+    view.update(&mut cx, |forge, _, cx| {
+        forge.start_review(cx);
+        forge.finishing(true, cx);
+        forge.session.connected = false;
+    });
+    cx.run_until_parked();
+    assert!(super::disabled(&cx, "forge-verdict-approve"));
 }
 
 /// A reader who neither owns nor writes the repository sees Close and Merge
