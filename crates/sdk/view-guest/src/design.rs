@@ -657,7 +657,6 @@ mod tests {
 
     fn faults(node: &wire::Node) -> Vec<wire::FaultKind> {
         wire::audit(node)
-            .faults
             .into_iter()
             .map(|fault| fault.kind)
             .collect()

@@ -1,18 +1,10 @@
 //! The one rule function for what assistive technology cannot name, place
-//! or reach: the views' test gate (`view-guest` testing), the host on a
-//! decoded frame and CI all ask [`audit`].
+//! or reach: the view tests ask [`audit`] of every frame (`view-guest`
+//! testing); the host may, on a decoded frame.
 
 use crate::aria::view_role;
 use crate::{Action, Aria, ContainerNode, Interactivity, Node, TextNode};
 use gpui::Role;
-
-/// What [`audit`] found in one tree.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Report {
-    /// Nodes any rule's antecedent selected; a node counts once.
-    pub applicable: usize,
-    pub faults: Vec<Fault>,
-}
 
 /// A node assistive technology cannot name, place or reach.
 #[derive(Clone, Debug, PartialEq)]
@@ -65,7 +57,7 @@ pub enum FaultKind {
     ErrorNoText,
 }
 
-/// Every fault in the tree, depth first, and how many nodes a rule looked at.
+/// Every fault in the tree, depth first.
 ///
 /// **Interactive**: a node whose [`Interactivity`] has any `on_*` or
 /// `capture_*` route, is `focusable`, or advertises `aria.actions`; and
@@ -75,10 +67,10 @@ pub enum FaultKind {
 /// trimmed. A role is what the host keeps of it: the sanitizer drops
 /// `GenericContainer`, `Unknown` and the window-level roles, and so does
 /// the audit.
-pub fn audit(root: &Node) -> Report {
-    let mut report = Report::default();
-    walk(root, None, false, &mut report);
-    report
+pub fn audit(root: &Node) -> Vec<Fault> {
+    let mut faults = Vec::new();
+    walk(root, None, false, &mut faults);
+    faults
 }
 
 /// A node and the ones above it, kept on the walk's own stack.
@@ -112,13 +104,12 @@ impl<'a> Step<'a> {
     }
 }
 
-fn walk(node: &Node, parent: Option<&Step<'_>>, duplicate: bool, report: &mut Report) {
+fn walk(node: &Node, parent: Option<&Step<'_>>, duplicate: bool, faults: &mut Vec<Fault>) {
     let step = Step { node, parent };
     let rules = rules(&step, duplicate);
-    report.applicable += usize::from(rules.applicable);
     let path = (!rules.faults.is_empty()).then(|| step.keys());
     for kind in rules.faults {
-        report.faults.push(Fault {
+        faults.push(Fault {
             path: path.clone().unwrap_or_default(),
             kind,
         });
@@ -131,24 +122,20 @@ fn walk(node: &Node, parent: Option<&Step<'_>>, duplicate: bool, report: &mut Re
                 .iter()
                 .any(|earlier| earlier.key() == Some(key))
         });
-        walk(child, Some(&step), duplicate, report);
+        walk(child, Some(&step), duplicate, faults);
     }
 }
 
 #[derive(Default)]
 struct Rules {
-    applicable: bool,
     faults: Vec<FaultKind>,
 }
 
 impl Rules {
     /// One rule: `selected` is its antecedent, `fails` its violation.
     fn check(&mut self, selected: bool, kind: FaultKind, fails: impl FnOnce() -> bool) {
-        if selected {
-            self.applicable = true;
-            if fails() {
-                self.faults.push(kind);
-            }
+        if selected && fails() {
+            self.faults.push(kind);
         }
     }
 }

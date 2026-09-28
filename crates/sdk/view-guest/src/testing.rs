@@ -46,7 +46,7 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
 /// Panics listing each node assistive technology cannot name, place or
 /// reach, by its key path and fault.
 pub(crate) fn assert_accessible(tree: &Node) {
-    let faults = crate::wire::audit(tree).faults;
+    let faults = crate::wire::audit(tree);
     assert!(
         faults.is_empty(),
         "{} accessibility fault(s):\n{}",

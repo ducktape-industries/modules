@@ -114,7 +114,7 @@ fn image(interactivity: Interactivity, label: Option<&str>) -> Node {
 }
 
 fn kinds(tree: &Node) -> Vec<FaultKind> {
-    audit(tree).faults.iter().map(|fault| fault.kind).collect()
+    audit(tree).iter().map(|fault| fault.kind).collect()
 }
 
 fn fails(kind: FaultKind, tree: Node) {
@@ -122,11 +122,9 @@ fn fails(kind: FaultKind, tree: Node) {
     assert!(kinds.contains(&kind), "{kind:?} not among {kinds:?}");
 }
 
-/// A rule looked at the tree, and nothing in it breaks any rule.
+/// Nothing in the tree breaks any rule.
 fn passes(tree: Node) {
-    let report = audit(&tree);
-    assert_eq!(report.faults, Vec::new());
-    assert!(report.applicable > 0, "no rule selected the tree");
+    assert_eq!(audit(&tree), Vec::new());
 }
 
 #[test]
@@ -153,9 +151,8 @@ fn named_trees_pass_and_unlabeled_clickables_are_reported() {
             },
         ],
     );
-    let report = audit(&faulty);
     assert_eq!(
-        report.faults,
+        audit(&faulty),
         vec![
             Fault {
                 path: vec!["App".into(), "App/open".into()],
@@ -171,7 +168,6 @@ fn named_trees_pass_and_unlabeled_clickables_are_reported() {
             },
         ]
     );
-    assert_eq!(report.applicable, 2);
     passes(el(
         "App",
         Interactivity::default(),
@@ -543,9 +539,8 @@ fn a_key_an_earlier_sibling_holds_fails() {
         roled(Role::Group),
         vec![button("open", "Open"), button("open", "Again")],
     );
-    let report = audit(&row);
     assert_eq!(
-        report.faults,
+        audit(&row),
         vec![Fault {
             path: vec!["row".into(), "open".into()],
             kind: DuplicateKey,
