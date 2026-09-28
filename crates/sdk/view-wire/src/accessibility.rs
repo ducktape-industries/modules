@@ -56,7 +56,8 @@ pub enum FaultKind {
     DuplicateKey,
     /// A status or alert that is not live, or has nothing to say (AX-102).
     StatusNotLive,
-    /// An invalid text field that does not say why (AX-108).
+    /// An invalid text field, an input or a text-input role, that does
+    /// not say why (AX-108).
     ErrorNoText,
     /// An active descendant the host drops, as gpui would panic on it: on
     /// a node that takes focus, or after an earlier claim in the frame.
@@ -333,6 +334,11 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
         });
     }
     rules.check(duplicate, DuplicateKey, || true);
+    if let Node::Input { options, .. } = node {
+        rules.check(options.invalid.is_some(), ErrorNoText, || {
+            blank(options.description.as_deref())
+        });
+    }
     if let Some(aria) = interactivity.map(|i| &i.aria) {
         rules.check(is(&[Role::Status, Role::Alert]), StatusNotLive, || {
             aria.live.is_none()

@@ -272,6 +272,13 @@ pub struct InputOptions {
     pub label: String,
     pub description: Option<String>,
     pub disabled: bool,
+    /// The value is wrong; `description` says why (AX-108).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<Invalid>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
 }
 
 /// Copied native multiline editor presentation; state faces share input semantics.

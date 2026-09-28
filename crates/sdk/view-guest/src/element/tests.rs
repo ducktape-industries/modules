@@ -87,3 +87,34 @@ fn derived_components_and_wrappers_have_fluent_builders() {
         .into_element()
         .when(true, |element| element);
 }
+
+#[test]
+fn a_field_marked_invalid_required_and_read_only_says_so_and_why() {
+    let lower = |input: Input| {
+        let mut app = App::for_driver();
+        let mut window = app.window();
+        Lowering::new(&mut window, &mut app).lower(input)
+    };
+    let email = || {
+        Input::new("email", "Email")
+            .invalid(gpui::accesskit::Invalid::True)
+            .required(true)
+            .read_only(true)
+    };
+    let wire::Node::Input { options, .. } = lower(email()) else {
+        panic!("an input")
+    };
+    assert_eq!(options.invalid, Some(gpui::accesskit::Invalid::True));
+    assert!(options.required && options.read_only);
+    let faults = |node: &wire::Node| {
+        wire::audit(node)
+            .into_iter()
+            .map(|fault| fault.kind)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(faults(&lower(email())), [wire::FaultKind::ErrorNoText]);
+    assert_eq!(
+        faults(&lower(email().description("An address has an @"))),
+        []
+    );
+}

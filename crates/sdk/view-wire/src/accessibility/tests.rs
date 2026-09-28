@@ -751,6 +751,11 @@ fn an_invalid_field_that_does_not_say_why_fails() {
         )
     };
     fails(ErrorNoText, el("email", field, Vec::new()));
+    let mut input = input("Email");
+    if let Node::Input { options, .. } = &mut input {
+        options.invalid = Some(Invalid::True);
+    }
+    fails(ErrorNoText, input);
 }
 
 #[test]
@@ -775,4 +780,10 @@ fn an_invalid_field_that_says_why_passes() {
         error_message: Some(vec![ElementIdWire::Name("email-error".into())]),
         ..Default::default()
     }));
+    let mut input = input("Email");
+    if let Node::Input { options, .. } = &mut input {
+        options.invalid = Some(Invalid::True);
+        options.description = Some("An address has an @".into());
+    }
+    passes(input);
 }

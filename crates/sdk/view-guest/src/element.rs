@@ -315,6 +315,22 @@ impl Input {
         self
     }
 
+    /// The value is wrong; [`Self::description`] says why.
+    pub fn invalid(mut self, invalid: gpui::accesskit::Invalid) -> Self {
+        self.options.invalid = Some(invalid);
+        self
+    }
+
+    pub fn required(mut self, required: bool) -> Self {
+        self.options.required = required;
+        self
+    }
+
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.options.read_only = read_only;
+        self
+    }
+
     pub fn secure(mut self, secure: bool) -> Self {
         self.secure = secure;
         self

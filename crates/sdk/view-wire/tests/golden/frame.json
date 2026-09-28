@@ -457,7 +457,10 @@
               "options": {
                 "label": "",
                 "description": null,
-                "disabled": false
+                "disabled": false,
+                "invalid": "true",
+                "required": true,
+                "read_only": true
               },
               "id": {
                 "Name": "input"

@@ -143,7 +143,12 @@ pub fn every_node() -> Node {
             interactivity: Interactivity::default(),
         },
         Node::Input {
-            options: Default::default(),
+            options: view_wire::InputOptions {
+                invalid: Some(Invalid::True),
+                required: true,
+                read_only: true,
+                ..Default::default()
+            },
             id: id("input"),
             placeholder: "Name".into(),
             value: "x".into(),
