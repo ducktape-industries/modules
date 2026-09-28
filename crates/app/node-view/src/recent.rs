@@ -60,23 +60,6 @@ impl Recent {
         self.led = self.led.split_off(Self::span(head).start());
     }
 
-    /// Of the span at `head`: the blocks `key` led, the last one it led,
-    /// and how many blocks name who led them.
-    pub fn proposed(&self, key: &[u8], head: u64) -> (u64, Option<u64>, u64) {
-        let mut count = 0;
-        let mut last = None;
-        let mut known = 0;
-        for (height, led) in self.led.range(Self::span(head)) {
-            let Some(led) = led else { continue };
-            known += 1;
-            if led == key {
-                count += 1;
-                last = Some(*height);
-            }
-        }
-        (count, last, known)
-    }
-
     /// Whether `key` led the block at `height`: `None` where it is not
     /// held or names no proposer.
     pub fn led(&self, key: &[u8], height: u64) -> Option<bool> {

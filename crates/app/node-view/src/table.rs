@@ -8,7 +8,7 @@ use ducktape_view_guest::{Div, Loadable, Stateful};
 
 use crate::queries::Node;
 use crate::recent::Recent;
-use crate::row::{self, QUIET, QUIET_PER_VALIDATOR, Row, Status};
+use crate::row::{self, QUIET, Row, Status};
 use crate::{Nodes, ui};
 
 const KEY_W: Pixels = px(104.);
@@ -22,6 +22,9 @@ const STATUS_W: Pixels = px(136.);
 const WORDS_W: f32 = 104. + 112. + 60. + 136. + 16.;
 /// The sheet's inset either side, in pixels so the columns count against it.
 pub(crate) const INSET: f32 = 16.;
+/// What a node without `chain.network` shows over the table.
+pub(crate) const NO_NETWORK: &str =
+    "This node doesn't report its validators' votes. Update the node.";
 
 /// Whether `extra` fits beside the columns every width keeps, in the
 /// sheet's width less its inset and the scroller's gutter: Address from
@@ -50,11 +53,11 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
     let head = view.status.ready().map_or(0, |status| status.height);
     let this = view.status.ready().map(|status| status.identity.as_slice());
     let validators = nodes.iter().filter(|node| node.validator).count() as u64;
-    // only a node seated as a validator hears the votes, its own among
-    // them: without its own, it hears none (a resident, one not seated yet,
-    // one catching up after a restart)
-    let deaf = view.network.ready().is_some_and(|network| {
-        !network
+    // the votes, where this node hears them: only a node seated as a
+    // validator does, its own among them; without its own, it hears none (a
+    // resident, one not seated yet, one catching up after a restart)
+    let heard = view.network.ready().filter(|network| {
+        network
             .members
             .iter()
             .any(|peer| this == Some(peer.key.as_slice()) && peer.signed.is_some())
@@ -68,23 +71,23 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
             .filter(move |(_, node)| node.validator == validator)
             .map(move |(index, node)| {
                 let this = this == Some(node.key.as_slice());
-                let cells = match &view.network {
-                    Loadable::Ready(_) if deaf => row::BLANK,
-                    Loadable::Ready(network) => row::synced(node, network),
-                    _ => row::unsynced(node, head, validators, &view.recent),
-                };
+                let cells = heard.map_or(row::BLANK, |network| row::synced(node, network));
                 let marks = strip.then(|| self::strip(node, head, &view.recent, theme));
                 line(index, node, this, cells, marks, view, theme)
             })
     };
     let residents = nodes.len() as u64 - validators;
-    let no_votes = deaf.then(|| {
-        note(
+    // why the validators' cells are empty: this node hears no votes, or
+    // does not report them (before its first answer, no line)
+    let no_votes = match &view.network {
+        Loadable::Ready(_) if heard.is_none() => Some((
             "nodes-no-votes",
-            "This node isn't voting right now, so it can't see the validators' votes.".into(),
-            theme,
-        )
-    });
+            "This node isn't voting right now, so it can't see the validators' votes.",
+        )),
+        Loadable::Failed(_) => Some(("nodes-no-network", NO_NETWORK)),
+        _ => None,
+    }
+    .map(|(id, text)| note(id, text.into(), theme));
     // the rows are what the node last said: how long ago, once it is silent
     let silent = (!answering).then(|| {
         let age = design::ago((view.ticks - view.answered) * 1000, 0);
@@ -114,8 +117,12 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
         ))
         .children(rows(false))
         // with no votes to read, the line above says why the cells are empty
-        .children((!deaf).then(|| {
-            design::quiet(footnote(view, validators), theme)
+        .children(heard.is_some().then(|| {
+            let footnote = format!(
+                "Height: the newest block the validator voted to finalize. Quiet: none for {}.",
+                design::plural(QUIET, "block", "blocks")
+            );
+            design::quiet(footnote, theme)
                 .id("nodes-footnote")
                 .pt_2()
                 .px_2()
@@ -125,21 +132,6 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
 /// One plain line over the table: why its rows read as they do.
 fn note(id: &'static str, text: String, theme: &Theme) -> impl IntoElement {
     design::quiet(text, theme).id(id).pb_2().px_2()
-}
-
-/// Where the Height column comes from, or what stands in for it.
-fn footnote(view: &Nodes, validators: u64) -> String {
-    match view.network {
-        Loadable::Ready(_) => format!(
-            "Height: the newest block the validator voted to finalize. Quiet: none for {}.",
-            design::plural(QUIET, "block", "blocks")
-        ),
-        _ => format!(
-            "This node does not report its validators' signatures. A validator reads by the \
-             blocks it led, and Quiet after {} without one.",
-            design::plural(validators * QUIET_PER_VALIDATOR, "block", "blocks")
-        ),
-    }
 }
 
 /// The column names; the strip's names its span.
@@ -288,7 +280,7 @@ fn strip(node: &Node, head: u64, recent: &Recent, theme: &Theme) -> Div {
 }
 
 /// The status as one word in its colours, grey while the node is silent
-/// (the word is what it said then); the counts without `chain.network` as a
+/// (the word is what it said then); where a Quiet validator stopped, as a
 /// quiet caption.
 fn status(index: usize, status: &Status, answering: bool, theme: &Theme) -> impl IntoElement {
     let id = ElementId::named_usize("nodes-status-word", index);
@@ -315,22 +307,12 @@ fn status(index: usize, status: &Status, answering: bool, theme: &Theme) -> impl
                 .child(status.word())
                 .into_any_element(),
         ],
-        // no block of the strip names who led it (yet, or ever: a node
-        // that state-synced past their certificates)
-        Status::Led { of: 0, .. } => vec![caption("Not known".into())],
-        Status::Led { .. } => vec![caption(status.word())],
-        Status::Quiet { since, of } => {
-            let mut parts = vec![badge(theme.warning, theme.warning_soft)];
-            match (since, of) {
-                (Some(since), _) => {
-                    parts.push(caption(format!("since {}", design::grouped(*since))))
-                }
-                (None, 0) => {}
-                (None, of) => {
-                    parts.push(caption(format!("not in the last {}", design::grouped(*of))))
-                }
-            }
-            parts
+        Status::Quiet { since } => {
+            let since = since.map(|since| caption(format!("since {}", design::grouped(since))));
+            [badge(theme.warning, theme.warning_soft)]
+                .into_iter()
+                .chain(since)
+                .collect()
         }
     };
     div().flex().items_center().gap_1().children(parts)

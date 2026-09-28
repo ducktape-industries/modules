@@ -48,16 +48,31 @@ fn blocks(page: BlockPage) -> Vec<Block> {
         .collect()
 }
 
-/// The node: its status, its blocks, the clock, and `chain.network`
-/// refused, as a node that does not serve it refuses it.
+/// Each validator's newest vote as the node heard it: this node at its
+/// tip, OTHER one behind, UNLISTED stopped at 3,871; the resident votes on
+/// nothing.
+fn seen(height: u64) -> NetworkStatus {
+    let peer = |key: [u8; 2], signed| Peer {
+        key: key.to_vec(),
+        signed,
+    };
+    NetworkStatus {
+        height,
+        members: vec![
+            peer(RESIDENT, None),
+            peer(UNLISTED, Some(3871)),
+            peer(OTHER, Some(height - 1)),
+            peer(THIS, Some(height)),
+        ],
+    }
+}
+
+/// The node: its status, its blocks, the clock, and the votes it heard.
 fn node(cx: &TestAppContext) -> StreamSender<ClockTicks> {
     let ticks = cx.host().stream::<ClockTicks>();
     cx.host().handle::<ChainStatus>(|()| Ok(status()));
     cx.host().handle::<ChainBlocks>(|page| Ok(blocks(page)));
-    cx.host().refuse::<ChainNetwork>(
-        "unknown_request",
-        "This node doesn't report its validators' signatures.",
-    );
+    cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
     ticks
 }
 
@@ -93,7 +108,7 @@ fn respond(cx: &mut TestAppContext) {
     });
 }
 
-/// The sheet over a node that does not serve `chain.network`, and its clock.
+/// The sheet over the node, and its clock.
 fn ready() -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
     let ticks = node(&cx);
@@ -227,31 +242,19 @@ fn every_key_is_one_row_validators_first() {
     assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Heading));
 }
 
-/// Without `chain.network` the strip's blocks carry the validators: the
-/// strip spans the last 64, read a page at a time; a validator reads by the
-/// blocks it led, one that led none Quiet. A resident's cells stay empty.
+/// The strip spans the last 64, read a page at a time; a resident leads
+/// none, and its cells stay empty.
 #[test]
-fn without_the_network_a_validator_reads_by_its_blocks() {
+fn the_strip_reads_the_last_64_a_page_at_a_time() {
     let (cx, _) = ready();
     assert!(cx.has_text("Proposed · last 64 blocks · 4,137 → 4,200"));
     let pages = cx.host().requests::<ChainBlocks>();
     assert_eq!(pages.len(), 4, "{pages:?}");
     assert_eq!(pages[0].before, Some(4201));
-    let this = texts_of(&cx, "nodes-row-0");
-    assert!(this.contains(&"32 of 64".to_owned()) && this.contains(&"this node".to_owned()));
-    assert!(texts_of(&cx, "nodes-row-1").contains(&"32 of 64".to_owned()));
-    let unlisted = texts_of(&cx, "nodes-row-2");
-    assert!(unlisted.contains(&"Quiet".to_owned()), "{unlisted:?}");
-    assert!(unlisted.contains(&"not in the last 64".to_owned()));
     assert_eq!(
         texts_of(&cx, "nodes-row-3"),
         ["0102", "10.0.0.9:4000", "Doesn't propose", "—", "—", "—"]
     );
-    assert!(!cx.has_text("voted"));
-    assert!(cx.has_text(
-        "This node does not report its validators' signatures. A validator reads by the \
-         blocks it led, and Quiet after 12 blocks without one."
-    ));
     cx.assert_accessible();
 }
 

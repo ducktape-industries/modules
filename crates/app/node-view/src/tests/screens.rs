@@ -32,23 +32,22 @@ fn sheet_status(this: usize) -> NodeStatus {
     }
 }
 
-/// Who led `height`: the first four in turn, the fourth only up to 4,250;
-/// `None` for a node that keeps no certificates.
-fn leader(height: u64, known: bool) -> Option<Vec<u8>> {
+/// Who led `height`: the first four in turn, the fourth only up to 4,250.
+fn leader(height: u64) -> Vec<u8> {
     let turn = match height > 4250 {
         true => height % 3,
         false => height % 4,
     };
-    known.then(|| key(turn as usize))
+    key(turn as usize)
 }
 
-fn sheet_blocks(page: BlockPage, known: bool) -> Vec<Block> {
+fn sheet_blocks(page: BlockPage) -> Vec<Block> {
     let below = page.before.unwrap_or(HEIGHT + 1);
     (below.saturating_sub(page.limit as u64)..below)
         .rev()
         .map(|height| Block {
             height,
-            proposer: leader(height, known),
+            proposer: Some(leader(height)),
             ..Block::default()
         })
         .collect()
@@ -109,11 +108,9 @@ fn sheet_network(signed: [Option<u64>; VALIDATORS]) -> NetworkStatus {
 }
 
 /// The sheet over canned answers from member `this`: `network` None is a
-/// node (or app) that does not serve `chain.network`; `known` false a node
-/// with no proposers.
+/// node that does not serve `chain.network`.
 fn sheet(
     network: Option<NetworkStatus>,
-    known: bool,
     this: usize,
 ) -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
@@ -122,15 +119,14 @@ fn sheet(
     cx.host()
         .handle::<ChainStatus>(move |()| Ok(sheet_status(this)));
     cx.host()
-        .handle::<ChainBlocks>(move |page| Ok(sheet_blocks(page, known)));
+        .handle::<ChainBlocks>(|page| Ok(sheet_blocks(page)));
     match network {
         Some(network) => cx
             .host()
             .handle::<ChainNetwork>(move |()| Ok(network.clone())),
-        None => cx.host().refuse::<ChainNetwork>(
-            "unknown_request",
-            "This node doesn't report its validators' signatures.",
-        ),
+        None => cx
+            .host()
+            .refuse::<ChainNetwork>("unknown_request", crate::table::NO_NETWORK),
     }
     sheet_valset(&cx);
     cx.open::<Nodes>();
@@ -153,24 +149,23 @@ fn silent((mut cx, ticks): (TestAppContext, StreamSender<ClockTicks>)) -> TestAp
 fn screen(state: &str) -> TestAppContext {
     let quiet_unsigned = [SYNCED[0], SYNCED[1], SYNCED[2], SYNCED[3], None];
     // a resident is not seated: its node hears no votes
-    let resident = || sheet(Some(sheet_network([None; VALIDATORS])), true, VALIDATORS);
+    let resident = || sheet(Some(sheet_network([None; VALIDATORS])), VALIDATORS);
     match state {
-        "synced" | "synced-680" | "synced-narrow" => sheet(Some(sheet_network(SYNCED)), true, 0).0,
-        "quiet-unsigned" => sheet(Some(sheet_network(quiet_unsigned)), true, 0).0,
-        "fallback" => sheet(None, true, 0).0,
-        "fallback-unknown" => sheet(None, false, 0).0,
-        "not-answering" => silent(sheet(Some(sheet_network(SYNCED)), true, 0)),
-        "behind-quiet" => sheet(Some(sheet_network(BEHIND)), true, 0).0,
+        "synced" | "synced-680" | "synced-narrow" => sheet(Some(sheet_network(SYNCED)), 0).0,
+        "quiet-unsigned" => sheet(Some(sheet_network(quiet_unsigned)), 0).0,
+        "unknown-request" => sheet(None, 0).0,
+        "not-answering" => silent(sheet(Some(sheet_network(SYNCED)), 0)),
+        "behind-quiet" => sheet(Some(sheet_network(BEHIND)), 0).0,
         "resident" => resident().0,
         "resident-not-answering" => silent(resident()),
         // a validator in valset not seated yet: no vote of its own
         "promoted" => {
             let own = [None, SYNCED[1], SYNCED[2], SYNCED[3], SYNCED[4]];
-            sheet(Some(sheet_network(own)), true, 0).0
+            sheet(Some(sheet_network(own)), 0).0
         }
         // the node restarts past the app's retries: the votes stay
         "refused-after-answer" => {
-            let (mut cx, ticks) = sheet(Some(sheet_network(SYNCED)), true, 0);
+            let (mut cx, ticks) = sheet(Some(sheet_network(SYNCED)), 0);
             cx.host()
                 .refuse::<ChainNetwork>("unavailable", "The node could not be reached.");
             ticks.send(());
@@ -206,7 +201,7 @@ fn screen(state: &str) -> TestAppContext {
             cx.host().stream::<Changes<Valset>>();
             cx.host().handle::<ChainStatus>(|()| Ok(sheet_status(0)));
             cx.host()
-                .handle::<ChainBlocks>(|page| Ok(sheet_blocks(page, true)));
+                .handle::<ChainBlocks>(|page| Ok(sheet_blocks(page)));
             cx.host()
                 .handle::<ChainNetwork>(|()| Ok(sheet_network(SYNCED)));
             match state {
@@ -228,14 +223,13 @@ fn screen(state: &str) -> TestAppContext {
     }
 }
 
-const SCREENS: [(&str, u32, u32); 16] = [
+const SCREENS: [(&str, u32, u32); 15] = [
     ("synced", 1100, 680),
     ("synced-680", 680, 620),
     // drawn in the app's frame: laid out at 480, scrolled sideways
     ("synced-narrow", 320, 800),
     ("quiet-unsigned", 1100, 680),
-    ("fallback", 1100, 680),
-    ("fallback-unknown", 1100, 680),
+    ("unknown-request", 1100, 680),
     ("not-answering", 1100, 680),
     ("loading", 1100, 680),
     ("status-refused", 1100, 680),

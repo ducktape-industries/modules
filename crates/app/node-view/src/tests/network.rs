@@ -1,25 +1,13 @@
 //! The sheet with `chain.network`: each validator's newest vote, what a
-//! node that is not voting shows, a refusal after an answer, a silent node,
-//! and the narrow widths.
+//! node that is not voting shows, a refusal after an answer, a node that
+//! does not serve it, a silent node, and the narrow widths.
 use super::*;
+use crate::table::NO_NETWORK;
 
-/// Each validator's newest vote as the node heard it: this node at its
-/// tip, OTHER one behind, UNLISTED stopped at 3,871; the resident votes on
-/// nothing.
-fn seen(height: u64) -> NetworkStatus {
-    let peer = |key: [u8; 2], signed| Peer {
-        key: key.to_vec(),
-        signed,
-    };
-    NetworkStatus {
-        height,
-        members: vec![
-            peer(RESIDENT, None),
-            peer(UNLISTED, Some(3871)),
-            peer(OTHER, Some(height - 1)),
-            peer(THIS, Some(height)),
-        ],
-    }
+/// How the app refuses `chain.network` for a node without the route.
+fn unsupported(cx: &TestAppContext) {
+    cx.host()
+        .refuse::<ChainNetwork>("unknown_request", NO_NETWORK);
 }
 
 /// The sheet over node `this`, serving `chain.network` with `network`.
@@ -155,7 +143,7 @@ fn a_narrow_sheet_keeps_key_height_behind_and_status() {
 
 /// A refusal after an answer (a node restarting past the app's retries, a
 /// dropped link) keeps the votes on screen and is logged; only a node that
-/// does not serve `chain.network` falls back.
+/// does not serve `chain.network` clears them.
 #[test]
 fn a_refusal_after_an_answer_keeps_the_votes() {
     let (mut cx, ticks) = voting(THIS, seen(4200));
@@ -168,30 +156,43 @@ fn a_refusal_after_an_answer_keeps_the_votes() {
         "{:?}",
         cx.texts()
     );
-    assert!(!cx.has_text("32 of 64"));
+    assert!(!cx.has_text(NO_NETWORK));
     assert!(
         cx.host()
             .logs()
             .iter()
             .any(|line| line.contains("could not be reached"))
     );
-    cx.host().refuse::<ChainNetwork>(
-        "unknown_request",
-        "This node doesn't report its validators' signatures.",
-    );
+    unsupported(&cx);
     ticks.send(());
     cx.run_until_parked();
-    assert!(cx.has_text("32 of 64") && !cx.has_text("voted"));
+    assert!(cx.has_text(NO_NETWORK) && !cx.has_text("voted"));
 }
 
-/// A node that does not serve `chain.network` falls back, and logs it once.
+/// A node that does not serve `chain.network` says so in one line over
+/// empty cells, and logs it once.
 #[test]
-fn a_refused_network_falls_back_and_logs_once() {
-    let (mut cx, ticks) = ready();
-    ticks.send(());
-    ticks.send(());
+fn a_node_without_the_network_says_so_and_logs_once() {
+    let mut cx = TestAppContext::new();
+    let ticks = node(&cx);
+    unsupported(&cx);
+    cx.host().stream::<Changes<Valset>>();
+    respond(&mut cx);
+    cx.open::<Nodes>();
     cx.run_until_parked();
-    assert!(cx.has_text("32 of 64") && !cx.has_text("voted"));
+    for _ in 0..2 {
+        ticks.send(());
+        cx.run_until_parked();
+    }
+    assert_eq!(cx.host().requests::<ChainNetwork>().len(), 3);
+    assert!(cx.has_text(NO_NETWORK), "{:?}", cx.texts());
+    for index in 0..3 {
+        let texts = texts_of(&cx, &format!("nodes-row-{index}"));
+        assert_eq!(texts[texts.len() - 3..], ["—", "—", "—"], "row {index}");
+    }
+    assert!(!cx.has_text("Quiet") && !cx.has_text("voted"));
+    assert!(cx.find("nodes-footnote").is_none());
+    cx.assert_accessible();
     let logged = cx
         .host()
         .logs()
@@ -222,7 +223,6 @@ fn badge_inks(node: &ducktape_view_guest::wire::Node, inks: &mut Vec<ducktape_vi
 #[test]
 fn a_silent_node_reads_not_answering() {
     let (mut cx, ticks) = ready();
-    cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
     cx.host().never::<ChainStatus>();
     for _ in 0..3 {
         ticks.send(());

@@ -5,7 +5,6 @@ use ducktape_view_guest::design;
 use ducktape_view_guest::methods::NetworkStatus;
 
 use crate::queries::Node;
-use crate::recent::Recent;
 
 /// A validator whose vote is this many blocks under the tip still reads
 /// In sync: a live one's newest vote may still be in flight.
@@ -13,40 +12,26 @@ pub const IN_SYNC: u64 = 2;
 /// A validator that voted for none of this many blocks reads Quiet: every
 /// validator votes on every block, whatever the set's size.
 pub const QUIET: u64 = 20;
-/// Without `chain.network`, a validator that led none of this many blocks
-/// per validator reads Quiet: the lead goes round the set.
-pub const QUIET_PER_VALIDATOR: u64 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Status {
     InSync,
     Behind(u64),
-    /// a validator that stopped: the last block it voted for (or led), where
-    /// known, and without `chain.network` the blocks the strip looked at
+    /// a validator that stopped: the last block it voted for, where heard
     Quiet {
         since: Option<u64>,
-        of: u64,
-    },
-    /// without `chain.network`: of the strip's blocks that name a proposer,
-    /// how many this validator led
-    Led {
-        count: u64,
-        of: u64,
     },
     /// a resident
     Blank,
 }
 
 impl Status {
-    /// The one word (or count) the Status cell reads.
+    /// The one word the Status cell reads.
     pub fn word(&self) -> String {
         match self {
             Status::InSync => "In sync".into(),
             Status::Behind(blocks) => format!("{} behind", design::grouped(*blocks)),
             Status::Quiet { .. } => "Quiet".into(),
-            Status::Led { count, of } => {
-                format!("{} of {}", design::grouped(*count), design::grouped(*of))
-            }
             Status::Blank => "—".into(),
         }
     }
@@ -84,11 +69,8 @@ pub fn synced(node: &Node, network: &NetworkStatus) -> Row {
         .and_then(|peer| peer.signed);
     let behind = signed.map(|signed| network.height.saturating_sub(signed));
     let status = match behind {
-        None => Status::Quiet { since: None, of: 0 },
-        Some(behind) if behind >= QUIET => Status::Quiet {
-            since: signed,
-            of: 0,
-        },
+        None => Status::Quiet { since: None },
+        Some(behind) if behind >= QUIET => Status::Quiet { since: signed },
         Some(behind) if behind > IN_SYNC => Status::Behind(behind),
         Some(_) => Status::InSync,
     };
@@ -97,20 +79,4 @@ pub fn synced(node: &Node, network: &NetworkStatus) -> Row {
         behind,
         status,
     }
-}
-
-/// A row without `chain.network`: a validator is read by the blocks it led
-/// of the strip, Quiet once [`QUIET_PER_VALIDATOR`] per validator passed
-/// without one.
-pub fn unsynced(node: &Node, head: u64, validators: u64, recent: &Recent) -> Row {
-    if !node.validator {
-        return BLANK;
-    }
-    let (count, last, of) = recent.proposed(&node.key, head);
-    let silence = last.map_or(of, |last| head - last);
-    let status = match silence >= validators * QUIET_PER_VALIDATOR {
-        true => Status::Quiet { since: last, of },
-        false => Status::Led { count, of },
-    };
-    Row { status, ..BLANK }
 }

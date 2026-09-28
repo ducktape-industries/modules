@@ -6,10 +6,8 @@
 //! status word: In sync, N behind, Quiet). A resident's sync state is not
 //! reported: its row is its key and address. A node that is not voting (it
 //! reports no vote of its own) hears none, so then no validator's is
-//! reported either.
-//!
-//! Where the node does not serve `chain.network` a validator reads by the
-//! blocks it led, Quiet when it led none for a while.
+//! reported either. A node that does not serve `chain.network` says so in
+//! one line, and the validators' cells stay empty.
 //!
 //! The members are valset's (`queries.rs`), re-read on its live heads; the
 //! status, the network and the strip's blocks (`recent.rs`) follow the
@@ -39,7 +37,7 @@ pub struct Nodes {
     pub(crate) status: Loadable<NodeStatus>,
     pub(crate) nodes: Loadable<Vec<Node>>,
     /// each validator's newest finalize vote as the connected node heard
-    /// it; `Failed` where it does not serve `chain.network`
+    /// it; `Failed` only where it does not serve `chain.network`
     pub(crate) network: Loadable<NetworkStatus>,
     pub(crate) recent: Recent,
     /// clock ticks since the view opened, and the tick the node last
@@ -72,7 +70,7 @@ pub(crate) struct Asking {
 const TICK: i64 = 1_000;
 /// Ticks without a status answer before the node reads Not answering.
 pub(crate) const SILENT_TICKS: u64 = 3;
-/// The refusal of an app or node that does not serve `chain.network`.
+/// The refusal of a node that does not serve `chain.network`.
 const UNSUPPORTED: &str = "unknown_request";
 
 impl View for Nodes {
@@ -162,11 +160,11 @@ impl Nodes {
         cx.notify();
     }
 
-    /// Each validator's newest finalize vote as the node heard it. An app
-    /// or node that does not serve it (`unknown_request`), or a refusal
-    /// before any answer, is logged once and the sheet falls back until an
-    /// answer; any other refusal (a node restarting, a dropped link) keeps
-    /// the last answer, as the status does.
+    /// Each validator's newest finalize vote as the node heard it. A node
+    /// that does not serve it (`unknown_request`) is logged once and the
+    /// sheet says so until an answer; any other refusal (a node restarting,
+    /// a dropped link) is logged and keeps the last answer, as the status
+    /// does.
     pub(crate) fn read_network(&mut self, cx: &mut Context<Self>) {
         if std::mem::replace(&mut self.asking.network, true) {
             return;
@@ -178,9 +176,7 @@ impl Nodes {
                 view.asking.network = false;
                 match answer {
                     Ok(network) => view.network = Loadable::Ready(network),
-                    Err(refusal)
-                        if refusal.code == UNSUPPORTED || view.network.ready().is_none() =>
-                    {
+                    Err(refusal) if refusal.code == UNSUPPORTED => {
                         if view.network.failed().is_none() {
                             cx.host()
                                 .log_refused("nodes", "the validators' votes", &refusal);

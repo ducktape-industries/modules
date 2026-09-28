@@ -4,7 +4,7 @@ use ducktape_view_guest::methods::{Block, BlockPage, NetworkStatus, Peer};
 
 use crate::queries::{Node, fold};
 use crate::recent::{Recent, WINDOW};
-use crate::row::{Row, Status, synced, unsynced};
+use crate::row::{Row, Status, synced};
 
 fn member(key: u8, role: valset::Role) -> valset::Membership {
     valset::Membership {
@@ -120,7 +120,7 @@ fn the_strip_asks_the_highest_missing_run_then_keeps_its_span() {
     );
     recent.land(&fresh, 102, led(101, 102, |_| 1));
     assert_eq!(recent.led.keys().next(), Some(&39));
-    assert_eq!(recent.proposed(&[2], 102), (2, Some(40), 64));
+    assert_eq!(recent.led(&[2], 40), Some(true));
     assert_eq!(recent.led(&[1], 102), Some(true));
     assert_eq!(recent.led(&[1], 39), Some(false));
     assert_eq!(recent.led(&[1], 200), None);
@@ -142,44 +142,7 @@ fn a_short_archive_ends_the_asking() {
     assert_eq!(recent.next(10), None);
 }
 
-/// Four validators: Quiet once 16 blocks passed without leading one.
-fn strip(last: u64) -> Recent {
-    let mut recent = Recent::default();
-    let page = BlockPage {
-        before: Some(101),
-        limit: 64,
-    };
-    recent.land(&page, 100, led(37, 100, |h| if h == last { 7 } else { 1 }));
-    recent
-}
-
-#[test]
-fn a_validator_reads_quiet_at_four_blocks_a_validator() {
-    let validator = node(7, true);
-    let row = unsynced(&validator, 100, 4, &strip(85));
-    assert_eq!(row.status, Status::Led { count: 1, of: 64 });
-    assert_eq!(row.status.word(), "1 of 64");
-    // 85..=100: 16 blocks without one
-    let row = unsynced(&validator, 100, 4, &strip(84));
-    assert_eq!(
-        row.status,
-        Status::Quiet {
-            since: Some(84),
-            of: 64
-        }
-    );
-    let row = unsynced(&validator, 100, 4, &strip(0));
-    assert_eq!(
-        row.status,
-        Status::Quiet {
-            since: None,
-            of: 64
-        }
-    );
-    assert_eq!((row.signed, row.behind), (None, None));
-}
-
-/// A resident's cells say nothing, with or without `chain.network`.
+/// A resident's cells say nothing, whatever the reply says of it.
 #[test]
 fn a_residents_row_is_blank() {
     let resident = node(2, false);
@@ -188,7 +151,6 @@ fn a_residents_row_is_blank() {
         behind: None,
         status: Status::Blank,
     };
-    assert_eq!(unsynced(&resident, 100, 4, &Recent::default()), blank);
     let network = network(vec![peer(2, Some(100))]);
     assert_eq!(synced(&resident, &network), blank);
     assert_eq!(blank.status.word(), "—");
@@ -219,15 +181,8 @@ fn every_word_a_validators_vote_gives() {
         (Some(4_293), Some(2), Status::InSync),
         (Some(4_292), Some(3), Status::Behind(3)),
         (Some(4_276), Some(19), Status::Behind(19)),
-        (
-            Some(4_275),
-            Some(20),
-            Status::Quiet {
-                since: Some(4_275),
-                of: 0,
-            },
-        ),
-        (None, None, Status::Quiet { since: None, of: 0 }),
+        (Some(4_275), Some(20), Status::Quiet { since: Some(4_275) }),
+        (None, None, Status::Quiet { since: None }),
     ];
     for (signed, behind, status) in cases {
         let row = synced(&node(1, true), &network(vec![peer(1, signed)]));
