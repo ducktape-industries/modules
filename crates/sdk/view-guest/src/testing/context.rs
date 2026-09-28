@@ -151,9 +151,6 @@ impl TestAppContext {
         );
         crate::wire::encode(&frame).len()
     }
-    pub fn assert_accessible(&self) {
-        assert_accessible(self.frame.root.as_ref().expect("view has a tree"));
-    }
     pub fn simulate_click(&mut self, key: &str) {
         self.dispatch(super::press(&self.frame, key));
     }

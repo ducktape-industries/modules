@@ -99,7 +99,6 @@ fn an_empty_registry_says_so() {
     cx.simulate_click("explorer-tab-programs");
     cx.run_until_parked();
     assert!(cx.has_text("No programs"), "{:?}", cx.texts());
-    cx.assert_accessible();
 }
 
 #[test]

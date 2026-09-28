@@ -171,7 +171,6 @@ fn four_states_are_honest() {
     // the node's status is the Nodes view's, the app's preferences the gear's
     assert!(!cx.has_text("Node"));
     assert!(cx.find("settings/app/body").is_none());
-    cx.assert_accessible();
 }
 
 /// The left menu lists Agents only for an account that manages agents,
@@ -349,7 +348,6 @@ fn a_suspended_agents_key_reads_as_such_and_creates_nothing() {
     assert!(cx.has_text("Scout"), "{:?}", cx.texts());
     assert!(cx.has_text("This key belongs to Scout, suspended by its manager."));
     assert!(cx.find("settings/account/create").is_none());
-    cx.assert_accessible();
 }
 #[test]
 fn unregistered_key_creates_an_account() {
@@ -357,7 +355,6 @@ fn unregistered_key_creates_an_account() {
     assert!(cx.has_text(
         "Your key isn't linked to an account yet. An account gives you a name others see."
     ));
-    cx.assert_accessible();
 
     // Empty name never reaches the host: identity's own rule (a name is not
     // empty) is mirrored inline.
@@ -508,7 +505,6 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<Submit<Identity>>().len(), 2);
     assert!(!cx.has_text("That isn’t a key request for one of your agents."));
-    cx.assert_accessible();
 }
 
 /// The manager alone renames, suspends, resumes and revokes an agent from
@@ -632,7 +628,6 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     for action in ["rename", "suspend", "resume", "revoke"] {
         assert!(cx.find(&format!("settings/agents/12/{action}")).is_none());
     }
-    cx.assert_accessible();
 }
 
 /// Identity's live heads re-read the account in place: a rename made

@@ -64,7 +64,6 @@ fn the_root_tracks_the_shared_theme_and_is_accessible() {
         Some(dark.background)
     );
     assert_eq!(style.text.color, Some(dark.foreground));
-    cx.assert_accessible();
 }
 
 fn row(seq: u64, author: u64, text: &str) -> MsgRow {

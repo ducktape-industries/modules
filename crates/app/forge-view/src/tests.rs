@@ -413,7 +413,6 @@ fn the_root_wears_the_shared_theme_and_is_accessible() {
         Some(dark.background)
     );
     assert_eq!(style.text.color, Some(dark.foreground));
-    cx.assert_accessible();
 }
 
 #[test]

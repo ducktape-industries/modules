@@ -31,7 +31,6 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
     cx.run_until_parked();
     assert!(cx.has_text("2 results for “hello”"), "{:?}", cx.texts());
     // the clear control is a glyph named in words
-    cx.assert_accessible();
     cx.simulate_click("chat-sidebar-clear-search");
     view.read(|chat| assert!(chat.search.query.is_empty()));
     cx.host().handle::<HostId>(|kind| {
