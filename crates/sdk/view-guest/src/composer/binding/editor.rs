@@ -163,7 +163,7 @@ pub(super) fn editor<V: 'static>(
                         key_tag(&observing, &observed_choices, before, key)
                     }
                     Some(wire::EditorRequestInput::Interaction {
-                        action: wire::editor_presentation::EditorInteraction::Action { tag },
+                        action: wire::EditorInteraction::Action { tag },
                     }) => tag.clone(),
                     _ => String::new(),
                 };
@@ -183,7 +183,7 @@ pub(super) fn editor<V: 'static>(
         if !editable {
             return wire::EditorDecision::Noop;
         }
-        let wire::editor_presentation::EditorInteraction::Action { tag } = request.action;
+        let wire::EditorInteraction::Action { tag } = request.action;
         interacting.decide(tag, &interaction_choices, request.state)
     });
     let route_effect = effect;

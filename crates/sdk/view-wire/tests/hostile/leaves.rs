@@ -102,10 +102,7 @@ pub(super) fn gen_editor(rng: &mut Rng) -> Node {
         document: gen_document(rng),
         on_document: rng.next_u64() as u32,
         editable: rng.next_bool(),
-        options: Box::new(EditorOptions {
-            presentation: None,
-            binding: None,
-        }),
+        options: Box::new(EditorOptions { binding: None }),
         id: gen_id(rng),
         style: gpui::StyleRefinement::default(),
         placeholder: gen_string(rng),

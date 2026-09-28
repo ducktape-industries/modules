@@ -453,7 +453,6 @@ EditorKeyClaim struct
   command: Bool
 EditorOptions struct
   binding: Option(TypeName("EditorBinding"))
-  presentation: Option(TypeName("EditorPresentation"))
 EditorPatch struct
   start_byte: U32
   end_byte: U32
@@ -461,8 +460,6 @@ EditorPatch struct
 EditorPosition struct
   line: U32
   column: U32
-EditorPresentation struct
-  style: TypeName("StyleRefinement")
 EditorRequest struct
   id: TypeName("EditorTransactionId")
   state: TypeName("EditorDocumentRef")

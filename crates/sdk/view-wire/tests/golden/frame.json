@@ -476,8 +476,7 @@
           {
             "Editor": {
               "options": {
-                "binding": null,
-                "presentation": null
+                "binding": null
               },
               "id": {
                 "Name": "editor"

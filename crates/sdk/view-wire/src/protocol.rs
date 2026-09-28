@@ -281,9 +281,8 @@ pub struct InputOptions {
     pub read_only: bool,
 }
 
-/// Copied native multiline editor presentation; state faces share input semantics.
+/// A native multiline editor's guest binding; state faces share input semantics.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EditorOptions {
     pub binding: Option<Box<EditorBinding>>,
-    pub presentation: Option<Box<editor_presentation::EditorPresentation>>,
 }

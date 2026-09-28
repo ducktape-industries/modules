@@ -269,7 +269,6 @@ fn restored_mention_draft_keeps_its_document_and_binding() {
     };
     assert_eq!(document.document, "c");
     assert!(options.binding.is_some());
-    assert!(options.presentation.is_none());
 }
 
 #[test]

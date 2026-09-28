@@ -46,12 +46,12 @@ pub use sanitization::SanitizeReport;
 
 mod editor;
 pub mod editor_document;
-pub mod editor_presentation;
 pub mod editor_transaction;
 pub use editor_transaction::{
     EditorBinding, EditorDecision, EditorEditKind, EditorFault, EditorHistoryEffect,
-    EditorKeyClaim, EditorPatch, EditorPatchError, EditorRequest, EditorRequestInput,
-    EditorResponse, EditorTransactionEvent, EditorTransactionId, patched_editor_text,
+    EditorInteraction, EditorKeyClaim, EditorPatch, EditorPatchError, EditorRequest,
+    EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId,
+    patched_editor_text,
 };
 
 pub use editor::{EditorCursor, EditorPosition, editor_lines, editor_offset, editor_position};

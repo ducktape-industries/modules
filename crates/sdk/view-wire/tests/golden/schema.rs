@@ -223,7 +223,7 @@ const TREE: &[Trace] = &[
     trace::<view_wire::editor_document::EditorDocumentMessage>,
     trace::<view_wire::editor_document::EditorTransfer>,
     trace::<view_wire::editor_document::EditorTransferError>,
-    trace::<view_wire::editor_presentation::EditorInteraction>,
+    trace::<view_wire::EditorInteraction>,
     trace::<view_wire::interactivity::PressureStage>,
     trace::<view_wire::interactivity::TouchPhase>,
     trace::<view_wire::keyboard::Key>,
