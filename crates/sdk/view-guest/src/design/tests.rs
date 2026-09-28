@@ -131,3 +131,11 @@ fn a_divider_is_a_named_focusable_splitter_the_arrows_move() {
     cx.simulate_drag("panes-resize", 5., 0.);
     panes.read(|panes| assert_eq!(panes.moved, [-8., 8., -32., 32., 5.]));
 }
+
+#[test]
+fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
+    assert!(docks(1000., 576., 320.));
+    assert!(docks(896., 576., 320.));
+    assert!(!docks(895., 576., 320.));
+    assert!(!docks(720., 400., 440.));
+}
