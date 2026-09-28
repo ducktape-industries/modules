@@ -80,9 +80,7 @@ fn with_menu(chat: &Chat, screen: AnyElement, cx: &mut Context<Chat>, theme: &Th
         chat.close_menu();
         cx.notify();
     });
-    let overlay = modal_overlay(MENU_OVERLAY, screen, menu)
-        .label("Message menu")
-        .on_dismiss(dismiss);
+    let overlay = modal_overlay(MENU_OVERLAY, "Message menu", screen, menu).on_dismiss(dismiss);
     // a confirm asks before anything else happens: it dims the room
     let confirming = chat
         .menu
@@ -109,8 +107,7 @@ fn with_create(
         chat.create = None;
         cx.notify();
     });
-    let overlay = modal_overlay("chat-create-overlay", screen, create)
-        .label("Create channel")
+    let overlay = modal_overlay("chat-create-overlay", "Create channel", screen, create)
         .flex()
         .items_center()
         .justify_center()

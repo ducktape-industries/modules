@@ -137,6 +137,30 @@ where
     }
 }
 
+/// A control drawn as a glyph alone (a cross, a plus): muted until the
+/// pointer is on it. `name` is what it does, in words, since the glyph
+/// says nothing to a screen reader.
+pub fn icon_button(
+    id: impl Into<ElementId>,
+    glyph: impl IntoElement,
+    name: impl Into<SharedString>,
+    theme: &Theme,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let theme = *theme;
+    div()
+        .id(id)
+        .px_1()
+        .text_color(theme.muted)
+        .cursor_pointer()
+        .hover(move |style| style.text_color(theme.foreground))
+        .role(Role::Button)
+        .aria_label(name)
+        .focusable()
+        .on_click(click)
+        .child(glyph)
+}
+
 /// A tab: quiet text, the chosen one fg and underlined, no fill. A caller
 /// sizes it to its bar (`h_full`, `flex_1`) and may label a glyph.
 pub fn tab(
@@ -175,10 +199,11 @@ pub fn tab(
 }
 
 /// A few choices side by side in one box, the picked one ink-filled: a
-/// state filter, an object format, an invite's lifetime. The segments are
-/// [`segment`]s; the box draws the edge they share.
+/// state filter, an object format, an invite's lifetime. `label` names the
+/// choice; the segments are [`segment`]s; the box draws the edge they share.
 pub fn segmented(
     id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
     theme: &Theme,
     segments: impl IntoIterator<Item = Stateful<Div>>,
 ) -> Stateful<Div> {
@@ -192,6 +217,7 @@ pub fn segmented(
         .border_r_1()
         .border_color(theme.border_strong)
         .role(Role::RadioGroup)
+        .aria_label(label)
         .children(segments)
 }
 
@@ -329,3 +355,6 @@ pub fn divider<V: crate::View>(
     });
     crate::resize_handle(id, div().w(crate::px(1.)).h_full().bg(theme.border)).on_drag(dragged)
 }
+
+#[cfg(test)]
+mod tests;

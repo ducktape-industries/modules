@@ -77,7 +77,7 @@ fn name_field(
         }
         cx.notify();
     });
-    let name = Input::new("chat-create-name")
+    let name = Input::new("chat-create-name", "Channel name")
         .h(design::size::CONTROL)
         .px_2()
         .py_1()
@@ -86,7 +86,6 @@ fn name_field(
         .bg(theme.surface)
         .value(create.name.clone())
         .placeholder("Channel name")
-        .label("Channel name")
         .disabled(create.busy)
         .on_input(typed);
     match can_submit {

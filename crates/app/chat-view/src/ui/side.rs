@@ -218,7 +218,7 @@ fn section(name: &'static str, theme: &Theme) -> impl IntoElement {
 }
 
 fn field(id: &'static str, value: &str, label: &'static str, theme: &Theme) -> Input {
-    Input::new(id)
+    Input::new(id, label)
         .h(design::size::CONTROL)
         .px_2()
         .py_1()
@@ -226,7 +226,6 @@ fn field(id: &'static str, value: &str, label: &'static str, theme: &Theme) -> I
         .border_color(theme.border_strong)
         .bg(theme.background)
         .value(value.to_owned())
-        .label(label)
 }
 
 /// A row per member, each with its way out where the room has one; a word

@@ -54,7 +54,7 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
         chat.picker.query = query.clone();
         cx.notify();
     });
-    let search = Input::new(focus_key(menu.pane, Mode::Reactions))
+    let search = Input::new(focus_key(menu.pane, Mode::Reactions), "Search emoji")
         .h(px(SEARCH))
         .w_full()
         .px_2()
@@ -64,7 +64,6 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
         .text_size(design::text::SECONDARY)
         .value(chat.picker.query.clone())
         .placeholder("Search emoji")
-        .label("Search emoji")
         .on_input(typed);
     let first = emoji::search(&chat.picker.query).first().copied();
     match first.filter(|_| chat.may_write()) {

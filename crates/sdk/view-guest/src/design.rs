@@ -10,7 +10,9 @@ pub use ::design::*;
 mod controls;
 pub mod explorer;
 mod format;
-pub use controls::{Button, Kind, button, divider, segment, segmented, setting_row, switch, tab};
+pub use controls::{
+    Button, Kind, button, divider, icon_button, segment, segmented, setting_row, switch, tab,
+};
 pub use format::{ago, clock, date, day, grouped, initial, local, plural, set_utc_offset};
 
 use crate::prelude::*;

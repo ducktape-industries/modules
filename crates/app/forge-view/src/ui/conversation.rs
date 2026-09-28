@@ -302,6 +302,7 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
                 &forge.reply,
                 "forge-reply",
                 |forge: &mut Forge| Some(&mut forge.reply),
+                "Reply",
             )
             .min_h(design::size::CONTROL)
             .flex_1()
@@ -311,8 +312,7 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Reply in this change")
-            .label("Reply"),
+            .placeholder("Reply in this change"),
         )
         .child(
             button(id("forge-reply-send"), "Send", theme, send)

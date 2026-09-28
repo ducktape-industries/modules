@@ -54,6 +54,7 @@ impl Render for BehaviorView {
         });
         modal_overlay(
             ElementId::Name("behavior-overlay".into()),
+            "Behavior dialog",
             sensor(
                 ElementId::Name("behavior-sensor".into()),
                 resize_handle(
@@ -66,7 +67,6 @@ impl Render for BehaviorView {
             .size_full(),
             div().child("modal"),
         )
-        .label("Behavior dialog")
         .flex()
         .items_center()
         .justify_center()

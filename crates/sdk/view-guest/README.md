@@ -21,6 +21,10 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
   `src/editor.rs`, `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
   crossed as per-frame indices.
+- A control is named from birth: `Input::new(id, label)`,
+  `EditorElement::new(…, label)`, `modal_overlay(id, label, …)`, and
+  `design`'s `segmented`, `icon_button` and `divider` take the words
+  assistive technology reads, so an unnamed one does not compile.
 - `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`
   (`src/interactivity.rs`, `src/interactivity/stateful.rs`): listeners and
   focus become wire routes.

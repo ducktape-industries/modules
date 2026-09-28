@@ -240,6 +240,7 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
     });
     let states = design::segmented(
         id("forge-filter-states"),
+        "Change state",
         theme,
         [Filter::Open, Filter::Merged, Filter::Closed].map(|filter| {
             let pick =
@@ -286,7 +287,7 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
     // the Input sits in a box of its own: pushed right, it keeps its width
     bar.child(
         div().ml_auto().flex_none().w(SEARCH_W).child(
-            Input::new(id("forge-changes-search"))
+            Input::new(id("forge-changes-search"), "Search changes")
                 .h(design::size::CONTROL)
                 .w(SEARCH_W)
                 .px_2()
@@ -296,7 +297,6 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
                 .text_color(theme.foreground)
                 .value(forge.change_search.clone())
                 .placeholder("Search titles")
-                .label("Search changes")
                 .on_input(typed),
         ),
     )
@@ -380,7 +380,7 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
         .flex_col()
         .gap_2()
         .child(
-            Input::new(id("forge-change-title"))
+            Input::new(id("forge-change-title"), "Change title")
                 .h(design::size::CONTROL)
                 .w_full()
                 .px_2()
@@ -390,7 +390,6 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
                 .text_color(theme.foreground)
                 .value(form.title.clone())
                 .placeholder("What this change does")
-                .label("Change title")
                 .on_input(title),
         )
         .child(
@@ -399,6 +398,7 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
                 &form.body,
                 "forge-change-body",
                 |forge: &mut Forge| forge.form.as_mut().map(|form| &mut form.body),
+                "Change body",
             )
             .min_h(design::size::CONTROL * 4.)
             .w_full()
@@ -407,8 +407,7 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Why it changes")
-            .label("Change body"),
+            .placeholder("Why it changes"),
         )
 }
 

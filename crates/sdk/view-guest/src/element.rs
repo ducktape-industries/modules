@@ -265,7 +265,8 @@ pub fn div() -> Div {
 }
 
 /// A single-line host text input. GPUI core has no text-input element, so this
-/// recipe carries a typed identity and lowers to the host's native field.
+/// recipe carries a typed identity and lowers to the host's native field. Its
+/// label is what assistive technology calls it: a field has one from birth.
 pub struct Input {
     id: ElementId,
     value: String,
@@ -278,12 +279,15 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn new(id: impl Into<ElementId>) -> Self {
+    pub fn new(id: impl Into<ElementId>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             value: String::new(),
             placeholder: String::new(),
-            options: wire::InputOptions::default(),
+            options: wire::InputOptions {
+                label: label.into(),
+                ..Default::default()
+            },
             secure: false,
             style: StyleRefinement::default(),
             on_input: None,
@@ -298,11 +302,6 @@ impl Input {
 
     pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
         self.placeholder = placeholder.into();
-        self
-    }
-
-    pub fn label(mut self, label: impl Into<String>) -> Self {
-        self.options.label = label.into();
         self
     }
 

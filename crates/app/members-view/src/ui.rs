@@ -147,7 +147,7 @@ fn list_pane(
                 .px(space::BLOCK)
                 .pb(space::MD)
                 .child(
-                    Input::new("members-filter")
+                    Input::new("members-filter", "Filter members")
                         .h(size::CONTROL)
                         .w_full()
                         .px_2()
@@ -158,7 +158,6 @@ fn list_pane(
                         .text_color(theme.foreground)
                         .value(view.filter.clone())
                         .placeholder("Filter by name or number")
-                        .label("Filter members")
                         .on_input(typed),
                 )
                 .child(chips(view, cx, theme)),

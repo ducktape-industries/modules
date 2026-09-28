@@ -91,7 +91,7 @@ fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Statefu
         .min_h(px(0.))
         .child(
             div().id(id("forge-tree-header")).p_2().child(
-                Input::new(id("forge-tree-search"))
+                Input::new(id("forge-tree-search"), "Filter files")
                     .h(design::size::ROW)
                     .w_full()
                     .px_2()
@@ -101,7 +101,6 @@ fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Statefu
                     .text_color(theme.foreground)
                     .value(forge.tree_search.clone())
                     .placeholder("Filter files")
-                    .label("Filter files")
                     .on_input(typed),
             ),
         )

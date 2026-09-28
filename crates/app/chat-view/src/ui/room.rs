@@ -92,19 +92,13 @@ fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<im
             .items_center()
             .gap_2()
             .child(div().flex_1().child(chat.confirmation.clone()))
-            .child(
-                div()
-                    .id("chat-room-confirmation-dismiss")
-                    .px_1()
-                    .text_color(theme.muted)
-                    .cursor_pointer()
-                    .hover(|style| style.text_color(theme.foreground))
-                    .role(ducktape_view_guest::Role::Button)
-                    .aria_label("Dismiss")
-                    .focusable()
-                    .on_click(dismiss)
-                    .child("✕"),
-            ),
+            .child(design::icon_button(
+                "chat-room-confirmation-dismiss",
+                "✕",
+                "Dismiss",
+                theme,
+                dismiss,
+            )),
     )
 }
 

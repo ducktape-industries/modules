@@ -120,6 +120,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
     };
     let choices = design::segmented(
         "settings/ttl",
+        "Expires after",
         theme,
         TTL.into_iter().enumerate().map(|(i, days)| {
             let pick = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
@@ -303,7 +304,7 @@ fn field(
     theme: &Theme,
     typed: impl Fn(&String, &mut Window, &mut App) + 'static,
 ) -> Input {
-    Input::new(id.to_owned())
+    Input::new(id.to_owned(), label.to_owned())
         .h(design::size::CONTROL)
         .w(FIELD_W)
         .px_2()
@@ -312,7 +313,6 @@ fn field(
         .bg(theme.background)
         .value(form.text.clone())
         .placeholder(label.to_owned())
-        .label(label.to_owned())
         .disabled(form.busy)
         .on_input(typed)
 }

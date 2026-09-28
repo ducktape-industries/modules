@@ -382,7 +382,7 @@ fn rail_home(cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
 /// ran past the rail's edge.
 fn rail_search(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Div {
     div().px(design::space::LG).pb(design::space::SM).child(
-        Input::new(id("forge-rail-search"))
+        Input::new(id("forge-rail-search"), "Search repositories")
             .h(design::size::CONTROL)
             .px_2()
             .py_1()
@@ -392,7 +392,6 @@ fn rail_search(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Div {
             .text_color(theme.foreground)
             .value(forge.search.clone())
             .placeholder("Search repositories")
-            .label("Search repositories")
             .on_input(cx.listener(|forge, text: &String, _, cx| {
                 forge.search = text.clone();
                 cx.notify();
@@ -426,7 +425,7 @@ fn header(
                 .text_color(theme.muted)
         }))
         .child(
-            Input::new(id(search_id.to_owned()))
+            Input::new(id(search_id.to_owned()), "Filter repositories")
                 .ml(design::space::LG)
                 .h(design::size::CONTROL)
                 .w(SEARCH_W)
@@ -437,7 +436,6 @@ fn header(
                 .text_color(theme.foreground)
                 .value(forge.search.clone())
                 .placeholder("Filter by name")
-                .label("Filter repositories")
                 .on_input(typed),
         )
         .child(div().flex_1())
@@ -467,6 +465,7 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
     };
     let formats = design::segmented(
         id("forge-new-repo-format"),
+        "Object format",
         theme,
         [
             design::segment(
@@ -526,7 +525,7 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                         .gap(design::space::XS)
                         .child(caption("Name"))
                         .child(
-                            Input::new(id("forge-new-repo-name"))
+                            Input::new(id("forge-new-repo-name"), "Repository name")
                                 .h(design::size::CONTROL)
                                 .w_full()
                                 .px_2()
@@ -536,7 +535,6 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                                 .text_color(theme.foreground)
                                 .value(form.name.clone())
                                 .placeholder("letters, digits, dot, dash, underscore")
-                                .label("Repository name")
                                 .on_input(typed),
                         ),
                 )

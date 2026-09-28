@@ -666,6 +666,7 @@ fn review_body(body: &Editor, document: String, theme: &Theme) -> impl IntoEleme
         body,
         document,
         |forge: &mut Forge| forge.review_mut().map(|review| &mut review.body),
+        "Review body",
     )
     .min_h(design::size::CONTROL * 2.5)
     .w_full()
@@ -675,7 +676,6 @@ fn review_body(body: &Editor, document: String, theme: &Theme) -> impl IntoEleme
     .bg(theme.background)
     .text_color(theme.foreground)
     .placeholder("What this review says overall")
-    .label("Review body")
 }
 
 /// The three verdicts as radio rows, each with what it means.
