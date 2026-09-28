@@ -1,37 +1,75 @@
-//! Nodes: the node this app talks to (its network, height, epoch, block
-//! time, tip, identity and contract, re-read every second), the validator
-//! set the `valset` program answers with, and every membership it holds —
-//! the key, the address it is reached at, and whether it validates or only
-//! resides.
+//! Nodes: one sheet for the network this app talks to. The connected node's
+//! own numbers head it (height, last block, block time, the epoch), then
+//! every member once, validators then residents: its key and address, the
+//! blocks it led of the last 64, and how far it is from this node's tip as
+//! `chain.network` reports it (a validator's signed height, a resident's
+//! reported one, when it last answered, one status word).
 //!
-//! The rows are valset's own types (`queries.rs`), kept as they land and
-//! worded only when drawn (`ui.rs`); valset's live heads re-read them.
-use ducktape_view_guest::methods::{ChainStatus, Changes, ClockTicks, NodeStatus};
-use ducktape_view_guest::view::Loadable;
-use ducktape_view_guest::{Context, IntoElement, Render, Task, View, Window, export_view};
+//! Where the node does not serve `chain.network` the sheet says what it can
+//! without it: a validator by the blocks it led (Quiet when it led none for
+//! a while), a resident "Not reported".
+//!
+//! The members are valset's (`queries.rs`), re-read on its live heads; the
+//! status, the network and the strip's blocks (`recent.rs`) follow the
+//! clock, one ask of each in flight at a time.
+use ducktape_view_guest::host::Error;
+use ducktape_view_guest::methods::{
+    ChainBlocks, ChainNetwork, ChainStatus, Changes, ClockTicks, NetworkStatus, NodeStatus,
+};
+use ducktape_view_guest::{
+    Context, IntoElement, Loadable, Render, Task, View, Window, export_view,
+};
 use serde::{Deserialize, Serialize};
 use valset::view::Valset;
 
 mod queries;
+mod recent;
+mod row;
+mod table;
 mod ui;
 
-pub use queries::Set;
+use queries::Node;
+use recent::Recent;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Nodes {
     /// the connected node's own status
     pub(crate) status: Loadable<NodeStatus>,
-    pub(crate) set: Loadable<Set>,
+    pub(crate) nodes: Loadable<Vec<Node>>,
+    /// every member as the connected node sees it; `Failed` where it does
+    /// not serve `chain.network`
+    pub(crate) network: Loadable<NetworkStatus>,
+    pub(crate) recent: Recent,
+    /// clock ticks since the view opened, and the tick the node last
+    /// answered its status on and the one its height last moved on
+    #[serde(skip)]
+    pub(crate) ticks: u64,
+    #[serde(skip)]
+    pub(crate) answered: u64,
+    #[serde(skip)]
+    pub(crate) moved: u64,
+    /// the asks in flight: the clock asks again only once one lands
+    #[serde(skip)]
+    pub(crate) asking: Asking,
     /// What the view follows; dropping them unsubscribes.
     #[serde(skip)]
     pub(crate) followers: Vec<Task<()>>,
 }
 
-/// How often the node status is re-read, in milliseconds.
-const STATUS_TICK: i64 = 1_000;
+#[derive(Default)]
+pub(crate) struct Asking {
+    status: bool,
+    network: bool,
+    blocks: bool,
+}
+
+/// How often the node is asked, in milliseconds.
+const TICK: i64 = 1_000;
+/// Ticks without a status answer before the node reads Not answering.
+pub(crate) const SILENT_TICKS: u64 = 3;
 
 impl View for Nodes {
-    const PREFERRED_WINDOW_SIZE: &'static str = "680,620";
+    const PREFERRED_WINDOW_SIZE: &'static str = "1100,680";
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::default();
@@ -41,7 +79,7 @@ impl View for Nodes {
 
     fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let heads = cx.host().subscribe::<Changes<Valset>>(());
-        let ticks = cx.host().subscribe::<ClockTicks>(STATUS_TICK);
+        let ticks = cx.host().subscribe::<ClockTicks>(TICK);
         self.followers = vec![
             cx.for_each(heads, |view, head, _, cx| match head {
                 Ok(_) => view.read(cx),
@@ -50,12 +88,17 @@ impl View for Nodes {
                     .log_refused("nodes", "valset's live heads", &refusal),
             }),
             cx.for_each(ticks, |view, tick, _, cx| match tick {
-                Ok(()) => view.read_status(cx),
+                Ok(()) => {
+                    view.ticks += 1;
+                    view.read_status(cx);
+                    view.read_network(cx);
+                }
                 Err(refusal) => cx.host().log_refused("nodes", "the clock", &refusal),
             }),
         ];
         self.read(cx);
         self.read_status(cx);
+        self.read_network(cx);
     }
 }
 
@@ -66,35 +109,127 @@ impl Render for Nodes {
 }
 
 impl Nodes {
-    /// One read of the set — the boot, a retry, a restore, a live head.
-    /// What is already on screen stays there while it runs.
+    /// One read of the members — the boot, a retry, a restore, a live
+    /// head. What is already on screen stays there while it runs.
     pub(crate) fn read(&mut self, cx: &mut Context<Self>) {
-        let work = queries::set(cx.host());
-        match self.set.ready() {
-            Some(_) => cx.refresh(work, |view, set, _| view.set = Loadable::Ready(set)),
-            None => self.set = cx.load(work, |view| &mut view.set),
+        let work = queries::nodes(cx.host());
+        match self.nodes.ready() {
+            Some(_) => cx.refresh(work, |view, nodes, _| view.nodes = Loadable::Ready(nodes)),
+            None => self.nodes = cx.load(work, |view| &mut view.nodes),
         }
         cx.notify();
     }
 
-    /// The node status: read, or re-read with what is on screen kept.
+    /// The node's status. A refused re-read keeps the numbers on screen;
+    /// the header says Not answering once [`SILENT_TICKS`] pass without one.
     pub(crate) fn read_status(&mut self, cx: &mut Context<Self>) {
-        let work = cx.host().ask::<ChainStatus>(());
-        if self.status.ready().is_some() {
-            cx.refresh(work, |view, status, _| {
-                view.status = Loadable::Ready(status)
-            });
-        } else if !self.status.is_loading() {
-            self.status = cx.load(work, |view| &mut view.status);
+        if std::mem::replace(&mut self.asking.status, true) {
+            return;
+        }
+        let ask = cx.host().ask::<ChainStatus>(());
+        cx.spawn(async move |this, cx| {
+            let answer = ask.await;
+            let _ = this.update(cx, |view, cx| view.status_landed(answer, cx));
+        })
+        .detach();
+    }
+
+    fn status_landed(&mut self, answer: Result<NodeStatus, Error>, cx: &mut Context<Self>) {
+        self.asking.status = false;
+        match answer {
+            Ok(status) => {
+                if self.status.ready().map(|now| now.height) != Some(status.height) {
+                    self.moved = self.ticks;
+                }
+                self.answered = self.ticks;
+                self.status = Loadable::Ready(status);
+                self.pull(cx);
+            }
+            Err(refusal) if self.status.ready().is_none() => {
+                self.status = Loadable::Failed(refusal)
+            }
+            Err(refusal) => cx
+                .host()
+                .log_refused("nodes", "the node's status", &refusal),
         }
         cx.notify();
+    }
+
+    /// Every member as the node sees it. A refusal (a node that does not
+    /// serve it) is logged once and the sheet falls back until an answer.
+    pub(crate) fn read_network(&mut self, cx: &mut Context<Self>) {
+        if std::mem::replace(&mut self.asking.network, true) {
+            return;
+        }
+        let ask = cx.host().ask::<ChainNetwork>(());
+        cx.spawn(async move |this, cx| {
+            let answer = ask.await;
+            let _ = this.update(cx, |view, cx| {
+                view.asking.network = false;
+                match answer {
+                    Ok(network) => view.network = Loadable::Ready(network),
+                    Err(refusal) => {
+                        if view.network.failed().is_none() {
+                            cx.host()
+                                .log_refused("nodes", "the network's members", &refusal);
+                        }
+                        view.network = Loadable::Failed(refusal);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Reads the next page the strip wants at the node's height, if any,
+    /// and on until it wants none; a refusal waits for the next status.
+    fn pull(&mut self, cx: &mut Context<Self>) {
+        let Some(head) = self.status.ready().map(|status| status.height) else {
+            return;
+        };
+        if self.asking.blocks {
+            return;
+        }
+        let Some(page) = self.recent.next(head) else {
+            return;
+        };
+        self.asking.blocks = true;
+        let ask = cx.host().ask::<ChainBlocks>(page.clone());
+        cx.spawn(async move |this, cx| {
+            let answer = ask.await;
+            let _ = this.update(cx, |view, cx| {
+                view.asking.blocks = false;
+                match answer {
+                    Ok(blocks) => {
+                        view.recent.land(&page, head, blocks);
+                        // a page that filled nothing is not asked again
+                        // until the next status
+                        let wanted = page.before.map_or(head, |before| before - 1);
+                        if view.recent.led.contains_key(&wanted) {
+                            view.pull(cx);
+                        }
+                    }
+                    Err(refusal) => cx
+                        .host()
+                        .log_refused("nodes", "the recent blocks", &refusal),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Whether the node answered its status within [`SILENT_TICKS`].
+    pub(crate) fn answering(&self) -> bool {
+        self.status.ready().is_some() && self.ticks - self.answered <= SILENT_TICKS
     }
 }
 
 export_view!(
     Nodes,
     "Nodes",
-    "The node this app talks to, the validator set of this network and every membership behind it.",
+    "The network this app talks to: its height and epoch, and every member with the blocks it led and how far it is from the tip.",
     [Chain, Module, Host, Clock]
 );
 
