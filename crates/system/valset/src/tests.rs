@@ -19,22 +19,26 @@ fn env(origin: Origin) -> Env {
     }
 }
 
-fn founded() -> MockHost {
+fn member(n: u8, address: &str) -> Member {
+    Member {
+        key: key(n),
+        address: address.into(),
+    }
+}
+
+fn found(validators: Vec<Member>, member_cap: u32) -> Result<MockHost, guest::Error> {
     let store = MockHost::default();
     let genesis = abi::encode(&Genesis {
-        validators: vec![
-            Member {
-                key: key(2),
-                address: "b".into(),
-            },
-            Member {
-                key: key(1),
-                address: "a".into(),
-            },
-        ],
+        validators,
+        member_cap,
     });
-    Valset::init(&store.exec(env(Origin::Root)), &genesis).unwrap();
-    store
+    Valset::init(&store.exec(env(Origin::Root)), &genesis)?;
+    Ok(store)
+}
+
+/// Validators 2 and 1, under a cap of three members.
+fn founded() -> MockHost {
+    found(vec![member(2, "b"), member(1, "a")], 3).unwrap()
 }
 
 fn govern(store: &MockHost, op: Op) -> Result<(), guest::Error> {
@@ -148,4 +152,50 @@ fn role_asks_the_program_bound_to_the_validators_role() {
         crate::role(&store.query(bound), &key(1)).unwrap(),
         Some(Role::Validator)
     );
+}
+
+fn members(store: &MockHost) -> Vec<Member> {
+    let Reply::Members(members) = ask(store, Query::Members) else {
+        panic!()
+    };
+    members
+}
+
+#[test]
+fn a_newcomer_past_the_cap_is_refused() {
+    let store = founded();
+    govern(&store, Op::Set(membership(3, Role::Resident))).unwrap();
+    let full = govern(&store, Op::Set(membership(4, Role::Resident)));
+    assert_eq!(full.unwrap_err().code, code::CAPACITY);
+    assert_eq!(members(&store).len(), 3);
+}
+
+#[test]
+fn a_member_at_the_cap_changes_role_and_address() {
+    let store = founded();
+    govern(&store, Op::Set(membership(3, Role::Resident))).unwrap();
+    govern(&store, Op::Set(membership(1, Role::Resident))).unwrap();
+    let moved = Membership {
+        address: "elsewhere".into(),
+        ..membership(3, Role::Validator)
+    };
+    govern(&store, Op::Set(moved.clone())).unwrap();
+    assert_eq!(
+        ask(&store, Query::Membership { key: key(3) }),
+        Reply::Membership(Some(moved))
+    );
+}
+
+#[test]
+fn a_removal_frees_a_place() {
+    let store = founded();
+    govern(&store, Op::Set(membership(3, Role::Resident))).unwrap();
+    govern(&store, Op::Remove { key: key(3) }).unwrap();
+    govern(&store, Op::Set(membership(4, Role::Resident))).unwrap();
+}
+
+#[test]
+fn founding_more_validators_than_the_cap_is_refused() {
+    let refused = found(vec![member(1, "a"), member(2, "b")], 1).err();
+    assert_eq!(refused.map(|error| error.code), Some(code::CAPACITY.into()));
 }

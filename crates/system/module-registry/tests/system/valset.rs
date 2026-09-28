@@ -126,3 +126,21 @@ fn a_resident_is_a_member_the_next_epoch_does_not_seat() {
         assert!(!seated.contains(&public(3)));
     });
 }
+
+#[test]
+fn a_newcomer_past_the_cap_is_refused_on_the_host() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        // the two founding validators fill a cap of two: the kernel handed
+        // valset the cap it founded with
+        let mut net = Net::found_with(context, dir.path(), Vec::new(), 2).await;
+        let refused = net
+            .as_anyone(
+                valset::MODULE,
+                &valset::Op::Set(membership(3, valset::Role::Resident)),
+            )
+            .await;
+        assert_eq!(refusal_of(&refused), reason::CAPACITY);
+        assert_eq!(net.memberships().await.len(), 2);
+    });
+}

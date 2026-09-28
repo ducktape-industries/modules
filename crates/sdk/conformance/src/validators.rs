@@ -24,6 +24,7 @@ pub fn run(fixture: &impl Fixture) {
     the_role_is_the_first_variants(fixture);
     genesis_seats_the_given_set(fixture);
     an_update_changes_the_answer(fixture);
+    the_cap_bounds_the_members(fixture);
 }
 
 fn module() -> String {
@@ -37,11 +38,12 @@ fn member(n: u8) -> Member {
     }
 }
 
-/// A host founded with validators 1 and 2.
+/// A host founded with validators 1 and 2, under a cap of three members.
 fn founded<F: Fixture>() -> MockHost {
     let host = MockHost::default();
     let genesis = Genesis {
         validators: vec![member(2), member(1)],
+        member_cap: 3,
     };
     init::<F::Module>(&host, &module(), &genesis);
     host
@@ -132,4 +134,19 @@ pub fn an_update_changes_the_answer<F: Fixture>(fixture: &F) {
         [member(2).key, member(3).key],
         "validators: an unseated validator is no longer answered"
     );
+}
+
+/// Past the cap genesis names, a newcomer is not seated: the third member
+/// fills the cap of three, the fourth errs and Members stays at three.
+pub fn the_cap_bounds_the_members<F: Fixture>(fixture: &F) {
+    let host = founded::<F>();
+    fixture
+        .seat(&host, member(3))
+        .unwrap_or_else(|e| panic!("validators: seating the third of three: {e:?}"));
+    assert!(
+        fixture.seat(&host, member(4)).is_err(),
+        "validators: a member past the cap is refused"
+    );
+    let (_, members) = answers::<F>(&host);
+    assert_eq!(members.len(), 3, "validators: the cap bounds the Members");
 }

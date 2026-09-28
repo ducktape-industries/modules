@@ -428,6 +428,9 @@ pub mod role {
     pub mod validators {
         use crate::{BorshDeserialize, BorshSerialize};
 
+        /// The most members a network's cap can name.
+        pub const MAX_MEMBERS: u32 = 128;
+
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub struct Member {
             pub key: Vec<u8>,
@@ -449,6 +452,9 @@ pub mod role {
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub struct Genesis {
             pub validators: Vec<Member>,
+            /// How many members (validators and residents) the network ever holds
+            /// at once: 1..=MAX_MEMBERS, fixed at founding.
+            pub member_cap: u32,
         }
     }
 
