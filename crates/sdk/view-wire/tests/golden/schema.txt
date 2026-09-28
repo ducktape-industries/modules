@@ -3,6 +3,7 @@ blob.get None String -> Option<Vec<u8>>
 chain.block None BlockRef -> Option<Block>
 chain.blocks None BlockPage -> Vec<Block>
 chain.heads None () -> Head
+chain.network None () -> NetworkStatus
 chain.status None () -> NodeStatus
 clipboard.read None () -> Clipboard
 clipboard.write None String -> ()
@@ -49,6 +50,7 @@ Invite = Struct { fields: NamedFields([("invite", "String"), ("notes", "Vec<Erro
 ModuleOp = Struct { fields: Empty }
 ModuleQuery = Struct { fields: Empty }
 ModuleReply = Struct { fields: Empty }
+NetworkStatus = Struct { fields: NamedFields([("height", "u64"), ("members", "Vec<Peer>")]) }
 NodeStatus = Struct { fields: NamedFields([("chain_id", "String"), ("time", "u64"), ("block_time_ms", "u64"), ("epoch_length", "u64"), ("height", "u64"), ("tip", "[u8; 32]"), ("root", "[u8; 32]"), ("epoch", "u64"), ("identity", "Vec<u8>"), ("contract", "u32")]) }
 Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String")]) }
 Option<Block> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Block")] }
@@ -59,6 +61,7 @@ Option<u64> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "u6
 Outcome = Enum { tag_width: 1, variants: [(0, "Applied", "Outcome__Applied"), (1, "Rejected", "Outcome__Rejected")] }
 Outcome__Applied = Struct { fields: NamedFields([("output", "Vec<u8>")]) }
 Outcome__Rejected = Struct { fields: UnnamedFields(["Error"]) }
+Peer = Struct { fields: NamedFields([("key", "Vec<u8>"), ("signed", "Option<u64>")]) }
 Receipt = Struct { fields: NamedFields([("program", "String"), ("outcome", "Outcome"), ("events", "Vec<Vec<u8>>"), ("nested", "Vec<Receipt>")]) }
 Session = Struct { fields: NamedFields([("connected", "bool"), ("dark", "bool"), ("chain_id", "String"), ("signer", "String"), ("account", "Option<u64>"), ("endpoint", "String")]) }
 String = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
@@ -76,6 +79,7 @@ Value__Time = Struct { fields: UnnamedFields(["u64"]) }
 Vec<Block> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Block" }
 Vec<Error> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Error" }
 Vec<Field> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Field" }
+Vec<Peer> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Peer" }
 Vec<Receipt> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Receipt" }
 Vec<Tx> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Tx" }
 Vec<Value> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Value" }

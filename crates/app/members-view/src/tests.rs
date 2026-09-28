@@ -219,7 +219,7 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
     for text in [
         "account 7",
         "1 device",
-        "validator",
+        "Validator",
         "eddy's bio",
         "Devices",
         "laptop",

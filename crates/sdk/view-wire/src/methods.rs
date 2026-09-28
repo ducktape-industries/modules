@@ -215,6 +215,30 @@ pub struct NodeStatus {
     pub identity: Vec<u8>,
     pub contract: u32,
 }
+/// Every member of the epoch as the connected node sees it: its applied
+/// tip, and the members in key order. No member's `signed` exceeds `height`.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct NetworkStatus {
+    pub height: u64,
+    pub members: Vec<Peer>,
+}
+/// One member: the newest block the connected node applied that this key
+/// sent a finalize vote for, as the node's consensus engine heard it. A
+/// vote for a block not applied yet counts once it is. `None` for a
+/// resident, for a validator not heard since the node started or began
+/// validating, and for every member while the node is not itself seated as
+/// a validator: it runs no engine, so it hears no votes.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Peer {
+    pub key: Vec<u8>,
+    pub signed: Option<u64>,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct CreateInvite {
@@ -387,6 +411,8 @@ methods! {
     also: ["module.query", "op.submit", "module.changes", HostWidget::KIND];
     /// `chain.status`: the connected node's status.
     ChainStatus, "chain.status", (), NodeStatus;
+    /// `chain.network`: every member as the connected node sees it.
+    ChainNetwork, "chain.network", (), NetworkStatus;
     /// `invite.create`: mint one invite, once (never retried).
     InviteCreate, "invite.create", CreateInvite, Invite;
     /// `chain.blocks`: a page of finalized blocks, newest first.

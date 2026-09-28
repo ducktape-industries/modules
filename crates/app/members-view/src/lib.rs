@@ -359,8 +359,8 @@ fn row(account: &identity::Account, members: &[valset::Membership]) -> Row {
             .find(|member| account.holds(&member.key))
             .map(|member| {
                 match member.role {
-                    valset::Role::Validator => "validator",
-                    valset::Role::Resident => "resident",
+                    valset::Role::Validator => "Validator",
+                    valset::Role::Resident => "Resident",
                 }
                 .into()
             }),

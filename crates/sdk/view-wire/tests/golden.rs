@@ -237,6 +237,22 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 contract: 1,
             },
         ),
+        exchange::<ChainNetwork>(
+            (),
+            NetworkStatus {
+                height: 9,
+                members: vec![
+                    Peer {
+                        key: vec![3; 32],
+                        signed: Some(9),
+                    },
+                    Peer {
+                        key: vec![4; 32],
+                        signed: None,
+                    },
+                ],
+            },
+        ),
         exchange::<InviteCreate>(
             CreateInvite { ttl_days: 7 },
             Invite {

@@ -3791,6 +3791,7 @@ dependencies = [
  "abi",
  "futures",
  "serde",
+ "serde_json",
  "valset",
  "view-guest",
 ]

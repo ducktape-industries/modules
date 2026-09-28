@@ -373,6 +373,7 @@ fn schema() -> String {
         borsh::<InviteCreate>(d),
         borsh::<ChainBlocks>(d),
         borsh::<ChainBlock>(d),
+        borsh::<ChainNetwork>(d),
         borsh::<BlobGet>(d),
         borsh::<HostSession>(d),
         borsh::<HostVisible>(d),
