@@ -5,7 +5,7 @@ use ducktape_view_guest::Context;
 
 use crate::api::{Changes, ChatApi, HostOffset, HostRoute, HostSession, HostVisible};
 use crate::{Chat, links};
-use ::chat::view::Identity;
+use ::chat::view::IdentityApi;
 use ducktape_view_guest::design;
 
 impl Chat {
@@ -16,7 +16,7 @@ impl Chat {
         let changes = host.subscribe::<Changes<ChatApi>>(());
         let routes = host.subscribe::<HostRoute>(());
         let visible = host.subscribe::<HostVisible>(());
-        let identity = host.subscribe::<Changes<Identity>>(());
+        let identity = host.subscribe::<Changes<IdentityApi>>(());
         let offset = host.subscribe::<HostOffset>(());
         self.followers = vec![
             cx.for_each(props, |chat, props, _, cx| match props {

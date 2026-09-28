@@ -35,7 +35,8 @@ pub fn route_target(route: &str) -> Option<(String, u64)> {
 pub fn pressed_link(link: String, chain: &str) -> Option<String> {
     match link.parse::<u64>() {
         Ok(account) => {
-            let identity = <::chat::view::Identity as ducktape_view_guest::methods::Module>::NAME;
+            let identity =
+                <::chat::view::IdentityApi as ducktape_view_guest::methods::Module>::NAME;
             ducklink::mint(chain, identity, &[&account.to_string()])
         }
         Err(_) => Some(link),

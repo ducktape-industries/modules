@@ -11,6 +11,8 @@ edition.workspace = true
 [features]
 # The method carries a `Description`; view-wire's golden writes it as JSON.
 serde = ["dep:serde"]
+# view-wire's golden writes the borsh schema of every method.
+schema = ["borsh/unstable__schema"]
 host = ["dep:wasmtime"]
 
 [dependencies]

@@ -1,8 +1,13 @@
-//! `WIRE_ID`: FNV-1a 64 over the committed golden bytes, the files
-//! `tests/golden.rs` writes under `WIRE_GOLDEN_WRITE=1` (every node, event
-//! and method). Regenerating them is the one way the id moves.
+//! `WIRE_ID`: FNV-1a 64 over the committed golden files `tests/golden.rs`
+//! writes under `WIRE_GOLDEN_WRITE=1`: the bytes of every node, event and
+//! method the fixtures sample, and the shape of every type that crosses
+//! (`schema.txt`). Regenerating them is the one way the id moves.
 
-const GOLDEN: [&str; 2] = ["tests/golden/frame.bin", "tests/golden/methods.bin"];
+const GOLDEN: [&str; 3] = [
+    "tests/golden/frame.bin",
+    "tests/golden/methods.bin",
+    "tests/golden/schema.txt",
+];
 
 fn main() {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;

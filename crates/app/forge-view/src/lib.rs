@@ -27,8 +27,8 @@ mod ui;
 use ducktape_view_guest::methods::{Changes, HostOffset, HostRoute, HostVisible};
 use ducktape_view_guest::{Context, IntoElement, Render, View, Window, design, export_view};
 
-use api::{ChatApi, ForgeProgram, HostSession};
-use chat::view::Identity;
+use api::{ChatApi, ForgeApi, HostSession};
+use chat::view::IdentityApi;
 pub(crate) use select::Stage;
 pub use state::Forge;
 
@@ -69,9 +69,9 @@ impl View for Forge {
         // a block to any program the screens read re-reads them; a refused
         // item is a block this view cannot see into: the host's log keeps
         // why, and the next block reconciles
-        let forge = cx.host().subscribe::<Changes<ForgeProgram>>(());
+        let forge = cx.host().subscribe::<Changes<ForgeApi>>(());
         let chat = cx.host().subscribe::<Changes<ChatApi>>(());
-        let identity = cx.host().subscribe::<Changes<Identity>>(());
+        let identity = cx.host().subscribe::<Changes<IdentityApi>>(());
         self.watches.extend([
             cx.for_each(forge, |forge, head, _, cx| match head {
                 Ok(_) => forge.reconcile(cx),

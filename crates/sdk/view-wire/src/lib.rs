@@ -22,9 +22,14 @@
 //! [`sanitize`] first.
 
 /// The wire this build speaks, computed by `build.rs` from the committed
-/// golden bytes (`tests/golden/*.bin`: every node, event and method), so no
-/// one bumps it by hand: regenerating the golden moves it. A view's manifest
-/// carries the id it was built with, and a host refuses any other.
+/// golden files: the bytes of what the fixtures sample (`frame.bin`,
+/// `methods.bin`) and the shape of every type that crosses (`schema.txt`:
+/// each field and variant the tree reaches, each method's kind, target,
+/// request and reply). No one bumps it by hand: a shape change fails the
+/// golden until it is regenerated, and regenerating moves it. A string's
+/// grammar (a colour, a length) and a method's encode function count only
+/// as far as the fixtures' bytes sample them. A view's manifest carries the
+/// id it was built with, and a host refuses any other.
 pub const WIRE_ID: &str = include!(concat!(env!("OUT_DIR"), "/wire_id.rs"));
 
 /// For `skip_serializing_if`: a value that says nothing is left out.

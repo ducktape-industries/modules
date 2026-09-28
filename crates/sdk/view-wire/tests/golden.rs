@@ -1,14 +1,15 @@
-//! The wire's bytes, committed. One `Frame` holding every `Node` variant,
-//! one of every `Event`, and one request and reply through every method in
-//! `methods::ALL`, encoded into `tests/golden/{frame,methods}.bin` with a JSON
-//! twin beside each for readable diffs. Any byte of the frame that moves — a
-//! field, a variant, a `gpui::StyleRefinement` change from a fork bump —
-//! fails here. The methods are a map keyed by kind: an existing kind whose
-//! bytes moved, or a kind that went away, fails; a kind new since the
-//! fixture passes until the next regeneration records it. A failure means
-//! the wire changed; if that was intended, regenerate with
-//! `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID` (`build.rs` hashes the
-//! `.bin` fixtures).
+//! The wire, committed: its bytes and its shape. One `Frame` holding every
+//! `Node` variant, one of every `Event`, and one request and reply through
+//! every method in `methods::ALL`, encoded into
+//! `tests/golden/{frame,methods}.bin` with a JSON twin beside each for
+//! readable diffs; and the shape of every type that crosses, in
+//! `tests/golden/schema.txt` (`golden/schema.rs`). The bytes fail on any
+//! sampled byte that moves, and miss what no fixture samples: a variant no
+//! fixture uses, a field left out as empty (every fixture style is), a
+//! method kind new since the fixture. The shape holds exactly those. A
+//! failure means the wire changed; if that was intended, regenerate with
+//! `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID` (`build.rs` hashes all
+//! three files).
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -151,6 +152,9 @@ mod events_fixture;
 /// variant added to `Node` must be added here, or `node_variant` will not build.
 #[path = "golden/nodes.rs"]
 mod nodes;
+/// The wire's shape, hashed into `WIRE_ID` beside the bytes.
+#[path = "golden/schema.rs"]
+mod schema;
 use events_fixture::{event_variant, every_event, every_frame};
 use nodes::{every_node, node_variant};
 
@@ -379,7 +383,8 @@ fn every_method_carries_the_committed_bytes() {
 }
 
 /// The committed kinds whose bytes `built` changed or dropped. A kind only
-/// `built` has is new, and passes.
+/// `built` has is new, and passes here: the shape names every kind, so
+/// `schema.txt` fails for it instead.
 fn moved(committed: &Methods, built: &Methods) -> Vec<String> {
     committed
         .iter()
