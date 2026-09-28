@@ -108,8 +108,16 @@ fn font_features(registry: &mut Registry) {
         if let Some(ContainerFormat::Struct(fields)) = registry.get_mut(container) {
             let field = fields
                 .iter_mut()
-                .find(|field| field.name == "font_features");
-            field.expect("font_features").value = format;
+                .find(|field| field.name == "font_features")
+                .expect("font_features");
+            // Only the map's values are past the trace: a field retyped to
+            // anything but a map is a shape of its own, not this one.
+            let traced = format!("{:?}", field.value);
+            assert!(
+                traced.contains("Map {"),
+                "{container}.font_features is {traced}"
+            );
+            field.value = format;
         }
     }
 }
