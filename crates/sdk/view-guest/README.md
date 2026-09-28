@@ -51,7 +51,9 @@ change. Read "who am I" from `account`; no view asks identity for it.
 ## Lifecycle, snapshot
 
 `View` (`src/view.rs`): `new(window, cx)` on first mount, `restored` after a
-snapshot came back, `PREFERRED_WINDOW_SIZE` as `"w,h"` or `"none"`. The
+snapshot came back, `MIN_WINDOW_WIDTH` the narrowest width in px it works at
+(default 480, `1..=8192` or it does not compile): the app never lays it out
+narrower, and a narrower window scrolls it sideways. The
 snapshot is the view's own serde as the wire's named MessagePack
 (`src/snapshot.rs`), refused while work is pending; a host holds it to
 `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB, `view-wire/src/snapshot.rs`). Derive `Serialize`/`Deserialize` and keep
@@ -62,7 +64,7 @@ snapshot is the view's own serde as the wire's named MessagePack
 `export_view!(View, "Name", "description", [Module, Host])` (`src/lib.rs`)
 writes the five wasm exports and the manifest section `ducktape.view.manifest`
 (`view-wire/src/manifest.rs`: header, name, description, capabilities,
-preferred size, `WIRE_ID`). Each capability is a `methods::Capability`
+`MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`). Each capability is a `methods::Capability`
 variant, the `<capability>` half of the kinds the view asks through; another
 name is a compile error.
 

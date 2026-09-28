@@ -389,9 +389,10 @@ fn an_account_gained_later_is_who_forge_judges() {
     assert_eq!(judged(&cx), [forge::Principal::Account(2)]);
 }
 
+// at 560 the repository tab bar's About toggle is past the right edge
 #[test]
-fn preferred_window_is_the_one_the_plan_asks_for() {
-    assert_eq!(<Forge as View>::PREFERRED_WINDOW_SIZE, "1180,760");
+fn the_view_is_laid_out_from_640() {
+    assert_eq!(<Forge as View>::MIN_WINDOW_WIDTH, 640);
 }
 
 #[test]

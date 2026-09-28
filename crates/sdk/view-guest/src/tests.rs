@@ -492,13 +492,20 @@ fn notifying_during_render_requests_another_frame() {
 }
 
 #[test]
-fn the_manifest_bytes_parse_back_with_the_wire_id() {
+fn the_manifest_bytes_parse_back_with_the_min_width_and_the_wire_id() {
     use wire::methods::Capability;
     const CAPABILITIES: &[Capability] = &[Capability::Clock, Capability::Module];
-    let bytes: [u8; manifest_len("App", "Words", CAPABILITIES, "640,480")] =
-        manifest_bytes("App", "Words", CAPABILITIES, "640,480");
+    let bytes: [u8; manifest_len("App", "Words", CAPABILITIES, 560)] =
+        manifest_bytes("App", "Words", CAPABILITIES, 560);
     let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
+    assert_eq!(manifest.min_width, 560);
     assert_eq!(manifest.wire_id, wire::WIRE_ID);
     assert_eq!(manifest.capabilities, CAPABILITIES);
     assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
+    // a view that declares nothing is laid out from 480, as before
+    assert_eq!(<Probe as View>::MIN_WINDOW_WIDTH, 480);
+    let bytes: [u8; manifest_len("App", "", &[], Probe::MIN_WINDOW_WIDTH)] =
+        manifest_bytes("App", "", &[], Probe::MIN_WINDOW_WIDTH);
+    let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
+    assert_eq!(manifest.min_width, 480);
 }

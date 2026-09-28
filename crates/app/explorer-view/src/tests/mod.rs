@@ -367,3 +367,12 @@ pub(crate) fn quiet_host(cx: &TestAppContext) {
     host.never::<Query<Registry>>();
     host.never::<ModuleDescribe>();
 }
+
+// at 560 a block's hash is cut at the right edge
+#[test]
+fn the_view_is_laid_out_from_640() {
+    assert_eq!(
+        <Explorer as ducktape_view_guest::View>::MIN_WINDOW_WIDTH,
+        640
+    );
+}

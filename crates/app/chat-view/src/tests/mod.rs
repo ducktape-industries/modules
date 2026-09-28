@@ -40,9 +40,10 @@ fn channel(id: &str, name: &str, head_seq: u64) -> ChannelInfo {
     }
 }
 
+// at 480 an agent message's head line is cut at the room's edge
 #[test]
-fn preferred_window_keeps_the_original_baseline() {
-    assert_eq!(<Chat as View>::PREFERRED_WINDOW_SIZE, "1180,760");
+fn the_view_is_laid_out_from_560() {
+    assert_eq!(<Chat as View>::MIN_WINDOW_WIDTH, 560);
 }
 
 #[test]

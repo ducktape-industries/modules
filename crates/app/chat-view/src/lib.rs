@@ -35,7 +35,7 @@ const PAGE: usize = 64;
 const WINDOW: usize = 256;
 
 impl View for Chat {
-    const PREFERRED_WINDOW_SIZE: &'static str = "1180,760";
+    const MIN_WINDOW_WIDTH: u32 = 560;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut chat = Self::default();

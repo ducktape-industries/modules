@@ -2,9 +2,10 @@ use super::*;
 use ducktape_view_guest::methods::{ChainStatus, ClockTicks, NodeStatus, Query};
 use ducktape_view_guest::testing::TestAppContext;
 
+// the set's table fits from 480 up
 #[test]
-fn preferred_window_keeps_the_original_baseline() {
-    assert_eq!(<Nodes as View>::PREFERRED_WINDOW_SIZE, "680,620");
+fn the_view_is_laid_out_from_480() {
+    assert_eq!(<Nodes as View>::MIN_WINDOW_WIDTH, 480);
 }
 
 #[test]

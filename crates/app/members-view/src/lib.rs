@@ -124,7 +124,7 @@ struct Device {
 }
 
 impl View for Members {
-    const PREFERRED_WINDOW_SIZE: &'static str = "960,640";
+    const MIN_WINDOW_WIDTH: u32 = 320;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::default();

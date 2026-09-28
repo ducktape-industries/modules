@@ -33,7 +33,7 @@ pub(crate) use select::Stage;
 pub use state::Forge;
 
 impl View for Forge {
-    const PREFERRED_WINDOW_SIZE: &'static str = "1180,760";
+    const MIN_WINDOW_WIDTH: u32 = 640;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut forge = Self::default();
