@@ -246,7 +246,7 @@ pub(crate) fn opened(mode: &'static str) -> (TestAppContext, Entity<Forge>) {
 
 pub(crate) fn opened_as(mode: &'static str, account: u64) -> (TestAppContext, Entity<Forge>) {
     let (mut cx, view) = booted_as(mode, account);
-    cx.simulate_click("forge-repo-project");
+    cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
     (cx, view)
 }
@@ -288,7 +288,7 @@ fn seated(key: &[u8], account: Option<u64>) -> (TestAppContext, Entity<Forge>) {
         ..Session::default()
     });
     cx.run_until_parked();
-    cx.simulate_click("forge-repo-project");
+    cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
@@ -372,7 +372,7 @@ fn an_account_gained_later_is_who_forge_judges() {
     };
     props.send(unregistered.clone());
     cx.run_until_parked();
-    cx.simulate_click("forge-repo-project");
+    cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
@@ -817,7 +817,7 @@ fn commits_follows_the_cursor_and_opens_one_commit_with_its_diff() {
         assert!(page.next.is_none());
     });
     assert!(cx.has_text("Feature"), "{:?}", cx.texts());
-    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
+    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d-open");
     cx.run_until_parked();
     assert!(
         cx.has_text("Feature\n\nReview these bytes.\n"),
@@ -853,6 +853,11 @@ fn refs_carry_their_distance_from_the_default_head_and_open_a_draft() {
             .iter()
             .any(|text| text.contains("forbids force pushes and ref deletions"))
     );
+    // Compare sits beside the row's press, not inside it
+    let row = wire::Node::Container(control(&cx, "forge-ref-row-clean"));
+    assert!(holds(&row, "forge-ref-row-clean-open") && holds(&row, "forge-compare-clean"));
+    let open = wire::Node::Container(control(&cx, "forge-ref-row-clean-open"));
+    assert!(!holds(&open, "forge-compare-clean"));
     cx.simulate_click("forge-compare-clean");
     cx.run_until_parked();
     view.read(|forge| {
@@ -1034,6 +1039,42 @@ fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {
     assert_eq!(*copied.borrow(), "duck://testnet-0a1b2c3d/forge/project");
     assert!(cx.has_text("Copied"));
     view.read(|forge| assert!(forge.nav.repo.is_none(), "copy is not open"));
+}
+
+/// The key's roled container: its role, focus and press.
+pub(crate) fn control(cx: &TestAppContext, key: &str) -> wire::ContainerNode {
+    match cx.find(key) {
+        Some(wire::Node::Container(node)) => node.clone(),
+        other => panic!("{key} is no container: {other:?}"),
+    }
+}
+
+/// Whether `key` lies anywhere under `node`.
+pub(crate) fn holds(node: &wire::Node, key: &str) -> bool {
+    node.children()
+        .iter()
+        .any(|child| child.key() == Some(key) || holds(child, key))
+}
+
+#[test]
+fn a_repository_row_is_a_list_item_whose_press_is_a_button_beside_its_controls() {
+    let (cx, _view) = booted("default");
+    let row = control(&cx, "forge-repo-project");
+    assert_eq!(
+        row.interactivity.role,
+        Some(ducktape_view_guest::Role::ListItem)
+    );
+    assert!(!row.interactivity.focusable && row.interactivity.on_click.is_none());
+    let open = control(&cx, "forge-repo-project-open");
+    assert_eq!(
+        open.interactivity.role,
+        Some(ducktape_view_guest::Role::Button)
+    );
+    assert!(open.interactivity.focusable && open.interactivity.on_click.is_some());
+    let open = wire::Node::Container(open);
+    for sibling in ["forge-repo-project-copy", "forge-repo-project-activity"] {
+        assert!(!holds(&open, sibling), "{sibling} is inside the press");
+    }
 }
 
 #[test]

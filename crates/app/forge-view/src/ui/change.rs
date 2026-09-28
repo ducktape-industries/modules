@@ -420,21 +420,20 @@ fn file_row(
         .occlude()
         .on_click(tick)
         .child(if viewed { "✓" } else { "" });
-    let mut row = div()
-        .id(id(format!("forge-file-{label}")))
-        .h(px(30.))
-        .px(design::space::BLOCK)
+    let mut press = div()
+        .id(id(format!("forge-file-{label}-open")))
+        .flex_1()
+        .min_w(px(0.))
+        .self_stretch()
         .flex()
         .items_center()
         .gap(design::space::SM)
-        .when(selected, |row| row.bg(theme.surface_raised))
-        .hover(move |style| style.bg(theme.surface))
-        // it holds the viewed tick, which a button may not
-        .role(Role::ListItem)
-        .aria_selected(selected)
+        .role(Role::Button)
+        .when(selected, |press| {
+            press.aria_current(ducktape_view_guest::accesskit::AriaCurrent::True)
+        })
         .focusable()
         .on_click(pick)
-        .child(check)
         .child(
             design::mono(label.clone())
                 .flex_1()
@@ -448,14 +447,14 @@ fn file_row(
                 }),
         );
     if comments > 0 {
-        row = row.child(badge(
+        press = press.child(badge(
             id(format!("forge-file-comments-{label}")),
             comments.to_string(),
             theme.muted,
             theme.surface_raised,
         ));
     }
-    row = row.child(
+    press = press.child(
         div()
             .flex()
             .gap(design::space::XXS)
@@ -476,6 +475,19 @@ fn file_row(
                 )
             }),
     );
+    // the tick sits beside the row's press, as a button may not hold it
+    let row = div()
+        .id(id(format!("forge-file-{label}")))
+        .h(px(30.))
+        .px(design::space::BLOCK)
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .when(selected, |row| row.bg(theme.surface_raised))
+        .hover(move |style| style.bg(theme.surface))
+        .role(Role::ListItem)
+        .child(check)
+        .child(press);
     Some(row.into_any_element())
 }
 

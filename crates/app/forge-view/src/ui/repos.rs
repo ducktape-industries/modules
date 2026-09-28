@@ -81,9 +81,21 @@ fn repo_row(
         let name = name.clone();
         move |forge, _: &ClickEvent, _, cx| forge.open_repo(name.clone(), cx)
     });
+    // the row's press lies under the whole row; Copy and the activity link
+    // sit over it, beside it rather than inside it, as a button may not
+    // hold them
+    let press = div()
+        .id(id(format!("forge-repo-{name}-open")))
+        .absolute()
+        .inset_0()
+        .role(Role::Button)
+        .aria_label(format!("Open {name}"))
+        .focusable()
+        .on_click(open);
     div()
         .id(id(format!("forge-repo-{name}")))
         .group(group.clone())
+        .relative()
         .mx(design::space::SM)
         .min_h(ROW_H)
         // a wrapped (narrow) row grows; the list's column must not squeeze it
@@ -94,11 +106,8 @@ fn repo_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(|style| style.bg(theme.surface))
-        // it holds Copy and the activity link, which a button may not
         .role(Role::ListItem)
-        .aria_label(format!("Open {name}"))
-        .focusable()
-        .on_click(open)
+        .child(press)
         .child(repo_title(forge, &name, &group, cx, theme))
         .child(repo_facts(info, owner, theme))
         .into_any_element()

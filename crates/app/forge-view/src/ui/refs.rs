@@ -81,7 +81,7 @@ fn ref_row(
         let name = name.clone();
         move |forge, _: &ClickEvent, _, cx| forge.start_change(name.clone(), cx)
     });
-    let mut line = row(id(format!("forge-ref-row-{label}")), theme)
+    let mut line = row(format!("forge-ref-row-{label}"), theme)
         .on_click(pick)
         .selected(name == forge.head_name())
         .cell(
@@ -108,7 +108,7 @@ fn ref_row(
         .cell(standing(forge, &name, head, theme))
         .cell(div().flex_1());
     if name != forge.default_head() && !tag {
-        line = line.cell(
+        line = line.control(
             button(
                 id(format!("forge-compare-{label}")),
                 "Compare →",

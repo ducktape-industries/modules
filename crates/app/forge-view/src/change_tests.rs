@@ -135,7 +135,7 @@ fn a_repository_filter_does_not_carry_into_its_change_search() {
     let (mut cx, _view) = booted("default");
     cx.simulate_input("forge-repos-search", "proj");
     cx.run_until_parked();
-    cx.simulate_click("forge-repo-project");
+    cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
@@ -269,7 +269,7 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
         Some(true.into()),
         "checked"
     );
-    cx.simulate_click("forge-file-src/lib.rs");
+    cx.simulate_click("forge-file-src/lib.rs-open");
     cx.run_until_parked();
     view.read(|forge| {
         assert_eq!(
@@ -277,6 +277,26 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
             Some(b"src/lib.rs".as_slice())
         )
     });
+    // the row holds the tick beside its press; the shown file is current
+    let row = super::control(&cx, "forge-file-src/lib.rs");
+    assert_eq!(
+        row.interactivity.role,
+        Some(ducktape_view_guest::Role::ListItem)
+    );
+    assert!(!row.interactivity.focusable && row.interactivity.on_click.is_none());
+    let open = super::control(&cx, "forge-file-src/lib.rs-open");
+    assert_eq!(
+        open.interactivity.role,
+        Some(ducktape_view_guest::Role::Button)
+    );
+    assert_eq!(
+        open.interactivity.aria.current,
+        Some(ducktape_view_guest::accesskit::AriaCurrent::True)
+    );
+    assert!(!super::holds(
+        &wire::Node::Container(open),
+        "forge-viewed-src/lib.rs"
+    ));
     cx.simulate_click("forge-files-all");
     cx.run_until_parked();
     view.read(|forge| assert!(forge.nav().diff_path.is_none()));

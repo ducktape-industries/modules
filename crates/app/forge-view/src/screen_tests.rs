@@ -113,7 +113,7 @@ fn screen(state: &str) -> TestAppContext {
             let (mut cx, _) = opened("default");
             cx.simulate_click("forge-tab-commits");
             cx.run_until_parked();
-            cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
+            cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d-open");
             cx.run_until_parked();
             cx
         }

@@ -85,7 +85,7 @@ pub(crate) fn log(
         let (oid, summary, author, time, parents) = rows[index].clone();
         let open = open.clone();
         let clicked = oid.clone();
-        let mut row = crate::ui::components::row(id(format!("forge-commit-{oid}")), &theme)
+        let mut row = crate::ui::components::row(format!("forge-commit-{oid}"), &theme)
             .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| {
                 open(&clicked, window, app)
             })
