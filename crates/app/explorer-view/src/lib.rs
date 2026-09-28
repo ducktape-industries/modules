@@ -39,7 +39,7 @@ const PAGE: u32 = 20;
 const TICK: i64 = 2_000;
 
 impl View for Explorer {
-    const PREFERRED_WINDOW_SIZE: &'static str = "1100,720";
+    const MIN_WINDOW_WIDTH: u32 = 640;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::default();

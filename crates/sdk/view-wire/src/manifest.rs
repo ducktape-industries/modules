@@ -4,24 +4,6 @@ use crate::methods::Capability;
 
 pub const MANIFEST_SECTION: &str = "ducktape.view.manifest";
 
-/// A finite positive logical size, bounded like wire geometry. Private bits
-/// keep equality and hashing exact without admitting NaN or signed zero.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct PreferredSize([u32; 2]);
-
-impl PreferredSize {
-    pub fn new(width: f32, height: f32) -> Option<Self> {
-        [width, height]
-            .iter()
-            .all(|value| value.is_finite() && *value > 0.0 && *value <= crate::MAX_PIXELS)
-            .then_some(Self([width.to_bits(), height.to_bits()]))
-    }
-
-    pub fn dimensions(self) -> [f32; 2] {
-        [f32::from_bits(self.0[0]), f32::from_bits(self.0[1])]
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
     /// the [`crate::WIRE_ID`] the view was built against
@@ -29,7 +11,9 @@ pub struct Manifest {
     pub name: String,
     pub description: String,
     pub capabilities: Vec<Capability>,
-    pub preferred_size: Option<PreferredSize>,
+    /// The view's `MIN_WINDOW_WIDTH`: the narrowest it is laid out, in
+    /// logical px, `1..=8192`.
+    pub min_width: u32,
 }
 
 /// What a manifest may say about itself. The catalog is read before anything
@@ -94,16 +78,12 @@ impl Manifest {
                 .map(Capability::parse)
                 .collect::<Option<_>>()?
         };
-        let preferred_size = match lines.next()? {
-            "none" => None,
-            value => {
-                let (width, height) = value.split_once(',')?;
-                Some(PreferredSize::new(
-                    width.parse().ok()?,
-                    height.parse().ok()?,
-                )?)
-            }
-        };
+        // canonical decimal only: no sign, no leading zero, no spaces
+        let text = lines.next()?;
+        let min_width = text
+            .parse::<u32>()
+            .ok()
+            .filter(|n| n.to_string() == text && (1..=crate::MAX_PIXELS as u32).contains(n))?;
         let wire_id = lines.next()?.to_owned();
         if lines.next().is_some() {
             return None;
@@ -113,7 +93,7 @@ impl Manifest {
             name,
             description,
             capabilities,
-            preferred_size,
+            min_width,
         };
         manifest.within_bounds().then_some(manifest)
     }
@@ -139,7 +119,7 @@ mod tests {
     #[test]
     fn extraction_rejects_duplicate_and_truncated_sections() {
         let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-        let text = b"ducktape.view.manifest\nSized\n\n\n640.5,480.25\n0123abcd";
+        let text = b"ducktape.view.manifest\nSized\n\n\n640\n0123abcd";
         let mut section = vec![
             0,
             (1 + MANIFEST_SECTION.len() + text.len()) as u8,
@@ -148,14 +128,7 @@ mod tests {
         section.extend_from_slice(MANIFEST_SECTION.as_bytes());
         section.extend_from_slice(text);
         bytes.extend_from_slice(&section);
-        assert_eq!(
-            read_manifest(&bytes)
-                .unwrap()
-                .preferred_size
-                .unwrap()
-                .dimensions(),
-            [640.5, 480.25]
-        );
+        assert_eq!(read_manifest(&bytes).unwrap().min_width, 640);
         let mut duplicate = bytes.clone();
         duplicate.extend_from_slice(&section);
         assert!(
@@ -173,67 +146,67 @@ mod tests {
         );
     }
 
-    // Claim: untrusted module metadata has one strict format and a
-    // finite positive bounded preferred size. Dropping those guards is Red.
+    // Claim: untrusted module metadata has one strict format. Dropping
+    // those guards is Red.
     #[test]
-    fn manifest_format_and_preferred_size_are_strict() {
-        let good =
-            "ducktape.view.manifest\nSized\nDescription\nclock,store,\n640.5,480.25\n0123abcd";
+    fn the_manifest_format_is_strict() {
+        let good = "ducktape.view.manifest\nSized\nDescription\nclock,store,\n480\n0123abcd";
         let parsed = Manifest::parse(good).unwrap();
-        assert_eq!(parsed.preferred_size.unwrap().dimensions(), [640.5, 480.25]);
         assert_eq!(parsed.capabilities, [Capability::Clock, Capability::Store]);
-        assert!(
-            Manifest::parse("ducktape.view.manifest\nDefault\n\n\nnone\n0123abcd")
-                .unwrap()
-                .preferred_size
-                .is_none()
+        assert_eq!(
+            (&*parsed.name, &*parsed.description),
+            ("Sized", "Description")
         );
         for invalid in [
-            "Sized\nDescription\nclock,",                                // no header
-            "ducktape.view\nSized\nDescription\nclock,\nnone\n0123abcd", // another header
-            "ducktape.view.manifest\nSized\nDescription\n\nnone",
-            "ducktape.view.manifest\nSized\nDescription\n\nnone\n0123abcd\nextra",
-            "ducktape.view.manifest\nSized\nDescription\nclock\nnone\n0123abcd",
-            "ducktape.view.manifest\nSized\nDescription\nclock,,\nnone\n0123abcd",
-            "ducktape.view.manifest\nSized\nDescription\nclock,storage,\nnone\n0123abcd",
+            "Sized\nDescription\nclock,",                               // no header
+            "ducktape.view\nSized\nDescription\nclock,\n480\n0123abcd", // another header
+            "ducktape.view.manifest\nSized\nDescription\n\n480",
+            "ducktape.view.manifest\nSized\nDescription\n\n480\n0123abcd\nextra",
+            "ducktape.view.manifest\nSized\nDescription\nclock\n480\n0123abcd",
+            "ducktape.view.manifest\nSized\nDescription\nclock,,\n480\n0123abcd",
+            "ducktape.view.manifest\nSized\nDescription\nclock,storage,\n480\n0123abcd",
         ] {
             assert!(
                 Manifest::parse(invalid).is_none(),
                 "accepted malformed manifest: {invalid}"
             );
         }
+    }
+
+    // Claim: line 5 is the min width, canonical decimal in 1..=8192, and a
+    // manifest of the shape before it (a preferred size there, or one line
+    // more) is refused rather than read with a guessed width.
+    #[test]
+    fn a_manifest_carries_its_min_width() {
+        let parse = |width: &str| {
+            Manifest::parse(&format!(
+                "ducktape.view.manifest\nApp\n\n\n{width}\n0123abcd"
+            ))
+        };
+        assert_eq!(parse("480").unwrap().min_width, 480);
+        assert_eq!(parse("1").unwrap().min_width, 1);
+        assert_eq!(parse("8192").unwrap().min_width, 8192);
         for invalid in [
-            "NaN,500",
-            "inf,500",
-            "-inf,500",
-            "0,500",
-            "-0,500",
-            "-1,500",
-            "8192.01,500",
-            "1e40,500",
-            "1e-50,500",
-            "500,0",
-            "1,2,3",
+            "",
+            "0",
+            "01",
+            "+480",
+            "-1",
+            "480.0",
+            " 480",
+            "8193",
+            "4294967296",
+            "none",
+            "1180,760",
         ] {
-            assert!(
-                Manifest::parse(&format!(
-                    "ducktape.view.manifest\nSized\nDescription\n\n{invalid}\n0123abcd"
-                ))
-                .is_none(),
-                "accepted {invalid}"
-            );
+            assert!(parse(invalid).is_none(), "accepted {invalid:?}");
         }
-        assert!(PreferredSize::new(8192.0, f32::MIN_POSITIVE).is_some());
-        assert!(PreferredSize::new(f32::from_bits(1), 1.0).is_some());
-        use std::hash::{Hash, Hasher};
-        let value = PreferredSize::new(640.5, 480.25).unwrap();
-        let mut hashes = [
-            std::collections::hash_map::DefaultHasher::new(),
-            std::collections::hash_map::DefaultHasher::new(),
-        ];
-        value.hash(&mut hashes[0]);
-        parsed.preferred_size.unwrap().hash(&mut hashes[1]);
-        assert_eq!(hashes[0].finish(), hashes[1].finish());
+        // every line valid on its own (`480` is hex, so a wire id too): only
+        // the seventh line refuses it
+        assert!(
+            Manifest::parse("ducktape.view.manifest\nApp\n\n\n480\n480\n0123abcd").is_none(),
+            "a seventh line accepted"
+        );
     }
 
     // Claim: the wire id is short lowercase hex, so a host can show it in a
@@ -241,7 +214,7 @@ mod tests {
     #[test]
     fn the_wire_id_is_bounded_lowercase_hex() {
         let parse =
-            |id: &str| Manifest::parse(&format!("ducktape.view.manifest\nApp\n\n\nnone\n{id}"));
+            |id: &str| Manifest::parse(&format!("ducktape.view.manifest\nApp\n\n\n480\n{id}"));
         assert_eq!(
             parse("0123456789abcdef").unwrap().wire_id,
             "0123456789abcdef"

@@ -96,7 +96,7 @@ pub const fn manifest_len(
     name: &str,
     description: &str,
     capabilities: &[wire::methods::Capability],
-    preferred_size: &str,
+    min_width: u32,
 ) -> usize {
     let mut len = MANIFEST_HEADER.len()
         + name.len()
@@ -104,7 +104,7 @@ pub const fn manifest_len(
         + description.len()
         + 1
         + 1
-        + preferred_size.len()
+        + digits(min_width)
         + 1
         + wire::WIRE_ID.len();
     let mut i = 0;
@@ -116,13 +116,18 @@ pub const fn manifest_len(
 }
 
 /// The manifest text (`view_wire::manifest`: header, name, description,
-/// capabilities, preferred size, [`wire::WIRE_ID`]), at compile time.
+/// capabilities, [`View::MIN_WINDOW_WIDTH`], [`wire::WIRE_ID`]), at compile
+/// time: a width outside `1..=8192` fails the build.
 pub const fn manifest_bytes<const N: usize>(
     name: &str,
     description: &str,
     capabilities: &[wire::methods::Capability],
-    preferred_size: &str,
+    min_width: u32,
 ) -> [u8; N] {
+    assert!(
+        min_width >= 1 && min_width <= wire::MAX_PIXELS as u32,
+        "MIN_WINDOW_WIDTH is 1..=8192"
+    );
     let mut out = [0u8; N];
     let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
     at = put(&mut out, at, name.as_bytes());
@@ -136,7 +141,7 @@ pub const fn manifest_bytes<const N: usize>(
         i += 1;
     }
     at = put(&mut out, at, b"\n");
-    at = put(&mut out, at, preferred_size.as_bytes());
+    at = put_number(&mut out, at, min_width);
     at = put(&mut out, at, b"\n");
     at = put(&mut out, at, wire::WIRE_ID.as_bytes());
     assert!(at == N);
@@ -150,6 +155,24 @@ const fn put(out: &mut [u8], at: usize, bytes: &[u8]) -> usize {
         i += 1;
     }
     at + bytes.len()
+}
+
+const fn digits(number: u32) -> usize {
+    match number.checked_ilog10() {
+        Some(log) => log as usize + 1,
+        None => 1,
+    }
+}
+
+const fn put_number(out: &mut [u8], at: usize, mut number: u32) -> usize {
+    let end = at + digits(number);
+    let mut i = end;
+    while i > at {
+        i -= 1;
+        out[i] = b'0' + (number % 10) as u8;
+        number /= 10;
+    }
+    end
 }
 
 /// The manifest section and the wasm32 exports ([`wire::abi`]) for a view.
@@ -166,7 +189,7 @@ macro_rules! export_view {
             $name,
             $description,
             <$app as $crate::Capabilities>::CAPABILITIES,
-            <$app as $crate::View>::PREFERRED_WINDOW_SIZE,
+            <$app as $crate::View>::MIN_WINDOW_WIDTH,
         );
 
         #[cfg_attr(target_arch = "wasm32", unsafe(link_section = "ducktape.view.manifest"))]
@@ -175,7 +198,7 @@ macro_rules! export_view {
             $name,
             $description,
             <$app as $crate::Capabilities>::CAPABILITIES,
-            <$app as $crate::View>::PREFERRED_WINDOW_SIZE,
+            <$app as $crate::View>::MIN_WINDOW_WIDTH,
         );
 
         #[cfg(target_arch = "wasm32")]

@@ -31,7 +31,7 @@ pub struct Nodes {
 const STATUS_TICK: i64 = 1_000;
 
 impl View for Nodes {
-    const PREFERRED_WINDOW_SIZE: &'static str = "680,620";
+    const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::default();
