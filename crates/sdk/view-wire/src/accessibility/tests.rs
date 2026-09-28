@@ -525,6 +525,15 @@ fn a_state_its_role_does_not_read_fails() {
         ..control(Role::Link)
     };
     fails(UnreadState, el("open", toggled, vec![text("Open")]));
+    let heading = Interactivity {
+        aria: Aria {
+            level: Some(1),
+            toggled: Some(gpui::Toggled::True),
+            ..Default::default()
+        },
+        ..roled(Role::Heading)
+    };
+    fails(UnreadState, el("title", heading, vec![text("Inbox")]));
 }
 
 #[test]
@@ -546,6 +555,22 @@ fn a_state_its_role_reads_passes() {
         ..control(Role::Button)
     };
     passes(el("bold", pressed, vec![text("Bold")]));
+    // WAI-ARIA gives an option and a tree item aria-checked
+    let checked = |role| Interactivity {
+        aria: Aria {
+            selected: Some(false),
+            toggled: Some(gpui::Toggled::True),
+            ..Default::default()
+        },
+        ..roled(role)
+    };
+    for (within, role) in [
+        (Role::ListBox, Role::ListBoxOption),
+        (Role::Tree, Role::TreeItem),
+    ] {
+        let item = el("src", checked(role), vec![text("src")]);
+        passes(el("files", roled(within), vec![item]));
+    }
 }
 
 #[test]

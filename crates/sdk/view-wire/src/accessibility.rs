@@ -64,7 +64,7 @@ pub enum FaultKind {
     ActiveDescendant,
     /// A state its role does not carry, so AT reads nothing of it:
     /// `selected` outside a tab, tree item, option, row or cell, `toggled`
-    /// outside a toggle or a button.
+    /// outside a toggle, a button, an option or a tree item.
     UnreadState,
 }
 
@@ -261,7 +261,9 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
         // a roleless node's state is OrphanAria's
         rules.check(role.is_some(), UnreadState, || {
             (aria.selected.is_some() && !is(&SELECTABLE))
-                || (aria.toggled.is_some() && !is(&TOGGLE) && role != Some(Role::Button))
+                || (aria.toggled.is_some()
+                    && !is(&TOGGLE)
+                    && !is(&[Role::Button, Role::ListBoxOption, Role::TreeItem]))
         });
         rules.check(aria.disabled == Some(true), DisabledButLive, || {
             i.on_click.is_some() || i.on_key_down.is_some()
