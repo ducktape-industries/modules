@@ -273,6 +273,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
         .overflow_y_scroll()
         .flex()
         .flex_col()
+        .role(Role::ListBox)
         .aria_label("Members")
         .focusable()
         .on_key_down(stepped);
@@ -332,9 +333,11 @@ fn member_row(
         .when(!selected, |row| {
             row.hover(move |style| style.bg(theme.surface))
         })
-        .role(Role::Button)
+        // the list holds focus and the arrows; the chosen row is the one
+        // assistive technology is told is active
+        .role(Role::ListBoxOption)
         .aria_selected(selected)
-        .focusable()
+        .when(selected, |row| row.aria_active_descendant())
         .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(number, cx)))
         .child(avatar(row, size::AVATAR, dim, &theme))
         .child(
