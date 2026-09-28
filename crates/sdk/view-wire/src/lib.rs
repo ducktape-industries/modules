@@ -95,7 +95,7 @@ pub use node::{
     SvgTransformation,
 };
 mod accessibility;
-pub use accessibility::{Fault, FaultKind, accessibility_faults};
+pub use accessibility::{Fault, FaultKind, Report, audit};
 mod patch;
 pub use patch::{MAX_PATCHES, Patch, apply, diff};
 
