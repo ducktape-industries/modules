@@ -457,6 +457,10 @@ fn the_first_row_is_active_before_a_choice_and_end_selects_the_last() {
             .iter()
             .all(|row| !cx.interactivity(row).aria.active_descendant)
     );
+    // Enter selects the default row, which Home could not reach (it is there)
+    cx.simulate_key_down("members-list", "enter");
+    cx.run_until_parked();
+    assert_eq!(cx.interactivity(&rows[0]).aria.selected, Some(true));
     cx.simulate_key_down("members-list", "end");
     cx.run_until_parked();
     let last = cx.interactivity(rows.last().expect("rows"));

@@ -259,16 +259,18 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
             .into_any_element();
     }
     // one Tab stop; the arrows select as they move, and the active row is
-    // the selected one, else the first shown
+    // the selected one, else the first shown, which Enter selects
     let numbers: Vec<u64> = shown.iter().map(|row| row.number).collect();
     let active = view
         .selected
         .and_then(|number| numbers.iter().position(|shown| *shown == number))
         .unwrap_or(0);
     let active_number = numbers[active];
+    let pressed = numbers.clone();
     let mut list = design::composite("members-list", Role::ListBox, "Members")
         .active(active, numbers.len())
         .on_move(cx.processor(move |view, index: usize, _, cx| view.select(numbers[index], cx)))
+        .on_press(cx.processor(move |view, index: usize, _, cx| view.select(pressed[index], cx)))
         .build()
         .flex_1()
         .min_h(px(0.))
