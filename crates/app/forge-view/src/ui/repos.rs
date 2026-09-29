@@ -40,6 +40,8 @@ const ROW_H: Pixels = px(48.);
 const HEADER_H: Pixels = px(30.);
 /// A table cell's side inset.
 const CELL_X: Pixels = px(12.);
+/// The smallest box a pointer presses, each way (the door's AX-017).
+const PRESS_TARGET: Pixels = px(24.);
 
 /// The table's head: what each column holds, quiet and mono. A narrow
 /// window wraps the rows and drops it.
@@ -179,6 +181,10 @@ fn copy_button(
         .focusable()
         // a click here is not also a click on the row that opens the repo
         .occlude()
+        .min_w(PRESS_TARGET)
+        .min_h(PRESS_TARGET)
+        .flex()
+        .items_center()
         .px_1p5()
         .border_1()
         .border_color(theme.border)

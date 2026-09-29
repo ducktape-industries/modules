@@ -610,8 +610,12 @@ pub fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> State
     explorer_link(id, label, explorer::block_path(height), theme)
 }
 
+/// The smallest box a pointer presses, each way (the door's AX-017).
+const PRESS_TARGET: Pixels = px(24.);
+
 /// Subdued mono text that underlines under the pointer and opens
-/// Explorer at `path` through `link.open`.
+/// Explorer at `path` through `link.open`, in a box no smaller than
+/// [`PRESS_TARGET`] with the text centred down it.
 fn explorer_link(
     id: impl Into<ElementId>,
     label: String,
@@ -622,6 +626,10 @@ fn explorer_link(
     let link = explorer::link(&path);
     div()
         .id(id)
+        .min_w(PRESS_TARGET)
+        .min_h(PRESS_TARGET)
+        .flex()
+        .items_center()
         .text_size(text::CAPTION)
         .text_color(theme.muted)
         .font_family(fonts::FAMILY_MONO)

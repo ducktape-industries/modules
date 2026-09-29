@@ -149,6 +149,7 @@ fn parent(block: &BlockRow, cx: Cx, theme: &Theme) -> impl IntoElement {
     };
     div()
         .flex()
+        .items_center()
         .gap_2()
         .child(
             link(

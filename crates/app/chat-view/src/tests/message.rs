@@ -156,6 +156,51 @@ fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
     );
 }
 
+/// What a pointer presses on a message (its block link, a reaction chip,
+/// the `+`) and the sidebar's "+ New channel" are at least 24 px each way:
+/// the box's own floor, so the bounds the door's AX-017 reads cannot come
+/// in under it, whatever the text inside.
+#[test]
+fn the_small_press_targets_are_at_least_24_px_each_way() {
+    use ducktape_view_guest::px;
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
+            .reactions
+            .push(chat::Reaction {
+                emoji: "🔥".into(),
+                count: 2,
+                reacted_by_me: true,
+            });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let style = |key: &str| match cx.find(key) {
+        Some(wire::Node::Container(node)) => node.style.clone(),
+        other => panic!("{key} is no container: {other:?}"),
+    };
+    for key in ["chat-message-m1-height", "chat-sidebar-new-channel"] {
+        let style = style(key);
+        assert_eq!(
+            (style.min_size.width, style.min_size.height),
+            (Some(px(24.).into()), Some(px(24.).into())),
+            "{key}"
+        );
+    }
+    // a chip is as tall as the thread button, and no narrower than tall
+    for key in [
+        "chat-message-m1-reaction-🔥",
+        "chat-message-m1-reaction-add",
+    ] {
+        let style = style(key);
+        assert_eq!(
+            (style.min_size.width, style.size.height),
+            (Some(px(24.).into()), Some(px(24.).into())),
+            "{key}"
+        );
+    }
+}
+
 #[test]
 fn thread_root_uses_reply_count_as_a_separator() {
     let (mut cx, view) = opened();
