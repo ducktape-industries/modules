@@ -590,10 +590,13 @@ impl Composite {
 
 /// An item of a [`composite`]: its role, and the claim when it is the
 /// active one. It keeps its `on_click` and the role's state
-/// (`aria_selected`, `aria_toggled`); it is never `focusable()`. A grid
-/// row is never an item: the claim goes on a cell, or on the one control
-/// inside it.
-pub fn item(element: Stateful<Div>, role: Role, active: bool) -> Stateful<Div> {
+/// (`aria_selected`, `aria_toggled`) and is never focusable: the composite
+/// holds the focus, so a control built focusable (a [`button`], a
+/// [`block_link`]) leaves the Tab order here. A grid row is never an item:
+/// the claim goes on a cell, or on the one control inside it.
+pub fn item(mut element: Stateful<Div>, role: Role, active: bool) -> Stateful<Div> {
+    element.interactivity().focusable = false;
+    element.interactivity().tab_stop = None;
     element
         .role(role)
         .when(active, |item| item.aria_active_descendant())
@@ -1295,6 +1298,16 @@ mod tests {
             assert_eq!(view.moved, [1, 2, 0]);
             assert_eq!(view.pressed, [2, 0]);
         });
+    }
+
+    #[test]
+    fn an_item_built_focusable_leaves_the_tab_order() {
+        let theme = Theme::light();
+        let cell = lower(item(block_link("activity", 12, &theme), Role::Link, true));
+        let link = interactivity(&cell);
+        assert!(!link.focusable && link.tab_stop.is_none());
+        assert!(link.aria.active_descendant && link.on_click.is_some());
+        assert_eq!(link.role, Some(Role::Link));
     }
 
     #[test]
