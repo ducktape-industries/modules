@@ -32,12 +32,8 @@ fn action_strip_keeps_the_rows_hover_and_is_not_inside_selection_target() {
         !interactivity.occlude,
         "the strip must not take the row's hover from under the pointer"
     );
-    let card = cx.find("chat-message-m1").unwrap();
-    fn has_actions(node: &wire::Node) -> bool {
-        node.key() == Some("chat-message-m1-actions") || node.children().iter().any(has_actions)
-    }
     assert!(
-        !has_actions(card),
+        cx.find("chat-message-m1").unwrap().children().is_empty(),
         "native action clicks must not bubble through selection"
     );
     assert!(cx.find("chat-message-m1-thumbs-up").is_some());
@@ -512,7 +508,8 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
 /// A reaction chip is a cell of the message's row, as each of the card's
 /// controls is: no cell holds another, the message's own cell (under the
 /// whole card) holds none of them and keeps the pointer's click. The
-/// thread's rows are drawn the same way.
+/// thread's rows are drawn the same way. Where the reader may not write,
+/// a disabled control's cell is disabled too.
 #[test]
 fn a_reaction_chip_is_its_own_cell_of_the_row() {
     let (mut cx, view) = opened();
@@ -572,6 +569,21 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
         );
         let message = cx.find(&format!("chat-message-{m}")).unwrap();
         assert!(is_cell(message) && message.children().is_empty(), "{pane}");
+        // under the whole card, and no slot of the card's flex
+        let wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. }) = message
+        else {
+            panic!("{pane}: the message's cell")
+        };
+        assert_eq!(
+            style.position,
+            StyleRefinement::default().absolute().position,
+            "{pane}"
+        );
+        assert_eq!(
+            style.inset,
+            StyleRefinement::default().inset_0().inset,
+            "{pane}"
+        );
         let row = cx.find(&format!("chat-message-{m}-row")).unwrap();
         let mut found = Vec::new();
         assert!(!cells(row, false, &mut found), "{pane}: a cell in a cell");
@@ -601,6 +613,40 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
             (Pane::Timeline, 1, Mode::Toolbar)
         );
     });
+    // a room the reader may not write in: a disabled control's cell is
+    // disabled too, as the arrows skip it; the others are not
+    view.update(&mut cx, |chat, _, cx| {
+        let channels = chat.channels.ready_mut().unwrap();
+        let general = channels
+            .iter_mut()
+            .find(|info| info.channel.id == "general");
+        general.unwrap().channel.archived = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    view.read(|chat| assert!(!chat.may_write()));
+    let disabled = |id: &str| {
+        let node = cx.find(id).and_then(wire::Node::interactivity);
+        node.unwrap_or_else(|| panic!("{id}")).aria.disabled
+    };
+    for id in [
+        "chat-message-m1-reaction-🔥-cell",
+        "chat-message-m1-reaction-add-cell",
+        "chat-message-m1-thumbs-up-cell",
+        "chat-message-m1-react-cell",
+        "chat-message-m3-reaction-🔥-cell",
+        "chat-message-m3-reaction-add-cell",
+    ] {
+        assert_eq!(disabled(id), Some(true), "{id}");
+    }
+    for id in [
+        "chat-message-m1",
+        "chat-message-m1-height-cell",
+        "chat-message-m1-replies-cell",
+        "chat-message-m1-more-cell",
+    ] {
+        assert_eq!(disabled(id), None, "{id}");
+    }
 }
 
 /// The controls Enter presses are the active row's as last drawn: when the

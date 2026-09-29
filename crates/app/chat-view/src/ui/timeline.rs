@@ -176,9 +176,9 @@ fn rows(
         (pane == Pane::Timeline).then_some(chat.reads.boundary),
     );
     // One Tab stop, a grid: ↑ ↓ walk the messages (the list scrolls the
-    // next one into view before it claims), ← → a message's cells (its
-    // content, then its controls), Enter presses the active cell — on the
-    // content, the row's click. Active by message id: the newest until the
+    // next one into view before it claims), ← → a message's cells (the
+    // message, then its controls), Enter presses the active cell — on the
+    // message, its click. Active by message id: the newest until the
     // arrows move.
     let cursor = chat.cursor(pane);
     let at = cursor

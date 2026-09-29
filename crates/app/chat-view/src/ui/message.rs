@@ -17,7 +17,7 @@ mod rich;
 use controls::{Face, action_button, reaction_button, replies_button};
 use rich::{plain_line, rich_line};
 
-/// The cells of the message row being drawn: its content is cell 0, each
+/// The cells of the message row being drawn: the message is cell 0, each
 /// enabled control the next in paint order. `active` is the cell the
 /// pane's arrows are on, when this is their row; the controls are handed
 /// back so Enter knows what the active cell does.
@@ -183,11 +183,13 @@ fn hovers(
 }
 
 /// The grid cell of the row that holds `control`, whose id is
-/// `control_id`: `{control_id}-cell`.
-fn cell(control_id: &str, control: impl IntoElement) -> AnyElement {
+/// `control_id`: `{control_id}-cell`. A disabled control's cell says so,
+/// as the arrows skip it.
+fn cell(control_id: &str, enabled: bool, control: impl IntoElement) -> AnyElement {
     div()
         .id(format!("{control_id}-cell"))
         .role(ducktape_view_guest::Role::GridCell)
+        .when(!enabled, |cell| cell.aria_disabled(true))
         .child(control)
         .into_any_element()
 }
@@ -263,7 +265,9 @@ fn action_strip(
         .group_hover(group, |style| style.visible())
         .when(chosen, |actions| actions.visible());
     // each button is a cell of the row, beside the card
-    let cell = |button: AnyElement, key: &str| cell(&format!("chat-message-{id}-{key}"), button);
+    let cell = |button: AnyElement, key: &str, enabled: bool| {
+        cell(&format!("chat-message-{id}-{key}"), enabled, button)
+    };
     let thread = (pane == Pane::Timeline && message.reply_count == 0).then(|| {
         let active = cells.push(Control::Thread);
         let open = acts(pane, seq, rev, Control::Thread, cx);
@@ -271,9 +275,10 @@ fn action_strip(
         cell(
             action_button(id, "💬", "Open thread", theme, true, active, open).into_any_element(),
             "thread",
+            true,
         )
     });
-    // a disabled button is no cell: the arrows skip it
+    // a disabled button's cell is not counted: the arrows skip it
     let thumbs = writable && cells.push(Control::ThumbsUp);
     let react = writable && cells.push(Control::React);
     let more = cells.push(Control::More);
@@ -291,6 +296,7 @@ fn action_strip(
             )
             .into_any_element(),
             "thumbs-up",
+            writable,
         ))
         .child(cell(
             action_button(
@@ -304,6 +310,7 @@ fn action_strip(
             )
             .into_any_element(),
             "react",
+            writable,
         ))
         .child(cell(
             action_button(
@@ -317,6 +324,7 @@ fn action_strip(
             )
             .into_any_element(),
             "more",
+            true,
         ))
         .into_any_element()
 }
@@ -423,7 +431,7 @@ fn replies(
             div()
                 .flex()
                 .pt_1()
-                .child(cell(&id, button))
+                .child(cell(&id, true, button))
                 .into_any_element(),
         );
     }
@@ -501,6 +509,7 @@ fn header(
         let link = design::block_link(id.clone(), message.height, theme).on_click(open);
         header = header.child(cell(
             &id,
+            true,
             design::item(link, ducktape_view_guest::Role::Link, active),
         ));
     }
@@ -548,6 +557,7 @@ fn program_post(
             .child(format!("Open in {program}"));
         line = line.child(cell(
             &id,
+            true,
             design::item(open, ducktape_view_guest::Role::Link, active),
         ));
     }
@@ -591,7 +601,7 @@ fn reactions(
             active,
             click,
         );
-        reactions = reactions.child(cell(&id, chip));
+        reactions = reactions.child(cell(&id, writable, chip));
     }
     // the card under the `+` would otherwise take the same click and put
     // the row's toolbar over the picker just opened: `acts` claims it
@@ -606,7 +616,7 @@ fn reactions(
         active,
         acts(pane, seq, rev, Control::AddReaction, cx),
     );
-    reactions = reactions.child(cell(&id, add));
+    reactions = reactions.child(cell(&id, writable, add));
     reactions.into_any_element()
 }
 
