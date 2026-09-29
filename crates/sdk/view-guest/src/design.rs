@@ -13,7 +13,8 @@ mod format;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural, set_utc_offset};
 
 use crate::prelude::*;
-use crate::{BoxShadow, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
+use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
+use gpui::BoxShadow;
 pub use gpui::Orientation;
 
 /// [`type_scale`] as sizes an element takes.
@@ -161,7 +162,7 @@ pub fn mono(text: impl Into<SharedString>) -> Div {
 /// keyboard has reached. The SDK draws it on every focusable node that has
 /// no `focus_visible` of its own; a control whose own edge is already ink
 /// shows it in the ink's foreground ([`focus_shown_on_ink`]).
-pub fn focus_ring(color: Hsla) -> StyleRefinement {
+pub(crate) fn focus_ring(color: Hsla) -> StyleRefinement {
     StyleRefinement::default()
         .shadow(vec![ring_shadow(color, 2., true)])
         // inset shadows paint under the border: a bordered control would
@@ -445,6 +446,7 @@ pub fn composite(
 ) -> Composite {
     Composite {
         element: div().id(id).role(role).aria_label(label),
+        items: Vec::new(),
         orientation: Orientation::Vertical,
         columns: None,
         cells: None,
@@ -459,8 +461,11 @@ pub fn composite(
 
 type Picked = Box<dyn Fn(usize, &mut Window, &mut App)>;
 
+/// A [`composite`] being built: its role, name, axis, active item and the
+/// callbacks its keys reach; [`Composite::build`] is the element.
 pub struct Composite {
     element: Stateful<Div>,
+    items: Vec<AnyElement>,
     orientation: Orientation,
     columns: Option<usize>,
     /// the active row's active cell among its cells
@@ -524,9 +529,22 @@ impl Composite {
         self.on_press = Some(Box::new(f));
         self
     }
+    /// The items, each an [`item`] (or a row holding them); a caller may
+    /// add more on the built element.
+    pub fn children(mut self, items: impl IntoIterator<Item = impl IntoElement>) -> Self {
+        self.items
+            .extend(items.into_iter().map(IntoElement::into_any_element));
+        self
+    }
+    /// The element: roled, named, oriented, focusable (so a Tab stop) and
+    /// hearing the keys of §3 — the orientation's arrows, Home/End, Enter
+    /// and Space, unmodified; a grid's ↑ ↓ by a row and Ctrl+Home/End. A
+    /// move the view answers by re-rendering is remembered until then, so
+    /// a press in the same frame lands on the item just moved to.
     pub fn build(self) -> Stateful<Div> {
         let Self {
             element,
+            items,
             orientation,
             columns,
             cells,
@@ -537,6 +555,10 @@ impl Composite {
             on_move_cell,
             on_press,
         } = self;
+        // the active item and cell as of the last key, ahead of the render
+        // that shows the move
+        let at = std::cell::Cell::new(active);
+        let at_cell = std::cell::Cell::new(cells.map_or(0, |(cell, _)| cell));
         let keys = move |event: &KeyDownEvent, window: &mut Window, app: &mut App| {
             let keystroke = &event.keystroke;
             let modifiers = keystroke.modifiers;
@@ -548,6 +570,7 @@ impl Composite {
                 return;
             }
             let last = count - 1;
+            let active = at.get();
             if plain && matches!(key, "enter" | "space") {
                 if let Some(press) = &on_press {
                     press(active, window, app);
@@ -562,7 +585,8 @@ impl Composite {
                     _ => usize::try_from(to).ok().filter(|to| *to <= last),
                 }
             };
-            if let Some((cell, cells)) = cells {
+            if let Some((_, cells)) = cells {
+                let cell = at_cell.get();
                 let last_cell = cells.saturating_sub(1);
                 let (to_row, to_cell) = match (key, plain, ctrl) {
                     ("up", true, _) => (step(-1), None),
@@ -576,9 +600,12 @@ impl Composite {
                     _ => (None, None),
                 };
                 if let (Some(to), Some(moved)) = (to_row.filter(|to| *to != active), &on_move) {
+                    at.set(to);
+                    at_cell.set(0);
                     moved(to, window, app);
                 }
                 if let (Some(to), Some(moved)) = (to_cell.filter(|to| *to != cell), &on_move_cell) {
+                    at_cell.set(to);
                     moved(to, window, app);
                 }
                 return;
@@ -602,6 +629,7 @@ impl Composite {
                 _ => None,
             };
             if let (Some(next), Some(moved)) = (next.filter(|next| *next != active), &on_move) {
+                at.set(next);
                 moved(next, window, app);
             }
         };
@@ -609,6 +637,7 @@ impl Composite {
             .aria_orientation(orientation)
             .focusable()
             .on_key_down(keys)
+            .children(items)
     }
 }
 
@@ -1203,9 +1232,17 @@ mod tests {
         format.read(|view| assert_eq!(view.picked, 1));
     }
 
+    thread_local! {
+        /// The moves and presses of a `silent` [`Picker`], which keeps no
+        /// state of them and so never re-renders.
+        static SILENT: std::cell::RefCell<(Vec<usize>, Vec<usize>)> = Default::default();
+    }
+
     /// A composite of `count` items under one test's settings.
     #[derive(Default, serde::Serialize, serde::Deserialize)]
     struct Picker {
+        /// moves and presses go to [`SILENT`], and the view does not re-render
+        silent: bool,
         role: Option<Role>,
         horizontal: bool,
         columns: Option<usize>,
@@ -1239,11 +1276,17 @@ mod tests {
             let mut list = composite("picker", role, "Pick one")
                 .active(self.active, self.count)
                 .on_move(cx.processor(|view: &mut Self, index, _, cx| {
+                    if view.silent {
+                        return SILENT.with_borrow_mut(|log| log.0.push(index));
+                    }
                     view.moved.push(index);
                     view.active = index;
                     cx.notify();
                 }))
                 .on_press(cx.processor(|view: &mut Self, index, _, cx| {
+                    if view.silent {
+                        return SILENT.with_borrow_mut(|log| log.1.push(index));
+                    }
                     view.pressed.push(index);
                     cx.notify();
                 }));
@@ -1256,6 +1299,9 @@ mod tests {
             if let Some((cell, cells)) = self.cells {
                 list = list.cells(cell, cells).on_move_cell(cx.processor(
                     |view: &mut Self, index, _, cx| {
+                        if view.silent {
+                            return SILENT.with_borrow_mut(|log| log.0.push(index));
+                        }
                         view.moved_cell.push(index);
                         view.cells = view.cells.map(|(_, cells)| (index, cells));
                         cx.notify();
@@ -1333,6 +1379,29 @@ mod tests {
             assert_eq!(view.moved, [1, 2, 0]);
             assert_eq!(view.pressed, [2, 0]);
         });
+    }
+
+    /// The helper remembers where the arrows went before the view draws
+    /// it: ↓ then Enter in one frame presses the item moved to.
+    #[test]
+    fn a_press_right_after_a_move_lands_on_the_item_moved_to() {
+        SILENT.take();
+        let (mut cx, _) = picker(|view| view.silent = true);
+        cx.simulate_key_down("picker", "down");
+        cx.simulate_key_down("picker", "enter");
+        assert_eq!(SILENT.take(), (vec![1], vec![1]));
+        // a grid of rows with cells: the cell moves, then the row (its
+        // cell back at 0), then the cell again
+        let (mut cx, _) = picker(|view| {
+            view.silent = true;
+            view.role = Some(Role::Grid);
+            view.cells = Some((0, 3));
+            view.count = 2;
+        });
+        for keystroke in ["right", "right", "down", "right", "enter"] {
+            cx.simulate_key_down("picker", keystroke);
+        }
+        assert_eq!(SILENT.take(), (vec![1, 2, 1, 1], vec![1]));
     }
 
     #[test]

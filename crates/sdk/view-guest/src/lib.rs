@@ -5,9 +5,9 @@ pub use gpui::{AccessibleAction, accesskit};
 extern crate self as ducktape_view_guest;
 
 pub use gpui::{
-    Anchor, AnchoredPositionMode, BoxShadow, ClickEvent, CursorStyle, Edges, ElementId,
-    FileDropEvent, FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode,
-    Hsla, KeyDownEvent, KeyUpEvent, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
+    Anchor, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId, FileDropEvent,
+    FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode, Hsla,
+    KeyDownEvent, KeyUpEvent, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
     ListScrollEvent, ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent,
     MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent,
     Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
