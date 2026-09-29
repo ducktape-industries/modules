@@ -14,6 +14,7 @@ pub use format::{ago, clock, date, day, grouped, initial, local, plural, set_utc
 
 use crate::prelude::*;
 use crate::{BoxShadow, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
+pub use gpui::Orientation;
 
 /// [`type_scale`] as sizes an element takes.
 pub mod text {
@@ -405,6 +406,154 @@ pub fn tab(
         .focusable()
         .on_click(click)
         .child(label.into())
+}
+
+/// One Tab stop whose items the arrows pick: a tab list, a radio group, a
+/// menu, a list box, a tree, a grid. The composite takes the focus and the
+/// keys; the picked item is its active descendant ([`item`]) and is never
+/// focusable. [`Composite::build`] gives the element; the caller styles it
+/// and adds the items.
+pub fn composite(
+    id: impl Into<ElementId>,
+    role: Role,
+    label: impl Into<SharedString>,
+) -> Composite {
+    Composite {
+        element: div().id(id).role(role).aria_label(label),
+        orientation: Orientation::Vertical,
+        columns: None,
+        active: 0,
+        count: 0,
+        wrap: false,
+        on_move: None,
+        on_press: None,
+    }
+}
+
+type Picked = Box<dyn Fn(usize, &mut Window, &mut App)>;
+
+pub struct Composite {
+    element: Stateful<Div>,
+    orientation: Orientation,
+    columns: Option<usize>,
+    active: usize,
+    count: usize,
+    wrap: bool,
+    on_move: Option<Picked>,
+    on_press: Option<Picked>,
+}
+
+impl Composite {
+    /// Which arrows step: `Horizontal` ← →, `Vertical` ↑ ↓ (the default).
+    /// Sent as `aria_orientation` too.
+    pub fn orientation(mut self, orientation: Orientation) -> Self {
+        self.orientation = orientation;
+        self
+    }
+    /// A grid of `columns` cells a row: ← → step by one, ↑ ↓ by a row;
+    /// Home/End go to the row's ends, Ctrl+Home/End to the grid's.
+    pub fn grid(mut self, columns: usize) -> Self {
+        self.columns = Some(columns.max(1));
+        self
+    }
+    /// The active item among `count`. The view keeps the index; a live list
+    /// keeps the item's id and maps it to an index each render.
+    pub fn active(mut self, index: usize, count: usize) -> Self {
+        self.active = index;
+        self.count = count;
+        self
+    }
+    /// The arrows wrap at the ends (a tab list, a radio group); the default
+    /// stops there (a list box, a tree, a menu, a grid).
+    pub fn wrap(mut self) -> Self {
+        self.wrap = true;
+        self
+    }
+    /// An arrow, Home or End picked item `index`: the view stores it and
+    /// renders that item active.
+    pub fn on_move(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_move = Some(Box::new(f));
+        self
+    }
+    /// Enter or Space on the active item.
+    pub fn on_press(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_press = Some(Box::new(f));
+        self
+    }
+    pub fn build(self) -> Stateful<Div> {
+        let Self {
+            element,
+            orientation,
+            columns,
+            active,
+            count,
+            wrap,
+            on_move,
+            on_press,
+        } = self;
+        let keys = move |event: &KeyDownEvent, window: &mut Window, app: &mut App| {
+            let keystroke = &event.keystroke;
+            let modifiers = keystroke.modifiers;
+            let plain = !modifiers.modified();
+            let ctrl = modifiers.control
+                && !(modifiers.alt || modifiers.shift || modifiers.platform || modifiers.function);
+            let key = keystroke.key.as_str();
+            if count == 0 {
+                return;
+            }
+            let last = count - 1;
+            if plain && matches!(key, "enter" | "space") {
+                if let Some(press) = &on_press {
+                    press(active, window, app);
+                }
+                return;
+            }
+            // one step along the arrows' axis, or a row up or down a grid
+            let step = |by: isize| -> Option<usize> {
+                let to = active as isize + by;
+                match (wrap, columns) {
+                    (true, None) => Some(to.rem_euclid(count as isize) as usize),
+                    _ => usize::try_from(to).ok().filter(|to| *to <= last),
+                }
+            };
+            let row_start = |columns: usize| active - active % columns;
+            let next = match (key, plain, ctrl, orientation, columns) {
+                ("left", true, _, Orientation::Horizontal, None)
+                | ("up", true, _, Orientation::Vertical, None)
+                | ("left", true, _, _, Some(_)) => step(-1),
+                ("right", true, _, Orientation::Horizontal, None)
+                | ("down", true, _, Orientation::Vertical, None)
+                | ("right", true, _, _, Some(_)) => step(1),
+                ("up", true, _, _, Some(columns)) => step(-(columns as isize)),
+                ("down", true, _, _, Some(columns)) => step(columns as isize),
+                ("home", true, _, _, None) | ("home", _, true, _, Some(_)) => Some(0),
+                ("end", true, _, _, None) | ("end", _, true, _, Some(_)) => Some(last),
+                ("home", true, _, _, Some(columns)) => Some(row_start(columns)),
+                ("end", true, _, _, Some(columns)) => {
+                    Some((row_start(columns) + columns - 1).min(last))
+                }
+                _ => None,
+            };
+            if let (Some(next), Some(moved)) = (next.filter(|next| *next != active), &on_move) {
+                moved(next, window, app);
+            }
+        };
+        element
+            .aria_orientation(orientation)
+            .focusable()
+            .on_key_down(keys)
+    }
+}
+
+/// An item of a [`composite`]: its role, and the claim when it is the
+/// active one. It keeps its `on_click` and the role's state
+/// (`aria_selected`, `aria_toggled`); it is never `focusable()`. A grid
+/// row is never an item: the claim goes on a cell, or on the one control
+/// inside it.
+pub fn item(element: Stateful<Div>, role: Role, active: bool) -> Stateful<Div> {
+    element
+        .role(role)
+        .when(active, |item| item.aria_active_descendant())
 }
 
 /// A few choices side by side in one box, the picked one ink-filled: a
@@ -877,6 +1026,193 @@ mod tests {
         }
         cx.simulate_drag("panes-resize", 5., 0.);
         panes.read(|panes| assert_eq!(panes.moved, [-8., 8., -32., 32., 5.]));
+    }
+
+    /// A composite of `count` items under one test's settings.
+    #[derive(Default, serde::Serialize, serde::Deserialize)]
+    struct Picker {
+        role: Option<Role>,
+        horizontal: bool,
+        columns: Option<usize>,
+        wrap: bool,
+        active: usize,
+        count: usize,
+        moved: Vec<usize>,
+        pressed: Vec<usize>,
+    }
+
+    impl crate::Capabilities for Picker {
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    }
+
+    impl crate::View for Picker {
+        fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
+            Self {
+                role: Some(Role::ListBox),
+                count: 3,
+                ..Self::default()
+            }
+        }
+    }
+
+    impl crate::Render for Picker {
+        fn render(&mut self, _: &mut Window, cx: &mut crate::Context<Self>) -> impl IntoElement {
+            let role = self.role.unwrap_or(Role::ListBox);
+            let mut list = composite("picker", role, "Pick one")
+                .active(self.active, self.count)
+                .on_move(cx.processor(|view: &mut Self, index, _, cx| {
+                    view.moved.push(index);
+                    view.active = index;
+                    cx.notify();
+                }))
+                .on_press(cx.processor(|view: &mut Self, index, _, cx| {
+                    view.pressed.push(index);
+                    cx.notify();
+                }));
+            if self.horizontal {
+                list = list.orientation(Orientation::Horizontal);
+            }
+            if let Some(columns) = self.columns {
+                list = list.grid(columns);
+            }
+            if self.wrap {
+                list = list.wrap();
+            }
+            let item_role = match role {
+                Role::TabList => Role::Tab,
+                Role::Grid => Role::GridCell,
+                _ => Role::ListBoxOption,
+            };
+            let active = self.active;
+            list.build().children((0..self.count).map(move |index| {
+                let row = div()
+                    .id(format!("pick-{index}"))
+                    .on_click(|_, _, _| {})
+                    .child(format!("Choice {index}"));
+                let row = match item_role {
+                    Role::GridCell => row,
+                    _ => row.aria_selected(index == active),
+                };
+                let cell = item(row, item_role, index == active);
+                match item_role {
+                    Role::GridCell => div().id(format!("row-{index}")).role(Role::Row).child(cell),
+                    _ => cell,
+                }
+            }))
+        }
+    }
+
+    fn picker(
+        set: impl FnOnce(&mut Picker),
+    ) -> (crate::testing::TestAppContext, crate::Entity<Picker>) {
+        let mut cx = crate::testing::TestAppContext::new();
+        let picker = cx.open::<Picker>();
+        picker.update(&mut cx, |view, _, cx| {
+            set(view);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        (cx, picker)
+    }
+
+    fn found(cx: &crate::testing::TestAppContext, key: &str) -> wire::Interactivity {
+        interactivity(cx.find(key).expect(key)).clone()
+    }
+
+    #[test]
+    fn a_composite_is_one_tab_stop_whose_arrows_pick_its_items() {
+        let (mut cx, picker) = picker(|_| {});
+        let list = found(&cx, "picker");
+        assert_eq!(list.role, Some(Role::ListBox));
+        assert_eq!(list.aria.label.as_deref(), Some("Pick one"));
+        assert_eq!(list.aria.orientation, Some(Orientation::Vertical));
+        assert!(list.focusable && list.tab_stop == Some(true));
+        assert!(list.on_key_down.is_some());
+        for index in 0..3 {
+            let row = found(&cx, &format!("pick-{index}"));
+            assert!(!row.focusable && row.tab_stop.is_none());
+            assert_eq!(row.aria.active_descendant, index == 0);
+        }
+        cx.simulate_key_down("picker", "down");
+        assert!(found(&cx, "pick-1").aria.active_descendant);
+        cx.simulate_key_down("picker", "end");
+        cx.simulate_key_down("picker", "left");
+        cx.simulate_key_down("picker", "enter");
+        cx.simulate_key_down("picker", "home");
+        cx.simulate_key_down("picker", "up");
+        cx.simulate_key_down("picker", "space");
+        cx.simulate_key_down("picker", "a");
+        picker.read(|view| {
+            assert_eq!(view.moved, [1, 2, 0]);
+            assert_eq!(view.pressed, [2, 0]);
+        });
+    }
+
+    #[test]
+    fn a_tab_list_wraps_and_a_list_box_stops() {
+        let (mut cx, tabs) = picker(|view| {
+            view.role = Some(Role::TabList);
+            view.horizontal = true;
+            view.wrap = true;
+            view.active = 2;
+        });
+        assert_eq!(
+            found(&cx, "picker").aria.orientation,
+            Some(Orientation::Horizontal)
+        );
+        cx.simulate_key_down("picker", "right");
+        cx.simulate_key_down("picker", "left");
+        cx.simulate_key_down("picker", "down");
+        tabs.read(|view| assert_eq!(view.moved, [0, 2]));
+        let (mut cx, list) = picker(|view| view.active = 2);
+        cx.simulate_key_down("picker", "down");
+        cx.simulate_key_down("picker", "home");
+        cx.simulate_key_down("picker", "up");
+        list.read(|view| assert_eq!(view.moved, [0]));
+    }
+
+    #[test]
+    fn a_modified_arrow_is_not_the_composites() {
+        let (mut cx, list) = picker(|_| {});
+        for keystroke in [
+            "alt-down",
+            "cmd-down",
+            "shift-down",
+            "ctrl-down",
+            "ctrl-end",
+        ] {
+            cx.simulate_key_down("picker", keystroke);
+        }
+        cx.simulate_key_down("picker", "shift-enter");
+        list.read(|view| assert!(view.moved.is_empty() && view.pressed.is_empty()));
+    }
+
+    #[test]
+    fn a_grid_steps_a_row_by_its_columns_and_home_end_by_its_row() {
+        let (mut cx, grid) = picker(|view| {
+            view.role = Some(Role::Grid);
+            view.columns = Some(3);
+            view.count = 8;
+            view.active = 4;
+        });
+        for keystroke in [
+            "down",
+            "up",
+            "up",
+            "down",
+            "home",
+            "end",
+            "right",
+            "left",
+            "ctrl-home",
+            "ctrl-end",
+            "down",
+            "end",
+        ] {
+            cx.simulate_key_down("picker", keystroke);
+        }
+        grid.read(|view| assert_eq!(view.moved, [7, 4, 1, 4, 3, 5, 6, 5, 0, 7]));
+        assert!(found(&cx, "pick-7").aria.active_descendant);
     }
 
     #[test]
