@@ -433,6 +433,41 @@ fn the_list_and_the_detail_are_accessible() {
     cx.run_until_parked();
 }
 
+/// Nothing selected, the list still has an active row — its first shown —
+/// so Tab lands on a row, not on the box; End selects the last shown row.
+#[test]
+fn the_first_row_is_active_before_a_choice_and_end_selects_the_last() {
+    let (mut cx, _) = ready();
+    let list = cx.interactivity("members-list");
+    assert!(list.focusable && list.tab_stop == Some(true));
+    let rows: Vec<String> = cx
+        .find("members-list")
+        .expect("the list")
+        .children()
+        .iter()
+        .filter_map(|node| node.key())
+        .filter(|key| key.starts_with("members-row-"))
+        .map(str::to_owned)
+        .collect();
+    let first = cx.interactivity(&rows[0]);
+    assert!(first.aria.active_descendant);
+    assert_eq!(first.aria.selected, Some(false));
+    assert!(
+        rows[1..]
+            .iter()
+            .all(|row| !cx.interactivity(row).aria.active_descendant)
+    );
+    cx.simulate_key_down("members-list", "end");
+    cx.run_until_parked();
+    let last = cx.interactivity(rows.last().expect("rows"));
+    assert!(last.aria.active_descendant);
+    assert_eq!(last.aria.selected, Some(true));
+    assert!(!cx.interactivity(&rows[0]).aria.active_descendant);
+    cx.simulate_key_down("members-list", "home");
+    cx.run_until_parked();
+    assert_eq!(cx.interactivity(&rows[0]).aria.selected, Some(true));
+}
+
 #[test]
 fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
     let (mut cx, _) = ready();
@@ -443,8 +478,10 @@ fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
     let list = of(&cx, "members-list");
     assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
     assert!(list.focusable);
-    for (number, other) in [(7, 11), (11, 7)] {
-        cx.simulate_key_down("members-list", "down");
+    // the first shown row is active before any choice, so ↓ selects the
+    // second, and ↑ comes back
+    for (key, number, other) in [("down", 11, 7), ("up", 7, 11)] {
+        cx.simulate_key_down("members-list", key);
         let (row, other) = (
             of(&cx, &format!("members-row-{number}")),
             of(&cx, &format!("members-row-{other}")),
