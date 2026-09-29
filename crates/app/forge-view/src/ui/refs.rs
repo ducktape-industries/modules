@@ -49,12 +49,13 @@ pub(crate) fn render(
             .into_any_element();
     }
     // one Tab stop: ↑ ↓ walk the refs, ← → a row's cells (the ref, its
-    // Compare), Enter presses the active cell
+    // Compare when the reader may write), Enter presses the active cell
     let names: Vec<Vec<u8>> = page.items.iter().map(|info| info.name.clone()).collect();
     let (at, _) = crate::ui::components::cursor(forge, "forge-refs-list");
     let at = at.min(names.len().saturating_sub(1));
     let compares = |name: &[u8]| name != forge.default_head() && !name.starts_with(b"refs/tags/");
-    let cells = 1 + usize::from(names.get(at).is_some_and(|name| compares(name)));
+    let cells =
+        1 + usize::from(forge.may_write() && names.get(at).is_some_and(|name| compares(name)));
     let mut list = crate::ui::components::grid(
         "forge-refs-list",
         "Refs",
@@ -64,7 +65,8 @@ pub(crate) fn render(
         cx,
         move |forge, index, cell, _, cx| match cell {
             0 => forge.pick_ref(names[index].clone(), cx),
-            _ => forge.start_change(names[index].clone(), cx),
+            _ if forge.may_write() => forge.start_change(names[index].clone(), cx),
+            _ => {}
         },
     )
     .gap_1()

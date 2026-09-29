@@ -1538,3 +1538,36 @@ fn the_ref_list_is_a_grid_whose_right_reaches_compare() {
         assert_eq!(form.from, format!("refs/heads/{label}").into_bytes());
     });
 }
+
+/// A reader who may not write sees a disabled Compare that is no cell: →
+/// stays on the ref, and Enter starts no change.
+#[test]
+fn a_reader_who_may_not_write_has_no_compare_cell() {
+    let (mut cx, view) = seated(b"stranger", None);
+    view.read(|forge| assert!(!forge.may_write()));
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    let rows: Vec<String> = cx
+        .find("forge-refs-list")
+        .expect("the refs")
+        .children()
+        .iter()
+        .filter_map(|row| row.key().map(str::to_owned))
+        .filter(|key| key.starts_with("forge-ref-row-"))
+        .collect();
+    cx.simulate_key_down("forge-refs-list", "down");
+    cx.simulate_key_down("forge-refs-list", "right");
+    let branch = &rows[1];
+    let label = &branch["forge-ref-row-".len()..];
+    assert!(
+        cx.interactivity(&format!("{branch}-open"))
+            .aria
+            .active_descendant,
+        "the ref stays the active cell"
+    );
+    let compare = cx.interactivity(&format!("forge-compare-{label}"));
+    assert!(compare.aria.disabled == Some(true) && !compare.aria.active_descendant);
+    cx.simulate_key_down("forge-refs-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.form.is_none(), "no draft for a reader"));
+}
