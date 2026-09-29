@@ -430,13 +430,21 @@ fn tx_row(
     view.describe(tx, cx);
     // empty until the host answers: the program column already says whose
     let title = tx.op().map(|op| clip(&op.title)).unwrap_or_default();
-    let (label, mark) = match &tx.receipt {
+    let (word, mark) = match &tx.receipt {
         Some(run) => {
             let (word, color, _) = outcome(run, theme);
-            (format!("{title}, {word}"), Some(color))
+            (word, Some(color))
         }
-        None => (title.clone(), None),
+        None => ("", None),
     };
+    // what, where, how it ran, then the short hash drawn first on the row:
+    // the one part two like transactions never share
+    let hash = short(&tx.hash);
+    let label = [title.as_str(), word, &hash]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
     let mark = div().size(MARK).flex_shrink_0().children(mark.map(|color| {
         div()
             .id(SharedString::from(format!(
@@ -448,7 +456,7 @@ fn tx_row(
     }));
     row(ElementId::Name(id), label, Route::Tx(tx.hash), cx, theme)
         .child(mark)
-        .child(mono(short(&tx.hash)).w(HASH_W).text_color(theme.muted))
+        .child(mono(hash).w(HASH_W).text_color(theme.muted))
         .child(
             div()
                 .flex_1()
