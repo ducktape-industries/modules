@@ -99,7 +99,7 @@ fn reaction_rows_keep_add_action_and_selected_accessibility() {
     else {
         panic!("reaction pill")
     };
-    assert_eq!(interactivity.aria.description.as_deref(), Some("🔥"));
+    assert_eq!(interactivity.aria.description.as_deref(), Some("2"));
     assert!(interactivity.aria.toggled.is_some());
     assert!(cx.find("chat-message-m1-reaction-add").is_some());
     cx.simulate_click("chat-message-m1-reaction-add");
@@ -110,6 +110,50 @@ fn reaction_rows_keep_add_action_and_selected_accessibility() {
                 .is_some_and(|menu| menu.mode == Mode::Reactions && menu.seq == 1)
         )
     });
+}
+
+/// A chip is named by its emoji, yours or not: the toggle says which, so
+/// the name the door reads does not flip with it, and it is neither the `+`
+/// picker's "Add reaction" nor the strip's "React with 👍", which always adds.
+#[test]
+fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        let rows = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
+        for (row, mine) in rows.iter_mut().zip([true, false]) {
+            row.reactions.push(chat::Reaction {
+                emoji: "👍".into(),
+                count: 1,
+                reacted_by_me: mine,
+            });
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    hover(&mut cx, &view, 1);
+    let aria = |key: &str| match cx.find(key) {
+        Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+            interactivity,
+            ..
+        })) => interactivity.aria.clone(),
+        _ => panic!("{key} is a container"),
+    };
+    let (on, off) = (
+        aria("chat-message-m1-reaction-👍"),
+        aria("chat-message-m2-reaction-👍"),
+    );
+    assert_eq!(off.label, on.label, "one name, toggled or not");
+    assert_eq!(on.label.as_deref(), Some("👍 reaction"));
+    assert_eq!(on.toggled, Some(true.into()));
+    assert_eq!(off.toggled, Some(false.into()));
+    assert_eq!(
+        aria("chat-message-m1-reaction-add").label.as_deref(),
+        Some("Add reaction")
+    );
+    assert_eq!(
+        aria("chat-message-m1-thumbs-up").label.as_deref(),
+        Some("React with 👍")
+    );
 }
 
 #[test]

@@ -458,6 +458,27 @@ fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
     }
 }
 
+/// A row is called by the member's name, not the avatar's initial drawn
+/// before it; what else the row says is its description.
+#[test]
+fn a_row_is_named_by_the_member_not_the_avatar() {
+    let (cx, _) = ready();
+    let aria = |key: &str| match cx.find(key) {
+        Some(Node::Container(ContainerNode { interactivity, .. })) => interactivity.aria.clone(),
+        _ => panic!("{key} is a container"),
+    };
+    for (number, name, description) in [
+        (7, "eddy", "you · Person"),
+        (11, "ada", "Person"),
+        (10, "relay", "Agent · managed by eddy · revoked"),
+        (8, "chat", "Module"),
+    ] {
+        let row = aria(&format!("members-row-{number}"));
+        assert_eq!(row.label.as_deref(), Some(name));
+        assert_eq!(row.description.as_deref(), Some(description));
+    }
+}
+
 #[test]
 fn a_kind_with_no_one_in_it_says_so_without_quoting_an_empty_filter() {
     let mut cx = TestAppContext::new();
