@@ -423,10 +423,12 @@ pub fn composite(
         element: div().id(id).role(role).aria_label(label),
         orientation: Orientation::Vertical,
         columns: None,
+        cells: None,
         active: 0,
         count: 0,
         wrap: false,
         on_move: None,
+        on_move_cell: None,
         on_press: None,
     }
 }
@@ -437,10 +439,13 @@ pub struct Composite {
     element: Stateful<Div>,
     orientation: Orientation,
     columns: Option<usize>,
+    /// the active row's active cell among its cells
+    cells: Option<(usize, usize)>,
     active: usize,
     count: usize,
     wrap: bool,
     on_move: Option<Picked>,
+    on_move_cell: Option<Picked>,
     on_press: Option<Picked>,
 }
 
@@ -462,6 +467,20 @@ impl Composite {
     pub fn active(mut self, index: usize, count: usize) -> Self {
         self.active = index;
         self.count = count;
+        self
+    }
+    /// A grid whose rows have cells of their own (a message and its
+    /// controls): `active` is the active row's active cell among `count`.
+    /// ← → step the cells ([`Self::on_move_cell`]), ↑ ↓ the rows, Home/End
+    /// reach the row's ends, Ctrl+Home/End the first and last row; Enter
+    /// and Space press the row, whose active cell the view knows.
+    pub fn cells(mut self, active: usize, count: usize) -> Self {
+        self.cells = Some((active, count));
+        self
+    }
+    /// ← → or Home/End picked cell `index` of the active row.
+    pub fn on_move_cell(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_move_cell = Some(Box::new(f));
         self
     }
     /// The arrows wrap at the ends (a tab list, a radio group); the default
@@ -486,10 +505,12 @@ impl Composite {
             element,
             orientation,
             columns,
+            cells,
             active,
             count,
             wrap,
             on_move,
+            on_move_cell,
             on_press,
         } = self;
         let keys = move |event: &KeyDownEvent, window: &mut Window, app: &mut App| {
@@ -517,6 +538,27 @@ impl Composite {
                     _ => usize::try_from(to).ok().filter(|to| *to <= last),
                 }
             };
+            if let Some((cell, cells)) = cells {
+                let last_cell = cells.saturating_sub(1);
+                let (to_row, to_cell) = match (key, plain, ctrl) {
+                    ("up", true, _) => (step(-1), None),
+                    ("down", true, _) => (step(1), None),
+                    ("left", true, _) => (None, cell.checked_sub(1)),
+                    ("right", true, _) => (None, Some((cell + 1).min(last_cell))),
+                    ("home", true, _) => (None, Some(0)),
+                    ("end", true, _) => (None, Some(last_cell)),
+                    ("home", _, true) => (Some(0), None),
+                    ("end", _, true) => (Some(last), None),
+                    _ => (None, None),
+                };
+                if let (Some(to), Some(moved)) = (to_row.filter(|to| *to != active), &on_move) {
+                    moved(to, window, app);
+                }
+                if let (Some(to), Some(moved)) = (to_cell.filter(|to| *to != cell), &on_move_cell) {
+                    moved(to, window, app);
+                }
+                return;
+            }
             let row_start = |columns: usize| active - active % columns;
             let next = match (key, plain, ctrl, orientation, columns) {
                 ("left", true, _, Orientation::Horizontal, None)
@@ -1129,10 +1171,13 @@ mod tests {
         role: Option<Role>,
         horizontal: bool,
         columns: Option<usize>,
+        /// the active row's cells, and the active one
+        cells: Option<(usize, usize)>,
         wrap: bool,
         active: usize,
         count: usize,
         moved: Vec<usize>,
+        moved_cell: Vec<usize>,
         pressed: Vec<usize>,
     }
 
@@ -1169,6 +1214,15 @@ mod tests {
             }
             if let Some(columns) = self.columns {
                 list = list.grid(columns);
+            }
+            if let Some((cell, cells)) = self.cells {
+                list = list.cells(cell, cells).on_move_cell(cx.processor(
+                    |view: &mut Self, index, _, cx| {
+                        view.moved_cell.push(index);
+                        view.cells = view.cells.map(|(_, cells)| (index, cells));
+                        cx.notify();
+                    },
+                ));
             }
             if self.wrap {
                 list = list.wrap();
@@ -1308,6 +1362,38 @@ mod tests {
         }
         grid.read(|view| assert_eq!(view.moved, [7, 4, 1, 4, 3, 5, 6, 5, 0, 7]));
         assert!(found(&cx, "pick-7").aria.active_descendant);
+    }
+
+    #[test]
+    fn a_grid_of_rows_with_their_own_cells_steps_cells_sideways_and_rows_up_and_down() {
+        let (mut cx, grid) = picker(|view| {
+            view.role = Some(Role::Grid);
+            view.cells = Some((0, 3));
+            view.count = 4;
+            view.active = 1;
+        });
+        for keystroke in [
+            "right",
+            "right",
+            "right",
+            "down",
+            "home",
+            "left",
+            "end",
+            "up",
+            "up",
+            "up",
+            "ctrl-end",
+            "ctrl-home",
+            "enter",
+        ] {
+            cx.simulate_key_down("picker", keystroke);
+        }
+        grid.read(|view| {
+            assert_eq!(view.moved_cell, [1, 2, 0, 2]);
+            assert_eq!(view.moved, [2, 1, 0, 3, 0]);
+            assert_eq!(view.pressed, [0]);
+        });
     }
 
     #[test]
