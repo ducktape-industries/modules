@@ -112,31 +112,77 @@ fn table_min_width(cx: &TestAppContext) -> serde_json::Value {
     }
 }
 
-/// Narrower than the strip needs, the sheet leaves it out; narrower than
-/// Address needs, Address too, and this node's mark goes under its key. At
-/// the app's narrowest layout (480) Key, Height, Behind and Status fit the
-/// sheet less its inset and gutter (432).
+/// Where row `row`'s strip sits and its marks' gap: `true` where it is on
+/// a line of its own under the row's cells.
+fn strip_of(cx: &TestAppContext, row: &str) -> (bool, serde_json::Value) {
+    use ducktape_view_guest::wire::Node;
+    fn marks(node: &Node) -> Option<&ducktape_view_guest::wire::ContainerNode> {
+        match node {
+            Node::Container(strip) if strip.children.len() == crate::recent::WINDOW as usize => {
+                Some(strip)
+            }
+            Node::Container(container) => container.children.iter().find_map(marks),
+            _ => None,
+        }
+    }
+    let Some(Node::Container(line)) = cx.find(row) else {
+        panic!("no {row}");
+    };
+    let below = matches!(line.children.as_slice(), [_, under] if marks(under).is_some());
+    let strip =
+        (line.children.iter().find_map(marks)).unwrap_or_else(|| panic!("no strip in {row}"));
+    (below, serde_json::to_value(strip.style.gap.width).unwrap())
+}
+
+/// As the sheet narrows, the strip's gaps close a pixel at a time; where
+/// even the narrowest does not fit beside the other columns, the strip
+/// goes on a line of its own under each row's cells, and its name under
+/// the column names. It never leaves: at the app's narrowest layout (480),
+/// Key, Height, Behind and Status fit the sheet less its inset and gutter
+/// (432), with the strip under them.
 #[test]
-fn a_narrow_sheet_keeps_key_height_behind_and_status() {
+fn a_narrow_sheet_moves_the_strip_under_its_row() {
     let (mut cx, _) = voting(THIS, seen(4200));
-    let strip = |cx: &TestAppContext| cx.texts().iter().any(|text| text.starts_with("Proposed"));
-    assert!(strip(&cx) && cx.has_text("Doesn't propose"));
-    cx.simulate_measure("nodes-viewport", 1063., 680.);
-    cx.run_until_parked();
-    assert!(!strip(&cx) && !cx.has_text("Doesn't propose"));
+    let label = "Proposed · last 64 blocks · 4,137 → 4,200";
+    let at = |cx: &mut TestAppContext, width: f32| {
+        cx.simulate_measure("nodes-viewport", width, 680.);
+        cx.run_until_parked();
+        strip_of(cx, "nodes-row-0")
+    };
+    let (beside, below) = (false, true);
+    let gap = |px: &str| serde_json::json!(px);
+    assert_eq!(strip_of(&cx, "nodes-row-0"), (beside, gap("3px")));
+    assert_eq!(at(&mut cx, 1057.), (beside, gap("3px")));
+    assert_eq!(at(&mut cx, 1056.), (beside, gap("2px")));
+    assert_eq!(at(&mut cx, 994.), (beside, gap("2px")));
+    assert_eq!(at(&mut cx, 993.), (beside, gap("1px")));
+    // the column is kept as wide as its name, 41 characters of mono caption
+    assert_eq!(at(&mut cx, 943.), (beside, gap("1px")));
+    assert_eq!(texts_of(&cx, "nodes-columns")[2], label);
+    assert_eq!(table_min_width(&cx), serde_json::json!("895px"));
+    // Address stays: under the row, the strip loses nothing
+    assert_eq!(at(&mut cx, 942.), (below, gap("3px")));
     assert!(cx.has_text("10.0.0.1:4000") && cx.has_text("since 3,871"));
-    cx.simulate_measure("nodes-viewport", 480., 680.);
-    cx.run_until_parked();
+    assert_eq!(
+        texts_of(&cx, "nodes-columns"),
+        ["Key", "Address", "Height", "Behind", "Status", label]
+    );
+    assert_eq!(table_min_width(&cx), serde_json::json!("624px"));
+    assert_eq!(at(&mut cx, 480.), (below, gap("3px")));
     assert!(!cx.has_text("Address") && !cx.has_text("10.0.0.1:4000"));
     assert_eq!(
         texts_of(&cx, "nodes-row-0"),
         ["abcd", "this node", "4,200", "voted", "0", "In sync"]
     );
+    assert_eq!(
+        texts_of(&cx, "nodes-row-3"),
+        ["0102", "—", "—", "—", "Doesn't propose"]
+    );
+    assert_eq!(texts_of(&cx, "nodes-columns").last().unwrap(), label);
     assert!(cx.has_text("since 3,871") && cx.has_text(VOTES));
     assert_eq!(table_min_width(&cx), serde_json::json!("428px"));
-    cx.simulate_measure("nodes-viewport", 1064., 680.);
-    cx.run_until_parked();
-    assert!(strip(&cx) && cx.has_text("10.0.0.1:4000"));
+    assert_eq!(at(&mut cx, 1064.), (beside, gap("3px")));
+    assert!(cx.has_text("10.0.0.1:4000"));
 }
 
 /// A refusal after an answer (a node restarting past the app's retries, a
