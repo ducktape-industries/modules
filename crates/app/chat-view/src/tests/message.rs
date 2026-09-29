@@ -503,6 +503,49 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     });
 }
 
+/// The controls Enter presses are the active row's as last drawn: when the
+/// row was not drawn since the cursor moved (scrolled away, or a message
+/// gone), Enter on a control cell presses nothing rather than another
+/// message's control.
+#[test]
+fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
+            .reactions
+            .push(chat::Reaction {
+                emoji: "🔥".into(),
+                count: 2,
+                reacted_by_me: false,
+            });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    cx.simulate_key_down("chat-message-list", "up");
+    cx.simulate_key_down("chat-message-list", "right");
+    cx.simulate_key_down("chat-message-list", "right");
+    assert!(super::room::claims(&cx, "chat-message-m1-reaction-🔥"));
+    // the recorded controls are another row's: nothing to press
+    view.update(&mut cx, |chat, _, _| {
+        chat.timeline_cursor.controls_of = Some("m2".into());
+    });
+    cx.simulate_key_down("chat-message-list", "enter");
+    cx.run_until_parked();
+    let reacted = |cx: &TestAppContext| {
+        cx.host()
+            .requests::<Submit<ChatApi>>()
+            .iter()
+            .any(|op| matches!(op, Op::AddReaction { emoji, seq: 1, .. } if emoji == "🔥"))
+    };
+    assert!(!reacted(&cx), "a stale row's control is not pressed");
+    // drawn again, the row's controls are its own
+    view.update(&mut cx, |_, _, cx| cx.notify());
+    cx.run_until_parked();
+    cx.simulate_key_down("chat-message-list", "enter");
+    cx.run_until_parked();
+    assert!(reacted(&cx));
+}
+
 /// An emoji grid is one stop of rows of eight: → → Enter adds the third
 /// emoji of the open category.
 #[test]

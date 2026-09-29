@@ -245,7 +245,20 @@ pub struct Menu {
 pub struct Cursor {
     pub(crate) id: Option<String>,
     pub(crate) cell: usize,
+    /// the controls of the message `controls_of`, the active row when it
+    /// was last drawn; another message's are nobody's
     pub(crate) controls: Vec<Control>,
+    pub(crate) controls_of: Option<String>,
+}
+
+impl Cursor {
+    /// The controls of message `id`, if they are the ones recorded.
+    pub(crate) fn controls_of(&self, id: &str) -> &[Control] {
+        match self.controls_of.as_deref() == Some(id) {
+            true => &self.controls,
+            false => &[],
+        }
+    }
 }
 
 /// A control on a message card: what pressing it does.

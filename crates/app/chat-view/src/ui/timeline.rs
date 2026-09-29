@@ -194,6 +194,7 @@ fn rows(
         .collect();
     let reveal = state.clone();
     let moved_to = keys.clone();
+    let cell_row = active_id.clone();
     let grid = design::composite(
         match pane {
             Pane::Timeline => "chat-message-list",
@@ -218,15 +219,22 @@ fn rows(
     }))
     .on_move_cell(cx.processor(move |chat, cell: usize, _, cx| {
         let cursor = chat.cursor_mut(pane);
-        cursor.cell = cell.min(cursor.controls.len());
+        let last = cursor
+            .id
+            .clone()
+            .or_else(|| cell_row.clone())
+            .map_or(0, |id| cursor.controls_of(&id).len());
+        cursor.cell = cell.min(last);
         cx.notify();
     }))
     .on_press(cx.processor(move |chat, index: usize, window, cx| {
-        let (_, seq, rev) = keys[index].clone();
+        let (id, seq, rev) = keys[index].clone();
         let cursor = chat.cursor(pane);
+        // the controls recorded are this message's, else the row was not
+        // drawn since the cursor moved and no control is pressed
         let control = match cursor.cell {
             0 => None,
-            cell => Some(cursor.controls.get(cell - 1).cloned()),
+            cell => Some(cursor.controls_of(&id).get(cell - 1).cloned()),
         };
         chat.layout.press = chat.key_spot(pane);
         cx.notify();
@@ -254,9 +262,12 @@ fn rows(
                 .map(|day| day_marker(&message.id, day, &theme).into_any_element());
             let unread = (unread == Some(message.seq)).then(|| unread_marker(&theme));
             let active = (active_id.as_ref() == Some(&message.id)).then_some(cell);
+            let id = message.id.clone();
             let (card, controls) = message::card(chat, message, pane, active, window, cx, &theme);
             if active.is_some() {
-                chat.cursor_mut(pane).controls = controls;
+                let cursor = chat.cursor_mut(pane);
+                cursor.controls = controls;
+                cursor.controls_of = Some(id);
             }
             if day.is_none() && unread.is_none() {
                 return card;
