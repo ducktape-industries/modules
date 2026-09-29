@@ -376,6 +376,64 @@ fn the_diff_draws_typed_lines_and_believes_the_program_about_a_literal_plus_plus
     assert!(gutter.interactivity.on_click.is_some());
 }
 
+/// Under a review the diff is one grid: ↓ moves to the next line with a
+/// gutter (scrolled into view), ← → between its old and new gutters, and
+/// Enter comments at the active gutter.
+#[test]
+fn the_diff_gutters_are_a_grid_the_arrows_walk() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-start-review");
+    cx.run_until_parked();
+    let grid = cx.interactivity("forge-diff-lines");
+    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(grid.focusable && grid.tab_stop == Some(true));
+    let active_gutter = |cx: &ducktape_view_guest::testing::TestAppContext| -> String {
+        fn find(node: &ducktape_view_guest::wire::Node) -> Option<String> {
+            if node
+                .interactivity()
+                .is_some_and(|i| i.aria.active_descendant)
+            {
+                return node.key().map(str::to_owned);
+            }
+            node.children().iter().find_map(find)
+        }
+        find(cx.find("forge-diff-lines").expect("the grid")).expect("a gutter claims")
+    };
+    let first = active_gutter(&cx);
+    assert!(first.starts_with("forge-gutter-src/lib.rs-old-"), "{first}");
+    assert!(!cx.interactivity(&first).focusable);
+    assert_eq!(
+        cx.interactivity(&format!("{first}-cell")).role,
+        Some(ducktape_view_guest::Role::GridCell)
+    );
+    cx.simulate_key_down("forge-diff-lines", "right");
+    let second = active_gutter(&cx);
+    assert!(
+        second.starts_with("forge-gutter-src/lib.rs-new-"),
+        "{second}"
+    );
+    cx.simulate_key_down("forge-diff-lines", "ctrl-end");
+    cx.simulate_key_down("forge-diff-lines", "end");
+    let last = active_gutter(&cx);
+    assert_ne!(last, second);
+    let (side, number) = last
+        .trim_start_matches("forge-gutter-src/lib.rs-")
+        .split_once('-')
+        .expect("side-number");
+    cx.simulate_key_down("forge-diff-lines", "enter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        let open = forge
+            .review()
+            .unwrap()
+            .open
+            .as_ref()
+            .expect("an open anchor");
+        assert_eq!(open.line, number.parse::<u64>().unwrap());
+        assert_eq!(open.new_side, side == "new");
+    });
+}
+
 #[test]
 fn the_gutter_of_a_drawn_line_is_the_comment_button() {
     let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);

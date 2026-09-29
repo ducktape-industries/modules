@@ -71,6 +71,9 @@ pub struct Forge {
     /// cells: Open, Copy, activity
     #[serde(skip)]
     pub(crate) repos_cursor: Option<(String, usize)>,
+    /// the reviewable diff line the arrows are on, and which of its gutters
+    #[serde(skip)]
+    pub(crate) diff_cursor: (usize, usize),
     /// the repository tab the arrows are on but have not opened
     #[serde(skip)]
     pub(crate) tab_cursor: Option<RepoTab>,
