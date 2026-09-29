@@ -34,6 +34,20 @@ impl Node {
         }
     }
 
+    /// The listener routes, focus and aria of the six variants that carry
+    /// them.
+    pub fn interactivity(&self) -> Option<&crate::Interactivity> {
+        match self {
+            Self::Container(crate::ContainerNode { interactivity, .. })
+            | Self::UniformList { interactivity, .. }
+            | Self::List { interactivity, .. }
+            | Self::ResizeHandle { interactivity, .. }
+            | Self::Image { interactivity, .. }
+            | Self::Svg { interactivity, .. } => Some(interactivity),
+            _ => None,
+        }
+    }
+
     /// The node's children in order. One arm per variant, here and in
     /// [`Node::children_mut`] and [`Node::child_list_mut`]: everything that
     /// walks, diffs or patches a tree goes through these three, so a new

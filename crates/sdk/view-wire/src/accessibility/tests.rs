@@ -1,6 +1,6 @@
 //! One tree that breaks each rule, and one that keeps it and every other.
 use super::*;
-use crate::{ElementIdWire, InputOptions, Invalid, Live};
+use crate::{ContainerNode, ElementIdWire, InputOptions, Invalid, Live};
 use FaultKind::*;
 use gpui::StyleRefinement;
 
@@ -28,12 +28,20 @@ fn roled(role: Role) -> Interactivity {
     }
 }
 
-/// Roled, focusable and answering a click.
+/// Roled, a Tab stop and answering a click.
 fn control(role: Role) -> Interactivity {
     Interactivity {
-        focusable: true,
         on_click: Some(1),
-        ..roled(role)
+        ..stop(roled(role))
+    }
+}
+
+/// Focusable and in the Tab order, as `focusable()` lowers.
+fn stop(interactivity: Interactivity) -> Interactivity {
+    Interactivity {
+        focusable: true,
+        tab_stop: Some(true),
+        ..interactivity
     }
 }
 
@@ -179,14 +187,7 @@ fn named_trees_pass_and_unlabeled_clickables_are_reported() {
 fn an_interactive_node_of_any_kind_without_a_role_fails() {
     fails(
         NoRole,
-        el(
-            "open",
-            Interactivity {
-                focusable: true,
-                ..Default::default()
-            },
-            vec![text("Open")],
-        ),
+        el("open", stop(Interactivity::default()), vec![text("Open")]),
     );
     fails(
         NoRole,
@@ -392,8 +393,7 @@ fn a_disabled_control_without_a_route_passes() {
             disabled: Some(true),
             ..Default::default()
         },
-        focusable: true,
-        ..roled(Role::Button)
+        ..stop(roled(Role::Button))
     };
     passes(el("send", disabled, vec![text("Send")]));
 }
@@ -422,6 +422,7 @@ fn controls_side_by_side_pass() {
 fn a_click_no_key_reaches_fails() {
     let unfocusable = Interactivity {
         focusable: false,
+        tab_stop: None,
         ..control(Role::Button)
     };
     fails(Unreachable, el("open", unfocusable, vec![text("Open")]));
@@ -431,6 +432,7 @@ fn a_click_no_key_reaches_fails() {
 fn rooms(keys: Option<u32>) -> Node {
     let option = Interactivity {
         focusable: false,
+        tab_stop: None,
         aria: Aria {
             selected: Some(false),
             ..Default::default()
@@ -439,9 +441,8 @@ fn rooms(keys: Option<u32>) -> Node {
     };
     let list = labelled(
         Interactivity {
-            focusable: true,
             on_key_down: keys,
-            ..roled(Role::ListBox)
+            ..stop(roled(Role::ListBox))
         },
         "Rooms",
     );
@@ -466,9 +467,8 @@ fn a_row_of_a_focused_composite_no_key_walks_fails() {
 fn claimed(claims: [Interactivity; 2]) -> Node {
     let list = labelled(
         Interactivity {
-            focusable: true,
             on_key_down: Some(2),
-            ..roled(Role::ListBox)
+            ..stop(roled(Role::ListBox))
         },
         "Rooms",
     );
@@ -491,6 +491,7 @@ fn claimed(claims: [Interactivity; 2]) -> Node {
 fn claim(focusable: bool, focus_handle: Option<u64>) -> Interactivity {
     Interactivity {
         focusable,
+        tab_stop: focusable.then_some(true),
         focus_handle,
         aria: Aria {
             active_descendant: true,
@@ -595,6 +596,98 @@ fn one_active_descendant_that_takes_no_focus_passes() {
     assert_eq!(kinds(&quiet), [ActiveDescendant]);
 }
 
+/// A screen with two composites, each claiming its own active row: gpui
+/// budgets claims per focused node, so both pass.
+#[test]
+fn two_composites_on_one_screen_each_keep_their_claim() {
+    let tab = Interactivity {
+        aria: Aria {
+            selected: Some(true),
+            active_descendant: true,
+            ..Default::default()
+        },
+        on_click: Some(1),
+        ..roled(Role::Tab)
+    };
+    let tabs = el(
+        "tabs",
+        Interactivity {
+            on_key_down: Some(2),
+            ..stop(labelled(roled(Role::TabList), "Pages"))
+        },
+        vec![el("code", tab, vec![text("Code")])],
+    );
+    let screen = el(
+        "screen",
+        Interactivity::default(),
+        vec![
+            tabs,
+            claimed([claim(false, None), roled(Role::ListBoxOption)]),
+        ],
+    );
+    passes(screen);
+}
+
+/// Two claims with the same nearest focusable ancestor are one too many,
+/// however many roleless boxes sit between.
+#[test]
+fn a_second_claim_under_the_same_focusable_ancestor_fails() {
+    let option = |key: &str| {
+        el(
+            key,
+            Interactivity {
+                aria: Aria {
+                    selected: Some(false),
+                    ..claim(false, None).aria
+                },
+                ..claim(false, None)
+            },
+            vec![text(key)],
+        )
+    };
+    let group = |key: &str, row: Node| el(key, Interactivity::default(), vec![row]);
+    let list = el(
+        "rooms",
+        Interactivity {
+            on_key_down: Some(2),
+            ..stop(labelled(roled(Role::ListBox), "Rooms"))
+        },
+        vec![
+            group("channels", option("general")),
+            group("people", option("minseo")),
+        ],
+    );
+    assert_eq!(kinds(&list), [ActiveDescendant]);
+}
+
+/// A composite outside the Tab order reaches nobody: its rows are as
+/// unreachable as a `tab_stop(false)` button.
+#[test]
+fn a_keyed_composite_out_of_the_tab_order_fails() {
+    let mut list = rooms(Some(2));
+    let Node::Container(ContainerNode { interactivity, .. }) = &mut list else {
+        unreachable!()
+    };
+    interactivity.tab_stop = Some(false);
+    fails(Unreachable, list);
+}
+
+/// A click on a focusable node Tab skips is a click no key reaches.
+#[test]
+fn a_focusable_click_out_of_the_tab_order_fails() {
+    let skipped = Interactivity {
+        tab_stop: Some(false),
+        ..control(Role::Button)
+    };
+    fails(Unreachable, el("busy", skipped, vec![text("Saving")]));
+    let indexed = Interactivity {
+        tab_stop: None,
+        tab_index: Some(0),
+        ..control(Role::Button)
+    };
+    passes(el("open", indexed, vec![text("Open")]));
+}
+
 #[test]
 fn an_item_outside_its_container_fails() {
     fails(
@@ -630,22 +723,15 @@ fn a_bare_resize_handle_fails() {
     fails(BareHandle, handle(Interactivity::default()));
     fails(
         BareHandle,
-        handle(labelled(
-            Interactivity {
-                focusable: true,
-                ..roled(Role::Splitter)
-            },
-            "Resize",
-        )),
+        handle(labelled(stop(roled(Role::Splitter)), "Resize")),
     );
 }
 
 #[test]
 fn a_named_focusable_splitter_that_moves_by_key_passes() {
     let splitter = Interactivity {
-        focusable: true,
         on_key_down: Some(2),
-        ..labelled(roled(Role::Splitter), "Resize sidebar")
+        ..stop(labelled(roled(Role::Splitter), "Resize sidebar"))
     };
     passes(handle(splitter));
 }
@@ -767,13 +853,7 @@ fn an_invalid_field_that_does_not_say_why_fails() {
             invalid: Some(Invalid::True),
             ..Default::default()
         },
-        ..labelled(
-            Interactivity {
-                focusable: true,
-                ..roled(Role::TextInput)
-            },
-            "Email",
-        )
+        ..labelled(stop(roled(Role::TextInput)), "Email")
     };
     fails(ErrorNoText, el("email", field, Vec::new()));
     let mut input = input("Email");
@@ -792,8 +872,7 @@ fn an_invalid_field_that_says_why_passes() {
                 label: Some("Email".into()),
                 ..aria
             },
-            focusable: true,
-            ..roled(Role::TextInput)
+            ..stop(roled(Role::TextInput))
         };
         el("email", interactivity, Vec::new())
     };
