@@ -5,7 +5,8 @@ use ducktape_view_guest::design;
 pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let now = view.chain.now();
     let held = view.chain.blocks.len() as u64;
-    let rows = block_lines(&view.chain.blocks, LIST_ROWS, now, cx, theme);
+    let list = rows("explorer-blocks-list", "Blocks", view);
+    let list = block_lines(list, &view.chain.blocks, LIST_ROWS, now, cx, theme);
     div()
         .id("explorer-blocks")
         .child(heading(
@@ -17,7 +18,7 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
             )),
             theme,
         ))
-        .children(rows)
+        .child(list.build(cx))
         .into_any_element()
 }
 
@@ -39,17 +40,16 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyE
     };
     let now = view.chain.now();
     let count = txs.len() as u64;
-    let rows: Vec<_> = txs
-        .into_iter()
-        .map(|tx| tx_row(view, tx, false, true, cx, theme).into_any_element())
-        .collect();
-    let empty = rows.is_empty().then(|| {
+    let empty = txs.is_empty().then(|| {
         quiet(
             "explorer-block-empty",
             "No transactions in this block.",
             theme,
         )
     });
+    let list = rows("explorer-block-txs", "Transactions", view);
+    let rows =
+        (!txs.is_empty()).then(|| tx_rows(list, txs, view, false, true, cx, theme).build(cx));
     div()
         .id("explorer-block")
         .child(title(view, height, cx, theme))

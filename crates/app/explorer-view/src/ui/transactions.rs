@@ -17,16 +17,24 @@ pub(super) fn transactions(
         .iter()
         .filter(|tx| program.as_ref().is_none_or(|program| &tx.target == program))
         .collect();
-    let rows: Vec<_> = matching
-        .iter()
-        .take(LIST_ROWS)
-        .map(|tx| tx_row(view, tx, true, true, cx, theme).into_any_element())
-        .collect();
+    let list = rows("explorer-transactions-list", "Transactions", view);
+    let rows = (!matching.is_empty()).then(|| {
+        tx_rows(
+            list,
+            matching.iter().copied().take(LIST_ROWS),
+            view,
+            true,
+            true,
+            cx,
+            theme,
+        )
+        .build(cx)
+    });
     let title = match &program {
         Some(program) => format!("Transactions · {program}"),
         None => "Transactions".into(),
     };
-    let empty = rows.is_empty().then(|| {
+    let empty = matching.is_empty().then(|| {
         quiet(
             "explorer-no-txs",
             format!("No transactions in the last {window}."),

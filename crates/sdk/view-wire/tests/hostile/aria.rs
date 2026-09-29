@@ -240,6 +240,132 @@ fn only_the_first_active_descendant_in_a_frame_is_kept() {
     assert_eq!(claims, [true, false]);
 }
 
+/// Each focusable node restarts the budget: two composites on one screen
+/// both keep their claim, as gpui counts claims per focused node.
+#[test]
+fn a_claim_under_each_focusable_ancestor_is_kept() {
+    let option = |key: &str| {
+        Node::Container(ContainerNode {
+            id: Some(ElementIdWire::Name(key.into())),
+            style: gpui::StyleRefinement::default(),
+            interactivity: Interactivity {
+                role: Some(gpui::Role::ListBoxOption),
+                aria: Aria {
+                    active_descendant: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            children: Vec::new(),
+        })
+    };
+    let list = |key: &str, rows: Vec<Node>| {
+        Node::Container(ContainerNode {
+            id: Some(ElementIdWire::Name(key.into())),
+            style: gpui::StyleRefinement::default(),
+            interactivity: Interactivity {
+                role: Some(gpui::Role::ListBox),
+                focusable: true,
+                ..Default::default()
+            },
+            children: rows,
+        })
+    };
+    let mut frame = Frame {
+        root: Some(Node::Container(ContainerNode {
+            id: None,
+            style: gpui::StyleRefinement::default(),
+            interactivity: Interactivity::default(),
+            children: vec![
+                list("rooms", vec![option("general"), option("random")]),
+                list("members", vec![option("minseo")]),
+            ],
+        })),
+        ..Frame::default()
+    };
+    sanitize(&mut frame).unwrap();
+    let mut claims = Vec::new();
+    frame.root.unwrap().for_each_mut(&mut |node| {
+        if let Node::Container(ContainerNode {
+            id: Some(id),
+            interactivity,
+            ..
+        }) = node
+            && interactivity.role == Some(gpui::Role::ListBoxOption)
+        {
+            claims.push((id.clone(), interactivity.aria.active_descendant));
+        }
+    });
+    let name = |key: &str| ElementIdWire::Name(key.into());
+    assert_eq!(
+        claims,
+        [
+            (name("general"), true),
+            (name("random"), false),
+            (name("minseo"), true)
+        ]
+    );
+}
+
+/// A focusable box with no role pushes no accessibility node, so gpui
+/// counts a claim under it against the roled ancestor above: two such boxes
+/// over two claims keep one claim, not two.
+#[test]
+fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
+    let option = |key: &str| {
+        Node::Container(ContainerNode {
+            id: Some(ElementIdWire::Name(key.into())),
+            style: gpui::StyleRefinement::default(),
+            interactivity: Interactivity {
+                role: Some(gpui::Role::ListBoxOption),
+                aria: Aria {
+                    active_descendant: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            children: Vec::new(),
+        })
+    };
+    let box_ = |key: &str, row: Node| {
+        Node::Container(ContainerNode {
+            id: Some(ElementIdWire::Name(key.into())),
+            style: gpui::StyleRefinement::default(),
+            interactivity: Interactivity {
+                focusable: true,
+                ..Default::default()
+            },
+            children: vec![row],
+        })
+    };
+    let mut frame = Frame {
+        root: Some(Node::Container(ContainerNode {
+            id: Some(ElementIdWire::Name("pane".into())),
+            style: gpui::StyleRefinement::default(),
+            interactivity: Interactivity {
+                role: Some(gpui::Role::Group),
+                focusable: true,
+                ..Default::default()
+            },
+            children: vec![
+                box_("channels", option("general")),
+                box_("people", option("minseo")),
+            ],
+        })),
+        ..Frame::default()
+    };
+    sanitize(&mut frame).unwrap();
+    let mut claims = Vec::new();
+    frame.root.unwrap().for_each_mut(&mut |node| {
+        if let Node::Container(ContainerNode { interactivity, .. }) = node
+            && interactivity.role == Some(gpui::Role::ListBoxOption)
+        {
+            claims.push(interactivity.aria.active_descendant);
+        }
+    });
+    assert_eq!(claims, [true, false]);
+}
+
 #[test]
 fn live_off_is_no_live_region() {
     let off = aria(Aria {

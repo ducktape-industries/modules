@@ -13,7 +13,9 @@ mod format;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural, set_utc_offset};
 
 use crate::prelude::*;
-use crate::{Div, FontWeight, Hsla, Pixels, Stateful};
+use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
+use gpui::BoxShadow;
+pub use gpui::Orientation;
 
 /// [`type_scale`] as sizes an element takes.
 pub mod text {
@@ -156,6 +158,55 @@ pub fn mono(text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
+/// The focus ring: `color`, 2 px, just inside the edge, on a control the
+/// keyboard has reached. The SDK draws it on every focusable node that has
+/// no `focus_visible` of its own; a control whose own edge is already ink
+/// shows it in the ink's foreground ([`focus_shown_on_ink`]).
+pub(crate) fn focus_ring(color: Hsla) -> StyleRefinement {
+    StyleRefinement::default()
+        .shadow(vec![ring_shadow(color, 2., true)])
+        // inset shadows paint under the border: a bordered control would
+        // otherwise show one pixel of the two
+        .border_color(color)
+}
+
+fn ring_shadow(color: Hsla, spread: f32, inset: bool) -> BoxShadow {
+    BoxShadow {
+        color,
+        offset: gpui::point(px(0.), px(0.)),
+        blur_radius: px(0.),
+        spread_radius: px(spread),
+        inset,
+    }
+}
+
+/// The focus ring in ink, for an element whose own `focus_visible` would
+/// otherwise replace it: `style` is what the element adds to it.
+pub fn focus_shown<E: InteractiveElement>(
+    element: E,
+    theme: &Theme,
+    style: impl FnOnce(StyleRefinement) -> StyleRefinement,
+) -> E {
+    let ring = focus_ring(theme.accent);
+    element.focus_visible(|_| {
+        use gpui::Refineable;
+        let mut shown = style(StyleRefinement::default());
+        // the ring's shadow joins the element's own (a menu's `shadow_lg`)
+        // instead of replacing it
+        let mut shadows = ring.box_shadow.clone().unwrap_or_default();
+        shadows.extend(shown.box_shadow.take().unwrap_or_default());
+        shown.refine(&ring);
+        shown.box_shadow = Some(shadows);
+        shown
+    })
+}
+
+/// The focus ring on an ink-filled control (a primary button, a switch that
+/// is on): the ink's foreground, since ink on ink shows nothing.
+pub fn focus_shown_on_ink<E: InteractiveElement>(element: E, theme: &Theme) -> E {
+    element.focus_visible(|_| focus_ring(theme.primary_foreground))
+}
+
 /// What a [`Button`] is among its neighbours.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Kind {
@@ -186,6 +237,8 @@ where
     enabled: bool,
     kind: Kind,
     selected: Option<bool>,
+    /// `Some(active)`: a cell of a [`composite`] grid, never focusable
+    item: Option<bool>,
     click: F,
 }
 
@@ -205,6 +258,7 @@ where
         enabled: true,
         kind: Kind::Plain,
         selected: None,
+        item: None,
         click,
     }
 }
@@ -223,6 +277,12 @@ where
     }
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = Some(selected);
+        self
+    }
+    /// The button as an [`item`] of a composite: it leaves the Tab order
+    /// and claims the active descendant when `active`.
+    pub fn item(mut self, active: bool) -> Self {
+        self.item = Some(active);
         self
     }
 }
@@ -248,14 +308,21 @@ where
             (Kind::Primary, _) if !self.enabled => {
                 element.bg(theme.faint).text_color(theme.primary_foreground)
             }
-            (Kind::Primary, _) => element
-                .bg(theme.primary)
-                .text_color(theme.primary_foreground),
+            (Kind::Primary, _) => focus_shown_on_ink(
+                element
+                    .bg(theme.primary)
+                    .text_color(theme.primary_foreground),
+                &theme,
+            ),
+            // the edge is ink already: the ring reaches one pixel further in
             (_, true) => element
                 .bg(theme.background)
                 .text_color(theme.foreground)
                 .border_1()
-                .border_color(theme.foreground),
+                .border_color(theme.foreground)
+                .focus_visible(move |style| {
+                    style.shadow(vec![ring_shadow(theme.accent, 3., true)])
+                }),
             (Kind::Quiet, false) => element
                 .text_color(theme.muted)
                 .border_1()
@@ -291,7 +358,11 @@ where
             (Kind::Outline, false) => element.hover(move |style| style.bg(theme.surface)),
             _ => element,
         };
-        element.focusable().on_click(self.click)
+        let element = element.on_click(self.click);
+        match self.item {
+            Some(active) => item(element, Role::Button, active),
+            None => element.focusable(),
+        }
     }
 }
 
@@ -326,7 +397,9 @@ pub fn icon_button(
 }
 
 /// A tab: quiet text, the chosen one fg and underlined, no fill. A caller
-/// sizes it to its bar (`h_full`, `flex_1`) and may label a glyph.
+/// sizes it to its bar (`h_full`, `flex_1`) and may label a glyph. It is
+/// an [`item`] of a `TabList` [`composite`], which holds the focus and the
+/// arrows: the caller wraps it in `item(.., Role::Tab, active)`.
 pub fn tab(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -357,22 +430,264 @@ pub fn tab(
         .hover(move |style| style.text_color(theme.foreground))
         .role(Role::Tab)
         .aria_selected(selected)
-        .focusable()
         .on_click(click)
         .child(label.into())
 }
 
+/// One Tab stop whose items the arrows pick: a tab list, a radio group, a
+/// menu, a list box, a tree, a grid. The composite takes the focus and the
+/// keys; the picked item is its active descendant ([`item`]) and is never
+/// focusable. [`Composite::build`] gives the element; the caller styles it
+/// and adds the items.
+pub fn composite(
+    id: impl Into<ElementId>,
+    role: Role,
+    label: impl Into<SharedString>,
+) -> Composite {
+    Composite {
+        element: div().id(id).role(role).aria_label(label),
+        items: Vec::new(),
+        orientation: Orientation::Vertical,
+        columns: None,
+        cells: None,
+        active: 0,
+        count: 0,
+        wrap: false,
+        on_move: None,
+        on_move_cell: None,
+        on_press: None,
+    }
+}
+
+type Picked = Box<dyn Fn(usize, &mut Window, &mut App)>;
+
+/// A [`composite`] being built: its role, name, axis, active item and the
+/// callbacks its keys reach; [`Composite::build`] is the element.
+pub struct Composite {
+    element: Stateful<Div>,
+    items: Vec<AnyElement>,
+    orientation: Orientation,
+    columns: Option<usize>,
+    /// the active row's active cell among its cells
+    cells: Option<(usize, usize)>,
+    active: usize,
+    count: usize,
+    wrap: bool,
+    on_move: Option<Picked>,
+    on_move_cell: Option<Picked>,
+    on_press: Option<Picked>,
+}
+
+impl Composite {
+    /// Which arrows step: `Horizontal` ← →, `Vertical` ↑ ↓ (the default).
+    /// Sent as `aria_orientation` too.
+    pub fn orientation(mut self, orientation: Orientation) -> Self {
+        self.orientation = orientation;
+        self
+    }
+    /// A grid of `columns` cells a row: ← → step by one, ↑ ↓ by a row;
+    /// Home/End go to the row's ends, Ctrl+Home/End to the grid's.
+    pub fn grid(mut self, columns: usize) -> Self {
+        self.columns = Some(columns.max(1));
+        self
+    }
+    /// The active item among `count`. The view keeps the index; a live list
+    /// keeps the item's id and maps it to an index each render.
+    pub fn active(mut self, index: usize, count: usize) -> Self {
+        self.active = index;
+        self.count = count;
+        self
+    }
+    /// A grid whose rows have cells of their own (a message and its
+    /// controls): `active` is the active row's active cell among `count`.
+    /// ← → step the cells ([`Self::on_move_cell`]), ↑ ↓ the rows, Home/End
+    /// reach the row's ends, Ctrl+Home/End the first and last row; Enter
+    /// and Space press the row, whose active cell the view knows.
+    pub fn cells(mut self, active: usize, count: usize) -> Self {
+        self.cells = Some((active, count));
+        self
+    }
+    /// ← → or Home/End picked cell `index` of the active row.
+    pub fn on_move_cell(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_move_cell = Some(Box::new(f));
+        self
+    }
+    /// The arrows wrap at the ends (a tab list, a radio group); the default
+    /// stops there (a list box, a tree, a menu, a grid).
+    pub fn wrap(mut self) -> Self {
+        self.wrap = true;
+        self
+    }
+    /// An arrow, Home or End picked item `index`: the view stores it and
+    /// renders that item active.
+    pub fn on_move(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_move = Some(Box::new(f));
+        self
+    }
+    /// Enter or Space on the active item.
+    pub fn on_press(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_press = Some(Box::new(f));
+        self
+    }
+    /// The items, each an [`item`] (or a row holding them); a caller may
+    /// add more on the built element.
+    pub fn children(mut self, items: impl IntoIterator<Item = impl IntoElement>) -> Self {
+        self.items
+            .extend(items.into_iter().map(IntoElement::into_any_element));
+        self
+    }
+    /// The element: roled, named, oriented, focusable (so a Tab stop) and
+    /// hearing the keys of §3 — the orientation's arrows, Home/End, Enter
+    /// and Space, unmodified; a grid's ↑ ↓ by a row and Ctrl+Home/End. A
+    /// move the view answers by re-rendering is remembered until then, so
+    /// a press in the same frame lands on the item just moved to.
+    pub fn build(self) -> Stateful<Div> {
+        let Self {
+            element,
+            items,
+            orientation,
+            columns,
+            cells,
+            active,
+            count,
+            wrap,
+            on_move,
+            on_move_cell,
+            on_press,
+        } = self;
+        // the active item and cell as of the last key, ahead of the render
+        // that shows the move
+        let at = std::cell::Cell::new(active);
+        let at_cell = std::cell::Cell::new(cells.map_or(0, |(cell, _)| cell));
+        let keys = move |event: &KeyDownEvent, window: &mut Window, app: &mut App| {
+            let keystroke = &event.keystroke;
+            let modifiers = keystroke.modifiers;
+            let plain = !modifiers.modified();
+            let ctrl = modifiers.control
+                && !(modifiers.alt || modifiers.shift || modifiers.platform || modifiers.function);
+            let key = keystroke.key.as_str();
+            if count == 0 {
+                return;
+            }
+            let last = count - 1;
+            let active = at.get();
+            if plain && matches!(key, "enter" | "space") {
+                if let Some(press) = &on_press {
+                    press(active, window, app);
+                }
+                return;
+            }
+            // one step along the arrows' axis, or a row up or down a grid
+            let step = |by: isize| -> Option<usize> {
+                let to = active as isize + by;
+                match (wrap, columns) {
+                    (true, None) => Some(to.rem_euclid(count as isize) as usize),
+                    _ => usize::try_from(to).ok().filter(|to| *to <= last),
+                }
+            };
+            if let Some((_, cells)) = cells {
+                let cell = at_cell.get();
+                let last_cell = cells.saturating_sub(1);
+                let (to_row, to_cell) = match (key, plain, ctrl) {
+                    ("up", true, _) => (step(-1), None),
+                    ("down", true, _) => (step(1), None),
+                    ("left", true, _) => (None, cell.checked_sub(1)),
+                    ("right", true, _) => (None, Some((cell + 1).min(last_cell))),
+                    ("home", true, _) => (None, Some(0)),
+                    ("end", true, _) => (None, Some(last_cell)),
+                    ("home", _, true) => (Some(0), None),
+                    ("end", _, true) => (Some(last), None),
+                    _ => (None, None),
+                };
+                if let (Some(to), Some(moved)) = (to_row.filter(|to| *to != active), &on_move) {
+                    at.set(to);
+                    at_cell.set(0);
+                    moved(to, window, app);
+                }
+                if let (Some(to), Some(moved)) = (to_cell.filter(|to| *to != cell), &on_move_cell) {
+                    at_cell.set(to);
+                    moved(to, window, app);
+                }
+                return;
+            }
+            let row_start = |columns: usize| active - active % columns;
+            let next = match (key, plain, ctrl, orientation, columns) {
+                ("left", true, _, Orientation::Horizontal, None)
+                | ("up", true, _, Orientation::Vertical, None)
+                | ("left", true, _, _, Some(_)) => step(-1),
+                ("right", true, _, Orientation::Horizontal, None)
+                | ("down", true, _, Orientation::Vertical, None)
+                | ("right", true, _, _, Some(_)) => step(1),
+                ("up", true, _, _, Some(columns)) => step(-(columns as isize)),
+                ("down", true, _, _, Some(columns)) => step(columns as isize),
+                ("home", true, _, _, None) | ("home", _, true, _, Some(_)) => Some(0),
+                ("end", true, _, _, None) | ("end", _, true, _, Some(_)) => Some(last),
+                ("home", true, _, _, Some(columns)) => Some(row_start(columns)),
+                ("end", true, _, _, Some(columns)) => {
+                    Some((row_start(columns) + columns - 1).min(last))
+                }
+                _ => None,
+            };
+            if let (Some(next), Some(moved)) = (next.filter(|next| *next != active), &on_move) {
+                at.set(next);
+                moved(next, window, app);
+            }
+        };
+        element
+            .aria_orientation(orientation)
+            .focusable()
+            .on_key_down(keys)
+            .children(items)
+    }
+}
+
+/// An item of a [`composite`]: its role, and the claim when it is the
+/// active one. It keeps its `on_click` and the role's state
+/// (`aria_selected`, `aria_toggled`) and is never focusable: the composite
+/// holds the focus, so a control built focusable (a [`button`], a
+/// [`block_link`]) leaves the Tab order here. A grid row is never an item:
+/// the claim goes on a cell, or on the one control inside it.
+pub fn item(mut element: Stateful<Div>, role: Role, active: bool) -> Stateful<Div> {
+    element.interactivity().focusable = false;
+    element.interactivity().tab_stop = None;
+    element
+        .role(role)
+        .when(active, |item| item.aria_active_descendant())
+}
+
 /// A few choices side by side in one box, the picked one ink-filled: a
 /// state filter, an object format, an invite's lifetime. `label` names the
-/// choice; the segments are [`segment`]s; the box draws the edge they share.
+/// choice, `choices` are each segment's id and label, `picked` the one
+/// that is; the box draws the edge they share. A radio group: one Tab
+/// stop, and ← → pick the next choice (`on_pick`), wrapping at the ends.
 pub fn segmented(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     theme: &Theme,
-    segments: impl IntoIterator<Item = Stateful<Div>>,
+    picked: usize,
+    choices: impl IntoIterator<Item = (ElementId, SharedString)>,
+    on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    div()
-        .id(id)
+    let on_pick = std::rc::Rc::new(on_pick);
+    let choices: Vec<_> = choices.into_iter().collect();
+    let count = choices.len();
+    let moved = on_pick.clone();
+    let segments = choices.into_iter().enumerate().map(|(index, (id, label))| {
+        let pick = on_pick.clone();
+        let click =
+            move |_: &ClickEvent, window: &mut Window, app: &mut App| pick(index, window, app);
+        item(
+            segment(id, label, index == picked, theme, click),
+            Role::RadioButton,
+            index == picked,
+        )
+    });
+    composite(id, Role::RadioGroup, label)
+        .orientation(Orientation::Horizontal)
+        .wrap()
+        .active(picked, count)
+        .on_move(move |index, window, app| moved(index, window, app))
+        .build()
         .flex()
         .flex_none()
         .items_center()
@@ -380,13 +695,11 @@ pub fn segmented(
         .border_b_1()
         .border_r_1()
         .border_color(theme.border_strong)
-        .role(Role::RadioGroup)
-        .aria_label(label)
         .children(segments)
 }
 
 /// One choice of a [`segmented`] box.
-pub fn segment(
+fn segment(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     selected: bool,
@@ -414,7 +727,6 @@ pub fn segment(
         })
         .role(Role::RadioButton)
         .aria_toggled(selected.into())
-        .focusable()
         .on_click(click)
         .child(label.into())
 }
@@ -449,7 +761,11 @@ pub fn switch(
         .aria_toggled(on.into())
         .child(knob);
     match enabled {
-        true => element.cursor_pointer().focusable().on_click(toggle),
+        true => element
+            .cursor_pointer()
+            .focusable()
+            .on_click(toggle)
+            .when(on, |pill| focus_shown_on_ink(pill, theme)),
         false => element.opacity(0.5).aria_disabled(true),
     }
 }
@@ -562,6 +878,8 @@ pub fn divider<V: crate::View>(
         .aria_orientation(gpui::Orientation::Vertical)
         .focusable()
         .tab_stop(true)
+        // the line covers an inset ring whole: this one sits outside it
+        .focus_visible(|style| style.shadow(vec![ring_shadow(theme.accent, 2., false)]))
         .on_key_down(stepped)
 }
 
@@ -711,11 +1029,53 @@ mod tests {
             "format",
             "Object format",
             &theme,
-            [segment("sha1", "SHA-1", true, &theme, |_, _, _| {})],
+            0,
+            [("sha1".into(), "SHA-1".into())],
+            |_, _, _| {},
         ));
         let group = interactivity(&node);
         assert_eq!(group.role, Some(Role::RadioGroup));
         assert_eq!(group.aria.label.as_deref(), Some("Object format"));
+        assert!(group.focusable && group.on_key_down.is_some());
+        assert_eq!(faults(&node), []);
+    }
+
+    #[test]
+    fn a_focusable_node_shows_the_focus_ring_unless_it_draws_its_own() {
+        let theme = Theme::light();
+        let plain = lower(button("save", "Save", &theme, |_, _, _| {}));
+        assert_eq!(
+            interactivity(&plain).focus_visible,
+            Some(focus_ring(theme.accent))
+        );
+        let ink = lower(button("send", "Send", &theme, |_, _, _| {}).kind(Kind::Primary));
+        assert_eq!(
+            interactivity(&ink).focus_visible,
+            Some(focus_ring(theme.primary_foreground))
+        );
+        let own = lower(
+            div()
+                .id("menu")
+                .focusable()
+                .focus_visible(|style| style.opacity(0.5)),
+        );
+        assert_eq!(
+            interactivity(&own).focus_visible,
+            Some(StyleRefinement::default().opacity(0.5))
+        );
+        let still = lower(div().id("box").child("text"));
+        assert_eq!(interactivity(&still).focus_visible, None);
+        // a frame that adds to the ring keeps its own shadow beside it
+        let frame = lower(focus_shown(
+            div().id("frame").focusable(),
+            &theme,
+            |style| style.shadow_lg(),
+        ));
+        let shown = interactivity(&frame).focus_visible.clone().unwrap();
+        assert_eq!(shown.border_color, Some(theme.accent));
+        let shadows = shown.box_shadow.unwrap();
+        assert_eq!(shadows.len(), 3);
+        assert_eq!(shadows[0], ring_shadow(theme.accent, 2., true));
     }
 
     #[test]
@@ -732,13 +1092,31 @@ mod tests {
     }
 
     #[test]
-    fn the_picked_segment_reports_toggled_true() {
+    fn the_picked_segment_reports_toggled_true_and_is_the_active_one() {
         let theme = Theme::light();
         let node = lower(segment("sha1", "SHA-1", true, &theme, |_, _, _| {}));
         let control = interactivity(&node);
         assert_eq!(control.role, Some(Role::RadioButton));
         assert_eq!(control.aria.toggled, Some(Toggled::True));
         assert_eq!(control.aria.selected, None);
+        assert!(!control.focusable);
+        let group = lower(segmented(
+            "format",
+            "Object format",
+            &theme,
+            1,
+            [
+                ("sha256".into(), "SHA-256".into()),
+                ("sha1".into(), "SHA-1".into()),
+            ],
+            |_, _, _| {},
+        ));
+        let claims: Vec<bool> = group
+            .children()
+            .iter()
+            .map(|segment| interactivity(segment).aria.active_descendant)
+            .collect();
+        assert_eq!(claims, [false, true]);
     }
 
     #[test]
@@ -799,6 +1177,350 @@ mod tests {
         }
         cx.simulate_drag("panes-resize", 5., 0.);
         panes.read(|panes| assert_eq!(panes.moved, [-8., 8., -32., 32., 5.]));
+    }
+
+    #[derive(Default, serde::Serialize, serde::Deserialize)]
+    struct Format {
+        picked: usize,
+    }
+
+    impl crate::Capabilities for Format {
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    }
+
+    impl crate::View for Format {
+        fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
+            Self::default()
+        }
+    }
+
+    impl crate::Render for Format {
+        fn render(&mut self, _: &mut Window, cx: &mut crate::Context<Self>) -> impl IntoElement {
+            segmented(
+                "format",
+                "Object format",
+                &Theme::light(),
+                self.picked,
+                [
+                    ("sha256".into(), "SHA-256".into()),
+                    ("sha1".into(), "SHA-1".into()),
+                ],
+                cx.processor(|view: &mut Self, index, _, cx| {
+                    view.picked = index;
+                    cx.notify();
+                }),
+            )
+        }
+    }
+
+    #[test]
+    fn a_segmented_choice_checks_the_next_choice_on_an_arrow() {
+        let mut cx = crate::testing::TestAppContext::new();
+        let format = cx.open::<Format>();
+        cx.simulate_key_down("format", "right");
+        format.read(|view| assert_eq!(view.picked, 1));
+        assert_eq!(
+            interactivity(cx.find("sha1").expect("the picked segment"))
+                .aria
+                .toggled,
+            Some(Toggled::True)
+        );
+        // a radio group wraps
+        cx.simulate_key_down("format", "right");
+        format.read(|view| assert_eq!(view.picked, 0));
+        cx.simulate_click("sha1");
+        format.read(|view| assert_eq!(view.picked, 1));
+    }
+
+    thread_local! {
+        /// The moves and presses of a `silent` [`Picker`], which keeps no
+        /// state of them and so never re-renders.
+        static SILENT: std::cell::RefCell<(Vec<usize>, Vec<usize>)> = Default::default();
+    }
+
+    /// A composite of `count` items under one test's settings.
+    #[derive(Default, serde::Serialize, serde::Deserialize)]
+    struct Picker {
+        /// moves and presses go to [`SILENT`], and the view does not re-render
+        silent: bool,
+        role: Option<Role>,
+        horizontal: bool,
+        columns: Option<usize>,
+        /// the active row's cells, and the active one
+        cells: Option<(usize, usize)>,
+        wrap: bool,
+        active: usize,
+        count: usize,
+        moved: Vec<usize>,
+        moved_cell: Vec<usize>,
+        pressed: Vec<usize>,
+    }
+
+    impl crate::Capabilities for Picker {
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    }
+
+    impl crate::View for Picker {
+        fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
+            Self {
+                role: Some(Role::ListBox),
+                count: 3,
+                ..Self::default()
+            }
+        }
+    }
+
+    impl crate::Render for Picker {
+        fn render(&mut self, _: &mut Window, cx: &mut crate::Context<Self>) -> impl IntoElement {
+            let role = self.role.unwrap_or(Role::ListBox);
+            let mut list = composite("picker", role, "Pick one")
+                .active(self.active, self.count)
+                .on_move(cx.processor(|view: &mut Self, index, _, cx| {
+                    if view.silent {
+                        return SILENT.with_borrow_mut(|log| log.0.push(index));
+                    }
+                    view.moved.push(index);
+                    view.active = index;
+                    cx.notify();
+                }))
+                .on_press(cx.processor(|view: &mut Self, index, _, cx| {
+                    if view.silent {
+                        return SILENT.with_borrow_mut(|log| log.1.push(index));
+                    }
+                    view.pressed.push(index);
+                    cx.notify();
+                }));
+            if self.horizontal {
+                list = list.orientation(Orientation::Horizontal);
+            }
+            if let Some(columns) = self.columns {
+                list = list.grid(columns);
+            }
+            if let Some((cell, cells)) = self.cells {
+                list = list.cells(cell, cells).on_move_cell(cx.processor(
+                    |view: &mut Self, index, _, cx| {
+                        if view.silent {
+                            return SILENT.with_borrow_mut(|log| log.0.push(index));
+                        }
+                        view.moved_cell.push(index);
+                        view.cells = view.cells.map(|(_, cells)| (index, cells));
+                        cx.notify();
+                    },
+                ));
+            }
+            if self.wrap {
+                list = list.wrap();
+            }
+            let item_role = match role {
+                Role::TabList => Role::Tab,
+                Role::Grid => Role::GridCell,
+                _ => Role::ListBoxOption,
+            };
+            let active = self.active;
+            list.build().children((0..self.count).map(move |index| {
+                let row = div()
+                    .id(format!("pick-{index}"))
+                    .on_click(|_, _, _| {})
+                    .child(format!("Choice {index}"));
+                let row = match item_role {
+                    Role::GridCell => row,
+                    _ => row.aria_selected(index == active),
+                };
+                let cell = item(row, item_role, index == active);
+                match item_role {
+                    Role::GridCell => div().id(format!("row-{index}")).role(Role::Row).child(cell),
+                    _ => cell,
+                }
+            }))
+        }
+    }
+
+    fn picker(
+        set: impl FnOnce(&mut Picker),
+    ) -> (crate::testing::TestAppContext, crate::Entity<Picker>) {
+        let mut cx = crate::testing::TestAppContext::new();
+        let picker = cx.open::<Picker>();
+        picker.update(&mut cx, |view, _, cx| {
+            set(view);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        (cx, picker)
+    }
+
+    fn found(cx: &crate::testing::TestAppContext, key: &str) -> wire::Interactivity {
+        interactivity(cx.find(key).expect(key)).clone()
+    }
+
+    #[test]
+    fn a_composite_is_one_tab_stop_whose_arrows_pick_its_items() {
+        let (mut cx, picker) = picker(|_| {});
+        let list = found(&cx, "picker");
+        assert_eq!(list.role, Some(Role::ListBox));
+        assert_eq!(list.aria.label.as_deref(), Some("Pick one"));
+        assert_eq!(list.aria.orientation, Some(Orientation::Vertical));
+        assert!(list.focusable && list.tab_stop == Some(true));
+        assert!(list.on_key_down.is_some());
+        for index in 0..3 {
+            let row = found(&cx, &format!("pick-{index}"));
+            assert!(!row.focusable && row.tab_stop.is_none());
+            assert_eq!(row.aria.active_descendant, index == 0);
+        }
+        cx.simulate_key_down("picker", "down");
+        assert!(found(&cx, "pick-1").aria.active_descendant);
+        cx.simulate_key_down("picker", "end");
+        cx.simulate_key_down("picker", "left");
+        cx.simulate_key_down("picker", "enter");
+        cx.simulate_key_down("picker", "home");
+        cx.simulate_key_down("picker", "up");
+        cx.simulate_key_down("picker", "space");
+        cx.simulate_key_down("picker", "a");
+        picker.read(|view| {
+            assert_eq!(view.moved, [1, 2, 0]);
+            assert_eq!(view.pressed, [2, 0]);
+        });
+    }
+
+    /// The helper remembers where the arrows went before the view draws
+    /// it: ↓ then Enter in one frame presses the item moved to.
+    #[test]
+    fn a_press_right_after_a_move_lands_on_the_item_moved_to() {
+        SILENT.take();
+        let (mut cx, _) = picker(|view| view.silent = true);
+        cx.simulate_key_down("picker", "down");
+        cx.simulate_key_down("picker", "enter");
+        assert_eq!(SILENT.take(), (vec![1], vec![1]));
+        // a grid of rows with cells: the cell moves, then the row (its
+        // cell back at 0), then the cell again
+        let (mut cx, _) = picker(|view| {
+            view.silent = true;
+            view.role = Some(Role::Grid);
+            view.cells = Some((0, 3));
+            view.count = 2;
+        });
+        for keystroke in ["right", "right", "down", "right", "enter"] {
+            cx.simulate_key_down("picker", keystroke);
+        }
+        assert_eq!(SILENT.take(), (vec![1, 2, 1, 1], vec![1]));
+    }
+
+    #[test]
+    fn a_button_as_an_item_leaves_the_tab_order_and_claims() {
+        let theme = Theme::light();
+        let cell = lower(button("compare", "Compare", &theme, |_, _, _| {}).item(true));
+        let control = interactivity(&cell);
+        assert!(!control.focusable && control.tab_stop.is_none());
+        assert!(control.aria.active_descendant && control.on_click.is_some());
+        assert_eq!(control.role, Some(Role::Button));
+    }
+
+    #[test]
+    fn an_item_built_focusable_leaves_the_tab_order() {
+        let theme = Theme::light();
+        let cell = lower(item(block_link("activity", 12, &theme), Role::Link, true));
+        let link = interactivity(&cell);
+        assert!(!link.focusable && link.tab_stop.is_none());
+        assert!(link.aria.active_descendant && link.on_click.is_some());
+        assert_eq!(link.role, Some(Role::Link));
+    }
+
+    #[test]
+    fn a_tab_list_wraps_and_a_list_box_stops() {
+        let (mut cx, tabs) = picker(|view| {
+            view.role = Some(Role::TabList);
+            view.horizontal = true;
+            view.wrap = true;
+            view.active = 2;
+        });
+        assert_eq!(
+            found(&cx, "picker").aria.orientation,
+            Some(Orientation::Horizontal)
+        );
+        cx.simulate_key_down("picker", "right");
+        cx.simulate_key_down("picker", "left");
+        cx.simulate_key_down("picker", "down");
+        tabs.read(|view| assert_eq!(view.moved, [0, 2]));
+        let (mut cx, list) = picker(|view| view.active = 2);
+        cx.simulate_key_down("picker", "down");
+        cx.simulate_key_down("picker", "home");
+        cx.simulate_key_down("picker", "up");
+        list.read(|view| assert_eq!(view.moved, [0]));
+    }
+
+    #[test]
+    fn a_modified_arrow_is_not_the_composites() {
+        let (mut cx, list) = picker(|_| {});
+        for keystroke in [
+            "alt-down",
+            "cmd-down",
+            "shift-down",
+            "ctrl-down",
+            "ctrl-end",
+        ] {
+            cx.simulate_key_down("picker", keystroke);
+        }
+        cx.simulate_key_down("picker", "shift-enter");
+        list.read(|view| assert!(view.moved.is_empty() && view.pressed.is_empty()));
+    }
+
+    #[test]
+    fn a_grid_steps_a_row_by_its_columns_and_home_end_by_its_row() {
+        let (mut cx, grid) = picker(|view| {
+            view.role = Some(Role::Grid);
+            view.columns = Some(3);
+            view.count = 8;
+            view.active = 4;
+        });
+        for keystroke in [
+            "down",
+            "up",
+            "up",
+            "down",
+            "home",
+            "end",
+            "right",
+            "left",
+            "ctrl-home",
+            "ctrl-end",
+            "down",
+            "end",
+        ] {
+            cx.simulate_key_down("picker", keystroke);
+        }
+        grid.read(|view| assert_eq!(view.moved, [7, 4, 1, 4, 3, 5, 6, 5, 0, 7]));
+        assert!(found(&cx, "pick-7").aria.active_descendant);
+    }
+
+    #[test]
+    fn a_grid_of_rows_with_their_own_cells_steps_cells_sideways_and_rows_up_and_down() {
+        let (mut cx, grid) = picker(|view| {
+            view.role = Some(Role::Grid);
+            view.cells = Some((0, 3));
+            view.count = 4;
+            view.active = 1;
+        });
+        for keystroke in [
+            "right",
+            "right",
+            "right",
+            "down",
+            "home",
+            "left",
+            "end",
+            "up",
+            "up",
+            "up",
+            "ctrl-end",
+            "ctrl-home",
+            "enter",
+        ] {
+            cx.simulate_key_down("picker", keystroke);
+        }
+        grid.read(|view| {
+            assert_eq!(view.moved_cell, [1, 2, 0, 2]);
+            assert_eq!(view.moved, [2, 1, 0, 3, 0]);
+            assert_eq!(view.pressed, [0]);
+        });
     }
 
     #[test]

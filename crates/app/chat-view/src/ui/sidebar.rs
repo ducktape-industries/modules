@@ -3,7 +3,9 @@
 use ducktape_view_guest::AnyElement;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{ClickEvent, Context, ElementId, ParentElement, Styled, Theme, div, px};
+use ducktape_view_guest::{
+    ClickEvent, Context, ElementId, ParentElement, Role, Styled, Theme, div, px,
+};
 
 use chat::{ChannelInfo, Principal};
 
@@ -106,6 +108,7 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement
     }
     let open = chat.room.as_ref().map(|room| room.id.as_str());
     let mine = chat.my_account();
+    let mut rooms = Vec::new();
     let mut dms = Vec::new();
     for info in channels {
         let id = info.channel.id.as_str();
@@ -118,11 +121,47 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement
                     .map(|peer| (info, peer)),
             );
         } else {
-            list = list.child(channel_button(chat, info, open == Some(id), cx, theme));
+            rooms.push(info);
         }
     }
+    // one Tab stop under the header: ↑ ↓ walk the channels and the direct
+    // messages, Enter opens the active room. Active: where the arrows are,
+    // else the open room, else the first
+    let ids: Vec<String> = rooms
+        .iter()
+        .chain(dms.iter().map(|(info, _)| info))
+        .map(|info| info.channel.id.clone())
+        .collect();
+    let at = chat
+        .rooms_cursor
+        .as_deref()
+        .or(open)
+        .and_then(|id| ids.iter().position(|room| room == id))
+        .unwrap_or(0);
+    let picked = ids.clone();
+    let mut box_ = design::composite("chat-sidebar-rooms-list", Role::ListBox, "Rooms")
+        .active(at, ids.len())
+        .on_move(cx.processor(move |chat, index: usize, _, cx| {
+            chat.rooms_cursor = Some(ids[index].clone());
+            cx.notify();
+        }))
+        .on_press(cx.processor(move |chat, index: usize, _, cx| {
+            cx.notify();
+            chat.choose(picked[index].clone(), cx)
+        }))
+        .build()
+        .flex()
+        .flex_col()
+        .gap_1();
+    let mut index = 0;
+    for info in rooms {
+        let id = info.channel.id.as_str();
+        let row = channel_button(chat, info, open == Some(id), index == at, cx, theme);
+        box_ = box_.child(row);
+        index += 1;
+    }
     if !dms.is_empty() {
-        list = list.child(section_header(
+        box_ = box_.child(section_header(
             "chat-sidebar-dm-header",
             "Direct messages",
             div(),
@@ -130,10 +169,19 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement
         ));
         for (info, peer) in dms {
             let selected = open == Some(info.channel.id.as_str());
-            list = list.child(dm_button(chat, info, peer, selected, cx, theme));
+            box_ = box_.child(dm_button(
+                chat,
+                info,
+                peer,
+                selected,
+                index == at,
+                cx,
+                theme,
+            ));
+            index += 1;
         }
     }
-    list
+    list.child(box_)
 }
 
 /// "+ New channel", or "✕ Close" while the create dialog is open.
@@ -198,6 +246,7 @@ fn channel_button(
     chat: &Chat,
     info: &ChannelInfo,
     selected: bool,
+    active: bool,
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> AnyElement {
@@ -221,11 +270,8 @@ fn channel_button(
             theme.sidebar
         })
         .hover(|s| s.bg(theme.sidebar_raised))
-        .role(ducktape_view_guest::Role::Button)
-        .when(selected, |row| {
-            row.aria_current(ducktape_view_guest::accesskit::AriaCurrent::Page)
-        })
-        .focusable()
+        .when(active && !selected, |row| row.bg(theme.sidebar_raised))
+        .aria_selected(selected)
         .on_click(click)
         .child(div().text_color(theme.sidebar_muted).child("#"))
         .child(
@@ -264,7 +310,7 @@ fn channel_button(
                 .bg(theme.accent),
         );
     }
-    row.into_any_element()
+    design::item(row, Role::ListBoxOption, active).into_any_element()
 }
 
 fn dm_button(
@@ -272,6 +318,7 @@ fn dm_button(
     info: &ChannelInfo,
     peer: u64,
     selected: bool,
+    active: bool,
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> impl IntoElement {
@@ -300,11 +347,11 @@ fn dm_button(
             theme.sidebar
         })
         .hover(|s| s.bg(theme.sidebar_raised))
-        .role(ducktape_view_guest::Role::Button)
+        .when(active && !selected, |row| row.bg(theme.sidebar_raised))
         // the peer's name, not the avatar's initial drawn before it
         .aria_label(name.clone())
         .when(agent, |row| row.aria_description("Agent"))
-        .focusable()
+        .aria_selected(selected)
         .on_click(click)
         .child(avatar(
             format!("chat-sidebar-dm-{peer}-avatar"),
@@ -341,7 +388,7 @@ fn dm_button(
                 .bg(theme.accent),
         );
     }
-    row
+    design::item(row, Role::ListBoxOption, active)
 }
 
 /// A person's round initials: a direct room's face, in the sidebar and

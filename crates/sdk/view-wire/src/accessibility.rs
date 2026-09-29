@@ -3,7 +3,7 @@
 //! testing); the host may, on a decoded frame.
 
 use crate::aria::{HOST_ACTIONS, view_role};
-use crate::{Action, Aria, ContainerNode, Interactivity, Node, TextNode};
+use crate::{Action, Aria, Interactivity, Node, TextNode};
 use gpui::Role;
 
 /// A node assistive technology cannot name, place or reach.
@@ -60,7 +60,8 @@ pub enum FaultKind {
     /// not say why (AX-108).
     ErrorNoText,
     /// An active descendant the host drops, as gpui would panic on it: on
-    /// a node that takes focus, or after an earlier claim in the frame.
+    /// a node that takes focus, or after an earlier claim under the same
+    /// nearest focusable ancestor.
     ActiveDescendant,
     /// A state its role does not carry, so AT reads nothing of it:
     /// `selected` outside a tab, tree item, option, row or cell, `toggled`
@@ -108,18 +109,33 @@ impl<'a> Step<'a> {
     }
 
     /// Whether a node above this one holds a role in `roles`, and, when
-    /// `keyed` asks, takes focus and hears the keys that walk its rows.
+    /// `keyed` asks, is a Tab stop that hears the keys that walk its rows.
     fn inside(&self, roles: &[Role], keyed: bool) -> bool {
         self.ancestors().any(|above| {
             (!keyed
                 || above.focusable
+                    && tab_reaches(above)
                     && (above.on_key_down.is_some() || above.capture_key_down.is_some()))
                 && view_role(above.role).is_some_and(|role| roles.contains(&role))
         })
     }
 }
 
-/// `claimed`: a node earlier in the walk holds the active descendant.
+/// A node Tab lands on: a `tab_stop` or a `tab_index` (both lower from
+/// `focusable()` unless the view opted out).
+fn tab_reaches(i: &Interactivity) -> bool {
+    i.tab_stop == Some(true) || i.tab_index.is_some()
+}
+
+/// A node gpui gives a focus handle of its own and a place in the
+/// accessibility tree (a roleless focusable pushes none): the claims under
+/// it are budgeted apart from the ones outside it.
+fn takes_focus(i: &Interactivity) -> bool {
+    (i.focusable || i.focus_handle.is_some()) && i.role.is_some()
+}
+
+/// `claimed`: a node earlier in the walk, under the same nearest focusable
+/// ancestor, holds the active descendant.
 fn walk(
     node: &Node,
     parent: Option<&Step<'_>>,
@@ -136,6 +152,13 @@ fn walk(
             kind,
         });
     }
+    // gpui honours one claim per focused node, so the budget restarts
+    // under every node that takes focus
+    let mut own = false;
+    let claimed = match interactivity(node).is_some_and(takes_focus) {
+        true => &mut own,
+        false => claimed,
+    };
     let children = node.children();
     for (index, child) in children.iter().enumerate() {
         // Quadratic in a node's children, which `MAX_NODES` bounds.
@@ -279,7 +302,7 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
     });
     if let Some(i) = interactivity {
         rules.check(i.on_click.is_some(), Unreachable, || {
-            !i.focusable && !step.inside(&COMPOSITE, true)
+            !tab_reaches(i) && !step.inside(&COMPOSITE, true)
         });
     }
     let place: &[Role] = match role {
@@ -355,17 +378,8 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
     rules
 }
 
-/// The six variants that carry listener routes, focus and aria.
 fn interactivity(node: &Node) -> Option<&Interactivity> {
-    match node {
-        Node::Container(ContainerNode { interactivity, .. })
-        | Node::UniformList { interactivity, .. }
-        | Node::List { interactivity, .. }
-        | Node::ResizeHandle { interactivity, .. }
-        | Node::Image { interactivity, .. }
-        | Node::Svg { interactivity, .. } => Some(interactivity),
-        _ => None,
-    }
+    node.interactivity()
 }
 
 fn interactive(node: &Node) -> bool {

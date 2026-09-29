@@ -77,8 +77,20 @@ fn nav(
     theme: &Theme,
 ) -> Stateful<Div> {
     let theme = *theme;
-    div()
-        .id("settings/nav")
+    let sections = sections(view);
+    let at = sections
+        .iter()
+        .position(|section| *section == shown)
+        .unwrap_or_default();
+    let picked = sections.clone();
+    // one Tab stop, a column: ↑ ↓ open the next section
+    design::composite("settings/nav", Role::TabList, "Settings")
+        .active(at, sections.len())
+        .wrap()
+        .on_move(cx.processor(move |v: &mut Settings, index: usize, _, cx| {
+            v.select_section(picked[index], cx)
+        }))
+        .build()
         .w(NAV_W)
         .flex_none()
         .flex()
@@ -88,13 +100,12 @@ fn nav(
         .py(design::space::LG)
         .border_r_1()
         .border_color(theme.border)
-        .role(Role::TabList)
-        .children(sections(view).into_iter().map(|section| {
+        .children(sections.into_iter().map(|section| {
             let on = section == shown;
             let pick = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
                 v.select_section(section, cx)
             });
-            div()
+            let tab = div()
                 .id(format!("settings/nav/{}", section.slug()))
                 .h(px(30.))
                 .px(design::space::LG)
@@ -105,11 +116,10 @@ fn nav(
                 .when(!on, |item| {
                     item.hover(move |style| style.text_color(theme.foreground))
                 })
-                .role(Role::Tab)
                 .aria_selected(on)
-                .focusable()
                 .on_click(pick)
-                .child(section.label())
+                .child(section.label());
+            design::item(tab, Role::Tab, on)
         }))
 }
 
@@ -122,18 +132,16 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
         "settings/ttl",
         "Expires after",
         theme,
-        TTL.into_iter().enumerate().map(|(i, days)| {
-            let pick = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-                v.ttl = i;
-                cx.notify();
-            });
-            design::segment(
-                format!("settings/ttl/{days}"),
-                design::plural(days, "day", "days"),
-                view.ttl == i,
-                theme,
-                pick,
+        view.ttl,
+        TTL.into_iter().map(|days| {
+            (
+                format!("settings/ttl/{days}").into(),
+                design::plural(days, "day", "days").into(),
             )
+        }),
+        cx.processor(|v: &mut Settings, i: usize, _, cx| {
+            v.ttl = i;
+            cx.notify();
         }),
     );
     let mint = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.mint_invite(cx));
@@ -362,9 +370,10 @@ fn button(id: impl Into<String>, label: impl Into<String>, theme: &Theme) -> Sta
 
 /// The one button a pane leads with: the ink fill.
 fn primary(id: impl Into<String>, label: impl Into<String>, theme: &Theme) -> Stateful<Div> {
-    button(id, label, theme)
+    let button = button(id, label, theme)
         .bg(theme.primary)
         .border_color(theme.primary)
         .text_color(theme.primary_foreground)
-        .hover(|style| style.opacity(0.9))
+        .hover(|style| style.opacity(0.9));
+    design::focus_shown_on_ink(button, theme)
 }

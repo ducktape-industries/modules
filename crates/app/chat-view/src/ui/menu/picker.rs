@@ -3,7 +3,7 @@
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    AnyElement, App, ClickEvent, Context, ElementId, RenderOnce, Role, Theme, Window,
+    AnyElement, App, ClickEvent, Context, Div, ElementId, RenderOnce, Role, Stateful, Theme, Window,
 };
 
 use super::{
@@ -81,20 +81,39 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
 
 /// With no search: the frequent row, the tabs, and the open tab's emoji.
 fn browse(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
-    let mut frequent = grid("chat-reaction-frequent");
-    for emoji in emoji::frequent(&chat.recent_emoji) {
-        let press = pick(chat, seq, &emoji, cx);
-        let id = format!("chat-reaction-{emoji}");
-        frequent = frequent.child(Reaction::new(id, &emoji, press, theme));
-    }
+    let frequent = emoji::frequent(&chat.recent_emoji);
+    let frequent = grid(
+        "chat-reaction-frequent",
+        "Frequently used",
+        frequent
+            .iter()
+            .map(|emoji| (format!("chat-reaction-{emoji}"), emoji.clone()))
+            .collect(),
+        seq,
+        chat,
+        cx,
+        theme,
+    );
     let tab = chat.picker.tab.min(emoji::CATEGORIES.len() - 1);
     let category = &emoji::CATEGORIES[tab];
-    let mut cells = grid("chat-reaction-grid");
-    for (emoji, _) in category.emoji {
-        let press = pick(chat, seq, emoji, cx);
-        let id = format!("chat-reaction-{}-{emoji}", category.name);
-        cells = cells.child(Reaction::new(id, emoji, press, theme));
-    }
+    let cells = grid(
+        "chat-reaction-grid",
+        category.name,
+        category
+            .emoji
+            .iter()
+            .map(|(emoji, _)| {
+                (
+                    format!("chat-reaction-{}-{emoji}", category.name),
+                    (*emoji).to_owned(),
+                )
+            })
+            .collect(),
+        seq,
+        chat,
+        cx,
+        theme,
+    );
     vec![
         caption("Frequently used", theme).into_any_element(),
         frequent.into_any_element(),
@@ -106,21 +125,27 @@ fn browse(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<A
 
 /// A tab per emoji category, `chosen` marked.
 fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
-    let mut tabs = div()
-        .id("chat-reaction-tabs")
+    // one Tab stop; ← → open the next category
+    let mut tabs = design::composite("chat-reaction-tabs", Role::TabList, "Emoji categories")
+        .orientation(design::Orientation::Horizontal)
+        .wrap()
+        .active(chosen, emoji::CATEGORIES.len())
+        .on_move(cx.processor(|chat, index: usize, _, cx| {
+            chat.picker.tab = index;
+            cx.notify();
+        }))
+        .build()
         .h(px(TABS))
         .flex()
         .border_b_1()
-        .border_color(theme.border)
-        .role(Role::TabList)
-        .aria_label("Emoji categories");
+        .border_color(theme.border);
     for (index, category) in emoji::CATEGORIES.iter().enumerate() {
         let open = cx.listener(move |chat, _: &ClickEvent, _, cx| {
             chat.picker.tab = index;
             cx.notify();
         });
         let id = format!("chat-reaction-tab-{}", category.name);
-        tabs = tabs.child(
+        tabs = tabs.child(design::item(
             design::tab(id, category.glyph, index == chosen, theme, open)
                 .flex_1()
                 .h_full()
@@ -128,7 +153,9 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
                 .text_size(design::text::SECTION)
                 .aria_label(category.name)
                 .cursor_pointer(),
-        );
+            Role::Tab,
+            index == chosen,
+        ));
     }
     tabs
 }
@@ -141,16 +168,18 @@ fn matches(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<
         0 => "No emoji match".to_owned(),
         n => design::plural(n as u64, "match", "matches"),
     };
-    let mut cells = grid("chat-reaction-results");
-    for emoji in found {
-        let press = pick(chat, seq, emoji, cx);
-        cells = cells.child(Reaction::new(
-            format!("chat-reaction-{emoji}"),
-            emoji,
-            press,
-            theme,
-        ));
-    }
+    let cells = grid(
+        "chat-reaction-results",
+        "Matches",
+        found
+            .iter()
+            .map(|emoji| (format!("chat-reaction-{emoji}"), (*emoji).to_owned()))
+            .collect(),
+        seq,
+        chat,
+        cx,
+        theme,
+    );
     let scroll = div()
         .id("chat-reaction-results-scroll")
         .flex_1()
@@ -163,8 +192,67 @@ fn matches(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<
     ]
 }
 
-fn grid(id: &'static str) -> ducktape_view_guest::Stateful<ducktape_view_guest::Div> {
-    div().id(id).grid().grid_cols(COLUMNS).gap(px(PICKER_GAP))
+/// The emoji `cells` (each an id and its emoji) in rows of [`COLUMNS`], one
+/// Tab stop: ← → step a cell, ↑ ↓ a row, Home/End the row's ends,
+/// Ctrl+Home/End the grid's, Enter reacts with the active emoji. The search
+/// field above is the typeahead; where the reader may not write the cells
+/// are dimmed and Enter does nothing.
+fn grid(
+    id: &'static str,
+    label: &str,
+    cells: Vec<(String, String)>,
+    seq: u64,
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let at = match chat.picker.cursor {
+        Some((grid, at)) if grid == id => at.min(cells.len().saturating_sub(1)),
+        _ => 0,
+    };
+    let emoji: Vec<String> = cells.iter().map(|(_, emoji)| emoji.clone()).collect();
+    let mut grid = design::composite(id, Role::Grid, label.to_owned())
+        .grid(COLUMNS as usize)
+        .active(at, cells.len())
+        .on_move(cx.processor(move |chat, index: usize, _, cx| {
+            chat.picker.cursor = Some((id, index));
+            cx.notify();
+        }))
+        .on_press(cx.processor(move |chat, index: usize, _, cx| {
+            if chat.may_write() {
+                cx.notify();
+                chat.react(seq, emoji[index].clone(), true, cx);
+            }
+        }))
+        .build()
+        .flex()
+        .flex_col()
+        .gap(px(PICKER_GAP));
+    for (row, cells) in cells.chunks(COLUMNS as usize).enumerate() {
+        let mut line = div()
+            .id(format!("{id}-row-{row}"))
+            .role(Role::Row)
+            .flex()
+            .gap(px(PICKER_GAP));
+        for (column, (cell_id, emoji)) in cells.iter().enumerate() {
+            let index = row * COLUMNS as usize + column;
+            let press = pick(chat, seq, emoji, cx);
+            line = line.child(
+                div()
+                    .id(format!("{cell_id}-cell"))
+                    .role(Role::GridCell)
+                    .child(Reaction::new(
+                        cell_id.clone(),
+                        emoji,
+                        press,
+                        index == at,
+                        theme,
+                    )),
+            );
+        }
+        grid = grid.child(line);
+    }
+    grid
 }
 
 /// A section's name over its cells, in the data face.
@@ -194,14 +282,23 @@ struct Reaction {
     id: ElementId,
     emoji: String,
     press: Option<Press>,
+    /// the grid's arrows are on this cell
+    active: bool,
     theme: Theme,
 }
 impl Reaction {
-    fn new(id: impl Into<ElementId>, emoji: &str, press: Option<Press>, theme: &Theme) -> Self {
+    fn new(
+        id: impl Into<ElementId>,
+        emoji: &str,
+        press: Option<Press>,
+        active: bool,
+        theme: &Theme,
+    ) -> Self {
         Self {
             id: id.into(),
             emoji: emoji.into(),
             press,
+            active,
             theme: *theme,
         }
     }
@@ -225,12 +322,14 @@ impl RenderOnce for Reaction {
         match self.press {
             // hover and nothing more: each state is a style the frame
             // carries for every cell (see `emoji::PER_TAB`)
-            Some(press) => cell
-                .focusable()
-                .cursor_pointer()
-                .hover(|s| s.bg(self.theme.surface_raised))
-                .on_click(press)
-                .into_any_element(),
+            Some(press) => design::item(
+                cell.cursor_pointer()
+                    .hover(|s| s.bg(self.theme.surface_raised))
+                    .on_click(press),
+                Role::Button,
+                self.active,
+            )
+            .into_any_element(),
             None => cell.opacity(0.4).into_any_element(),
         }
     }

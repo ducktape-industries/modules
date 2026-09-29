@@ -6,8 +6,8 @@ use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design::{self, size, space, text};
 use ducktape_view_guest::{
     AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Pixels, Role, SharedString, Stateful, StatefulInteractiveElement,
-    Styled, Theme, div, px,
+    ParentElement, Pixels, Role, SharedString, Stateful, StatefulInteractiveElement, Styled, Theme,
+    div, px,
 };
 use ducktape_view_guest::{Input, prelude::FluentBuilder};
 
@@ -258,25 +258,25 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
         return design::empty_state("members-no-match", "Nothing matches", detail, theme)
             .into_any_element();
     }
-    let stepped =
-        cx.listener(
-            |view, event: &KeyDownEvent, _, cx| match event.keystroke.key.as_str() {
-                "down" => view.step(true, cx),
-                "up" => view.step(false, cx),
-                _ => {}
-            },
-        );
-    let mut list = div()
-        .id("members-list")
+    // one Tab stop; the arrows select as they move, and the active row is
+    // the selected one, else the first shown, which Enter selects
+    let numbers: Vec<u64> = shown.iter().map(|row| row.number).collect();
+    let active = view
+        .selected
+        .and_then(|number| numbers.iter().position(|shown| *shown == number))
+        .unwrap_or(0);
+    let active_number = numbers[active];
+    let pressed = numbers.clone();
+    let mut list = design::composite("members-list", Role::ListBox, "Members")
+        .active(active, numbers.len())
+        .on_move(cx.processor(move |view, index: usize, _, cx| view.select(numbers[index], cx)))
+        .on_press(cx.processor(move |view, index: usize, _, cx| view.select(pressed[index], cx)))
+        .build()
         .flex_1()
         .min_h(px(0.))
         .overflow_y_scroll()
         .flex()
-        .flex_col()
-        .role(Role::ListBox)
-        .aria_label("Members")
-        .focusable()
-        .on_key_down(stepped);
+        .flex_col();
     for (index, group) in Group::ALL.into_iter().enumerate() {
         let members: Vec<&Row> = shown
             .iter()
@@ -302,7 +302,14 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
                 .child(design::mono(members.len().to_string()).text_size(text::CAPTION)),
         );
         for row in members {
-            list = list.child(member_row(view, row, all, cx, theme));
+            list = list.child(member_row(
+                view,
+                row,
+                row.number == active_number,
+                all,
+                cx,
+                theme,
+            ));
         }
     }
     list.into_any_element()
@@ -311,6 +318,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
 fn member_row(
     view: &Members,
     row: &Row,
+    active: bool,
     all: &[Row],
     cx: &mut Context<Members>,
     theme: &Theme,
@@ -326,7 +334,7 @@ fn member_row(
         kind => identity::view::kind(kind, name_of),
     };
     let me = view.me == Some(number);
-    div()
+    let row = div()
         .id(format!("members-row-{}", number))
         .flex()
         .items_center()
@@ -339,9 +347,6 @@ fn member_row(
         .when(!selected, |row| {
             row.hover(move |style| style.bg(theme.surface))
         })
-        // the list holds focus and the arrows; the chosen row is the one
-        // assistive technology is told is active
-        .role(Role::ListBoxOption)
         // the name, not the avatar's initial drawn before it
         .aria_label(row.name.clone())
         .aria_description(if me {
@@ -350,7 +355,6 @@ fn member_row(
             kind.clone()
         })
         .aria_selected(selected)
-        .when(selected, |row| row.aria_active_descendant())
         .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(number, cx)))
         .child(avatar(row, size::AVATAR, dim, &theme))
         .child(
@@ -381,7 +385,10 @@ fn member_row(
                 .text_size(text::CAPTION)
                 .text_color(theme.muted)
                 .child(kind),
-        )
+        );
+    // the list holds focus and the arrows; the active row is the one
+    // assistive technology is told is active
+    design::item(row, Role::ListBoxOption, active)
 }
 
 /// An account's initial: round for a person, tinted for an agent, square

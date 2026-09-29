@@ -157,7 +157,15 @@ fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl Int
     )
     .text_size(design::text::SECONDARY)
     .into_any_element();
-    let blocks = block_lines(&view.chain.blocks, LATEST, view.chain.now(), cx, theme);
+    let list = rows("explorer-latest-blocks-list", "Latest blocks", view);
+    let blocks = block_lines(
+        list,
+        &view.chain.blocks,
+        LATEST,
+        view.chain.now(),
+        cx,
+        theme,
+    );
     div()
         .id("explorer-latest-blocks")
         .when(side, |panel| {
@@ -174,7 +182,7 @@ fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl Int
             Some(all),
             theme,
         ))
-        .children(blocks)
+        .child(blocks.build(cx))
 }
 
 fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoElement {
@@ -187,14 +195,20 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
     )
     .text_size(design::text::SECONDARY)
     .into_any_element();
-    let txs: Vec<_> = view
-        .chain
-        .txs
-        .iter()
-        .take(LATEST)
-        .map(|tx| tx_row(view, tx, false, true, cx, theme).into_any_element())
-        .collect();
-    let none = txs.is_empty().then(|| {
+    let list = rows("explorer-latest-txs-list", "Latest transactions", view);
+    let txs = (!view.chain.txs.is_empty()).then(|| {
+        tx_rows(
+            list,
+            view.chain.txs.iter().take(LATEST),
+            view,
+            false,
+            true,
+            cx,
+            theme,
+        )
+        .build(cx)
+    });
+    let none = view.chain.txs.is_empty().then(|| {
         quiet(
             "explorer-no-txs",
             format!(

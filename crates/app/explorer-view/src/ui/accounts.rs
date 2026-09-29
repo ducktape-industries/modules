@@ -21,14 +21,15 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
             return quiet("explorer-accounts-loading", "Reading accounts…", theme);
         }
     };
-    let rows: Vec<_> = listed
+    let list = rows("explorer-accounts-list", "Accounts", view);
+    let list = listed
         .list
         .iter()
         .take(LIST_ROWS * 4)
-        .map(|account| {
+        .fold(list, |list, account| {
             let name = &account.card.name;
             let sent = activity(view, account).count() as u64;
-            row(
+            let row = row(
                 SharedString::from(format!("explorer-account-{}", account.number)).into(),
                 name.clone(),
                 Route::Account(account.number),
@@ -50,10 +51,9 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
                     .flex()
                     .justify_end()
                     .text_color(theme.muted),
-            )
-            .into_any_element()
-        })
-        .collect();
+            );
+            list.row(Route::Account(account.number), row, theme)
+        });
     let caption_text = format!(
         "{} · tx in the last {}",
         grouped(listed.list.len() as u64),
@@ -67,7 +67,7 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
             Some(caption(caption_text, theme)),
             theme,
         ))
-        .children(rows)
+        .child(list.build(cx))
         .into_any_element()
 }
 
@@ -98,12 +98,20 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
     };
     let window = plural(view.chain.blocks.len() as u64, "block", "blocks");
     let sent: Vec<&TxRow> = activity(view, account).collect();
-    let rows: Vec<_> = sent
-        .iter()
-        .take(LIST_ROWS)
-        .map(|tx| tx_row(view, tx, true, false, cx, theme).into_any_element())
-        .collect();
-    let empty = rows.is_empty().then(|| {
+    let list = rows("explorer-activity-list", "Activity", view);
+    let rows = (!sent.is_empty()).then(|| {
+        tx_rows(
+            list,
+            sent.iter().copied().take(LIST_ROWS),
+            view,
+            true,
+            false,
+            cx,
+            theme,
+        )
+        .build(cx)
+    });
+    let empty = sent.is_empty().then(|| {
         quiet(
             "explorer-no-activity",
             format!("Nothing signed in the last {window}."),

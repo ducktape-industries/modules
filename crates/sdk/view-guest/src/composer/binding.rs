@@ -154,6 +154,9 @@ impl RenderOnce for ActionButton {
             .child(self.label);
         if let Some(on_click) = self.on_click {
             button = button.focusable().on_click(on_click);
+            if self.primary {
+                button = crate::design::focus_shown_on_ink(button, &theme);
+            }
         }
         button
     }

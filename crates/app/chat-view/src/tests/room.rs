@@ -403,6 +403,21 @@ fn a_link_to_a_forge_room_lands_in_it() {
     cx.run_until_parked();
     assert!(cx.has_text("review 7"), "{:?}", cx.texts());
     assert!(cx.find("chat-message-forge-line-block-0-code").is_none());
+    // the link is a cell of the message's row, beside the message's own
+    let cell = cx
+        .find("chat-message-forge-line-program-open-cell")
+        .expect("the link's cell");
+    assert_eq!(
+        cell.interactivity().and_then(|cell| cell.role),
+        Some(ducktape_view_guest::Role::GridCell)
+    );
+    assert_eq!(
+        cell.children()
+            .iter()
+            .map(wire::Node::key)
+            .collect::<Vec<_>>(),
+        [Some("chat-message-forge-line-program-open")]
+    );
     cx.simulate_click("chat-message-forge-line-program-open");
     let opened = cx.host().opened_links();
     assert_eq!(
@@ -525,4 +540,83 @@ fn jump_to_latest_floats_over_the_list() {
     );
     assert!(!interactivity.occlude);
     assert!(cx.find("chat-jump-latest-button").is_some());
+}
+
+/// The rooms are one list box: ↓ reaches the direct message under the
+/// channels, Enter opens it.
+#[test]
+fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
+    let (mut cx, view) = opened();
+    let list = cx.interactivity("chat-sidebar-rooms-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(list.focusable && list.tab_stop == Some(true));
+    let general = cx.interactivity("chat-sidebar-channel-general");
+    assert!(!general.focusable && general.aria.active_descendant);
+    assert!(
+        cx.interactivity("chat-sidebar-new-channel").tab_stop == Some(true),
+        "the header's button stays a stop of its own"
+    );
+    cx.simulate_key_down("chat-sidebar-rooms-list", "down");
+    let dm = cx.interactivity("chat-sidebar-dm-8");
+    assert_eq!(dm.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert!(dm.aria.active_descendant && dm.aria.selected == Some(false));
+    view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
+    cx.simulate_key_down("chat-sidebar-rooms-list", "enter");
+    cx.run_until_parked();
+    view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "dm-7-8"));
+    assert_eq!(
+        cx.interactivity("chat-sidebar-dm-8").aria.selected,
+        Some(true)
+    );
+}
+
+/// Whether the node `key` names claims the active descendant; a row the
+/// list no longer draws claims nothing.
+pub(super) fn claims(cx: &TestAppContext, key: &str) -> bool {
+    cx.find(key)
+        .and_then(wire::Node::interactivity)
+        .is_some_and(|node| node.aria.active_descendant)
+}
+
+/// The thread pane is a grid of its own: its arrows move in the thread,
+/// and the room's active message stays.
+#[test]
+fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        room.messages.ready_mut().unwrap()[0].reply_count = 1;
+        room.thread = Some(Thread {
+            root: 1,
+            replies: Loadable::Ready(vec![MsgRow {
+                thread: Some(1),
+                ..row(3, 8, "a reply")
+            }]),
+            ..Thread::default()
+        });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let thread = cx.interactivity("chat-thread-list");
+    assert_eq!(thread.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(thread.focusable && thread.tab_stop == Some(true));
+    // the thread's newest is its reply; the room's is still m2
+    assert!(cx.interactivity("chat-message-m3").aria.active_descendant);
+    assert!(cx.interactivity("chat-message-m2").aria.active_descendant);
+    cx.simulate_key_down("chat-thread-list", "up");
+    view.read(|chat| {
+        assert_eq!(chat.thread_cursor.id.as_deref(), Some("m1"));
+        assert_eq!(chat.timeline_cursor.id, None);
+    });
+    // the list draws the revealed row until the host asks for more
+    assert!(!claims(&cx, "chat-message-m3"));
+    assert!(cx.interactivity("chat-message-m2").aria.active_descendant);
+    cx.simulate_key_down("chat-thread-list", "enter");
+    view.read(|chat| {
+        let menu = chat
+            .menu
+            .as_ref()
+            .expect("the root is chosen in the thread");
+        assert_eq!((menu.pane, menu.seq), (Pane::Thread, 1));
+    });
 }

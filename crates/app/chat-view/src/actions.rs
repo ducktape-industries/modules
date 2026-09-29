@@ -8,7 +8,7 @@ use ducktape_view_guest::wire;
 use crate::api::{ChatApi, ClipboardWrite, HostId, Submit};
 use crate::composer::Target;
 use crate::message::{ChatMessage, chat_message, mark_message_groups};
-use crate::{Chat, Menu, Mode, Pane, links};
+use crate::{Chat, Control, Menu, Mode, Pane, links};
 use chat::view::Names;
 
 /// A refusal the archive gives every reaction, said before it is asked.
@@ -92,6 +92,7 @@ impl Chat {
             mode,
             at: self.layout.press,
         });
+        self.menu_cursor = 0;
         if mode != Mode::Editing {
             window.dispatch(wire::WidgetCommand::Focus {
                 target: vec![wire::ElementIdWire::Name(
@@ -103,6 +104,29 @@ impl Chat {
 
     pub(crate) fn close_menu(&mut self) {
         self.menu = None;
+    }
+
+    /// Presses `control` of the message at `seq`: what its click does.
+    pub(crate) fn act(
+        &mut self,
+        pane: Pane,
+        seq: u64,
+        rev: u32,
+        control: Control,
+        window: &mut ducktape_view_guest::Window,
+        cx: &mut Context<Self>,
+    ) {
+        match control {
+            Control::Height(link) => cx.host().open_link(&link),
+            Control::ProgramOpen(link) => self.open_link(link, cx),
+            Control::Reaction { emoji, add } => self.react(seq, emoji, add, cx),
+            Control::ThumbsUp => self.react(seq, "👍".into(), true, cx),
+            Control::AddReaction | Control::React => {
+                self.open_menu(pane, seq, rev, Mode::Reactions, window, cx)
+            }
+            Control::More => self.open_menu(pane, seq, rev, Mode::More, window, cx),
+            Control::Replies | Control::Thread => self.open_thread(seq, cx),
+        }
     }
 
     fn edit_body(&self, pane: Pane, seq: u64) -> Option<String> {

@@ -7,6 +7,43 @@ use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::wire;
 use forge::{LineComment, Op, Side, Verdict};
 
+/// The change tabs read a log or a whole diff on open, so → only moves and
+/// Enter opens; the state filter is a radio group and checks on the arrow.
+#[test]
+fn the_change_tabs_move_on_an_arrow_and_open_on_enter() {
+    let (mut cx, view) = change_screen("default", ChangeTab::Conversation);
+    assert!(cx.interactivity("forge-change-tabs").focusable);
+    cx.simulate_key_down("forge-change-tabs", "right");
+    view.read(|forge| assert_eq!(forge.nav().change_tab, ChangeTab::Conversation));
+    assert!(
+        cx.interactivity("forge-change-tab-commits")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("forge-change-tabs", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.nav().change_tab, ChangeTab::Commits));
+}
+
+#[test]
+fn the_change_state_filter_checks_on_an_arrow() {
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    use crate::state::Filter;
+    view.read(|forge| assert_eq!(forge.filter, Filter::Open));
+    assert!(!cx.interactivity("forge-filter-merged").focusable);
+    cx.simulate_key_down("forge-filter-states", "right");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.filter, Filter::Merged));
+    let merged = cx.interactivity("forge-filter-merged");
+    assert_eq!(
+        merged.aria.toggled,
+        Some(ducktape_view_guest::Toggled::True)
+    );
+    assert!(merged.aria.active_descendant);
+}
+
 #[test]
 fn the_change_list_shows_the_plans_row_and_its_filters() {
     let (mut cx, view) = opened("default");
@@ -339,6 +376,64 @@ fn the_diff_draws_typed_lines_and_believes_the_program_about_a_literal_plus_plus
     assert!(gutter.interactivity.on_click.is_some());
 }
 
+/// Under a review the diff is one grid: ↓ moves to the next line with a
+/// gutter (scrolled into view), ← → between its old and new gutters, and
+/// Enter comments at the active gutter.
+#[test]
+fn the_diff_gutters_are_a_grid_the_arrows_walk() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-start-review");
+    cx.run_until_parked();
+    let grid = cx.interactivity("forge-diff-lines");
+    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(grid.focusable && grid.tab_stop == Some(true));
+    let active_gutter = |cx: &ducktape_view_guest::testing::TestAppContext| -> String {
+        fn find(node: &ducktape_view_guest::wire::Node) -> Option<String> {
+            if node
+                .interactivity()
+                .is_some_and(|i| i.aria.active_descendant)
+            {
+                return node.key().map(str::to_owned);
+            }
+            node.children().iter().find_map(find)
+        }
+        find(cx.find("forge-diff-lines").expect("the grid")).expect("a gutter claims")
+    };
+    let first = active_gutter(&cx);
+    assert!(first.starts_with("forge-gutter-src/lib.rs-old-"), "{first}");
+    assert!(!cx.interactivity(&first).focusable);
+    assert_eq!(
+        cx.interactivity(&format!("{first}-cell")).role,
+        Some(ducktape_view_guest::Role::GridCell)
+    );
+    cx.simulate_key_down("forge-diff-lines", "right");
+    let second = active_gutter(&cx);
+    assert!(
+        second.starts_with("forge-gutter-src/lib.rs-new-"),
+        "{second}"
+    );
+    cx.simulate_key_down("forge-diff-lines", "ctrl-end");
+    cx.simulate_key_down("forge-diff-lines", "end");
+    let last = active_gutter(&cx);
+    assert_ne!(last, second);
+    let (side, number) = last
+        .trim_start_matches("forge-gutter-src/lib.rs-")
+        .split_once('-')
+        .expect("side-number");
+    cx.simulate_key_down("forge-diff-lines", "enter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        let open = forge
+            .review()
+            .unwrap()
+            .open
+            .as_ref()
+            .expect("an open anchor");
+        assert_eq!(open.line, number.parse::<u64>().unwrap());
+        assert_eq!(open.new_side, side == "new");
+    });
+}
+
 #[test]
 fn the_gutter_of_a_drawn_line_is_the_comment_button() {
     let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
@@ -358,6 +453,36 @@ fn the_gutter_of_a_drawn_line_is_the_comment_button() {
         assert!(open.new_side);
     });
     assert!(cx.has_text("src/lib.rs:5 (new)"));
+}
+
+/// The verdicts are a radio group: one Tab stop, ↓ checks the next one.
+#[test]
+fn the_verdicts_check_on_an_arrow() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-start-review");
+    cx.run_until_parked();
+    cx.simulate_click("forge-finish-review");
+    cx.run_until_parked();
+    let group = cx.interactivity("forge-verdicts");
+    assert_eq!(group.role, Some(ducktape_view_guest::Role::RadioGroup));
+    assert!(group.focusable && group.tab_stop == Some(true));
+    assert!(!cx.interactivity("forge-verdict-approve").focusable);
+    cx.simulate_key_down("forge-verdicts", "down");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(forge.review().unwrap().verdict, Some(Verdict::Approve));
+    });
+    let approve = cx.interactivity("forge-verdict-approve");
+    assert_eq!(
+        approve.aria.toggled,
+        Some(ducktape_view_guest::Toggled::True)
+    );
+    assert!(approve.aria.active_descendant);
+    assert!(
+        !cx.interactivity("forge-verdict-comment")
+            .aria
+            .active_descendant
+    );
 }
 
 #[test]

@@ -245,17 +245,34 @@ fn title_line(
 
 /// The change's tabs, each with its count once it is known.
 fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
-    let mut bar = div()
-        .id(id("forge-change-tabs"))
+    // manual: Files reads the whole diff and Commits a log, so the arrows
+    // only move and Enter opens
+    let active = forge.change_tab_cursor.unwrap_or(forge.nav().change_tab);
+    let at = |tab| {
+        ChangeTab::ALL
+            .iter()
+            .position(|it| *it == tab)
+            .unwrap_or_default()
+    };
+    let mut bar = design::composite(id("forge-change-tabs"), Role::TabList, "Change")
+        .orientation(design::Orientation::Horizontal)
+        .wrap()
+        .active(at(active), ChangeTab::ALL.len())
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            forge.change_tab_cursor = Some(ChangeTab::ALL[index]);
+            cx.notify();
+        }))
+        .on_press(cx.processor(|forge, index: usize, _, cx| {
+            forge.open_change_tab(ChangeTab::ALL[index], cx)
+        }))
+        .build()
         .h(TAB_BAR_H)
         .flex()
         .items_center()
         .gap(design::space::XL)
         .px(PAGE_X)
         .border_b_1()
-        .border_color(theme.border)
-        .role(Role::TabList)
-        .aria_label("Change");
+        .border_color(theme.border);
     for tab in ChangeTab::ALL {
         let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change_tab(tab, cx));
         bar = bar.child(crate::ui::components::tab(
@@ -263,6 +280,7 @@ fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> 
             tab.label(),
             tab_count(forge, tab),
             forge.nav().change_tab == tab,
+            active == tab,
             theme,
             pick,
         ));
@@ -406,7 +424,10 @@ fn file_row(
             theme.border_strong
         })
         .when(viewed, |check| {
-            check.bg(theme.primary).text_color(theme.primary_foreground)
+            design::focus_shown_on_ink(
+                check.bg(theme.primary).text_color(theme.primary_foreground),
+                &theme,
+            )
         })
         .text_size(px(10.))
         .role(Role::CheckBox)
@@ -699,15 +720,7 @@ fn verdicts(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let theme = *theme;
-    let mut column = div()
-        .id(id("forge-verdicts"))
-        .flex()
-        .flex_col()
-        .gap(design::space::SM)
-        .role(Role::RadioGroup)
-        .aria_label("Verdict");
-    for (verdict, slug, about) in [
+    const VERDICTS: [(Verdict, &str, &str); 3] = [
         (Verdict::Comment, "comment", "Feedback without a verdict."),
         (Verdict::Approve, "approve", "Ready to merge as it is."),
         (
@@ -715,7 +728,26 @@ fn verdicts(
             "request-changes",
             "Needs work before it merges.",
         ),
-    ] {
+    ];
+    let theme = *theme;
+    let active = VERDICTS
+        .iter()
+        .position(|(verdict, _, _)| *verdict == picked)
+        .unwrap_or_default();
+    // a radio group: one Tab stop, and ↑ ↓ check the next verdict
+    let mut column = design::composite(id("forge-verdicts"), Role::RadioGroup, "Verdict")
+        .active(active, VERDICTS.len())
+        .wrap()
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            if forge.may_write() {
+                forge.pick_verdict(VERDICTS[index].0, cx);
+            }
+        }))
+        .build()
+        .flex()
+        .flex_col()
+        .gap(design::space::SM);
+    for (verdict, slug, about) in VERDICTS {
         let on = verdict == picked;
         let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.pick_verdict(verdict, cx));
         let dot = div()
@@ -730,28 +762,26 @@ fn verdicts(
                 theme.border_strong
             })
             .when(on, |dot| dot.bg(theme.foreground));
-        column = column.child(
-            div()
-                .id(id(format!("forge-verdict-{slug}")))
-                .flex()
-                .items_start()
-                .gap(design::space::SM)
-                .role(Role::RadioButton)
-                .aria_toggled(on.into())
-                .map(|row| match forge.may_write() {
-                    true => row.focusable().on_click(pick),
-                    false => row.aria_disabled(true),
-                })
-                .child(dot)
-                .child(
-                    div().flex().flex_col().child(verdict_label(verdict)).child(
-                        div()
-                            .text_size(design::text::SECONDARY)
-                            .text_color(theme.muted)
-                            .child(about),
-                    ),
+        let row = div()
+            .id(id(format!("forge-verdict-{slug}")))
+            .flex()
+            .items_start()
+            .gap(design::space::SM)
+            .aria_toggled(on.into())
+            .map(|row| match forge.may_write() {
+                true => row.on_click(pick),
+                false => row.aria_disabled(true),
+            })
+            .child(dot)
+            .child(
+                div().flex().flex_col().child(verdict_label(verdict)).child(
+                    div()
+                        .text_size(design::text::SECONDARY)
+                        .text_color(theme.muted)
+                        .child(about),
                 ),
-        );
+            );
+        column = column.child(design::item(row, Role::RadioButton, on));
     }
     column
 }

@@ -55,12 +55,17 @@ impl Interactivity {
             role: self.role,
             aria,
             focusable: self.focusable,
-            tab_stop: self.tab_stop,
+            // a focusable node is a Tab stop unless it said `tab_stop(false)`
+            tab_stop: self.tab_stop.or(self.focusable.then_some(true)),
             tab_index: self.tab_index,
             tab_group: self.tab_group,
             focus: self.focus,
             in_focus: self.in_focus,
-            focus_visible: self.focus_visible,
+            // a focusable node shows the focus ring unless it draws its own
+            focus_visible: self.focus_visible.or_else(|| {
+                self.focusable
+                    .then(|| crate::design::focus_ring(lowering.theme().accent))
+            }),
             key_context: self.key_context,
             focus_handle: self.focus_handle.map(|handle| handle.id),
             occlude: self.occlude,

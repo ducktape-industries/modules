@@ -201,3 +201,47 @@ fn the_edit_field_saves() {
     cx.simulate_click(&format!("{key}/cancel"));
     assert!(cx.find("chat-message-editing").is_none());
 }
+
+/// The message menu is one stop: it takes the keys on open with its first
+/// item active, ↓ moves, Enter runs the item; its dialogs are no stops.
+#[test]
+fn the_message_menu_walks_its_items_and_enter_runs_one() {
+    let (mut cx, view) = opened();
+    message::hover(&mut cx, &view, 1);
+    cx.simulate_click("chat-message-m1-more");
+    let menu = cx.interactivity("chat-room-message-action-focus");
+    assert_eq!(menu.role, Some(ducktape_view_guest::Role::Menu));
+    assert!(menu.focusable && menu.tab_stop == Some(true));
+    assert!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .iter()
+            .any(|command| matches!(
+                command,
+                wire::WidgetCommand::Focus { target }
+                    if target == &[wire::ElementIdWire::Name("chat-room-message-action-focus".into())]
+            )),
+        "the menu takes the keys on open"
+    );
+    let reply = cx.interactivity("chat-menu-reply");
+    assert_eq!(reply.role, Some(ducktape_view_guest::Role::MenuItem));
+    assert!(!reply.focusable && reply.aria.active_descendant);
+    cx.simulate_key_down("chat-room-message-action-focus", "down");
+    assert!(
+        cx.interactivity("chat-menu-add-reaction")
+            .aria
+            .active_descendant
+    );
+    assert!(!cx.interactivity("chat-menu-reply").aria.active_descendant);
+    cx.simulate_key_down("chat-room-message-action-focus", "enter");
+    view.read(|chat| {
+        assert_eq!(
+            chat.menu.as_ref().map(|menu| menu.mode),
+            Some(Mode::Reactions)
+        );
+    });
+    // the picker's dialog frame is focused by id, not a stop of its own
+    let dialog = cx.interactivity("chat-room-message-reaction-frame");
+    assert_eq!(dialog.role, Some(ducktape_view_guest::Role::Dialog));
+    assert!(dialog.focusable && dialog.tab_stop == Some(false));
+}

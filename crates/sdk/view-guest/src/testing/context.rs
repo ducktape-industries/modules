@@ -128,6 +128,14 @@ impl TestAppContext {
     pub fn find(&self, key: &str) -> Option<&Node> {
         find(&self.frame, key)
     }
+    /// The role, aria, focus and routes of the node `key` names, which
+    /// must be one of the kinds that carry them.
+    pub fn interactivity(&self, key: &str) -> &crate::wire::Interactivity {
+        self.find(key)
+            .unwrap_or_else(|| panic!("no node {key:?}"))
+            .interactivity()
+            .unwrap_or_else(|| panic!("{key:?} carries no interactivity"))
+    }
     /// The whole tree of the last frame, for node-less host renders.
     pub fn root(&self) -> &Node {
         self.frame.root.as_ref().expect("view has a tree")

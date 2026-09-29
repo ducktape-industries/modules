@@ -268,23 +268,6 @@ impl Members {
         shown.sort_by_key(|row| (row.group(), row.number));
         shown
     }
-
-    /// ↑ and ↓ move the selection through the rows shown.
-    fn step(&mut self, down: bool, cx: &mut Context<Self>) {
-        let shown: Vec<u64> = self.shown().iter().map(|row| row.number).collect();
-        let at = self
-            .selected
-            .and_then(|number| shown.iter().position(|shown| *shown == number));
-        let next = match (at, down) {
-            (None, true) => shown.first(),
-            (None, false) => shown.last(),
-            (Some(at), true) => shown.get(at + 1),
-            (Some(at), false) => at.checked_sub(1).and_then(|at| shown.get(at)),
-        };
-        if let Some(&next) = next {
-            self.select(next, cx);
-        }
-    }
 }
 
 /// The roster, with each account's valset standing joined on the keys it

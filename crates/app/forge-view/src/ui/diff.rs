@@ -6,6 +6,7 @@
 use ducktape_view_guest::design;
 use std::rc::Rc;
 
+use ducktape_view_guest::ScrollStrategy;
 use ducktape_view_guest::prelude::*;
 
 use crate::Forge;
@@ -103,10 +104,75 @@ pub(crate) fn render(
             forge.open_comment(at.0.clone(), at.1, at.2, cx)
         }));
     let handle = forge.diff_scroll.clone();
+    // Under a review the lines are a grid: ↑ ↓ walk the lines with a
+    // gutter, ← → a line's gutters (old, new), Enter comments there. The
+    // active line is scrolled into view before its gutter claims, since a
+    // virtual row off screen has no node to claim with.
+    let lines: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| reviewable && row.kind == Kind::Line && row.old.or(row.new).is_some())
+        .map(|(index, _)| index)
+        .collect();
+    let anchors: Vec<Vec<Anchor>> = lines
+        .iter()
+        .map(|index| {
+            let row = &rows[*index];
+            [(false, row.old), (true, row.new)]
+                .into_iter()
+                .filter_map(|(new_side, number)| Some((row.path.clone(), new_side, number?)))
+                .collect()
+        })
+        .collect();
+    let (at, cell) = forge.diff_cursor;
+    let at = at.min(lines.len().saturating_sub(1));
+    let cell = cell.min(
+        anchors
+            .get(at)
+            .map_or(0, |cells| cells.len().saturating_sub(1)),
+    );
+    let active = lines.get(at).map(|line| (*line, cell));
+    let press = comment.clone();
     let list =
         crate::ui::components::rows(element_id, count, widest, Some(&handle), move |index| {
-            paint_row(&rows[index], index, reviewable, &comment, &theme)
+            let active = active
+                .filter(|(line, _)| *line == index)
+                .map(|(_, cell)| cell);
+            paint_row(&rows[index], index, reviewable, active, &comment, &theme)
         });
+    let list = match lines.is_empty() {
+        true => list,
+        false => {
+            let reveal = lines.clone();
+            let pressed = anchors.clone();
+            design::composite(id(format!("{element_id}-lines")), Role::Grid, "Diff")
+                .active(at, lines.len())
+                .cells(cell, anchors[at].len())
+                .on_move(cx.processor(move |forge, index: usize, _, cx| {
+                    forge.diff_cursor = (index, 0);
+                    forge
+                        .diff_scroll
+                        .scroll_to_item(reveal[index], ScrollStrategy::Nearest);
+                    cx.notify();
+                }))
+                .on_move_cell(cx.processor(|forge, cell: usize, _, cx| {
+                    forge.diff_cursor.1 = cell;
+                    cx.notify();
+                }))
+                .on_press(move |index, window, app| {
+                    if let Some(anchor) = pressed[index].get(cell) {
+                        press(anchor, window, app);
+                    }
+                })
+                .build()
+                .flex_1()
+                .min_h(px(0.))
+                .flex()
+                .flex_col()
+                .child(list)
+                .into_any_element()
+        }
+    };
     let Some(strip) = strip else {
         return list.into_any_element();
     };
@@ -305,6 +371,7 @@ fn paint_row(
     row: &Painted,
     index: usize,
     reviewable: bool,
+    active: Option<usize>,
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -329,14 +396,16 @@ fn paint_row(
             .text_color(theme.faint)
             .child(row.text.clone())
             .into_any_element(),
-        Kind::Line => line_row(row, index, reviewable, comment, theme),
+        Kind::Line => line_row(row, index, reviewable, active, comment, theme),
     }
 }
 
+/// `active`: which of the line's gutters the arrows are on, under a review.
 fn line_row(
     row: &Painted,
     index: usize,
     reviewable: bool,
+    active: Option<usize>,
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -350,6 +419,9 @@ fn line_row(
         LineKind::Deleted => "−",
         LineKind::Context => " ",
     };
+    // the gutters are the row's cells, in paint order: the old side, then
+    // the new; a line with one number has one cell
+    let cells = usize::from(row.old.is_some());
     let body = div()
         .id(id(format!("forge-diff-line-{index}")))
         .w_full()
@@ -358,8 +430,23 @@ fn line_row(
         .gap_1()
         .px(design::space::BLOCK)
         .bg(background)
-        .child(gutter(row, false, reviewable, comment, theme))
-        .child(gutter(row, true, reviewable, comment, theme))
+        .when(reviewable, |body| body.role(Role::Row))
+        .child(gutter(
+            row,
+            false,
+            reviewable,
+            active == Some(0),
+            comment,
+            theme,
+        ))
+        .child(gutter(
+            row,
+            true,
+            reviewable,
+            active == Some(cells),
+            comment,
+            theme,
+        ))
         .child(
             div()
                 .w(MARKER_W)
@@ -477,6 +564,7 @@ fn gutter(
     row: &Painted,
     new_side: bool,
     reviewable: bool,
+    active: bool,
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -496,20 +584,27 @@ fn gutter(
     }
     let at = (row.path.clone(), new_side, number);
     let comment = comment.clone();
-    cell()
+    let side = if new_side { "new" } else { "old" };
+    let button = div()
         .id(id(format!(
-            "forge-gutter-{}-{}-{number}",
-            path_text(&row.path),
-            if new_side { "new" } else { "old" }
+            "forge-gutter-{}-{side}-{number}",
+            path_text(&row.path)
         )))
+        .w_full()
         .hover(|style| style.bg(theme.accent_soft))
-        .role(Role::Button)
+        .when(active, |button| button.bg(theme.accent_soft))
         .aria_label("Comment on this line")
-        .focusable()
         .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| {
             comment(&at, window, app)
         })
-        .child(number.to_string())
+        .child(number.to_string());
+    cell()
+        .id(id(format!(
+            "forge-gutter-{}-{side}-{number}-cell",
+            path_text(&row.path)
+        )))
+        .role(Role::GridCell)
+        .child(design::item(button, Role::Button, active))
         .into_any_element()
 }
 

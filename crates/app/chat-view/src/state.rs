@@ -40,6 +40,18 @@ pub struct Chat {
     /// strip, beside a chosen one.
     #[serde(skip)]
     pub(crate) hovered: Option<(Pane, u64)>,
+    /// The room the arrows are on in the sidebar's list; the open room
+    /// until they move.
+    #[serde(skip)]
+    pub(crate) rooms_cursor: Option<String>,
+    /// The message the arrows are on in the room, and in the thread.
+    #[serde(skip)]
+    pub(crate) timeline_cursor: Cursor,
+    #[serde(skip)]
+    pub(crate) thread_cursor: Cursor,
+    /// The item the arrows are on in the open message menu.
+    #[serde(skip)]
+    pub(crate) menu_cursor: usize,
     /// The line over the room saying a copy landed: not a refusal, so not
     /// the `notice` banner.
     #[serde(skip)]
@@ -225,11 +237,91 @@ pub struct Menu {
     pub(crate) at: (f32, f32),
 }
 
-/// The reaction picker: what the search holds and which tab is open.
+/// The message the arrows are on in a pane's grid, and which of its cells:
+/// its content (0) or one of its controls, recorded in paint order as the
+/// row is drawn so Enter knows what the cell does. The newest message
+/// until the arrows move.
+#[derive(Default, Debug)]
+pub struct Cursor {
+    pub(crate) id: Option<String>,
+    pub(crate) cell: usize,
+    /// the controls of the message `controls_of`, the active row when it
+    /// was last drawn; another message's are nobody's
+    pub(crate) controls: Vec<Control>,
+    pub(crate) controls_of: Option<String>,
+}
+
+impl Cursor {
+    /// The controls of message `id`, if they are the ones recorded.
+    pub(crate) fn controls_of(&self, id: &str) -> &[Control] {
+        match self.controls_of.as_deref() == Some(id) {
+            true => &self.controls,
+            false => &[],
+        }
+    }
+}
+
+/// A control on a message card: what pressing it does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Control {
+    /// the block link in the header: `link`
+    Height(String),
+    /// a program post's "Open in …": `link`
+    ProgramOpen(String),
+    Reaction {
+        emoji: String,
+        add: bool,
+    },
+    AddReaction,
+    Replies,
+    Thread,
+    ThumbsUp,
+    React,
+    More,
+}
+
+impl Chat {
+    pub(crate) fn cursor(&self, pane: Pane) -> &Cursor {
+        match pane {
+            Pane::Timeline => &self.timeline_cursor,
+            Pane::Thread => &self.thread_cursor,
+        }
+    }
+    pub(crate) fn cursor_mut(&mut self, pane: Pane) -> &mut Cursor {
+        match pane {
+            Pane::Timeline => &mut self.timeline_cursor,
+            Pane::Thread => &mut self.thread_cursor,
+        }
+    }
+
+    /// Where a popup the keys open sits: a key has no pointer position, so
+    /// it takes the top-right of the pane's message list, inside the window.
+    pub(crate) fn key_spot(&self, pane: Pane) -> (f32, f32) {
+        let (width, _) = self.layout.viewport;
+        let side = match pane {
+            Pane::Thread => 0.,
+            Pane::Timeline if self.details.is_some() && self.room.is_some() => self.layout.details,
+            Pane::Timeline if self.room.as_ref().is_some_and(|room| room.thread.is_some()) => {
+                self.layout.thread
+            }
+            Pane::Timeline => 0.,
+        };
+        let side = if side > 0. && self.layout.docks(side) {
+            side
+        } else {
+            0.
+        };
+        (width - side - 16., 96.)
+    }
+}
+
+/// The reaction picker: what the search holds, which tab is open, and the
+/// cell the arrows are on in one of its grids (the grid's id, the cell).
 #[derive(Default, Debug)]
 pub struct Picker {
     pub(crate) query: String,
     pub(crate) tab: usize,
+    pub(crate) cursor: Option<(&'static str, usize)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]

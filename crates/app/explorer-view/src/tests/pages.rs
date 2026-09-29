@@ -48,6 +48,74 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
 /// "All blocks →" and "All transactions →" are at least 24 px each way:
 /// the box's own floor, so the bounds the door's AX-017 reads cannot come
 /// in under it, whatever the text inside.
+/// The pages are one tab list: one Tab stop, and → opens the next page
+/// (automatic activation), wrapping from the last to the first.
+#[test]
+fn an_arrow_on_the_pages_opens_the_next_page() {
+    let (mut cx, _) = ready();
+    let tabs = cx.interactivity("explorer-tabs");
+    assert_eq!(tabs.role, Some(ducktape_view_guest::Role::TabList));
+    assert!(tabs.focusable && tabs.tab_stop == Some(true));
+    assert!(!cx.interactivity("explorer-tab-blocks").focusable);
+    cx.simulate_key_down("explorer-tabs", "right");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-blocks").is_some(), "{:?}", cx.texts());
+    let blocks = cx.interactivity("explorer-tab-blocks");
+    assert_eq!(blocks.aria.selected, Some(true));
+    assert!(blocks.aria.active_descendant);
+    assert!(
+        !cx.interactivity("explorer-tab-overview")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("explorer-tabs", "left");
+    cx.simulate_key_down("explorer-tabs", "left");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-programs").is_some() || cx.find("explorer-list").is_some());
+    assert!(
+        cx.interactivity("explorer-tab-programs")
+            .aria
+            .active_descendant
+    );
+}
+
+/// A list is one Tab stop: ↓ moves the active row, Enter opens it; the
+/// rows are options, never focusable, and the first is active on entry.
+#[test]
+fn an_arrow_and_enter_on_the_accounts_opens_the_second_account() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("explorer-tab-accounts");
+    cx.run_until_parked();
+    let list = cx.interactivity("explorer-accounts-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(list.aria.label.as_deref(), Some("Accounts"));
+    assert!(list.focusable && list.tab_stop == Some(true));
+    let rows: Vec<String> = cx
+        .find("explorer-accounts-list")
+        .expect("the list")
+        .children()
+        .iter()
+        .filter_map(|row| row.key().map(str::to_owned))
+        .collect();
+    assert!(rows.len() >= 2, "{rows:?}");
+    let first = cx.interactivity(&rows[0]);
+    assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert!(!first.focusable && first.aria.active_descendant);
+    assert_eq!(first.aria.selected, Some(false));
+    cx.simulate_key_down("explorer-accounts-list", "down");
+    assert!(!cx.interactivity(&rows[0]).aria.active_descendant);
+    assert!(cx.interactivity(&rows[1]).aria.active_descendant);
+    cx.simulate_key_down("explorer-accounts-list", "enter");
+    cx.run_until_parked();
+    let number = rows[1].trim_start_matches("explorer-account-");
+    assert!(cx.find("explorer-account").is_some(), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(&format!("account {number}")) || cx.texts().iter().any(|t| t.contains(number)),
+        "{:?}",
+        cx.texts()
+    );
+}
+
 #[test]
 fn the_overview_links_are_at_least_24_px_each_way() {
     use ducktape_view_guest::px;

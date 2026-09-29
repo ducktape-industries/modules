@@ -46,6 +46,8 @@ pub(crate) enum Key {
     Down,
     Left,
     Right,
+    Home,
+    End,
     Enter,
 }
 
@@ -56,6 +58,8 @@ impl Key {
             "down" => Self::Down,
             "left" => Self::Left,
             "right" => Self::Right,
+            "home" => Self::Home,
+            "end" => Self::End,
             "enter" => Self::Enter,
             _ => return None,
         })
@@ -139,9 +143,10 @@ impl Forge {
         self.sync(cx);
     }
 
-    /// One key on the focused tree. Up/down move the cursor, right opens a
-    /// directory (or steps into an open one), left closes it (or steps out
-    /// to its parent), enter opens the file or toggles the directory.
+    /// One key on the focused tree. Up/down move the cursor, Home/End take
+    /// it to the ends, right opens a directory (or steps into an open one),
+    /// left closes it (or steps out to its parent), enter opens the file
+    /// or toggles the directory.
     pub(crate) fn tree_key(&mut self, key: Key, cx: &mut Context<Self>) {
         let rows: Vec<Row> = self
             .tree_rows()
@@ -156,16 +161,17 @@ impl Forge {
             .cursor
             .clone()
             .or_else(|| self.nav.blob.as_ref().map(|(path, _)| path.clone()));
-        let Some(at) = cursor.and_then(|path| rows.iter().position(|row| row.path == path)) else {
-            self.nav.cursor = Some(rows[0].path.clone());
-            cx.notify();
-            return;
-        };
+        // no cursor yet: the first row is the active one the tree shows
+        let at = cursor
+            .and_then(|path| rows.iter().position(|row| row.path == path))
+            .unwrap_or(0);
         let row = &rows[at];
         let open = self.nav.expanded.contains(&row.path);
         match key {
             Key::Up => self.nav.cursor = Some(rows[at.saturating_sub(1)].path.clone()),
             Key::Down => self.nav.cursor = Some(rows[(at + 1).min(rows.len() - 1)].path.clone()),
+            Key::Home => self.nav.cursor = Some(rows[0].path.clone()),
+            Key::End => self.nav.cursor = Some(rows[rows.len() - 1].path.clone()),
             Key::Right if row.is_dir() && !open => return self.toggle_dir(row.path.clone(), cx),
             Key::Right if row.is_dir() => {
                 if let Some(child) = rows.get(at + 1).filter(|next| next.depth > row.depth) {

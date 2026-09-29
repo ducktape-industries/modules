@@ -1,12 +1,17 @@
 //! The repeated shapes of this view; the ones every view shares (button,
 //! empty state, heading, quiet line) come from `view_guest::design`.
 use std::ops::Range;
+use std::rc::Rc;
 
+use crate::Forge;
+use crate::state::Menu;
 use ducktape_view_guest::UniformListScrollHandle;
 use ducktape_view_guest::design;
 pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, heading, short_hex};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{AnchoredPositionMode, Edges, MouseDownEvent, Point, accesskit};
+use ducktape_view_guest::{
+    AnchoredPositionMode, Div, Edges, KeyDownEvent, Point, Stateful, accesskit,
+};
 
 pub(crate) fn id(text: impl Into<String>) -> ElementId {
     ElementId::Name(text.into().into())
@@ -23,12 +28,15 @@ where
     key: String,
     theme: Theme,
     selected: bool,
+    /// `Some(cell)`: the arrows are on this row, at that cell
+    active: Option<usize>,
     children: Vec<AnyElement>,
     controls: Vec<AnyElement>,
     click: Option<F>,
 }
 
-/// A row keyed `key`; its press, when it has one, is `{key}-open`.
+/// A row keyed `key` of a [`list`] or a [`grid`]; its press, when it has
+/// one, is `{key}-open`.
 pub(crate) fn row<F>(key: impl Into<String>, theme: &Theme) -> Row<F>
 where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -37,6 +45,7 @@ where
         key: key.into(),
         theme: *theme,
         selected: false,
+        active: None,
         children: Vec::new(),
         controls: Vec::new(),
         click: None,
@@ -55,12 +64,18 @@ where
         self.selected = selected;
         self
     }
+    /// The arrows are on this row, at `cell`: 0 is its press, then each
+    /// control in order. A control claims for itself when it is the cell.
+    pub fn active(mut self, cell: Option<usize>) -> Self {
+        self.active = cell;
+        self
+    }
     pub fn cell(mut self, child: impl IntoElement) -> Self {
         self.children.push(child.into_any_element());
         self
     }
     /// A control of its own at the row's end (a ref's Compare), beside
-    /// the row's press rather than inside it.
+    /// the row's press rather than inside it: a cell of the grid row.
     pub fn control(mut self, child: impl IntoElement) -> Self {
         self.controls.push(child.into_any_element());
         self
@@ -82,30 +97,135 @@ where
             .gap_2()
             .min_h(design::size::CONTROL)
             .px_2()
-            .role(Role::ListItem)
-            .when(self.selected, |item| item.bg(chosen));
+            .when(self.selected, |item| item.bg(chosen))
+            .when(self.active.is_some() && !self.selected, |item| {
+                item.bg(hovered)
+            });
         let Some(click) = self.click else {
-            return item.children(self.children).children(self.controls);
+            return item
+                .role(Role::ListItem)
+                .children(self.children)
+                .children(self.controls);
         };
+        // no controls: the row is the option, and its press
+        if self.controls.is_empty() {
+            let option = item
+                .hover(move |style| style.bg(hovered))
+                .aria_selected(self.selected)
+                .on_click(click)
+                .children(self.children);
+            return design::item(option, Role::ListBoxOption, self.active.is_some());
+        }
+        // controls: a grid row whose first cell is the press
         let press = div()
             .id(id(format!("{}-open", self.key)))
-            .flex_1()
-            .min_w(px(0.))
-            .self_stretch()
+            .size_full()
             .flex()
             .items_center()
             .gap_2()
-            .role(Role::Button)
             .when(self.selected, |press| {
                 press.aria_current(accesskit::AriaCurrent::True)
             })
-            .focusable()
             .on_click(click)
             .children(self.children);
-        item.hover(move |style| style.bg(hovered))
+        let press = div()
+            .id(id(format!("{}-open-cell", self.key)))
+            .flex_1()
+            .min_w(px(0.))
+            .self_stretch()
+            .role(Role::GridCell)
+            .child(design::item(press, Role::Button, self.active == Some(0)));
+        let key = self.key.clone();
+        item.role(Role::Row)
+            .hover(move |style| style.bg(hovered))
             .child(press)
-            .children(self.controls)
+            .children(
+                self.controls
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, control)| {
+                        div()
+                            .id(id(format!("{key}-control-{index}")))
+                            .role(Role::GridCell)
+                            .child(control)
+                    }),
+            )
     }
+}
+
+/// Which row of the list `id` the arrows are on, and which of its cells:
+/// the view's cursor there, else the first row.
+pub(crate) fn cursor(forge: &Forge, id: &'static str) -> (usize, usize) {
+    match forge.list_cursor {
+        Some((list, row, cell)) if list == id => (row, cell),
+        _ => (0, 0),
+    }
+}
+
+/// A list of [`row`]s as one Tab stop: ↑ ↓ walk the rows, Enter presses
+/// the active one (`on_press`). The rows go in as the list's children.
+pub(crate) fn list(
+    id_: &'static str,
+    label: &str,
+    count: usize,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    on_press: impl Fn(&mut Forge, usize, &mut Window, &mut Context<Forge>) + 'static,
+) -> Stateful<Div> {
+    let (at, _) = cursor(forge, id_);
+    design::composite(id(id_), Role::ListBox, label.to_owned())
+        .active(at.min(count.saturating_sub(1)), count)
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.list_cursor = Some((id_, index, 0));
+            cx.notify();
+        }))
+        .on_press(
+            cx.processor(move |forge, index: usize, window, cx| on_press(forge, index, window, cx)),
+        )
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+}
+
+/// A grid of [`row`]s with controls as one Tab stop: ↑ ↓ walk the rows,
+/// ← → a row's cells (its press, then each control), Enter presses the
+/// active cell (`on_press(row, cell)`). `cells` is the active row's count.
+pub(crate) fn grid(
+    id_: &'static str,
+    label: &str,
+    count: usize,
+    cells: usize,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    on_press: impl Fn(&mut Forge, usize, usize, &mut Window, &mut Context<Forge>) + 'static,
+) -> Stateful<Div> {
+    let (at, cell) = cursor(forge, id_);
+    let at = at.min(count.saturating_sub(1));
+    let cell = cell.min(cells.saturating_sub(1));
+    design::composite(id(id_), Role::Grid, label.to_owned())
+        .active(at, count)
+        .cells(cell, cells)
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.list_cursor = Some((id_, index, 0));
+            cx.notify();
+        }))
+        .on_move_cell(cx.processor(move |forge, cell: usize, _, cx| {
+            forge.list_cursor = Some((id_, at, cell));
+            cx.notify();
+        }))
+        .on_press(cx.processor(move |forge, index: usize, window, cx| {
+            let (_, cell) = cursor(forge, id_);
+            on_press(forge, index, cell, window, cx)
+        }))
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
 }
 
 pub(crate) fn loading(id: impl Into<ElementId>, text: &str, theme: &Theme) -> AnyElement {
@@ -181,27 +301,24 @@ pub(crate) fn ref_label(name: &[u8]) -> String {
 
 /// A dropdown's width.
 const MENU_W: Pixels = px(220.);
-/// How far under its button's top a dropdown opens.
-const MENU_DROP: Pixels = px(30.);
 
-/// A button that names what is picked (`main ⌄`) and, while `open`, the
-/// menu under it: `items` in a box that a press anywhere else closes.
-/// The button only opens it.
+/// A button that names what is picked (`main ⌄`) and says whether its
+/// menu is open; the menu itself ([`menu`]) floats in the view's modal
+/// overlay while it is.
 pub(crate) fn dropdown(
     key: &str,
     label: String,
     open: bool,
-    items: Vec<AnyElement>,
     theme: &Theme,
     on_open: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    on_close: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let theme = *theme;
-    let button = div()
+    div()
         .id(id(key.to_owned()))
         .h(design::size::ROW)
         .px(design::space::SM)
         .flex()
+        .flex_none()
         .items_center()
         .gap(design::space::XS)
         .border_1()
@@ -216,51 +333,32 @@ pub(crate) fn dropdown(
         .focusable()
         .on_click(on_open)
         .child(label)
-        .child(div().text_color(theme.faint).child("⌄"));
-    let mut wrapper = div().relative().flex_none().child(button);
-    if open {
-        let menu = div()
-            .id(id(format!("{key}-menu")))
-            .w(MENU_W)
-            .py(design::space::XXS)
-            .flex()
-            .flex_col()
-            .border_1()
-            .border_color(theme.border_strong)
-            .bg(theme.background)
-            .shadow_lg()
-            .occlude()
-            .role(Role::Menu)
-            .on_mouse_down_out(on_close)
-            .children(items);
-        // pinned to the button's top-left, so the drop is measured from there
-        wrapper = wrapper.child(
-            div().absolute().top_0().left_0().child(deferred(
-                anchored()
-                    .position_mode(AnchoredPositionMode::Local)
-                    .position(Point {
-                        x: px(0.),
-                        y: MENU_DROP,
-                    })
-                    .snap_to_window_with_margin(Edges::all(design::space::SM))
-                    .child(menu),
-            )),
-        );
-    }
-    wrapper.into_any_element()
+        .child(div().text_color(theme.faint).child("⌄"))
+        .into_any_element()
+}
+
+/// What a press on a menu item does.
+type Pick = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// One line of a [`menu`]: a group label, or an item with its pick.
+pub(crate) enum MenuEntry {
+    Label(AnyElement),
+    Item(Box<Stateful<Div>>, Pick),
 }
 
 /// A dropdown's group label: `Branches`, `Tags`.
-pub(crate) fn menu_label(text: &str, theme: &Theme) -> AnyElement {
-    div()
-        .px(design::space::LG)
-        .pt(design::space::SM)
-        .pb(design::space::XXS)
-        .font_family(design::fonts::FAMILY_MONO)
-        .text_size(design::text::CAPTION)
-        .text_color(theme.muted)
-        .child(text.to_owned())
-        .into_any_element()
+pub(crate) fn menu_label(text: &str, theme: &Theme) -> MenuEntry {
+    MenuEntry::Label(
+        div()
+            .px(design::space::LG)
+            .pt(design::space::SM)
+            .pb(design::space::XXS)
+            .font_family(design::fonts::FAMILY_MONO)
+            .text_size(design::text::CAPTION)
+            .text_color(theme.muted)
+            .child(text.to_owned())
+            .into_any_element(),
+    )
 }
 
 /// One pick in a dropdown, mono, the picked one raised and checked;
@@ -271,10 +369,12 @@ pub(crate) fn menu_item(
     note: Option<&str>,
     selected: bool,
     theme: &Theme,
-    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
+    pick: impl Fn(&mut Window, &mut App) + 'static,
+) -> MenuEntry {
     let theme = *theme;
-    div()
+    let pick: Pick = Rc::new(pick);
+    let click = pick.clone();
+    let item = div()
         .id(element_id)
         .h(design::size::ROW)
         .px(design::space::LG)
@@ -285,36 +385,107 @@ pub(crate) fn menu_item(
         .text_size(design::text::CAPTION)
         .when(selected, |item| item.bg(theme.surface_raised))
         .hover(move |style| style.bg(theme.surface))
-        .role(Role::MenuItemRadio)
         .aria_toggled(selected.into())
-        .focusable()
-        .on_click(click)
+        .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| click(window, app))
         .child(div().flex_1().min_w(px(0.)).truncate().child(label))
-        .children(note.map(|note| div().text_color(theme.faint).child(note.to_owned())))
+        .children(note.map(|note| div().text_color(theme.faint).child(note.to_owned())));
+    MenuEntry::Item(Box::new(item), pick)
+}
+
+/// The open dropdown of `menu`: one Tab stop under the press that opened
+/// it, whose ↑ ↓ walk the items, Enter or Space picks the active one and
+/// Esc closes it, giving the keys back to its button. It floats in the
+/// view's modal overlay, so Tab never leaves it and a press outside
+/// closes it.
+pub(crate) fn menu(
+    menu: Menu,
+    label: &str,
+    entries: Vec<MenuEntry>,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> AnyElement {
+    let key = menu.key();
+    let picks: Vec<Pick> = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            MenuEntry::Item(_, pick) => Some(pick.clone()),
+            MenuEntry::Label(_) => None,
+        })
+        .collect();
+    let active = forge.menu_cursor.min(picks.len().saturating_sub(1));
+    let mut index = 0;
+    let lines: Vec<AnyElement> = entries
+        .into_iter()
+        .map(|entry| match entry {
+            MenuEntry::Label(label) => label,
+            MenuEntry::Item(item, _) => {
+                let line = design::item(*item, Role::MenuItemRadio, index == active);
+                index += 1;
+                line.into_any_element()
+            }
+        })
+        .collect();
+    let escape = cx.listener(move |forge, event: &KeyDownEvent, window, cx| {
+        if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
+            forge.close_dropdown(menu, window, cx);
+        }
+    });
+    let frame = design::composite(id(format!("{key}-menu")), Role::Menu, label.to_owned())
+        .active(active, picks.len())
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            forge.menu_cursor = index;
+            cx.notify();
+        }))
+        .on_press(move |index, window, app| picks[index](window, app))
+        .build()
+        .on_key_down(escape)
+        .w(MENU_W)
+        .py(design::space::XXS)
+        .flex()
+        .flex_col()
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .shadow_lg()
+        .occlude()
+        .children(lines);
+    // the ring would replace the shadow: the frame draws both
+    let frame = design::focus_shown(frame, theme, |style| style.shadow_lg());
+    let (x, y) = forge.menu_at;
+    anchored()
+        .position_mode(AnchoredPositionMode::Window)
+        .position(Point { x: px(x), y: px(y) })
+        .snap_to_window_with_margin(Edges::all(design::space::SM))
+        .child(frame)
         .into_any_element()
 }
 
 /// A tab with its count beside the label, faint: `Changes 3`. Tabs sit
-/// on a bar's hairline, full height.
+/// on a bar's hairline, full height, in a manual tab list: `selected` is
+/// the open one, `active` the one the arrows are on, which Enter opens.
 pub(crate) fn tab(
     element_id: ElementId,
     label: &str,
     count: Option<u64>,
     selected: bool,
+    active: bool,
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    design::tab(element_id, label.to_owned(), selected, theme, click)
+    let tab = design::tab(element_id, label.to_owned(), selected, theme, click)
         .h_full()
         .px_0()
         .gap(design::space::XS)
         .text_size(design::text::BODY)
         .font_weight(ducktape_view_guest::FontWeight::NORMAL)
+        // the arrows' tab, not yet open: a quiet fill says where they are
+        .when(active && !selected, |tab| tab.bg(theme.surface_raised))
         .children(count.map(|count| {
             div()
                 .text_size(design::text::CAPTION)
                 .text_color(theme.faint)
                 .child(count.to_string())
-        }))
-        .into_any_element()
+        }));
+    design::item(tab, Role::Tab, active).into_any_element()
 }
