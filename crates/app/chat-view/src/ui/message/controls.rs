@@ -4,9 +4,10 @@ use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{ClickEvent, ElementId, ParentElement, Styled, Theme, Window, div, px};
 
-/// An action strip button's height: the strip, borders and all, is 22 and
-/// sits inside the most compact row.
-const STRIP_BUTTON_HEIGHT: f32 = 20.;
+/// An action strip button's height, the smallest box a pointer presses
+/// (the door's AX-017): the strip, borders and all, is 26. Its width is
+/// the kit's row height, already over 24.
+const STRIP_BUTTON_HEIGHT: f32 = 24.;
 /// A reaction chip's height, the thread button's: the smallest box a
 /// pointer presses (the door's AX-017), and a chip is no narrower.
 const REACTION_HEIGHT: f32 = 24.;

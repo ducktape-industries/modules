@@ -201,6 +201,47 @@ fn the_small_press_targets_are_at_least_24_px_each_way() {
     }
 }
 
+/// The hover strip's buttons, "Clear search" and the confirmation's
+/// "Dismiss" ✕ are at least 24 px each way, like the message's own
+/// controls above: the box's declared floor.
+#[test]
+fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
+    use ducktape_view_guest::{design, px};
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        chat.search.draft = "hello".into();
+        chat.confirmation = "Saved".into();
+        chat.hovered = Some((Pane::Timeline, 1));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let style = |key: &str| match cx.find(key) {
+        Some(wire::Node::Container(node)) => node.style.clone(),
+        other => panic!("{key} is no container: {other:?}"),
+    };
+    // a strip button is 24 tall and as wide as a kit row, over 24
+    assert!(design::size::ROW >= px(24.));
+    for key in ["thumbs-up", "react", "more"] {
+        let style = style(&format!("chat-message-m1-{key}"));
+        assert_eq!(
+            (style.size.width, style.size.height),
+            (Some(design::size::ROW.into()), Some(px(24.).into())),
+            "{key}"
+        );
+    }
+    for key in [
+        "chat-sidebar-clear-search",
+        "chat-room-confirmation-dismiss",
+    ] {
+        let style = style(key);
+        assert_eq!(
+            (style.min_size.width, style.min_size.height),
+            (Some(px(24.).into()), Some(px(24.).into())),
+            "{key}"
+        );
+    }
+}
+
 #[test]
 fn thread_root_uses_reply_count_as_a_separator() {
     let (mut cx, view) = opened();

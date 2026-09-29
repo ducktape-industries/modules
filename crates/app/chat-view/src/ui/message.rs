@@ -176,9 +176,8 @@ fn action_strip(
         .id(format!("chat-message-{id}-actions"))
         .absolute()
         .right_2()
-        // 22px tall at 2px: inside even a compact row (2 + 20 + 2), so
-        // the bar never hangs into the next row, which paints over it
-        // and is outside this row's hover
+        // 26px tall at 2px: its buttons are press targets of 24, so on
+        // a compact row (25) the bar's foot hangs into the next row
         .top(design::space::HAIR)
         .flex()
         .bg(theme.background)

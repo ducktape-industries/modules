@@ -27,8 +27,8 @@ const GLYPH_W: f32 = 20.;
 const TABS: f32 = design::height::CONTROL as f32;
 const STACK_GAP: f32 = design::spacing::XS as f32;
 /// From a press on the action strip to past its edge, either way: the
-/// strip is 22 tall, and a gap keeps the menu off it.
-const STRIP_CLEAR: f32 = 22. + design::spacing::XS as f32;
+/// strip is 26 tall, and a gap keeps the menu off it.
+const STRIP_CLEAR: f32 = 26. + design::spacing::XS as f32;
 type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 mod picker;

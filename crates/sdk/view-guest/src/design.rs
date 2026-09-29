@@ -297,7 +297,8 @@ where
 
 /// A control drawn as a glyph alone (a cross, a plus): muted until the
 /// pointer is on it. `name` is what it does, in words, since the glyph
-/// says nothing to a screen reader.
+/// says nothing to a screen reader. The box is no smaller than
+/// [`PRESS_TARGET`] each way, the glyph centred in it.
 pub fn icon_button(
     id: impl Into<ElementId>,
     glyph: impl IntoElement,
@@ -308,6 +309,11 @@ pub fn icon_button(
     let theme = *theme;
     div()
         .id(id)
+        .min_w(PRESS_TARGET)
+        .min_h(PRESS_TARGET)
+        .flex()
+        .items_center()
+        .justify_center()
         .px_1()
         .text_color(theme.muted)
         .cursor_pointer()
@@ -679,6 +685,23 @@ mod tests {
         assert_eq!(control.aria.label.as_deref(), Some("Close"));
         assert!(control.focusable && control.on_click.is_some());
         assert_eq!(faults(&node), []);
+    }
+
+    #[test]
+    fn an_icon_button_is_at_least_24_px_each_way() {
+        let theme = Theme::light();
+        let node = lower(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
+        let wire::Node::Container(container) = &node else {
+            panic!("no container: {node:?}")
+        };
+        let floor = Some(px(24.).into());
+        assert_eq!(
+            (
+                container.style.min_size.width,
+                container.style.min_size.height
+            ),
+            (floor, floor)
+        );
     }
 
     #[test]
