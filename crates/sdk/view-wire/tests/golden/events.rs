@@ -1,4 +1,4 @@
-//! One of every `Event`, and the `Frame` around the tree.
+//! Every `Event` variant at least once, and the `Frame` around the tree.
 use super::*;
 
 pub fn every_event() -> Vec<Event> {
@@ -89,6 +89,15 @@ pub fn every_event() -> Vec<Event> {
             event: interactivity::MouseMove {
                 position: at(5.0, 6.0),
                 pressed_button: Some(click::MouseButton::Left),
+                modifiers,
+            },
+        },
+        Event::MouseExit {
+            handler: 8,
+            phase: DispatchPhase::Bubble,
+            event: interactivity::MouseExit {
+                position: at(5.0, 6.0),
+                pressed_button: None,
                 modifiers,
             },
         },
@@ -295,6 +304,15 @@ pub fn every_event() -> Vec<Event> {
             event: RichTextHover {
                 index: Some(2),
                 position: at(9.0, 9.0),
+                pressed_button: None,
+                modifiers: gpui::Modifiers::default(),
+            },
+        },
+        Event::RichTextHover {
+            handler: 26,
+            event: RichTextHover {
+                index: Some(2),
+                position: at(9.0, 9.0),
                 pressed_button: Some(click::MouseButton::Left),
                 modifiers: gpui::Modifiers::default(),
             },
@@ -408,17 +426,27 @@ pub fn every_event() -> Vec<Event> {
 pub fn every_frame() -> Frame {
     Frame {
         upstream_sanitization: Default::default(),
-        editor_decisions: vec![EditorResponse {
-            id: transaction(),
-            decision: EditorDecision::Apply {
-                patches: vec![],
-                cursor: EditorCursor {
-                    position: EditorPosition { line: 0, column: 1 },
-                    selection: Some(EditorPosition { line: 0, column: 3 }),
+        editor_decisions: vec![
+            EditorResponse {
+                id: transaction(),
+                decision: EditorDecision::Apply {
+                    patches: vec![],
+                    cursor: EditorCursor::default(),
+                    history: EditorHistoryEffect::NewGroup,
                 },
-                history: EditorHistoryEffect::NewGroup,
             },
-        }],
+            EditorResponse {
+                id: transaction(),
+                decision: EditorDecision::Apply {
+                    patches: vec![],
+                    cursor: EditorCursor {
+                        position: EditorPosition { line: 0, column: 1 },
+                        selection: Some(EditorPosition { line: 0, column: 3 }),
+                    },
+                    history: EditorHistoryEffect::NewGroup,
+                },
+            },
+        ],
         editor_documents: vec![EditorDocumentMessage::Failed {
             id: transfer(),
             reason: EditorTransferError::Order,
