@@ -117,6 +117,10 @@ impl<'a> Lowering<'a> {
         self.app
     }
 
+    pub(crate) fn theme(&self) -> crate::Theme {
+        *self.app.global::<crate::Theme>()
+    }
+
     pub(crate) fn parts(&mut self) -> (&mut Window, &mut App) {
         (self.window, self.app)
     }

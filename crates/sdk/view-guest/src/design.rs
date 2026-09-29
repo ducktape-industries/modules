@@ -13,7 +13,7 @@ mod format;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural, set_utc_offset};
 
 use crate::prelude::*;
-use crate::{Div, FontWeight, Hsla, Pixels, Stateful};
+use crate::{BoxShadow, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
 
 /// [`type_scale`] as sizes an element takes.
 pub mod text {
@@ -156,6 +156,44 @@ pub fn mono(text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
+/// The focus ring: `color`, 2 px, just inside the edge, on a control the
+/// keyboard has reached. The SDK draws it on every focusable node that has
+/// no `focus_visible` of its own; a control whose own edge is already ink
+/// shows it in the ink's foreground ([`focus_shown_on_ink`]).
+pub fn focus_ring(color: Hsla) -> StyleRefinement {
+    StyleRefinement::default()
+        .shadow(vec![ring_shadow(color, 2., true)])
+        // inset shadows paint under the border: a bordered control would
+        // otherwise show one pixel of the two
+        .border_color(color)
+}
+
+fn ring_shadow(color: Hsla, spread: f32, inset: bool) -> BoxShadow {
+    BoxShadow {
+        color,
+        offset: gpui::point(px(0.), px(0.)),
+        blur_radius: px(0.),
+        spread_radius: px(spread),
+        inset,
+    }
+}
+
+/// The focus ring in ink, for an element whose own `focus_visible` would
+/// otherwise replace it: `style` is what the element adds to it.
+pub fn focus_shown<E: InteractiveElement>(
+    element: E,
+    theme: &Theme,
+    style: impl FnOnce(StyleRefinement) -> StyleRefinement,
+) -> E {
+    element.focus_visible(|_| style(focus_ring(theme.accent)))
+}
+
+/// The focus ring on an ink-filled control (a primary button, a switch that
+/// is on): the ink's foreground, since ink on ink shows nothing.
+pub fn focus_shown_on_ink<E: InteractiveElement>(element: E, theme: &Theme) -> E {
+    element.focus_visible(|_| focus_ring(theme.primary_foreground))
+}
+
 /// What a [`Button`] is among its neighbours.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Kind {
@@ -248,14 +286,21 @@ where
             (Kind::Primary, _) if !self.enabled => {
                 element.bg(theme.faint).text_color(theme.primary_foreground)
             }
-            (Kind::Primary, _) => element
-                .bg(theme.primary)
-                .text_color(theme.primary_foreground),
+            (Kind::Primary, _) => focus_shown_on_ink(
+                element
+                    .bg(theme.primary)
+                    .text_color(theme.primary_foreground),
+                &theme,
+            ),
+            // the edge is ink already: the ring reaches one pixel further in
             (_, true) => element
                 .bg(theme.background)
                 .text_color(theme.foreground)
                 .border_1()
-                .border_color(theme.foreground),
+                .border_color(theme.foreground)
+                .focus_visible(move |style| {
+                    style.shadow(vec![ring_shadow(theme.accent, 3., true)])
+                }),
             (Kind::Quiet, false) => element
                 .text_color(theme.muted)
                 .border_1()
@@ -449,7 +494,11 @@ pub fn switch(
         .aria_toggled(on.into())
         .child(knob);
     match enabled {
-        true => element.cursor_pointer().focusable().on_click(toggle),
+        true => element
+            .cursor_pointer()
+            .focusable()
+            .on_click(toggle)
+            .when(on, |pill| focus_shown_on_ink(pill, theme)),
         false => element.opacity(0.5).aria_disabled(true),
     }
 }
@@ -562,6 +611,8 @@ pub fn divider<V: crate::View>(
         .aria_orientation(gpui::Orientation::Vertical)
         .focusable()
         .tab_stop(true)
+        // the line covers an inset ring whole: this one sits outside it
+        .focus_visible(|style| style.shadow(vec![ring_shadow(theme.accent, 2., false)]))
         .on_key_down(stepped)
 }
 
@@ -716,6 +767,33 @@ mod tests {
         let group = interactivity(&node);
         assert_eq!(group.role, Some(Role::RadioGroup));
         assert_eq!(group.aria.label.as_deref(), Some("Object format"));
+    }
+
+    #[test]
+    fn a_focusable_node_shows_the_focus_ring_unless_it_draws_its_own() {
+        let theme = Theme::light();
+        let plain = lower(button("save", "Save", &theme, |_, _, _| {}));
+        assert_eq!(
+            interactivity(&plain).focus_visible,
+            Some(focus_ring(theme.accent))
+        );
+        let ink = lower(button("send", "Send", &theme, |_, _, _| {}).kind(Kind::Primary));
+        assert_eq!(
+            interactivity(&ink).focus_visible,
+            Some(focus_ring(theme.primary_foreground))
+        );
+        let own = lower(
+            div()
+                .id("menu")
+                .focusable()
+                .focus_visible(|style| style.opacity(0.5)),
+        );
+        assert_eq!(
+            interactivity(&own).focus_visible,
+            Some(StyleRefinement::default().opacity(0.5))
+        );
+        let still = lower(div().id("box").child("text"));
+        assert_eq!(interactivity(&still).focus_visible, None);
     }
 
     #[test]
