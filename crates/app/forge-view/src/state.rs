@@ -77,6 +77,10 @@ pub struct Forge {
     /// the repository the arrows are on in the rail
     #[serde(skip)]
     pub(crate) rail_cursor: Option<String>,
+    /// the row the arrows are on in a commit, change or ref list, and
+    /// which of its cells: the list's id, the row, the cell
+    #[serde(skip)]
+    pub(crate) list_cursor: Option<(&'static str, usize, usize)>,
     /// the repository tab the arrows are on but have not opened
     #[serde(skip)]
     pub(crate) tab_cursor: Option<RepoTab>,

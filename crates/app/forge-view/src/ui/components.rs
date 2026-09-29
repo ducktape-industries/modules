@@ -28,12 +28,15 @@ where
     key: String,
     theme: Theme,
     selected: bool,
+    /// `Some(cell)`: the arrows are on this row, at that cell
+    active: Option<usize>,
     children: Vec<AnyElement>,
     controls: Vec<AnyElement>,
     click: Option<F>,
 }
 
-/// A row keyed `key`; its press, when it has one, is `{key}-open`.
+/// A row keyed `key` of a [`list`] or a [`grid`]; its press, when it has
+/// one, is `{key}-open`.
 pub(crate) fn row<F>(key: impl Into<String>, theme: &Theme) -> Row<F>
 where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -42,6 +45,7 @@ where
         key: key.into(),
         theme: *theme,
         selected: false,
+        active: None,
         children: Vec::new(),
         controls: Vec::new(),
         click: None,
@@ -60,12 +64,18 @@ where
         self.selected = selected;
         self
     }
+    /// The arrows are on this row, at `cell`: 0 is its press, then each
+    /// control in order. A control claims for itself when it is the cell.
+    pub fn active(mut self, cell: Option<usize>) -> Self {
+        self.active = cell;
+        self
+    }
     pub fn cell(mut self, child: impl IntoElement) -> Self {
         self.children.push(child.into_any_element());
         self
     }
     /// A control of its own at the row's end (a ref's Compare), beside
-    /// the row's press rather than inside it.
+    /// the row's press rather than inside it: a cell of the grid row.
     pub fn control(mut self, child: impl IntoElement) -> Self {
         self.controls.push(child.into_any_element());
         self
@@ -87,30 +97,135 @@ where
             .gap_2()
             .min_h(design::size::CONTROL)
             .px_2()
-            .role(Role::ListItem)
-            .when(self.selected, |item| item.bg(chosen));
+            .when(self.selected, |item| item.bg(chosen))
+            .when(self.active.is_some() && !self.selected, |item| {
+                item.bg(hovered)
+            });
         let Some(click) = self.click else {
-            return item.children(self.children).children(self.controls);
+            return item
+                .role(Role::ListItem)
+                .children(self.children)
+                .children(self.controls);
         };
+        // no controls: the row is the option, and its press
+        if self.controls.is_empty() {
+            let option = item
+                .hover(move |style| style.bg(hovered))
+                .aria_selected(self.selected)
+                .on_click(click)
+                .children(self.children);
+            return design::item(option, Role::ListBoxOption, self.active.is_some());
+        }
+        // controls: a grid row whose first cell is the press
         let press = div()
             .id(id(format!("{}-open", self.key)))
-            .flex_1()
-            .min_w(px(0.))
-            .self_stretch()
+            .size_full()
             .flex()
             .items_center()
             .gap_2()
-            .role(Role::Button)
             .when(self.selected, |press| {
                 press.aria_current(accesskit::AriaCurrent::True)
             })
-            .focusable()
             .on_click(click)
             .children(self.children);
-        item.hover(move |style| style.bg(hovered))
+        let press = div()
+            .id(id(format!("{}-open-cell", self.key)))
+            .flex_1()
+            .min_w(px(0.))
+            .self_stretch()
+            .role(Role::GridCell)
+            .child(design::item(press, Role::Button, self.active == Some(0)));
+        let key = self.key.clone();
+        item.role(Role::Row)
+            .hover(move |style| style.bg(hovered))
             .child(press)
-            .children(self.controls)
+            .children(
+                self.controls
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, control)| {
+                        div()
+                            .id(id(format!("{key}-control-{index}")))
+                            .role(Role::GridCell)
+                            .child(control)
+                    }),
+            )
     }
+}
+
+/// Which row of the list `id` the arrows are on, and which of its cells:
+/// the view's cursor there, else the first row.
+pub(crate) fn cursor(forge: &Forge, id: &'static str) -> (usize, usize) {
+    match forge.list_cursor {
+        Some((list, row, cell)) if list == id => (row, cell),
+        _ => (0, 0),
+    }
+}
+
+/// A list of [`row`]s as one Tab stop: ↑ ↓ walk the rows, Enter presses
+/// the active one (`on_press`). The rows go in as the list's children.
+pub(crate) fn list(
+    id_: &'static str,
+    label: &str,
+    count: usize,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    on_press: impl Fn(&mut Forge, usize, &mut Window, &mut Context<Forge>) + 'static,
+) -> Stateful<Div> {
+    let (at, _) = cursor(forge, id_);
+    design::composite(id(id_), Role::ListBox, label.to_owned())
+        .active(at.min(count.saturating_sub(1)), count)
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.list_cursor = Some((id_, index, 0));
+            cx.notify();
+        }))
+        .on_press(
+            cx.processor(move |forge, index: usize, window, cx| on_press(forge, index, window, cx)),
+        )
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+}
+
+/// A grid of [`row`]s with controls as one Tab stop: ↑ ↓ walk the rows,
+/// ← → a row's cells (its press, then each control), Enter presses the
+/// active cell (`on_press(row, cell)`). `cells` is the active row's count.
+pub(crate) fn grid(
+    id_: &'static str,
+    label: &str,
+    count: usize,
+    cells: usize,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    on_press: impl Fn(&mut Forge, usize, usize, &mut Window, &mut Context<Forge>) + 'static,
+) -> Stateful<Div> {
+    let (at, cell) = cursor(forge, id_);
+    let at = at.min(count.saturating_sub(1));
+    let cell = cell.min(cells.saturating_sub(1));
+    design::composite(id(id_), Role::Grid, label.to_owned())
+        .active(at, count)
+        .cells(cell, cells)
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.list_cursor = Some((id_, index, 0));
+            cx.notify();
+        }))
+        .on_move_cell(cx.processor(move |forge, cell: usize, _, cx| {
+            forge.list_cursor = Some((id_, at, cell));
+            cx.notify();
+        }))
+        .on_press(cx.processor(move |forge, index: usize, window, cx| {
+            let (_, cell) = cursor(forge, id_);
+            on_press(forge, index, cell, window, cx)
+        }))
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
 }
 
 pub(crate) fn loading(id: impl Into<ElementId>, text: &str, theme: &Theme) -> AnyElement {

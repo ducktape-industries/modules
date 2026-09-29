@@ -5,7 +5,7 @@ use ducktape_view_guest::prelude::*;
 
 use crate::Forge;
 use crate::ui::components::{badge, button, empty_state, id, quiet, ref_label, row, short_hex};
-use crate::ui::{pending, scroller, staged};
+use crate::ui::{pending, staged};
 use forge::{Mergeability, Query, RefInfo, Reply, Revision};
 
 pub(crate) fn render(
@@ -48,9 +48,31 @@ pub(crate) fn render(
             ))
             .into_any_element();
     }
-    let mut list = scroller("forge-refs-list");
-    for info in &page.items {
-        list = list.child(ref_row(forge, info, head, cx, theme));
+    // one Tab stop: ↑ ↓ walk the refs, ← → a row's cells (the ref, its
+    // Compare), Enter presses the active cell
+    let names: Vec<Vec<u8>> = page.items.iter().map(|info| info.name.clone()).collect();
+    let (at, _) = crate::ui::components::cursor(forge, "forge-refs-list");
+    let at = at.min(names.len().saturating_sub(1));
+    let compares = |name: &[u8]| name != forge.default_head() && !name.starts_with(b"refs/tags/");
+    let cells = 1 + usize::from(names.get(at).is_some_and(|name| compares(name)));
+    let mut list = crate::ui::components::grid(
+        "forge-refs-list",
+        "Refs",
+        names.len(),
+        cells,
+        forge,
+        cx,
+        move |forge, index, cell, _, cx| match cell {
+            0 => forge.pick_ref(names[index].clone(), cx),
+            _ => forge.start_change(names[index].clone(), cx),
+        },
+    )
+    .gap_1()
+    .p_2();
+    for (index, info) in page.items.iter().enumerate() {
+        let active =
+            (index == at).then_some(crate::ui::components::cursor(forge, "forge-refs-list").1);
+        list = list.child(ref_row(forge, info, head, active, cx, theme));
     }
     column
         .child(list.children(forbidden(forge, theme)))
@@ -67,6 +89,7 @@ fn ref_row(
     forge: &Forge,
     info: &RefInfo,
     head: &[u8],
+    active: Option<usize>,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
@@ -83,6 +106,7 @@ fn ref_row(
     });
     let mut line = row(format!("forge-ref-row-{label}"), theme)
         .on_click(pick)
+        .active(active)
         .selected(name == forge.head_name())
         .cell(
             div()
@@ -115,7 +139,8 @@ fn ref_row(
                 theme,
                 start,
             )
-            .enabled(forge.may_write()),
+            .enabled(forge.may_write())
+            .item(active == Some(1)),
         );
     }
     line.into_any_element()

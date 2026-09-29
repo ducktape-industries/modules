@@ -7,7 +7,7 @@ use ducktape_view_guest::{Div, EditorElement};
 use crate::Forge;
 use crate::state::{ChangeForm, Filter};
 use crate::ui::components::{badge, button, empty_state, heading, id, quiet, ref_label};
-use crate::ui::{pending, scroller, staged};
+use crate::ui::{pending, staged};
 use forge::{ChangeState, ChangeSummary, Judgment, Reply, ReviewCounts};
 
 pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
@@ -75,9 +75,28 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             ))
             .into_any_element();
     }
-    let mut list = scroller("forge-changes-list").p_0().gap_0();
-    for (summary, judgment) in shown {
-        list = list.child(change_row(forge, summary, *judgment, cx, theme));
+    // one Tab stop: ↑ ↓ walk the changes, Enter opens the active one
+    let numbers: Vec<u64> = shown.iter().map(|(summary, _)| summary.n).collect();
+    let (at, _) = crate::ui::components::cursor(forge, "forge-changes-list");
+    let at = at.min(numbers.len().saturating_sub(1));
+    let mut list = crate::ui::components::list(
+        "forge-changes-list",
+        "Changes",
+        numbers.len(),
+        forge,
+        cx,
+        move |forge, index, _, cx| forge.open_change(Some(numbers[index]), cx),
+    )
+    .gap_0();
+    for (index, (summary, judgment)) in shown.iter().enumerate() {
+        list = list.child(change_row(
+            forge,
+            summary,
+            *judgment,
+            index == at,
+            cx,
+            theme,
+        ));
     }
     column.child(list).into_any_element()
 }
@@ -94,6 +113,7 @@ fn change_row(
     forge: &Forge,
     summary: &ChangeSummary,
     judgment: Option<&Judgment>,
+    active: bool,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
@@ -116,8 +136,8 @@ fn change_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(move |style| style.bg(theme_.surface))
-        .role(Role::Button)
-        .focusable()
+        .when(active, |line| line.bg(theme_.surface))
+        .aria_selected(false)
         .on_click(open)
         .child(
             div()
@@ -178,12 +198,13 @@ fn change_row(
             ));
         }
     }
-    line.child(verdicts(&summary.verdicts, n, theme))
-        .child(div().w(px(90.)).flex().justify_end().child(quiet(
+    let line = line.child(verdicts(&summary.verdicts, n, theme)).child(
+        div().w(px(90.)).flex().justify_end().child(quiet(
             design::plural(summary.comment_count, "comment", "comments"),
             theme,
-        )))
-        .into_any_element()
+        )),
+    );
+    design::item(line, Role::ListBoxOption, active).into_any_element()
 }
 
 fn state_label(state: ChangeState) -> &'static str {

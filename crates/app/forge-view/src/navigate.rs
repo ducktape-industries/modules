@@ -10,6 +10,7 @@ use forge::Reply;
 impl Forge {
     fn moved(&mut self, cx: &mut Context<Self>) {
         self.notice.clear();
+        self.list_cursor = None;
         cx.notify();
         self.sync(cx);
     }

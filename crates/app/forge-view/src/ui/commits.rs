@@ -81,11 +81,38 @@ pub(crate) fn log(
     let open: crate::ui::diff::Route<String> =
         Rc::new(cx.listener(|forge, oid: &String, _, cx| forge.open_commit(Some(oid.clone()), cx)));
     let handle = forge.log_scroll.clone();
-    crate::ui::components::rows(element_id, count, None, Some(&handle), move |index| {
+    // one Tab stop: ↑ ↓ walk the commits (the virtual list scrolled to the
+    // active one before it claims), Enter opens it
+    let list_id: &'static str = match element_id {
+        "forge-change-log" => "forge-change-log-list",
+        _ => "forge-log-list",
+    };
+    let (at, _) = crate::ui::components::cursor(forge, list_id);
+    let at = at.min(count.saturating_sub(1));
+    let oids: Vec<String> = rows.iter().map(|(oid, ..)| oid.clone()).collect();
+    let list = crate::ui::components::list(
+        list_id,
+        "Commits",
+        count,
+        forge,
+        cx,
+        move |forge, index, _, cx| forge.open_commit(Some(oids[index].clone()), cx),
+    )
+    .on_key_down(cx.listener(|forge, event: &KeyDownEvent, _, _| {
+        if matches!(event.keystroke.key.as_str(), "up" | "down" | "home" | "end")
+            && let Some((_, row, _)) = forge.list_cursor
+        {
+            forge
+                .log_scroll
+                .scroll_to_item(row, ScrollStrategy::Nearest);
+        }
+    }));
+    let rows = crate::ui::components::rows(element_id, count, None, Some(&handle), move |index| {
         let (oid, summary, author, time, parents) = rows[index].clone();
         let open = open.clone();
         let clicked = oid.clone();
         let mut row = crate::ui::components::row(format!("forge-commit-{oid}"), &theme)
+            .active((index == at).then_some(0))
             .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| {
                 open(&clicked, window, app)
             })
@@ -113,7 +140,8 @@ pub(crate) fn log(
             ));
         }
         row.into_any_element()
-    })
+    });
+    list.child(rows).into_any_element()
 }
 
 /// A commit's ids, parents, author and message.

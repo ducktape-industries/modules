@@ -907,7 +907,7 @@ fn commits_follows_the_cursor_and_opens_one_commit_with_its_diff() {
         assert!(page.next.is_none());
     });
     assert!(cx.has_text("Feature"), "{:?}", cx.texts());
-    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d-open");
+    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
     cx.run_until_parked();
     assert!(
         cx.has_text("Feature\n\nReview these bytes.\n"),
@@ -1452,4 +1452,89 @@ fn a_forge_link_opens_its_repository() {
     routes.send("project/extra".into());
     cx.run_until_parked();
     view.read(|forge| assert!(forge.nav().repo.is_none()));
+}
+
+#[test]
+fn the_commit_list_is_a_list_box_whose_enter_opens_the_active_commit() {
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    let list = cx.interactivity("forge-log-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(list.focusable && list.tab_stop == Some(true));
+    let first = cx.interactivity("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
+    assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert!(!first.focusable && first.aria.active_descendant);
+    cx.simulate_key_down("forge-log-list", "down");
+    let second: String = cx
+        .find("forge-log")
+        .expect("the log")
+        .children()
+        .iter()
+        .filter_map(|row| row.key())
+        .nth(1)
+        .expect("a second commit")
+        .to_owned();
+    assert!(cx.interactivity(&second).aria.active_descendant);
+    cx.simulate_key_down("forge-log-list", "enter");
+    cx.run_until_parked();
+    let oid = second.trim_start_matches("forge-commit-").to_owned();
+    view.read(|forge| assert_eq!(forge.nav().commit.as_deref(), Some(oid.as_str())));
+}
+
+#[test]
+fn the_change_list_is_a_list_box_whose_enter_opens_the_active_change() {
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    let list = cx.interactivity("forge-changes-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(list.focusable && list.tab_stop == Some(true));
+    let row = cx.interactivity("forge-change-1");
+    assert_eq!(row.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert!(!row.focusable && row.aria.active_descendant);
+    cx.simulate_key_down("forge-changes-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.nav().change, Some(1)));
+}
+
+#[test]
+fn the_ref_list_is_a_grid_whose_right_reaches_compare() {
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    let grid = cx.interactivity("forge-refs-list");
+    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(grid.focusable && grid.tab_stop == Some(true));
+    let rows: Vec<String> = cx
+        .find("forge-refs-list")
+        .expect("the refs")
+        .children()
+        .iter()
+        .filter_map(|row| row.key().map(str::to_owned))
+        .filter(|key| key.starts_with("forge-ref-row-"))
+        .collect();
+    assert!(
+        cx.interactivity(&format!("{}-open", rows[0]))
+            .aria
+            .active_descendant
+    );
+    // ↓ to the second ref, → to its Compare, Enter starts a change from it
+    cx.simulate_key_down("forge-refs-list", "down");
+    let branch = &rows[1];
+    let label = &branch["forge-ref-row-".len()..];
+    assert!(
+        cx.interactivity(&format!("{branch}-open"))
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("forge-refs-list", "right");
+    let compare = cx.interactivity(&format!("forge-compare-{label}"));
+    assert!(compare.aria.active_descendant && !compare.focusable);
+    cx.simulate_key_down("forge-refs-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        let form = forge.form.as_ref().expect("a change draft");
+        assert_eq!(form.from, format!("refs/heads/{label}").into_bytes());
+    });
 }
