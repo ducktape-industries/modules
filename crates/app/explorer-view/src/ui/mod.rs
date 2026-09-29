@@ -23,6 +23,8 @@ const SEARCH_W: Pixels = px(360.);
 const SEARCH_MIN_W: Pixels = px(160.);
 /// A list row's height, and a detail field's least.
 const ROW_H: Pixels = px(40.);
+/// The smallest box a pointer presses, each way (the door's AX-017).
+const PRESS_TARGET: Pixels = px(24.);
 /// The signer column.
 const SIGNER_W: Pixels = px(180.);
 /// A block list's height column.
@@ -256,12 +258,17 @@ fn caption(text: impl Into<SharedString>, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-/// A link that goes somewhere inside the explorer.
+/// A link that goes somewhere inside the explorer, in a box no smaller
+/// than [`PRESS_TARGET`] with the text centred down it.
 fn link(id: String, text: String, route: Route, cx: Cx, theme: &Theme) -> Stateful<Div> {
     let go =
         cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
     div()
         .id(SharedString::from(id))
+        .min_w(PRESS_TARGET)
+        .min_h(PRESS_TARGET)
+        .flex()
+        .items_center()
         .text_color(theme.link)
         .hover(|s| s.underline())
         .role(Role::Link)

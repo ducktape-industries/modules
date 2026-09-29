@@ -1092,6 +1092,31 @@ fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {
     view.read(|forge| assert!(forge.nav.repo.is_none(), "copy is not open"));
 }
 
+/// A row's Copy and block link, and the open repository's block link, are
+/// at least 24 px each way: the box's own floor, so the bounds the door's
+/// AX-017 reads cannot come in under it, whatever the text inside.
+#[test]
+fn the_small_press_targets_are_at_least_24_px_each_way() {
+    use ducktape_view_guest::px;
+    let floor = |cx: &TestAppContext, key: &str| {
+        let style = control(cx, key).style;
+        (style.min_size.width, style.min_size.height)
+    };
+    let (cx, _) = booted("default");
+    for key in ["forge-repo-project-copy", "forge-repo-project-activity"] {
+        assert_eq!(
+            floor(&cx, key),
+            (Some(px(24.).into()), Some(px(24.).into())),
+            "{key}"
+        );
+    }
+    let (cx, _) = opened("default");
+    assert_eq!(
+        floor(&cx, "forge-repo-activity"),
+        (Some(px(24.).into()), Some(px(24.).into()))
+    );
+}
+
 /// The key's roled container: its role, focus and press.
 pub(crate) fn control(cx: &TestAppContext, key: &str) -> wire::ContainerNode {
     match cx.find(key) {

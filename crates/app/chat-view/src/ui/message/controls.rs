@@ -7,8 +7,9 @@ use ducktape_view_guest::{ClickEvent, ElementId, ParentElement, Styled, Theme, W
 /// An action strip button's height: the strip, borders and all, is 22 and
 /// sits inside the most compact row.
 const STRIP_BUTTON_HEIGHT: f32 = 20.;
-/// A reaction chip's height, a size under the thread button's.
-const REACTION_HEIGHT: f32 = 22.;
+/// A reaction chip's height, the thread button's: the smallest box a
+/// pointer presses (the door's AX-017), and a chip is no narrower.
+const REACTION_HEIGHT: f32 = 24.;
 /// The thread button's height under a root.
 const REPLIES_HEIGHT: f32 = 24.;
 
@@ -68,9 +69,11 @@ pub(super) fn reaction_button(
     let mut control = div()
         .id(id)
         .h(px(REACTION_HEIGHT))
+        .min_w(px(REACTION_HEIGHT))
         .px(design::space::XS)
         .flex()
         .items_center()
+        .justify_center()
         .gap_1()
         .border_1()
         // the reader's own wear the strong line: accent_soft is the

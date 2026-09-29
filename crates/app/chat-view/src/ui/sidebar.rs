@@ -147,6 +147,11 @@ fn new_channel(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoE
     });
     div()
         .id("chat-sidebar-new-channel")
+        // the smallest box a pointer presses, each way (the door's AX-017)
+        .min_w(px(24.))
+        .min_h(px(24.))
+        .flex()
+        .items_center()
         .px_1()
         .py_0p5()
         .hover(|s| s.bg(theme.sidebar_raised))

@@ -45,6 +45,26 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
     );
 }
 
+/// "All blocks →" and "All transactions →" are at least 24 px each way:
+/// the box's own floor, so the bounds the door's AX-017 reads cannot come
+/// in under it, whatever the text inside.
+#[test]
+fn the_overview_links_are_at_least_24_px_each_way() {
+    use ducktape_view_guest::px;
+    use ducktape_view_guest::wire::Node;
+    let (cx, _) = ready();
+    for key in ["explorer-all-blocks", "explorer-all-txs"] {
+        let Some(Node::Container(link)) = cx.find(key) else {
+            panic!("no {key}");
+        };
+        assert_eq!(
+            (link.style.min_size.width, link.style.min_size.height),
+            (Some(px(24.).into()), Some(px(24.).into())),
+            "{key}"
+        );
+    }
+}
+
 #[test]
 fn a_block_opens_with_its_fields_its_proposer_and_its_transactions() {
     let (mut cx, _) = ready();
