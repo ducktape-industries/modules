@@ -160,6 +160,48 @@ fn a_transaction_without_a_receipt_shows_no_outcome() {
     );
 }
 
+/// Two pushes to one repo that both ran read alike on their rows but for
+/// the short hash drawn first on each: that hash ends each row's name, so
+/// the two are not one name for two places (the door's AX-016).
+#[test]
+fn two_like_transactions_are_named_apart_by_their_short_hash() {
+    let mut cx = TestAppContext::new();
+    cx.host().stream::<ChainHeads>();
+    node(&mut cx, Rc::new(RefCell::new(12)));
+    let push = |seed| {
+        let op = forge::Op::Push {
+            repo: "big-history".into(),
+            request: vec![1],
+        };
+        Tx {
+            receipt: Some(receipt(forge::MODULE, None, Vec::new())),
+            ..tx(seed, ADA, forge::MODULE, borsh::to_vec(&op).unwrap())
+        }
+    };
+    let mut blocks = chain(12);
+    blocks[12].txs = vec![push(0xd4), push(0xe5)];
+    cx.host()
+        .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    let name = |seed: u8| match cx.find(&format!("explorer-tx-{}", abi::hex(&[seed; 32]))) {
+        Some(ducktape_view_guest::wire::Node::Container(row)) => {
+            row.interactivity.aria.label.clone()
+        }
+        _ => panic!("no row for {seed:#x}"),
+    };
+    assert_eq!(
+        name(0xd4).as_deref(),
+        Some("Push · big-history, Accepted, d4d4d4d4…d4d4")
+    );
+    assert_eq!(
+        name(0xe5).as_deref(),
+        Some("Push · big-history, Accepted, e5e5e5e5…e5e5")
+    );
+    // no receipt, no outcome word, and no empty part in its place
+    assert_eq!(name(0xc3).as_deref(), Some("Direct message, c3c3c3c3…c3c3"));
+}
+
 #[test]
 fn an_account_shows_its_devices_and_what_it_used_in_the_window() {
     let (mut cx, _) = ready();
