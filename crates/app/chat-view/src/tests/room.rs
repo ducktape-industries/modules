@@ -526,3 +526,31 @@ fn jump_to_latest_floats_over_the_list() {
     assert!(!interactivity.occlude);
     assert!(cx.find("chat-jump-latest-button").is_some());
 }
+
+/// The rooms are one list box: ↓ reaches the direct message under the
+/// channels, Enter opens it.
+#[test]
+fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
+    let (mut cx, view) = opened();
+    let list = cx.interactivity("chat-sidebar-rooms-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(list.focusable && list.tab_stop == Some(true));
+    let general = cx.interactivity("chat-sidebar-channel-general");
+    assert!(!general.focusable && general.aria.active_descendant);
+    assert!(
+        cx.interactivity("chat-sidebar-new-channel").tab_stop == Some(true),
+        "the header's button stays a stop of its own"
+    );
+    cx.simulate_key_down("chat-sidebar-rooms-list", "down");
+    let dm = cx.interactivity("chat-sidebar-dm-8");
+    assert_eq!(dm.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert!(dm.aria.active_descendant && dm.aria.selected == Some(false));
+    view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
+    cx.simulate_key_down("chat-sidebar-rooms-list", "enter");
+    cx.run_until_parked();
+    view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "dm-7-8"));
+    assert_eq!(
+        cx.interactivity("chat-sidebar-dm-8").aria.selected,
+        Some(true)
+    );
+}

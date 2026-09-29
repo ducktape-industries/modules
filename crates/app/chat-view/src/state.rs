@@ -40,6 +40,10 @@ pub struct Chat {
     /// strip, beside a chosen one.
     #[serde(skip)]
     pub(crate) hovered: Option<(Pane, u64)>,
+    /// The room the arrows are on in the sidebar's list; the open room
+    /// until they move.
+    #[serde(skip)]
+    pub(crate) rooms_cursor: Option<String>,
     /// The line over the room saying a copy landed: not a refusal, so not
     /// the `notice` banner.
     #[serde(skip)]
