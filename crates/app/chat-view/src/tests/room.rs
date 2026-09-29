@@ -411,6 +411,21 @@ fn a_link_to_a_forge_room_lands_in_it() {
     );
 }
 
+/// A dm's sidebar row is called by its peer, not the avatar's initial drawn
+/// before the name; an agent's badge is its description.
+#[test]
+fn a_dm_row_is_named_by_its_peer_not_the_avatar() {
+    let (cx, _) = opened();
+    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+        interactivity, ..
+    })) = cx.find("chat-sidebar-dm-8")
+    else {
+        panic!("the dm row")
+    };
+    assert_eq!(interactivity.aria.label.as_deref(), Some("reviewer"));
+    assert_eq!(interactivity.aria.description.as_deref(), Some("Agent"));
+}
+
 /// A dm belongs to its two peers alike: its details list them, with no way
 /// to add a third, remove either, rename or archive it, as the program
 /// refuses each.

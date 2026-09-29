@@ -479,6 +479,27 @@ fn a_row_is_named_by_the_member_not_the_avatar() {
     }
 }
 
+/// A Manages row is called by the agent, not the avatar's initial either;
+/// its account and standing are its description.
+#[test]
+fn a_managed_agent_is_named_by_the_agent_not_the_avatar() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    for (number, name, description) in [
+        (9, "scout", "account 9 · Agent · active"),
+        (10, "relay", "account 10 · Agent · revoked"),
+    ] {
+        let Some(Node::Container(ContainerNode { interactivity, .. })) =
+            cx.find(&format!("members-manages-{number}"))
+        else {
+            panic!("members-manages-{number} is a container")
+        };
+        assert_eq!(interactivity.aria.label.as_deref(), Some(name));
+        assert_eq!(interactivity.aria.description.as_deref(), Some(description));
+    }
+}
+
 #[test]
 fn a_kind_with_no_one_in_it_says_so_without_quoting_an_empty_filter() {
     let mut cx = TestAppContext::new();

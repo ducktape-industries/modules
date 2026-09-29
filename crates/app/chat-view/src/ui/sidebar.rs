@@ -296,6 +296,9 @@ fn dm_button(
         })
         .hover(|s| s.bg(theme.sidebar_raised))
         .role(ducktape_view_guest::Role::Button)
+        // the peer's name, not the avatar's initial drawn before it
+        .aria_label(name.clone())
+        .when(agent, |row| row.aria_description("Agent"))
         .focusable()
         .on_click(click)
         .child(avatar(

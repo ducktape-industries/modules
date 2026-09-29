@@ -779,11 +779,18 @@ fn manages(managed: &[&Row], cx: &mut Context<Members>, theme: &Theme) -> impl I
             };
             let number = agent.number;
             let theme = *theme;
+            let about = format!("account {number} · Agent");
             let row = line()
                 .id(format!("members-manages-{}", number))
                 .cursor_pointer()
                 .hover(move |style| style.bg(theme.surface))
                 .role(Role::Button)
+                // the agent's name, not the avatar's initial drawn before it
+                .aria_label(agent.name.clone())
+                .aria_description(format!(
+                    "{about} · {}",
+                    agent.kind.note().unwrap_or("active")
+                ))
                 .focusable()
                 .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(number, cx)))
                 .child(avatar(
@@ -800,7 +807,7 @@ fn manages(managed: &[&Row], cx: &mut Context<Members>, theme: &Theme) -> impl I
                         .child(agent.name.clone()),
                 )
                 .child(
-                    design::mono(format!("account {number} · Agent"))
+                    design::mono(about)
                         .text_size(text::CAPTION)
                         .text_color(theme.muted),
                 )
