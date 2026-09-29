@@ -29,10 +29,19 @@
 //!
 //! `grid` -- `schema.rs`'s second registry, gpui's `GridLocation` carve-out
 //! for a `Range` name that collides with the tree's own -- is not required
-//! here: every container it holds besides `Range` itself already appears,
-//! identically, in `tree`, and the samples below never populate a grid
-//! placement, so the only coverage this leaves out is a `Range<GridPlacement>`
-//! value inside a style, not a distinct type.
+//! to build `expected` here: every container it holds besides `Range` itself
+//! already appears, identically, in `tree`. But that same name collision
+//! means this gate cannot see `GridPlacement` at all: `reachable()` walking
+//! `tree` resolves a `Range` type name to the WIRE's own `Range` (its
+//! `start`/`end` fields), never to gpui's `Range<GridPlacement>`, so
+//! `GridPlacement`'s variants (`Line`, `Span`, `Auto`) never enter `expected`
+//! and this test cannot fail if one goes unsampled. `full_style()` samples
+//! all three anyway (`grid_location: Line(1)..Span(2)` and `Auto..Auto`), so
+//! the byte fixture is complete here -- only this gate's mechanical coverage
+//! of it is not, and that gap is accepted rather than closed (the `grid`
+//! registry has no `Frame`/`Event`/`WidgetCommand` root of its own to BFS
+//! from without hand-listing `GridLocation`, which is the "never a
+//! hand-maintained list" rule this whole file exists to avoid breaking).
 use std::collections::BTreeSet;
 
 use serde_json::Value as Json;
