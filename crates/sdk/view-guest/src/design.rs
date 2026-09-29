@@ -225,6 +225,8 @@ where
     enabled: bool,
     kind: Kind,
     selected: Option<bool>,
+    /// `Some(active)`: a cell of a [`composite`] grid, never focusable
+    item: Option<bool>,
     click: F,
 }
 
@@ -244,6 +246,7 @@ where
         enabled: true,
         kind: Kind::Plain,
         selected: None,
+        item: None,
         click,
     }
 }
@@ -262,6 +265,12 @@ where
     }
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = Some(selected);
+        self
+    }
+    /// The button as an [`item`] of a composite: it leaves the Tab order
+    /// and claims the active descendant when `active`.
+    pub fn item(mut self, active: bool) -> Self {
+        self.item = Some(active);
         self
     }
 }
@@ -337,7 +346,11 @@ where
             (Kind::Outline, false) => element.hover(move |style| style.bg(theme.surface)),
             _ => element,
         };
-        element.focusable().on_click(self.click)
+        let element = element.on_click(self.click);
+        match self.item {
+            Some(active) => item(element, Role::Button, active),
+            None => element.focusable(),
+        }
     }
 }
 
@@ -1298,6 +1311,16 @@ mod tests {
             assert_eq!(view.moved, [1, 2, 0]);
             assert_eq!(view.pressed, [2, 0]);
         });
+    }
+
+    #[test]
+    fn a_button_as_an_item_leaves_the_tab_order_and_claims() {
+        let theme = Theme::light();
+        let cell = lower(button("compare", "Compare", &theme, |_, _, _| {}).item(true));
+        let control = interactivity(&cell);
+        assert!(!control.focusable && control.tab_stop.is_none());
+        assert!(control.aria.active_descendant && control.on_click.is_some());
+        assert_eq!(control.role, Some(Role::Button));
     }
 
     #[test]
