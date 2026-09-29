@@ -177,7 +177,8 @@ fn action_strip(
         .absolute()
         .right_2()
         // 26px tall at 2px: its buttons are press targets of 24, so on
-        // a compact row (25) the bar's foot hangs into the next row
+        // a compact row (25) the bar's foot hangs 3px into the next row,
+        // which paints over it and is outside this row's hover
         .top(design::space::HAIR)
         .flex()
         .bg(theme.background)

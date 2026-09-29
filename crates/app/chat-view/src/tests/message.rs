@@ -221,7 +221,7 @@ fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
     };
     // a strip button is 24 tall and as wide as a kit row, over 24
     assert!(design::size::ROW >= px(24.));
-    for key in ["thumbs-up", "react", "more"] {
+    for key in ["thread", "thumbs-up", "react", "more"] {
         let style = style(&format!("chat-message-m1-{key}"));
         assert_eq!(
             (style.size.width, style.size.height),
