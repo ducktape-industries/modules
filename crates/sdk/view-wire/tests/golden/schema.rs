@@ -123,12 +123,12 @@ fn font_features(registry: &mut Registry) {
     }
 }
 
-/// accesskit's `ActionData` (an `A11yAction`'s data), whole. Its `Point` is
-/// accesskit's f64 one, which a trace beside gpui's `Point<Pixels>` would
-/// refuse by name: so it is traced alone, and each container it reaches
-/// that the tree already names otherwise enters as `accesskit::<name>`.
+/// accesskit's `ActionData` (an `A11yAction`'s data), whole, in place of the
+/// tree's partial one. Its `Point` is accesskit's f64 one, which a trace
+/// beside gpui's `Point<Pixels>` would refuse by name: so it is traced alone
+/// and [`merge`]d as `accesskit`.
 fn action_data(registry: &mut Registry) {
-    if !registry.contains_key("ActionData") {
+    if registry.remove("ActionData").is_none() {
         return;
     }
     let mut tracer = tracer();
@@ -136,11 +136,16 @@ fn action_data(registry: &mut Registry) {
     trace::<accesskit::ScrollHint>(&mut tracer);
     trace::<accesskit::ActionData>(&mut tracer);
     let own = tracer.registry().expect("ActionData traces whole alone");
+    merge(registry, own, "accesskit");
+}
+
+/// `own`'s containers into `registry`: one `registry` already names
+/// otherwise enters as `<prefix>::<name>`, and so does every reference to it.
+fn merge(registry: &mut Registry, own: Registry, prefix: &str) {
     let clash: BTreeSet<String> = own
         .iter()
         .filter(|&(name, container)| registry.get(name).is_some_and(|tree| tree != container))
         .map(|(name, _)| name.clone())
-        .filter(|name| name != "ActionData")
         .collect();
     for (name, mut container) in own {
         container
@@ -148,13 +153,13 @@ fn action_data(registry: &mut Registry) {
                 if let Format::TypeName(name) = format
                     && clash.contains(name)
                 {
-                    *name = format!("accesskit::{name}");
+                    *name = format!("{prefix}::{name}");
                 }
                 Ok(())
             })
             .unwrap();
         let name = match clash.contains(&name) {
-            true => format!("accesskit::{name}"),
+            true => format!("{prefix}::{name}"),
             false => name,
         };
         registry.insert(name, container);
@@ -284,7 +289,7 @@ struct Grid {
 /// `Range<GridPlacement>`: so the tree takes `Range` first, with a stand-in
 /// `GridLocation` of it that cuts the style's own on the next pass, and a
 /// trace of `StyleRefinement` alone answers for the style's.
-fn tree() -> (Registry, Registry) {
+pub(super) fn tree() -> (Registry, Registry) {
     let mut tree = registry(TREE);
     let text = ContainerFormat::Struct(vec![
         Named {
@@ -301,6 +306,14 @@ fn tree() -> (Registry, Registry) {
     let mut grid = registry(&[trace::<StyleRefinement>]);
     grid.retain(|name, container| tree.get(name) != Some(container));
     (tree, grid)
+}
+
+/// The wire's registry whole: [`tree`]'s, with the `GridLocation` it holds
+/// apart merged back, gpui's `Range<GridPlacement>` as `grid::Range`.
+pub(super) fn wire() -> Registry {
+    let (mut registry, grid) = tree();
+    merge(&mut registry, grid, "grid");
+    registry
 }
 
 /// The program a node method addresses, as [`Module`] declares it: each of
@@ -320,51 +333,57 @@ struct ModuleQuery;
 #[derive(Debug, BorshSerialize, BorshDeserialize, BorshSchema)]
 struct ModuleReply;
 
-type Definitions = BTreeMap<Declaration, Definition>;
+pub(super) type Definitions = BTreeMap<Declaration, Definition>;
 
-/// A borsh method: its kind, target, request and reply.
-fn borsh<M: Method>(definitions: &mut Definitions) -> (&'static str, String)
+/// A method's line: its target, its request and reply, and whether borsh
+/// carries them (else named MessagePack, serde's trace).
+pub(super) struct Shape {
+    pub(super) target: Option<&'static str>,
+    pub(super) request: String,
+    pub(super) reply: String,
+    pub(super) borsh: bool,
+}
+
+/// A borsh method, its request and reply declared and defined.
+fn borsh<M: Method>(definitions: &mut Definitions) -> (&'static str, Shape)
 where
     M::Request: BorshSchema,
     M::Reply: BorshSchema,
 {
     M::Request::add_definitions_recursively(definitions);
     M::Reply::add_definitions_recursively(definitions);
-    let line = format!(
-        "{} {:?} {} -> {}",
-        M::KIND,
-        M::TARGET,
-        M::Request::declaration(),
-        M::Reply::declaration()
-    );
-    (M::KIND, line)
+    let shape = Shape {
+        target: M::TARGET,
+        request: M::Request::declaration(),
+        reply: M::Reply::declaration(),
+        borsh: true,
+    };
+    (M::KIND, shape)
 }
 
 /// A method on the tree's side of the codec rule, its request and reply as
 /// serde traces them.
-fn tree_method<M: Method>() -> (&'static str, String)
+fn tree_method<M: Method>() -> (&'static str, Shape)
 where
     M::Request: DeserializeOwned,
     M::Reply: DeserializeOwned,
 {
     let mut tracer = tracer();
-    let request = trace::<M::Request>(&mut tracer);
-    let reply = trace::<M::Reply>(&mut tracer);
-    let line = format!(
-        "{} {:?} {request:?} -> {reply:?} named MessagePack",
-        M::KIND,
-        M::TARGET
-    );
-    (M::KIND, line)
+    let shape = Shape {
+        target: M::TARGET,
+        request: format!("{:?}", trace::<M::Request>(&mut tracer)),
+        reply: format!("{:?}", trace::<M::Reply>(&mut tracer)),
+        borsh: false,
+    };
+    (M::KIND, shape)
 }
 
-/// The whole text: the methods, the borsh definitions they reach, and the
-/// tree's containers.
-fn schema() -> String {
+/// Every method in `ALL` by kind, and the borsh definitions they reach.
+pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
     use methods::*;
     let mut definitions = Definitions::new();
     let d = &mut definitions;
-    let methods: BTreeMap<&str, String> = [
+    let shapes: BTreeMap<&str, Shape> = [
         borsh::<Query<P>>(d),
         borsh::<Submit<P>>(d),
         borsh::<Changes<P>>(d),
@@ -394,14 +413,30 @@ fn schema() -> String {
         borsh::<HostOffset>(d),
     ]
     .into();
-    let kinds: BTreeSet<&str> = methods.keys().copied().collect();
+    let kinds: BTreeSet<&str> = shapes.keys().copied().collect();
     let all: BTreeSet<&str> = ALL.iter().copied().collect();
     assert_eq!(kinds, all, "one line per method in ALL");
+    (shapes, definitions)
+}
 
+/// The whole text: the methods, the borsh definitions they reach, and the
+/// tree's containers.
+fn schema() -> String {
+    let (shapes, definitions) = shapes();
     let (tree, grid) = tree();
     let mut text = String::from("# methods: kind, target, request -> reply; borsh unless named\n");
-    for line in methods.values() {
-        writeln!(text, "{line}").unwrap();
+    for (kind, shape) in &shapes {
+        let codec = if shape.borsh {
+            ""
+        } else {
+            " named MessagePack"
+        };
+        writeln!(
+            text,
+            "{kind} {:?} {} -> {}{codec}",
+            shape.target, shape.request, shape.reply
+        )
+        .unwrap();
     }
     text.push_str("\n# borsh: every definition the methods reach\n");
     for (declaration, definition) in &definitions {
@@ -478,8 +513,8 @@ const HASHED: [&str; 3] = ["frame.bin", "methods.bin", "schema.txt"];
 /// The gap the schema closes, held generally: every name the wire has — a
 /// container, a field, a variant, a method kind — is in what `WIRE_ID`
 /// hashes, so none comes or goes without moving it. The bytes alone fail
-/// this: `methods.bin` samples one `WidgetCommand` of fourteen, and every
-/// fixture style is empty, so no `StyleRefinement` field is in `frame.bin`.
+/// this even with every variant and field sampled (`coverage.rs`): borsh
+/// writes no name at all, and named MessagePack no container's.
 #[test]
 fn wire_id_hashes_every_name_on_the_wire() {
     let hashed: Vec<u8> = HASHED

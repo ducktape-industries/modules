@@ -1,15 +1,18 @@
-//! The wire, committed: its bytes and its shape. One `Frame` holding every
-//! `Node` variant, one of every `Event`, and one request and reply through
-//! every method in `methods::ALL`, encoded into
-//! `tests/golden/{frame,methods}.bin` with a JSON twin beside each for
-//! readable diffs; and the shape of every type that crosses, in
-//! `tests/golden/schema.txt` (`golden/schema.rs`). The bytes fail on any
-//! sampled byte that moves, and miss what no fixture samples: a variant no
-//! fixture uses, a field left out as empty (every fixture style is), a
-//! method kind new since the fixture. The shape holds exactly those. A
-//! failure means the wire changed; if that was intended, regenerate with
-//! `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID` (`build.rs` hashes all
-//! three files).
+//! The wire, committed: its bytes and its shape. `frame.bin` holds a
+//! `Frame` with every `Node` variant in its tree, then every `Event`, every
+//! `WidgetCommand`, and every unit variant those leave out
+//! (`golden/units.rs`); `methods.bin` holds at least one request and reply
+//! through every method in `methods::ALL`; each has a JSON twin beside it
+//! for readable diffs. `tests/golden/schema.txt` (`golden/schema.rs`) holds
+//! the shape of every type that crosses. The bytes fail on any sampled byte
+//! that moves. The shape holds every field and variant, sampled or not, and
+//! `golden/coverage.rs` fails when a sample leaves one out: on the tree side
+//! every variant, and every struct field seen present, that `Frame`,
+//! `Event` or `WidgetCommand` reaches; on the borsh side every variant,
+//! `Option`'s `None` and `Some` included, that a method with no target
+//! reaches. A failure means the wire changed; if that was intended,
+//! regenerate with `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID` (`build.rs`
+//! hashes all three files).
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -26,13 +29,15 @@ use view_wire::list::{
 use view_wire::methods::{self, Method, Module};
 use view_wire::{
     Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
-    CanvasCommand, CanvasShape, ContainerNode, DispatchPhase, EditorCursor, EditorDecision,
-    EditorEditKind, EditorHistoryEffect, EditorPatch, EditorRequest, EditorRequestInput,
-    EditorResponse, EditorTransactionEvent, EditorTransactionId, ElementIdWire, Error, Event,
-    Frame, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid, ListAlignment,
-    ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node, Patch, Request,
-    RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource, SvgTransformation, TextNode,
-    TooltipResponse, WidgetCommand, click, interactivity, keyboard, mouse,
+    CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
+    ContainerNode, DispatchPhase, EditorBinding, EditorCursor, EditorDecision, EditorEditKind,
+    EditorFault, EditorHistoryEffect, EditorKeyClaim, EditorPatch, EditorPosition, EditorRequest,
+    EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId, ElementIdAtom,
+    ElementIdWire, Error, Event, Frame, GroupRefinement, HasPopup, ImageData, ImageObjectFit,
+    ImageStyle, Interactivity, Invalid, ListAlignment, ListOffset, ListRequest, ListScroll,
+    ListSizingBehavior, Live, Node, Patch, Request, RichTextHighlightStyle, RichTextHover,
+    RichTextRuns, SvgSource, SvgTransformation, TextNode, Tooltip, TooltipResponse, WidgetCommand,
+    click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -128,6 +133,19 @@ fn transfer() -> EditorTransferId {
     }
 }
 
+/// A document reference at [`transfer`]'s reset, for the messages that echo
+/// both (`EditorTransfer::Begin`, `EditorDocumentMessage::Request`): a
+/// mismatched reset is `EditorTransferError::Identity`, which a bare
+/// `Event::EditorDocument` never decodes far enough to hit (unlike
+/// `Frame.editor_documents`, nothing here calls `validate`), but a matching
+/// one reads true either way.
+fn transfer_target(byte_len: u32) -> EditorDocumentRef {
+    EditorDocumentRef {
+        reset: 0,
+        ..document(byte_len)
+    }
+}
+
 fn key_state() -> keyboard::KeyState {
     keyboard::KeyState {
         key: keyboard::Key::Named(keyboard::Named::Enter),
@@ -141,49 +159,72 @@ fn key_state() -> keyboard::KeyState {
     }
 }
 
+/// [`key_state`] on a different native platform: every [`keyboard::NativeCode`]
+/// variant besides `MacOS` (already [`key_state`]'s) and `Unidentified`
+/// (a unit variant, sampled in `golden/units.rs`).
+fn key_state_on(physical: keyboard::NativeCode) -> keyboard::KeyState {
+    keyboard::KeyState {
+        physical_key: keyboard::Physical::Unidentified(physical),
+        ..key_state()
+    }
+}
+
 fn at(x: f32, y: f32) -> gpui::Point<Pixels> {
     point(px(x), px(y))
 }
 
+/// The mechanical completeness gate: every field and variant `schema.rs`
+/// says the wire reaches, checked against what the samples show.
+#[path = "golden/coverage.rs"]
+mod coverage;
 #[path = "golden/events.rs"]
 mod events_fixture;
-/// Every `Node` variant once, in one tree. Exhaustive by construction: a
-/// variant added to `Node` must be added here, or `node_variant` will not build.
+/// Every `Node` variant at least once, in one tree. Exhaustive by
+/// construction: a variant added to `Node` must be added here, or
+/// `node_variant` will not build.
 #[path = "golden/nodes.rs"]
 mod nodes;
 /// The wire's shape, hashed into `WIRE_ID` beside the bytes.
 #[path = "golden/schema.rs"]
 mod schema;
+/// Every unit variant the samples in place leave out: the fourth value
+/// `frame.bin` pins.
+#[path = "golden/units.rs"]
+mod units_fixture;
+/// Every `WidgetCommand` variant once: the third value `frame.bin` pins,
+/// tree-side like `Frame` and `Event` but never nested under either.
+#[path = "golden/widget.rs"]
+mod widget_fixture;
 use events_fixture::{event_variant, every_event, every_frame};
 use nodes::{every_node, node_variant};
+use units_fixture::{Units, every_unit};
+use widget_fixture::every_widget_command;
 
 #[test]
 fn frame_and_events_are_the_committed_bytes() {
     let frame = every_frame();
     let events = every_event();
+    let widget_commands = every_widget_command();
+    let units = every_unit(&schema::wire());
     let root = frame.root.as_ref().unwrap();
     let Node::Container(ContainerNode { children, .. }) = root else {
         unreachable!()
     };
     let nodes: BTreeSet<_> = children.iter().chain([root]).map(node_variant).collect();
-    assert_eq!(
-        nodes.len(),
-        NODE_VARIANTS,
-        "every Node variant once: {nodes:?}"
-    );
+    assert_eq!(nodes.len(), NODE_VARIANTS, "every Node variant: {nodes:?}");
     let kinds: BTreeSet<_> = events.iter().map(event_variant).collect();
     assert_eq!(
         kinds.len(),
         EVENT_VARIANTS,
-        "every Event variant once: {kinds:?}"
+        "every Event variant: {kinds:?}"
     );
 
-    let value = (frame, events);
+    let value = (frame, events, widget_commands, units);
     let bytes = view_wire::encode(&value);
     let json = serde_json::to_string_pretty(&value).unwrap();
     check("frame", &bytes, &json);
     assert_eq!(
-        view_wire::decode::<(Frame, Vec<Event>)>(&bytes).unwrap(),
+        view_wire::decode::<(Frame, Vec<Event>, Vec<WidgetCommand>, Units)>(&bytes).unwrap(),
         value
     );
 }
@@ -264,6 +305,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             },
         ),
         exchange::<methods::Changes<Golden>>((), Some(9)),
+        exchange::<methods::Changes<Golden>>((), None),
         exchange::<ChainBlocks>(
             BlockPage {
                 before: Some(10),
@@ -300,6 +342,25 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             }],
         ),
         exchange::<ChainBlock>(BlockRef::Id([4; 32]), None),
+        exchange::<ChainBlock>(
+            BlockRef::Height(9),
+            Some(Block {
+                height: 9,
+                id: [4; 32],
+                parent: [5; 32],
+                time: 1,
+                epoch: 0,
+                proposer: None,
+                txs: vec![Tx {
+                    hash: [7; 32],
+                    signer: vec![8; 32],
+                    seq: 2,
+                    target: "chat".into(),
+                    payload: vec![9],
+                    receipt: None,
+                }],
+            }),
+        ),
         exchange::<BlobGet>("sha256:00".into(), Some(b"blob".to_vec())),
         exchange::<HostSession>(
             (),
@@ -333,17 +394,12 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             },
         ),
         exchange::<ClipboardWrite>("copied".into(), ()),
-        exchange::<NotifyPost>(
-            Notification {
-                title: "alice mentioned you".into(),
-                body: "@bob hi".into(),
-                tag: "room".into(),
-                link: "duck://chat/room".into(),
-            },
-            Delivery::Banner,
-        ),
+        exchange::<NotifyPost>(notification(), Delivery::Banner),
+        exchange::<NotifyPost>(notification(), Delivery::Logged),
+        exchange::<NotifyPost>(notification(), Delivery::Blocked),
         exchange::<StoreGet>("reads/alice".into(), Some(vec![1, 2])),
         exchange::<StoreSet>(("reads/alice".into(), None), ()),
+        exchange::<StoreSet>(("reads/alice".into(), Some(vec![1, 2])), ()),
         exchange::<NotifySeen>("#design".into(), ()),
         exchange::<ChainHeads>(
             (),
@@ -363,22 +419,71 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 }],
             }),
         ),
+        exchange::<ModuleDescribe>(
+            ("chat".into(), vec![1, 2]),
+            Some(Description {
+                title: "Post in #design".into(),
+                fields: vec![
+                    Field {
+                        label: "from".into(),
+                        value: Value::List(vec![Value::Account(3), Value::bytes(&[7; 40])]),
+                    },
+                    Field {
+                        label: "text".into(),
+                        value: Value::text("hi"),
+                    },
+                    Field {
+                        label: "signer".into(),
+                        value: Value::Key(vec![1; 32]),
+                    },
+                    Field {
+                        label: "program".into(),
+                        value: Value::Module("chat".into()),
+                    },
+                    Field {
+                        label: "commit".into(),
+                        value: Value::Hash(vec![2; 32]),
+                    },
+                    Field {
+                        label: "sent".into(),
+                        value: Value::Time(1_700_000_000_000),
+                    },
+                    Field {
+                        label: "quantity".into(),
+                        value: Value::Amount {
+                            value: 1_000,
+                            decimals: 2,
+                        },
+                    },
+                ],
+            }),
+        ),
+        exchange::<ModuleDescribe>(("chat".into(), vec![3]), None),
     ]
 }
 
-/// The request and reply bytes of each method, by kind.
-type Methods = BTreeMap<String, (Vec<u8>, Vec<u8>)>;
+fn notification() -> methods::Notification {
+    methods::Notification {
+        title: "alice mentioned you".into(),
+        body: "@bob hi".into(),
+        tag: "room".into(),
+        link: "duck://chat/room".into(),
+    }
+}
+
+/// The request and reply bytes of each exchange, by kind.
+type Methods = BTreeMap<String, Vec<(Vec<u8>, Vec<u8>)>>;
 
 #[test]
 fn every_method_carries_the_committed_bytes() {
     let (exchanges, json): (Vec<_>, Vec<_>) = every_method().into_iter().unzip();
-    let built: Methods = exchanges
-        .into_iter()
-        .map(|(kind, request, reply)| (kind, (request, reply)))
-        .collect();
+    let mut built = Methods::new();
+    for (kind, request, reply) in exchanges {
+        built.entry(kind).or_default().push((request, reply));
+    }
     let kinds: BTreeSet<&str> = built.keys().map(String::as_str).collect();
     let all: BTreeSet<&str> = methods::ALL.iter().copied().collect();
-    assert_eq!(kinds, all, "one exchange per method in ALL");
+    assert_eq!(kinds, all, "an exchange per method in ALL");
     let bin = golden("methods.bin");
     if std::env::var_os("WIRE_GOLDEN_WRITE").is_some() {
         std::fs::write(&bin, methods::encode(&built)).unwrap();
@@ -410,7 +515,7 @@ fn moved(committed: &Methods, built: &Methods) -> Vec<String> {
 
 #[test]
 fn a_new_method_passes_and_a_moved_or_dropped_one_fails() {
-    let method = |kind: &str, byte: u8| (kind.to_string(), (vec![byte], vec![]));
+    let method = |kind: &str, byte: u8| (kind.to_string(), vec![(vec![byte], vec![])]);
     let committed: Methods = [method("a.one", 1), method("a.two", 2)].into();
     let grown: Methods = [method("a.one", 1), method("a.two", 2), method("a.new", 3)].into();
     assert!(moved(&committed, &grown).is_empty());
