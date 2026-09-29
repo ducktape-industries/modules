@@ -586,28 +586,16 @@ fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
     assert_eq!(thread.role, Some(ducktape_view_guest::Role::Grid));
     assert!(thread.focusable && thread.tab_stop == Some(true));
     // the thread's newest is its reply; the room's is still m2
-    assert!(
-        cx.interactivity("chat-message-m3-contents")
-            .aria
-            .active_descendant
-    );
-    assert!(
-        cx.interactivity("chat-message-m2-contents")
-            .aria
-            .active_descendant
-    );
+    assert!(cx.interactivity("chat-message-m3").aria.active_descendant);
+    assert!(cx.interactivity("chat-message-m2").aria.active_descendant);
     cx.simulate_key_down("chat-thread-list", "up");
     view.read(|chat| {
         assert_eq!(chat.thread_cursor.id.as_deref(), Some("m1"));
         assert_eq!(chat.timeline_cursor.id, None);
     });
     // the list draws the revealed row until the host asks for more
-    assert!(!claims(&cx, "chat-message-m3-contents"));
-    assert!(
-        cx.interactivity("chat-message-m2-contents")
-            .aria
-            .active_descendant
-    );
+    assert!(!claims(&cx, "chat-message-m3"));
+    assert!(cx.interactivity("chat-message-m2").aria.active_descendant);
     cx.simulate_key_down("chat-thread-list", "enter");
     view.read(|chat| {
         let menu = chat

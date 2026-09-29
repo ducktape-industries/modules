@@ -407,21 +407,26 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     let grid = cx.interactivity("chat-message-list");
     assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
-    let newest = cx.interactivity("chat-message-m2-contents");
+    // Grid > Row > GridCell: the card is cell 0 and keeps the pointer's
+    // click; the row holds the name and never claims
+    let newest = cx.interactivity("chat-message-m2");
     assert_eq!(newest.role, Some(ducktape_view_guest::Role::GridCell));
     assert!(newest.aria.active_descendant, "the newest message on entry");
-    let row = cx.interactivity("chat-message-m2");
+    assert!(!newest.focusable && newest.on_click.is_some());
+    let row = cx.interactivity("chat-message-m2-row");
     assert_eq!(row.role, Some(ducktape_view_guest::Role::Row));
-    assert!(!row.focusable && !row.aria.active_descendant && row.on_click.is_some());
+    assert!(!row.focusable && !row.aria.active_descendant && row.on_click.is_none());
+    assert!(
+        row.aria
+            .label
+            .as_deref()
+            .is_some_and(|label| label.starts_with("Select message, shows its actions:"))
+    );
 
     cx.simulate_key_down("chat-message-list", "up");
-    assert!(
-        cx.interactivity("chat-message-m1-contents")
-            .aria
-            .active_descendant
-    );
+    assert!(cx.interactivity("chat-message-m1").aria.active_descendant);
     // the list draws the revealed row until the host asks for more
-    assert!(!super::room::claims(&cx, "chat-message-m2-contents"));
+    assert!(!super::room::claims(&cx, "chat-message-m2"));
     let Some(wire::Node::List { commands, .. }) = cx
         .find("chat-message-list")
         .and_then(|grid| grid.children().first())
@@ -445,11 +450,7 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     let chip = cx.interactivity("chat-message-m1-reaction-🔥");
     assert_eq!(chip.role, Some(ducktape_view_guest::Role::Button));
     assert!(chip.aria.active_descendant && !chip.focusable);
-    assert!(
-        !cx.interactivity("chat-message-m1-contents")
-            .aria
-            .active_descendant
-    );
+    assert!(!cx.interactivity("chat-message-m1").aria.active_descendant);
     cx.simulate_key_down("chat-message-list", "enter");
     cx.run_until_parked();
     assert!(
@@ -460,11 +461,7 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     );
     // Home is the content; Enter is the row's click: chosen, its strip shows
     cx.simulate_key_down("chat-message-list", "home");
-    assert!(
-        cx.interactivity("chat-message-m1-contents")
-            .aria
-            .active_descendant
-    );
+    assert!(cx.interactivity("chat-message-m1").aria.active_descendant);
     assert!(cx.find("chat-message-m1-actions").is_none());
     cx.simulate_key_down("chat-message-list", "enter");
     view.read(|chat| {
@@ -472,12 +469,27 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
         assert_eq!((menu.seq, menu.mode), (1, Mode::Toolbar));
     });
     assert!(cx.find("chat-message-m1-actions").is_some());
-    // the strip's buttons are the cells after the chip and the `+`
+    // the strip's buttons are the cells after the chip and the `+`, each
+    // in a cell of the row beside the card
     cx.simulate_key_down("chat-message-list", "end");
     assert!(
         cx.interactivity("chat-message-m1-more")
             .aria
             .active_descendant
+    );
+    let strip = cx.find("chat-message-m1-actions").expect("the strip");
+    assert!(strip.children().iter().all(|cell| {
+        cell.interactivity()
+            .is_some_and(|cell| cell.role == Some(ducktape_view_guest::Role::GridCell))
+            && cell.children().len() == 1
+    }));
+    assert!(
+        cx.find("chat-message-m1-row")
+            .expect("the row")
+            .children()
+            .iter()
+            .any(|child| child.key() == Some("chat-message-m1-actions")),
+        "the strip's cells are the row's, not the card's"
     );
     cx.simulate_key_down("chat-message-list", "enter");
     view.read(|chat| {

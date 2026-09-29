@@ -35,7 +35,10 @@ impl Cells {
 }
 
 /// A message's row of the pane's grid, and its controls in paint order.
-/// `active`: the cell the arrows are on, when this is their row.
+/// The row is `{id}-row`: its first cell is the card (the message and the
+/// controls drawn inside it, each an item), then one cell per button of
+/// the action strip. `active`: the cell the arrows are on, when this is
+/// their row.
 pub fn card(
     chat: &Chat,
     message: ChatMessage,
@@ -80,14 +83,14 @@ pub fn card(
             theme.background
         })
         .hover(|style| style.bg(theme.surface_raised))
-        // a row of the pane's grid: its content is the cell the arrows land
-        // on, the controls inside it the cells → walks. The pointer's click
-        // stays on the row; the keys' Enter comes through the grid
-        .role(ducktape_view_guest::Role::Row)
-        .aria_label(format!(
-            "Select message, shows its actions: {}: {}",
-            message.author, message.body
-        ))
+        // cell 0 of the row: the cell the arrows land on, claimed while
+        // they are on it. The pointer's click stays here; the keys' Enter
+        // comes through the grid
+        .role(ducktape_view_guest::Role::GridCell)
+        .aria_label(format!("{}: {}", message.author, message.body))
+        .when(cells.active == Some(0), |cell| {
+            cell.aria_active_descendant()
+        })
         .on_click(press)
         .child(avatar(&message, theme))
         .child(content(chat, message.clone(), pane, &mut cells, cx, theme));
@@ -105,6 +108,12 @@ pub fn card(
         .w_full()
         .group(group.clone())
         .on_hover(row_hover)
+        // a row of the pane's grid; it never claims
+        .role(ducktape_view_guest::Role::Row)
+        .aria_label(format!(
+            "Select message, shows its actions: {}: {}",
+            message.author, message.body
+        ))
         .child(card);
     if !message.pending && !message.deleted && (chosen || chat.hovered == Some(key)) {
         let strip = action_strip(chat, &message, pane, chosen, &mut cells, cx, theme);
@@ -237,11 +246,21 @@ fn action_strip(
         .invisible()
         .group_hover(group, |style| style.visible())
         .when(chosen, |actions| actions.visible());
+    // each button is a cell of the row, beside the card
+    let cell = |button: AnyElement, key: &str| {
+        div()
+            .id(format!("chat-message-{id}-{key}-cell"))
+            .role(ducktape_view_guest::Role::GridCell)
+            .child(button)
+    };
     let thread = (pane == Pane::Timeline && message.reply_count == 0).then(|| {
         let active = cells.push(Control::Thread);
         let open = acts(pane, seq, rev, Control::Thread, cx);
         let id = format!("chat-message-{id}-thread");
-        action_button(id, "💬", "Open thread", theme, true, active, open)
+        cell(
+            action_button(id, "💬", "Open thread", theme, true, active, open).into_any_element(),
+            "thread",
+        )
     });
     // a disabled button is no cell: the arrows skip it
     let thumbs = writable && cells.push(Control::ThumbsUp);
@@ -249,38 +268,50 @@ fn action_strip(
     let more = cells.push(Control::More);
     actions
         .children(thread)
-        .child(action_button(
-            format!("chat-message-{id}-thumbs-up"),
-            "👍",
-            "React with 👍",
-            theme,
-            writable,
-            thumbs,
-            acts(pane, seq, rev, Control::ThumbsUp, cx),
+        .child(cell(
+            action_button(
+                format!("chat-message-{id}-thumbs-up"),
+                "👍",
+                "React with 👍",
+                theme,
+                writable,
+                thumbs,
+                acts(pane, seq, rev, Control::ThumbsUp, cx),
+            )
+            .into_any_element(),
+            "thumbs-up",
         ))
-        .child(action_button(
-            format!("chat-message-{id}-react"),
-            "😀",
-            "Manage reactions",
-            theme,
-            writable,
-            react,
-            acts(pane, seq, rev, Control::React, cx),
+        .child(cell(
+            action_button(
+                format!("chat-message-{id}-react"),
+                "😀",
+                "Manage reactions",
+                theme,
+                writable,
+                react,
+                acts(pane, seq, rev, Control::React, cx),
+            )
+            .into_any_element(),
+            "react",
         ))
-        .child(action_button(
-            format!("chat-message-{id}-more"),
-            "⋯",
-            "More message actions",
-            theme,
-            true,
-            more,
-            acts(pane, seq, rev, Control::More, cx),
+        .child(cell(
+            action_button(
+                format!("chat-message-{id}-more"),
+                "⋯",
+                "More message actions",
+                theme,
+                true,
+                more,
+                acts(pane, seq, rev, Control::More, cx),
+            )
+            .into_any_element(),
+            "more",
         ))
         .into_any_element()
 }
 
-/// The content cell: the header, the blocks, the marks, the reactions and
-/// the way into the thread, in that order (the cells' order too).
+/// The card's content: the header, the blocks, the marks, the reactions and
+/// the way into the thread, in that order (the controls' cell order too).
 fn content(
     chat: &Chat,
     message: ChatMessage,
@@ -306,10 +337,6 @@ fn content(
         .flex()
         .flex_col()
         .gap_1()
-        .role(ducktape_view_guest::Role::GridCell)
-        .when(cells.active == Some(0), |cell| {
-            cell.aria_active_descendant()
-        })
         .children(header)
         .children(blocks)
         .children(marks(&message, theme))
