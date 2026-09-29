@@ -740,6 +740,29 @@ fn a_folder_opens_its_children_inline_and_keeps_its_state() {
     assert_eq!(view.read(|forge| forge.tree_rows()), before);
 }
 
+/// A folder's row is called by its name alone, open or shut: the drawn
+/// `▸`/`▾` is no word of it, and `aria_expanded` says which.
+#[test]
+fn a_folder_row_is_named_without_its_glyph() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-ref-picker");
+    cx.simulate_click("forge-ref-refs/heads/clean");
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    let aria = |cx: &TestAppContext| match cx.find("forge-tree-src") {
+        Some(wire::Node::Container(row)) => row.interactivity.aria.clone(),
+        _ => panic!("the src row"),
+    };
+    let shut = aria(&cx);
+    assert_eq!(shut.label.as_deref(), Some("src"));
+    assert_eq!(shut.expanded, Some(false));
+    cx.simulate_click("forge-tree-src");
+    cx.run_until_parked();
+    let open = aria(&cx);
+    assert_eq!(open.label.as_deref(), Some("src"));
+    assert_eq!(open.expanded, Some(true));
+}
+
 fn path_of(path: &[u8]) -> String {
     String::from_utf8_lossy(path).into_owned()
 }

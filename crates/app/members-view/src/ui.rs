@@ -320,6 +320,12 @@ fn member_row(
     let selected = view.selected == Some(number);
     let dim = row.kind.note().is_some();
     let name_of = |manager| name(all, manager);
+    let kind = match &row.kind {
+        // a module named for its program says so once
+        identity::Kind::Module(program) if *program == row.name => "Module".into(),
+        kind => identity::view::kind(kind, name_of),
+    };
+    let me = view.me == Some(number);
     div()
         .id(format!("members-row-{}", number))
         .flex()
@@ -336,6 +342,13 @@ fn member_row(
         // the list holds focus and the arrows; the chosen row is the one
         // assistive technology is told is active
         .role(Role::ListBoxOption)
+        // the name, not the avatar's initial drawn before it
+        .aria_label(row.name.clone())
+        .aria_description(if me {
+            format!("you · {kind}")
+        } else {
+            kind.clone()
+        })
         .aria_selected(selected)
         .when(selected, |row| row.aria_active_descendant())
         .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(number, cx)))
@@ -353,7 +366,7 @@ fn member_row(
                         .when(dim, |name| name.text_color(theme.faint))
                         .child(row.name.clone()),
                 )
-                .when(view.me == Some(number), |line| {
+                .when(me, |line| {
                     line.child(
                         div()
                             .text_size(text::CAPTION)
@@ -367,11 +380,7 @@ fn member_row(
                 .flex_shrink_0()
                 .text_size(text::CAPTION)
                 .text_color(theme.muted)
-                .child(match &row.kind {
-                    // a module named for its program says so once
-                    identity::Kind::Module(program) if *program == row.name => "Module".into(),
-                    kind => identity::view::kind(kind, name_of),
-                }),
+                .child(kind),
         )
 }
 
@@ -770,11 +779,18 @@ fn manages(managed: &[&Row], cx: &mut Context<Members>, theme: &Theme) -> impl I
             };
             let number = agent.number;
             let theme = *theme;
+            let about = format!("account {number} · Agent");
             let row = line()
                 .id(format!("members-manages-{}", number))
                 .cursor_pointer()
                 .hover(move |style| style.bg(theme.surface))
                 .role(Role::Button)
+                // the agent's name, not the avatar's initial drawn before it
+                .aria_label(agent.name.clone())
+                .aria_description(format!(
+                    "{about} · {}",
+                    agent.kind.note().unwrap_or("active")
+                ))
                 .focusable()
                 .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(number, cx)))
                 .child(avatar(
@@ -791,7 +807,7 @@ fn manages(managed: &[&Row], cx: &mut Context<Members>, theme: &Theme) -> impl I
                         .child(agent.name.clone()),
                 )
                 .child(
-                    design::mono(format!("account {number} · Agent"))
+                    design::mono(about)
                         .text_size(text::CAPTION)
                         .text_color(theme.muted),
                 )

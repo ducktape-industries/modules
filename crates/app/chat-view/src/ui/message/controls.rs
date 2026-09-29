@@ -65,8 +65,6 @@ pub(super) fn reaction_button(
     enabled: bool,
     click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
 ) -> impl IntoElement {
-    // `+` is the picker's method, not a toggle
-    let add = matches!(face, Face::Add);
     let mut control = div()
         .id(id)
         .h(px(REACTION_HEIGHT))
@@ -89,19 +87,14 @@ pub(super) fn reaction_button(
             theme.muted
         })
         .role(ducktape_view_guest::Role::Button)
-        .aria_label(if add {
-            "Add reaction"
-        } else if mine {
-            "Remove reaction"
-        } else {
-            "Add reaction"
-        })
         .aria_disabled(!enabled)
         .text_size(design::text::SECONDARY);
     control = match face {
         // the count in the data face, as every count here is
         Face::Emoji { emoji, count } => control
-            .aria_description(emoji.to_owned())
+            // one name whether it is yours or not: the toggle says which
+            .aria_label(format!("{emoji} reaction"))
+            .aria_description(count.to_string())
             .aria_toggled(mine.into())
             .child(emoji.to_owned())
             .child(
@@ -110,7 +103,8 @@ pub(super) fn reaction_button(
                     .text_size(design::text::CAPTION)
                     .child(count.to_string()),
             ),
-        Face::Add => control.child("+"),
+        // `+` is the picker's method, not a toggle
+        Face::Add => control.aria_label("Add reaction").child("+"),
     };
     if enabled {
         control

@@ -224,6 +224,8 @@ fn tree_row(
         .pl(indent)
         .pr_2()
         .role(Role::TreeItem)
+        // the entry's name alone: the glyph is drawn, `aria_expanded` says it
+        .aria_label(entry.name.clone())
         .aria_level(entry.depth + 1)
         .aria_selected(selected)
         .hover(|style| style.bg(theme.hover))
