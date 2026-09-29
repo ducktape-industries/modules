@@ -245,17 +245,34 @@ fn title_line(
 
 /// The change's tabs, each with its count once it is known.
 fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
-    let mut bar = div()
-        .id(id("forge-change-tabs"))
+    // manual: Files reads the whole diff and Commits a log, so the arrows
+    // only move and Enter opens
+    let active = forge.change_tab_cursor.unwrap_or(forge.nav().change_tab);
+    let at = |tab| {
+        ChangeTab::ALL
+            .iter()
+            .position(|it| *it == tab)
+            .unwrap_or_default()
+    };
+    let mut bar = design::composite(id("forge-change-tabs"), Role::TabList, "Change")
+        .orientation(design::Orientation::Horizontal)
+        .wrap()
+        .active(at(active), ChangeTab::ALL.len())
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            forge.change_tab_cursor = Some(ChangeTab::ALL[index]);
+            cx.notify();
+        }))
+        .on_press(cx.processor(|forge, index: usize, _, cx| {
+            forge.open_change_tab(ChangeTab::ALL[index], cx)
+        }))
+        .build()
         .h(TAB_BAR_H)
         .flex()
         .items_center()
         .gap(design::space::XL)
         .px(PAGE_X)
         .border_b_1()
-        .border_color(theme.border)
-        .role(Role::TabList)
-        .aria_label("Change");
+        .border_color(theme.border);
     for tab in ChangeTab::ALL {
         let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change_tab(tab, cx));
         bar = bar.child(crate::ui::components::tab(
@@ -263,6 +280,7 @@ fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> 
             tab.label(),
             tab_count(forge, tab),
             forge.nav().change_tab == tab,
+            active == tab,
             theme,
             pick,
         ));

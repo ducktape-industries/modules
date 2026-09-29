@@ -335,6 +335,32 @@ fn replies_read_as_a_button() {
     });
 }
 
+/// The emoji categories are one tab list: → opens the next category.
+#[test]
+fn an_arrow_on_the_emoji_tabs_opens_the_next_category() {
+    let (mut cx, view) = opened();
+    hover(&mut cx, &view, 1);
+    cx.simulate_click("chat-message-m1-react");
+    let tabs = cx.interactivity("chat-reaction-tabs");
+    assert_eq!(tabs.role, Some(ducktape_view_guest::Role::TabList));
+    assert!(tabs.focusable && tabs.tab_stop == Some(true));
+    assert!(!cx.interactivity("chat-reaction-tab-Smileys").focusable);
+    assert!(
+        cx.interactivity("chat-reaction-tab-Smileys")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("chat-reaction-tabs", "right");
+    view.read(|chat| assert_eq!(chat.picker.tab, 1));
+    assert!(
+        cx.find("chat-reaction-People-👋").is_some()
+            || cx.find("chat-reaction-Smileys-😀").is_none()
+    );
+    let people = cx.interactivity("chat-reaction-tab-People");
+    assert_eq!(people.aria.selected, Some(true));
+    assert!(people.aria.active_descendant);
+}
+
 #[test]
 fn the_picker_searches_and_enter_picks_the_first_match() {
     let (mut cx, view) = opened();

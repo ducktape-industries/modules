@@ -41,6 +41,7 @@ impl Forge {
 
     pub(crate) fn open_tab(&mut self, tab: RepoTab, cx: &mut Context<Self>) {
         self.menu = None;
+        self.tab_cursor = None;
         // the tree keeps what it had open across tabs
         let kept = std::mem::take(&mut self.nav);
         self.nav.repo = kept.repo;
@@ -175,6 +176,7 @@ impl Forge {
     }
 
     pub(crate) fn open_change_tab(&mut self, tab: ChangeTab, cx: &mut Context<Self>) {
+        self.change_tab_cursor = None;
         self.nav.change_tab = tab;
         self.nav.diff_path = None;
         self.moved(cx);

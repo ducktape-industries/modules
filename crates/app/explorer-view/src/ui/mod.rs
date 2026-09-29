@@ -146,13 +146,19 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         cx.notify();
     });
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
+    let shown = view.route.tab();
+    let routes: Vec<Route> = tabs.iter().map(|(_, _, route)| route.clone()).collect();
     let tabs = tabs.into_iter().map(|(key, label, route)| {
-        let active = view.route.tab() == route.tab();
+        let active = shown == route.tab();
         let go = cx
             .listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
-        design::tab(format!("explorer-tab-{key}"), label, active, theme, go)
-            .h_full()
-            .mx_1()
+        design::item(
+            design::tab(format!("explorer-tab-{key}"), label, active, theme, go)
+                .h_full()
+                .mx_1(),
+            Role::Tab,
+            active,
+        )
     });
     // on a narrow window the search wraps under the tabs, a line of its own
     div()
@@ -166,13 +172,20 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         .border_b_1()
         .border_color(theme.border)
         .child(
-            div()
-                .id("explorer-tabs")
+            // one Tab stop; ← → open the next page
+            design::composite("explorer-tabs", Role::TabList, "Pages")
+                .orientation(design::Orientation::Horizontal)
+                .wrap()
+                .active(shown, routes.len())
+                .on_move(
+                    cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
+                        view.go(routes[index].clone(), cx)
+                    }),
+                )
+                .build()
                 .h(BAR_H)
                 .flex()
                 .items_center()
-                .role(Role::TabList)
-                .aria_label("Pages")
                 .children(tabs),
         )
         .child(

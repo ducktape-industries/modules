@@ -296,25 +296,30 @@ pub(crate) fn menu_item(
 
 /// A tab with its count beside the label, faint: `Changes 3`. Tabs sit
 /// on a bar's hairline, full height.
+/// A tab of a manual tab list: `selected` is the open one, `active` the
+/// one the arrows are on, which Enter opens.
 pub(crate) fn tab(
     element_id: ElementId,
     label: &str,
     count: Option<u64>,
     selected: bool,
+    active: bool,
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    design::tab(element_id, label.to_owned(), selected, theme, click)
+    let tab = design::tab(element_id, label.to_owned(), selected, theme, click)
         .h_full()
         .px_0()
         .gap(design::space::XS)
         .text_size(design::text::BODY)
         .font_weight(ducktape_view_guest::FontWeight::NORMAL)
+        // the arrows' tab, not yet open: a quiet fill says where they are
+        .when(active && !selected, |tab| tab.bg(theme.surface_raised))
         .children(count.map(|count| {
             div()
                 .text_size(design::text::CAPTION)
                 .text_color(theme.faint)
                 .child(count.to_string())
-        }))
-        .into_any_element()
+        }));
+    design::item(tab, Role::Tab, active).into_any_element()
 }

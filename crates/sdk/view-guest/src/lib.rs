@@ -11,8 +11,8 @@ pub use gpui::{
     ListScrollEvent, ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent,
     MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent,
     Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
-    StrikethroughStyle, StyleRefinement, Styled, TextRun, TextStyle, UnderlineStyle, hsla, px,
-    rems, rgb,
+    StrikethroughStyle, StyleRefinement, Styled, TextRun, TextStyle, Toggled, UnderlineStyle, hsla,
+    px, rems, rgb,
 };
 pub use view_guest_derive::IntoElement;
 pub use view_wire as wire;

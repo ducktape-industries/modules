@@ -226,6 +226,34 @@ fn invite_ttl_copy_and_refusal() {
     assert!(fixture("invite-refused", false).has_text("This node does not allow minting invites."));
     assert!(fixture("invite-loading", false).has_text("Minting invite…"));
 }
+/// The lifetime is a radio group: one Tab stop whose arrows check the next
+/// choice, wrapping at the ends; its segments are never focusable.
+#[test]
+fn the_invite_lifetime_checks_the_next_choice_on_an_arrow() {
+    let mut cx = fixture("invite-ready", false);
+    let group = cx.interactivity("settings/ttl");
+    assert_eq!(group.role, Some(ducktape_view_guest::Role::RadioGroup));
+    assert!(group.focusable && group.tab_stop == Some(true));
+    assert!(!cx.interactivity("settings/ttl/1").focusable);
+    let checked = |cx: &TestAppContext| {
+        [1, 7, 30].map(|days| {
+            let segment = cx.interactivity(&format!("settings/ttl/{days}"));
+            (
+                segment.aria.toggled == Some(ducktape_view_guest::Toggled::True),
+                segment.aria.active_descendant,
+            )
+        })
+    };
+    // the view opens on 7 days
+    assert_eq!(checked(&cx), [(false, false), (true, true), (false, false)]);
+    cx.simulate_key_down("settings/ttl", "right");
+    assert_eq!(checked(&cx), [(false, false), (false, false), (true, true)]);
+    cx.simulate_key_down("settings/ttl", "right");
+    assert_eq!(checked(&cx), [(true, true), (false, false), (false, false)]);
+    cx.simulate_key_down("settings/ttl", "left");
+    assert_eq!(checked(&cx), [(false, false), (false, false), (true, true)]);
+}
+
 #[test]
 fn a_refusal_retries_and_a_snapshot_restores() {
     let mut cx = fixture("refused", false);

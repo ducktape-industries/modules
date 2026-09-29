@@ -61,6 +61,12 @@ pub struct Forge {
     /// the dropdown open under its button, if any
     #[serde(skip)]
     pub(crate) menu: Option<Menu>,
+    /// the repository tab the arrows are on but have not opened
+    #[serde(skip)]
+    pub(crate) tab_cursor: Option<RepoTab>,
+    /// the change tab the arrows are on but have not opened
+    #[serde(skip)]
+    pub(crate) change_tab_cursor: Option<ChangeTab>,
     #[serde(skip)]
     pub(crate) blob_cache: crate::ui::code::BlobCache,
 }

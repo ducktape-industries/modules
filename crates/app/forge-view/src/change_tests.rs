@@ -7,6 +7,43 @@ use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::wire;
 use forge::{LineComment, Op, Side, Verdict};
 
+/// The change tabs read a log or a whole diff on open, so → only moves and
+/// Enter opens; the state filter is a radio group and checks on the arrow.
+#[test]
+fn the_change_tabs_move_on_an_arrow_and_open_on_enter() {
+    let (mut cx, view) = change_screen("default", ChangeTab::Conversation);
+    assert!(cx.interactivity("forge-change-tabs").focusable);
+    cx.simulate_key_down("forge-change-tabs", "right");
+    view.read(|forge| assert_eq!(forge.nav().change_tab, ChangeTab::Conversation));
+    assert!(
+        cx.interactivity("forge-change-tab-commits")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("forge-change-tabs", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.nav().change_tab, ChangeTab::Commits));
+}
+
+#[test]
+fn the_change_state_filter_checks_on_an_arrow() {
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    use crate::state::Filter;
+    view.read(|forge| assert_eq!(forge.filter, Filter::Open));
+    assert!(!cx.interactivity("forge-filter-merged").focusable);
+    cx.simulate_key_down("forge-filter-states", "right");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.filter, Filter::Merged));
+    let merged = cx.interactivity("forge-filter-merged");
+    assert_eq!(
+        merged.aria.toggled,
+        Some(ducktape_view_guest::Toggled::True)
+    );
+    assert!(merged.aria.active_descendant);
+}
+
 #[test]
 fn the_change_list_shows_the_plans_row_and_its_filters() {
     let (mut cx, view) = opened("default");

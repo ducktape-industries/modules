@@ -473,34 +473,21 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
         }
         cx.notify();
     });
-    let format = |sha1: bool| {
-        cx.listener(move |forge, _: &ClickEvent, _, cx| {
-            if let Some(form) = &mut forge.new_repo {
-                form.sha1 = sha1;
-            }
-            cx.notify();
-        })
-    };
     let formats = design::segmented(
         id("forge-new-repo-format"),
         "Object format",
         theme,
+        usize::from(form.sha1),
         [
-            design::segment(
-                id("forge-new-repo-sha256"),
-                "SHA-256",
-                !form.sha1,
-                theme,
-                format(false),
-            ),
-            design::segment(
-                id("forge-new-repo-sha1"),
-                "SHA-1",
-                form.sha1,
-                theme,
-                format(true),
-            ),
+            (id("forge-new-repo-sha256"), "SHA-256".into()),
+            (id("forge-new-repo-sha1"), "SHA-1".into()),
         ],
+        cx.processor(|forge, picked: usize, _, cx| {
+            if let Some(form) = &mut forge.new_repo {
+                form.sha1 = picked == 1;
+            }
+            cx.notify();
+        }),
     );
     let create = cx.listener(|forge, _: &ClickEvent, _, cx| forge.create_repo(cx));
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.cancel_repo(cx));

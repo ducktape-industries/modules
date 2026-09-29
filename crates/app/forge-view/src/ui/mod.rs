@@ -153,14 +153,30 @@ fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .border_b_1()
         .border_color(theme.border)
         .child(ref_picker(forge, cx, theme));
-    let mut list = div()
-        .id(id("forge-tab-list"))
+    // manual: each tab reads on open, so the arrows only move and Enter opens
+    let active = forge.tab_cursor.unwrap_or(forge.nav().tab);
+    let at = |tab| {
+        RepoTab::ALL
+            .iter()
+            .position(|it| *it == tab)
+            .unwrap_or_default()
+    };
+    let mut list = design::composite(id("forge-tab-list"), Role::TabList, "Repository")
+        .orientation(design::Orientation::Horizontal)
+        .wrap()
+        .active(at(active), RepoTab::ALL.len())
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            forge.tab_cursor = Some(RepoTab::ALL[index]);
+            cx.notify();
+        }))
+        .on_press(
+            cx.processor(|forge, index: usize, _, cx| forge.open_tab(RepoTab::ALL[index], cx)),
+        )
+        .build()
         .h_full()
         .flex()
         .items_center()
-        .gap(design::space::XL)
-        .role(Role::TabList)
-        .aria_label("Repository");
+        .gap(design::space::XL);
     for tab in RepoTab::ALL {
         let open = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_tab(tab, cx));
         let count = (tab == RepoTab::Changes)
@@ -171,6 +187,7 @@ fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
             tab.label(),
             count,
             forge.nav().tab == tab,
+            active == tab,
             theme,
             open,
         ));

@@ -564,6 +564,39 @@ fn a_repository_opens_on_code_with_its_header_ref_picker_and_tabs() {
     assert!(cx.find("forge-ref-picker-menu").is_none());
 }
 
+/// The repository tabs read on open, so they are a manual tab list: → moves
+/// the active tab without opening it, Enter opens it, and a click resets
+/// the arrows to the open tab.
+#[test]
+fn the_repository_tabs_move_on_an_arrow_and_open_on_enter() {
+    let (mut cx, view) = opened("default");
+    let list = cx.interactivity("forge-tab-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::TabList));
+    assert!(list.focusable && list.tab_stop == Some(true));
+    assert!(!cx.interactivity("forge-tab-code").focusable);
+    // the repository opens on its README; the arrows start there
+    view.read(|forge| assert_eq!(forge.nav().tab, RepoTab::Readme));
+    assert!(cx.interactivity("forge-tab-readme").aria.active_descendant);
+    cx.simulate_key_down("forge-tab-list", "right");
+    view.read(|forge| assert_eq!(forge.nav().tab, RepoTab::Readme));
+    let code = cx.interactivity("forge-tab-code");
+    assert!(code.aria.active_descendant);
+    assert_eq!(code.aria.selected, Some(false));
+    assert!(!cx.interactivity("forge-tab-readme").aria.active_descendant);
+    cx.simulate_key_down("forge-tab-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.nav().tab, RepoTab::Code));
+    assert_eq!(cx.interactivity("forge-tab-code").aria.selected, Some(true));
+    cx.simulate_key_down("forge-tab-list", "right");
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(forge.nav().tab, RepoTab::Refs);
+        assert_eq!(forge.tab_cursor, None);
+    });
+    assert!(cx.interactivity("forge-tab-refs").aria.active_descendant);
+}
+
 #[test]
 fn the_about_panel_docks_what_the_repo_record_carries() {
     let (mut cx, view) = opened("default");

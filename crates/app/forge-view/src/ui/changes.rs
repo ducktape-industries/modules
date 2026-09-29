@@ -239,25 +239,23 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
         forge.change_search = text.clone();
         cx.notify();
     });
+    const STATES: [Filter; 3] = [Filter::Open, Filter::Merged, Filter::Closed];
     let states = design::segmented(
         id("forge-filter-states"),
         "Change state",
         theme,
-        [Filter::Open, Filter::Merged, Filter::Closed].map(|filter| {
-            let pick =
-                cx.listener(move |forge, _: &ClickEvent, _, cx| forge.set_filter(filter, cx));
+        STATES
+            .iter()
+            .position(|state| *state == forge.filter)
+            .unwrap_or_default(),
+        STATES.map(|filter| {
             let label = match (filter, forge.open_changes()) {
                 (Filter::Open, Some(count)) => format!("Open {count}"),
                 _ => filter.label().to_owned(),
             };
-            design::segment(
-                id(format!("forge-filter-{}", filter.slug())),
-                label,
-                forge.filter == filter,
-                theme,
-                pick,
-            )
+            (id(format!("forge-filter-{}", filter.slug())), label.into())
         }),
+        cx.processor(|forge, picked: usize, _, cx| forge.set_filter(STATES[picked], cx)),
     );
     let mut bar = div()
         .id(id("forge-filters"))

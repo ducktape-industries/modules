@@ -106,21 +106,27 @@ fn browse(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<A
 
 /// A tab per emoji category, `chosen` marked.
 fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
-    let mut tabs = div()
-        .id("chat-reaction-tabs")
+    // one Tab stop; ← → open the next category
+    let mut tabs = design::composite("chat-reaction-tabs", Role::TabList, "Emoji categories")
+        .orientation(design::Orientation::Horizontal)
+        .wrap()
+        .active(chosen, emoji::CATEGORIES.len())
+        .on_move(cx.processor(|chat, index: usize, _, cx| {
+            chat.picker.tab = index;
+            cx.notify();
+        }))
+        .build()
         .h(px(TABS))
         .flex()
         .border_b_1()
-        .border_color(theme.border)
-        .role(Role::TabList)
-        .aria_label("Emoji categories");
+        .border_color(theme.border);
     for (index, category) in emoji::CATEGORIES.iter().enumerate() {
         let open = cx.listener(move |chat, _: &ClickEvent, _, cx| {
             chat.picker.tab = index;
             cx.notify();
         });
         let id = format!("chat-reaction-tab-{}", category.name);
-        tabs = tabs.child(
+        tabs = tabs.child(design::item(
             design::tab(id, category.glyph, index == chosen, theme, open)
                 .flex_1()
                 .h_full()
@@ -128,7 +134,9 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
                 .text_size(design::text::SECTION)
                 .aria_label(category.name)
                 .cursor_pointer(),
-        );
+            Role::Tab,
+            index == chosen,
+        ));
     }
     tabs
 }

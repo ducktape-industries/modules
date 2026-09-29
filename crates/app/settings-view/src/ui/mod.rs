@@ -122,18 +122,16 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
         "settings/ttl",
         "Expires after",
         theme,
-        TTL.into_iter().enumerate().map(|(i, days)| {
-            let pick = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-                v.ttl = i;
-                cx.notify();
-            });
-            design::segment(
-                format!("settings/ttl/{days}"),
-                design::plural(days, "day", "days"),
-                view.ttl == i,
-                theme,
-                pick,
+        view.ttl,
+        TTL.into_iter().map(|days| {
+            (
+                format!("settings/ttl/{days}").into(),
+                design::plural(days, "day", "days").into(),
             )
+        }),
+        cx.processor(|v: &mut Settings, i: usize, _, cx| {
+            v.ttl = i;
+            cx.notify();
         }),
     );
     let mint = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.mint_invite(cx));

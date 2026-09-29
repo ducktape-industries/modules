@@ -372,7 +372,9 @@ pub fn icon_button(
 }
 
 /// A tab: quiet text, the chosen one fg and underlined, no fill. A caller
-/// sizes it to its bar (`h_full`, `flex_1`) and may label a glyph.
+/// sizes it to its bar (`h_full`, `flex_1`) and may label a glyph. It is
+/// an [`item`] of a `TabList` [`composite`], which holds the focus and the
+/// arrows: the caller wraps it in `item(.., Role::Tab, active)`.
 pub fn tab(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -403,7 +405,6 @@ pub fn tab(
         .hover(move |style| style.text_color(theme.foreground))
         .role(Role::Tab)
         .aria_selected(selected)
-        .focusable()
         .on_click(click)
         .child(label.into())
 }
@@ -558,15 +559,37 @@ pub fn item(element: Stateful<Div>, role: Role, active: bool) -> Stateful<Div> {
 
 /// A few choices side by side in one box, the picked one ink-filled: a
 /// state filter, an object format, an invite's lifetime. `label` names the
-/// choice; the segments are [`segment`]s; the box draws the edge they share.
+/// choice, `choices` are each segment's id and label, `picked` the one
+/// that is; the box draws the edge they share. A radio group: one Tab
+/// stop, and ← → pick the next choice (`on_pick`), wrapping at the ends.
 pub fn segmented(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     theme: &Theme,
-    segments: impl IntoIterator<Item = Stateful<Div>>,
+    picked: usize,
+    choices: impl IntoIterator<Item = (ElementId, SharedString)>,
+    on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    div()
-        .id(id)
+    let on_pick = std::rc::Rc::new(on_pick);
+    let choices: Vec<_> = choices.into_iter().collect();
+    let count = choices.len();
+    let moved = on_pick.clone();
+    let segments = choices.into_iter().enumerate().map(|(index, (id, label))| {
+        let pick = on_pick.clone();
+        let click =
+            move |_: &ClickEvent, window: &mut Window, app: &mut App| pick(index, window, app);
+        item(
+            segment(id, label, index == picked, theme, click),
+            Role::RadioButton,
+            index == picked,
+        )
+    });
+    composite(id, Role::RadioGroup, label)
+        .orientation(Orientation::Horizontal)
+        .wrap()
+        .active(picked, count)
+        .on_move(move |index, window, app| moved(index, window, app))
+        .build()
         .flex()
         .flex_none()
         .items_center()
@@ -574,13 +597,11 @@ pub fn segmented(
         .border_b_1()
         .border_r_1()
         .border_color(theme.border_strong)
-        .role(Role::RadioGroup)
-        .aria_label(label)
         .children(segments)
 }
 
 /// One choice of a [`segmented`] box.
-pub fn segment(
+fn segment(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     selected: bool,
@@ -608,7 +629,6 @@ pub fn segment(
         })
         .role(Role::RadioButton)
         .aria_toggled(selected.into())
-        .focusable()
         .on_click(click)
         .child(label.into())
 }
@@ -911,11 +931,15 @@ mod tests {
             "format",
             "Object format",
             &theme,
-            [segment("sha1", "SHA-1", true, &theme, |_, _, _| {})],
+            0,
+            [("sha1".into(), "SHA-1".into())],
+            |_, _, _| {},
         ));
         let group = interactivity(&node);
         assert_eq!(group.role, Some(Role::RadioGroup));
         assert_eq!(group.aria.label.as_deref(), Some("Object format"));
+        assert!(group.focusable && group.on_key_down.is_some());
+        assert_eq!(faults(&node), []);
     }
 
     #[test]
@@ -959,13 +983,31 @@ mod tests {
     }
 
     #[test]
-    fn the_picked_segment_reports_toggled_true() {
+    fn the_picked_segment_reports_toggled_true_and_is_the_active_one() {
         let theme = Theme::light();
         let node = lower(segment("sha1", "SHA-1", true, &theme, |_, _, _| {}));
         let control = interactivity(&node);
         assert_eq!(control.role, Some(Role::RadioButton));
         assert_eq!(control.aria.toggled, Some(Toggled::True));
         assert_eq!(control.aria.selected, None);
+        assert!(!control.focusable);
+        let group = lower(segmented(
+            "format",
+            "Object format",
+            &theme,
+            1,
+            [
+                ("sha256".into(), "SHA-256".into()),
+                ("sha1".into(), "SHA-1".into()),
+            ],
+            |_, _, _| {},
+        ));
+        let claims: Vec<bool> = group
+            .children()
+            .iter()
+            .map(|segment| interactivity(segment).aria.active_descendant)
+            .collect();
+        assert_eq!(claims, [false, true]);
     }
 
     #[test]
@@ -1026,6 +1068,59 @@ mod tests {
         }
         cx.simulate_drag("panes-resize", 5., 0.);
         panes.read(|panes| assert_eq!(panes.moved, [-8., 8., -32., 32., 5.]));
+    }
+
+    #[derive(Default, serde::Serialize, serde::Deserialize)]
+    struct Format {
+        picked: usize,
+    }
+
+    impl crate::Capabilities for Format {
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    }
+
+    impl crate::View for Format {
+        fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
+            Self::default()
+        }
+    }
+
+    impl crate::Render for Format {
+        fn render(&mut self, _: &mut Window, cx: &mut crate::Context<Self>) -> impl IntoElement {
+            segmented(
+                "format",
+                "Object format",
+                &Theme::light(),
+                self.picked,
+                [
+                    ("sha256".into(), "SHA-256".into()),
+                    ("sha1".into(), "SHA-1".into()),
+                ],
+                cx.processor(|view: &mut Self, index, _, cx| {
+                    view.picked = index;
+                    cx.notify();
+                }),
+            )
+        }
+    }
+
+    #[test]
+    fn a_segmented_choice_checks_the_next_choice_on_an_arrow() {
+        let mut cx = crate::testing::TestAppContext::new();
+        let format = cx.open::<Format>();
+        cx.simulate_key_down("format", "right");
+        format.read(|view| assert_eq!(view.picked, 1));
+        assert_eq!(
+            interactivity(cx.find("sha1").expect("the picked segment"))
+                .aria
+                .toggled,
+            Some(Toggled::True)
+        );
+        // a radio group wraps
+        cx.simulate_key_down("format", "right");
+        format.read(|view| assert_eq!(view.picked, 0));
+        cx.simulate_click("sha1");
+        format.read(|view| assert_eq!(view.picked, 1));
     }
 
     /// A composite of `count` items under one test's settings.
