@@ -202,6 +202,45 @@ fn the_menu_opens_one_pane_at_a_time() {
     assert!(cx.find("settings/nav/agents").is_none());
     assert!(cx.find("settings/nav/invites").is_some());
 }
+/// The menu is one tab list, a column: one Tab stop, ↓ opens the next
+/// section (automatic), wrapping from the last to the first.
+#[test]
+fn an_arrow_on_the_menu_opens_the_next_section() {
+    let mut cx = fixture("ready", false);
+    let nav = cx.interactivity("settings/nav");
+    assert_eq!(nav.role, Some(ducktape_view_guest::Role::TabList));
+    assert_eq!(nav.aria.label.as_deref(), Some("Settings"));
+    assert_eq!(
+        nav.aria.orientation,
+        Some(ducktape_view_guest::design::Orientation::Vertical)
+    );
+    assert!(nav.focusable && nav.tab_stop == Some(true));
+    assert!(!cx.interactivity("settings/nav/account").focusable);
+    assert!(
+        cx.interactivity("settings/nav/account")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("settings/nav", "down");
+    cx.run_until_parked();
+    assert!(cx.find("settings/agents/12/suspend").is_some());
+    let agents = cx.interactivity("settings/nav/agents");
+    assert_eq!(agents.aria.selected, Some(true));
+    assert!(agents.aria.active_descendant);
+    cx.simulate_key_down("settings/nav", "up");
+    cx.simulate_key_down("settings/nav", "up");
+    cx.run_until_parked();
+    assert!(cx.find("settings/invite/mint").is_some());
+    // the primary button's ring is drawn in the ink's foreground
+    let mint = cx.interactivity("settings/invite/mint");
+    assert_eq!(
+        mint.focus_visible,
+        Some(ducktape_view_guest::design::focus_ring(
+            Theme::light().primary_foreground
+        ))
+    );
+}
+
 #[test]
 fn invite_ttl_copy_and_refusal() {
     let mut cx = fixture("invite-ready", false);
