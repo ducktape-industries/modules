@@ -284,7 +284,7 @@ struct Grid {
 /// `Range<GridPlacement>`: so the tree takes `Range` first, with a stand-in
 /// `GridLocation` of it that cuts the style's own on the next pass, and a
 /// trace of `StyleRefinement` alone answers for the style's.
-fn tree() -> (Registry, Registry) {
+pub(super) fn tree() -> (Registry, Registry) {
     let mut tree = registry(TREE);
     let text = ContainerFormat::Struct(vec![
         Named {

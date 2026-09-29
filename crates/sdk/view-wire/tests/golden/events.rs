@@ -15,6 +15,24 @@ pub fn every_event() -> Vec<Event> {
                 },
             },
         },
+        Event::Click {
+            handler: 1,
+            event: click::Click::Mouse {
+                down: click::ButtonEvent {
+                    button: click::MouseButton::Left,
+                    position: at(0.0, 0.0),
+                    modifiers,
+                    click_count: 1,
+                },
+                up: click::ButtonEvent {
+                    button: click::MouseButton::Left,
+                    position: at(0.0, 0.0),
+                    modifiers,
+                    click_count: 1,
+                },
+                first_mouse: true,
+            },
+        },
         Event::MouseDown {
             handler: 2,
             phase: DispatchPhase::Bubble,
@@ -79,7 +97,7 @@ pub fn every_event() -> Vec<Event> {
             phase: DispatchPhase::Bubble,
             event: interactivity::MouseExit {
                 position: at(5.0, 6.0),
-                pressed_button: None,
+                pressed_button: Some(click::MouseButton::Right),
                 modifiers,
             },
         },
@@ -91,6 +109,16 @@ pub fn every_event() -> Vec<Event> {
                 delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -12.0 },
                 modifiers,
                 touch_phase: interactivity::TouchPhase::Moved,
+            },
+        },
+        Event::ScrollWheel {
+            handler: 9,
+            phase: DispatchPhase::Bubble,
+            event: interactivity::ScrollWheel {
+                position: at(5.0, 6.0),
+                delta: mouse::ScrollDelta::Lines { x: 1.0, y: 2.0 },
+                modifiers,
+                touch_phase: interactivity::TouchPhase::Ended,
             },
         },
         Event::Pinch {
@@ -116,6 +144,27 @@ pub fn every_event() -> Vec<Event> {
             handler: 12,
             phase: DispatchPhase::Capture,
             event: interactivity::KeyUp { state: key_state() },
+        },
+        Event::KeyUp {
+            handler: 12,
+            phase: DispatchPhase::Capture,
+            event: interactivity::KeyUp {
+                state: key_state_on(keyboard::NativeCode::Android(1)),
+            },
+        },
+        Event::KeyUp {
+            handler: 12,
+            phase: DispatchPhase::Capture,
+            event: interactivity::KeyUp {
+                state: key_state_on(keyboard::NativeCode::Windows(2)),
+            },
+        },
+        Event::KeyUp {
+            handler: 12,
+            phase: DispatchPhase::Capture,
+            event: interactivity::KeyUp {
+                state: key_state_on(keyboard::NativeCode::Xkb(3)),
+            },
         },
         Event::ModifiersChanged {
             handler: 13,
@@ -153,6 +202,32 @@ pub fn every_event() -> Vec<Event> {
                 bytes: b"draft".to_vec(),
             }),
         },
+        Event::EditorDocument {
+            handler: 20,
+            message: EditorDocumentMessage::Request {
+                id: transfer(),
+                target: transfer_target(9),
+            },
+        },
+        Event::EditorDocument {
+            handler: 20,
+            message: EditorDocumentMessage::Acknowledged { id: transfer() },
+        },
+        Event::EditorDocument {
+            handler: 20,
+            message: EditorDocumentMessage::Transfer(EditorTransfer::Begin {
+                id: transfer(),
+                target: transfer_target(9),
+            }),
+        },
+        Event::EditorDocument {
+            handler: 20,
+            message: EditorDocumentMessage::Transfer(EditorTransfer::Complete { id: transfer() }),
+        },
+        Event::EditorDocument {
+            handler: 20,
+            message: EditorDocumentMessage::Transfer(EditorTransfer::Abort { id: transfer() }),
+        },
         Event::EditorRequest {
             handler: 21,
             request: EditorRequest {
@@ -184,6 +259,32 @@ pub fn every_event() -> Vec<Event> {
                 input_time_ms: 42,
             },
         },
+        Event::EditorTransaction {
+            handler: 22,
+            event: EditorTransactionEvent::Interaction {
+                id: transaction(),
+                state: document(9),
+                action: EditorInteraction::Action {
+                    tag: "toggle".into(),
+                },
+                input_time_ms: 1,
+            },
+        },
+        Event::EditorTransaction {
+            handler: 22,
+            event: EditorTransactionEvent::Fault {
+                id: transaction(),
+                state: document(9),
+                reason: EditorFault::Overflow,
+            },
+        },
+        Event::EditorTransaction {
+            handler: 22,
+            event: EditorTransactionEvent::Cancelled {
+                id: transaction(),
+                state: document(9),
+            },
+        },
         Event::Theme { dark: true },
         Event::Select {
             handler: 25,
@@ -194,7 +295,7 @@ pub fn every_event() -> Vec<Event> {
             event: RichTextHover {
                 index: Some(2),
                 position: at(9.0, 9.0),
-                pressed_button: None,
+                pressed_button: Some(click::MouseButton::Left),
                 modifiers: gpui::Modifiers::default(),
             },
         },
@@ -248,10 +349,58 @@ pub fn every_event() -> Vec<Event> {
             result: Err(Error::new("not_found", "no such room")),
             done: true,
         },
+        Event::Response {
+            id: 2,
+            result: Ok(vec![1, 2, 3]),
+            done: false,
+        },
         Event::Resync,
         Event::A11yAction {
             handler: 11,
             data: Some(ActionData::CustomAction(3)),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::Value("42".into())),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::NumericValue(3.5)),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::ScrollUnit(accesskit::ScrollUnit::Page)),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::ScrollHint(accesskit::ScrollHint::TopLeft)),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::ScrollToPoint(accesskit::Point {
+                x: 1.0,
+                y: 2.0,
+            })),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::SetScrollOffset(accesskit::Point {
+                x: 3.0,
+                y: 4.0,
+            })),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::SetTextSelection(accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: accesskit::NodeId(1),
+                    character_index: 0,
+                },
+                focus: accesskit::TextPosition {
+                    node: accesskit::NodeId(1),
+                    character_index: 3,
+                },
+            })),
         },
     ]
 }
@@ -263,7 +412,10 @@ pub fn every_frame() -> Frame {
             id: transaction(),
             decision: EditorDecision::Apply {
                 patches: vec![],
-                cursor: EditorCursor::default(),
+                cursor: EditorCursor {
+                    position: EditorPosition { line: 0, column: 1 },
+                    selection: Some(EditorPosition { line: 0, column: 3 }),
+                },
                 history: EditorHistoryEffect::NewGroup,
             },
         }],

@@ -1,15 +1,15 @@
 //! The wire, committed: its bytes and its shape. One `Frame` holding every
-//! `Node` variant, one of every `Event`, and one request and reply through
-//! every method in `methods::ALL`, encoded into
-//! `tests/golden/{frame,methods}.bin` with a JSON twin beside each for
+//! `Node` variant, one of every `Event`, one of every `WidgetCommand`, and
+//! one request and reply through every method in `methods::ALL`, encoded
+//! into `tests/golden/{frame,methods}.bin` with a JSON twin beside each for
 //! readable diffs; and the shape of every type that crosses, in
 //! `tests/golden/schema.txt` (`golden/schema.rs`). The bytes fail on any
-//! sampled byte that moves, and miss what no fixture samples: a variant no
-//! fixture uses, a field left out as empty (every fixture style is), a
-//! method kind new since the fixture. The shape holds exactly those. A
-//! failure means the wire changed; if that was intended, regenerate with
-//! `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID` (`build.rs` hashes all
-//! three files).
+//! sampled byte that moves. The shape holds every field and variant, sampled
+//! or not; `golden/coverage.rs` is what closes the gap between the two,
+//! failing when a variant or a struct field the schema reaches is never
+//! shown present in a sample. A failure means the wire changed; if that was
+//! intended, regenerate with `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID`
+//! (`build.rs` hashes all three files).
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -26,13 +26,15 @@ use view_wire::list::{
 use view_wire::methods::{self, Method, Module};
 use view_wire::{
     Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
-    CanvasCommand, CanvasShape, ContainerNode, DispatchPhase, EditorCursor, EditorDecision,
-    EditorEditKind, EditorHistoryEffect, EditorPatch, EditorRequest, EditorRequestInput,
-    EditorResponse, EditorTransactionEvent, EditorTransactionId, ElementIdWire, Error, Event,
-    Frame, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid, ListAlignment,
-    ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node, Patch, Request,
-    RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource, SvgTransformation, TextNode,
-    TooltipResponse, WidgetCommand, click, interactivity, keyboard, mouse,
+    CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
+    ContainerNode, DispatchPhase, EditorBinding, EditorCursor, EditorDecision, EditorEditKind,
+    EditorFault, EditorHistoryEffect, EditorKeyClaim, EditorPatch, EditorPosition, EditorRequest,
+    EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId, ElementIdAtom,
+    ElementIdWire, Error, Event, Frame, GroupRefinement, HasPopup, ImageData, ImageObjectFit,
+    ImageStyle, Interactivity, Invalid, ListAlignment, ListOffset, ListRequest, ListScroll,
+    ListSizingBehavior, Live, Node, Patch, Request, RichTextHighlightStyle, RichTextHover,
+    RichTextRuns, SvgSource, SvgTransformation, TextNode, Tooltip, TooltipResponse, WidgetCommand,
+    click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -128,6 +130,19 @@ fn transfer() -> EditorTransferId {
     }
 }
 
+/// A document reference at [`transfer`]'s reset, for the messages that echo
+/// both (`EditorTransfer::Begin`, `EditorDocumentMessage::Request`): a
+/// mismatched reset is `EditorTransferError::Identity`, which a bare
+/// `Event::EditorDocument` never decodes far enough to hit (unlike
+/// `Frame.editor_documents`, nothing here calls `validate`), but a matching
+/// one reads true either way.
+fn transfer_target(byte_len: u32) -> EditorDocumentRef {
+    EditorDocumentRef {
+        reset: 0,
+        ..document(byte_len)
+    }
+}
+
 fn key_state() -> keyboard::KeyState {
     keyboard::KeyState {
         key: keyboard::Key::Named(keyboard::Named::Enter),
@@ -141,10 +156,24 @@ fn key_state() -> keyboard::KeyState {
     }
 }
 
+/// [`key_state`] on a different native platform: every [`keyboard::NativeCode`]
+/// variant besides `MacOS` (already [`key_state`]'s) and `Unidentified`
+/// (unit, `schema.txt` pins its name alone).
+fn key_state_on(physical: keyboard::NativeCode) -> keyboard::KeyState {
+    keyboard::KeyState {
+        physical_key: keyboard::Physical::Unidentified(physical),
+        ..key_state()
+    }
+}
+
 fn at(x: f32, y: f32) -> gpui::Point<Pixels> {
     point(px(x), px(y))
 }
 
+/// The mechanical completeness gate: every field and variant `schema.rs`
+/// says the wire reaches, checked against what `frame.bin`'s samples show.
+#[path = "golden/coverage.rs"]
+mod coverage;
 #[path = "golden/events.rs"]
 mod events_fixture;
 /// Every `Node` variant once, in one tree. Exhaustive by construction: a
@@ -154,13 +183,19 @@ mod nodes;
 /// The wire's shape, hashed into `WIRE_ID` beside the bytes.
 #[path = "golden/schema.rs"]
 mod schema;
+/// Every `WidgetCommand` variant once: the third value `frame.bin` pins,
+/// tree-side like `Frame` and `Event` but never nested under either.
+#[path = "golden/widget.rs"]
+mod widget_fixture;
 use events_fixture::{event_variant, every_event, every_frame};
 use nodes::{every_node, node_variant};
+use widget_fixture::every_widget_command;
 
 #[test]
 fn frame_and_events_are_the_committed_bytes() {
     let frame = every_frame();
     let events = every_event();
+    let widget_commands = every_widget_command();
     let root = frame.root.as_ref().unwrap();
     let Node::Container(ContainerNode { children, .. }) = root else {
         unreachable!()
@@ -178,12 +213,12 @@ fn frame_and_events_are_the_committed_bytes() {
         "every Event variant once: {kinds:?}"
     );
 
-    let value = (frame, events);
+    let value = (frame, events, widget_commands);
     let bytes = view_wire::encode(&value);
     let json = serde_json::to_string_pretty(&value).unwrap();
     check("frame", &bytes, &json);
     assert_eq!(
-        view_wire::decode::<(Frame, Vec<Event>)>(&bytes).unwrap(),
+        view_wire::decode::<(Frame, Vec<Event>, Vec<WidgetCommand>)>(&bytes).unwrap(),
         value
     );
 }
@@ -357,10 +392,39 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             ("chat".into(), vec![1, 2]),
             Some(Description {
                 title: "Post in #design".into(),
-                fields: vec![Field {
-                    label: "from".into(),
-                    value: Value::List(vec![Value::Account(3), Value::bytes(&[7; 40])]),
-                }],
+                fields: vec![
+                    Field {
+                        label: "from".into(),
+                        value: Value::List(vec![Value::Account(3), Value::bytes(&[7; 40])]),
+                    },
+                    Field {
+                        label: "text".into(),
+                        value: Value::text("hi"),
+                    },
+                    Field {
+                        label: "signer".into(),
+                        value: Value::Key(vec![1; 32]),
+                    },
+                    Field {
+                        label: "program".into(),
+                        value: Value::Module("chat".into()),
+                    },
+                    Field {
+                        label: "commit".into(),
+                        value: Value::Hash(vec![2; 32]),
+                    },
+                    Field {
+                        label: "sent".into(),
+                        value: Value::Time(1_700_000_000_000),
+                    },
+                    Field {
+                        label: "quantity".into(),
+                        value: Value::Amount {
+                            value: 1_000,
+                            decimals: 2,
+                        },
+                    },
+                ],
             }),
         ),
     ]
