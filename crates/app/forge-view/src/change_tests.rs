@@ -397,6 +397,36 @@ fn the_gutter_of_a_drawn_line_is_the_comment_button() {
     assert!(cx.has_text("src/lib.rs:5 (new)"));
 }
 
+/// The verdicts are a radio group: one Tab stop, ↓ checks the next one.
+#[test]
+fn the_verdicts_check_on_an_arrow() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-start-review");
+    cx.run_until_parked();
+    cx.simulate_click("forge-finish-review");
+    cx.run_until_parked();
+    let group = cx.interactivity("forge-verdicts");
+    assert_eq!(group.role, Some(ducktape_view_guest::Role::RadioGroup));
+    assert!(group.focusable && group.tab_stop == Some(true));
+    assert!(!cx.interactivity("forge-verdict-approve").focusable);
+    cx.simulate_key_down("forge-verdicts", "down");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(forge.review().unwrap().verdict, Some(Verdict::Approve));
+    });
+    let approve = cx.interactivity("forge-verdict-approve");
+    assert_eq!(
+        approve.aria.toggled,
+        Some(ducktape_view_guest::Toggled::True)
+    );
+    assert!(approve.aria.active_descendant);
+    assert!(
+        !cx.interactivity("forge-verdict-comment")
+            .aria
+            .active_descendant
+    );
+}
+
 #[test]
 fn a_review_batches_every_anchor_into_exactly_one_operation() {
     let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);

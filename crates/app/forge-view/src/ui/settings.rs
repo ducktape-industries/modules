@@ -3,12 +3,12 @@
 //! appears here.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, MouseDownEvent, Stateful};
+use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::Forge;
 use crate::state::{Menu, SettingsForm};
 use crate::ui::changes::people_picker;
-use crate::ui::components::{button, dropdown, id, menu_item, ref_label};
+use crate::ui::components::{button, dropdown, id, menu, menu_item, ref_label};
 use crate::ui::{PAGE_X, pending, scroller, staged};
 use forge::Reply;
 
@@ -92,42 +92,48 @@ fn group(key: &str, title: &str, theme: &Theme) -> Stateful<Div> {
 
 /// The branches a default head may name, as a dropdown.
 fn heads(forge: &Forge, form: &SettingsForm, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let open = forge.menu == Some(Menu::Head);
-    let items = match open {
-        true => forge
-            .branches()
-            .into_iter()
-            .map(|name| {
-                let pick = cx.listener({
-                    let name = name.clone();
-                    move |forge, _: &ClickEvent, _, cx| {
-                        if let Some(form) = &mut forge.repo_settings {
-                            form.head = name.clone();
-                        }
-                        forge.open_menu(None, cx);
-                    }
-                });
-                menu_item(
-                    id(format!("forge-settings-head-{}", ref_label(&name))),
-                    ref_label(&name),
-                    None,
-                    form.head == name,
-                    theme,
-                    pick,
-                )
-            })
-            .collect(),
-        false => Vec::new(),
-    };
     dropdown(
-        "forge-settings-head",
+        Menu::Head.key(),
         ref_label(&form.head),
-        open,
-        items,
+        forge.menu == Some(Menu::Head),
         theme,
-        cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_menu(Some(Menu::Head), cx)),
-        cx.listener(|forge, _: &MouseDownEvent, _, cx| forge.open_menu(None, cx)),
+        cx.listener(|forge, event: &ClickEvent, window, cx| {
+            forge.open_dropdown(Menu::Head, event, window, cx)
+        }),
     )
+}
+
+/// The default head's menu, open: every branch, the form's head checked.
+pub(crate) fn head_menu(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+    let head = forge
+        .repo_settings
+        .as_ref()
+        .map(|form| form.head.clone())
+        .unwrap_or_default();
+    let items = forge
+        .branches()
+        .into_iter()
+        .map(|name| {
+            let pick = cx.processor({
+                let name = name.clone();
+                move |forge, (): (), window, cx| {
+                    if let Some(form) = &mut forge.repo_settings {
+                        form.head = name.clone();
+                    }
+                    forge.close_dropdown(Menu::Head, window, cx);
+                }
+            });
+            menu_item(
+                id(format!("forge-settings-head-{}", ref_label(&name))),
+                ref_label(&name),
+                None,
+                head == name,
+                theme,
+                move |window, app| pick((), window, app),
+            )
+        })
+        .collect();
+    menu(Menu::Head, "Default head", items, forge, cx, theme)
 }
 
 /// The force and delete switches.

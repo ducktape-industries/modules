@@ -1,12 +1,17 @@
 //! The repeated shapes of this view; the ones every view shares (button,
 //! empty state, heading, quiet line) come from `view_guest::design`.
 use std::ops::Range;
+use std::rc::Rc;
 
+use crate::Forge;
+use crate::state::Menu;
 use ducktape_view_guest::UniformListScrollHandle;
 use ducktape_view_guest::design;
 pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, heading, short_hex};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{AnchoredPositionMode, Edges, MouseDownEvent, Point, accesskit};
+use ducktape_view_guest::{
+    AnchoredPositionMode, Div, Edges, KeyDownEvent, Point, Stateful, accesskit,
+};
 
 pub(crate) fn id(text: impl Into<String>) -> ElementId {
     ElementId::Name(text.into().into())
@@ -181,27 +186,24 @@ pub(crate) fn ref_label(name: &[u8]) -> String {
 
 /// A dropdown's width.
 const MENU_W: Pixels = px(220.);
-/// How far under its button's top a dropdown opens.
-const MENU_DROP: Pixels = px(30.);
 
-/// A button that names what is picked (`main ⌄`) and, while `open`, the
-/// menu under it: `items` in a box that a press anywhere else closes.
-/// The button only opens it.
+/// A button that names what is picked (`main ⌄`) and says whether its
+/// menu is open; the menu itself ([`menu`]) floats in the view's modal
+/// overlay while it is.
 pub(crate) fn dropdown(
     key: &str,
     label: String,
     open: bool,
-    items: Vec<AnyElement>,
     theme: &Theme,
     on_open: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    on_close: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let theme = *theme;
-    let button = div()
+    div()
         .id(id(key.to_owned()))
         .h(design::size::ROW)
         .px(design::space::SM)
         .flex()
+        .flex_none()
         .items_center()
         .gap(design::space::XS)
         .border_1()
@@ -216,51 +218,32 @@ pub(crate) fn dropdown(
         .focusable()
         .on_click(on_open)
         .child(label)
-        .child(div().text_color(theme.faint).child("⌄"));
-    let mut wrapper = div().relative().flex_none().child(button);
-    if open {
-        let menu = div()
-            .id(id(format!("{key}-menu")))
-            .w(MENU_W)
-            .py(design::space::XXS)
-            .flex()
-            .flex_col()
-            .border_1()
-            .border_color(theme.border_strong)
-            .bg(theme.background)
-            .shadow_lg()
-            .occlude()
-            .role(Role::Menu)
-            .on_mouse_down_out(on_close)
-            .children(items);
-        // pinned to the button's top-left, so the drop is measured from there
-        wrapper = wrapper.child(
-            div().absolute().top_0().left_0().child(deferred(
-                anchored()
-                    .position_mode(AnchoredPositionMode::Local)
-                    .position(Point {
-                        x: px(0.),
-                        y: MENU_DROP,
-                    })
-                    .snap_to_window_with_margin(Edges::all(design::space::SM))
-                    .child(menu),
-            )),
-        );
-    }
-    wrapper.into_any_element()
+        .child(div().text_color(theme.faint).child("⌄"))
+        .into_any_element()
+}
+
+/// What a press on a menu item does.
+type Pick = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// One line of a [`menu`]: a group label, or an item with its pick.
+pub(crate) enum MenuEntry {
+    Label(AnyElement),
+    Item(Stateful<Div>, Pick),
 }
 
 /// A dropdown's group label: `Branches`, `Tags`.
-pub(crate) fn menu_label(text: &str, theme: &Theme) -> AnyElement {
-    div()
-        .px(design::space::LG)
-        .pt(design::space::SM)
-        .pb(design::space::XXS)
-        .font_family(design::fonts::FAMILY_MONO)
-        .text_size(design::text::CAPTION)
-        .text_color(theme.muted)
-        .child(text.to_owned())
-        .into_any_element()
+pub(crate) fn menu_label(text: &str, theme: &Theme) -> MenuEntry {
+    MenuEntry::Label(
+        div()
+            .px(design::space::LG)
+            .pt(design::space::SM)
+            .pb(design::space::XXS)
+            .font_family(design::fonts::FAMILY_MONO)
+            .text_size(design::text::CAPTION)
+            .text_color(theme.muted)
+            .child(text.to_owned())
+            .into_any_element(),
+    )
 }
 
 /// One pick in a dropdown, mono, the picked one raised and checked;
@@ -271,10 +254,12 @@ pub(crate) fn menu_item(
     note: Option<&str>,
     selected: bool,
     theme: &Theme,
-    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
+    pick: impl Fn(&mut Window, &mut App) + 'static,
+) -> MenuEntry {
     let theme = *theme;
-    div()
+    let pick: Pick = Rc::new(pick);
+    let click = pick.clone();
+    let item = div()
         .id(element_id)
         .h(design::size::ROW)
         .px(design::space::LG)
@@ -285,12 +270,79 @@ pub(crate) fn menu_item(
         .text_size(design::text::CAPTION)
         .when(selected, |item| item.bg(theme.surface_raised))
         .hover(move |style| style.bg(theme.surface))
-        .role(Role::MenuItemRadio)
         .aria_toggled(selected.into())
-        .focusable()
-        .on_click(click)
+        .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| click(window, app))
         .child(div().flex_1().min_w(px(0.)).truncate().child(label))
-        .children(note.map(|note| div().text_color(theme.faint).child(note.to_owned())))
+        .children(note.map(|note| div().text_color(theme.faint).child(note.to_owned())));
+    MenuEntry::Item(item, pick)
+}
+
+/// The open dropdown of `menu`: one Tab stop under the press that opened
+/// it, whose ↑ ↓ walk the items, Enter or Space picks the active one and
+/// Esc closes it, giving the keys back to its button. It floats in the
+/// view's modal overlay, so Tab never leaves it and a press outside
+/// closes it.
+pub(crate) fn menu(
+    menu: Menu,
+    label: &str,
+    entries: Vec<MenuEntry>,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> AnyElement {
+    let key = menu.key();
+    let picks: Vec<Pick> = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            MenuEntry::Item(_, pick) => Some(pick.clone()),
+            MenuEntry::Label(_) => None,
+        })
+        .collect();
+    let active = forge.menu_cursor.min(picks.len().saturating_sub(1));
+    let mut index = 0;
+    let lines: Vec<AnyElement> = entries
+        .into_iter()
+        .map(|entry| match entry {
+            MenuEntry::Label(label) => label,
+            MenuEntry::Item(item, _) => {
+                let line = design::item(item, Role::MenuItemRadio, index == active);
+                index += 1;
+                line.into_any_element()
+            }
+        })
+        .collect();
+    let escape = cx.listener(move |forge, event: &KeyDownEvent, window, cx| {
+        if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
+            forge.close_dropdown(menu, window, cx);
+        }
+    });
+    let frame = design::composite(id(format!("{key}-menu")), Role::Menu, label.to_owned())
+        .active(active, picks.len())
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            forge.menu_cursor = index;
+            cx.notify();
+        }))
+        .on_press(move |index, window, app| picks[index](window, app))
+        .build()
+        .on_key_down(escape)
+        .w(MENU_W)
+        .py(design::space::XXS)
+        .flex()
+        .flex_col()
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .shadow_lg()
+        .occlude()
+        .children(lines);
+    // the ring would replace the shadow: the frame draws both
+    let frame = design::focus_shown(frame, theme, |style| style.shadow_lg());
+    let (x, y) = forge.menu_at;
+    anchored()
+        .position_mode(AnchoredPositionMode::Window)
+        .position(Point { x: px(x), y: px(y) })
+        .snap_to_window_with_margin(Edges::all(design::space::SM))
+        .child(frame)
         .into_any_element()
 }
 

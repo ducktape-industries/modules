@@ -205,6 +205,11 @@ pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
     cx.host().handle::<Submit<ChatApi>>(|_| Ok(Vec::new()));
     cx.host().handle::<SubmitForge>(|_| Ok(Vec::new()));
     cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
+    cx.host()
+        .handle::<ducktape_view_guest::methods::HostWidget>(|command| {
+            assert!(matches!(command, wire::WidgetCommand::Focus { .. }));
+            Ok(())
+        });
     cx.host().never::<Changes<ForgeApi>>();
     cx.host().never::<Changes<ChatApi>>();
     cx.host().never::<Changes<IdentityApi>>();
@@ -816,8 +821,9 @@ fn the_tree_walks_by_keyboard() {
         let _ = cx;
         view.read(|forge| forge.nav().cursor.clone().map(|path| path_of(&path)))
     };
-    // directories sort first: the first key lands on the first row, src
-    press(&mut cx, Key::Down);
+    // directories sort first: the first row, src, is the active one before
+    // any key, and ↑ there stays
+    press(&mut cx, Key::Up);
     assert_eq!(cursor(&mut cx).as_deref(), Some("src"));
     // the focused tree tells assistive technology which row is active
     let Some(wire::Node::Container(row)) = cx.find("forge-tree-src") else {
@@ -1166,24 +1172,215 @@ pub(crate) fn holds(node: &wire::Node, key: &str) -> bool {
 }
 
 #[test]
-fn a_repository_row_is_a_list_item_whose_press_is_a_button_beside_its_controls() {
+fn a_repository_row_is_a_grid_row_whose_press_is_a_button_beside_its_controls() {
     let (cx, _view) = booted("default");
     let row = control(&cx, "forge-repo-project");
-    assert_eq!(
-        row.interactivity.role,
-        Some(ducktape_view_guest::Role::ListItem)
-    );
+    assert_eq!(row.interactivity.role, Some(ducktape_view_guest::Role::Row));
     assert!(!row.interactivity.focusable && row.interactivity.on_click.is_none());
     let open = control(&cx, "forge-repo-project-open");
     assert_eq!(
         open.interactivity.role,
         Some(ducktape_view_guest::Role::Button)
     );
-    assert!(open.interactivity.focusable && open.interactivity.on_click.is_some());
+    // the grid holds the focus; its first row's press is active on entry
+    assert!(!open.interactivity.focusable && open.interactivity.on_click.is_some());
+    assert!(open.interactivity.aria.active_descendant);
     let open = wire::Node::Container(open);
     for sibling in ["forge-repo-project-copy", "forge-repo-project-activity"] {
         assert!(!holds(&open, sibling), "{sibling} is inside the press");
     }
+}
+
+/// The repository list is one grid: ↓ moves to the next repository, → to
+/// its Copy cell, and Enter presses the cell, so the address lands on
+/// the clipboard without opening the repository.
+#[test]
+fn the_repositories_grid_walks_cells_and_enter_presses_the_active_one() {
+    let (mut cx, view) = booted("default");
+    cx.simulate_measure("forge-viewport", 1000., 600.);
+    cx.run_until_parked();
+    let copied = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+    let seen = copied.clone();
+    cx.host()
+        .handle::<ducktape_view_guest::methods::ClipboardWrite>(move |text| {
+            *seen.borrow_mut() = text;
+            Ok(())
+        });
+    let grid = cx.interactivity("forge-repos-list");
+    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(grid.focusable && grid.tab_stop == Some(true));
+    let rows: Vec<String> = cx
+        .find("forge-repos-list")
+        .expect("the grid")
+        .children()
+        .iter()
+        .filter(|node| {
+            node.interactivity()
+                .is_some_and(|row| row.role == Some(ducktape_view_guest::Role::Row))
+        })
+        .filter_map(|node| node.key().map(str::to_owned))
+        .filter(|key| key != "forge-repos-columns")
+        .collect();
+    assert!(!rows.is_empty(), "{:?}", cx.texts());
+    let header = cx.interactivity("forge-repos-columns");
+    assert_eq!(header.role, Some(ducktape_view_guest::Role::Row));
+    assert_eq!(
+        cx.interactivity("forge-repos-column-Name").role,
+        Some(ducktape_view_guest::Role::ColumnHeader)
+    );
+    // the second repository when there is one, else the first
+    let at = usize::from(rows.len() > 1);
+    if at == 1 {
+        cx.simulate_key_down("forge-repos-list", "down");
+    }
+    let name = rows[at].trim_start_matches("forge-repo-").to_owned();
+    assert!(
+        cx.interactivity(&format!("forge-repo-{name}-open"))
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("forge-repos-list", "right");
+    let copy = cx.interactivity(&format!("forge-repo-{name}-copy"));
+    assert!(copy.aria.active_descendant && !copy.focusable);
+    assert!(
+        !cx.interactivity(&format!("forge-repo-{name}-open"))
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("forge-repos-list", "enter");
+    cx.run_until_parked();
+    assert_eq!(
+        *copied.borrow(),
+        format!("duck://testnet-0a1b2c3d/forge/{name}")
+    );
+    assert!(cx.has_text("Copied"));
+    view.read(|forge| assert!(forge.nav.repo.is_none(), "copy is not open"));
+    // → again: the activity link; Enter opens it in Explorer
+    cx.simulate_key_down("forge-repos-list", "right");
+    assert!(
+        cx.interactivity(&format!("forge-repo-{name}-activity"))
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("forge-repos-list", "enter");
+    cx.run_until_parked();
+    assert_eq!(cx.host().opened_links().len(), 1);
+    // Home: back to the press; Enter opens the repository
+    cx.simulate_key_down("forge-repos-list", "home");
+    cx.simulate_key_down("forge-repos-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.nav().repo.as_deref(), Some(name.as_str())));
+}
+
+/// The ref picker's menu is one Tab stop in a modal overlay: it takes the
+/// keys on open with its first item active, ↓ then Enter picks a ref, and
+/// Esc closes it and gives the keys back to the button.
+#[test]
+fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
+    let (mut cx, view) = opened("default");
+    let focused = |cx: &TestAppContext| -> Vec<String> {
+        cx.host()
+            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .iter()
+            .filter_map(|command| match command {
+                wire::WidgetCommand::Focus { target } => target.first().and_then(|id| match id {
+                    wire::ElementIdWire::Name(name) => Some(name.to_string()),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .collect()
+    };
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    assert_eq!(
+        focused(&cx).last().map(String::as_str),
+        Some("forge-ref-picker-menu")
+    );
+    let menu = cx.interactivity("forge-ref-picker-menu");
+    assert_eq!(menu.role, Some(ducktape_view_guest::Role::Menu));
+    assert!(menu.focusable && menu.on_key_down.is_some());
+    assert!(
+        cx.find("forge-menu-overlay").is_some(),
+        "the menu floats in the overlay"
+    );
+    let items: Vec<String> = {
+        let mut items = Vec::new();
+        fn gather(node: &wire::Node, items: &mut Vec<String>) {
+            if node
+                .interactivity()
+                .is_some_and(|item| item.role == Some(ducktape_view_guest::Role::MenuItemRadio))
+            {
+                items.push(node.key().unwrap_or_default().to_owned());
+            }
+            node.children()
+                .iter()
+                .for_each(|child| gather(child, items));
+        }
+        gather(
+            cx.find("forge-ref-picker-menu").expect("the menu"),
+            &mut items,
+        );
+        items
+    };
+    assert!(items.len() >= 2, "{items:?}");
+    assert!(cx.interactivity(&items[0]).aria.active_descendant);
+    assert!(!cx.interactivity(&items[0]).focusable);
+    cx.simulate_key_down("forge-ref-picker-menu", "escape");
+    cx.run_until_parked();
+    assert!(cx.find("forge-ref-picker-menu").is_none());
+    assert_eq!(
+        focused(&cx).last().map(String::as_str),
+        Some("forge-ref-picker")
+    );
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    cx.simulate_key_down("forge-ref-picker-menu", "down");
+    assert!(cx.interactivity(&items[1]).aria.active_descendant);
+    cx.simulate_key_down("forge-ref-picker-menu", "enter");
+    cx.run_until_parked();
+    let picked = items[1].trim_start_matches("forge-ref-").to_owned();
+    view.read(|forge| {
+        assert_eq!(forge.nav().rev.as_deref(), Some(picked.as_bytes()));
+        assert_eq!(forge.menu, None);
+    });
+    assert_eq!(
+        focused(&cx).last().map(String::as_str),
+        Some("forge-ref-picker")
+    );
+}
+
+/// The file tree claims a row before any key, and End takes the cursor to
+/// the last row.
+#[test]
+fn the_tree_claims_a_row_on_entry_and_end_reaches_the_last() {
+    let (mut cx, view) = opened("default");
+    // the default ref carries no commits; `clean` has a tree
+    cx.simulate_click("forge-ref-picker");
+    cx.simulate_click("forge-ref-refs/heads/clean");
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    let tree = cx.interactivity("forge-tree-rows");
+    assert_eq!(tree.role, Some(ducktape_view_guest::Role::Tree));
+    assert!(tree.focusable && tree.tab_stop == Some(true));
+    let rows = view.read(|forge| forge.tree_rows());
+    let first = format!("forge-tree-{}", path_of(&rows[0].path));
+    let last = format!("forge-tree-{}", path_of(&rows[rows.len() - 1].path));
+    view.read(|forge| assert_eq!(forge.nav().cursor, None));
+    assert!(cx.interactivity(&first).aria.active_descendant);
+    cx.simulate_key_down("forge-tree-rows", "end");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(
+            forge.nav().cursor.as_deref(),
+            Some(rows[rows.len() - 1].path.as_slice())
+        )
+    });
+    assert!(cx.interactivity(&last).aria.active_descendant);
+    assert!(!cx.interactivity(&first).aria.active_descendant);
+    cx.simulate_key_down("forge-tree-rows", "home");
+    cx.run_until_parked();
+    assert!(cx.interactivity(&first).aria.active_descendant);
 }
 
 #[test]

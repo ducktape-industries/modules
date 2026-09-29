@@ -1,6 +1,6 @@
 //! Where the reader is: every event that moves between screens, tabs,
 //! files and panels. A move clears the notice and re-syncs the reads.
-use ducktape_view_guest::Context;
+use ducktape_view_guest::{ClickEvent, Context, Window};
 
 use crate::Stage;
 use crate::state::{ChangeTab, Dock, Filter, Forge, RepoTab, SettingsForm, change_key};
@@ -75,6 +75,35 @@ impl Forge {
     /// Opens a dropdown under its button; a press anywhere else closes it.
     pub(crate) fn open_menu(&mut self, menu: Option<crate::state::Menu>, cx: &mut Context<Self>) {
         self.menu = menu;
+        cx.notify();
+    }
+
+    /// Opens `menu` under the press that asked for it, its first item
+    /// active, and gives it the keys; Esc or a pick gives them back to the
+    /// button ([`crate::ui::components::dropdown`]).
+    pub(crate) fn open_dropdown(
+        &mut self,
+        menu: crate::state::Menu,
+        event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let at = event.position();
+        self.menu_at = (at.x.into(), at.y.into());
+        self.menu_cursor = 0;
+        self.open_menu(Some(menu), cx);
+        window.focus(crate::ui::components::id(format!("{}-menu", menu.key())));
+    }
+
+    /// Closes `menu` and gives the keys back to its button.
+    pub(crate) fn close_dropdown(
+        &mut self,
+        menu: crate::state::Menu,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu = None;
+        window.focus(crate::ui::components::id(menu.key().to_owned()));
         cx.notify();
     }
 

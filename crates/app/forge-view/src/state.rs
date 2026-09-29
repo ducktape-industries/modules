@@ -61,6 +61,16 @@ pub struct Forge {
     /// the dropdown open under its button, if any
     #[serde(skip)]
     pub(crate) menu: Option<Menu>,
+    /// where the open dropdown sits: under the press that opened it
+    #[serde(skip)]
+    pub(crate) menu_at: (f32, f32),
+    /// the dropdown item the arrows are on
+    #[serde(skip)]
+    pub(crate) menu_cursor: usize,
+    /// the repository the arrows are on in the list, and which of its
+    /// cells: Open, Copy, activity
+    #[serde(skip)]
+    pub(crate) repos_cursor: Option<(String, usize)>,
     /// the repository tab the arrows are on but have not opened
     #[serde(skip)]
     pub(crate) tab_cursor: Option<RepoTab>,
@@ -193,6 +203,16 @@ pub(crate) enum Menu {
     Ref,
     /// the default head in the repository's settings
     Head,
+}
+
+impl Menu {
+    /// The element that opens it; its menu is `{key}-menu`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Menu::Ref => "forge-ref-picker",
+            Menu::Head => "forge-settings-head",
+        }
+    }
 }
 
 /// The change-list filters. "Needs my judgment" is its own query, not a

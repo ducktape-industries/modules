@@ -45,22 +45,26 @@ const PRESS_TARGET: Pixels = px(24.);
 
 /// The table's head: what each column holds, quiet and mono. A narrow
 /// window wraps the rows and drops it.
-fn table_header(theme: &Theme) -> Div {
+fn table_header(theme: &Theme) -> Stateful<Div> {
     let cell = |label: &'static str| {
         div()
+            .id(id(format!("forge-repos-column-{label}")))
             .px(CELL_X)
             .font_family(design::fonts::FAMILY_MONO)
             .text_size(design::text::CAPTION)
             .text_color(theme.muted)
+            .role(Role::ColumnHeader)
             .child(label)
     };
     div()
+        .id(id("forge-repos-columns"))
         .mx(design::space::SM)
         .h(HEADER_H)
         .flex()
         .items_center()
         .border_b_1()
         .border_color(theme.border)
+        .role(Role::Row)
         .child(cell("Name").flex_1().min_w(NAME_MIN_W))
         .child(cell("Owner").w(OWNER_W))
         .child(cell("Default").w(HEAD_W))
@@ -70,10 +74,15 @@ fn table_header(theme: &Theme) -> Div {
 
 /// One repository: its name over the address it clones from, then its
 /// owner, default branch, refs and last activity in their columns.
+/// The cells of a repository's row, in the order ← → walk them: the
+/// press that opens it, Copy, and the last-activity link.
+const CELLS: usize = 3;
+
 fn repo_row(
     forge: &Forge,
     info: &RepoInfo,
     owner: String,
+    active: Option<usize>,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
@@ -85,15 +94,19 @@ fn repo_row(
     });
     // the row's press lies under the whole row; Copy and the activity link
     // sit over it, beside it rather than inside it, as a button may not
-    // hold them
+    // hold them. Each is a cell of the grid, and the active cell's control
+    // is the one assistive technology is told is active.
     let press = div()
         .id(id(format!("forge-repo-{name}-open")))
+        .size_full()
+        .aria_label(format!("Open {name}"))
+        .on_click(open);
+    let press = div()
+        .id(id(format!("forge-repo-{name}-open-cell")))
         .absolute()
         .inset_0()
-        .role(Role::Button)
-        .aria_label(format!("Open {name}"))
-        .focusable()
-        .on_click(open);
+        .role(Role::GridCell)
+        .child(design::item(press, Role::Button, active == Some(0)));
     div()
         .id(id(format!("forge-repo-{name}")))
         .group(group.clone())
@@ -108,10 +121,18 @@ fn repo_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(|style| style.bg(theme.surface))
-        .role(Role::ListItem)
+        .when(active.is_some(), |row| row.bg(theme.surface))
+        .role(Role::Row)
         .child(press)
-        .child(repo_title(forge, &name, &group, cx, theme))
-        .child(repo_facts(info, owner, theme))
+        .child(repo_title(
+            forge,
+            &name,
+            &group,
+            active == Some(1),
+            cx,
+            theme,
+        ))
+        .child(repo_facts(info, owner, active == Some(2), theme))
         .into_any_element()
 }
 
@@ -120,6 +141,7 @@ fn repo_title(
     forge: &Forge,
     name: &str,
     group: &str,
+    active: bool,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Div {
@@ -151,16 +173,23 @@ fn repo_title(
                         .text_color(theme.faint)
                         .child(url.clone()),
                 )
-                .child(copy_button(forge, name, url, group, cx, theme)),
+                .child(
+                    div()
+                        .id(id(format!("forge-repo-{name}-copy-cell")))
+                        .role(Role::GridCell)
+                        .child(copy_button(forge, name, url, group, active, cx, theme)),
+                ),
         )
 }
 
-/// Copies the clone address; shown on hover, and while it says Copied.
+/// Copies the clone address; shown on hover, while the arrows are on it,
+/// and while it says Copied.
 fn copy_button(
     forge: &Forge,
     name: &str,
     url: String,
     group: &str,
+    active: bool,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Stateful<Div> {
@@ -176,9 +205,7 @@ fn copy_button(
     let copied = forge.copied.as_deref() == Some(name);
     let button = div()
         .id(id(format!("forge-repo-{name}-copy")))
-        .role(Role::Button)
         .aria_label(format!("Copy the address of {name}"))
-        .focusable()
         // a click here is not also a click on the row that opens the repo
         .occlude()
         .min_w(PRESS_TARGET)
@@ -194,7 +221,8 @@ fn copy_button(
         .hover(|style| style.text_color(theme.foreground))
         .on_click(copy)
         .child(if copied { "Copied" } else { "Copy" });
-    match copied {
+    let button = design::item(button, Role::Button, active);
+    match copied || active {
         true => button,
         false => button
             .invisible()
@@ -204,7 +232,7 @@ fn copy_button(
 
 /// What a repository is: owner, default branch, refs, last activity, in
 /// the table's columns; on a narrow row they wrap under the name.
-fn repo_facts(info: &RepoInfo, owner: String, theme: &Theme) -> Div {
+fn repo_facts(info: &RepoInfo, owner: String, active: bool, theme: &Theme) -> Div {
     div()
         .flex()
         .flex_wrap()
@@ -244,14 +272,20 @@ fn repo_facts(info: &RepoInfo, owner: String, theme: &Theme) -> Div {
         )
         .child(
             div()
+                .id(id(format!("forge-repo-{}-activity-cell", info.name)))
                 .w(ACTIVITY_W)
                 .px(CELL_X)
                 .flex()
                 .justify_end()
-                .child(design::block_link(
-                    id(format!("forge-repo-{}-activity", info.name)),
-                    info.repo.last_activity,
-                    theme,
+                .role(Role::GridCell)
+                .child(design::item(
+                    design::block_link(
+                        id(format!("forge-repo-{}-activity", info.name)),
+                        info.repo.last_activity,
+                        theme,
+                    ),
+                    Role::Link,
+                    active,
                 )),
         )
 }
@@ -301,14 +335,60 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
             ))
             .into_any_element();
     }
-    // rows run edge to edge, a hairline between them
-    let mut list = scroller("forge-repos-list").p_0().gap_0();
+    // one Tab stop: ↑ ↓ walk the repositories, ← → a row's cells (Open,
+    // Copy, activity), Enter or Space presses the active cell
+    let names: Vec<String> = rows.iter().map(|info| info.name.clone()).collect();
+    let heights: Vec<u64> = rows.iter().map(|info| info.repo.last_activity).collect();
+    let (at, cell) = forge
+        .repos_cursor
+        .as_ref()
+        .and_then(|(name, cell)| Some((names.iter().position(|it| it == name)?, *cell)))
+        .unwrap_or((0, 0));
+    let moved = names.clone();
+    let stepped = names.clone();
+    let pressed = names.clone();
+    let mut list = design::composite(id("forge-repos-list"), Role::Grid, "Repositories")
+        .active(at, names.len())
+        .cells(cell, CELLS)
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.repos_cursor = Some((moved[index].clone(), 0));
+            cx.notify();
+        }))
+        .on_move_cell(cx.processor(move |forge, cell: usize, _, cx| {
+            forge.repos_cursor = Some((stepped[at].clone(), cell));
+            cx.notify();
+        }))
+        .on_press(cx.processor(move |forge, index: usize, _, cx| {
+            let name = pressed[index].clone();
+            match forge.repos_cursor.as_ref().map_or(0, |(_, cell)| *cell) {
+                0 => forge.open_repo(name, cx),
+                1 => {
+                    let url = crate::ui::repo_link(forge, &name);
+                    cx.host()
+                        .notify::<ducktape_view_guest::methods::ClipboardWrite>(url);
+                    forge.copied = Some(name);
+                    cx.notify();
+                }
+                _ => {
+                    let link =
+                        design::explorer::link(&design::explorer::block_path(heights[index]));
+                    cx.host().open_link(&link);
+                }
+            }
+        }))
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col();
     if !forge.layout.narrow() {
         list = list.child(table_header(theme));
     }
-    for info in rows {
+    for (index, info) in rows.into_iter().enumerate() {
         let owner = forge.principal_name(&info.repo.owner);
-        list = list.child(repo_row(forge, info, owner, cx, theme));
+        let active = (index == at).then_some(cell);
+        list = list.child(repo_row(forge, info, owner, active, cx, theme));
     }
     column.child(list).into_any_element()
 }

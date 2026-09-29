@@ -117,13 +117,30 @@ struct Marks {
 /// The rows, drawn whole or as a virtual list, under the tree's keys.
 fn tree_rows(forge: &Forge, rows: Vec<Row>, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let pressed = cx.listener(|forge, event: &KeyDownEvent, _, cx| {
+        // unmodified keys only: a chord is the shell's or the editor's
+        if event.keystroke.modifiers.modified() {
+            return;
+        }
         if let Some(key) = Key::parse(&event.keystroke.key) {
             forge.tree_key(key, cx);
         }
     });
+    // the tree claims a row before any key: the cursor, else the open
+    // file, else the first entry, which is where `tree_key` starts too
+    let open = forge.nav().blob.as_ref().map(|(path, _)| path.clone());
+    let cursor = forge
+        .nav()
+        .cursor
+        .clone()
+        .or_else(|| open.clone())
+        .or_else(|| {
+            rows.iter()
+                .find(|row| matches!(row.slot, Slot::Entry { .. }))
+                .map(|row| row.path.clone())
+        });
     let marks = Marks {
-        open: forge.nav().blob.as_ref().map(|(path, _)| path.clone()),
-        cursor: forge.nav().cursor.clone(),
+        open,
+        cursor,
         expanded: forge.nav().expanded.clone(),
     };
     let theme = *theme;
