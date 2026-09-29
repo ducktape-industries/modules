@@ -35,10 +35,10 @@ impl Cells {
 }
 
 /// A message's row of the pane's grid, and its controls in paint order.
-/// The row is `{id}-row`: its first cell is the card (the message and the
-/// controls drawn inside it, each an item), then one cell per button of
-/// the action strip. `active`: the cell the arrows are on, when this is
-/// their row.
+/// The row is `{id}-row`: its first cell is the message, then one cell
+/// per control, the card's (block link, program link, chips, `+`,
+/// replies) and the action strip's. `active`: the cell the arrows are on,
+/// when this is their row.
 pub fn card(
     chat: &Chat,
     message: ChatMessage,
@@ -63,8 +63,22 @@ pub fn card(
             .is_some_and(|menu| menu.pane == pane && menu.seq == seq);
     let ranged = !message.deleted && chat.copy.is_some_and(|range| range.holds(pane, seq));
     let group: ducktape_view_guest::SharedString = format!("chat-message-{id}").into();
-    let card = div()
+    // cell 0 of the row: the message, the cell the arrows land on and
+    // claimed while they are on it. It lies under the whole card, as a
+    // cell may not hold the controls' cells drawn over it. The pointer's
+    // click is here; the keys' Enter comes through the grid
+    let message_cell = div()
         .id(format!("chat-message-{id}"))
+        .absolute()
+        .inset_0()
+        .role(ducktape_view_guest::Role::GridCell)
+        .aria_label(format!("{}: {}", message.author, message.body))
+        .when(cells.active == Some(0), |cell| {
+            cell.aria_active_descendant()
+        })
+        .on_click(press);
+    let card = div()
+        .id(format!("chat-message-{id}-card"))
         .relative()
         .flex()
         .gap(design::space::MD)
@@ -83,15 +97,7 @@ pub fn card(
             theme.background
         })
         .hover(|style| style.bg(theme.surface_raised))
-        // cell 0 of the row: the cell the arrows land on, claimed while
-        // they are on it. The pointer's click stays here; the keys' Enter
-        // comes through the grid
-        .role(ducktape_view_guest::Role::GridCell)
-        .aria_label(format!("{}: {}", message.author, message.body))
-        .when(cells.active == Some(0), |cell| {
-            cell.aria_active_descendant()
-        })
-        .on_click(press)
+        .child(message_cell)
         .child(avatar(&message, theme))
         .child(content(chat, message.clone(), pane, &mut cells, cx, theme));
     // Controls are siblings of the selection target: their native click must
@@ -176,6 +182,16 @@ fn hovers(
     })
 }
 
+/// The grid cell of the row that holds `control`, whose id is
+/// `control_id`: `{control_id}-cell`.
+fn cell(control_id: &str, control: impl IntoElement) -> AnyElement {
+    div()
+        .id(format!("{control_id}-cell"))
+        .role(ducktape_view_guest::Role::GridCell)
+        .child(control)
+        .into_any_element()
+}
+
 /// A run's first message wears its author's initials; the rest keep
 /// the column.
 fn avatar(message: &ChatMessage, theme: &Theme) -> AnyElement {
@@ -247,12 +263,7 @@ fn action_strip(
         .group_hover(group, |style| style.visible())
         .when(chosen, |actions| actions.visible());
     // each button is a cell of the row, beside the card
-    let cell = |button: AnyElement, key: &str| {
-        div()
-            .id(format!("chat-message-{id}-{key}-cell"))
-            .role(ducktape_view_guest::Role::GridCell)
-            .child(button)
-    };
+    let cell = |button: AnyElement, key: &str| cell(&format!("chat-message-{id}-{key}"), button);
     let thread = (pane == Pane::Timeline && message.reply_count == 0).then(|| {
         let active = cells.push(Control::Thread);
         let open = acts(pane, seq, rev, Control::Thread, cx);
@@ -407,8 +418,14 @@ fn replies(
         let active = cells.push(Control::Replies);
         let open = acts(pane, message.seq, message.rev, Control::Replies, cx);
         let id = format!("chat-message-{}-replies", message.id);
-        let button = replies_button(id, message.reply_count, theme, active, open);
-        return Some(div().flex().pt_1().child(button).into_any_element());
+        let button = replies_button(id.clone(), message.reply_count, theme, active, open);
+        return Some(
+            div()
+                .flex()
+                .pt_1()
+                .child(cell(&id, button))
+                .into_any_element(),
+        );
     }
     let separator = div()
         .id(format!("chat-message-{}-reply-separator", message.id))
@@ -481,10 +498,10 @@ fn header(
             cx.host().open_link(&link);
         });
         let id = format!("chat-message-{}-height", message.id);
-        header = header.child(design::item(
-            design::block_link(id, message.height, theme).on_click(open),
-            ducktape_view_guest::Role::Link,
-            active,
+        let link = design::block_link(id.clone(), message.height, theme).on_click(open);
+        header = header.child(cell(
+            &id,
+            design::item(link, ducktape_view_guest::Role::Link, active),
         ));
     }
     header.into_any_element()
@@ -521,16 +538,17 @@ fn program_post(
             chat.open_link(link.clone(), cx);
         });
         let theme = *theme;
-        line = line.child(design::item(
-            div()
-                .id(format!("chat-message-{}-program-open", message.id))
-                .text_color(theme.accent)
-                .cursor_pointer()
-                .hover(move |style| style.text_decoration_1())
-                .on_click(open)
-                .child(format!("Open in {program}")),
-            ducktape_view_guest::Role::Link,
-            active,
+        let id = format!("chat-message-{}-program-open", message.id);
+        let open = div()
+            .id(id.clone())
+            .text_color(theme.accent)
+            .cursor_pointer()
+            .hover(move |style| style.text_decoration_1())
+            .on_click(open)
+            .child(format!("Open in {program}"));
+        line = line.child(cell(
+            &id,
+            design::item(open, ducktape_view_guest::Role::Link, active),
         ));
     }
     line.into_any_element()
@@ -564,28 +582,31 @@ fn reactions(
             count: reaction.count,
         };
         let click = acts(pane, seq, rev, control, cx);
-        reactions = reactions.child(reaction_button(
-            id,
+        let chip = reaction_button(
+            id.clone(),
             face,
             reaction.reacted_by_me,
             theme,
             writable,
             active,
             click,
-        ));
+        );
+        reactions = reactions.child(cell(&id, chip));
     }
     // the card under the `+` would otherwise take the same click and put
     // the row's toolbar over the picker just opened: `acts` claims it
     let active = writable && cells.push(Control::AddReaction);
-    reactions = reactions.child(reaction_button(
-        format!("chat-message-{}-reaction-add", message.id),
+    let id = format!("chat-message-{}-reaction-add", message.id);
+    let add = reaction_button(
+        id.clone(),
         Face::Add,
         false,
         theme,
         writable,
         active,
         acts(pane, seq, rev, Control::AddReaction, cx),
-    ));
+    );
+    reactions = reactions.child(cell(&id, add));
     reactions.into_any_element()
 }
 

@@ -65,7 +65,7 @@ fn copy_range_keeps_its_distinct_message_plate() {
     });
     cx.run_until_parked();
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
-        cx.find("chat-message-m1")
+        cx.find("chat-message-m1-card")
     else {
         panic!("message card")
     };
@@ -407,8 +407,8 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     let grid = cx.interactivity("chat-message-list");
     assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
-    // Grid > Row > GridCell: the card is cell 0 and keeps the pointer's
-    // click; the row holds the name and never claims
+    // Grid > Row > GridCell: the message is cell 0, under the whole card,
+    // and keeps the pointer's click; the row holds the name and never claims
     let newest = cx.interactivity("chat-message-m2");
     assert_eq!(newest.role, Some(ducktape_view_guest::Role::GridCell));
     assert!(newest.aria.active_descendant, "the newest message on entry");
@@ -440,12 +440,18 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
         "the list reveals the message (after the intro row) before it claims: {commands:?}"
     );
 
-    // → the controls in paint order: the header's block link, then the
-    // reaction chip, a button that stays one
+    // → the controls in paint order, each in a cell of its own: the
+    // header's block link, then the reaction chip, a button that stays one
     cx.simulate_key_down("chat-message-list", "right");
     let link = cx.interactivity("chat-message-m1-height");
     assert_eq!(link.role, Some(ducktape_view_guest::Role::Link));
     assert!(link.aria.active_descendant && !link.focusable);
+    let cell = cx.interactivity("chat-message-m1-height-cell");
+    assert_eq!(cell.role, Some(ducktape_view_guest::Role::GridCell));
+    assert!(
+        !cell.aria.active_descendant,
+        "the control claims, not its cell"
+    );
     cx.simulate_key_down("chat-message-list", "right");
     let chip = cx.interactivity("chat-message-m1-reaction-🔥");
     assert_eq!(chip.role, Some(ducktape_view_guest::Role::Button));
@@ -499,6 +505,100 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
             menu.at,
             chat.key_spot(Pane::Timeline),
             "a key opens it at the list's spot"
+        );
+    });
+}
+
+/// A reaction chip is a cell of the message's row, as each of the card's
+/// controls is: no cell holds another, the message's own cell (under the
+/// whole card) holds none of them and keeps the pointer's click. The
+/// thread's rows are drawn the same way.
+#[test]
+fn a_reaction_chip_is_its_own_cell_of_the_row() {
+    let (mut cx, view) = opened();
+    let fire = || chat::Reaction {
+        emoji: "🔥".into(),
+        count: 2,
+        reacted_by_me: false,
+    };
+    view.update(&mut cx, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        let rows = room.messages.ready_mut().unwrap();
+        rows[0].reactions.push(fire());
+        rows[0].reply_count = 1;
+        room.thread = Some(Thread {
+            root: 1,
+            replies: Loadable::Ready(vec![MsgRow {
+                thread: Some(1),
+                reactions: vec![fire()],
+                ..row(3, 8, "a reply")
+            }]),
+            ..Thread::default()
+        });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    fn is_cell(node: &wire::Node) -> bool {
+        node.interactivity()
+            .is_some_and(|node| node.role == Some(ducktape_view_guest::Role::GridCell))
+    }
+    fn holds(node: &wire::Node, key: &str) -> bool {
+        node.children()
+            .iter()
+            .any(|child| child.key() == Some(key) || holds(child, key))
+    }
+    /// The cells under `node`, and whether one holds another.
+    fn cells(node: &wire::Node, inside: bool, found: &mut Vec<String>) -> bool {
+        let cell = is_cell(node);
+        if cell {
+            found.push(node.key().unwrap_or_default().to_owned());
+        }
+        let nested = cell && inside;
+        node.children().iter().fold(nested, |nested, child| {
+            cells(child, inside || cell, found) || nested
+        })
+    }
+    for (m, pane) in [("m1", "timeline"), ("m3", "thread")] {
+        let chip = format!("chat-message-{m}-reaction-🔥");
+        let cell = cx.find(&format!("{chip}-cell")).expect("the chip's cell");
+        assert!(is_cell(cell), "{pane}");
+        assert_eq!(
+            cell.children()
+                .iter()
+                .map(wire::Node::key)
+                .collect::<Vec<_>>(),
+            [Some(chip.as_str())],
+            "{pane}: the chip, alone in its cell"
+        );
+        let message = cx.find(&format!("chat-message-{m}")).unwrap();
+        assert!(is_cell(message) && message.children().is_empty(), "{pane}");
+        let row = cx.find(&format!("chat-message-{m}-row")).unwrap();
+        let mut found = Vec::new();
+        assert!(!cells(row, false, &mut found), "{pane}: a cell in a cell");
+        assert!(found.contains(&format!("{chip}-cell")), "{pane}: {found:?}");
+        assert!(holds(row, &chip), "{pane}");
+    }
+    // the timeline's row: the message, its block link, the chip, the `+`
+    // and the way into the thread, a cell each in paint order
+    let mut found = Vec::new();
+    cells(cx.find("chat-message-m1-row").unwrap(), false, &mut found);
+    assert_eq!(
+        found,
+        [
+            "chat-message-m1",
+            "chat-message-m1-height-cell",
+            "chat-message-m1-reaction-🔥-cell",
+            "chat-message-m1-reaction-add-cell",
+            "chat-message-m1-replies-cell",
+        ]
+    );
+    // a press on the card is the message's cell's: chosen, as before
+    cx.simulate_click("chat-message-m1");
+    view.read(|chat| {
+        let menu = chat.menu.as_ref().expect("the message is chosen");
+        assert_eq!(
+            (menu.pane, menu.seq, menu.mode),
+            (Pane::Timeline, 1, Mode::Toolbar)
         );
     });
 }

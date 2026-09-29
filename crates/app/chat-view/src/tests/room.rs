@@ -403,6 +403,21 @@ fn a_link_to_a_forge_room_lands_in_it() {
     cx.run_until_parked();
     assert!(cx.has_text("review 7"), "{:?}", cx.texts());
     assert!(cx.find("chat-message-forge-line-block-0-code").is_none());
+    // the link is a cell of the message's row, beside the message's own
+    let cell = cx
+        .find("chat-message-forge-line-program-open-cell")
+        .expect("the link's cell");
+    assert_eq!(
+        cell.interactivity().and_then(|cell| cell.role),
+        Some(ducktape_view_guest::Role::GridCell)
+    );
+    assert_eq!(
+        cell.children()
+            .iter()
+            .map(wire::Node::key)
+            .collect::<Vec<_>>(),
+        [Some("chat-message-forge-line-program-open")]
+    );
     cx.simulate_click("chat-message-forge-line-program-open");
     let opened = cx.host().opened_links();
     assert_eq!(
