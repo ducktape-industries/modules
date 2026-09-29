@@ -660,6 +660,49 @@ fn a_second_claim_under_the_same_focusable_ancestor_fails() {
     assert_eq!(kinds(&list), [ActiveDescendant]);
 }
 
+/// A roleless focusable box pushes no accessibility node, so it restarts
+/// no budget: two claims under two such boxes share the focused ancestor
+/// and one is one too many.
+#[test]
+fn a_roleless_focusable_box_between_two_claims_does_not_restart_the_budget() {
+    let option = |key: &str| {
+        el(
+            key,
+            Interactivity {
+                aria: Aria {
+                    selected: Some(false),
+                    ..claim(false, None).aria
+                },
+                ..claim(false, None)
+            },
+            vec![text(key)],
+        )
+    };
+    let box_ = |key: &str, row: Node| {
+        el(
+            key,
+            Interactivity {
+                focusable: true,
+                tab_stop: Some(true),
+                ..Default::default()
+            },
+            vec![row],
+        )
+    };
+    let list = el(
+        "rooms",
+        Interactivity {
+            on_key_down: Some(2),
+            ..stop(labelled(roled(Role::ListBox), "Rooms"))
+        },
+        vec![
+            box_("channels", option("general")),
+            box_("people", option("minseo")),
+        ],
+    );
+    fails(ActiveDescendant, list);
+}
+
 /// A composite outside the Tab order reaches nobody: its rows are as
 /// unreachable as a `tab_stop(false)` button.
 #[test]

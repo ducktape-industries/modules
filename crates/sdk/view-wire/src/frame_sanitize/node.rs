@@ -33,8 +33,9 @@ pub(super) fn sanitize_node(
         sanitize_interactivity(interactivity)?;
         // gpui panics (debug) on a second claim under one focused node;
         // the first in tree order keeps it. The budget restarts under
-        // every node that takes focus (`sanitize_children`), as gpui
-        // counts claims per nearest focusable ancestor.
+        // every node with a role that takes focus (`sanitize_children`),
+        // as gpui counts claims per nearest focusable ancestor and a
+        // roleless focusable pushes no node there.
         let aria = &mut interactivity.aria;
         if aria.active_descendant {
             aria.active_descendant = !std::mem::replace(&mut budgets.active_descendant, true);
@@ -51,7 +52,7 @@ pub(super) fn sanitize_node(
     sanitize_fields(node, depth, budgets, authored_path)?;
     let takes_focus = node
         .interactivity()
-        .is_some_and(|i| i.focusable || i.focus_handle.is_some());
+        .is_some_and(|i| (i.focusable || i.focus_handle.is_some()) && i.role.is_some());
     let claimed_outside =
         takes_focus.then(|| std::mem::replace(&mut budgets.active_descendant, false));
     sanitize_children(node, depth, budgets, identity_scopes, authored_path)?;

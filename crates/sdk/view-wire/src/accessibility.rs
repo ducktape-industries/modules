@@ -127,10 +127,11 @@ fn tab_reaches(i: &Interactivity) -> bool {
     i.tab_stop == Some(true) || i.tab_index.is_some()
 }
 
-/// A node gpui gives a focus handle of its own: the claims under it are
-/// budgeted apart from the ones outside it.
+/// A node gpui gives a focus handle of its own and a place in the
+/// accessibility tree (a roleless focusable pushes none): the claims under
+/// it are budgeted apart from the ones outside it.
 fn takes_focus(i: &Interactivity) -> bool {
-    i.focusable || i.focus_handle.is_some()
+    (i.focusable || i.focus_handle.is_some()) && i.role.is_some()
 }
 
 /// `claimed`: a node earlier in the walk, under the same nearest focusable
