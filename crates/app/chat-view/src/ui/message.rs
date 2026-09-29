@@ -107,7 +107,7 @@ pub fn card(
         .on_hover(row_hover)
         .child(card);
     if !message.pending && !message.deleted && (chosen || chat.hovered == Some(key)) {
-        let strip = action_strip(chat, &message, pane, group, chosen, &mut cells, cx, theme);
+        let strip = action_strip(chat, &message, pane, chosen, &mut cells, cx, theme);
         outer = outer.child(strip);
     }
     (outer.into_any_element(), cells.controls)
@@ -207,13 +207,14 @@ fn action_strip(
     chat: &Chat,
     message: &ChatMessage,
     pane: Pane,
-    group: ducktape_view_guest::SharedString,
     chosen: bool,
     cells: &mut Cells,
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> AnyElement {
     let (id, seq) = (&message.id, message.seq);
+    // the row's hover group (`card`)
+    let group: ducktape_view_guest::SharedString = format!("chat-message-{id}").into();
     let rev = message.rev;
     let writable = chat.may_write();
     let actions = div()

@@ -343,7 +343,7 @@ type Pick = Rc<dyn Fn(&mut Window, &mut App)>;
 /// One line of a [`menu`]: a group label, or an item with its pick.
 pub(crate) enum MenuEntry {
     Label(AnyElement),
-    Item(Stateful<Div>, Pick),
+    Item(Box<Stateful<Div>>, Pick),
 }
 
 /// A dropdown's group label: `Branches`, `Tags`.
@@ -389,7 +389,7 @@ pub(crate) fn menu_item(
         .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| click(window, app))
         .child(div().flex_1().min_w(px(0.)).truncate().child(label))
         .children(note.map(|note| div().text_color(theme.faint).child(note.to_owned())));
-    MenuEntry::Item(item, pick)
+    MenuEntry::Item(Box::new(item), pick)
 }
 
 /// The open dropdown of `menu`: one Tab stop under the press that opened
@@ -420,7 +420,7 @@ pub(crate) fn menu(
         .map(|entry| match entry {
             MenuEntry::Label(label) => label,
             MenuEntry::Item(item, _) => {
-                let line = design::item(item, Role::MenuItemRadio, index == active);
+                let line = design::item(*item, Role::MenuItemRadio, index == active);
                 index += 1;
                 line.into_any_element()
             }
