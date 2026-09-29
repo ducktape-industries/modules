@@ -7,7 +7,7 @@ use ducktape_view_guest::{Div, Stateful};
 use crate::Forge;
 use crate::queries::PAGE;
 use crate::ui::components::{button, empty_state, heading, id, ref_label};
-use crate::ui::{pending, scroller, staged};
+use crate::ui::{pending, staged};
 use forge::{Query, Reply, RepoInfo};
 
 fn query() -> Query {
@@ -416,34 +416,57 @@ pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
     };
-    let mut list = scroller("forge-rail-list").p_0().gap_0();
-    for info in listed(forge, reply) {
-        let name = info.name.clone();
+    // one Tab stop: ↑ ↓ walk the repositories, Enter opens the active one;
+    // the arrows start on the open repository
+    let names: Vec<String> = listed(forge, reply)
+        .iter()
+        .map(|info| info.name.clone())
+        .collect();
+    let at = forge
+        .rail_cursor
+        .as_ref()
+        .or(forge.nav().repo.as_ref())
+        .and_then(|name| names.iter().position(|it| it == name))
+        .unwrap_or(0);
+    let moved = names.clone();
+    let pressed = names.clone();
+    let mut list = design::composite(id("forge-rail-list"), Role::ListBox, "Repositories")
+        .active(at, names.len())
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.rail_cursor = Some(moved[index].clone());
+            cx.notify();
+        }))
+        .on_press(cx.processor(move |forge, index: usize, _, cx| {
+            forge.open_repo(pressed[index].clone(), cx)
+        }))
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col();
+    for (index, name) in names.into_iter().enumerate() {
         let open = cx.listener({
             let name = name.clone();
             move |forge, _: &ClickEvent, _, cx| forge.open_repo(name.clone(), cx)
         });
         let selected = forge.nav().repo.as_deref() == Some(name.as_str());
-        list = list.child(
-            div()
-                .id(id(format!("forge-rail-repo-{name}")))
-                .h(design::size::CONTROL)
-                .px(RAIL_X)
-                .flex()
-                .items_center()
-                .when(selected, |item| {
-                    item.bg(theme.surface_raised)
-                        .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
-                })
-                .hover(|style| style.bg(theme.surface))
-                .role(Role::Button)
-                .when(selected, |item| {
-                    item.aria_current(ducktape_view_guest::accesskit::AriaCurrent::Page)
-                })
-                .focusable()
-                .on_click(open)
-                .child(div().flex_1().truncate().child(name)),
-        );
+        let row = div()
+            .id(id(format!("forge-rail-repo-{name}")))
+            .h(design::size::CONTROL)
+            .px(RAIL_X)
+            .flex()
+            .items_center()
+            .when(selected, |item| {
+                item.bg(theme.surface_raised)
+                    .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+            })
+            .when(index == at && !selected, |item| item.bg(theme.surface))
+            .hover(|style| style.bg(theme.surface))
+            .aria_selected(selected)
+            .on_click(open)
+            .child(div().flex_1().truncate().child(name));
+        list = list.child(design::item(row, Role::ListBoxOption, index == at));
     }
     column.child(list).into_any_element()
 }

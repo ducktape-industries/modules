@@ -74,6 +74,9 @@ pub struct Forge {
     /// the reviewable diff line the arrows are on, and which of its gutters
     #[serde(skip)]
     pub(crate) diff_cursor: (usize, usize),
+    /// the repository the arrows are on in the rail
+    #[serde(skip)]
+    pub(crate) rail_cursor: Option<String>,
     /// the repository tab the arrows are on but have not opened
     #[serde(skip)]
     pub(crate) tab_cursor: Option<RepoTab>,

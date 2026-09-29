@@ -1026,6 +1026,43 @@ fn the_narrow_window_folds_the_rail_and_the_dock_into_toggles() {
     assert!(cx.find("forge-rail").is_some());
 }
 
+/// The rail is one list box: the open repository is its active row on
+/// entry, ↑ ↓ move, Enter opens the active repository.
+#[test]
+fn the_rail_is_a_list_box_whose_enter_opens_the_active_repository() {
+    let (mut cx, view) = opened("default");
+    let rail = cx.interactivity("forge-rail-list");
+    assert_eq!(rail.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(rail.focusable && rail.tab_stop == Some(true));
+    let project = cx.interactivity("forge-rail-repo-project");
+    assert_eq!(project.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert!(!project.focusable && project.aria.active_descendant);
+    assert_eq!(project.aria.selected, Some(true));
+    let rows: Vec<String> = cx
+        .find("forge-rail-list")
+        .expect("the rail")
+        .children()
+        .iter()
+        .filter_map(|row| row.key().map(str::to_owned))
+        .collect();
+    cx.simulate_key_down("forge-rail-list", "end");
+    let last = rows.last().expect("a repository");
+    assert!(cx.interactivity(last).aria.active_descendant);
+    view.update(&mut cx, |forge, _, cx| forge.open_repos(cx));
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-rail-list").is_none(),
+        "the list screen has no rail"
+    );
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    cx.simulate_key_down("forge-rail-list", "home");
+    cx.simulate_key_down("forge-rail-list", "enter");
+    cx.run_until_parked();
+    let name = rows[0].trim_start_matches("forge-rail-repo-");
+    view.read(|forge| assert_eq!(forge.nav().repo.as_deref(), Some(name)));
+}
+
 #[test]
 fn a_snapshot_restores_the_same_screen_without_replaying_events() {
     let (mut cx, view) = opened("default");
