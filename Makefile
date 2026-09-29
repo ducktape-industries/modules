@@ -7,8 +7,9 @@ WASM_OPT ?= wasm-opt
 PROGRAM_LINKABLE := abi guest store
 
 # The ducktape checkout the probe fixture the founding suite seats is copied
-# from (crates/kernel/fixtures, `make kernel-fixtures` there). The probe is a
-# dev-dependency only, which cargo cannot build for wasm32 from here.
+# from (crates/kernel/fixtures, `make kernel-fixtures` there). The probe
+# links the kernel's own `guest` to build for wasm32, which this workspace
+# never does; only its built bytes come over, as `probe-fixture` below.
 DUCKTAPE ?= ../core
 
 # Every program, system and app: root members whose program ABI (the guest
@@ -155,7 +156,9 @@ wasm-reproducible:
 	done; echo "no program or view embeds a path of this checkout or home"
 
 ## refreshes the probe fixture the founding suite seats as the authority,
-## from the ducktape checkout at $(DUCKTAPE).
+## from the ducktape checkout at $(DUCKTAPE). Its script type, `Step`, is
+## mirrored by hand next to the binary in system.rs: check it against
+## $(DUCKTAPE)/crates/kernel/fixtures/probe/src/lib.rs too.
 probe-fixture:
 	cp $(DUCKTAPE)/crates/kernel/fixtures/wasm/fixture_probe.wasm crates/system/module-registry/tests/
 

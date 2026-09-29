@@ -3,7 +3,6 @@ use abi::{BlobId, HostOp, Message, Origin, Outcome, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
-use fixture_probe::Step;
 use host::{
     Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, Receipt, Roles,
     Submission,
@@ -47,9 +46,25 @@ fn program(name: &str) -> Vec<u8> {
 }
 
 /// The kernel's probe fixture, copied from ducktape by `make probe-fixture`
-/// (the probe is a dev-dependency only, which cargo cannot build for wasm32
-/// from here).
+/// (it links the kernel's own `guest` to compile for wasm32, which this
+/// workspace never does; only the built bytes come over).
 const PROBE: &[u8] = include_bytes!("fixture_probe.wasm");
+
+/// `crates/kernel/fixtures/probe`'s script type, mirrored byte-for-byte
+/// (same two borsh derives, same variant order) since the probe is bytes
+/// here, not a Cargo dependency: whoever next runs `make probe-fixture`
+/// checks this against `crates/kernel/fixtures/probe/src/lib.rs` at the
+/// new pin. Only `Op` is scripted by this suite; the rest round-trip
+/// through the derives so the discriminants still match the binary's.
+#[derive(BorshSerialize, BorshDeserialize)]
+enum Step {
+    Op(HostOp),
+    Env,
+    Spin,
+    Grow(u32),
+    Fail(String),
+}
+
 const NETWORK: &[u8] = b"net";
 const EPOCH_LENGTH: u64 = 4;
 /// Room for a resident or two beside the two founding validators.
