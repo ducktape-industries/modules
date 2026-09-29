@@ -24,6 +24,7 @@ impl Explorer {
         }
         self.route = route;
         self.note = None;
+        self.cursor = None;
         // the field holds only what is being typed: a search that lands, a
         // tab, prev/next and a row all leave it empty
         self.search.clear();

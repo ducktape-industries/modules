@@ -290,7 +290,9 @@ fn link(id: String, text: String, route: Route, cx: Cx, theme: &Theme) -> Statef
         .child(text)
 }
 
-/// A clickable row of a list.
+/// A clickable row of a list: an option of the [`Rows`] it goes in, which
+/// holds the focus and the arrows; nothing is ever selected, the press
+/// navigates.
 fn row(id: ElementId, label: String, route: Route, cx: Cx, theme: &Theme) -> Stateful<Div> {
     let go =
         cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
@@ -304,10 +306,75 @@ fn row(id: ElementId, label: String, route: Route, cx: Cx, theme: &Theme) -> Sta
         .border_b_1()
         .border_color(theme.border)
         .hover(|s| s.bg(theme.hover))
-        .role(Role::Button)
         .aria_label(label)
-        .focusable()
+        .aria_selected(false)
         .on_click(go)
+}
+
+/// A list of [`row`]s: one Tab stop, ↑ ↓ walk the rows, Home/End reach the
+/// ends, Enter opens the active row. Notes (a run of empty blocks) sit
+/// between the rows unroled. The active row is the view's cursor in this
+/// list, else the first.
+struct Rows {
+    id: &'static str,
+    label: &'static str,
+    active: usize,
+    routes: Vec<Route>,
+    children: Vec<AnyElement>,
+}
+
+fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
+    let active = match view.cursor {
+        Some((list, index)) if list == id => index,
+        _ => 0,
+    };
+    Rows {
+        id,
+        label,
+        active,
+        routes: Vec::new(),
+        children: Vec::new(),
+    }
+}
+
+impl Rows {
+    fn row(mut self, route: Route, row: Stateful<Div>, theme: &Theme) -> Self {
+        let active = self.routes.len() == self.active;
+        let row = design::item(row, Role::ListBoxOption, active)
+            .when(active, |row| row.bg(theme.surface_raised));
+        self.routes.push(route);
+        self.children.push(row.into_any_element());
+        self
+    }
+    fn note(mut self, note: impl IntoElement) -> Self {
+        self.children.push(note.into_any_element());
+        self
+    }
+    fn build(self, cx: Cx) -> Stateful<Div> {
+        let Self {
+            id,
+            label,
+            active,
+            routes,
+            children,
+        } = self;
+        let count = routes.len();
+        design::composite(id, Role::ListBox, label)
+            .active(active.min(count.saturating_sub(1)), count)
+            .on_move(
+                cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
+                    view.cursor = Some((id, index));
+                    cx.notify();
+                }),
+            )
+            .on_press(
+                cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
+                    view.go(routes[index].clone(), cx)
+                }),
+            )
+            .build()
+            .children(children)
+    }
 }
 
 /// Who signed: the account holding the key, or the key itself.
@@ -331,7 +398,7 @@ fn signer(view: &Explorer, key: &[u8], theme: &Theme) -> impl IntoElement {
         }))
 }
 
-fn block_row(block: &BlockRow, now: u64, cx: Cx, theme: &Theme) -> impl IntoElement {
+fn block_row(block: &BlockRow, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div> {
     let id = SharedString::from(format!("explorer-block-{}", block.height)).into();
     row(
         id,
@@ -398,34 +465,58 @@ pub(crate) fn lines(blocks: &[BlockRow], rows: usize) -> Vec<Line<'_>> {
 }
 
 fn block_lines(
+    list: Rows,
     blocks: &[BlockRow],
     rows: usize,
     now: u64,
     cx: Cx,
     theme: &Theme,
-) -> Vec<AnyElement> {
+) -> Rows {
     lines(blocks, rows)
         .into_iter()
-        .map(|line| match line {
-            Line::Block(block) => block_row(block, now, cx, theme).into_any_element(),
-            Line::Empty { newest, oldest } => div()
-                .id(SharedString::from(format!("explorer-empty-{newest}")))
-                .flex()
-                .items_center()
-                .h(ROW_H)
-                .px_5()
-                .border_b_1()
-                .border_color(theme.border)
-                .text_color(theme.faint)
-                .child(mono(format!(
-                    "{}–{} · {} empty blocks",
-                    grouped(oldest),
-                    grouped(newest),
-                    grouped(newest - oldest + 1)
-                )))
-                .into_any_element(),
+        .fold(list, |list, line| match line {
+            Line::Block(block) => list.row(
+                Route::Block(block.height),
+                block_row(block, now, cx, theme),
+                theme,
+            ),
+            Line::Empty { newest, oldest } => list.note(
+                div()
+                    .id(SharedString::from(format!("explorer-empty-{newest}")))
+                    .flex()
+                    .items_center()
+                    .h(ROW_H)
+                    .px_5()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .text_color(theme.faint)
+                    .child(mono(format!(
+                        "{}–{} · {} empty blocks",
+                        grouped(oldest),
+                        grouped(newest),
+                        grouped(newest - oldest + 1)
+                    ))),
+            ),
         })
-        .collect()
+}
+
+/// `tx_row`s as a [`Rows`] list.
+fn tx_rows<'a>(
+    list: Rows,
+    txs: impl IntoIterator<Item = &'a TxRow>,
+    view: &Explorer,
+    height: bool,
+    who: bool,
+    cx: Cx,
+    theme: &Theme,
+) -> Rows {
+    txs.into_iter().fold(list, |list, tx| {
+        list.row(
+            Route::Tx(tx.hash),
+            tx_row(view, tx, height, who, cx, theme),
+            theme,
+        )
+    })
 }
 
 /// `height` adds the block column; `who` the signer column, which an
@@ -437,7 +528,7 @@ fn tx_row(
     who: bool,
     cx: Cx,
     theme: &Theme,
-) -> impl IntoElement {
+) -> Stateful<Div> {
     let id = SharedString::from(format!("explorer-tx-{}", abi::hex(&tx.hash)));
     let now = view.chain.now();
     view.describe(tx, cx);

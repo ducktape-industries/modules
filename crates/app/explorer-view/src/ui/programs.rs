@@ -20,7 +20,7 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         )
         .into_any_element();
     }
-    let running = running(network, cx, theme);
+    let running = running(view, network, cx, theme);
     let listed = listed(network, theme);
     let scheduled: Vec<_> = network
         .changes
@@ -46,7 +46,7 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
             )),
             theme,
         ))
-        .children(running)
+        .child(running)
         .when(!listed.is_empty(), |list| {
             list.child(heading(
                 "explorer-views-header",
@@ -68,15 +68,17 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
 }
 
 /// Each running program, a row that opens its transactions.
-fn running(network: &Network, cx: Cx, theme: &Theme) -> Vec<AnyElement> {
+fn running(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let list = rows("explorer-programs-list", "Programs", view);
     network
         .programs
         .iter()
-        .map(|entry| {
-            row(
+        .fold(list, |list, entry| {
+            let route = Route::Transactions(Some(entry.program.clone()));
+            let row = row(
                 SharedString::from(format!("explorer-program-{}", entry.program)).into(),
                 entry.program.clone(),
-                Route::Transactions(Some(entry.program.clone())),
+                route.clone(),
                 cx,
                 theme,
             )
@@ -91,10 +93,10 @@ fn running(network: &Network, cx: Cx, theme: &Theme) -> Vec<AnyElement> {
                         "param bytes",
                     )),
             )
-            .child(mono(short(entry.code.digest())).text_color(theme.muted))
-            .into_any_element()
+            .child(mono(short(entry.code.digest())).text_color(theme.muted));
+            list.row(route, row, theme)
         })
-        .collect()
+        .build(cx)
 }
 
 /// The view-only entries. One sends nothing, so it has no transactions to
