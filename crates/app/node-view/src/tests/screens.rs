@@ -245,7 +245,7 @@ const SCREENS: [(&str, u32, u32); 15] = [
 /// The states drawn at every width the desk gives a view, from the app's
 /// narrowest layout up.
 const SWEEP: [&str; 4] = ["synced", "resident", "not-answering", "behind-quiet"];
-const WIDTHS: [u32; 6] = [480, 560, 680, 768, 1064, 1280];
+const WIDTHS: [u32; 8] = [480, 560, 680, 768, 960, 1000, 1064, 1280];
 
 /// The app's frame around a view (`runtime/widget.rs`): laid out at 480
 /// at the least, a narrower window scrolls it sideways.
