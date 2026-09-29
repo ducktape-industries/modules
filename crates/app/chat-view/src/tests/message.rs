@@ -316,11 +316,8 @@ fn replies_read_as_a_button() {
         panic!("replies button")
     };
     assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Button));
-    assert!(interactivity.focusable && interactivity.hover.is_some());
-    assert!(
-        interactivity.focus_visible.is_some(),
-        "a visible focus ring"
-    );
+    // a cell of the timeline grid, not a stop of its own
+    assert!(!interactivity.focusable && interactivity.hover.is_some());
     assert_eq!(
         style.mouse_cursor,
         Some(ducktape_view_guest::CursorStyle::PointingHand)
@@ -387,5 +384,109 @@ fn the_picker_searches_and_enter_picks_the_first_match() {
     view.read(|chat| {
         assert!(chat.menu.is_none());
         assert_eq!(chat.recent_emoji.first().map(String::as_str), Some("🦆"));
+    });
+}
+
+/// The timeline is one grid: Tab lands on the newest message, ↑ reveals and
+/// claims the one before it, → and Enter press its first control, Enter on
+/// the content selects the row as a click would (the strip appears).
+#[test]
+fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
+            .reactions
+            .push(chat::Reaction {
+                emoji: "🔥".into(),
+                count: 2,
+                reacted_by_me: false,
+            });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let grid = cx.interactivity("chat-message-list");
+    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(grid.focusable && grid.tab_stop == Some(true));
+    let newest = cx.interactivity("chat-message-m2-contents");
+    assert_eq!(newest.role, Some(ducktape_view_guest::Role::GridCell));
+    assert!(newest.aria.active_descendant, "the newest message on entry");
+    let row = cx.interactivity("chat-message-m2");
+    assert_eq!(row.role, Some(ducktape_view_guest::Role::Row));
+    assert!(!row.focusable && !row.aria.active_descendant && row.on_click.is_some());
+
+    cx.simulate_key_down("chat-message-list", "up");
+    assert!(
+        cx.interactivity("chat-message-m1-contents")
+            .aria
+            .active_descendant
+    );
+    // the list draws the revealed row until the host asks for more
+    assert!(!super::room::claims(&cx, "chat-message-m2-contents"));
+    let Some(wire::Node::List { commands, .. }) = cx
+        .find("chat-message-list")
+        .and_then(|grid| grid.children().first())
+    else {
+        panic!("the grid holds the list");
+    };
+    assert!(
+        commands
+            .iter()
+            .any(|command| matches!(command, wire::ListCommand::ScrollToRevealItem(1))),
+        "the list reveals the message (after the intro row) before it claims: {commands:?}"
+    );
+
+    // → the controls in paint order: the header's block link, then the
+    // reaction chip, a button that stays one
+    cx.simulate_key_down("chat-message-list", "right");
+    let link = cx.interactivity("chat-message-m1-height");
+    assert_eq!(link.role, Some(ducktape_view_guest::Role::Link));
+    assert!(link.aria.active_descendant && !link.focusable);
+    cx.simulate_key_down("chat-message-list", "right");
+    let chip = cx.interactivity("chat-message-m1-reaction-🔥");
+    assert_eq!(chip.role, Some(ducktape_view_guest::Role::Button));
+    assert!(chip.aria.active_descendant && !chip.focusable);
+    assert!(
+        !cx.interactivity("chat-message-m1-contents")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("chat-message-list", "enter");
+    cx.run_until_parked();
+    assert!(
+        cx.host()
+            .requests::<Submit<ChatApi>>()
+            .iter()
+            .any(|op| matches!(op, Op::AddReaction { emoji, seq: 1, .. } if emoji == "🔥"))
+    );
+    // Home is the content; Enter is the row's click: chosen, its strip shows
+    cx.simulate_key_down("chat-message-list", "home");
+    assert!(
+        cx.interactivity("chat-message-m1-contents")
+            .aria
+            .active_descendant
+    );
+    assert!(cx.find("chat-message-m1-actions").is_none());
+    cx.simulate_key_down("chat-message-list", "enter");
+    view.read(|chat| {
+        let menu = chat.menu.as_ref().expect("the message is chosen");
+        assert_eq!((menu.seq, menu.mode), (1, Mode::Toolbar));
+    });
+    assert!(cx.find("chat-message-m1-actions").is_some());
+    // the strip's buttons are the cells after the chip and the `+`
+    cx.simulate_key_down("chat-message-list", "end");
+    assert!(
+        cx.interactivity("chat-message-m1-more")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("chat-message-list", "enter");
+    view.read(|chat| {
+        let menu = chat.menu.as_ref().expect("the menu opened");
+        assert_eq!(menu.mode, Mode::More);
+        assert_eq!(
+            menu.at,
+            chat.key_spot(Pane::Timeline),
+            "a key opens it at the list's spot"
+        );
     });
 }

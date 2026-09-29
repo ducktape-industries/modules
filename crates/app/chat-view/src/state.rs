@@ -44,6 +44,14 @@ pub struct Chat {
     /// until they move.
     #[serde(skip)]
     pub(crate) rooms_cursor: Option<String>,
+    /// The message the arrows are on in the room, and in the thread.
+    #[serde(skip)]
+    pub(crate) timeline_cursor: Cursor,
+    #[serde(skip)]
+    pub(crate) thread_cursor: Cursor,
+    /// The item the arrows are on in the open message menu.
+    #[serde(skip)]
+    pub(crate) menu_cursor: usize,
     /// The line over the room saying a copy landed: not a refusal, so not
     /// the `notice` banner.
     #[serde(skip)]
@@ -227,6 +235,71 @@ pub struct Menu {
     pub(crate) rev: u32,
     pub(crate) mode: Mode,
     pub(crate) at: (f32, f32),
+}
+
+/// The message the arrows are on in a pane's grid, and which of its cells:
+/// its content (0) or one of its controls, recorded in paint order as the
+/// row is drawn so Enter knows what the cell does. The newest message
+/// until the arrows move.
+#[derive(Default, Debug)]
+pub struct Cursor {
+    pub(crate) id: Option<String>,
+    pub(crate) cell: usize,
+    pub(crate) controls: Vec<Control>,
+}
+
+/// A control on a message card: what pressing it does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Control {
+    /// the block link in the header: `link`
+    Height(String),
+    /// a program post's "Open in …": `link`
+    ProgramOpen(String),
+    Reaction {
+        emoji: String,
+        add: bool,
+    },
+    AddReaction,
+    Replies,
+    Thread,
+    ThumbsUp,
+    React,
+    More,
+}
+
+impl Chat {
+    pub(crate) fn cursor(&self, pane: Pane) -> &Cursor {
+        match pane {
+            Pane::Timeline => &self.timeline_cursor,
+            Pane::Thread => &self.thread_cursor,
+        }
+    }
+    pub(crate) fn cursor_mut(&mut self, pane: Pane) -> &mut Cursor {
+        match pane {
+            Pane::Timeline => &mut self.timeline_cursor,
+            Pane::Thread => &mut self.thread_cursor,
+        }
+    }
+
+    /// Where a popup the keys open sits: a key has no pointer position, so
+    /// it takes the top-right of the pane's message list, inside the window.
+    pub(crate) fn key_spot(&self, pane: Pane) -> (f32, f32) {
+        let (width, _) = self.layout.viewport;
+        let side = match pane {
+            Pane::Thread => 0.,
+            Pane::Timeline if self.details.is_some() && self.room.is_some() => self.layout.details,
+            Pane::Timeline if self.room.as_ref().is_some_and(|room| room.thread.is_some()) => {
+                self.layout.thread
+            }
+            Pane::Timeline => 0.,
+        };
+        let side = if side > 0. && self.layout.docks(side) {
+            side
+        } else {
+            0.
+        };
+        (width - side - 16., 96.)
+    }
 }
 
 /// The reaction picker: what the search holds and which tab is open.

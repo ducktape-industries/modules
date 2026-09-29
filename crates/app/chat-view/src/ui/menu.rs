@@ -60,19 +60,47 @@ pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<An
         Mode::Reactions => format!("{}reaction-frame", prefix(menu.pane)),
         _ => focus_key(menu.pane, menu.mode),
     };
-    let (role, label) = match menu.mode {
-        Mode::Reactions => (Role::Dialog, "Add reaction"),
-        Mode::Delete => (Role::AlertDialog, "Delete this message?"),
-        _ => (Role::Menu, "Message actions"),
+    let frame = match menu.mode {
+        // a dialog: focused by id on open (`open_menu`), it hands the keys
+        // to its field or buttons, the stops; it is none itself
+        Mode::Reactions => div()
+            .id(id)
+            .role(Role::Dialog)
+            .aria_label("Add reaction")
+            .focusable()
+            .tab_stop(false),
+        Mode::Delete => div()
+            .id(id)
+            .role(Role::AlertDialog)
+            .aria_label("Delete this message?")
+            .focusable()
+            .tab_stop(false),
+        // the actions are a menu: one stop whose ↑ ↓ walk the items and
+        // Enter runs the active one
+        _ => {
+            let items = more_items(chat, menu);
+            let (pane, seq, rev) = (menu.pane, menu.seq, menu.rev);
+            let run = items.clone();
+            design::composite(id, Role::Menu, "Message actions")
+                .active(
+                    chat.menu_cursor.min(items.len().saturating_sub(1)),
+                    items.len(),
+                )
+                .on_move(cx.processor(|chat, index: usize, _, cx| {
+                    chat.menu_cursor = index;
+                    cx.notify();
+                }))
+                .on_press(cx.processor(move |chat, index: usize, window, cx| {
+                    cx.notify();
+                    act(run[index], pane, seq, rev, chat, window, cx)
+                }))
+                .build()
+        }
     };
-    let frame = div()
-        .id(id)
-        .role(role)
-        .aria_label(label)
+    let frame = design::focus_shown(frame, theme, |style| style.shadow_lg())
         .when_some(size, |frame, (w, h)| {
             frame.w(px(w)).h(px(h)).overflow_hidden()
         })
-        .focusable()
         .border_1()
         .border_color(theme.border)
         .bg(theme.background)
@@ -189,8 +217,10 @@ fn more_items(chat: &Chat, menu: &Menu) -> Vec<Action> {
 fn actions(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
     let items: Vec<Item> = more_items(chat, menu)
         .into_iter()
-        .map(|action| Item {
+        .enumerate()
+        .map(|(index, action)| Item {
             role: Role::MenuItem,
+            active: index == chat.menu_cursor,
             ..action_item(action, chat, menu, cx, theme)
         })
         .collect();
@@ -204,72 +234,65 @@ fn actions(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> A
         .into_any_element()
 }
 
-/// One row of the "More" menu, and what pressing it does.
+/// One row of the "More" menu; pressing it runs its action ([`act`]).
 fn action_item(
     action: Action,
-    chat: &Chat,
+    _chat: &Chat,
     menu: &Menu,
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> Item {
-    let seq = menu.seq;
+    let (pane, seq, rev) = (menu.pane, menu.seq, menu.rev);
+    let press = Some(
+        Box::new(cx.listener(move |chat, _: &ClickEvent, window, cx| {
+            cx.notify();
+            act(action, pane, seq, rev, chat, window, cx)
+        })) as Press,
+    );
     match action {
-        Action::Reply => {
-            let press = cx.listener(move |chat, _: &ClickEvent, _, cx| {
-                cx.notify();
-                chat.open_thread(seq, cx)
-            });
-            let press = Some(Box::new(press) as Press);
-            Item::new("chat-menu-reply", "↩", "Reply in thread", press, *theme)
-        }
-        Action::React => {
-            let press = reopens(menu, Mode::Reactions, cx);
-            Item::new(
-                "chat-menu-add-reaction",
-                "😀",
-                "Add reaction",
-                press,
-                *theme,
-            )
-        }
-        Action::CopyLink => {
-            let press = copies_link(chat.message_link(seq), cx);
-            Item::new("chat-menu-copy-link", "🔗", "Copy link", press, *theme)
-        }
-        Action::Edit => {
-            let press = reopens(menu, Mode::Editing, cx);
-            Item::new("chat-menu-edit", "✎", "Edit message", press, *theme)
-        }
+        Action::Reply => Item::new("chat-menu-reply", "↩", "Reply in thread", press, *theme),
+        Action::React => Item::new(
+            "chat-menu-add-reaction",
+            "😀",
+            "Add reaction",
+            press,
+            *theme,
+        ),
+        Action::CopyLink => Item::new("chat-menu-copy-link", "🔗", "Copy link", press, *theme),
+        Action::Edit => Item::new("chat-menu-edit", "✎", "Edit message", press, *theme),
         Action::Delete => {
-            let press = reopens(menu, Mode::Delete, cx);
             let (fg, bg) = (theme.danger, theme.background);
             Item::toned("chat-menu-delete", "Delete message", press, *theme, fg, bg).glyph("🗑")
         }
     }
 }
 
-/// The same message's menu, opened again in `mode`.
-fn reopens(menu: &Menu, mode: Mode, cx: &mut Context<Chat>) -> Option<Press> {
-    let (pane, seq, rev) = (menu.pane, menu.seq, menu.rev);
-    let press = cx.listener(move |chat, _: &ClickEvent, window, cx| {
-        cx.notify();
-        chat.open_menu(pane, seq, rev, mode, window, cx)
-    });
-    Some(Box::new(press))
-}
-
-/// The message's link onto the clipboard; the host's log says why when
-/// the session names no chain to link into.
-fn copies_link(link: Option<String>, cx: &mut Context<Chat>) -> Option<Press> {
-    let press = cx.listener(move |chat, _: &ClickEvent, _, cx| {
-        cx.notify();
-        chat.close_menu();
-        match &link {
-            Some(link) => chat.copy_text(link.clone(), "message link", cx),
-            None => cx.host().log("no message link: the session names no chain"),
+/// What a "More" action does to the message at `seq`: open its thread,
+/// open the same menu again in another mode, or put the message's link on
+/// the clipboard (the host's log says why when the session names no chain).
+fn act(
+    action: Action,
+    pane: Pane,
+    seq: u64,
+    rev: u32,
+    chat: &mut Chat,
+    window: &mut Window,
+    cx: &mut Context<Chat>,
+) {
+    match action {
+        Action::Reply => chat.open_thread(seq, cx),
+        Action::React => chat.open_menu(pane, seq, rev, Mode::Reactions, window, cx),
+        Action::Edit => chat.open_menu(pane, seq, rev, Mode::Editing, window, cx),
+        Action::Delete => chat.open_menu(pane, seq, rev, Mode::Delete, window, cx),
+        Action::CopyLink => {
+            let link = chat.message_link(seq);
+            chat.close_menu();
+            match link {
+                Some(link) => chat.copy_text(link, "message link", cx),
+                None => cx.host().log("no message link: the session names no chain"),
+            }
         }
-    });
-    Some(Box::new(press))
+    }
 }
 
 fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
@@ -330,6 +353,8 @@ fn menu_size(items: usize) -> (f32, f32) {
 struct Item {
     id: ElementId,
     role: Role,
+    /// a menu item the menu's arrows are on
+    active: bool,
     glyph: Option<String>,
     label: String,
     press: Option<Press>,
@@ -348,6 +373,7 @@ impl Item {
         Self {
             id: id.into(),
             role: Role::Button,
+            active: false,
             glyph: Some(glyph.into()),
             label: label.into(),
             press,
@@ -374,6 +400,7 @@ impl Item {
         Self {
             id: id.into(),
             role: Role::Button,
+            active: false,
             glyph: None,
             label: label.into(),
             press,
@@ -412,15 +439,27 @@ impl RenderOnce for Item {
                     .child(glyph),
             );
         }
-        row = row.child(div().whitespace_nowrap().child(self.label));
-        match self.press {
-            Some(press) => row
+        row = row
+            .when(self.active, |row| row.bg(self.theme.surface_raised))
+            .child(div().whitespace_nowrap().child(self.label));
+        match (self.press, self.role) {
+            // the menu holds the focus; its item claims when active
+            (Some(press), Role::MenuItem) => design::item(
+                row.hover(|s| s.bg(self.theme.surface_raised))
+                    .active(|s| s.bg(self.theme.accent_soft))
+                    .on_click(press),
+                Role::MenuItem,
+                self.active,
+            )
+            .into_any_element(),
+            // a dialog's button: a stop of its own
+            (Some(press), _) => row
                 .focusable()
                 .hover(|s| s.bg(self.theme.surface_raised))
                 .active(|s| s.bg(self.theme.accent_soft))
                 .on_click(press)
                 .into_any_element(),
-            None => row.into_any_element(),
+            (None, _) => row.into_any_element(),
         }
     }
 }

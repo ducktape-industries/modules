@@ -5,7 +5,7 @@ use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
     ClickEvent, Context, FollowMode, ListAlignment, ListSizingBehavior, ListState, ParentElement,
-    Styled, Theme, div, list as gpui_list, px,
+    Role, Styled, Theme, div, list as gpui_list, px,
 };
 
 use ducktape_view_guest::AnyElement;
@@ -175,6 +175,68 @@ fn rows(
         &messages,
         (pane == Pane::Timeline).then_some(chat.reads.boundary),
     );
+    // One Tab stop, a grid: ↑ ↓ walk the messages (the list scrolls the
+    // next one into view before it claims), ← → a message's cells (its
+    // content, then its controls), Enter presses the active cell — on the
+    // content, the row's click. Active by message id: the newest until the
+    // arrows move.
+    let cursor = chat.cursor(pane);
+    let at = cursor
+        .id
+        .as_ref()
+        .and_then(|id| messages.iter().position(|message| &message.id == id))
+        .unwrap_or(messages.len().saturating_sub(1));
+    let active_id = messages.get(at).map(|message| message.id.clone());
+    let cell = cursor.cell;
+    let keys: Vec<(String, u64, u32)> = messages
+        .iter()
+        .map(|message| (message.id.clone(), message.seq, message.rev))
+        .collect();
+    let reveal = state.clone();
+    let moved_to = keys.clone();
+    let grid = design::composite(
+        match pane {
+            Pane::Timeline => "chat-message-list",
+            Pane::Thread => "chat-thread-list",
+        },
+        Role::Grid,
+        match pane {
+            Pane::Timeline => "Messages",
+            Pane::Thread => "Replies",
+        },
+    )
+    .active(at, messages.len())
+    // the cells are counted as the active row is drawn (`Cursor::controls`),
+    // so the bound is the recorded count at the key, not at the build
+    .cells(cell, usize::MAX)
+    .on_move(cx.processor(move |chat, index: usize, _, cx| {
+        let cursor = chat.cursor_mut(pane);
+        cursor.id = Some(moved_to[index].0.clone());
+        cursor.cell = 0;
+        reveal.scroll_to_reveal_item(index + usize::from(lead));
+        cx.notify();
+    }))
+    .on_move_cell(cx.processor(move |chat, cell: usize, _, cx| {
+        let cursor = chat.cursor_mut(pane);
+        cursor.cell = cell.min(cursor.controls.len());
+        cx.notify();
+    }))
+    .on_press(cx.processor(move |chat, index: usize, window, cx| {
+        let (_, seq, rev) = keys[index].clone();
+        let cursor = chat.cursor(pane);
+        let control = match cursor.cell {
+            0 => None,
+            cell => Some(cursor.controls.get(cell - 1).cloned()),
+        };
+        chat.layout.press = chat.key_spot(pane);
+        cx.notify();
+        match control {
+            None => chat.press_message(pane, seq),
+            Some(Some(control)) => chat.act(pane, seq, rev, control, window, cx),
+            Some(None) => {}
+        }
+    }))
+    .build();
     let list = gpui_list(
         state,
         cx.processor(move |chat, index: usize, window, cx| {
@@ -191,9 +253,13 @@ fn rows(
             let day = new_day(&messages, index - usize::from(lead))
                 .map(|day| day_marker(&message.id, day, &theme).into_any_element());
             let unread = (unread == Some(message.seq)).then(|| unread_marker(&theme));
-            let card = message::card(chat, message, pane, window, cx, &theme);
+            let active = (active_id.as_ref() == Some(&message.id)).then_some(cell);
+            let (card, controls) = message::card(chat, message, pane, active, window, cx, &theme);
+            if active.is_some() {
+                chat.cursor_mut(pane).controls = controls;
+            }
             if day.is_none() && unread.is_none() {
-                return card.into_any_element();
+                return card;
             }
             // full width, as a bare card is: a row shrunk to its words
             // took the hover and the action strip with it
@@ -211,16 +277,7 @@ fn rows(
     .flex_1()
     .min_h(px(0.))
     .w_full();
-    div()
-        .id(match pane {
-            Pane::Timeline => "chat-message-list",
-            Pane::Thread => "chat-thread-list",
-        })
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .child(list)
+    grid.flex().flex_col().flex_1().min_h(px(0.)).child(list)
 }
 
 /// "Jump to latest", when the timeline is not at its live tail.

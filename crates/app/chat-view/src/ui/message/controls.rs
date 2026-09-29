@@ -2,7 +2,9 @@
 //! reaction, and the way into a thread.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{ClickEvent, ElementId, ParentElement, Styled, Theme, Window, div, px};
+use ducktape_view_guest::{
+    ClickEvent, ElementId, ParentElement, Role, Styled, Theme, Window, div, px,
+};
 
 /// An action strip button's height, the smallest box a pointer presses
 /// (the door's AX-017): the strip, borders and all, is 26. Its width is
@@ -14,12 +16,15 @@ const REACTION_HEIGHT: f32 = 24.;
 /// The thread button's height under a root.
 const REPLIES_HEIGHT: f32 = 24.;
 
+/// `active`: the grid's arrows are on this button (it is never a Tab stop
+/// of its own; the pane's message list is).
 pub(super) fn action_button(
     id: impl Into<ElementId>,
     label: impl Into<String>,
     accessible: &str,
     theme: &Theme,
     enabled: bool,
+    active: bool,
     click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
 ) -> impl IntoElement {
     let control = div()
@@ -41,12 +46,14 @@ pub(super) fn action_button(
         .text_size(design::text::SECONDARY)
         .child(label.into());
     if enabled {
-        control
-            .focusable()
-            .cursor_pointer()
-            .hover(|s| s.bg(theme.surface_raised))
-            .focus_visible(|s| s.bg(theme.surface_raised))
-            .on_click(click)
+        design::item(
+            control
+                .cursor_pointer()
+                .hover(|s| s.bg(theme.surface_raised))
+                .on_click(click),
+            Role::Button,
+            active,
+        )
     } else {
         control
     }
@@ -65,6 +72,7 @@ pub(super) fn reaction_button(
     mine: bool,
     theme: &Theme,
     enabled: bool,
+    active: bool,
     click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
 ) -> impl IntoElement {
     let mut control = div()
@@ -111,16 +119,18 @@ pub(super) fn reaction_button(
         Face::Add => control.aria_label("Add reaction").child("+"),
     };
     if enabled {
-        control
-            .focusable()
-            .cursor_pointer()
-            .hover(|style| {
-                style
-                    .bg(theme.surface_raised)
-                    .border_color(theme.border_strong)
-            })
-            .focus_visible(|style| style.border_color(theme.accent))
-            .on_click(click)
+        design::item(
+            control
+                .cursor_pointer()
+                .hover(|style| {
+                    style
+                        .bg(theme.surface_raised)
+                        .border_color(theme.border_strong)
+                })
+                .on_click(click),
+            Role::Button,
+            active,
+        )
     } else {
         control
     }
@@ -132,10 +142,11 @@ pub(super) fn replies_button(
     id: impl Into<ElementId>,
     count: u64,
     theme: &Theme,
+    active: bool,
     click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
 ) -> impl IntoElement {
     let replies = design::plural(count, "reply", "replies");
-    div()
+    let button = div()
         .id(id)
         .h(px(REPLIES_HEIGHT))
         .px_2()
@@ -154,11 +165,9 @@ pub(super) fn replies_button(
                 .border_color(theme.border_strong)
         })
         .active(|style| style.bg(theme.accent_soft))
-        .focus_visible(|style| style.border_color(theme.accent))
-        .role(ducktape_view_guest::Role::Button)
         .aria_label(format!("Open thread, {replies}"))
-        .focusable()
         .on_click(click)
         .child(replies)
-        .child(div().text_color(theme.muted).child("Open thread →"))
+        .child(div().text_color(theme.muted).child("Open thread →"));
+    design::item(button, Role::Button, active)
 }

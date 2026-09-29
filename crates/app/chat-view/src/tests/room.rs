@@ -554,3 +554,66 @@ fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
         Some(true)
     );
 }
+
+/// Whether the node `key` names claims the active descendant; a row the
+/// list no longer draws claims nothing.
+pub(super) fn claims(cx: &TestAppContext, key: &str) -> bool {
+    cx.find(key)
+        .and_then(wire::Node::interactivity)
+        .is_some_and(|node| node.aria.active_descendant)
+}
+
+/// The thread pane is a grid of its own: its arrows move in the thread,
+/// and the room's active message stays.
+#[test]
+fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        room.messages.ready_mut().unwrap()[0].reply_count = 1;
+        room.thread = Some(Thread {
+            root: 1,
+            replies: Loadable::Ready(vec![MsgRow {
+                thread: Some(1),
+                ..row(3, 8, "a reply")
+            }]),
+            ..Thread::default()
+        });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let thread = cx.interactivity("chat-thread-list");
+    assert_eq!(thread.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(thread.focusable && thread.tab_stop == Some(true));
+    // the thread's newest is its reply; the room's is still m2
+    assert!(
+        cx.interactivity("chat-message-m3-contents")
+            .aria
+            .active_descendant
+    );
+    assert!(
+        cx.interactivity("chat-message-m2-contents")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("chat-thread-list", "up");
+    view.read(|chat| {
+        assert_eq!(chat.thread_cursor.id.as_deref(), Some("m1"));
+        assert_eq!(chat.timeline_cursor.id, None);
+    });
+    // the list draws the revealed row until the host asks for more
+    assert!(!claims(&cx, "chat-message-m3-contents"));
+    assert!(
+        cx.interactivity("chat-message-m2-contents")
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("chat-thread-list", "enter");
+    view.read(|chat| {
+        let menu = chat
+            .menu
+            .as_ref()
+            .expect("the root is chosen in the thread");
+        assert_eq!((menu.pane, menu.seq), (Pane::Thread, 1));
+    });
+}
