@@ -186,7 +186,18 @@ pub fn focus_shown<E: InteractiveElement>(
     theme: &Theme,
     style: impl FnOnce(StyleRefinement) -> StyleRefinement,
 ) -> E {
-    element.focus_visible(|_| style(focus_ring(theme.accent)))
+    let ring = focus_ring(theme.accent);
+    element.focus_visible(|_| {
+        use gpui::Refineable;
+        let mut shown = style(StyleRefinement::default());
+        // the ring's shadow joins the element's own (a menu's `shadow_lg`)
+        // instead of replacing it
+        let mut shadows = ring.box_shadow.clone().unwrap_or_default();
+        shadows.extend(shown.box_shadow.take().unwrap_or_default());
+        shown.refine(&ring);
+        shown.box_shadow = Some(shadows);
+        shown
+    })
 }
 
 /// The focus ring on an ink-filled control (a primary button, a switch that
@@ -1025,6 +1036,17 @@ mod tests {
         );
         let still = lower(div().id("box").child("text"));
         assert_eq!(interactivity(&still).focus_visible, None);
+        // a frame that adds to the ring keeps its own shadow beside it
+        let frame = lower(focus_shown(
+            div().id("frame").focusable(),
+            &theme,
+            |style| style.shadow_lg(),
+        ));
+        let shown = interactivity(&frame).focus_visible.clone().unwrap();
+        assert_eq!(shown.border_color, Some(theme.accent));
+        let shadows = shown.box_shadow.unwrap();
+        assert_eq!(shadows.len(), 3);
+        assert_eq!(shadows[0], ring_shadow(theme.accent, 2., true));
     }
 
     #[test]
