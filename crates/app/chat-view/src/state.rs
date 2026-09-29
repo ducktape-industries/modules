@@ -302,11 +302,13 @@ impl Chat {
     }
 }
 
-/// The reaction picker: what the search holds and which tab is open.
+/// The reaction picker: what the search holds, which tab is open, and the
+/// cell the arrows are on in one of its grids (the grid's id, the cell).
 #[derive(Default, Debug)]
 pub struct Picker {
     pub(crate) query: String,
     pub(crate) tab: usize,
+    pub(crate) cursor: Option<(&'static str, usize)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]

@@ -490,3 +490,47 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
         );
     });
 }
+
+/// An emoji grid is one stop of rows of eight: → → Enter adds the third
+/// emoji of the open category.
+#[test]
+fn two_arrows_and_enter_on_the_emoji_grid_add_the_third_emoji() {
+    let (mut cx, view) = opened();
+    hover(&mut cx, &view, 1);
+    cx.simulate_click("chat-message-m1-react");
+    let grid = cx.interactivity("chat-reaction-grid");
+    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(grid.focusable && grid.tab_stop == Some(true));
+    let rows = cx.find("chat-reaction-grid").unwrap().children();
+    assert_eq!(rows.len(), emoji::PER_TAB.div_ceil(8));
+    assert_eq!(rows[0].children().len(), 8, "rows of eight");
+    let category = &emoji::CATEGORIES[0];
+    let third = category.emoji[2].0;
+    let key = |emoji: &str| format!("chat-reaction-{}-{emoji}", category.name);
+    assert!(
+        cx.interactivity(&key(category.emoji[0].0))
+            .aria
+            .active_descendant
+    );
+    assert!(!cx.interactivity(&key(third)).focusable);
+    cx.simulate_key_down("chat-reaction-grid", "right");
+    cx.simulate_key_down("chat-reaction-grid", "right");
+    assert!(cx.interactivity(&key(third)).aria.active_descendant);
+    // ↓ a row: eight on
+    cx.simulate_key_down("chat-reaction-grid", "down");
+    assert!(
+        cx.interactivity(&key(category.emoji[10].0))
+            .aria
+            .active_descendant
+    );
+    cx.simulate_key_down("chat-reaction-grid", "up");
+    cx.simulate_key_down("chat-reaction-grid", "enter");
+    cx.run_until_parked();
+    assert!(
+        cx.host()
+            .requests::<Submit<ChatApi>>()
+            .iter()
+            .any(|op| matches!(op, Op::AddReaction { emoji, seq: 1, .. } if emoji == third))
+    );
+    view.read(|chat| assert!(chat.menu.is_none(), "a reaction closes the picker"));
+}
