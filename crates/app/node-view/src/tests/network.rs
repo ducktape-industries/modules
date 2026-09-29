@@ -178,6 +178,11 @@ fn a_narrow_sheet_moves_the_strip_under_its_row() {
         texts_of(&cx, "nodes-row-3"),
         ["0102", "—", "—", "—", "Doesn't propose"]
     );
+    // a resident's line goes under its row as a validator's strip does
+    let Some(ducktape_view_guest::wire::Node::Container(resident)) = cx.find("nodes-row-3") else {
+        panic!("no nodes-row-3");
+    };
+    assert_eq!(resident.children.len(), 2, "cells, then Doesn't propose");
     assert_eq!(texts_of(&cx, "nodes-columns").last().unwrap(), label);
     assert!(cx.has_text("since 3,871") && cx.has_text(VOTES));
     assert_eq!(table_min_width(&cx), serde_json::json!("428px"));

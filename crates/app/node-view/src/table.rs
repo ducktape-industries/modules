@@ -60,7 +60,7 @@ fn marks_w(gap: f32) -> f32 {
 /// scrolling Status out of sight. With Address, and a four-digit height,
 /// 3 px from 1,057, 2 from 994, 1 from 943. Address gives way only at 672:
 /// the strip moves under its row and loses nothing, Address would be lost.
-fn beside(view: &Nodes, label: f32) -> Option<f32> {
+fn gap_beside(view: &Nodes, label: f32) -> Option<f32> {
     let address = if address_fits(view) {
         f32::from(ADDRESS_W)
     } else {
@@ -94,7 +94,7 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
     );
     let label_w =
         (label.chars().count() as f32 * f32::from(design::text::CAPTION) * MONO_EM).ceil();
-    let (address, gap) = (address_fits(view), beside(view, label_w));
+    let (address, gap) = (address_fits(view), gap_beside(view, label_w));
     // the strip's column where it fits beside the other columns
     let column = gap.map(|gap| px(marks_w(gap).max(label_w)));
     let rows = |validator: bool| {
@@ -187,7 +187,7 @@ fn columns(
         .child(name("Height".into(), HEIGHT_W, true))
         .child(name("Behind".into(), BEHIND_W, true))
         .child(name("Status".into(), STATUS_W, false).pl_4());
-    row("nodes-columns", names, below, theme)
+    ruled("nodes-columns", names, below, theme)
         .font_family(design::fonts::FAMILY_MONO)
         .text_size(design::text::CAPTION)
         .text_color(theme.muted)
@@ -204,7 +204,7 @@ fn place<E: IntoElement>(content: E, column: Option<Pixels>) -> (Option<(Pixels,
 
 /// A line of the table, the column names or a member's: its cells, and
 /// under them the strip's, where it does not fit beside them.
-fn row(id: impl Into<ElementId>, cells: Div, below: Option<Div>, theme: &Theme) -> Stateful<Div> {
+fn ruled(id: impl Into<ElementId>, cells: Div, below: Option<Div>, theme: &Theme) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
@@ -301,7 +301,7 @@ fn line(
             theme,
         )));
     let id = ElementId::Name(format!("nodes-row-{index}").into());
-    row(id, cells, below, theme).text_size(design::text::SECONDARY)
+    ruled(id, cells, below, theme).text_size(design::text::SECONDARY)
 }
 
 /// The last blocks, one mark each `gap` apart, oldest first: ink where
