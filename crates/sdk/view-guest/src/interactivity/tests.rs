@@ -16,6 +16,28 @@ fn aria(node: &wire::Node) -> &wire::Aria {
     }
 }
 
+fn interactivity(node: &wire::Node) -> &wire::Interactivity {
+    match node {
+        wire::Node::Container(wire::ContainerNode { interactivity, .. }) => interactivity,
+        other => panic!("no interactivity: {other:?}"),
+    }
+}
+
+#[test]
+fn a_focusable_node_is_a_tab_stop_unless_it_says_otherwise() {
+    let stop = lower(div().id("open").focusable().on_click(|_, _, _| {}));
+    assert_eq!(interactivity(&stop).tab_stop, Some(true));
+    let skipped = lower(div().id("busy").focusable().tab_stop(false));
+    assert_eq!(interactivity(&skipped).tab_stop, Some(false));
+    let plain = lower(div().id("box"));
+    assert_eq!(interactivity(&plain).tab_stop, None);
+    let mut app = App::for_driver();
+    let handle = app.focus_handle();
+    let mut window = app.window();
+    let tracked = Lowering::new(&mut window, &mut app).lower(div().id("menu").track_focus(&handle));
+    assert_eq!(interactivity(&tracked).tab_stop, Some(true));
+}
+
 fn named(names: &[&'static str]) -> Vec<wire::ElementIdWire> {
     names
         .iter()

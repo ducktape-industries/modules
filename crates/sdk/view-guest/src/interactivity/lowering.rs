@@ -55,7 +55,8 @@ impl Interactivity {
             role: self.role,
             aria,
             focusable: self.focusable,
-            tab_stop: self.tab_stop,
+            // a focusable node is a Tab stop unless it said `tab_stop(false)`
+            tab_stop: self.tab_stop.or(self.focusable.then_some(true)),
             tab_index: self.tab_index,
             tab_group: self.tab_group,
             focus: self.focus,

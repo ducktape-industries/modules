@@ -426,6 +426,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self.interactivity().role = Some(role);
         self
     }
+    /// Takes focus, and sits in the Tab order unless `tab_stop(false)`.
     fn focusable(mut self) -> Self {
         self.interactivity().focusable = true;
         self
