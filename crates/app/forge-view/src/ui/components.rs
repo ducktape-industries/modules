@@ -462,9 +462,8 @@ pub(crate) fn menu(
 }
 
 /// A tab with its count beside the label, faint: `Changes 3`. Tabs sit
-/// on a bar's hairline, full height.
-/// A tab of a manual tab list: `selected` is the open one, `active` the
-/// one the arrows are on, which Enter opens.
+/// on a bar's hairline, full height, in a manual tab list: `selected` is
+/// the open one, `active` the one the arrows are on, which Enter opens.
 pub(crate) fn tab(
     element_id: ElementId,
     label: &str,

@@ -233,11 +233,12 @@ fn an_arrow_on_the_menu_opens_the_next_section() {
     assert!(cx.find("settings/invite/mint").is_some());
     // the primary button's ring is drawn in the ink's foreground
     let mint = cx.interactivity("settings/invite/mint");
-    assert_eq!(
-        mint.focus_visible,
-        Some(ducktape_view_guest::design::focus_ring(
-            Theme::light().primary_foreground
-        ))
+    let ring = mint.focus_visible.as_ref().expect("a focus ring");
+    assert_eq!(ring.border_color, Some(Theme::light().primary_foreground));
+    assert!(
+        ring.box_shadow
+            .as_ref()
+            .is_some_and(|shadows| shadows.len() == 1 && shadows[0].inset)
     );
 }
 

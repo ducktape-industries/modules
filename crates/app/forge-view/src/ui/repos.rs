@@ -72,12 +72,12 @@ fn table_header(theme: &Theme) -> Stateful<Div> {
         .child(cell("Last active").w(ACTIVITY_W).flex().justify_end())
 }
 
-/// One repository: its name over the address it clones from, then its
-/// owner, default branch, refs and last activity in their columns.
 /// The cells of a repository's row, in the order ← → walk them: the
 /// press that opens it, Copy, and the last-activity link.
 const CELLS: usize = 3;
 
+/// One repository: its name over the address it clones from, then its
+/// owner, default branch, refs and last activity in their columns.
 fn repo_row(
     forge: &Forge,
     info: &RepoInfo,
