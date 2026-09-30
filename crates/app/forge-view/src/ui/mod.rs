@@ -113,7 +113,8 @@ fn main(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .flex()
         .flex_col()
         .min_h(px(0.));
-    if forge.layout.narrow() {
+    // the list itself has no rail to fold, so no bar over it
+    if forge.layout.narrow() && forge.nav().repo.is_some() {
         column = column.child(narrow_bar(forge, cx, theme));
     }
     if !forge.notice.is_empty() {
@@ -372,7 +373,8 @@ fn ref_menu(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
     components::menu(Menu::Ref, "Refs", items, forge, cx, theme)
 }
 
-/// On a narrow window the rail and a change's details fold into toggles.
+/// On a narrow window an open repository's rail and a change's details
+/// fold into toggles.
 fn narrow_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let tree = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.layout.tree_open = !forge.layout.tree_open;

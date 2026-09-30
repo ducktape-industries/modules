@@ -26,14 +26,15 @@ fn listed<'a>(forge: &'a Forge, reply: &'a Reply) -> Vec<&'a RepoInfo> {
 }
 
 /// The table's column widths: owner, default head, refs, last activity.
-/// The name takes the rest.
-const OWNER_W: Pixels = px(190.);
+/// The name takes the rest. Last active holds "block 12,345,678" (16 mono
+/// characters at 0.6 em of the caption size, and the cell's insets).
+const OWNER_W: Pixels = px(150.);
 const HEAD_W: Pixels = px(120.);
-const REFS_W: Pixels = px(80.);
-const ACTIVITY_W: Pixels = px(250.);
+const REFS_W: Pixels = px(64.);
+const ACTIVITY_W: Pixels = px(130.);
 /// The overview's filter field.
 const SEARCH_W: Pixels = px(260.);
-/// The name keeps this much of a row: past it, the facts wrap under it.
+/// The name keeps this much of a table row.
 const NAME_MIN_W: Pixels = px(120.);
 /// A table row's and its header's heights.
 const ROW_H: Pixels = px(48.);
@@ -43,8 +44,16 @@ const CELL_X: Pixels = px(12.);
 /// The smallest box a pointer presses, each way (the door's AX-017).
 const PRESS_TARGET: Pixels = px(24.);
 
-/// The table's head: what each column holds, quiet and mono. A narrow
-/// window wraps the rows and drops it.
+/// Whether the list, `width` wide, holds the table: the name's floor and
+/// every column, inside the rows' side margins and the scroll bar's gutter.
+/// That is 616 px, under the view's 640 minimum; a narrower list drops the
+/// header and puts each row's facts on one line under its name.
+fn table_fits(width: f32) -> bool {
+    let columns = NAME_MIN_W + OWNER_W + HEAD_W + REFS_W + ACTIVITY_W;
+    width >= f32::from(columns + design::space::SM * 2. + design::size::SCROLLBAR)
+}
+
+/// The table's head: what each column holds, quiet and mono.
 fn table_header(theme: &Theme) -> Stateful<Div> {
     let cell = |label: &'static str| {
         div()
@@ -77,11 +86,13 @@ fn table_header(theme: &Theme) -> Stateful<Div> {
 const CELLS: usize = 3;
 
 /// One repository: its name over the address it clones from, then its
-/// owner, default branch, refs and last activity in their columns.
+/// owner, default branch, refs and last activity, in their columns when
+/// `table`, else on one line under the name.
 fn repo_row(
     forge: &Forge,
     info: &RepoInfo,
     owner: String,
+    table: bool,
     active: Option<usize>,
     cx: &mut Context<Forge>,
     theme: &Theme,
@@ -132,7 +143,7 @@ fn repo_row(
             cx,
             theme,
         ))
-        .child(repo_facts(info, owner, active == Some(2), theme))
+        .child(repo_facts(info, owner, table, active == Some(2), theme))
         .into_any_element()
 }
 
@@ -230,17 +241,21 @@ fn copy_button(
     }
 }
 
-/// What a repository is: owner, default branch, refs, last activity, in
-/// the table's columns; on a narrow row they wrap under the name.
-fn repo_facts(info: &RepoInfo, owner: String, active: bool, theme: &Theme) -> Div {
+/// What a repository is: owner, default branch, refs, last activity. In the
+/// table each holds its column, the refs a bare count under their header;
+/// wrapped, they share one line under the name, each as wide as it reads,
+/// the refs with their unit.
+fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: &Theme) -> Div {
+    let column = |cell: Div, width: Pixels| cell.when(table, |cell| cell.w(width));
+    let refs = info.repo.refs_count;
     div()
         .flex()
-        .flex_wrap()
         .items_center()
-        .min_w(px(0.))
+        .when(!table, |facts| {
+            facts.w_full().flex_wrap().pb(design::space::XS)
+        })
         .child(
-            div()
-                .w(OWNER_W)
+            column(div(), OWNER_W)
                 .px(CELL_X)
                 .flex()
                 .items_center()
@@ -254,8 +269,7 @@ fn repo_facts(info: &RepoInfo, owner: String, active: bool, theme: &Theme) -> Di
                 .child(div().min_w(px(0.)).truncate().child(owner)),
         )
         .child(
-            div()
-                .w(HEAD_W)
+            column(div(), HEAD_W)
                 .px(CELL_X)
                 .truncate()
                 .font_family(design::fonts::FAMILY_MONO)
@@ -263,17 +277,18 @@ fn repo_facts(info: &RepoInfo, owner: String, active: bool, theme: &Theme) -> Di
                 .child(ref_label(&info.repo.settings.head)),
         )
         .child(
-            div()
-                .w(REFS_W)
+            column(div(), REFS_W)
                 .px(CELL_X)
                 .flex()
                 .justify_end()
-                .child(info.repo.refs_count.to_string()),
+                .child(match table {
+                    true => refs.to_string(),
+                    false => design::plural(refs, "ref", "refs"),
+                }),
         )
         .child(
-            div()
+            column(div(), ACTIVITY_W)
                 .id(id(format!("forge-repo-{}-activity-cell", info.name)))
-                .w(ACTIVITY_W)
                 .px(CELL_X)
                 .flex()
                 .justify_end()
@@ -382,13 +397,14 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
         .overflow_y_scroll()
         .flex()
         .flex_col();
-    if !forge.layout.narrow() {
+    let table = table_fits(forge.layout.width);
+    if table {
         list = list.child(table_header(theme));
     }
     for (index, info) in rows.into_iter().enumerate() {
         let owner = forge.principal_name(&info.repo.owner);
         let active = (index == at).then_some(cell);
-        list = list.child(repo_row(forge, info, owner, active, cx, theme));
+        list = list.child(repo_row(forge, info, owner, table, active, cx, theme));
     }
     column.child(list).into_any_element()
 }
