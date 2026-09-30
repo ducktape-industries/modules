@@ -1026,6 +1026,45 @@ fn the_narrow_window_folds_the_rail_and_the_dock_into_toggles() {
     assert!(cx.find("forge-rail").is_some());
 }
 
+/// A window opens at 60% of the desk, 768 px on a 1280 one: the list keeps
+/// its table there and down to the view's 640, header and a column per
+/// fact, with no bar over it. Only under the table's own width does a row
+/// put its facts on one line under its name, the refs with their unit.
+#[test]
+fn the_repositories_keep_their_table_at_the_width_a_window_opens() {
+    let (mut cx, _) = booted("default");
+    let column = |cx: &TestAppContext| {
+        control(cx, "forge-repo-project-activity-cell")
+            .style
+            .size
+            .width
+    };
+    for width in [640., 768.] {
+        cx.simulate_measure("forge-viewport", width, 600.);
+        cx.run_until_parked();
+        assert!(
+            cx.find("forge-repos-columns").is_some(),
+            "header at {width}"
+        );
+        assert!(column(&cx).is_some(), "activity column at {width}");
+        assert!(cx.find("forge-narrow-bar").is_none(), "bar at {width}");
+    }
+    cx.simulate_measure("forge-viewport", 600., 600.);
+    cx.run_until_parked();
+    assert!(cx.find("forge-repos-columns").is_none());
+    assert!(
+        column(&cx).is_none(),
+        "a wrapped fact is as wide as it reads"
+    );
+    let Reply::Repos { page, .. } = reply("repos") else {
+        panic!("the repos fixture")
+    };
+    for info in &page.items {
+        let refs = ducktape_view_guest::design::plural(info.repo.refs_count, "ref", "refs");
+        assert!(cx.has_text(&refs), "{refs}: {:?}", cx.texts());
+    }
+}
+
 /// The rail is one list box: the open repository is its active row on
 /// entry, ↑ ↓ move, Enter opens the active repository.
 #[test]
