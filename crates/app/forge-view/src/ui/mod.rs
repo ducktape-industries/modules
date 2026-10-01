@@ -82,23 +82,20 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
         .child(columns);
     // an open dropdown floats in a modal overlay: Tab stays in it and a
     // press outside closes it
-    let root: AnyElement = match forge.menu {
-        None => root.into_any_element(),
-        Some(menu) => {
-            let (label, floating) = match menu {
-                Menu::Ref => ("Pick a ref", ref_menu(forge, cx, &theme)),
-                Menu::Head => (
-                    "Pick the default head",
-                    settings::head_menu(forge, cx, &theme),
-                ),
-            };
-            let dismiss = cx
-                .listener(move |forge, _: &(), window, cx| forge.close_dropdown(menu, window, cx));
-            modal_overlay(id("forge-menu-overlay"), label, root, floating)
-                .on_dismiss(dismiss)
-                .into_any_element()
-        }
+    let (label, floating) = match forge.menu {
+        None => ("", None),
+        Some(Menu::Ref) => ("Pick a ref", Some(ref_menu(forge, cx, &theme))),
+        Some(Menu::Head) => (
+            "Pick the default head",
+            Some(settings::head_menu(forge, cx, &theme)),
+        ),
     };
+    let mut root = modal_overlay(id("forge-menu-overlay"), label, root, floating);
+    if let Some(menu) = forge.menu {
+        root = root.on_dismiss(
+            cx.listener(move |forge, _: &(), window, cx| forge.close_dropdown(menu, window, cx)),
+        );
+    }
     ducktape_view_guest::sensor(id("forge-viewport"), root)
         .size_full()
         .on_show(measured(cx))
