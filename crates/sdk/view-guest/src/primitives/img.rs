@@ -155,7 +155,7 @@ fn object_fit(value: ObjectFit) -> wire::ImageObjectFit {
 fn image_data(source: ImageSource, lowering: &Lowering<'_>) -> (u64, Option<wire::ImageData>) {
     match source {
         GpuiImageSource::Image(image) => {
-            let (hash, bytes) = lowering.picture(image.bytes());
+            let (hash, bytes) = lowering.picture(image.bytes(), image.bytes().len());
             (hash, bytes.map(wire::ImageData::Encoded))
         }
         GpuiImageSource::Render(image) => render_image_data(&image, lowering),
@@ -185,7 +185,7 @@ fn render_image_data(
             content.extend_from_slice(&u32::from(size.width).to_le_bytes());
             content.extend_from_slice(&u32::from(size.height).to_le_bytes());
             content.extend_from_slice(pixels);
-            let (hash, first) = lowering.picture(content);
+            let (hash, first) = lowering.picture(content, pixels.len());
             (
                 hash,
                 first.map(|content| wire::ImageData::Rgba {
