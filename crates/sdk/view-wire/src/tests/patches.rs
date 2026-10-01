@@ -55,9 +55,9 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
 }
 
 /// `diff_taking` emits the patches `diff` does, but the subtrees they carry
-/// are moved out of the new tree, which `put_back` completes again.
+/// are moved out of the new tree, one empty stand-in left for each.
 #[test]
-fn a_taking_diff_moves_the_carried_subtrees_out_and_put_back_returns_them() {
+fn a_taking_diff_moves_the_carried_subtrees_out() {
     let old = column(vec![
         keyed("a", "one"),
         column(vec![keyed("x", "x"), keyed("y", "y")]),
@@ -90,8 +90,6 @@ fn a_taking_diff_moves_the_carried_subtrees_out_and_put_back_returns_them() {
         new.count() - carried + holes,
         "a carried subtree leaves one empty stand-in behind: {hollow:#?}"
     );
-    put_back(&mut hollow, patches);
-    assert_eq!(hollow, new);
 }
 
 #[test]

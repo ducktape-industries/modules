@@ -96,7 +96,7 @@ impl<V: View> Driver<V> {
                     .last_root
                     .as_mut()
                     .expect("a patch frame has a tree to patch");
-                wire::put_back(kept, frame.patches);
+                put_back(kept, frame.patches);
                 kept
             }
         };
@@ -372,18 +372,16 @@ impl<V: View> Driver<V> {
         // lowered tree that diffs to no patches is the same tree
         // (`apply(old, diff(old, new))` leaves `old == new`).
         let mut patches = Vec::new();
-        let mut nodes = 0;
         let unchanged = match (&mut root, &mut self.last_root) {
             (None, _) => true,
             (Some(root), Some(last)) => {
-                nodes = root.count();
                 patches = wire::diff_taking(last, root);
                 patches.is_empty()
             }
             (Some(_), None) => false,
         };
         if let Some(tree) = root.take().filter(|_| !unchanged) {
-            root = self.keep(tree, nodes, &mut patches);
+            root = self.keep(tree, &mut patches);
         }
         let editor_decisions = slots::take_editor_responses(&self.app.inner.slots);
         self.busy |= slots::editor_responses_ready(&self.app.inner.slots);
@@ -420,15 +418,10 @@ impl<V: View> Driver<V> {
 
     /// Keeps a changed tree as the next frame's base and says what to send:
     /// the tree itself (patches cleared), or nothing beside the patches.
-    /// `nodes` is the tree's count before the diff took the patches'
-    /// subtrees out of it; [`Driver::put_back`] completes it again once the
+    /// The diff took the patches' subtrees out of `tree`; a tree sent whole
+    /// gets them back here, a patched one in [`Driver::put_back`] once the
     /// frame is sent.
-    fn keep(
-        &mut self,
-        mut tree: wire::Node,
-        nodes: usize,
-        patches: &mut Vec<wire::Patch>,
-    ) -> Option<wire::Node> {
+    fn keep(&mut self, mut tree: wire::Node, patches: &mut Vec<wire::Patch>) -> Option<wire::Node> {
         // Property changes remain patches even for tiny trees; replacing
         // their identity would discard native state. Structural edits
         // use the whole tree when it has no more nodes than the patches
@@ -437,17 +430,33 @@ impl<V: View> Driver<V> {
         let only_props = patches
             .iter()
             .all(|patch| matches!(patch, wire::Patch::Props { .. }));
-        let carried: usize = patches
-            .iter()
-            .map(|patch| match patch {
-                wire::Patch::Replace { node, .. } | wire::Patch::Insert { node, .. } => {
-                    node.count()
-                }
-                _ => 1,
-            })
-            .sum();
-        if patches.len() > wire::MAX_PATCHES || (!only_props && carried >= nodes) {
-            wire::put_back(&mut tree, std::mem::take(patches));
+        let carried = || -> usize {
+            patches
+                .iter()
+                .map(|patch| match patch {
+                    wire::Patch::Replace { node, .. } | wire::Patch::Insert { node, .. } => {
+                        node.count()
+                    }
+                    _ => 1,
+                })
+                .sum()
+        };
+        // The tree's count as rendered: the hollowed tree plus what each
+        // taken subtree holds beyond its stand-in.
+        let nodes = || -> usize {
+            let taken: usize = patches
+                .iter()
+                .map(|patch| match patch {
+                    wire::Patch::Replace { node, .. } | wire::Patch::Insert { node, .. } => {
+                        node.count() - 1
+                    }
+                    _ => 0,
+                })
+                .sum();
+            tree.count() + taken
+        };
+        if patches.len() > wire::MAX_PATCHES || (!only_props && carried() >= nodes()) {
+            put_back(&mut tree, std::mem::take(patches));
         }
         // A frame that carries patches sends no tree, so the tree itself is
         // kept; one that sends the tree has nothing to keep until the tree
@@ -486,5 +495,30 @@ impl<V: View> Driver<V> {
             }
         }
         self.busy = true;
+    }
+}
+
+/// Puts the subtrees `patches` carry back into the tree `wire::diff_taking`
+/// took them from, which is `new` as it was: a patch's path and index are
+/// the position of its node in `new`. Each subtree goes into its stand-in's
+/// slot, never inserted, so the patches' order does not matter. Patches
+/// that carry no subtree are skipped.
+pub(crate) fn put_back(new: &mut wire::Node, patches: Vec<wire::Patch>) {
+    for patch in patches {
+        let (path, index, node) = match patch {
+            wire::Patch::Replace { path, node } => (path, None, node),
+            wire::Patch::Insert { path, index, node } => (path, Some(index), node),
+            wire::Patch::Props { .. } | wire::Patch::Remove { .. } | wire::Patch::Move { .. } => {
+                continue;
+            }
+        };
+        let mut target = &mut *new;
+        for index in path {
+            target = &mut target.children_mut()[index as usize];
+        }
+        match index {
+            Some(index) => target.children_mut()[index as usize] = node,
+            None => *target = node,
+        }
     }
 }

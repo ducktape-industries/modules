@@ -161,36 +161,17 @@ pub fn diff(old: &mut Node, new: &mut Node) -> Vec<Patch> {
 
 /// [`diff`], except that every subtree a [`Patch::Replace`] or
 /// [`Patch::Insert`] carries is taken out of `new` instead of copied, and an
-/// empty stand-in is left in its place. [`put_back`] returns them: a guest
-/// that sends the patches and keeps `new` as the next frame's base moves
-/// each changed subtree twice instead of cloning it once.
+/// empty stand-in is left in its place. A guest that sends the patches and
+/// keeps `new` as the next frame's base moves each changed subtree out and
+/// back instead of cloning it: a patch's path and index are the position of
+/// its node in `new`, since removes come first at every level and the
+/// inserts and moves before an index have already been emitted when it is
+/// reached. Plumbing for view-guest's driver, not a view's API.
+#[doc(hidden)]
 pub fn diff_taking(old: &mut Node, new: &mut Node) -> Vec<Patch> {
     let mut patches = Vec::new();
     diff_node(old, new, true, &mut Vec::new(), &mut patches);
     patches
-}
-
-/// Puts the subtrees `patches` carry back into the tree [`diff_taking`]
-/// took them from, which is `new` as it was: a patch's path and index are
-/// the position of its node in `new`, since removes come first at every
-/// level and the inserts and moves before an index have already been
-/// emitted when it is reached. Patches that carry no subtree are skipped.
-pub fn put_back(new: &mut Node, patches: Vec<Patch>) {
-    for patch in patches {
-        let (path, index, node) = match patch {
-            Patch::Replace { path, node } => (path, None, node),
-            Patch::Insert { path, index, node } => (path, Some(index), node),
-            Patch::Props { .. } | Patch::Remove { .. } | Patch::Move { .. } => continue,
-        };
-        let mut target = &mut *new;
-        for index in path {
-            target = &mut target.children_mut()[index as usize];
-        }
-        match index {
-            Some(index) => target.children_mut()[index as usize] = node,
-            None => *target = node,
-        }
-    }
 }
 
 /// The subtree a patch carries: `new` itself, moved out behind an empty

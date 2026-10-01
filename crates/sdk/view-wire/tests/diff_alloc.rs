@@ -74,6 +74,7 @@ fn a_taking_diff_of_a_replaced_page_does_not_copy_the_rows() {
     let rows_children = 500 * 2 * std::mem::size_of::<Node>();
     assert!(
         copying >= taking + rows_children,
-        "diff allocated {copying} bytes, diff_taking {taking}: a copy of the rows'          children alone is {rows_children}"
+        "diff allocated {copying} bytes, diff_taking {taking}: a copy of the rows' \
+         children alone is {rows_children}"
     );
 }
