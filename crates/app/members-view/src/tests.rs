@@ -499,6 +499,56 @@ fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
     }
 }
 
+/// ↓ then ↑ (a reader trying the next member, the door's arrow probe)
+/// comes back to an account whose block links are there at once, not to
+/// "Reading…" for the length of a scan: what was read of it shows while it
+/// is read anew, and the new read replaces it.
+#[test]
+fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    // eddy signs again at 13
+    cx.host().handle::<ChainBlocks>(|page: BlockPage| {
+        let tx = Tx {
+            signer: EDDY.to_vec(),
+            seq: 3,
+            target: "chat".into(),
+            payload: vec![3],
+            ..Tx::default()
+        };
+        Ok(match page.before {
+            None => vec![Block {
+                height: 13,
+                time: 13 * 60_000,
+                txs: vec![tx],
+                ..Block::default()
+            }],
+            Some(_) => Vec::new(),
+        })
+    });
+    // ↓ ↑: read anew, the new read shows
+    cx.simulate_key_down("members-list", "down");
+    cx.simulate_key_down("members-list", "up");
+    cx.run_until_parked();
+    assert!(cx.has_text("block 13") && !cx.has_text("block 12"));
+    // the chain stops answering: ↓ ↑ still shows eddy's links at once
+    cx.host().never::<ChainBlocks>();
+    cx.simulate_key_down("members-list", "down");
+    cx.run_until_parked();
+    assert!(cx.has_text("ada's bio"));
+    cx.simulate_key_down("members-list", "up");
+    cx.run_until_parked();
+    assert!(cx.has_text("eddy's bio"));
+    assert!(!cx.has_text("Reading the last 1,000 blocks…"));
+    assert!(
+        cx.has_text("block 13") && cx.find("members-block-0").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+}
+
 /// A row is called by the member's name, not the avatar's initial drawn
 /// before it; what else the row says is its description.
 #[test]
