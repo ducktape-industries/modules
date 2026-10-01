@@ -27,6 +27,7 @@ mod watch;
 pub use state::*;
 
 use ducktape_view_guest::View;
+use ducktape_view_guest::methods::Capability;
 use ducktape_view_guest::{Context, IntoElement, Render, Window, export_view};
 
 /// Rows asked per page.
@@ -35,6 +36,18 @@ const PAGE: usize = 64;
 const WINDOW: usize = 256;
 
 impl View for Chat {
+    const NAME: &'static str = "Chat";
+    const DESCRIPTION: &'static str =
+        "Channels, direct messages, threads, search and the live call of this workspace.";
+    const CAPABILITIES: &'static [Capability] = &[
+        Capability::Module,
+        Capability::Op,
+        Capability::Host,
+        Capability::Link,
+        Capability::Clipboard,
+        Capability::Notify,
+        Capability::Store,
+    ];
     const MIN_WINDOW_WIDTH: u32 = 560;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -77,12 +90,7 @@ impl Render for Chat {
     }
 }
 
-export_view!(
-    Chat,
-    "Chat",
-    "Channels, direct messages, threads, search and the live call of this workspace.",
-    [Module, Op, Host, Link, Clipboard, Notify, Store]
-);
+export_view!(Chat);
 
 #[cfg(test)]
 mod tests;

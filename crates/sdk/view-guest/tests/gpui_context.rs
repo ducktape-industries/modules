@@ -6,10 +6,8 @@ use view_guest::{Driver, View, testing::TestAppContext, wire};
 struct Counter {
     clicks: usize,
 }
-impl view_guest::Capabilities for Counter {
-    const CAPABILITIES: &'static [view_guest::methods::Capability] = &[];
-}
 impl View for Counter {
+    const NAME: &'static str = "Counter";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self::default()
     }
@@ -47,6 +45,7 @@ struct PointerSurface {
     seen: Vec<(usize, bool, f32)>,
 }
 impl View for PointerSurface {
+    const NAME: &'static str = "PointerSurface";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self::default()
     }
@@ -124,6 +123,7 @@ fn pointer_listener_preserves_payload_and_routes_after_frame_reset() {
 #[derive(Serialize, Deserialize)]
 struct TooltipSurface;
 impl View for TooltipSurface {
+    const NAME: &'static str = "TooltipSurface";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }
@@ -141,6 +141,7 @@ impl Render for TooltipSurface {
 #[derive(Serialize, Deserialize)]
 struct TooltipContent;
 impl View for TooltipContent {
+    const NAME: &'static str = "TooltipContent";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }
@@ -194,6 +195,7 @@ fn tooltip_delay_is_order_independent_and_builder_runs_only_after_request() {
 #[derive(Serialize, Deserialize)]
 struct RichTooltipSurface;
 impl View for RichTooltipSurface {
+    const NAME: &'static str = "RichTooltipSurface";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }
@@ -241,6 +243,7 @@ fn rich_text_tooltip_routes_character_index_and_explicit_none() {
 #[derive(Serialize, Deserialize)]
 struct FocusSurface;
 impl View for FocusSurface {
+    const NAME: &'static str = "FocusSurface";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }
@@ -349,10 +352,8 @@ struct GlobalReader {
 }
 struct Configuration(usize);
 impl Global for Configuration {}
-impl view_guest::Capabilities for GlobalReader {
-    const CAPABILITIES: &'static [view_guest::methods::Capability] = &[];
-}
 impl View for GlobalReader {
+    const NAME: &'static str = "GlobalReader";
     fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             initial: cx.global::<Configuration>().0,
@@ -384,6 +385,7 @@ fn test_globals_are_available_during_creation_and_restore_without_clone() {
 #[derive(Default, Serialize, Deserialize)]
 struct ThemeReader;
 impl View for ThemeReader {
+    const NAME: &'static str = "ThemeReader";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }

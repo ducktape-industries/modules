@@ -26,6 +26,7 @@ mod watch;
 pub use chain::{BlockRow, Chain, TxRow};
 pub use state::{Accounts, Explorer, Network, Note, Route};
 
+use ducktape_view_guest::methods::Capability;
 use ducktape_view_guest::{Context, IntoElement, Render, View, Window, export_view};
 
 /// The recent window the explorer reads: activity, search by transaction
@@ -39,6 +40,16 @@ const PAGE: u32 = 20;
 const TICK: i64 = 2_000;
 
 impl View for Explorer {
+    const NAME: &'static str = "Explorer";
+    const DESCRIPTION: &'static str =
+        "The chain as this node keeps it: blocks, transactions, accounts and programs.";
+    const CAPABILITIES: &'static [Capability] = &[
+        Capability::Chain,
+        Capability::Module,
+        Capability::Host,
+        Capability::Clock,
+        Capability::Clipboard,
+    ];
     const MIN_WINDOW_WIDTH: u32 = 640;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -59,12 +70,7 @@ impl Render for Explorer {
     }
 }
 
-export_view!(
-    Explorer,
-    "Explorer",
-    "The chain as this node keeps it: blocks, transactions, accounts and programs.",
-    [Chain, Module, Host, Clock, Clipboard]
-);
+export_view!(Explorer);
 
 #[cfg(test)]
 mod tests;

@@ -13,6 +13,7 @@
 //! status, the network and the strip's blocks (`recent.rs`) follow the
 //! clock, one ask of each in flight at a time.
 use ducktape_view_guest::host::Error;
+use ducktape_view_guest::methods::Capability;
 use ducktape_view_guest::methods::{
     ChainBlocks, ChainNetwork, ChainStatus, Changes, ClockTicks, NetworkStatus, NodeStatus,
 };
@@ -74,6 +75,14 @@ pub(crate) const SILENT_TICKS: u64 = 3;
 const UNSUPPORTED: &str = "unknown_request";
 
 impl View for Nodes {
+    const NAME: &'static str = "Nodes";
+    const DESCRIPTION: &'static str = "The network this app talks to: its height and epoch, and every member, with how far each validator's signature is from the tip.";
+    const CAPABILITIES: &'static [Capability] = &[
+        Capability::Chain,
+        Capability::Module,
+        Capability::Host,
+        Capability::Clock,
+    ];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -238,12 +247,7 @@ impl Nodes {
     }
 }
 
-export_view!(
-    Nodes,
-    "Nodes",
-    "The network this app talks to: its height and epoch, and every member, with how far each validator's signature is from the tip.",
-    [Chain, Module, Host, Clock]
-);
+export_view!(Nodes);
 
 #[cfg(test)]
 mod tests;

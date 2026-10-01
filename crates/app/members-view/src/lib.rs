@@ -19,6 +19,7 @@ use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::{Error, malformed};
+use ducktape_view_guest::methods::Capability;
 use ducktape_view_guest::methods::{Changes, HostOffset, HostSession, Query};
 use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, View, Window};
 use module_registry::PageRequest;
@@ -131,6 +132,15 @@ struct Device {
 }
 
 impl View for Members {
+    const NAME: &'static str = "Members";
+    const DESCRIPTION: &'static str =
+        "Every account of this network: who it is, what it runs and what it signed lately.";
+    const CAPABILITIES: &'static [Capability] = &[
+        Capability::Chain,
+        Capability::Module,
+        Capability::Host,
+        Capability::Link,
+    ];
     const MIN_WINDOW_WIDTH: u32 = 320;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -373,12 +383,7 @@ fn unexpected(program: &str, reply: &impl std::fmt::Debug) -> Error {
     malformed(format!("{program} answered {reply:?}"))
 }
 
-export_view!(
-    Members,
-    "Members",
-    "Every account of this network: who it is, what it runs and what it signed lately.",
-    [Chain, Module, Host, Link]
-);
+export_view!(Members);
 
 #[cfg(test)]
 mod tests;
