@@ -576,6 +576,11 @@ pub mod refusal {
     pub const WIDGET_COMMAND_FAILED: &str = "widget_command_failed";
     /// The command's target left the tree before it ran.
     pub const WIDGET_UNMOUNTED: &str = "widget_unmounted";
+    /// The method needs a person's input (a press or a key) in the view, and
+    /// there was none, or it was spent on an earlier request.
+    pub const NEEDS_GESTURE: &str = "needs_gesture";
+    /// More links opened by the view in the last minute than the host takes.
+    pub const LINK_LIMIT: &str = "link_limit";
     /// The node does not mint invites.
     pub const INVITE_UNSUPPORTED: &str = "invite_unsupported";
     /// The host closed the request with no answer; written on the view's
@@ -678,6 +683,8 @@ mod tests {
             (INVALID_WIDGET_COMMAND, "invalid_widget_command"),
             (WIDGET_COMMAND_FAILED, "widget_command_failed"),
             (WIDGET_UNMOUNTED, "widget_unmounted"),
+            (NEEDS_GESTURE, "needs_gesture"),
+            (LINK_LIMIT, "link_limit"),
             (INVITE_UNSUPPORTED, "invite_unsupported"),
             (REQUEST_CLOSED, "request_closed"),
         ];
