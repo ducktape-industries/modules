@@ -109,6 +109,27 @@ fn a_refused_head_subscription_falls_back_to_polling() {
     assert!(cx.has_text("13–14 · 2 empty blocks"), "{:?}", cx.texts());
 }
 
+/// `chain.heads` ending is its refusal's twin: the follower's last turn
+/// starts the clock, and the head is read on it from then on.
+#[test]
+fn an_ended_head_subscription_falls_back_to_polling() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let ticks = cx.host().stream::<ClockTicks>();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    assert!(cx.host().requests::<ClockTicks>().is_empty());
+    heads.close();
+    cx.run_until_parked();
+    assert_eq!(cx.host().requests::<ClockTicks>(), [TICK]);
+    *tip.borrow_mut() = 14;
+    ticks.send(());
+    cx.run_until_parked();
+    assert!(cx.has_text("13–14 · 2 empty blocks"), "{:?}", cx.texts());
+}
+
 #[test]
 fn a_refused_window_says_why_and_retry_reads_again() {
     let mut cx = TestAppContext::new();
