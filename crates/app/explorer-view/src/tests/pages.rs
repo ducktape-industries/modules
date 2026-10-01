@@ -79,6 +79,45 @@ fn an_arrow_on_the_pages_opens_the_next_page() {
     );
 }
 
+/// → then ← on the pages comes back to the block the reader left, not to
+/// the Blocks list: an arrow opens a tab's page as it was left (the door's
+/// arrow probe in the census did → ← here and audited the list instead).
+/// A click on a tab still opens its list.
+#[test]
+fn an_arrow_away_and_back_returns_to_the_block_it_left() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("explorer-block-11");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-block").is_some(), "{:?}", cx.texts());
+    cx.simulate_key_down("explorer-tabs", "right");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-transactions").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+    cx.simulate_key_down("explorer-tabs", "left");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-block").is_some() && cx.find("explorer-blocks").is_none(),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.has_text(&abi::hex(&[111; 32])), "block 11's hash");
+    assert!(
+        cx.interactivity("explorer-tab-blocks")
+            .aria
+            .active_descendant
+    );
+    assert!(
+        cx.host().requests::<ChainBlock>().is_empty(),
+        "block 11 is in the window"
+    );
+    cx.simulate_click("explorer-tab-blocks");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-blocks").is_some(), "{:?}", cx.texts());
+}
+
 /// A list is one Tab stop: ↓ moves the active row, Enter opens it; the
 /// rows are options, never focusable, and the first is active on entry.
 #[test]

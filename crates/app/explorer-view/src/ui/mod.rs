@@ -172,14 +172,16 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         .border_b_1()
         .border_color(theme.border)
         .child(
-            // one Tab stop; ← → open the next page
+            // one Tab stop; ← → open the next tab's page as it was left (a
+            // click opens the tab's list)
             design::composite("explorer-tabs", Role::TabList, "Pages")
                 .orientation(design::Orientation::Horizontal)
                 .wrap()
                 .active(shown, routes.len())
                 .on_move(
                     cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
-                        view.go(routes[index].clone(), cx)
+                        let page = view.left[index].clone();
+                        view.go(page.unwrap_or_else(|| routes[index].clone()), cx)
                     }),
                 )
                 .build()

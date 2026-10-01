@@ -150,6 +150,11 @@ pub struct Explorer {
     /// the list the arrows are in, and the row they are on
     #[serde(skip)]
     pub(crate) cursor: Option<(&'static str, usize)>,
+    /// the page each tab showed last, which an arrow onto the tab opens
+    /// again (→ then ← comes back to the block it left); `None`, the tab's
+    /// own list
+    #[serde(skip)]
+    pub(crate) left: [Option<Route>; 5],
 }
 
 impl Explorer {
