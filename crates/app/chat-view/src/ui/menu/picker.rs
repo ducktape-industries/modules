@@ -315,8 +315,9 @@ impl RenderOnce for Reaction {
             .justify_center()
             .text_size(design::text::TITLE)
             .role(Role::Button)
-            .aria_label("Add reaction")
-            .aria_description(self.emoji.clone())
+            // named by its emoji, as the strip's "React with 👍": one name
+            // for 48 cells told assistive technology nothing apart
+            .aria_label(format!("React with {}", self.emoji))
             .aria_disabled(!enabled)
             .child(self.emoji);
         match self.press {

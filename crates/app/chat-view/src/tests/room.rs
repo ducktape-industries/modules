@@ -620,3 +620,62 @@ fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
         assert_eq!((menu.pane, menu.seq), (Pane::Thread, 1));
     });
 }
+
+/// Every message row says its place in its pane's set, the one under a
+/// day marker too: the host positions only a list item's own node, and a
+/// marked message is wrapped, so the thread's root (always the first of
+/// its day) said nothing (census AX-112).
+#[test]
+fn every_message_row_says_its_place_in_its_set() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        let rows = room.messages.ready_mut().unwrap();
+        rows[0].reply_count = 1;
+        for (row, time) in rows
+            .iter_mut()
+            .zip([1_000_000_000_000_u64, 1_000_000_000_001])
+        {
+            row.time = time;
+        }
+        room.thread = Some(Thread {
+            root: 1,
+            replies: Loadable::Ready(vec![MsgRow {
+                thread: Some(1),
+                time: 1_000_000_000_002,
+                ..row(3, 8, "a reply")
+            }]),
+            ..Thread::default()
+        });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    // the root opens its day in both panes: it is wrapped with the marker
+    assert!(cx.find("chat-day-m1").is_some(), "the day marker shows");
+    fn rows<'a>(node: &'a wire::Node, key: &str, out: &mut Vec<&'a wire::Node>) {
+        if node.key() == Some(key) {
+            out.push(node);
+        }
+        for child in node.children() {
+            rows(child, key, out);
+        }
+    }
+    let places = |key: &str| -> Vec<(Option<usize>, Option<usize>)> {
+        let mut found = Vec::new();
+        rows(cx.root(), key, &mut found);
+        found
+            .iter()
+            .map(|node| {
+                let aria = &node.interactivity().expect("a row").aria;
+                (aria.position_in_set, aria.size_of_set)
+            })
+            .collect()
+    };
+    // m1 heads the room (of m1, m2) and the thread (of m1, m3)
+    assert_eq!(
+        places("chat-message-m1-row"),
+        vec![(Some(1), Some(2)), (Some(1), Some(2))]
+    );
+    assert_eq!(places("chat-message-m2-row"), vec![(Some(2), Some(2))]);
+    assert_eq!(places("chat-message-m3-row"), vec![(Some(2), Some(2))]);
+}

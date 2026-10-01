@@ -247,23 +247,25 @@ fn rows(
     .build();
     let list = gpui_list(
         state,
-        cx.processor(move |chat, index: usize, window, cx| {
+        cx.processor(move |chat, index: usize, _window, cx| {
             if lead && index == 0 {
                 let (name, dm) = lead_text.clone().expect("lead row");
                 return intro(&name, dm.as_deref(), &theme).into_any_element();
             }
-            let Some(message) = messages.get(index - usize::from(lead)).cloned() else {
+            let at = index - usize::from(lead);
+            let Some(message) = messages.get(at).cloned() else {
                 return match bare {
                     true => no_replies(&theme).into_any_element(),
                     false => div().into_any_element(),
                 };
             };
-            let day = new_day(&messages, index - usize::from(lead))
+            let day = new_day(&messages, at)
                 .map(|day| day_marker(&message.id, day, &theme).into_any_element());
             let unread = (unread == Some(message.seq)).then(|| unread_marker(&theme));
             let active = (active_id.as_ref() == Some(&message.id)).then_some(cell);
             let id = message.id.clone();
-            let (card, controls) = message::card(chat, message, pane, active, window, cx, &theme);
+            let set = (at + 1, messages.len());
+            let (card, controls) = message::card(chat, message, pane, active, set, cx, &theme);
             if active.is_some() {
                 let cursor = chat.cursor_mut(pane);
                 cursor.controls = controls;
