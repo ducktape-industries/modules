@@ -294,6 +294,7 @@ impl View for $title {
     const NAME: &'static str = "$title";
     const DESCRIPTION: &'static str = "The count the $program module keeps.";
     const CAPABILITIES: &'static [Capability] = &[Capability::Module];
+    const TARGETS: &'static [&'static str] = &[$program_snake::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
