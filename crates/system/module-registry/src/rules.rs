@@ -46,6 +46,14 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
         return Err(not_found(format!("code {blob:?} is not published")));
     }
     let name = scheduled.change.program();
+    // an id lands in its one spelling (`program::is_name`), so no id reads
+    // as another's; a removal names what is there, however it is spelled
+    let lands = matches!(scheduled.change, Change::Set(_) | Change::SetView(_));
+    if lands && !program::is_name(name) {
+        return Err(invalid(format!(
+            "{name:?} is not a program id: 1..=64 of [a-z0-9_-]"
+        )));
+    }
     // the kernel calls these by their genesis binding: with one gone every
     // frame is refused (identity) or the chain halts (validators), and no
     // change could land to bring it back
