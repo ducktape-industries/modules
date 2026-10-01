@@ -59,22 +59,29 @@ pub(super) fn action_button(
     }
 }
 
-/// What a reaction button shows: an emoji and how many chose it, or the
-/// `+` that opens the picker.
+/// What a reaction button shows: an emoji, how many chose it and whether
+/// the reader is one of them, or the `+` that opens the picker.
 pub(super) enum Face<'a> {
-    Emoji { emoji: &'a str, count: u64 },
+    Emoji {
+        emoji: &'a str,
+        count: u64,
+        mine: bool,
+    },
     Add,
 }
 
+/// `subject`: what the row is about, said after the chip's and the `+`'s
+/// own name, as every reacted row shows the same controls.
 pub(super) fn reaction_button(
     id: impl Into<ElementId>,
     face: Face,
-    mine: bool,
+    subject: &str,
     theme: &Theme,
     enabled: bool,
     active: bool,
     click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
 ) -> impl IntoElement {
+    let mine = matches!(face, Face::Emoji { mine: true, .. });
     let mut control = div()
         .id(id)
         .h(px(REACTION_HEIGHT))
@@ -103,9 +110,9 @@ pub(super) fn reaction_button(
         .text_size(design::text::SECONDARY);
     control = match face {
         // the count in the data face, as every count here is
-        Face::Emoji { emoji, count } => control
+        Face::Emoji { emoji, count, mine } => control
             // one name whether it is yours or not: the toggle says which
-            .aria_label(format!("{emoji} reaction"))
+            .aria_label(format!("{emoji} reaction, {subject}"))
             .aria_description(count.to_string())
             .aria_toggled(mine.into())
             .child(emoji.to_owned())
@@ -116,7 +123,9 @@ pub(super) fn reaction_button(
                     .child(count.to_string()),
             ),
         // `+` is the picker's method, not a toggle
-        Face::Add => control.aria_label("Add reaction").child("+"),
+        Face::Add => control
+            .aria_label(format!("Add reaction, {subject}"))
+            .child("+"),
     };
     if enabled {
         design::item(
@@ -137,10 +146,12 @@ pub(super) fn reaction_button(
 }
 
 /// Under a message with replies: how many, and the way into them, drawn as
-/// the button it is.
+/// the button it is. Its name ends with the row's `subject`, as two roots
+/// with as many replies said the same.
 pub(super) fn replies_button(
     id: impl Into<ElementId>,
     count: u64,
+    subject: &str,
     theme: &Theme,
     active: bool,
     click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
@@ -165,7 +176,7 @@ pub(super) fn replies_button(
                 .border_color(theme.border_strong)
         })
         .active(|style| style.bg(theme.accent_soft))
-        .aria_label(format!("Open thread, {replies}"))
+        .aria_label(format!("Open thread, {replies}, {subject}"))
         .on_click(click)
         .child(replies)
         .child(div().text_color(theme.muted).child("Open thread →"));

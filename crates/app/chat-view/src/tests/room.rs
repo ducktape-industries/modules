@@ -691,3 +691,72 @@ fn every_message_row_says_its_place_in_its_set() {
     assert_eq!(places("chat-message-m2-row"), vec![(Some(2), Some(2))]);
     assert_eq!(places("chat-message-m3-row"), vec![(Some(2), Some(2))]);
 }
+
+/// What the door's AX-016 holds the view to, on the screen the census
+/// audits as "thread": no two presses on the messages share a role and a
+/// name. Two rows of one block, each with a 👍, the `+` and replies, and
+/// the first one's thread open, so that row is drawn in both panes.
+#[test]
+fn no_two_presses_on_the_messages_share_a_role_and_a_name() {
+    use ducktape_view_guest::Role;
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        for message in room.messages.ready_mut().unwrap() {
+            message.reply_count = 1;
+            message.reactions.push(chat::Reaction {
+                emoji: "👍".into(),
+                count: 1,
+                reacted_by_me: false,
+            });
+        }
+        room.thread = Some(Thread {
+            root: 1,
+            replies: Loadable::Ready(vec![MsgRow {
+                thread: Some(1),
+                ..row(3, 8, "a reply")
+            }]),
+            ..Thread::default()
+        });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    /// Every press under a message as the door judges it: role and name.
+    fn presses(node: &wire::Node, out: &mut Vec<(Option<Role>, Option<String>)>) {
+        let message = node
+            .key()
+            .is_some_and(|key| key.starts_with("chat-message-"));
+        if let Some(control) = node.interactivity()
+            && message
+            && control.on_click.is_some()
+        {
+            let name = control.aria.label.as_deref().map(str::to_owned);
+            out.push((control.role, name));
+        }
+        for child in node.children() {
+            presses(child, out);
+        }
+    }
+    let mut found = Vec::new();
+    presses(cx.root(), &mut found);
+    // the scene: both rows in the room, the root again atop its thread
+    let cells = found
+        .iter()
+        .filter(|(role, _)| *role == Some(Role::GridCell))
+        .count();
+    assert_eq!(cells, 4, "m1 and m2 in the room, m1 and m3 in the thread");
+    for (at, press) in found.iter().enumerate() {
+        assert!(!found[..at].contains(press), "two presses are {press:?}");
+    }
+    // the thread's copy of the root says which it is, in its cell's name
+    // and in each of its controls'
+    let has = |role, name: &str| found.contains(&(Some(role), Some(name.to_owned())));
+    assert!(has(Role::GridCell, "eddy: hello"));
+    assert!(has(Role::GridCell, "eddy, thread root: hello"));
+    assert!(has(Role::Link, "Open block 1 in Explorer, eddy: hello"));
+    assert!(has(
+        Role::Link,
+        "Open block 1 in Explorer, eddy, thread root: hello"
+    ));
+    assert!(has(Role::Button, "Add reaction, eddy, thread root: hello"));
+}

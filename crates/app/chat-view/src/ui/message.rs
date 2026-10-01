@@ -20,10 +20,15 @@ use rich::{plain_line, rich_line};
 /// The cells of the message row being drawn: the message is cell 0, each
 /// enabled control the next in paint order. `active` is the cell the
 /// pane's arrows are on, when this is their row; the controls are handed
-/// back so Enter knows what the active cell does.
+/// back so Enter knows what the active cell does. `subject` is what the
+/// row is about, said at the end of the name of each control that repeats
+/// from row to row (the block link, a chip, the `+`, the way into the
+/// thread): the door's AX-016 holds every press in the view to a name of
+/// its own, and "Add reaction" was every reacted row's.
 struct Cells {
     active: Option<usize>,
     controls: Vec<Control>,
+    subject: String,
 }
 
 impl Cells {
@@ -31,6 +36,22 @@ impl Cells {
     fn push(&mut self, control: Control) -> bool {
         self.controls.push(control);
         self.active == Some(self.controls.len())
+    }
+}
+
+/// How much of a message's body its controls' names carry: enough to tell
+/// two messages apart, and not a long message whole, as each control of
+/// the row sends it.
+const SUBJECT_BODY: usize = 80;
+
+/// Who a row's names say wrote it. A thread's root is drawn twice while
+/// its thread is open, in the room and atop the thread, and the two rows'
+/// cells and controls were one name each: the thread's copy says which it
+/// is, ahead of the body, where the door's cut of a long name leaves it.
+fn written_by(message: &ChatMessage, pane: Pane) -> String {
+    match pane == Pane::Thread && message.thread.is_none() {
+        true => format!("{}, thread root", message.author),
+        false => message.author.clone(),
     }
 }
 
@@ -54,9 +75,13 @@ pub fn card(
     let id = message.id.clone();
     let seq = message.seq;
     let press = press(pane, seq, cx);
+    let who = written_by(&message, pane);
+    let name = format!("{who}: {}", message.body);
+    let head: String = message.body.chars().take(SUBJECT_BODY).collect();
     let mut cells = Cells {
         active,
         controls: Vec::new(),
+        subject: format!("{who}: {head}"),
     };
     let chosen = !message.deleted
         && seq > 0
@@ -75,7 +100,7 @@ pub fn card(
         .absolute()
         .inset_0()
         .role(ducktape_view_guest::Role::GridCell)
-        .aria_label(format!("{}: {}", message.author, message.body))
+        .aria_label(name.clone())
         .when(cells.active == Some(0), |cell| {
             cell.aria_active_descendant()
         })
@@ -119,10 +144,7 @@ pub fn card(
         .on_hover(row_hover)
         // a row of the pane's grid; it never claims
         .role(ducktape_view_guest::Role::Row)
-        .aria_label(format!(
-            "Select message, shows its actions: {}: {}",
-            message.author, message.body
-        ))
+        .aria_label(format!("Select message, shows its actions: {name}"))
         .aria_position_in_set(set.0)
         .aria_size_of_set(set.1)
         .child(card);
@@ -431,7 +453,14 @@ fn replies(
         let active = cells.push(Control::Replies);
         let open = acts(pane, message.seq, message.rev, Control::Replies, cx);
         let id = format!("chat-message-{}-replies", message.id);
-        let button = replies_button(id.clone(), message.reply_count, theme, active, open);
+        let button = replies_button(
+            id.clone(),
+            message.reply_count,
+            &cells.subject,
+            theme,
+            active,
+            open,
+        );
         return Some(
             div()
                 .flex()
@@ -511,7 +540,13 @@ fn header(
             cx.host().open_link(&link);
         });
         let id = format!("chat-message-{}-height", message.id);
-        let link = design::block_link(id.clone(), message.height, theme).on_click(open);
+        // the link's own name (`design::block_link`), then the row: the
+        // messages of one block all open it, and were one name
+        let block = design::grouped(message.height);
+        let name = format!("Open block {block} in Explorer, {}", cells.subject);
+        let link = design::block_link(id.clone(), message.height, theme)
+            .aria_label(name)
+            .on_click(open);
         header = header.child(cell(
             &id,
             true,
@@ -595,12 +630,13 @@ fn reactions(
         let face = Face::Emoji {
             emoji: &reaction.emoji,
             count: reaction.count,
+            mine: reaction.reacted_by_me,
         };
         let click = acts(pane, seq, rev, control, cx);
         let chip = reaction_button(
             id.clone(),
             face,
-            reaction.reacted_by_me,
+            &cells.subject,
             theme,
             writable,
             active,
@@ -615,7 +651,7 @@ fn reactions(
     let add = reaction_button(
         id.clone(),
         Face::Add,
-        false,
+        &cells.subject,
         theme,
         writable,
         active,

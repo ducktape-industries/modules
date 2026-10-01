@@ -111,6 +111,7 @@ fn reaction_rows_keep_add_action_and_selected_accessibility() {
 /// A chip is named by its emoji, yours or not: the toggle says which, so
 /// the name the door reads does not flip with it, and it is neither the `+`
 /// picker's "Add reaction" nor the strip's "React with 👍", which always adds.
+/// Each name ends with the row it is on: every reacted row has a 👍 and a `+`.
 #[test]
 fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
     let (mut cx, view) = opened();
@@ -138,13 +139,17 @@ fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
         aria("chat-message-m1-reaction-👍"),
         aria("chat-message-m2-reaction-👍"),
     );
-    assert_eq!(off.label, on.label, "one name, toggled or not");
-    assert_eq!(on.label.as_deref(), Some("👍 reaction"));
+    // "👍 reaction" toggled or not, then the row each is on
+    assert_eq!(on.label.as_deref(), Some("👍 reaction, eddy: hello"));
+    assert_eq!(
+        off.label.as_deref(),
+        Some("👍 reaction, reviewer: **hi** there")
+    );
     assert_eq!(on.toggled, Some(true.into()));
     assert_eq!(off.toggled, Some(false.into()));
     assert_eq!(
         aria("chat-message-m1-reaction-add").label.as_deref(),
-        Some("Add reaction")
+        Some("Add reaction, eddy: hello")
     );
     assert_eq!(
         aria("chat-message-m1-thumbs-up").label.as_deref(),
@@ -312,6 +317,11 @@ fn replies_read_as_a_button() {
         panic!("replies button")
     };
     assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Button));
+    // what it does, how many, then whose: two roots can have as many
+    assert_eq!(
+        interactivity.aria.label.as_deref(),
+        Some("Open thread, 3 replies, eddy: hello")
+    );
     // a cell of the timeline grid, not a stop of its own
     assert!(!interactivity.focusable && interactivity.hover.is_some());
     assert_eq!(
