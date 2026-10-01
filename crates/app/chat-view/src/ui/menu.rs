@@ -61,11 +61,13 @@ pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<An
         _ => focus_key(menu.pane, menu.mode),
     };
     let frame = match menu.mode {
-        // the picker's dialog: its search field takes the keys on open
-        // (`open_menu` focuses `focus_key`, the field), so the frame offers
-        // no focus of its own — a focus it offered and no Tab reached was
-        // the census's AX-021 on it
-        Mode::Reactions => div().id(id).role(Role::Dialog).aria_label("Add reaction"),
+        // the picker: its search field takes the keys on open (`open_menu`
+        // focuses `focus_key`, the field), so the frame offers no focus of
+        // its own — a focus it offered and no Tab reached was the census's
+        // AX-021 on it. The overlay around it is the dialog, named "Add
+        // reaction": an inner Dialog the wire cannot mark modal held Tab
+        // and read as non-modal (AX-103)
+        Mode::Reactions => div().id(id),
         // a dialog focused by id on open (`open_menu`): it hands the keys
         // to its buttons, the stops; it is none itself
         Mode::Delete => div()
