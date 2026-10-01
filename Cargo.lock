@@ -671,10 +671,8 @@ dependencies = [
 name = "chat-view"
 version = "0.1.0"
 dependencies = [
- "abi",
  "chat",
  "ducklink",
- "futures",
  "serde",
  "serde_json",
  "view-guest",
@@ -2231,12 +2229,10 @@ name = "forge-view"
 version = "0.1.0"
 dependencies = [
  "abi",
- "base64 0.22.1",
  "borsh",
  "chat",
  "ducklink",
  "forge",
- "futures",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -3102,7 +3098,6 @@ dependencies = [
  "borsh",
  "describe",
  "guest",
- "serde",
  "store",
  "view-guest",
 ]
@@ -3599,7 +3594,6 @@ dependencies = [
  "abi",
  "chat",
  "ducklink",
- "futures",
  "identity",
  "module-registry",
  "serde",
@@ -3769,7 +3763,6 @@ name = "node-view"
 version = "0.1.0"
 dependencies = [
  "abi",
- "futures",
  "serde",
  "serde_json",
  "valset",

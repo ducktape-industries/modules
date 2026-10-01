@@ -21,7 +21,6 @@ describe = []
 abi = { workspace = true }
 describe = { workspace = true }
 borsh = { workspace = true }
-serde = { workspace = true }
 guest = { workspace = true }
 store = { workspace = true }
 ducktape-view-guest = { workspace = true, optional = true }
