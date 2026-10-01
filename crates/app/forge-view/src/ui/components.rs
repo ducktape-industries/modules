@@ -315,9 +315,9 @@ pub(crate) fn ref_label(name: &[u8]) -> String {
 /// A dropdown's width.
 const MENU_W: Pixels = px(220.);
 
-/// A button that names what is picked (`main ⌄`) and says whether its
-/// menu is open; the menu itself ([`menu`]) floats in the view's modal
-/// overlay while it is.
+/// A button that names what is picked (`main ⌄`) and says that it opens a
+/// menu (AX-113) and whether that menu is open; the menu itself ([`menu`])
+/// floats in the view's modal overlay while it is.
 pub(crate) fn dropdown(
     key: &str,
     label: String,
@@ -342,6 +342,7 @@ pub(crate) fn dropdown(
         .whitespace_nowrap()
         .hover(move |style| style.bg(theme.surface))
         .role(Role::Button)
+        .aria_has_popup(accesskit::HasPopup::Menu)
         .aria_expanded(open)
         .focusable()
         .on_click(on_open)

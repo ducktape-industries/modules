@@ -1426,6 +1426,32 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
     );
 }
 
+/// Both dropdowns, the ref picker and Settings' default head, are buttons
+/// that say they open a menu and whether it is open: the door's AX-113
+/// asks a Button that is expanded or collapsed for its `has_popup`.
+#[test]
+fn a_dropdown_says_it_opens_a_menu() {
+    use ducktape_view_guest::accesskit::HasPopup;
+    let (mut cx, _) = opened_as("default", 1);
+    cx.simulate_click("forge-tab-settings");
+    cx.run_until_parked();
+    for key in ["forge-ref-picker", "forge-settings-head"] {
+        let button = cx.interactivity(key);
+        assert_eq!(
+            button.role,
+            Some(ducktape_view_guest::Role::Button),
+            "{key}"
+        );
+        assert_eq!(button.aria.has_popup, Some(HasPopup::Menu), "{key}");
+        assert_eq!(button.aria.expanded, Some(false), "{key}");
+        cx.simulate_click(key);
+        cx.run_until_parked();
+        assert_eq!(cx.interactivity(key).aria.expanded, Some(true), "{key}");
+        cx.simulate_key_down(&format!("{key}-menu"), "escape");
+        cx.run_until_parked();
+    }
+}
+
 /// The file tree claims a row before any key, and End takes the cursor to
 /// the last row.
 #[test]
