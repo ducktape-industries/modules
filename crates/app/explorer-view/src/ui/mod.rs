@@ -4,6 +4,7 @@ use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
+use std::collections::HashMap;
 
 use crate::decode::{ago, clip, date, grouped, plural, short};
 use crate::{BlockRow, Explorer, Note, Route, TxRow};
@@ -148,6 +149,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
     let shown = view.route.tab();
     let routes: Vec<Route> = tabs.iter().map(|(_, _, route)| route.clone()).collect();
+    let pressed = routes.clone();
     let tabs = tabs.into_iter().map(|(key, label, route)| {
         let active = shown == route.tab();
         let go = cx
@@ -173,7 +175,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         .border_color(theme.border)
         .child(
             // one Tab stop; ← → open the next tab's page as it was left (a
-            // click opens the tab's list)
+            // click, or Enter or Space on the active tab, opens its list)
             design::composite("explorer-tabs", Role::TabList, "Pages")
                 .orientation(design::Orientation::Horizontal)
                 .wrap()
@@ -182,6 +184,11 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
                     cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
                         let page = view.left[index].clone();
                         view.go(page.unwrap_or_else(|| routes[index].clone()), cx)
+                    }),
+                )
+                .on_press(
+                    cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
+                        view.go(pressed[index].clone(), cx)
                     }),
                 )
                 .build()
@@ -512,26 +519,38 @@ fn tx_rows<'a>(
     cx: Cx,
     theme: &Theme,
 ) -> Rows {
+    // a frame the node landed again (the same bytes, in a later block or
+    // twice in one) is rows of one hash: the host refuses a frame whose
+    // siblings share an id and the view stops, so each row past the first
+    // is told apart by how many of its hash came before it
+    let mut seen: HashMap<[u8; 32], usize> = HashMap::new();
     txs.into_iter().fold(list, |list, tx| {
+        let nth = seen.entry(tx.hash).or_insert(0);
+        *nth += 1;
         list.row(
             Route::Tx(tx.hash),
-            tx_row(view, tx, height, who, cx, theme),
+            tx_row(view, tx, *nth, height, who, cx, theme),
             theme,
         )
     })
 }
 
-/// `height` adds the block column; `who` the signer column, which an
-/// account's own activity leaves out.
+/// `nth` is which row of this hash it is, from 1; `height` adds the block
+/// column; `who` the signer column, which an account's own activity leaves
+/// out.
 fn tx_row(
     view: &Explorer,
     tx: &TxRow,
+    nth: usize,
     height: bool,
     who: bool,
     cx: Cx,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let id = SharedString::from(format!("explorer-tx-{}", abi::hex(&tx.hash)));
+    let id = SharedString::from(match nth {
+        1 => format!("explorer-tx-{}", abi::hex(&tx.hash)),
+        nth => format!("explorer-tx-{}-{nth}", abi::hex(&tx.hash)),
+    });
     let now = view.chain.now();
     view.describe(tx, cx);
     // empty until the host answers: the program column already says whose

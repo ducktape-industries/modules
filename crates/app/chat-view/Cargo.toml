@@ -16,5 +16,7 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ducklink.workspace = true
-chat = { path = "../chat", features = ["view"] }
+chat = { path = "../chat" }
+# `role::Identity`: the identity program, followed by role, not linked
+program.workspace = true
 abi.workspace = true

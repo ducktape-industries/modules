@@ -10,8 +10,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 abi.workspace = true
 ducktape-view-guest.workspace = true
-identity = { workspace = true, features = ["view"] }
-valset = { workspace = true, features = ["view"] }
+identity.workspace = true
+valset.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

@@ -392,15 +392,19 @@ pub fn blob_id(hash: HashKind, kind: &str, body: &[u8]) -> Result<BlobId, Error>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Program;
 
     /// Answers who asked it, and at what height.
     struct Echo;
 
-    impl Module for Echo {
+    impl Program for Echo {
+        const NAME: &'static str = "echo";
         type Op = ();
         type Query = ();
-        type Response = (Origin, u64);
+        type Reply = (Origin, u64);
+    }
 
+    impl Module for Echo {
         fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
             Ok(())
         }

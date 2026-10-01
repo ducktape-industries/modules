@@ -1,59 +1,45 @@
-//! What a view needs of chat: the marker it names this module by in
-//! `module.query`/`op.submit`, and the roster folded into what a principal is
-//! called. Names are display text, not identity: "the same person" is the
-//! account number.
+//! The reads a view makes of chat, folded into what a principal is called:
+//! the roster into [`Names`], a channel's roots into one page. Each takes
+//! the asker (`|query| host.ask::<Query<Chat>>(query)` in a view) so this
+//! crate links no view runtime. Names are display text, not identity: "the
+//! same person" is the account number.
 use std::collections::BTreeMap;
+use std::future::Future;
 
-use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, pages, wrong_reply};
-use ducktape_view_guest::methods::{Module, Query as Ask};
+use guest::{Error, unexpected_reply};
 
-use crate::{Kind, MsgRow, PageRequest, Principal, Profile, Query, Reply, Standing};
-
-pub struct ChatApi;
-impl Module for ChatApi {
-    const NAME: &'static str = crate::MODULE;
-    type Op = crate::Op;
-    type Query = crate::Query;
-    type Reply = crate::Reply;
-}
-
-/// The identity role as a view follows it. A view's targets are fixed in
-/// its manifest, so it names the program networks bind to the role; the
-/// module itself asks the binding (`Env.roles`). A view sends it nothing.
-pub struct IdentityApi;
-impl Module for IdentityApi {
-    const NAME: &'static str = "identity";
-    type Op = ();
-    type Query = abi::role::identity::Query;
-    type Reply = abi::role::identity::Reply;
-}
+use crate::{Kind, MODULE, MsgRow, PageRequest, Principal, Profile, Query, Reply, Standing};
 
 /// Every account's profile, every page of it, folded into [`Names`].
-pub async fn roster(host: Host) -> Result<Names, Error> {
-    let rows = pages(None, |after| {
-        let ask = host.ask::<Ask<ChatApi>>(Query::Accounts {
+pub async fn roster<F: Future<Output = Result<Reply, Error>>>(
+    ask: impl Fn(Query) -> F,
+) -> Result<Names, Error> {
+    let mut rows = Vec::new();
+    let mut after = None;
+    loop {
+        let page = ask(Query::Accounts {
             page: PageRequest {
                 after,
                 limit: Some(PageRequest::MAX_LIMIT),
             },
-        });
-        async move {
-            match ask.await? {
-                Reply::Accounts(page) => Ok((page.items, page.next)),
-                _ => Err(wrong_reply()),
-            }
+        })
+        .await?;
+        let Reply::Accounts(page) = page else {
+            return Err(unexpected_reply(MODULE, "Accounts", &page));
+        };
+        rows.extend(page.items);
+        after = page.next;
+        if after.is_none() {
+            return Ok(Names::from_roster(rows));
         }
-    })
-    .await?;
-    Ok(Names::from_roster(rows))
+    }
 }
 
 /// A channel's roots as `viewer` sees them, oldest first: pages of
 /// `per_page` below the cursor `below` (or the newest) until at least
 /// `want` rows are read or the channel ends, and whether older ones remain.
-pub async fn roots(
-    host: Host,
+pub async fn roots<F: Future<Output = Result<Reply, Error>>>(
+    ask: impl Fn(Query) -> F,
     channel_id: String,
     viewer: Vec<Principal>,
     mut below: Option<Vec<u8>>,
@@ -62,16 +48,17 @@ pub async fn roots(
 ) -> Result<(Vec<MsgRow>, bool), Error> {
     let mut rows = Vec::new();
     loop {
-        let page = host.ask::<Ask<ChatApi>>(Query::Roots {
+        let page = ask(Query::Roots {
             channel_id: channel_id.clone(),
             viewer: viewer.clone(),
             page: PageRequest {
                 after: below,
                 limit: Some(per_page),
             },
-        });
-        let Reply::Roots(page) = page.await? else {
-            return Err(wrong_reply());
+        })
+        .await?;
+        let Reply::Roots(page) = page else {
+            return Err(unexpected_reply(MODULE, "Roots", &page));
         };
         rows.extend(page.items);
         below = page.next;

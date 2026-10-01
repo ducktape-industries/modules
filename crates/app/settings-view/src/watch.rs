@@ -6,15 +6,17 @@ use ducktape_view_guest::Loadable;
 use ducktape_view_guest::methods::Changes;
 
 use crate::Settings;
-use crate::api::{HostSession, IdentityApi, ValsetApi};
+use crate::api::HostSession;
+use identity::Identity;
+use valset::Valset;
 
 impl Settings {
     /// Subscribes every follower; the ones before are dropped with them.
     pub(crate) fn watch(&mut self, cx: &mut Context<Self>) {
         let host = cx.host();
         let session = host.subscribe::<HostSession>(());
-        let identity = host.subscribe::<Changes<IdentityApi>>(());
-        let valset = host.subscribe::<Changes<ValsetApi>>(());
+        let identity = host.subscribe::<Changes<Identity>>(());
+        let valset = host.subscribe::<Changes<Valset>>(());
         self.followers = vec![
             cx.for_each(session, |view, session, _, cx| match session {
                 Ok(session) => view.session_changed(session, cx),

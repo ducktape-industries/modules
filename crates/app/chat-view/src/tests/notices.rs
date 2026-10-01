@@ -8,7 +8,7 @@ use super::*;
 fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
     use ducktape_view_guest::methods::{HostBadge, NotifyPost, NotifySeen};
     let (mut cx, view) = opened();
-    cx.host().handle::<Ask<ChatApi>>(|query| {
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::MessagesAround { channel_id, .. } => {
                 assert_eq!(channel_id, "dm-7-8");
@@ -54,7 +54,7 @@ fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
 fn the_badge_is_counted_again_from_the_read_cursors() {
     use ducktape_view_guest::methods::{HostBadge, NotifyPost};
     let (mut cx, view) = opened();
-    cx.host().handle::<Ask<ChatApi>>(|query| {
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::MessagesAround { channel_id, .. } => {
                 let mut ping = row(2, 8, "ping");
@@ -106,7 +106,7 @@ fn kept_cursors_bring_the_badge_back_after_a_relaunch() {
             ]))
         }))
     });
-    cx.host().handle::<Ask<ChatApi>>(|query| {
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
             Query::Channels { .. } => Reply::Channels(page(vec![
@@ -184,7 +184,7 @@ fn the_relaunch_recount_waits_for_the_readers_account() {
         Ok((key == "reads/0102")
             .then(|| methods::encode(&BTreeMap::from([("dm-7-8".to_owned(), 0u64)]))))
     });
-    cx.host().handle::<Ask<ChatApi>>(|query| {
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
             Query::Channels { .. } => Reply::Channels(page(vec![channel("dm-7-8", "dm", 1)])),
@@ -232,7 +232,7 @@ fn a_refused_store_read_still_keeps_cursors() {
         "reads/0102" => Err(malformed("the store is unavailable".into())),
         _ => Ok(None),
     });
-    cx.host().handle::<Ask<ChatApi>>(|query| {
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
             Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 3)])),

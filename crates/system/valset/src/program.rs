@@ -1,17 +1,20 @@
 //! The module: every op and every query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, QueryCtx, decoded};
+use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
 
 use crate::rules::{MEMBERS, init, memberships, remove, set};
 use crate::{Genesis, MODULE, Membership, Op, Query, Reply, Role};
 
 pub struct Valset;
 
-impl Module for Valset {
+impl Program for Valset {
+    const NAME: &'static str = MODULE;
     type Op = Op;
     type Query = Query;
-    type Response = Reply;
+    type Reply = Reply;
+}
 
+impl Module for Valset {
     fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
         init(ctx, decoded::<Genesis>(MODULE, "Genesis", params)?)
     }

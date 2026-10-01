@@ -11,6 +11,7 @@ struct EditorView {
 }
 
 impl View for EditorView {
+    const NAME: &'static str = "EditorView";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self {
             editor: Editor::new("hello"),

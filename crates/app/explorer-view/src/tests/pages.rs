@@ -118,6 +118,63 @@ fn an_arrow_away_and_back_returns_to_the_block_it_left() {
     assert!(cx.find("explorer-blocks").is_some(), "{:?}", cx.texts());
 }
 
+/// Enter or Space on the pages opens the active tab's list, as a click on
+/// the tab does: with an account open, an arrow away and back opens that
+/// account again, and no link on any page leads to the Accounts list, so
+/// without the press the keys never reach the list again.
+#[test]
+fn enter_on_the_accounts_tab_shows_the_accounts_list_again() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("explorer-tab-accounts");
+    cx.run_until_parked();
+    cx.simulate_key_down("explorer-accounts-list", "down");
+    cx.simulate_key_down("explorer-accounts-list", "enter");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-account").is_some(), "{:?}", cx.texts());
+    cx.simulate_key_down("explorer-tabs", "right");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-list").is_some(), "{:?}", cx.texts());
+    cx.simulate_key_down("explorer-tabs", "left");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-account").is_some() && cx.find("explorer-accounts").is_none(),
+        "the arrow opens the account it left: {:?}",
+        cx.texts()
+    );
+    cx.simulate_key_down("explorer-tabs", "enter");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-accounts-list").is_some() && cx.find("explorer-account").is_none(),
+        "Enter on the Accounts tab opens the list: {:?}",
+        cx.texts()
+    );
+    assert!(
+        cx.interactivity("explorer-tab-accounts")
+            .aria
+            .active_descendant
+    );
+    // the list is the tab's page now: an arrow away and back stays on it
+    cx.simulate_key_down("explorer-tabs", "right");
+    cx.simulate_key_down("explorer-tabs", "left");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-accounts-list").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+    // Space is the same press
+    cx.simulate_key_down("explorer-accounts-list", "enter");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-account").is_some(), "{:?}", cx.texts());
+    cx.simulate_key_down("explorer-tabs", "space");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-accounts-list").is_some() && cx.find("explorer-account").is_none(),
+        "Space on the Accounts tab opens the list: {:?}",
+        cx.texts()
+    );
+}
+
 /// A restored view keeps each tab's last page along with the page shown:
 /// → then ← after a restore still comes back to the block, not to the
 /// Blocks list.
@@ -336,6 +393,40 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
     );
     // no receipt, no outcome word, and no empty part in its place
     assert_eq!(name(0xc3).as_deref(), Some("Direct message, c3c3c3c3…c3c3"));
+}
+
+/// The node lands the same frame again (the same bytes, so the same hash,
+/// in a later block or twice in one): each row is still its own element,
+/// so the host takes the frame instead of refusing it (a refused frame
+/// ends the view: "duplicate typed element identity among siblings"), and
+/// every row of that hash reads as the op it carries.
+#[test]
+fn a_frame_landed_again_is_a_row_of_its_own() {
+    let mut cx = TestAppContext::new();
+    cx.host().stream::<ChainHeads>();
+    node(&mut cx, Rc::new(RefCell::new(12)));
+    let mut blocks = chain(12);
+    let again = blocks[12].txs[0].clone();
+    blocks[11].txs.push(again.clone());
+    blocks[12].txs.push(again);
+    cx.host()
+        .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    let hash = abi::hex(&[0xb2; 32]);
+    for id in [
+        format!("explorer-tx-{hash}"),
+        format!("explorer-tx-{hash}-2"),
+        format!("explorer-tx-{hash}-3"),
+    ] {
+        assert!(cx.find(&id).is_some(), "{id}: {:?}", cx.texts());
+    }
+    let described = cx
+        .texts()
+        .iter()
+        .filter(|text| *text == "mystery · 4 bytes")
+        .count();
+    assert_eq!(described, 3, "{:?}", cx.texts());
 }
 
 #[test]

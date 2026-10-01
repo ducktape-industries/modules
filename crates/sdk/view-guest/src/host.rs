@@ -222,7 +222,7 @@ impl Future for Response {
         match slot.answers.pop_front() {
             Some(answer) => Poll::Ready(answer),
             None if slot.closed => Poll::Ready(Err(Error::new(
-                "request_closed",
+                methods::refusal::REQUEST_CLOSED,
                 "the host closed the request",
             ))),
             None => {

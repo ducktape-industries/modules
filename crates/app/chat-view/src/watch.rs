@@ -3,20 +3,20 @@
 //! Every follower says what a refusal means to it; none ends on one.
 use ducktape_view_guest::Context;
 
-use crate::api::{Changes, ChatApi, HostOffset, HostRoute, HostSession, HostVisible};
+use crate::api::{Changes, HostOffset, HostRoute, HostSession, HostVisible};
 use crate::{Chat, links};
-use ::chat::view::IdentityApi;
 use ducktape_view_guest::design;
+use program::role::Identity;
 
 impl Chat {
     /// Subscribes every follower; the ones before are dropped with them.
     pub(crate) fn watch(&mut self, cx: &mut Context<Self>) {
         let host = cx.host();
         let props = host.subscribe::<HostSession>(());
-        let changes = host.subscribe::<Changes<ChatApi>>(());
+        let changes = host.subscribe::<Changes<::chat::Chat>>(());
         let routes = host.subscribe::<HostRoute>(());
         let visible = host.subscribe::<HostVisible>(());
-        let identity = host.subscribe::<Changes<IdentityApi>>(());
+        let identity = host.subscribe::<Changes<Identity>>(());
         let offset = host.subscribe::<HostOffset>(());
         self.followers = vec![
             cx.for_each(props, |chat, props, _, cx| match props {

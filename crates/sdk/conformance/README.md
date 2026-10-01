@@ -9,7 +9,8 @@ not how you keep your state.
 
 ## Filling a role
 
-1. Implement `guest::Module`. The role's `Op`, `Query` and `Reply`
+1. Implement `guest::Program` (your `NAME`, `Op`, `Query` and `Reply`) and
+   `guest::Module`. The role's `Op`, `Query` and `Reply`
    variants are your enums' **first** variants, in the same order and with
    the same fields (borsh encodes the variant index, not its name); your
    own follow. A registry's or validators module's `init` takes the role's

@@ -96,6 +96,7 @@ mod tests {
         editor: Editor,
     }
     impl View for DocumentApp {
+        const NAME: &'static str = "DocumentApp";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self {
                 editor: Editor::new("x".repeat(wire::MAX_STRING_BYTES)),

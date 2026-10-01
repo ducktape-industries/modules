@@ -1138,11 +1138,8 @@ mod tests {
         moved: Vec<f32>,
     }
 
-    impl crate::Capabilities for Panes {
-        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
-    }
-
     impl crate::View for Panes {
+        const NAME: &'static str = "Panes";
         fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
             Self::default()
         }
@@ -1184,11 +1181,8 @@ mod tests {
         picked: usize,
     }
 
-    impl crate::Capabilities for Format {
-        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
-    }
-
     impl crate::View for Format {
+        const NAME: &'static str = "Format";
         fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
             Self::default()
         }
@@ -1256,11 +1250,8 @@ mod tests {
         pressed: Vec<usize>,
     }
 
-    impl crate::Capabilities for Picker {
-        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
-    }
-
     impl crate::View for Picker {
+        const NAME: &'static str = "Picker";
         fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
             Self {
                 role: Some(Role::ListBox),
