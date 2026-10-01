@@ -23,6 +23,7 @@ fixtures`; without the variable the test must reproduce the committed bytes.
 | `repos` | `Query` → `Reply` | Repository list with activity/ref count. |
 | `repo` | `Query` → `Reply` | Settings, owner, bounds, counts and granted writer page. |
 | `refs` | `Query` → `Reply` | First two refs with continuation. |
+| `refs-next` | `Query` → `Reply` | The rest after `refs`' cursor (feature, the default head main, unrelated, the tag v1), no continuation. |
 | `log` | `Query` → `Reply` | First history page, full message/signatures/parents and `next`. |
 | `log-next` | `Query` → `Reply` | Root commit on the final history page. |
 | `tree` | `Query` → `Reply` | First root directory page with continuation. |

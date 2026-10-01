@@ -107,6 +107,7 @@ fn ref_row(
         move |forge, _: &ClickEvent, _, cx| forge.start_change(name.clone(), cx)
     });
     let mut line = row(format!("forge-ref-row-{label}"), theme)
+        .in_grid()
         .on_click(pick)
         .active(active)
         .selected(name == forge.head_name())

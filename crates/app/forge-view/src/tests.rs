@@ -62,7 +62,7 @@ fn answer(query: &Query, mode: &str) -> Reply {
             page: PageRequest { after: None, .. },
             ..
         } => reply("refs"),
-        Query::Refs { .. } => reply("refs-empty"),
+        Query::Refs { .. } => reply("refs-next"),
         Query::Activity { .. } => reply("activity"),
         Query::Tree {
             page: PageRequest { after: None, .. },
@@ -1609,4 +1609,68 @@ fn a_reader_who_may_not_write_has_no_compare_cell() {
     cx.simulate_key_down("forge-refs-list", "enter");
     cx.run_until_parked();
     view.read(|forge| assert!(forge.form.is_none(), "no draft for a reader"));
+}
+
+/// The default head and a tag have no Compare, and still sit in the refs
+/// grid as rows of cells: a `Row` whose one cell is the ref's press, never
+/// a list box's option under a grid (AX-105, the census's Forge: refs).
+#[test]
+fn a_ref_without_compare_is_a_grid_row_of_one_cell() {
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    let rows: Vec<String> = cx
+        .find("forge-refs-list")
+        .expect("the refs")
+        .children()
+        .iter()
+        .filter_map(|row| row.key().map(str::to_owned))
+        .filter(|key| key.starts_with("forge-ref-row-"))
+        .collect();
+    for label in ["main", "v1"] {
+        let key = format!("forge-ref-row-{label}");
+        assert_eq!(
+            cx.interactivity(&key).role,
+            Some(ducktape_view_guest::Role::Row),
+            "{key}"
+        );
+        assert_eq!(
+            cx.interactivity(&format!("{key}-open-cell")).role,
+            Some(ducktape_view_guest::Role::GridCell),
+            "{key}"
+        );
+        assert_eq!(
+            cx.interactivity(&format!("{key}-open")).role,
+            Some(ducktape_view_guest::Role::Button),
+            "{key}"
+        );
+        assert!(cx.find(&format!("forge-compare-{label}")).is_none());
+    }
+    // the browsed default head says so on its press
+    assert_eq!(
+        cx.interactivity("forge-ref-row-main-open").aria.current,
+        Some(ducktape_view_guest::accesskit::AriaCurrent::True)
+    );
+    let at = |label: &str| {
+        rows.iter()
+            .position(|key| *key == format!("forge-ref-row-{label}"))
+            .unwrap_or_else(|| panic!("{label} is listed: {rows:?}"))
+    };
+    // ↓ to the default head, whose press claims; → finds no second cell
+    for _ in 0..at("main") {
+        cx.simulate_key_down("forge-refs-list", "down");
+    }
+    cx.simulate_key_down("forge-refs-list", "right");
+    assert!(
+        cx.interactivity("forge-ref-row-main-open")
+            .aria
+            .active_descendant
+    );
+    // ↓ on to the tag, and Enter browses it
+    for _ in at("main")..at("v1") {
+        cx.simulate_key_down("forge-refs-list", "down");
+    }
+    cx.simulate_key_down("forge-refs-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.head_name(), b"refs/tags/v1".to_vec()));
 }
