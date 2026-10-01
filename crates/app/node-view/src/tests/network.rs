@@ -7,7 +7,7 @@ use crate::table::NO_NETWORK;
 /// How the app refuses `chain.network` for a node without the route.
 fn unsupported(cx: &TestAppContext) {
     cx.host()
-        .refuse::<ChainNetwork>("unknown_request", NO_NETWORK);
+        .refuse::<ChainNetwork>(methods::refusal::UNKNOWN_REQUEST, NO_NETWORK);
 }
 
 /// The sheet over node `this`, serving `chain.network` with `network`.

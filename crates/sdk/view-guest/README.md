@@ -47,7 +47,8 @@ A node program is addressed by its own type, the one that implements
 `Query<P>`, `Submit<P>` and `Changes<P>` are its three methods, and
 `P::NAME` is the target they carry. A role a view follows without linking
 its program is `program::role::Identity`. Every refusal is the module SDK's `Error`
-(`code` token, `message`), one type end to end. `Loadable<T>` + `cx.load`
+(`code` token, `message`), one type end to end: a program's codes are
+`error::code`, the host's own are `methods::refusal`. `Loadable<T>` + `cx.load`
 (`src/view.rs`) hold an ask's four states and snapshot `Loading` as `Idle`.
 
 `Session` (`methods.rs`, `subscribe::<HostSession>`) is what every view is handed:
@@ -96,8 +97,9 @@ another.
 `stream`, `requests`; then `simulate_click`, `texts`.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.
-It holds the view to its `View::CAPABILITIES` as the app does: a method whose
-capability the manifest leaves out panics with `undeclared_capability`.
+It holds the view to its `View::CAPABILITIES` as the app does: a method
+whose capability the manifest leaves out panics with
+`methods::refusal::UNDECLARED_CAPABILITY`, the code the app refuses it with.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,
 `crates/app/forge-view/src/screen_tests.rs`; `CHAT_SCREEN_EXPORT`,
 `crates/app/chat-view/src/tests.rs`) writes each screen's tree as JSON under
