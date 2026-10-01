@@ -318,3 +318,22 @@ fn a_removal_names_one_of_its_own_kind() {
         "not yet seated at 4"
     );
 }
+
+#[test]
+fn the_roles_are_answered_as_the_kernel_binds_them() {
+    let (store, _) = founded();
+    // not the suite's defaults: the answer is the env's, never a name assumed
+    let roles = guest::Roles {
+        registry: "registry-b".into(),
+        validators: "validators-b".into(),
+        identity: "identity-b".into(),
+    };
+    let asked = Env {
+        roles: roles.clone(),
+        ..env(1, Origin::Root)
+    };
+    assert_eq!(
+        Modules::query(&store.query(asked), Query::Roles).unwrap(),
+        Reply::Roles(roles)
+    );
+}

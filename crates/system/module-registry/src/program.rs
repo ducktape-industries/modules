@@ -46,6 +46,7 @@ impl Module for Modules {
                     .into_iter()
                     .find(|entry| entry.program == program),
             },
+            Query::Roles => Reply::Roles(ctx.env().roles.clone()),
         })
     }
 }

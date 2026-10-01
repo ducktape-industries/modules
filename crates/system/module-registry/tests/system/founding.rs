@@ -18,6 +18,17 @@ fn founding_seats_the_validators_and_every_program_answers() {
         };
         let names: Vec<&str> = views.iter().map(|view| view.name.as_str()).collect();
         assert_eq!(names, ["lens"]);
+        // the host fills a query's env with the genesis bindings
+        let module_registry::Reply::Roles(roles) = net
+            .ask(module_registry::MODULE, &module_registry::Query::Roles)
+            .await
+        else {
+            panic!()
+        };
+        assert_eq!(
+            [roles.registry, roles.validators, roles.identity],
+            [module_registry::MODULE, valset::MODULE, identity::MODULE]
+        );
         assert_eq!(
             net.host.blob(&views[0].view).unwrap().as_deref(),
             Some(&b"program 6\0a view"[..]),
