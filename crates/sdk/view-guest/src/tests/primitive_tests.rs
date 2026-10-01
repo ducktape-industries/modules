@@ -85,10 +85,14 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     #[derive(Serialize, Deserialize)]
     struct Pages {
         rows: bool,
+        keyed_chrome: bool,
     }
     impl View for Pages {
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
-            Self { rows: false }
+            Self {
+                rows: false,
+                keyed_chrome: true,
+            }
         }
     }
     impl Render for Pages {
@@ -102,15 +106,48 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
                         .child("…")
                 })),
             };
-            // Keyed chrome around the page: it survives the switch, so the
-            // frame is the page's patches, not the tree whole.
-            div()
-                .id("shell")
-                .child(div().id("title").child("title"))
-                .child(page)
-                .child(div().id("footer").child("footer"))
+            // Keyed chrome around the page survives the switch, so the
+            // frame is the page's patches; unkeyed chrome is removed and
+            // inserted with it, and the patches carry the tree whole.
+            match self.keyed_chrome {
+                true => div()
+                    .id("shell")
+                    .child(div().id("title").child("title"))
+                    .child(page)
+                    .child(div().id("footer").child("footer")),
+                false => div().id("shell").child("title").child(page).child("footer"),
+            }
         }
     }
+    // A frame that goes whole puts the taken subtrees back before it is
+    // sent: the host gets the tree the view rendered, without a stand-in.
+    let mut whole = Driver::<Pages>::new();
+    whole.tick(vec![]);
+    whole.entity().update_app(whole.app_mut(), |view, _, cx| {
+        view.keyed_chrome = false;
+        cx.notify();
+    });
+    whole.tick(vec![]);
+    let mut rendered = Driver::<Pages>::new();
+    rendered
+        .entity()
+        .update_app(rendered.app_mut(), |view, _, cx| {
+            *view = Pages {
+                rows: true,
+                keyed_chrome: false,
+            };
+            cx.notify();
+        });
+    let rendered = rendered.tick(vec![]).root.expect("the rows tree");
+    whole.entity().update_app(whole.app_mut(), |view, _, cx| {
+        view.rows = true;
+        cx.notify();
+    });
+    let frame = whole.tick(vec![]);
+    assert!(frame.patches.is_empty(), "{:#?}", frame.patches);
+    assert_eq!(frame.root.as_ref(), Some(&rendered));
+    assert_eq!(whole.last_root.as_ref(), Some(&rendered));
+
     let show = |driver: &mut Driver<Pages>, rows: bool| {
         driver.entity().update_app(driver.app_mut(), |view, _, cx| {
             view.rows = rows;

@@ -58,7 +58,7 @@ impl<V: View> Driver<V> {
         &mut self.app
     }
     /// A frame with the whole tree in it, patched or not: what a test reads.
-    /// The host gets [`Driver::tick_wire`]'s, which leaves the tree out
+    /// The host gets [`Driver::tick_with`]'s, which leaves the tree out
     /// when the host can keep or patch its own.
     /// It is held to the host's sanitizer and to `view_wire::audit`, as a
     /// test's frames are.
