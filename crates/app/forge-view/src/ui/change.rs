@@ -10,7 +10,9 @@ use ducktape_view_guest::{
 use crate::Forge;
 use crate::state::{ChangeTab, verdict_label};
 use crate::ui::changes::{revision_name, state_chip};
-use crate::ui::components::{badge, button, heading, id, path_text, quiet, ref_label, short_hex};
+use crate::ui::components::{
+    PRESS_TARGET, badge, button, heading, id, path_text, quiet, ref_label, short_hex,
+};
 use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, scroller, staged};
 use ducktape_view_guest::Anchor;
 use forge::{Change, ChangeState, FileDiff, Query, Reply, Verdict};
@@ -123,6 +125,9 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .child(
             div()
                 .id(id("forge-change-back"))
+                .min_h(PRESS_TARGET)
+                .flex()
+                .items_center()
                 .text_size(design::text::SECONDARY)
                 .text_color(theme.muted)
                 .hover(|style| style.text_color(theme.foreground))
@@ -389,6 +394,9 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
     column.child(header).child(list).into_any_element()
 }
 
+/// The drawn box of a file's viewed tick.
+const CHECK: Pixels = px(14.);
+
 /// One file of the diff: its viewed tick, its path, its counts and
 /// comments.
 fn file_row(
@@ -410,26 +418,15 @@ fn file_row(
     });
     let tick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.toggle_viewed(&path, cx));
     let theme = *theme;
+    // the tick is a 14 px box drawn in a 24 px press target (AX-017); the
+    // focus ring rides the target, on the row's ground, not on the ink
     let check = div()
         .id(id(format!("forge-viewed-{label}")))
-        .size(px(14.))
+        .size(PRESS_TARGET)
         .flex_none()
         .flex()
         .items_center()
         .justify_center()
-        .border_1()
-        .border_color(if viewed {
-            theme.primary
-        } else {
-            theme.border_strong
-        })
-        .when(viewed, |check| {
-            design::focus_shown_on_ink(
-                check.bg(theme.primary).text_color(theme.primary_foreground),
-                &theme,
-            )
-        })
-        .text_size(px(10.))
         .role(Role::CheckBox)
         .aria_label(format!("Viewed {label}"))
         .aria_toggled(viewed.into())
@@ -437,7 +434,24 @@ fn file_row(
         // a tick is not also a click on the row
         .occlude()
         .on_click(tick)
-        .child(if viewed { "✓" } else { "" });
+        .child(
+            div()
+                .size(CHECK)
+                .flex()
+                .items_center()
+                .justify_center()
+                .border_1()
+                .border_color(if viewed {
+                    theme.primary
+                } else {
+                    theme.border_strong
+                })
+                .when(viewed, |check| {
+                    check.bg(theme.primary).text_color(theme.primary_foreground)
+                })
+                .text_size(px(10.))
+                .child(if viewed { "✓" } else { "" }),
+        );
     let mut press = div()
         .id(id(format!("forge-file-{label}-open")))
         .flex_1()
@@ -493,14 +507,18 @@ fn file_row(
                 )
             }),
     );
+    // the press target reaches past the drawn box into the inset and the
+    // gap, which give it back: the box and the name stay where they were
+    let reach = (PRESS_TARGET - CHECK) / 2.;
     // the tick sits beside the row's press, as a button may not hold it
     let row = div()
         .id(id(format!("forge-file-{label}")))
         .h(px(30.))
-        .px(design::space::BLOCK)
+        .pl(design::space::BLOCK - reach)
+        .pr(design::space::BLOCK)
         .flex()
         .items_center()
-        .gap(design::space::SM)
+        .gap(design::space::SM - reach)
         .when(selected, |row| row.bg(theme.surface_raised))
         .hover(move |style| style.bg(theme.surface))
         .role(Role::ListItem)

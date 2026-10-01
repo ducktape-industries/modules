@@ -824,3 +824,36 @@ fn a_gutter_comment_button_is_at_least_24_px_each_way() {
         assert_eq!(column, Some(px(44.).into()), "{key}");
     }
 }
+
+/// The change's way back, the rail's way home and each file's Viewed
+/// tick are 24 px press targets, the door's AX-017 floor. The tick's box
+/// is still drawn 14 px, and the row gives the target back from its inset
+/// and gap, so the box and the file's name sit where they did.
+#[test]
+fn the_back_home_and_viewed_presses_are_at_least_24_px_each_way() {
+    use ducktape_view_guest::design::space::{BLOCK, SM};
+    use ducktape_view_guest::px;
+    let (cx, _view) = change_screen("reviewed", ChangeTab::Files);
+    for key in ["forge-change-back", "forge-rail-home"] {
+        let style = super::control(&cx, key).style;
+        assert_eq!(style.min_size.height, Some(px(24.).into()), "{key}");
+    }
+    let tick = super::control(&cx, "forge-viewed-src/lib.rs");
+    assert_eq!(
+        (tick.style.size.width, tick.style.size.height),
+        (Some(px(24.).into()), Some(px(24.).into()))
+    );
+    let Some(wire::Node::Container(drawn)) = tick.children.first() else {
+        panic!("the drawn box");
+    };
+    assert_eq!(
+        (drawn.style.size.width, drawn.style.size.height),
+        (Some(px(14.).into()), Some(px(14.).into()))
+    );
+    // the target is 5 px wider than the box each side: the inset and the
+    // gap are each 5 px less, so the box starts at BLOCK and the name at
+    // BLOCK + 14 + SM, as before
+    let row = super::control(&cx, "forge-file-src/lib.rs").style;
+    assert_eq!(row.padding.left, Some((BLOCK - px(5.)).into()));
+    assert_eq!(row.gap.width, Some((SM - px(5.)).into()));
+}
