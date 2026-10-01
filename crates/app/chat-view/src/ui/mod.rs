@@ -80,12 +80,16 @@ fn with_menu(chat: &Chat, screen: AnyElement, cx: &mut Context<Chat>, theme: &Th
         chat.close_menu();
         cx.notify();
     });
-    let overlay = modal_overlay(MENU_OVERLAY, "Message menu", screen, menu).on_dismiss(dismiss);
+    let mode = chat.menu.as_ref().map(|menu| menu.mode);
+    // the picker is named by the host's modal layer, the one dialog the
+    // audit knows is modal; its frame inside carries no dialog of its own
+    let label = match mode {
+        Some(crate::Mode::Reactions) => "Add reaction",
+        _ => "Message menu",
+    };
+    let overlay = modal_overlay(MENU_OVERLAY, label, screen, menu).on_dismiss(dismiss);
     // a confirm asks before anything else happens: it dims the room
-    let confirming = chat
-        .menu
-        .as_ref()
-        .is_some_and(|menu| menu.mode == crate::Mode::Delete);
+    let confirming = mode == Some(crate::Mode::Delete);
     match confirming {
         true => overlay.backdrop(hsla(0., 0., 0., 0.35)).into_any_element(),
         false => overlay.into_any_element(),
