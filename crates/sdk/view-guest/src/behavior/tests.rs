@@ -63,7 +63,7 @@ impl Render for BehaviorView {
             )
             .on_show(measured)
             .size_full(),
-            div().child("modal"),
+            Some(div().child("modal")),
         )
         .flex()
         .items_center()
@@ -144,4 +144,40 @@ fn a_resize_handle_carries_role_name_focus_and_keys_to_the_wire() {
     assert_eq!(interactivity.aria.label.as_deref(), Some("Resize the pane"));
     assert!(interactivity.focusable);
     assert!(interactivity.on_key_down.is_some());
+}
+
+/// The base keeps its path whether or not a modal is open over it: the
+/// host keys a list's scroll and a field's state by it, and a modal that
+/// moved the base started the list over and dropped the field.
+#[test]
+fn a_modal_opening_leaves_its_base_where_it_was() {
+    fn list_path(node: &wire::Node) -> Option<Vec<wire::ElementIdWire>> {
+        if let wire::Node::UniformList { path, .. } = node {
+            return Some(path.clone());
+        }
+        node.children().iter().find_map(list_path)
+    }
+    let lower = |open: bool| {
+        let mut app = crate::App::for_driver();
+        let mut window = app.window();
+        let base = div()
+            .id("base")
+            .child(crate::uniform_list("rows", 1, |_, _, _| vec![div()]));
+        let overlay = modal_overlay("overlay", "Dialog", base, open.then(div))
+            .p_6()
+            .backdrop(gpui::hsla(0., 0., 0., 0.5));
+        crate::Lowering::new(&mut window, &mut app).lower(overlay)
+    };
+    let (closed, open) = (lower(false), lower(true));
+    assert!(
+        matches!(open, wire::Node::Overlay { .. }),
+        "open: an overlay"
+    );
+    assert_eq!(closed.key(), Some("overlay"), "closed: under the same id");
+    assert!(
+        !matches!(closed, wire::Node::Overlay { .. }),
+        "closed: no modal layer"
+    );
+    let path = list_path(&closed).expect("the base's list");
+    assert_eq!(list_path(&open), Some(path));
 }
