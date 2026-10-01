@@ -284,6 +284,55 @@ fn a_menu_opening_leaves_the_timeline_where_it_was() {
     assert_eq!(list_path(cx.root()), Some(closed));
 }
 
+/// Every element of the room keeps its path while Create channel is open
+/// and after it is cancelled: the host keys the timeline's scroll and the
+/// composer's field by the ids above them, and a dialog that moved the
+/// room under itself started the timeline over at its latest message.
+#[test]
+fn create_channel_leaves_the_room_where_it_was() {
+    fn paths(
+        node: &wire::Node,
+        above: &mut Vec<wire::ElementIdWire>,
+        out: &mut Vec<Vec<wire::ElementIdWire>>,
+    ) {
+        let id = node.identity().cloned();
+        if let Some(id) = &id {
+            above.push(id.clone());
+            out.push(above.clone());
+        }
+        node.children()
+            .iter()
+            .for_each(|child| paths(child, above, out));
+        if id.is_some() {
+            above.pop();
+        }
+    }
+    let room = |cx: &TestAppContext| {
+        let mut out = Vec::new();
+        paths(cx.root(), &mut Vec::new(), &mut out);
+        let root = wire::ElementIdWire::Name("chat-root".into());
+        out.retain(|path| path.contains(&root));
+        out
+    };
+    let (mut cx, _view) = opened();
+    let closed = room(&cx);
+    assert!(
+        closed.iter().any(|path| path.ends_with(&[wire::ElementIdWire::Name(
+            "draft-general/editor".into()
+        )])),
+        "the composer is in the room"
+    );
+    cx.simulate_click("chat-sidebar-new-channel");
+    assert!(cx.find("chat-create-name").is_some(), "the dialog is open");
+    assert_eq!(room(&cx), closed);
+    cx.simulate_click("chat-create-cancel");
+    assert!(
+        cx.find("chat-create-name").is_none(),
+        "the dialog is closed"
+    );
+    assert_eq!(room(&cx), closed);
+}
+
 /// The room's and a thread's fields are named for what they are, apart
 /// from the hint drawn in them.
 #[test]

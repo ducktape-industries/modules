@@ -18,8 +18,6 @@ use ducktape_view_guest::{
 
 use crate::Chat;
 
-const MENU_OVERLAY: &str = "chat-menu-overlay";
-
 pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
     let screen = div()
@@ -63,19 +61,7 @@ fn viewport(
 }
 
 /// The screen under the open message menu, if any.
-///
-/// The room sits under the id "chat-menu-overlay" whether or not a menu
-/// is open: the host keeps a list's scroll (and a field's state) by the
-/// ids above it, so a menu opening over the room must not move it to a
-/// new path, or the timeline starts over at its latest message.
 fn with_menu(chat: &Chat, screen: AnyElement, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
-    let Some(menu) = menu::floating(chat, cx, theme) else {
-        return div()
-            .id(MENU_OVERLAY)
-            .size_full()
-            .child(screen)
-            .into_any_element();
-    };
     let dismiss = cx.listener(|chat, _: &(), _window, cx| {
         chat.close_menu();
         cx.notify();
@@ -87,7 +73,13 @@ fn with_menu(chat: &Chat, screen: AnyElement, cx: &mut Context<Chat>, theme: &Th
         Some(crate::Mode::Reactions) => "Add reaction",
         _ => "Message menu",
     };
-    let overlay = modal_overlay(MENU_OVERLAY, label, screen, menu).on_dismiss(dismiss);
+    let overlay = modal_overlay(
+        "chat-menu-overlay",
+        label,
+        screen,
+        menu::floating(chat, cx, theme),
+    )
+    .on_dismiss(dismiss);
     // a confirm asks before anything else happens: it dims the room
     let confirming = mode == Some(crate::Mode::Delete);
     match confirming {
@@ -104,13 +96,11 @@ fn with_create(
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> AnyElement {
-    let Some(create) = dialogs::channel_create(chat, cx, theme) else {
-        return screen;
-    };
     let dismiss = cx.listener(|chat, _: &(), _window, cx| {
         chat.create = None;
         cx.notify();
     });
+    let create = dialogs::channel_create(chat, cx, theme);
     let overlay = modal_overlay("chat-create-overlay", "Create channel", screen, create)
         .flex()
         .items_center()
