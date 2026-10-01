@@ -155,20 +155,70 @@ enum Edit {
 /// position. Keys are what [`sanitize`] already makes unique on the host.
 pub fn diff(old: &mut Node, new: &mut Node) -> Vec<Patch> {
     let mut patches = Vec::new();
-    diff_node(old, new, &mut Vec::new(), &mut patches);
+    diff_node(old, new, false, &mut Vec::new(), &mut patches);
     patches
+}
+
+/// [`diff`], except that every subtree a [`Patch::Replace`] or
+/// [`Patch::Insert`] carries is taken out of `new` instead of copied, and an
+/// empty stand-in is left in its place. [`put_back`] returns them: a guest
+/// that sends the patches and keeps `new` as the next frame's base moves
+/// each changed subtree twice instead of cloning it once.
+pub fn diff_taking(old: &mut Node, new: &mut Node) -> Vec<Patch> {
+    let mut patches = Vec::new();
+    diff_node(old, new, true, &mut Vec::new(), &mut patches);
+    patches
+}
+
+/// Puts the subtrees `patches` carry back into the tree [`diff_taking`]
+/// took them from, which is `new` as it was: a patch's path and index are
+/// the position of its node in `new`, since removes come first at every
+/// level and the inserts and moves before an index have already been
+/// emitted when it is reached. Patches that carry no subtree are skipped.
+pub fn put_back(new: &mut Node, patches: Vec<Patch>) {
+    for patch in patches {
+        let (path, index, node) = match patch {
+            Patch::Replace { path, node } => (path, None, node),
+            Patch::Insert { path, index, node } => (path, Some(index), node),
+            Patch::Props { .. } | Patch::Remove { .. } | Patch::Move { .. } => continue,
+        };
+        let mut target = &mut *new;
+        for index in path {
+            target = &mut target.children_mut()[index as usize];
+        }
+        match index {
+            Some(index) => target.children_mut()[index as usize] = node,
+            None => *target = node,
+        }
+    }
+}
+
+/// The subtree a patch carries: `new` itself, moved out behind an empty
+/// stand-in, or a copy of it.
+fn carry(new: &mut Node, take: bool) -> Node {
+    match take {
+        true => std::mem::replace(new, Node::empty()),
+        false => new.clone(),
+    }
 }
 
 /// Each node's own fields are compared once, on the way down: comparing a
 /// whole subtree first at every level compared a deep changed subtree once
-/// per level above it.
-fn diff_node(old: &mut Node, new: &mut Node, path: &mut Vec<u32>, out: &mut Vec<Patch>) {
+/// per level above it. `take` is [`diff_taking`]'s: carry a subtree by
+/// moving it out of `new`, not by copying it.
+fn diff_node(
+    old: &mut Node,
+    new: &mut Node,
+    take: bool,
+    path: &mut Vec<u32>,
+    out: &mut Vec<Patch>,
+) {
     let same_kind = std::mem::discriminant(old) == std::mem::discriminant(new);
     let same_arity = new.child_list_mut().is_some() || old.children().len() == new.children().len();
     if !(same_kind && same_arity) {
         out.push(Patch::Replace {
             path: path.clone(),
-            node: new.clone(),
+            node: carry(new, take),
         });
         return;
     }
@@ -187,14 +237,16 @@ fn diff_node(old: &mut Node, new: &mut Node, path: &mut Vec<u32>, out: &mut Vec<
         _ => None,
     };
     match (old.child_list_mut().is_some(), rows) {
-        (true, Some((a, b))) => diff_rows(&mut old_children, &mut new_children, a, b, path, out),
-        (true, None) => diff_list(&mut old_children, &mut new_children, path, out),
+        (true, Some((a, b))) => {
+            diff_rows(&mut old_children, &mut new_children, a, b, take, path, out)
+        }
+        (true, None) => diff_list(&mut old_children, &mut new_children, take, path, out),
         (false, _) => {
             for (index, (old_child, new_child)) in
                 old_children.iter_mut().zip(&mut new_children).enumerate()
             {
                 path.push(index as u32);
-                diff_node(old_child, new_child, path, out);
+                diff_node(old_child, new_child, take, path, out);
                 path.pop();
             }
         }
@@ -211,6 +263,7 @@ fn diff_rows(
     new: &mut [Node],
     old_start: usize,
     new_start: usize,
+    take: bool,
     path: &mut Vec<u32>,
     out: &mut Vec<Patch>,
 ) {
@@ -218,7 +271,7 @@ fn diff_rows(
     let new_end = new_start + new.len();
     let (start, end) = (old_start.max(new_start), old_end.min(new_end));
     if start >= end {
-        return diff_list(old, new, path, out);
+        return diff_list(old, new, take, path, out);
     }
     let remove = |count: usize, index: usize, out: &mut Vec<Patch>| {
         for _ in 0..count {
@@ -235,19 +288,25 @@ fn diff_rows(
         match (start..end).contains(&item) {
             true => {
                 path.push(index as u32);
-                diff_node(&mut old[item - old_start], row, path, out);
+                diff_node(&mut old[item - old_start], row, take, path, out);
                 path.pop();
             }
             false => out.push(Patch::Insert {
                 path: path.clone(),
                 index: index as u32,
-                node: row.clone(),
+                node: carry(row, take),
             }),
         }
     }
 }
 
-fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut Vec<Patch>) {
+fn diff_list(
+    old: &mut [Node],
+    new: &mut [Node],
+    take: bool,
+    path: &mut Vec<u32>,
+    out: &mut Vec<Patch>,
+) {
     let positional = old.len() == new.len()
         && old
             .iter()
@@ -260,7 +319,7 @@ fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut 
     if positional {
         for (index, (old_child, new_child)) in old.iter_mut().zip(new.iter_mut()).enumerate() {
             path.push(index as u32);
-            diff_node(old_child, new_child, path, out);
+            diff_node(old_child, new_child, take, path, out);
             path.pop();
         }
         return;
@@ -309,7 +368,7 @@ fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut 
             out.push(Patch::Insert {
                 path: path.clone(),
                 index: index as u32,
-                node: new_child.clone(),
+                node: carry(new_child, take),
             });
             live.insert(index, usize::MAX);
             continue;
@@ -329,7 +388,7 @@ fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut 
             live.insert(index, wanted);
         }
         path.push(index as u32);
-        diff_node(&mut old[wanted], new_child, path, out);
+        diff_node(&mut old[wanted], new_child, take, path, out);
         path.pop();
     }
 }

@@ -102,7 +102,7 @@ pub use node::{
 mod accessibility;
 pub use accessibility::{Fault, FaultKind, audit};
 mod patch;
-pub use patch::{MAX_PATCHES, Patch, apply, diff};
+pub use patch::{MAX_PATCHES, Patch, apply, diff, diff_taking, put_back};
 
 pub mod interactivity;
 pub mod keyboard;

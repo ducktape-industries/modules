@@ -14,7 +14,7 @@ trait TestDriver {
 impl<V: View> TestDriver for Driver<V> {
     // what the host gets: the context patches its tree as the host does
     fn tick(&mut self, events: Vec<Event>) -> Frame {
-        self.tick_wire(events)
+        self.tick_with(events, Frame::clone)
     }
     fn app_mut(&mut self) -> &mut App {
         self.app_mut()
