@@ -38,13 +38,16 @@ impl Cells {
 /// The row is `{id}-row`: its first cell is the message, then one cell
 /// per control, the card's (block link, program link, chips, `+`,
 /// replies) and the action strip's. `active`: the cell the arrows are on,
-/// when this is their row.
+/// when this is their row. `set`: the row's place among the pane's
+/// messages, 1-based, and their count — said by the row itself, since the
+/// host positions only a list item's own node, and a message under a day
+/// or unread marker is wrapped.
 pub fn card(
     chat: &Chat,
     message: ChatMessage,
     pane: Pane,
     active: Option<usize>,
-    _window: &mut Window,
+    set: (usize, usize),
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> (AnyElement, Vec<Control>) {
@@ -120,6 +123,8 @@ pub fn card(
             "Select message, shows its actions: {}: {}",
             message.author, message.body
         ))
+        .aria_position_in_set(set.0)
+        .aria_size_of_set(set.1)
         .child(card);
     if !message.pending && !message.deleted && (chosen || chat.hovered == Some(key)) {
         let strip = action_strip(chat, &message, pane, chosen, &mut cells, cx, theme);
