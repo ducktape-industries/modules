@@ -11,7 +11,7 @@ fn an_op_reads_as_its_program_describes_it_through_the_host() {
     assert!(asked.contains(&("mystery".to_owned(), vec![1, 2, 3, 4])));
 
     // a dm post: its title, the two accounts by name and link
-    cx.simulate_click(&format!("explorer-tx-{}", abi::hex(&[0xc3; 32])));
+    cx.simulate_click("explorer-tx-11-1");
     cx.run_until_parked();
     let texts = cx.texts();
     assert!(cx.has_text("Direct message"), "{texts:?}");
@@ -29,7 +29,7 @@ fn an_op_reads_as_its_program_describes_it_through_the_host() {
 #[test]
 fn an_undescribed_op_shows_its_size_and_bytes() {
     let (mut cx, _) = ready();
-    cx.simulate_click(&format!("explorer-tx-{}", abi::hex(&[0xb2; 32])));
+    cx.simulate_click("explorer-tx-12-0");
     cx.run_until_parked();
     assert!(cx.has_text("mystery · 4 bytes"), "{:?}", cx.texts());
     assert!(cx.has_text("bytes") && cx.has_text("01020304"));
