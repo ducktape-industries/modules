@@ -137,7 +137,10 @@ fn reaction_picker_keeps_labels_and_its_stable_action_id() {
         panic!("reaction is a native cell");
     };
     // each cell is named by its emoji: 48 "Add reaction"s told nothing apart
-    assert_eq!(interactivity.aria.label.as_deref(), Some("React with 🔥"));
+    assert_eq!(
+        interactivity.aria.label.as_deref(),
+        Some("React with 🔥, frequently used")
+    );
     assert_eq!(interactivity.aria.description, None);
     assert_eq!(
         cx.interactivity("chat-reaction-Smileys-😀")
@@ -145,6 +148,17 @@ fn reaction_picker_keeps_labels_and_its_stable_action_id() {
             .label
             .as_deref(),
         Some("React with 😀")
+    );
+    // 😄 is in the frequent row and in the open tab: the row's cell says
+    // which it is, or the two were one name (the door's AX-016)
+    let name = |key: &str| cx.interactivity(key).aria.label.clone();
+    assert_eq!(
+        name("chat-reaction-😄").as_deref(),
+        Some("React with 😄, frequently used")
+    );
+    assert_eq!(
+        name("chat-reaction-Smileys-😄").as_deref(),
+        Some("React with 😄")
     );
     cx.simulate_click("chat-reaction-🔥");
     cx.run_until_parked();

@@ -12,6 +12,9 @@ use super::{
 };
 use crate::{Chat, Menu, Mode, emoji};
 
+/// The frequent row's grid.
+const FREQUENT: &str = "chat-reaction-frequent";
+
 /// The reaction picker: a search field that takes the keys, the reader's
 /// frequent row, one tab of emoji at a time under a strip of tabs, or the
 /// search's matches in their place. Enter picks the first match.
@@ -83,7 +86,7 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
 fn browse(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
     let frequent = emoji::frequent(&chat.recent_emoji);
     let frequent = grid(
-        "chat-reaction-frequent",
+        FREQUENT,
         "Frequently used",
         frequent
             .iter()
@@ -237,6 +240,14 @@ fn grid(
         for (column, (cell_id, emoji)) in cells.iter().enumerate() {
             let index = row * COLUMNS as usize + column;
             let press = pick(chat, seq, emoji, cx);
+            // named by its emoji, as the strip's "React with 👍": one name
+            // for 48 cells told assistive technology nothing apart. The
+            // frequent row's cells say their row too: its emoji are in
+            // their tabs as well, and the open tab's would be the same name
+            let name = match id == FREQUENT {
+                true => format!("React with {emoji}, frequently used"),
+                false => format!("React with {emoji}"),
+            };
             line = line.child(
                 div()
                     .id(format!("{cell_id}-cell"))
@@ -244,6 +255,7 @@ fn grid(
                     .child(Reaction::new(
                         cell_id.clone(),
                         emoji,
+                        name,
                         press,
                         index == at,
                         theme,
@@ -281,6 +293,7 @@ pub(super) fn picker_size() -> (f32, f32) {
 struct Reaction {
     id: ElementId,
     emoji: String,
+    name: String,
     press: Option<Press>,
     /// the grid's arrows are on this cell
     active: bool,
@@ -290,6 +303,7 @@ impl Reaction {
     fn new(
         id: impl Into<ElementId>,
         emoji: &str,
+        name: String,
         press: Option<Press>,
         active: bool,
         theme: &Theme,
@@ -297,6 +311,7 @@ impl Reaction {
         Self {
             id: id.into(),
             emoji: emoji.into(),
+            name,
             press,
             active,
             theme: *theme,
@@ -315,9 +330,7 @@ impl RenderOnce for Reaction {
             .justify_center()
             .text_size(design::text::TITLE)
             .role(Role::Button)
-            // named by its emoji, as the strip's "React with 👍": one name
-            // for 48 cells told assistive technology nothing apart
-            .aria_label(format!("React with {}", self.emoji))
+            .aria_label(self.name)
             .aria_disabled(!enabled)
             .child(self.emoji);
         match self.press {
