@@ -1,16 +1,19 @@
 //! A module written with `guest` alone: a counter anyone may add to.
 
-use guest::{Error, ExecCtx, Module, QueryCtx, invalid};
+use guest::{Error, ExecCtx, Module, Program, QueryCtx, invalid};
 
 pub struct Counter;
 
-impl Module for Counter {
+impl Program for Counter {
+    const NAME: &'static str = "counter";
     /// How much to add.
     type Op = u64;
     type Query = ();
     /// The count.
-    type Response = u64;
+    type Reply = u64;
+}
 
+impl Module for Counter {
     fn execute(ctx: &ExecCtx, by: u64) -> Result<(), Error> {
         let n = count(ctx)?
             .checked_add(by)
@@ -43,7 +46,7 @@ mod tests {
 
     /// Signed by account 1's key.
     fn env() -> Env {
-        MockHost::env("counter").signed([1; 32], Some(1))
+        MockHost::env(Counter::NAME).signed([1; 32], Some(1))
     }
 
     #[test]

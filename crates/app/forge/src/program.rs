@@ -2,10 +2,7 @@
 //! every query, each handed to its function (`ops.rs`, `changes.rs`,
 //! `queries.rs`, `reads.rs`, `change_queries.rs`).
 
-use std::io::{self, Write};
-
-use borsh::BorshSerialize;
-use guest::{Error, ExecCtx, Module, QueryCtx};
+use guest::{Error, ExecCtx, Module, Program, QueryCtx};
 
 use crate::change_queries::{change, changes, judgment};
 use crate::changes::{Draft, Edit, MergeRequest, close, edit, merge_heads, open, submit_review};
@@ -17,21 +14,14 @@ use crate::state::{WRITERS, load_bounds, load_repo};
 
 pub struct Forge;
 
-/// A query's answer as the host takes it, unframed: one `Reply`'s borsh for
-/// the screens, or git's own bytes for a git client.
-pub struct RawReply(pub Vec<u8>);
-
-impl BorshSerialize for RawReply {
-    fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(&self.0)
-    }
+impl Program for Forge {
+    const NAME: &'static str = crate::MODULE;
+    type Op = Op;
+    type Query = Query;
+    type Reply = Reply;
 }
 
 impl Module for Forge {
-    type Op = Op;
-    type Query = Query;
-    type Response = RawReply;
-
     fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
         init(ctx, params)
     }
@@ -110,8 +100,18 @@ impl Module for Forge {
         touch(ctx, &repo, ctx.env().height)
     }
 
-    /// One height-bearing `Reply`, or a git protocol query's raw git bytes.
-    fn query(ctx: &QueryCtx, query: Query) -> Result<RawReply, Error> {
+    /// Git's own wire: the ref advertisement and upload-pack answer with
+    /// git's bytes, unframed, so a git client reads them off the node as is.
+    /// Every other query is one height-bearing [`Reply`], as borsh.
+    fn answer(ctx: &QueryCtx, query: Query) -> Result<Vec<u8>, Error> {
+        match &query {
+            Query::Advertise { repo, service } => advertise(ctx, repo, *service),
+            Query::Upload { repo, request } => upload(ctx, repo, request),
+            _ => Ok(abi::encode(&Self::query(ctx, query)?)),
+        }
+    }
+
+    fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
         let height = ctx.env().height;
         let bounds = load_bounds(ctx)?;
         let scope = query.scope();
@@ -123,11 +123,13 @@ impl Module for Forge {
                 height,
             )
         };
-        let reply = match &query {
-            Query::Advertise { repo, service } => {
-                return advertise(ctx, repo, *service).map(RawReply);
+        Ok(match &query {
+            // `answer` takes git's two queries before `query` sees them
+            Query::Advertise { .. } | Query::Upload { .. } => {
+                return Err(guest::invalid(
+                    "a git-wire query answers git's bytes, not a Reply",
+                ));
             }
-            Query::Upload { repo, request } => return upload(ctx, repo, request).map(RawReply),
             Query::Repos { page } => Reply::Repos {
                 height,
                 page: repos(ctx, &listing(page)?)?,
@@ -200,8 +202,7 @@ impl Module for Forge {
                 height,
                 page: judgment(ctx, principal, &listing(page)?)?,
             },
-        };
-        Ok(RawReply(abi::encode(&reply)))
+        })
     }
 }
 

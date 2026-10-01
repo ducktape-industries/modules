@@ -22,12 +22,11 @@ writes `crates/app/poll/` in valset's shape, registers it (`PROGRAMS` and
 | File | What |
 |---|---|
 | `src/lib.rs` | the types on the wire (`Op`, `Query`, `Reply`, the rows they carry), `MODULE`, `describe()` and `describe::export!` |
-| `src/program.rs` | `pub struct Poll; impl guest::Module for Poll`: one match over every op, one over every query, `reply` if it emits with a reply wanted; `guest::export!` behind `module` |
+| `src/program.rs` | `pub struct Poll; impl guest::Program for Poll` (`NAME`, `Op`, `Query`, `Reply`: what the program is to a view, which names it `Query<poll::Poll>`) and `impl guest::Module for Poll`: one match over every op, one over every query, `reply` if it emits with a reply wanted; `guest::export!` behind `module` |
 | `src/rules.rs` | the tables (`store`), and what each op checks and writes |
-| `src/view.rs` | behind `view`: the marker a view names this module by |
 | `src/tests.rs` | the module natively over `MockHost` (add a `MockChain` test once it talks to another module) |
 
-`Cargo.toml` declares three features, all off by default:
+`Cargo.toml` declares two features, both off by default:
 
 - `module` adds the two wasm exports (`guest::export!`). Only the module's
   own wasm build turns it on (`make wasm-programs` builds each program in a
@@ -35,9 +34,6 @@ writes `crates/app/poll/` in valset's shape, registers it (`PROGRAMS` and
   types, the rules, the `Poll` type, is always built: a view links the crate
   with the feature off and gets the types with no host import and no export,
   and a native test runs the real `execute` and `query`.
-- `view` adds `src/view.rs`, the `ducktape_view_guest::methods::Module`
-  marker `poll-view` names the module by: `poll::view::PollApi`, named apart
-  from the module's `Poll` and the view's own `Poll`.
 - `describe` makes the crate's wasm build the `ducktape.describe` module: the
   `describe` export alone, no module, no imports (section 7).
 
@@ -462,8 +458,8 @@ that fails to build for wasm32 fails here; the usual cause is a dependency
 that reaches the host or a signing library (`make view-wasm-check` names
 them for the crates a view may link).
 
-`make new-view NAME=poll-view` scaffolds the screen over the module's
-marker; replace its `count()` with what your `Query` answers before its
+`make new-view NAME=poll-view` scaffolds the screen over the module
+(`Query<poll::Poll>`); replace its `count()` with what your `Query` answers before its
 first `make dev`. Where a view's bytes go: `make wasm-why V=poll-view`
 (`twiggy top` over a build that keeps its names; `cargo install twiggy`).
 

@@ -2,9 +2,8 @@
 //! acts is an account: a person (the keys they hold), an agent (the keys its
 //! manager, a person, adds) and a module (the account the kernel registers
 //! as it admits the module). The types, rules and [`Identity`] module are
-//! always built; a view links them with `module` off. The `module` feature
-//! adds its wasm exports. The `view` feature adds the ask a view makes of
-//! identity directly (`view.rs`).
+//! always built; a view links them with `module` off (`view.rs` is what a
+//! view shows of an account). The `module` feature adds its wasm exports.
 //!
 //! It fills the kernel's identity role (`abi::role::identity`): the role's
 //! op, queries and replies are the first variants of [`Op`], [`Query`] and
@@ -14,7 +13,6 @@ mod program;
 mod rules;
 #[cfg(test)]
 mod tests;
-#[cfg(feature = "view")]
 pub mod view;
 
 pub use abi::role::identity::{Category, Kind, Profile, Standing};
@@ -25,7 +23,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use guest::{BlobId, ModuleId, Scheme};
 pub use store::{PageRequest, PageResponse};
 
-pub const MODULE: &str = "identity";
+/// The name this module runs under: the one the identity role is bound to
+/// (`program::role::Identity`), spelled there once.
+pub const MODULE: &str = <::program::role::Identity as ::program::Program>::NAME;
 /// What a key signs to consent to a key joining an account ([`Admission`]).
 pub const CONSENT_NAMESPACE: &[u8] = b"ducktape:identity:consent";
 

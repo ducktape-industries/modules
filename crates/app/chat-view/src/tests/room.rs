@@ -50,7 +50,7 @@ fn the_room_shows_its_rows_intro_and_actions() {
     cx.run_until_parked();
     assert!(
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| matches!(op, Op::AddReaction { emoji, .. } if emoji == "🔥"))
     );
@@ -79,7 +79,7 @@ fn the_room_shows_its_rows_intro_and_actions() {
     cx.run_until_parked();
     assert!(
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| matches!(op, Op::RenameChannel { name, .. } if name == "Lobby"))
     );
@@ -219,7 +219,7 @@ fn a_full_room_renders_inside_the_frame_budget() {
             row
         })
         .collect();
-    cx.host().handle::<Ask<ChatApi>>(move |query| {
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
         Ok(match query {
             Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
             Query::Channels { .. } => {
@@ -486,7 +486,7 @@ fn a_dms_details_show_its_two_people_and_nothing_to_reshape() {
 #[test]
 fn a_landed_room_rereads_its_window() {
     let (mut cx, view) = opened();
-    cx.host().handle::<Ask<ChatApi>>(|query| {
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::MessagesAround {
                 channel_id, seq, ..

@@ -37,14 +37,16 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
 sealed, so a view cannot invent a kind. Three verbs on `Host` (`src/host.rs`):
 
 ```rust
-let reply = cx.host().ask::<Query<IdentityApi>>(identity::Query::List { page }).await?;
-let mut live = cx.host().subscribe::<Changes<ValsetApi>>(());
+let reply = cx.host().ask::<Query<identity::Identity>>(identity::Query::List { page }).await?;
+let mut live = cx.host().subscribe::<Changes<valset::Valset>>(());
 cx.host().notify::<methods::HostBadge>(3);
 ```
 
-A node program is addressed by a `methods::Module` impl beside the view
-(`crates/app/forge-view/src/api.rs`), never by the program crate; `Query<P>`,
-`Submit<P>` and `Changes<P>` are its three methods. Every refusal is the module SDK's `Error`
+A node program is addressed by its own type, the one that implements
+`program::Program` (`methods::Program` here) beside its `guest::Module`:
+`Query<P>`, `Submit<P>` and `Changes<P>` are its three methods, and
+`P::NAME` is the target they carry. A role a view follows without linking
+its program is `program::role::Identity`. Every refusal is the module SDK's `Error`
 (`code` token, `message`), one type end to end: a program's codes are
 `error::code`, the host's own are `methods::refusal`. `Loadable<T>` + `cx.load`
 (`src/view.rs`) hold an ask's four states and snapshot `Loading` as `Idle`.
