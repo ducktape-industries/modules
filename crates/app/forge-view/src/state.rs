@@ -53,6 +53,9 @@ pub struct Forge {
     pub(crate) log_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) tree_scroll: UniformListScrollHandle,
+    /// hx/virtual-lists prototype: the repository list's scroll while virtual
+    #[serde(skip)]
+    pub(crate) repos_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) next_pending: u64,
     /// the change whose Close waits for a second press: closing is final

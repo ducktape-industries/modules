@@ -2,7 +2,9 @@
 //! switches between them when something is.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use ducktape_view_guest::{Div, ScrollStrategy, Stateful};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::Forge;
 use crate::queries::PAGE;
@@ -360,11 +362,20 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
     let moved = names.clone();
     let stepped = names.clone();
     let pressed = names.clone();
+    let table = table_fits(forge.layout.width);
+    // hx/virtual-lists prototype: a table that outgrows the window goes in
+    // a `uniform_list` (its rows are one height; wrapped rows are not)
+    let virtual_ = table && rows.len() as f32 * f32::from(ROW_H) > forge.layout.height;
     let mut list = design::composite(id("forge-repos-list"), Role::Grid, "Repositories")
         .active(at, names.len())
         .cells(cell, CELLS)
         .on_move(cx.processor(move |forge, index: usize, _, cx| {
             forge.repos_cursor = Some((moved[index].clone(), 0));
+            if virtual_ {
+                forge
+                    .repos_scroll
+                    .scroll_to_item(index, ScrollStrategy::Nearest);
+            }
             cx.notify();
         }))
         .on_move_cell(cx.processor(move |forge, cell: usize, _, cx| {
@@ -392,18 +403,43 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
         .build()
         .flex_1()
         .min_h(px(0.))
-        .overflow_y_scroll()
+        .when(!virtual_, |list| list.overflow_y_scroll())
         .flex()
         .flex_col();
-    let table = table_fits(forge.layout.width);
     if table {
         list = list.child(table_header(theme));
     }
-    for (index, info) in rows.into_iter().enumerate() {
-        let owner = forge.principal_name(&info.repo.owner);
-        let active = (index == at).then_some(cell);
-        list = list.child(repo_row(forge, info, owner, table, active, cx, theme));
+    let count = rows.len();
+    let painted: Vec<AnyElement> = rows
+        .into_iter()
+        .enumerate()
+        .map(|(index, info)| {
+            let owner = forge.principal_name(&info.repo.owner);
+            let active = (index == at).then_some(cell);
+            repo_row(forge, info, owner, table, active, cx, theme)
+        })
+        .collect();
+    if !virtual_ {
+        return column.child(list.children(painted)).into_any_element();
     }
+    let painted = Rc::new(RefCell::new(
+        painted.into_iter().map(Some).collect::<Vec<_>>(),
+    ));
+    let list = list.child(
+        uniform_list(id("forge-repos-rows"), count, move |range, _, _| {
+            let mut painted = painted.borrow_mut();
+            range
+                .map(|index| {
+                    painted[index]
+                        .take()
+                        .unwrap_or_else(|| div().h(ROW_H).into_any_element())
+                })
+                .collect::<Vec<_>>()
+        })
+        .track_scroll(&forge.repos_scroll)
+        .flex_1()
+        .min_h(px(0.)),
+    );
     column.child(list).into_any_element()
 }
 

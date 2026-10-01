@@ -3,7 +3,9 @@
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use ducktape_view_guest::{Div, FontWeight, ScrollStrategy, Stateful, UniformListScrollHandle};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::decode::{ago, clip, date, grouped, plural, short};
 use crate::{BlockRow, Explorer, Note, Route, TxRow};
@@ -116,6 +118,7 @@ fn measured(
     cx: &mut Context<Explorer>,
 ) {
     view.width = Some(size.0.into());
+    view.height = Some(size.1.into());
     cx.notify();
 }
 
@@ -323,6 +326,10 @@ struct Rows {
     active: usize,
     routes: Vec<Route>,
     children: Vec<AnyElement>,
+    /// hx/virtual-lists prototype: the height the list may take and the
+    /// scroll handle that keeps the active row in view; past that height
+    /// the rows go in a `uniform_list` and only the visible ones are lowered
+    virtual_over: Option<(f32, UniformListScrollHandle)>,
 }
 
 fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
@@ -336,10 +343,19 @@ fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
         active,
         routes: Vec::new(),
         children: Vec::new(),
+        virtual_over: None,
     }
 }
 
 impl Rows {
+    /// Virtual once the rows outgrow the page (the bar and the heading
+    /// taken off the view's measured height); whole until measured.
+    fn virtualized(mut self, view: &Explorer) -> Self {
+        self.virtual_over = view
+            .height
+            .map(|height| (height - 2. * f32::from(BAR_H), view.tx_scroll.clone()));
+        self
+    }
     fn row(mut self, route: Route, row: Stateful<Div>, theme: &Theme) -> Self {
         let active = self.routes.len() == self.active;
         let row = design::item(row, Role::ListBoxOption, active)
@@ -359,13 +375,24 @@ impl Rows {
             active,
             routes,
             children,
+            virtual_over,
         } = self;
         let count = routes.len();
-        design::composite(id, Role::ListBox, label)
+        // notes between the rows would put the routes and the rows out of
+        // step, so such a list is drawn whole
+        let virtual_over = virtual_over.filter(|(height, _)| {
+            children.len() == count && count as f32 * f32::from(ROW_H) > *height
+        });
+        let scroll = virtual_over.as_ref().map(|(_, scroll)| scroll.clone());
+        let list = design::composite(id, Role::ListBox, label)
             .active(active.min(count.saturating_sub(1)), count)
             .on_move(
                 cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
                     view.cursor = Some((id, index));
+                    // the row is in view on the frame that claims it
+                    if let Some(scroll) = &scroll {
+                        scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+                    }
                     cx.notify();
                 }),
             )
@@ -374,8 +401,34 @@ impl Rows {
                     view.go(routes[index].clone(), cx)
                 }),
             )
-            .build()
-            .children(children)
+            .build();
+        let Some((_, scroll)) = virtual_over else {
+            return list.children(children);
+        };
+        // the rows are built (the view's 7%); the list lowers the ones the
+        // host asks for, each once a frame
+        let rows = Rc::new(RefCell::new(
+            children.into_iter().map(Some).collect::<Vec<_>>(),
+        ));
+        list.flex_1().min_h(px(0.)).flex().flex_col().child(
+            uniform_list(
+                ElementId::Name(format!("{id}-rows").into()),
+                count,
+                move |range, _, _| {
+                    let mut rows = rows.borrow_mut();
+                    range
+                        .map(|index| {
+                            rows[index]
+                                .take()
+                                .unwrap_or_else(|| div().h(ROW_H).into_any_element())
+                        })
+                        .collect::<Vec<_>>()
+                },
+            )
+            .track_scroll(&scroll)
+            .flex_1()
+            .min_h(px(0.)),
+        )
     }
 }
 

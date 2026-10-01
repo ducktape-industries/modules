@@ -147,6 +147,12 @@ pub struct Explorer {
     /// the view's measured width; `None` until the first measure
     #[serde(skip)]
     pub(crate) width: Option<f32>,
+    /// the view's measured height; `None` until the first measure
+    #[serde(skip)]
+    pub(crate) height: Option<f32>,
+    /// the Transactions list's scroll, while it is virtual
+    #[serde(skip)]
+    pub(crate) tx_scroll: ducktape_view_guest::UniformListScrollHandle,
     /// the list the arrows are in, and the row they are on
     #[serde(skip)]
     pub(crate) cursor: Option<(&'static str, usize)>,

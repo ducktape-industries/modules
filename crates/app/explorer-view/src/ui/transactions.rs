@@ -17,7 +17,7 @@ pub(super) fn transactions(
         .iter()
         .filter(|tx| program.as_ref().is_none_or(|program| &tx.target == program))
         .collect();
-    let list = rows("explorer-transactions-list", "Transactions", view);
+    let list = rows("explorer-transactions-list", "Transactions", view).virtualized(view);
     let rows = (!matching.is_empty()).then(|| {
         tx_rows(
             list,
@@ -43,6 +43,11 @@ pub(super) fn transactions(
     });
     div()
         .id("explorer-transactions")
+        // the page fills the viewport, so a virtual list has a height to scroll in
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col()
         .child(heading(
             "explorer-transactions-heading",
             &title,
