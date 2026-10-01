@@ -141,6 +141,7 @@ impl View for Members {
         Capability::Host,
         Capability::Link,
     ];
+    const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 320;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {

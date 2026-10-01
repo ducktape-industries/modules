@@ -44,6 +44,11 @@ impl View for Forge {
         Capability::Link,
         Capability::Clipboard,
     ];
+    const TARGETS: &'static [&'static str] = &[
+        forge::MODULE,
+        chat::MODULE,
+        <Identity as ducktape_view_guest::methods::Program>::NAME,
+    ];
     const MIN_WINDOW_WIDTH: u32 = 640;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {

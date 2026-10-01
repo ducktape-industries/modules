@@ -28,8 +28,6 @@ pub struct Settings {
     pub(crate) rename_agent: BTreeMap<u64, Form>,
     /// the one suspend, resume or revoke in flight
     pub(crate) agent_standing: Form,
-    /// the agent whose revoke waits for a second press: revoking is final
-    pub(crate) revoking: Option<u64>,
     /// What the view follows (`watch.rs`); dropping them unsubscribes.
     #[serde(skip)]
     pub(crate) followers: Vec<Task<()>>,

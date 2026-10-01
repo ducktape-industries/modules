@@ -4,6 +4,19 @@ use crate::methods::Capability;
 
 pub const MANIFEST_SECTION: &str = "ducktape.view.manifest";
 
+/// The manifest's lines, in order: what `export_view!` writes and
+/// [`Manifest::parse`] reads, listed in `tests/golden/schema.txt` so a
+/// line added or moved moves [`crate::WIRE_ID`] like any other shape.
+pub const LINES: [&str; 7] = [
+    "ducktape.view.manifest",
+    "name",
+    "description",
+    "capabilities",
+    "min_width",
+    "wire_id",
+    "targets",
+];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
     /// the [`crate::WIRE_ID`] the view was built against
@@ -14,6 +27,10 @@ pub struct Manifest {
     /// The view's `MIN_WINDOW_WIDTH`: the narrowest it is laid out, in
     /// logical px, `1..=8192`.
     pub min_width: u32,
+    /// The programs the view may address with `op.submit`, `module.query`
+    /// and `module.changes`; a view with the `op` or `module` capability
+    /// names at least one.
+    pub targets: Vec<String>,
 }
 
 /// What a manifest may say about itself. The catalog is read before anything
@@ -25,6 +42,38 @@ const MAX_NAME_BYTES: usize = 64;
 const MAX_DESCRIPTION_BYTES: usize = 256;
 const MAX_CAPABILITIES: usize = 16;
 const MAX_WIRE_ID_BYTES: usize = 16;
+const MAX_TARGETS: usize = 16;
+
+/// Whether `name` is a program name as a method may address one: `1..=64`
+/// bytes of ASCII letters, digits, `-` and `_`. The one rule for a
+/// manifest's `targets` and a host's `Call.target`.
+pub const fn program_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    if bytes.is_empty() || bytes.len() > 64 {
+        return false;
+    }
+    let mut i = 0;
+    while i < bytes.len() {
+        if !(bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Whether a view declaring `capabilities` must name targets: it may
+/// address a program only through `op` or `module`.
+pub const fn needs_targets(capabilities: &[Capability]) -> bool {
+    let mut i = 0;
+    while i < capabilities.len() {
+        if matches!(capabilities[i], Capability::Op | Capability::Module) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
 
 /// Extracts exactly one current manifest from a view's core module.
 /// Returns `None` for missing, duplicate, malformed, or out-of-bounds metadata.
@@ -56,9 +105,11 @@ pub fn read_manifest(bytes: &[u8]) -> Option<Manifest> {
 }
 
 impl Manifest {
-    /// Parses the strict six-line `ducktape.view.manifest` text and its
-    /// bounds. A capability this host does not know refuses the whole
-    /// manifest: a grant is never silently narrowed.
+    /// Parses the strict seven-line ([`LINES`]) `ducktape.view.manifest`
+    /// text and its bounds. A capability this host does not know refuses
+    /// the whole manifest: a grant is never silently narrowed; so does a
+    /// view that could address a program (`op`, `module`) and names no
+    /// target.
     pub fn parse(text: &str) -> Option<Self> {
         if text.len() > 1024 || text.chars().any(|c| c.is_control() && c != '\n') {
             return None;
@@ -69,15 +120,10 @@ impl Manifest {
         }
         let name = lines.next()?.to_owned();
         let description = lines.next()?.to_owned();
-        let caps = lines.next()?;
-        let capabilities = if caps.is_empty() {
-            Vec::new()
-        } else {
-            caps.strip_suffix(',')?
-                .split(',')
-                .map(Capability::parse)
-                .collect::<Option<_>>()?
-        };
+        let capabilities = list(lines.next()?)?
+            .into_iter()
+            .map(Capability::parse)
+            .collect::<Option<_>>()?;
         // canonical decimal only: no sign, no leading zero, no spaces
         let text = lines.next()?;
         let min_width = text
@@ -85,6 +131,10 @@ impl Manifest {
             .ok()
             .filter(|n| n.to_string() == text && (1..=crate::MAX_PIXELS as u32).contains(n))?;
         let wire_id = lines.next()?.to_owned();
+        let targets: Vec<String> = list(lines.next()?)?
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         if lines.next().is_some() {
             return None;
         }
@@ -94,6 +144,7 @@ impl Manifest {
             description,
             capabilities,
             min_width,
+            targets,
         };
         manifest.within_bounds().then_some(manifest)
     }
@@ -109,6 +160,18 @@ impl Manifest {
                 .wire_id
                 .bytes()
                 .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+            && self.targets.len() <= MAX_TARGETS
+            && self.targets.iter().all(|target| program_name(target))
+            && (!self.targets.is_empty() || !needs_targets(&self.capabilities))
+    }
+}
+
+/// A comma-terminated list line (`a,b,`): its items, none for an empty
+/// line; `None` for a line that is not one.
+fn list(line: &str) -> Option<Vec<&str>> {
+    match line.is_empty() {
+        true => Some(Vec::new()),
+        false => Some(line.strip_suffix(',')?.split(',').collect()),
     }
 }
 
@@ -119,7 +182,7 @@ mod tests {
     #[test]
     fn extraction_rejects_duplicate_and_truncated_sections() {
         let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-        let text = b"ducktape.view.manifest\nSized\n\n\n640\n0123abcd";
+        let text = b"ducktape.view.manifest\nSized\n\n\n640\n0123abcd\n";
         let mut section = vec![
             0,
             (1 + MANIFEST_SECTION.len() + text.len()) as u8,
@@ -150,21 +213,23 @@ mod tests {
     // those guards is Red.
     #[test]
     fn the_manifest_format_is_strict() {
-        let good = "ducktape.view.manifest\nSized\nDescription\nclock,store,\n480\n0123abcd";
+        let good = "ducktape.view.manifest\nSized\nDescription\nclock,store,\n480\n0123abcd\n";
         let parsed = Manifest::parse(good).unwrap();
         assert_eq!(parsed.capabilities, [Capability::Clock, Capability::Store]);
         assert_eq!(
             (&*parsed.name, &*parsed.description),
             ("Sized", "Description")
         );
+        assert!(parsed.targets.is_empty());
         for invalid in [
-            "Sized\nDescription\nclock,",                               // no header
-            "ducktape.view\nSized\nDescription\nclock,\n480\n0123abcd", // another header
+            "Sized\nDescription\nclock,", // no header
+            "ducktape.view\nSized\nDescription\nclock,\n480\n0123abcd\n", // another header
             "ducktape.view.manifest\nSized\nDescription\n\n480",
-            "ducktape.view.manifest\nSized\nDescription\n\n480\n0123abcd\nextra",
-            "ducktape.view.manifest\nSized\nDescription\nclock\n480\n0123abcd",
-            "ducktape.view.manifest\nSized\nDescription\nclock,,\n480\n0123abcd",
-            "ducktape.view.manifest\nSized\nDescription\nclock,storage,\n480\n0123abcd",
+            "ducktape.view.manifest\nSized\nDescription\n\n480\n0123abcd", // six lines: the shape before targets
+            "ducktape.view.manifest\nSized\nDescription\n\n480\n0123abcd\n\nextra",
+            "ducktape.view.manifest\nSized\nDescription\nclock\n480\n0123abcd\n",
+            "ducktape.view.manifest\nSized\nDescription\nclock,,\n480\n0123abcd\n",
+            "ducktape.view.manifest\nSized\nDescription\nclock,storage,\n480\n0123abcd\n",
         ] {
             assert!(
                 Manifest::parse(invalid).is_none(),
@@ -180,7 +245,7 @@ mod tests {
     fn a_manifest_carries_its_min_width() {
         let parse = |width: &str| {
             Manifest::parse(&format!(
-                "ducktape.view.manifest\nApp\n\n\n{width}\n0123abcd"
+                "ducktape.view.manifest\nApp\n\n\n{width}\n0123abcd\n"
             ))
         };
         assert_eq!(parse("480").unwrap().min_width, 480);
@@ -202,11 +267,48 @@ mod tests {
             assert!(parse(invalid).is_none(), "accepted {invalid:?}");
         }
         // every line valid on its own (`480` is hex, so a wire id too): only
-        // the seventh line refuses it
+        // the eighth line refuses it
         assert!(
-            Manifest::parse("ducktape.view.manifest\nApp\n\n\n480\n480\n0123abcd").is_none(),
-            "a seventh line accepted"
+            Manifest::parse("ducktape.view.manifest\nApp\n\n\n480\n480\n0123abcd\n").is_none(),
+            "an eighth line accepted"
         );
+    }
+
+    // Claim: line 7 names the programs the view may address, in the list
+    // grammar of line 4; a view that could address one (`op`, `module`)
+    // and names none is refused, so no view signs for "any program".
+    #[test]
+    fn a_manifest_names_its_targets_when_it_can_address_a_program() {
+        let parse = |caps: &str, targets: &str| {
+            Manifest::parse(&format!(
+                "ducktape.view.manifest\nApp\n\n{caps}\n480\n0123abcd\n{targets}"
+            ))
+        };
+        assert_eq!(
+            parse("op,module,", "chat,identity,").unwrap().targets,
+            ["chat", "identity"]
+        );
+        assert_eq!(parse("module,", "a-b_c9,").unwrap().targets, ["a-b_c9"]);
+        assert!(parse("clock,", "").unwrap().targets.is_empty());
+        assert!(
+            parse("", "chat,").is_some(),
+            "a target without op is only unused"
+        );
+        for (caps, targets) in [
+            ("op,", ""),       // could submit, names no program
+            ("module,", ""),   // could query, names no program
+            ("op,", "chat"),   // no trailing comma
+            ("op,", "chat,,"), // an empty name
+            ("op,", "a/b,"),   // not a program name
+            ("op,", &format!("{},", "x".repeat(65))),
+            ("op,", &"chat,".repeat(MAX_TARGETS + 1)),
+        ] {
+            assert!(
+                parse(caps, targets).is_none(),
+                "accepted {caps:?} {targets:?}"
+            );
+        }
+        assert!(program_name("module-registry") && !program_name("") && !program_name("a b"));
     }
 
     // Claim: the wire id is short lowercase hex, so a host can show it in a
@@ -214,7 +316,7 @@ mod tests {
     #[test]
     fn the_wire_id_is_bounded_lowercase_hex() {
         let parse =
-            |id: &str| Manifest::parse(&format!("ducktape.view.manifest\nApp\n\n\n480\n{id}"));
+            |id: &str| Manifest::parse(&format!("ducktape.view.manifest\nApp\n\n\n480\n{id}\n"));
         assert_eq!(
             parse("0123456789abcdef").unwrap().wire_id,
             "0123456789abcdef"

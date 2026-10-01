@@ -108,18 +108,41 @@ pub const fn manifest_len<V: View>() -> usize {
         len += V::CAPABILITIES[i].as_str().len() + 1;
         i += 1;
     }
+    len += 1;
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        len += V::TARGETS[i].len() + 1;
+        i += 1;
+    }
     len
 }
 
+// the lines written below, in this order: a line added to the manifest
+// is added here and to `Manifest::parse` together
+const _: () = assert!(wire::manifest::LINES.len() == 7);
+
 /// The manifest text (`view_wire::manifest`: header, [`View::NAME`],
 /// [`View::DESCRIPTION`], [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`],
-/// [`wire::WIRE_ID`]), at compile time: a width outside `1..=8192` fails the
-/// build.
+/// [`wire::WIRE_ID`], [`View::TARGETS`]), at compile time: a width outside
+/// `1..=8192`, a target that is not a program name, or no target where
+/// the capabilities could address a program, fails the build.
 pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
     assert!(
         V::MIN_WINDOW_WIDTH >= 1 && V::MIN_WINDOW_WIDTH <= wire::MAX_PIXELS as u32,
         "MIN_WINDOW_WIDTH is 1..=8192"
     );
+    assert!(
+        !V::TARGETS.is_empty() || !wire::manifest::needs_targets(V::CAPABILITIES),
+        "a view with the op or module capability names its TARGETS"
+    );
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        assert!(
+            wire::manifest::program_name(V::TARGETS[i]),
+            "a target is a program name: 1..=64 of [A-Za-z0-9_-]"
+        );
+        i += 1;
+    }
     let mut out = [0u8; N];
     let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
     at = put(&mut out, at, V::NAME.as_bytes());
@@ -136,6 +159,13 @@ pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
     at = put_number(&mut out, at, V::MIN_WINDOW_WIDTH);
     at = put(&mut out, at, b"\n");
     at = put(&mut out, at, wire::WIRE_ID.as_bytes());
+    at = put(&mut out, at, b"\n");
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        at = put(&mut out, at, V::TARGETS[i].as_bytes());
+        at = put(&mut out, at, b",");
+        i += 1;
+    }
     assert!(at == N);
     out
 }

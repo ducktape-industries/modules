@@ -366,7 +366,6 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             (),
             Session {
                 connected: true,
-                dark: false,
                 chain_id: "local#1".into(),
                 signer: "ab01".into(),
                 account: Some(3),

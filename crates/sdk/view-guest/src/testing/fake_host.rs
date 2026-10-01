@@ -17,6 +17,9 @@ struct State {
     links: Vec<String>,
     streams: Vec<Rc<RefCell<StreamState>>>,
     declared: Option<&'static [methods::Capability]>,
+    /// The programs the view's `TARGETS` names; a node method naming
+    /// another fails the test, as the app refuses it.
+    targets: &'static [&'static str],
 }
 
 /// A typed host whose requests must be explicitly handled by a test.
@@ -126,8 +129,14 @@ impl FakeHost {
             }
         }
     }
-    pub(super) fn declare(&self, capabilities: &'static [methods::Capability]) {
-        self.0.borrow_mut().declared = Some(capabilities);
+    pub(super) fn declare(
+        &self,
+        capabilities: &'static [methods::Capability],
+        targets: &'static [&'static str],
+    ) {
+        let mut state = self.0.borrow_mut();
+        state.declared = Some(capabilities);
+        state.targets = targets;
     }
     pub(super) fn take_events(&self) -> Vec<Event> {
         std::mem::take(&mut self.0.borrow_mut().events)
@@ -154,6 +163,18 @@ impl FakeHost {
                     methods::refusal::UNDECLARED_CAPABILITY,
                     request.kind,
                     capability.as_str()
+                );
+            }
+            // and a node method naming a program the manifest does not
+            // list (`undeclared_target`)
+            if state.declared.is_some()
+                && let Some(target) = target_of(request)
+            {
+                assert!(
+                    state.targets.contains(&target.as_str()),
+                    "{}: `{}` names `{target}`, which this view's TARGETS does not list",
+                    methods::refusal::UNDECLARED_TARGET,
+                    request.kind,
                 );
             }
             match request.kind.as_str() {
@@ -202,14 +223,17 @@ impl FakeHost {
     }
 }
 
-/// The program a node method addresses: `module.changes` names it outright, the
-/// others carry it on their [`methods::Call`] envelope.
+/// The program a node method addresses: `module.changes` names it outright,
+/// `module.query` and `op.submit` carry it on their [`methods::Call`]
+/// envelope. `None` for every other kind (`module.describe` names a
+/// program too, but reads its describe module: no target of the view's).
 fn target_of(request: &Request) -> Option<String> {
     match request.kind.as_str() {
         "module.changes" => methods::decode::<String>(&request.payload).ok(),
-        _ => methods::decode::<methods::Call>(&request.payload)
+        "module.query" | "op.submit" => methods::decode::<methods::Call>(&request.payload)
             .ok()
             .map(|call| call.target),
+        _ => None,
     }
 }
 

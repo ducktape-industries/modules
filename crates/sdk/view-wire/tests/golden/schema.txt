@@ -63,7 +63,7 @@ Outcome__Applied = Struct { fields: NamedFields([("output", "Vec<u8>")]) }
 Outcome__Rejected = Struct { fields: UnnamedFields(["Error"]) }
 Peer = Struct { fields: NamedFields([("key", "Vec<u8>"), ("signed", "Option<u64>")]) }
 Receipt = Struct { fields: NamedFields([("program", "String"), ("outcome", "Outcome"), ("events", "Vec<Vec<u8>>"), ("nested", "Vec<Receipt>")]) }
-Session = Struct { fields: NamedFields([("connected", "bool"), ("dark", "bool"), ("chain_id", "String"), ("signer", "String"), ("account", "Option<u64>"), ("endpoint", "String")]) }
+Session = Struct { fields: NamedFields([("connected", "bool"), ("chain_id", "String"), ("signer", "String"), ("account", "Option<u64>"), ("endpoint", "String")]) }
 String = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
 Tx = Struct { fields: NamedFields([("hash", "[u8; 32]"), ("signer", "Vec<u8>"), ("seq", "u64"), ("target", "String"), ("payload", "Vec<u8>"), ("receipt", "Option<Receipt>")]) }
 Value = Enum { tag_width: 1, variants: [(0, "Text", "Value__Text"), (1, "Account", "Value__Account"), (2, "Key", "Value__Key"), (3, "Module", "Value__Module"), (4, "Hash", "Value__Hash"), (5, "Amount", "Value__Amount"), (6, "Time", "Value__Time"), (7, "Bytes", "Value__Bytes"), (8, "List", "Value__List")] }
@@ -1567,3 +1567,12 @@ GridLocation struct
 Range struct
   start: TypeName("GridPlacement")
   end: TypeName("GridPlacement")
+
+# manifest: one line each, in order
+ducktape.view.manifest
+name
+description
+capabilities
+min_width
+wire_id
+targets
