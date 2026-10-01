@@ -304,7 +304,13 @@ fn the_message_menu_walks_its_items_and_enter_runs_one() {
             )),
         "the search field takes the keys on open"
     );
-    let dialog = cx.interactivity("chat-room-message-reaction-frame");
-    assert_eq!(dialog.role, Some(ducktape_view_guest::Role::Dialog));
-    assert!(!dialog.focusable, "the frame offers no focus");
+    let frame = cx.interactivity("chat-room-message-reaction-frame");
+    assert!(!frame.focusable, "the frame offers no focus");
+    // the host's modal layer is the picker's dialog: the frame is none
+    // (an inner Dialog the wire cannot mark modal is AX-103)
+    assert_eq!(frame.role, None, "the frame is no dialog of its own");
+    assert!(matches!(
+        cx.find("chat-menu-overlay"),
+        Some(wire::Node::Overlay { label: Some(label), .. }) if label == "Add reaction"
+    ));
 }
