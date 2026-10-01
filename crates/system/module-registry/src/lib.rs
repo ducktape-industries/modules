@@ -84,6 +84,9 @@ pub enum Query {
     Program(ModuleId),
     /// The view-only entries at a height, by name.
     Views(u64),
+    /// The programs genesis bound to the roles the kernel calls, as the
+    /// kernel hands them to this module (`Env::roles`).
+    Roles,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -92,6 +95,7 @@ pub enum Reply {
     Scheduled(PageResponse<Scheduled>),
     Program { height: u64, entry: Option<Entry> },
     Views(Vec<View>),
+    Roles(abi::Roles),
 }
 
 /// An op as a person reads it: a title and its fields. The source of the
