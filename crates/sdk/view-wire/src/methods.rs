@@ -1,8 +1,9 @@
 //! Every kind a view may ask its host for, with the request and reply each
 //! carries. This is the ONE list: a view names a method by its type, the host
 //! answers by the same type, and a kind that is not here is a compile error
-//! on one side and `unknown_request` on the other. [`ALL`] is what a host
-//! test checks its handlers against.
+//! on one side and [`refusal::UNKNOWN_REQUEST`] on the other. [`ALL`] is
+//! what a host test checks its handlers against, and [`refusal`] lists every
+//! code a host refuses one with.
 //!
 //! THE CODEC RULE. Two layers cross the guest boundary and they want
 //! opposite things. The tree a view draws (`Frame`, [`WidgetCommand`]) must
@@ -13,7 +14,7 @@
 //! codec the program abi is written in, so a program's own request rides a
 //! method with no second encoding around it. The rule is held by types, not
 //! by review: [`Method`] is sealed, so a view cannot declare a kind or pick a
-//! codec, and [`Module`]'s bounds are borsh, so a program that speaks
+//! codec, and [`Program`]'s bounds are borsh, so a program that speaks
 //! anything else does not have a method.
 //!
 //! ABSENT is `None`, never a refusal: a method whose thing may not exist replies `Option`, and a refusal means the ask itself failed.
@@ -22,6 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::WidgetCommand;
 pub use describe::{Description, Field, Value};
+pub use program::Program;
 
 mod sealed {
     pub trait Sealed {}
@@ -77,7 +79,7 @@ macro_rules! method {
 
 /// Every [`method!`] below, and [`ALL`] from the same list, so a method is
 /// never declared without being listed. `also` names the kinds written by
-/// hand: the three node methods generic over a [`Module`], and [`HostWidget`].
+/// hand: the three node methods generic over a [`Program`], and [`HostWidget`].
 macro_rules! methods {
     (
         also: [$($also:expr),* $(,)?];
@@ -92,16 +94,10 @@ macro_rules! methods {
 
 // ---------- the node ----------
 
-/// A program a view talks to: its name on the node and the types it speaks.
-/// Implemented next to the view (a marker type), never by the program
-/// crate, which must not link a view runtime. A read-only program names
-/// `()` as its `Op`.
-pub trait Module {
-    const NAME: &'static str;
-    type Op: BorshSerialize + BorshDeserialize + std::fmt::Debug;
-    type Query: BorshSerialize + BorshDeserialize + std::fmt::Debug;
-    type Reply: BorshSerialize + BorshDeserialize;
-}
+// A node method is addressed to a [`Program`]: the program crate's own
+// impl, on the type that is its `guest::Module` (`Query<chat::Chat>`), or a
+// role's (`program::role::Identity`). `program` is below both SDKs, so a
+// program's wasm links no view runtime to be named by a view.
 
 /// The envelope of a node method: the program addressed and the bytes it
 /// gets, which the host signs into a frame without reading.
@@ -122,8 +118,8 @@ fn decode_call<T: BorshDeserialize>(bytes: &[u8], target: &str) -> Result<T, Str
 
 /// `module.query`: one query to `P`, answered with the bytes it `Respond`ed.
 pub struct Query<P>(std::marker::PhantomData<P>);
-impl<P: Module> sealed::Sealed for Query<P> {}
-impl<P: Module> Method for Query<P> {
+impl<P: Program> sealed::Sealed for Query<P> {}
+impl<P: Program> Method for Query<P> {
     const KIND: &'static str = "module.query";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = P::Query;
@@ -148,8 +144,8 @@ impl<P: Module> Method for Query<P> {
 /// `op.submit`: one operation to `P`, signed with the seated key; the
 /// reply is the receipt's output, the program's own bytes.
 pub struct Submit<P>(std::marker::PhantomData<P>);
-impl<P: Module> sealed::Sealed for Submit<P> {}
-impl<P: Module> Method for Submit<P> {
+impl<P: Program> sealed::Sealed for Submit<P> {}
+impl<P: Program> Method for Submit<P> {
     const KIND: &'static str = "op.submit";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = P::Op;
@@ -175,8 +171,8 @@ impl<P: Module> Method for Submit<P> {
 /// carrying its height; `None` when the node link was reopened and the view
 /// should re-read. The request is `P`'s name, as the host reads it.
 pub struct Changes<P>(std::marker::PhantomData<P>);
-impl<P: Module> sealed::Sealed for Changes<P> {}
-impl<P: Module> Method for Changes<P> {
+impl<P: Program> sealed::Sealed for Changes<P> {}
+impl<P: Program> Method for Changes<P> {
     const KIND: &'static str = "module.changes";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = ();
@@ -541,6 +537,57 @@ impl Capability {
     }
 }
 
+/// Every code a host refuses a method with, beside the program codes in
+/// [`crate::code`] that ride through as the node or the program wrote them.
+/// A view branches on these; the strings are wire, so one never changes.
+pub mod refusal {
+    /// The kind is not in [`super::ALL`], or this host does not answer it.
+    pub const UNKNOWN_REQUEST: &str = "unknown_request";
+    /// The kind's capability is not in the view's manifest.
+    pub const UNDECLARED_CAPABILITY: &str = "undeclared_capability";
+    /// The payload does not decode as the method's request, or says nothing
+    /// the method can act on.
+    pub const MALFORMED_REQUEST: &str = "malformed_request";
+    /// The payload, or what it would pull into the view, is over the host's
+    /// limit.
+    pub const TOO_LARGE: &str = "too_large";
+    /// More requests in one frame than the host takes.
+    pub const TICK_LIMIT: &str = "tick_limit";
+    /// More requests waiting on the host at once than it takes.
+    pub const IN_FLIGHT_LIMIT: &str = "in_flight_limit";
+    /// More subscriptions of one kind than the host takes.
+    pub const SUBSCRIPTION_LIMIT: &str = "subscription_limit";
+    /// No node is connected.
+    pub const NOT_CONNECTED: &str = "not_connected";
+    /// The node connection changed while the request waited.
+    pub const STALE_CONNECTION: &str = "stale_connection";
+    /// The method signs, and no key is unlocked in this session.
+    pub const SESSION_LOCKED: &str = "session_locked";
+    /// Nothing reached the node: safe to send again.
+    pub const RPC_CLIENT: &str = "rpc_client";
+    /// The node failed the request, or its answer went missing: it may have
+    /// run.
+    pub const NODE_FAILED: &str = "node_failed";
+    /// The host itself failed (its disk, its config), not the request.
+    pub const HOST_FAULT: &str = "host_fault";
+    /// The widget command does not apply to the tree the view shows now.
+    pub const INVALID_WIDGET_COMMAND: &str = "invalid_widget_command";
+    /// The widget refused the command.
+    pub const WIDGET_COMMAND_FAILED: &str = "widget_command_failed";
+    /// The command's target left the tree before it ran.
+    pub const WIDGET_UNMOUNTED: &str = "widget_unmounted";
+    /// The method needs a person's input (a press or a key) in the view, and
+    /// there was none, or it was spent on an earlier request.
+    pub const NEEDS_GESTURE: &str = "needs_gesture";
+    /// More links opened by the view in the last minute than the host takes.
+    pub const LINK_LIMIT: &str = "link_limit";
+    /// The node does not mint invites.
+    pub const INVITE_UNSUPPORTED: &str = "invite_unsupported";
+    /// The host closed the request with no answer; written on the view's
+    /// side, by the SDK.
+    pub const REQUEST_CLOSED: &str = "request_closed";
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,7 +615,7 @@ mod tests {
     }
 
     struct Binary;
-    impl Module for Binary {
+    impl Program for Binary {
         const NAME: &'static str = "binary";
         type Op = ();
         type Query = (u64, String);
@@ -611,5 +658,38 @@ mod tests {
         kinds.dedup();
         assert_eq!(kinds.len(), ALL.len());
         assert!(ALL.iter().all(|kind| kind.split_once('.').is_some()));
+    }
+
+    /// The one place the refusal strings are spelled out: the host and the
+    /// views name the consts, so a changed string would pass every other
+    /// test and break each view built before it.
+    #[test]
+    fn the_refusal_codes_are_the_wire_strings() {
+        use refusal::*;
+        let codes = [
+            (UNKNOWN_REQUEST, "unknown_request"),
+            (UNDECLARED_CAPABILITY, "undeclared_capability"),
+            (MALFORMED_REQUEST, "malformed_request"),
+            (TOO_LARGE, "too_large"),
+            (TICK_LIMIT, "tick_limit"),
+            (IN_FLIGHT_LIMIT, "in_flight_limit"),
+            (SUBSCRIPTION_LIMIT, "subscription_limit"),
+            (NOT_CONNECTED, "not_connected"),
+            (STALE_CONNECTION, "stale_connection"),
+            (SESSION_LOCKED, "session_locked"),
+            (RPC_CLIENT, "rpc_client"),
+            (NODE_FAILED, "node_failed"),
+            (HOST_FAULT, "host_fault"),
+            (INVALID_WIDGET_COMMAND, "invalid_widget_command"),
+            (WIDGET_COMMAND_FAILED, "widget_command_failed"),
+            (WIDGET_UNMOUNTED, "widget_unmounted"),
+            (NEEDS_GESTURE, "needs_gesture"),
+            (LINK_LIMIT, "link_limit"),
+            (INVITE_UNSUPPORTED, "invite_unsupported"),
+            (REQUEST_CLOSED, "request_closed"),
+        ];
+        for (code, wire) in codes {
+            assert_eq!(code, wire);
+        }
     }
 }

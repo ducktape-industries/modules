@@ -26,7 +26,7 @@ use view_wire::list::{
     ListCommand, UniformListHorizontalSizing, UniformListScrollRequest, UniformListScrollStrategy,
     UniformListSizing,
 };
-use view_wire::methods::{self, Method, Module};
+use view_wire::methods::{self, Method, Program};
 use view_wire::{
     Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
     CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
@@ -231,7 +231,7 @@ fn frame_and_events_are_the_committed_bytes() {
 
 /// The program a golden `module.query`/`op.submit`/`module.changes` addresses.
 struct Golden;
-impl Module for Golden {
+impl Program for Golden {
     const NAME: &'static str = "golden";
     type Op = String;
     type Query = (u64, String);

@@ -83,7 +83,7 @@ pub fn refused(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> guest::Error {
 }
 
 pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, guest::Error> {
-    Forge::query(&sandbox.reads(1), query.clone()).map(|reply| reply.0)
+    Forge::answer(&sandbox.reads(1), query.clone())
 }
 
 pub fn create(sandbox: &MemorySandbox, name: &str, hash: HashKind) {

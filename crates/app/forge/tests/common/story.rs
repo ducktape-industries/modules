@@ -74,7 +74,7 @@ impl Rig {
     }
 
     pub fn query(&self, query: &Query) -> Result<Vec<u8>, guest::Error> {
-        Forge::query(&self.sandbox.reads(self.height), query.clone()).map(|reply| reply.0)
+        Forge::answer(&self.sandbox.reads(self.height), query.clone())
     }
 
     /// `principal`'s chat message in a new block, signed by the key that

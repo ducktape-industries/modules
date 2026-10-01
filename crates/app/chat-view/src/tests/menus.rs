@@ -101,7 +101,7 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     // silently dropped (no submit, no error).
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
         interactivity, ..
-    })) = cx.find(&ui::menu::focus_key(Pane::Timeline, Mode::Delete))
+    })) = cx.find("chat-room-message-delete-frame")
     else {
         panic!("delete confirmation frame")
     };
@@ -111,9 +111,57 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     );
     cx.simulate_click("chat-menu-confirm-delete");
     cx.run_until_parked();
-    assert!(cx.host().requests::<Submit<ChatApi>>().iter().any(|op| {
-        matches!(op, Op::DeleteMessage { channel_id, seq: 1 } if channel_id == "general")
-    }));
+    assert!(
+        cx.host()
+            .requests::<Submit<::chat::Chat>>()
+            .iter()
+            .any(|op| {
+                matches!(op, Op::DeleteMessage { channel_id, seq: 1 } if channel_id == "general")
+            })
+    );
+}
+
+#[test]
+fn delete_confirmation_opens_with_the_keys_on_its_first_button() {
+    let (mut cx, view) = opened();
+    view.update(&mut cx, |chat, _, cx| {
+        chat.menu = Some(Menu {
+            pane: Pane::Timeline,
+            seq: 1,
+            rev: 0,
+            mode: Mode::More,
+            at: (611., 455.),
+        });
+        // the channel's owner deletes
+        chat.session.account = Some(7);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    cx.simulate_click("chat-menu-delete");
+    // Cancel, the first button, takes the keys on open: a stray Enter
+    // keeps the message
+    assert!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .iter()
+            .any(|command| matches!(
+                command,
+                wire::WidgetCommand::Focus { target }
+                    if target == &[wire::ElementIdWire::Name("chat-menu-cancel-delete".into())]
+            )),
+        "Cancel takes the keys on open"
+    );
+    let cancel = cx.interactivity("chat-menu-cancel-delete");
+    assert!(
+        cancel.focusable && cancel.tab_stop != Some(false),
+        "Cancel is a stop"
+    );
+    // the frame offers no focus: one it offered and no Tab reached was
+    // the door's AX-021 on it
+    let dialog = cx.interactivity("chat-room-message-delete-frame");
+    assert_eq!(dialog.role, Some(ducktape_view_guest::Role::AlertDialog));
+    assert_eq!(dialog.aria.label.as_deref(), Some("Delete this message?"));
+    assert!(!dialog.focusable, "the frame offers no focus");
 }
 
 #[test]
@@ -150,7 +198,7 @@ fn reaction_picker_keeps_labels_and_its_stable_action_id() {
     cx.run_until_parked();
     assert!(
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| { matches!(op, Op::AddReaction { emoji, .. } if emoji == "🔥") })
     );
@@ -261,7 +309,13 @@ fn the_message_menu_walks_its_items_and_enter_runs_one() {
             )),
         "the search field takes the keys on open"
     );
-    let dialog = cx.interactivity("chat-room-message-reaction-frame");
-    assert_eq!(dialog.role, Some(ducktape_view_guest::Role::Dialog));
-    assert!(!dialog.focusable, "the frame offers no focus");
+    let frame = cx.interactivity("chat-room-message-reaction-frame");
+    assert!(!frame.focusable, "the frame offers no focus");
+    // the host's modal layer is the picker's dialog: the frame is none
+    // (an inner Dialog the wire cannot mark modal is AX-103)
+    assert_eq!(frame.role, None, "the frame is no dialog of its own");
+    assert!(matches!(
+        cx.find("chat-menu-overlay"),
+        Some(wire::Node::Overlay { label: Some(label), .. }) if label == "Add reaction"
+    ));
 }

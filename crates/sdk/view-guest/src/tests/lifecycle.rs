@@ -13,6 +13,7 @@ struct Streams {
     task: Option<Task<()>>,
 }
 impl View for Streams {
+    const NAME: &'static str = "Streams";
     fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut stream = cx.host().subscribe::<Changes<Probe>>(());
         let task = cx.spawn(async move |this, cx| {

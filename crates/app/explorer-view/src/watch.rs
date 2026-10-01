@@ -5,9 +5,9 @@ use ducktape_view_guest::Context;
 use ducktape_view_guest::design;
 use ducktape_view_guest::methods::{ChainHeads, Changes, HostOffset, HostRoute, HostSession};
 use futures::StreamExt;
-use identity::view::IdentityApi;
-use module_registry::view::RegistryApi;
-use valset::view::ValsetApi;
+use identity::Identity;
+use module_registry::Modules;
+use valset::Valset;
 
 use crate::Explorer;
 
@@ -22,9 +22,9 @@ impl Explorer {
             .chain(futures::stream::iter([None]));
         let session = host.subscribe::<HostSession>(());
         let routes = host.subscribe::<HostRoute>(());
-        let identity = host.subscribe::<Changes<IdentityApi>>(());
-        let valset = host.subscribe::<Changes<ValsetApi>>(());
-        let registry = host.subscribe::<Changes<RegistryApi>>(());
+        let identity = host.subscribe::<Changes<Identity>>(());
+        let valset = host.subscribe::<Changes<Valset>>(());
+        let registry = host.subscribe::<Changes<Modules>>(());
         let offset = host.subscribe::<HostOffset>(());
         // Not `cx.for_each`, which redraws the view after every item: a head
         // is drawn with the page it brings (`at_head`). A refused or ended

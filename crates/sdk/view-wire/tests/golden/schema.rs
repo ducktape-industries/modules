@@ -27,7 +27,7 @@ use serde_reflection::{
     ContainerFormat, Format, FormatHolder, Named, Registry, Samples, Tracer, TracerConfig,
     VariantFormat,
 };
-use view_wire::methods::{self, Method, Module};
+use view_wire::methods::{self, Method, Program};
 use view_wire::{Event, Frame, Node, Patch, WidgetCommand};
 
 use super::golden;
@@ -316,11 +316,11 @@ pub(super) fn wire() -> Registry {
     registry
 }
 
-/// The program a node method addresses, as [`Module`] declares it: each of
+/// The program a node method addresses, as [`Program`] declares it: each of
 /// its types is a marker, so the schema reads `ModuleQuery` where a view's
 /// program puts its own.
 struct P;
-impl Module for P {
+impl Program for P {
     const NAME: &'static str = "P";
     type Op = ModuleOp;
     type Query = ModuleQuery;

@@ -7,8 +7,8 @@ use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire;
 use ducktape_view_guest::{Entity, StyleRefinement, Styled};
 
-use crate::api::{Ask, Changes, ChatApi, HostId, HostSession, HostVisible, Session, Submit};
-use ::chat::view::IdentityApi;
+use crate::api::{Ask, Changes, HostId, HostSession, HostVisible, Session, Submit};
+use program::role::Identity;
 
 mod menus;
 mod message;
@@ -100,7 +100,7 @@ fn configure(cx: &mut TestAppContext) {
             assert!(matches!(command, wire::WidgetCommand::Focus { .. }));
             Ok(())
         });
-    cx.host().handle::<Ask<ChatApi>>(|query| {
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::Accounts { .. } => Reply::Accounts(page(vec![
                 person(7, "eddy"),
@@ -151,9 +151,9 @@ fn configure(cx: &mut TestAppContext) {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    cx.host().never::<Changes<ChatApi>>();
-    cx.host().never::<Changes<IdentityApi>>();
-    cx.host().handle::<Submit<ChatApi>>(|_| Ok(Vec::new()));
+    cx.host().never::<Changes<::chat::Chat>>();
+    cx.host().never::<Changes<Identity>>();
+    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
 }
 
 /// Boots, seats a reader, lists rooms and opens `general` with two rows.

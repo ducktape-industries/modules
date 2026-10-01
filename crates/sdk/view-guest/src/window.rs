@@ -34,6 +34,7 @@ mod tests {
     #[derive(Serialize, Deserialize)]
     struct WidgetView(bool);
     impl View for WidgetView {
+        const NAME: &'static str = "WidgetView";
         fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
             let host = cx.host();
             cx.spawn(async move |this, cx| {

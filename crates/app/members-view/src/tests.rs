@@ -94,7 +94,7 @@ const SCOUT: &[u8] = b"\x09\x09";
 /// eddy (#7, the reader, a validator) manages scout (#9, active) and relay
 /// (#10, revoked); chat (#8) is a module; ada (#11) is another person.
 fn respond(cx: &mut TestAppContext) {
-    cx.host().handle::<Query<IdentityApi>>(|query| {
+    cx.host().handle::<Query<Identity>>(|query| {
         assert!(matches!(query, identity::Query::List { .. }));
         Ok(identity::Reply::Accounts(page(vec![
             module(8, "chat"),
@@ -111,7 +111,7 @@ fn respond(cx: &mut TestAppContext) {
             person(11, "ada", vec![key(b"\x0b", "phone")]),
         ])))
     });
-    cx.host().handle::<Query<ValsetApi>>(|query| {
+    cx.host().handle::<Query<Valset>>(|query| {
         assert!(matches!(query, valset::Query::Memberships { .. }));
         Ok(valset::Reply::Memberships(page(vec![valset::Membership {
             key: EDDY.to_vec(),
@@ -150,10 +150,10 @@ fn respond(cx: &mut TestAppContext) {
     });
 }
 
-fn ready() -> (TestAppContext, StreamSender<Changes<IdentityApi>>) {
+fn ready() -> (TestAppContext, StreamSender<Changes<Identity>>) {
     let mut cx = TestAppContext::new();
     let session = cx.host().stream::<HostSession>();
-    let feed = cx.host().stream::<Changes<IdentityApi>>();
+    let feed = cx.host().stream::<Changes<Identity>>();
     cx.host()
         .never::<ducktape_view_guest::methods::HostOffset>();
     respond(&mut cx);
@@ -208,7 +208,7 @@ fn the_list_groups_people_then_agents_then_modules_and_chooses_no_one() {
     }
     // nothing chosen, nothing read of the chain
     assert!(cx.host().requests::<ChainBlocks>().is_empty());
-    assert_eq!(cx.host().requests::<Changes<IdentityApi>>().len(), 1);
+    assert_eq!(cx.host().requests::<Changes<Identity>>().len(), 1);
 }
 
 #[test]
@@ -308,7 +308,7 @@ fn the_filter_and_the_chips_narrow_together_and_keep_the_choice() {
     let (mut cx, _) = ready();
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
-    let reads = cx.host().requests::<Query<IdentityApi>>().len();
+    let reads = cx.host().requests::<Query<Identity>>().len();
     // Modules: only chat
     cx.simulate_click("members-chip-3");
     assert!(cx.find("members-row-8").is_some() && cx.find("members-row-7").is_none());
@@ -324,17 +324,17 @@ fn the_filter_and_the_chips_narrow_together_and_keep_the_choice() {
     cx.simulate_input("members-filter", "");
     assert!(cx.find("members-row-11").is_some());
     assert!(cx.has_text("scout's bio"));
-    assert_eq!(cx.host().requests::<Query<IdentityApi>>().len(), reads);
+    assert_eq!(cx.host().requests::<Query<Identity>>().len(), reads);
 }
 
 #[test]
 fn loading_waits_for_the_host() {
     let mut cx = TestAppContext::new();
     cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<Identity>>();
     cx.host()
         .never::<ducktape_view_guest::methods::HostOffset>();
-    cx.host().never::<Query<IdentityApi>>();
+    cx.host().never::<Query<Identity>>();
     cx.open::<Members>();
     cx.run_until_parked();
     assert!(cx.has_text("Reading the roster…"));
@@ -344,13 +344,13 @@ fn loading_waits_for_the_host() {
 fn a_roster_with_nobody_in_it_says_so() {
     let mut cx = TestAppContext::new();
     cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<Identity>>();
     cx.host()
         .never::<ducktape_view_guest::methods::HostOffset>();
     cx.host()
-        .handle::<Query<IdentityApi>>(|_| Ok(identity::Reply::Accounts(page(vec![]))));
+        .handle::<Query<Identity>>(|_| Ok(identity::Reply::Accounts(page(vec![]))));
     cx.host()
-        .handle::<Query<ValsetApi>>(|_| Ok(valset::Reply::Memberships(page(vec![]))));
+        .handle::<Query<Valset>>(|_| Ok(valset::Reply::Memberships(page(vec![]))));
     cx.open::<Members>();
     cx.run_until_parked();
     assert!(cx.has_text("No accounts"));
@@ -360,11 +360,11 @@ fn a_roster_with_nobody_in_it_says_so() {
 fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     let mut cx = TestAppContext::new();
     cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<Identity>>();
     cx.host()
         .never::<ducktape_view_guest::methods::HostOffset>();
     cx.host()
-        .refuse::<Query<IdentityApi>>("unavailable", "identity is not running here");
+        .refuse::<Query<Identity>>("unavailable", "identity is not running here");
     cx.open::<Members>();
     cx.run_until_parked();
     assert!(cx.has_text("identity is not running here"));
@@ -372,7 +372,7 @@ fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     cx.simulate_click("members-retry");
     cx.run_until_parked();
     assert!(cx.has_text("eddy"));
-    assert_eq!(cx.host().requests::<Query<IdentityApi>>().len(), 2);
+    assert_eq!(cx.host().requests::<Query<Identity>>().len(), 2);
 }
 
 #[test]
@@ -381,12 +381,12 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
     cx.host()
-        .refuse::<Query<IdentityApi>>("unavailable", "refresh temporarily unavailable");
+        .refuse::<Query<Identity>>("unavailable", "refresh temporarily unavailable");
     feed.send(None);
     cx.run_until_parked();
     assert!(cx.has_text("scout's bio"));
-    assert_eq!(cx.host().requests::<Query<IdentityApi>>().len(), 2);
-    cx.host().handle::<Query<IdentityApi>>(|_| {
+    assert_eq!(cx.host().requests::<Query<Identity>>().len(), 2);
+    cx.host().handle::<Query<Identity>>(|_| {
         Ok(identity::Reply::Accounts(page(vec![
             person(7, "eddy", vec![key(EDDY, "laptop")]),
             agent(
@@ -407,11 +407,11 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
     let bytes = cx.snapshot().unwrap();
     let mut restored = TestAppContext::new();
     restored.host().stream::<HostSession>();
-    restored.host().stream::<Changes<IdentityApi>>();
+    restored.host().stream::<Changes<Identity>>();
     restored
         .host()
         .never::<ducktape_view_guest::methods::HostOffset>();
-    restored.host().never::<Query<IdentityApi>>();
+    restored.host().never::<Query<Identity>>();
     restored.host().never::<ChainBlocks>();
     let view = restored.restore::<Members>(&bytes).unwrap();
     restored.run_until_parked();
@@ -421,7 +421,7 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
         assert_eq!(view.only, Some(Group::Agents));
         assert_eq!(view.selected, Some(9));
     });
-    assert_eq!(restored.host().requests::<Query<IdentityApi>>().len(), 1);
+    assert_eq!(restored.host().requests::<Query<Identity>>().len(), 1);
     // the activity is read again for the restored choice
     assert_eq!(restored.host().requests::<ChainBlocks>().len(), 1);
 }
@@ -595,10 +595,10 @@ fn a_managed_agent_is_named_by_the_agent_not_the_avatar() {
 fn a_kind_with_no_one_in_it_says_so_without_quoting_an_empty_filter() {
     let mut cx = TestAppContext::new();
     cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<Identity>>();
     cx.host()
         .never::<ducktape_view_guest::methods::HostOffset>();
-    cx.host().handle::<Query<IdentityApi>>(|_| {
+    cx.host().handle::<Query<Identity>>(|_| {
         Ok(identity::Reply::Accounts(page(vec![person(
             7,
             "eddy",
@@ -606,7 +606,7 @@ fn a_kind_with_no_one_in_it_says_so_without_quoting_an_empty_filter() {
         )])))
     });
     cx.host()
-        .handle::<Query<ValsetApi>>(|_| Ok(valset::Reply::Memberships(page(vec![]))));
+        .handle::<Query<Valset>>(|_| Ok(valset::Reply::Memberships(page(vec![]))));
     cx.open::<Members>();
     cx.run_until_parked();
     cx.simulate_click("members-chip-2");

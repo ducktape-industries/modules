@@ -1,11 +1,11 @@
 #!/bin/sh
 # `make new-module NAME=x` / `make new-view NAME=x-view`: a module in
-# valset's shape (types and `describe` in lib.rs, the module in program.rs,
-# its rules over `store` in rules.rs, the marker a view names it by in
-# view.rs behind `view`, a native test over `guest::MockHost` in tests.rs;
-# its wasm exports behind `module`, its describe module behind `describe`)
-# or a view in members-view's shape (links its module with `view` on and
-# `module` off, `export_view!`, one screen test), registered in the Makefile
+# valset's shape (types and `describe` in lib.rs, the program and the module
+# in program.rs, its rules over `store` in rules.rs, a native test over
+# `guest::MockHost` in tests.rs; its wasm exports behind `module`, its
+# describe module behind `describe`) or a view in members-view's shape
+# (links its module with `module` off, `export_view!`, one screen test),
+# registered in the Makefile
 # and the workspace. `make scaffold-check` builds and tests both. Run from
 # the repo root.
 #   tools/scaffold.sh module <name> | view <name>-view
@@ -62,14 +62,11 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 module = []
-# \`view\` adds the marker a view names this module by.
-view = ["dep:ducktape-view-guest"]
 # \`describe\` makes this crate's wasm build the \`ducktape.describe\` module:
 # the \`describe\` export alone, no module, no imports.
 describe = []
 
 [dependencies]
-ducktape-view-guest = { workspace = true, optional = true }
 abi = { workspace = true }
 borsh = { workspace = true }
 describe = { workspace = true }
@@ -82,17 +79,15 @@ EOF
 //! with \`module\` off. The layout, in reading order:
 //!
 //! - \`lib.rs\` (here): the types on the wire, all borsh, and [\`describe()\`]
-//! - \`program.rs\`: [\`$title\`], the module: one match over every op and
-//!   one over every query
+//! - \`program.rs\`: [\`$title\`], the program (its name and types, which a
+//!   view names it by) and the module: one match over every op and one
+//!   over every query
 //! - \`rules.rs\`: what each op checks and writes, over \`store\`
-//! - \`view.rs\` (feature \`view\`): the marker \`$name-view\` names this module by
 //! - \`tests.rs\`: the module natively over \`guest::MockHost\`
 mod program;
 mod rules;
 #[cfg(test)]
 mod tests;
-#[cfg(feature = "view")]
-pub mod view;
 
 pub use program::$title;
 
@@ -140,18 +135,21 @@ EOF
     cat > "$dir/src/program.rs" <<EOF
 //! The module: every op and every query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, QueryCtx};
+use guest::{Error, ExecCtx, Module, Program, QueryCtx};
 
 use crate::rules::{bump, count};
-use crate::{Op, Query, Reply};
+use crate::{MODULE, Op, Query, Reply};
 
 pub struct $title;
 
-impl Module for $title {
+impl Program for $title {
+    const NAME: &'static str = MODULE;
     type Op = Op;
     type Query = Query;
-    type Response = Reply;
+    type Reply = Reply;
+}
 
+impl Module for $title {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         // A write acts as an account: a key that holds none is refused.
         ctx.sender()?;
@@ -187,18 +185,6 @@ pub(crate) fn bump(ctx: &ExecCtx, by: u64) -> Result<(), Error> {
 
 pub(crate) fn count(ctx: &QueryCtx) -> Result<u64, Error> {
     Ok(COUNT.get(ctx)?.unwrap_or_default())
-}
-EOF
-    cat > "$dir/src/view.rs" <<EOF
-//! The marker a view names this module by in \`module.query\`/\`op.submit\`.
-use ducktape_view_guest::methods::Module;
-
-pub struct ${title}Api;
-impl Module for ${title}Api {
-    const NAME: &'static str = crate::MODULE;
-    type Op = crate::Op;
-    type Query = crate::Query;
-    type Reply = crate::Reply;
 }
 EOF
     cat > "$dir/src/tests.rs" <<EOF
@@ -239,7 +225,7 @@ EOF
     edit Cargo.toml "s|$DEPS|&\\
 $name = { path = \"$dir\" }|"
     cat <<EOF
-$dir/{Cargo.toml,src/{lib,program,rules,view,tests}.rs}, PROGRAMS, VIEW_LINKABLE, workspace members and dependencies.
+$dir/{Cargo.toml,src/{lib,program,rules,tests}.rs}, PROGRAMS, VIEW_LINKABLE, workspace members and dependencies.
 Next:
   1. write the contract (Op/Query/Reply and describe() in lib.rs, the module in program.rs, its rules in rules.rs); \`make dev P=$name\` builds and tests it
   2. \`make new-view NAME=$name-view\` for its screen
@@ -275,9 +261,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 futures.workspace = true
 ducktape-view-guest.workspace = true
-# The module with \`module\` off and \`view\` on: its types and the marker
-# this view names it by, no host import.
-$program = { workspace = true, features = ["view"] }
+# The module with \`module\` off: its types and the program this view
+# names it by, no host import.
+$program.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
@@ -286,7 +272,7 @@ EOF
     cat > "$dir/src/lib.rs" <<EOF
 //! $title: the count the \`$program\` module keeps, re-read on every live
 //! bump of the module.
-use ducktape_view_guest::methods::{Changes, Query};
+use ducktape_view_guest::methods::{Capability, Changes, Query};
 use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::Error;
 use ducktape_view_guest::Loadable;
@@ -297,8 +283,6 @@ use ducktape_view_guest::{
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use $program_snake::view::${title}Api;
-
 #[derive(Serialize, Deserialize, Default)]
 pub struct $title {
     count: Loadable<u64>,
@@ -307,6 +291,9 @@ pub struct $title {
 }
 
 impl View for $title {
+    const NAME: &'static str = "$title";
+    const DESCRIPTION: &'static str = "The count the $program module keeps.";
+    const CAPABILITIES: &'static [Capability] = &[Capability::Module];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -316,7 +303,7 @@ impl View for $title {
     }
 
     fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let mut stream = cx.host().subscribe::<Changes<${title}Api>>(());
+        let mut stream = cx.host().subscribe::<Changes<$program_snake::$title>>(());
         self.live = Some(cx.spawn(async move |this, cx| {
             while stream.next().await.is_some() {
                 if this.update(cx, |view, cx| view.read(cx)).is_err() {
@@ -375,17 +362,12 @@ impl $title {
 
 async fn count(host: Host) -> Result<u64, Error> {
     let $program_snake::Reply::Count(count) = host
-        .ask::<Query<${title}Api>>($program_snake::Query::Count)
+        .ask::<Query<$program_snake::$title>>($program_snake::Query::Count)
         .await?;
     Ok(count)
 }
 
-export_view!(
-    $title,
-    "$title",
-    "The count the $program module keeps.",
-    [Module]
-);
+export_view!($title);
 
 #[cfg(test)]
 mod tests;
@@ -396,9 +378,9 @@ use ducktape_view_guest::testing::TestAppContext;
 
 fn ready() -> TestAppContext {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<${title}Api>>();
+    cx.host().stream::<Changes<$program_snake::$title>>();
     cx.host()
-        .handle::<Query<${title}Api>>(|_| Ok($program_snake::Reply::Count(5)));
+        .handle::<Query<$program_snake::$title>>(|_| Ok($program_snake::Reply::Count(5)));
     cx.open::<$title>();
     cx.run_until_parked();
     cx

@@ -6,8 +6,7 @@ use ducktape_view_guest::Loadable;
 
 use crate::Chat;
 use crate::api::Session;
-use crate::queries::channels;
-use chat::view::roster;
+use crate::queries::{channels, roster};
 
 /// Why the reader may not write in the open room.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

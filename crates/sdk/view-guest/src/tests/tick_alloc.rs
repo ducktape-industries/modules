@@ -83,6 +83,7 @@ struct Pages {
     keyed_chrome: bool,
 }
 impl View for Pages {
+    const NAME: &'static str = "Pages";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self {
             rows: false,

@@ -1,7 +1,7 @@
 //! The Change screens: the list, the detail header, the conversation, the
 //! reviewer's Files tab, and the one operation a review becomes.
 use super::{booted, change_screen, change_screen_as, opened};
-use crate::api::{ChatApi, SubmitForge};
+use crate::api::SubmitForge;
 use crate::state::ChangeTab;
 use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::wire;
@@ -269,7 +269,7 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
     cx.run_until_parked();
     assert!(
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| matches!(
                 op,

@@ -4,9 +4,8 @@ use ducktape_view_guest::methods::{Query, Submit};
 
 pub use ducktape_view_guest::methods::{HostSession, Session};
 
-/// The forge and chat programs, by their own markers (named apart from
-/// this view's `Forge` and the chat module's `Chat`).
-pub use chat::view::ChatApi;
-pub use forge::view::ForgeApi;
-pub type Ask = Query<ForgeApi>;
-pub type SubmitForge = Submit<ForgeApi>;
+/// The forge program's two methods (`forge::Forge` the program, apart from
+/// this view's `Forge`), and chat's read.
+pub type Ask = Query<forge::Forge>;
+pub type SubmitForge = Submit<forge::Forge>;
+pub type AskChat = Query<chat::Chat>;

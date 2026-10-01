@@ -37,13 +37,11 @@ mod reads;
 mod state;
 
 mod program;
-#[cfg(feature = "view")]
-pub mod view;
 
 pub use contract::*;
 pub use description::describe;
 pub use ops::MODULE;
-pub use program::{Forge, RawReply};
+pub use program::Forge;
 
 /// Old op bytes are described with the current code (`describe`): the op
 /// enum only grows at its end. Append a new variant here; never reorder.

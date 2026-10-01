@@ -116,7 +116,7 @@ fn replay(tape: &mut Tape) {
     let q = Query::Repos {
         page: PageRequest::first(2),
     };
-    let bytes = Forge::query(&empty.reads(0), q.clone()).unwrap().0;
+    let bytes = Forge::answer(&empty.reads(0), q.clone()).unwrap();
     let _: Reply = abi::decode(&bytes).unwrap();
     tape.save("repos-empty", abi::encode(&q), bytes);
     tape.capture(

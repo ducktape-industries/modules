@@ -3,6 +3,8 @@ use crate::api::*;
 use ducktape_view_guest::methods::{Changes, ClipboardWrite, Query};
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::{Theme, wire};
+use identity::Identity;
+use valset::Valset;
 
 fn account(number: u64, name: &str, control: identity::Control) -> identity::Account {
     identity::Account {
@@ -39,7 +41,7 @@ fn scout() -> identity::Account {
     )
 }
 fn respond(cx: &TestAppContext) {
-    cx.host().handle::<Query<IdentityApi>>(|q| {
+    cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
             identity::Query::Get { number } => {
                 assert_eq!(number, 7);
@@ -55,7 +57,7 @@ fn respond(cx: &TestAppContext) {
             q => panic!("unexpected query: {q:?}"),
         })
     });
-    cx.host().handle::<Query<ValsetApi>>(|q| {
+    cx.host().handle::<Query<Valset>>(|q| {
         Ok(match q {
             valset::Query::Membership { key } => {
                 valset::Reply::Membership(Some(valset::Membership {
@@ -74,18 +76,18 @@ fn fixture(state: &str, dark: bool) -> TestAppContext {
 /// The fixture, and the session feed the host speaks through.
 fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>) {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<ValsetApi>>();
-    cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<Valset>>();
+    cx.host().stream::<Changes<Identity>>();
     let props = cx.host().stream::<HostSession>();
     respond(&cx);
     match state {
-        "unregistered" => cx.host().handle::<Query<IdentityApi>>(|q| match q {
+        "unregistered" => cx.host().handle::<Query<Identity>>(|q| match q {
             identity::Query::Resolve { references } => {
                 Ok(identity::Reply::Resolved(vec![None; references.len()]))
             }
             q => panic!("an unregistered key asks identity who holds it, nothing more: {q:?}"),
         }),
-        "suspended" => cx.host().handle::<Query<IdentityApi>>(|q| {
+        "suspended" => cx.host().handle::<Query<Identity>>(|q| {
             Ok(match q {
                 identity::Query::Resolve { references } => {
                     assert_eq!(references, vec![identity::Reference::Key(vec![0xab, 0xcd])]);
@@ -106,11 +108,11 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
             })
         }),
         "loading" => {
-            cx.host().never::<Query<IdentityApi>>();
+            cx.host().never::<Query<Identity>>();
         }
         "refused" => {
             cx.host()
-                .refuse::<Query<IdentityApi>>("unavailable", "Account query refused.");
+                .refuse::<Query<Identity>>("unavailable", "Account query refused.");
         }
         _ => {}
     }
@@ -309,8 +311,8 @@ fn a_refusal_retries_and_a_snapshot_restores() {
 #[test]
 fn an_account_changed_elsewhere_is_read_again() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<ValsetApi>>();
-    let accounts = cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<Valset>>();
+    let accounts = cx.host().stream::<Changes<Identity>>();
     let props = cx.host().stream::<HostSession>();
     respond(&cx);
     cx.open::<Settings>();
@@ -324,7 +326,7 @@ fn an_account_changed_elsewhere_is_read_again() {
     cx.run_until_parked();
     assert!(cx.find("settings/agents/12/suspend").is_some());
     // Maya suspends Scout from another device
-    cx.host().handle::<Query<IdentityApi>>(|q| {
+    cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
             identity::Query::Get { number } => {
                 identity::Reply::Account(Some(maya(number, "Laptop key")))
@@ -438,11 +440,11 @@ fn unregistered_key_creates_an_account() {
     cx.simulate_click("settings/account/create/submit");
     cx.run_until_parked();
     assert!(cx.has_text("Enter an account name."));
-    assert!(cx.host().requests::<Submit<IdentityApi>>().is_empty());
+    assert!(cx.host().requests::<Submit<Identity>>().is_empty());
 
     // A refusal from the program lands as a human sentence, name kept.
     cx.host()
-        .refuse::<Submit<IdentityApi>>("invalid", "a name is not empty");
+        .refuse::<Submit<Identity>>("invalid", "a name is not empty");
     cx.simulate_input("settings/account/create/name", "Maya");
     cx.simulate_submit("settings/account/create/name");
     cx.run_until_parked();
@@ -450,14 +452,14 @@ fn unregistered_key_creates_an_account() {
 
     // Success holds the form busy until the host's session names the new
     // account, which is read: "Who I am" now carries the name.
-    cx.host().handle::<Submit<IdentityApi>>(|op| {
+    cx.host().handle::<Submit<Identity>>(|op| {
         assert!(matches!(
             op,
             identity::Op::Create { ref name, scheme: abi::Scheme::Ed25519 } if name == "Maya"
         ));
         Ok(Vec::new())
     });
-    cx.host().handle::<Query<IdentityApi>>(|q| {
+    cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
             identity::Query::Get { number } => {
                 assert_eq!(number, 9);
@@ -489,7 +491,7 @@ fn unregistered_key_creates_an_account() {
 #[test]
 fn create_account_disables_controls_while_busy() {
     let mut cx = fixture("unregistered", false);
-    cx.host().never::<Submit<IdentityApi>>();
+    cx.host().never::<Submit<Identity>>();
     cx.simulate_input("settings/account/create/name", "Maya");
     cx.simulate_click("settings/account/create/submit");
     cx.run_until_parked();
@@ -551,18 +553,18 @@ fn a_field_is_named_apart_from_its_hint() {
 #[test]
 fn long_host_key_is_truncated_and_non_validator_standing_is_quiet() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<ValsetApi>>();
-    cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<Valset>>();
+    cx.host().stream::<Changes<Identity>>();
     let props = cx.host().stream::<HostSession>();
     let long_key = vec![0x11; 32];
     let long_hex = abi::hex(&long_key);
-    cx.host().handle::<Query<ValsetApi>>(|q| {
+    cx.host().handle::<Query<Valset>>(|q| {
         Ok(match q {
             valset::Query::Membership { .. } => valset::Reply::Membership(None),
             q => panic!("unexpected query: {q:?}"),
         })
     });
-    cx.host().handle::<Query<IdentityApi>>(|q| match q {
+    cx.host().handle::<Query<Identity>>(|q| match q {
         identity::Query::Resolve { .. } => Ok(identity::Reply::Resolved(vec![None])),
         q => panic!("unexpected query: {q:?}"),
     });
@@ -589,14 +591,14 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     for text in ["Scout", "active", "account 12 · 0 keys"] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
-    cx.host().handle::<Submit<IdentityApi>>(|op| {
+    cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(op, identity::Op::CreateAgent { name: "Bot".into() });
         Ok(Vec::new())
     });
     cx.simulate_input("settings/agents/create/name", " Bot ");
     cx.simulate_click("settings/agents/create/submit");
     cx.run_until_parked();
-    assert_eq!(cx.host().requests::<Submit<IdentityApi>>().len(), 1);
+    assert_eq!(cx.host().requests::<Submit<Identity>>().len(), 1);
 
     // a request that is not an AddKey for one of Maya's agents never leaves
     cx.simulate_input("settings/agents/key/request", "zz");
@@ -614,14 +616,14 @@ fn a_person_creates_an_agent_and_adds_its_key() {
         },
     };
     let expected = add.clone();
-    cx.host().handle::<Submit<IdentityApi>>(move |op| {
+    cx.host().handle::<Submit<Identity>>(move |op| {
         assert_eq!(op, expected);
         Ok(Vec::new())
     });
     cx.simulate_input("settings/agents/key/request", &abi::hex(&abi::encode(&add)));
     cx.simulate_click("settings/agents/key/submit");
     cx.run_until_parked();
-    assert_eq!(cx.host().requests::<Submit<IdentityApi>>().len(), 2);
+    assert_eq!(cx.host().requests::<Submit<Identity>>().len(), 2);
     assert!(!cx.has_text("That isn’t a key request for one of your agents."));
 }
 
@@ -633,7 +635,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     let mut cx = fixture("ready", false);
     cx.simulate_click("settings/nav/agents");
     cx.run_until_parked();
-    let sent = |cx: &TestAppContext| cx.host().requests::<Submit<IdentityApi>>().len();
+    let sent = |cx: &TestAppContext| cx.host().requests::<Submit<Identity>>().len();
     // Rename turns the name into a field holding it; Save sends it
     assert!(cx.find("settings/agents/12/name").is_none());
     cx.simulate_click("settings/agents/12/rename");
@@ -652,7 +654,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
         cx.texts()
     );
     assert_eq!(sent(&cx), 0);
-    cx.host().handle::<Submit<IdentityApi>>(|op| {
+    cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(
             op,
             identity::Op::SetName {
@@ -675,12 +677,12 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     // active, its line offers Suspend; suspended, Resume; revoked, nothing
     assert!(cx.find("settings/agents/12/suspend").is_some());
     assert!(cx.find("settings/agents/12/resume").is_none());
-    cx.host().handle::<Submit<IdentityApi>>(|op| {
+    cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(op, identity::Op::Suspend { account: 12 });
         Ok(Vec::new())
     });
     let suspended = |cx: &TestAppContext, life: identity::Life| {
-        cx.host().handle::<Query<IdentityApi>>(move |q| {
+        cx.host().handle::<Query<Identity>>(move |q| {
             let life = life.clone();
             Ok(match q {
                 identity::Query::Get { number } => {
@@ -716,7 +718,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     assert!(cx.find("settings/agents/12/resume").is_some());
     let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let logged = log.clone();
-    cx.host().handle::<Submit<IdentityApi>>(move |op| {
+    cx.host().handle::<Submit<Identity>>(move |op| {
         logged.borrow_mut().push(op);
         Ok(Vec::new())
     });
@@ -753,8 +755,8 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
 #[test]
 fn an_identity_head_re_reads_the_account_in_place() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<ValsetApi>>();
-    let heads = cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().stream::<Changes<Valset>>();
+    let heads = cx.host().stream::<Changes<Identity>>();
     let props = cx.host().stream::<HostSession>();
     respond(&cx);
     cx.open::<Settings>();
@@ -765,7 +767,7 @@ fn an_identity_head_re_reads_the_account_in_place() {
     });
     cx.run_until_parked();
     assert!(cx.has_text("Maya"));
-    cx.host().handle::<Query<IdentityApi>>(|q| {
+    cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
             identity::Query::Get { number } => {
                 let mut renamed = maya(number, "Laptop key");

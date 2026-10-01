@@ -5,6 +5,7 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     #[derive(Serialize, Deserialize)]
     struct Picture(u32);
     impl View for Picture {
+        const NAME: &'static str = "Picture";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self(0)
         }
@@ -88,6 +89,7 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
         keyed_chrome: bool,
     }
     impl View for Pages {
+        const NAME: &'static str = "Pages";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self {
                 rows: false,
@@ -202,6 +204,7 @@ fn primitive_sources_fallbacks_transformations_and_typed_ids_survive_lowering() 
     #[derive(Serialize, Deserialize)]
     struct Primitives;
     impl View for Primitives {
+        const NAME: &'static str = "Primitives";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self
         }
