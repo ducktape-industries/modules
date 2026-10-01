@@ -136,8 +136,16 @@ fn reaction_picker_keeps_labels_and_its_stable_action_id() {
     else {
         panic!("reaction is a native cell");
     };
-    assert_eq!(interactivity.aria.label.as_deref(), Some("Add reaction"));
-    assert_eq!(interactivity.aria.description.as_deref(), Some("🔥"));
+    // each cell is named by its emoji: 48 "Add reaction"s told nothing apart
+    assert_eq!(interactivity.aria.label.as_deref(), Some("React with 🔥"));
+    assert_eq!(interactivity.aria.description, None);
+    assert_eq!(
+        cx.interactivity("chat-reaction-Smileys-😀")
+            .aria
+            .label
+            .as_deref(),
+        Some("React with 😀")
+    );
     cx.simulate_click("chat-reaction-🔥");
     cx.run_until_parked();
     assert!(
@@ -240,8 +248,20 @@ fn the_message_menu_walks_its_items_and_enter_runs_one() {
             Some(Mode::Reactions)
         );
     });
-    // the picker's dialog frame is focused by id, not a stop of its own
+    // the picker's search field takes the keys on open; its dialog frame
+    // offers no focus (a focus offered that no Tab reaches is AX-021)
+    assert!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .iter()
+            .any(|command| matches!(
+                command,
+                wire::WidgetCommand::Focus { target }
+                    if target == &[wire::ElementIdWire::Name("chat-room-message-reaction-focus".into())]
+            )),
+        "the search field takes the keys on open"
+    );
     let dialog = cx.interactivity("chat-room-message-reaction-frame");
     assert_eq!(dialog.role, Some(ducktape_view_guest::Role::Dialog));
-    assert!(dialog.focusable && dialog.tab_stop == Some(false));
+    assert!(!dialog.focusable, "the frame offers no focus");
 }
