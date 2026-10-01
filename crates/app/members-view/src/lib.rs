@@ -49,6 +49,13 @@ pub struct Members {
     /// what the selected account signed lately; read again on restore
     #[serde(skip)]
     activity: Loadable<Recent>,
+    /// each account's activity as last read: an account chosen again shows
+    /// it at once (the arrows run down the list and back) while `rereading`
+    /// reads it anew
+    #[serde(skip)]
+    seen: std::collections::HashMap<u64, Recent>,
+    #[serde(skip)]
+    rereading: Option<Task<()>>,
     #[serde(skip)]
     watches: Vec<Task<()>>,
     /// the pane's measured width; `None` until the first measure
@@ -221,6 +228,7 @@ impl Members {
     /// Reads the selected account's recent activity, once its keys are
     /// known; an account with no keys signs nothing and asks nothing.
     fn read_activity(&mut self, cx: &mut Context<Self>) {
+        self.rereading = None;
         let Some(row) = self.selected_row() else {
             return;
         };
@@ -228,21 +236,32 @@ impl Members {
             self.activity = Loadable::Idle;
             return;
         }
+        let number = row.number;
         let keys = row
             .devices
             .iter()
             .map(|device| device.key.clone())
             .collect();
         let work = activity::recent(cx.host(), keys);
-        // held in `activity`, so choosing someone else drops it unfinished
+        // held in `activity` or `rereading`, so choosing someone else drops
+        // it unfinished
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |view, cx| {
+                if let Ok(recent) = &result {
+                    view.seen.insert(number, recent.clone());
+                }
                 view.activity = Loadable::from(result);
                 cx.notify();
             });
         });
-        self.activity = Loadable::Loading(task);
+        match self.seen.get(&number) {
+            Some(recent) => {
+                self.activity = Loadable::Ready(recent.clone());
+                self.rereading = Some(task);
+            }
+            None => self.activity = Loadable::Loading(task),
+        }
     }
 
     fn selected_row(&self) -> Option<&Row> {

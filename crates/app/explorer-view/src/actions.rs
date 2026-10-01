@@ -22,6 +22,7 @@ impl Explorer {
                 );
             }
         }
+        self.left[route.tab()] = Some(route.clone());
         self.route = route;
         self.note = None;
         self.cursor = None;
