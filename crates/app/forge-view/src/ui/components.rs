@@ -13,6 +13,9 @@ use ducktape_view_guest::{
     AnchoredPositionMode, Div, Edges, KeyDownEvent, Point, Stateful, accesskit,
 };
 
+/// The smallest box a pointer presses, each way (the door's AX-017).
+pub(crate) const PRESS_TARGET: Pixels = px(24.);
+
 pub(crate) fn id(text: impl Into<String>) -> ElementId {
     ElementId::Name(text.into().into())
 }

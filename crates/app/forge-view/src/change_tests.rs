@@ -771,3 +771,22 @@ fn a_reader_without_write_gets_no_close_or_merge() {
         assert_eq!(node.interactivity.aria.disabled, Some(true), "{id}");
     }
 }
+
+/// A gutter's comment button is a 24 px press target, the door's AX-017
+/// floor: its box is at least 24 px tall, the number centred down it, in
+/// a gutter column wider than that.
+#[test]
+fn a_gutter_comment_button_is_at_least_24_px_each_way() {
+    use ducktape_view_guest::px;
+    let (cx, _view) = change_screen("reviewed", ChangeTab::Files);
+    for key in [
+        "forge-gutter-src/lib.rs-old-1",
+        "forge-gutter-src/lib.rs-new-1",
+        "forge-gutter-src/lib.rs-new-5",
+    ] {
+        let button = super::control(&cx, key);
+        assert_eq!(button.style.min_size.height, Some(px(24.).into()), "{key}");
+        let column = super::control(&cx, &format!("{key}-cell")).style.size.width;
+        assert_eq!(column, Some(px(44.).into()), "{key}");
+    }
+}
