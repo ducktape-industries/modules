@@ -14,7 +14,7 @@
 //! clock, one ask of each in flight at a time.
 use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::{
-    ChainBlocks, ChainNetwork, ChainStatus, Changes, ClockTicks, NetworkStatus, NodeStatus,
+    self, ChainBlocks, ChainNetwork, ChainStatus, Changes, ClockTicks, NetworkStatus, NodeStatus,
 };
 use ducktape_view_guest::{
     Context, IntoElement, Loadable, Render, Task, View, Window, export_view,
@@ -70,8 +70,6 @@ pub(crate) struct Asking {
 const TICK: i64 = 1_000;
 /// Ticks without a status answer before the node reads Not answering.
 pub(crate) const SILENT_TICKS: u64 = 3;
-/// The refusal of a node that does not serve `chain.network`.
-const UNSUPPORTED: &str = "unknown_request";
 
 impl View for Nodes {
     const MIN_WINDOW_WIDTH: u32 = 480;
@@ -176,7 +174,8 @@ impl Nodes {
                 view.asking.network = false;
                 match answer {
                     Ok(network) => view.network = Loadable::Ready(network),
-                    Err(refusal) if refusal.code == UNSUPPORTED => {
+                    // a node that does not serve `chain.network`
+                    Err(refusal) if refusal.code == methods::refusal::UNKNOWN_REQUEST => {
                         if view.network.failed().is_none() {
                             cx.host()
                                 .log_refused("nodes", "the validators' votes", &refusal);

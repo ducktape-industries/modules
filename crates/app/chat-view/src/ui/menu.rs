@@ -29,6 +29,8 @@ const STACK_GAP: f32 = design::spacing::XS as f32;
 /// From a press on the action strip to past its edge, either way: the
 /// strip is 26 tall, and a gap keeps the menu off it.
 const STRIP_CLEAR: f32 = 26. + design::spacing::XS as f32;
+/// The delete confirmation's Cancel, the button that takes the keys on open.
+const CANCEL_DELETE: &str = "chat-menu-cancel-delete";
 type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 mod picker;
@@ -43,7 +45,9 @@ fn prefix(pane: Pane) -> &'static str {
 pub fn focus_key(pane: Pane, mode: Mode) -> String {
     let suffix = match mode {
         Mode::Reactions => "reaction-focus",
-        Mode::Delete => "delete-focus",
+        // the confirmation's first button, Cancel: a stray Enter on open
+        // keeps the message
+        Mode::Delete => return CANCEL_DELETE.into(),
         _ => "action-focus",
     };
     format!("{}{suffix}", prefix(pane))
@@ -58,22 +62,24 @@ pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<An
     // the picker's focus key names its search field, which takes the keys
     let id = match menu.mode {
         Mode::Reactions => format!("{}reaction-frame", prefix(menu.pane)),
+        Mode::Delete => format!("{}delete-frame", prefix(menu.pane)),
         _ => focus_key(menu.pane, menu.mode),
     };
     let frame = match menu.mode {
-        // the picker's dialog: its search field takes the keys on open
-        // (`open_menu` focuses `focus_key`, the field), so the frame offers
-        // no focus of its own — a focus it offered and no Tab reached was
-        // the census's AX-021 on it
-        Mode::Reactions => div().id(id).role(Role::Dialog).aria_label("Add reaction"),
-        // a dialog focused by id on open (`open_menu`): it hands the keys
-        // to its buttons, the stops; it is none itself
+        // the picker: its search field takes the keys on open (`open_menu`
+        // focuses `focus_key`, the field), so the frame offers no focus of
+        // its own — a focus it offered and no Tab reached was the census's
+        // AX-021 on it. The overlay around it is the dialog, named "Add
+        // reaction": an inner Dialog the wire cannot mark modal held Tab
+        // and read as non-modal (AX-103)
+        Mode::Reactions => div().id(id),
+        // the confirmation's dialog: its first button takes the keys on
+        // open (`open_menu` focuses `focus_key`, Cancel), so the frame
+        // offers no focus either — the same AX-021 as the picker's
         Mode::Delete => div()
             .id(id)
             .role(Role::AlertDialog)
-            .aria_label("Delete this message?")
-            .focusable()
-            .tab_stop(false),
+            .aria_label("Delete this message?"),
         // the actions are a menu: one stop whose ↑ ↓ walk the items and
         // Enter runs the active one
         _ => {
@@ -327,7 +333,7 @@ fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
                 .justify_end()
                 .gap_2()
                 .child(Item::text(
-                    "chat-menu-cancel-delete",
+                    CANCEL_DELETE,
                     "Cancel",
                     Some(Box::new(cancel)),
                     *theme,
