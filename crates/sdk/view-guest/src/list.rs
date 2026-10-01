@@ -449,7 +449,7 @@ mod tests {
             panic!("expected list")
         };
         let (handler, start) = (*request_handler, *range_start);
-        let frame = driver.tick_wire(vec![wire::Event::ListRequest {
+        let frame = driver.tick(vec![wire::Event::ListRequest {
             handler,
             request: wire::ListRequest {
                 start: start - 1,

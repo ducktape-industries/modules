@@ -75,6 +75,128 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     );
 }
 
+/// A page switch is a structural patch frame whose subtrees are moved out
+/// of the rendered tree and back after the frame is encoded: the bytes the
+/// host gets are the bytes a copying diff gives, and the tree the driver
+/// keeps is whole again, so the frames after it still patch to the tree
+/// the view rendered.
+#[test]
+fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole() {
+    #[derive(Serialize, Deserialize)]
+    struct Pages {
+        rows: bool,
+        keyed_chrome: bool,
+    }
+    impl View for Pages {
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self {
+                rows: false,
+                keyed_chrome: true,
+            }
+        }
+    }
+    impl Render for Pages {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let page = match self.rows {
+                false => div().id("overview").child("nothing here"),
+                true => div().id("rows").children((0..40).map(|row| {
+                    div()
+                        .id(format!("row/{row}"))
+                        .child(format!("row {row}"))
+                        .child("…")
+                })),
+            };
+            // Keyed chrome around the page survives the switch, so the
+            // frame is the page's patches; unkeyed chrome is removed and
+            // inserted with it, and the patches carry the tree whole.
+            match self.keyed_chrome {
+                true => div()
+                    .id("shell")
+                    .child(div().id("title").child("title"))
+                    .child(page)
+                    .child(div().id("footer").child("footer")),
+                false => div().id("shell").child("title").child(page).child("footer"),
+            }
+        }
+    }
+    // A frame that goes whole puts the taken subtrees back before it is
+    // sent: the host gets the tree the view rendered, without a stand-in.
+    let mut whole = Driver::<Pages>::new();
+    whole.tick(vec![]);
+    whole.entity().update_app(whole.app_mut(), |view, _, cx| {
+        view.keyed_chrome = false;
+        cx.notify();
+    });
+    whole.tick(vec![]);
+    let mut rendered = Driver::<Pages>::new();
+    rendered
+        .entity()
+        .update_app(rendered.app_mut(), |view, _, cx| {
+            *view = Pages {
+                rows: true,
+                keyed_chrome: false,
+            };
+            cx.notify();
+        });
+    let rendered = rendered.tick(vec![]).root.expect("the rows tree");
+    whole.entity().update_app(whole.app_mut(), |view, _, cx| {
+        view.rows = true;
+        cx.notify();
+    });
+    let frame = whole.tick(vec![]);
+    assert!(frame.patches.is_empty(), "{:#?}", frame.patches);
+    assert_eq!(frame.root.as_ref(), Some(&rendered));
+    assert_eq!(whole.last_root.as_ref(), Some(&rendered));
+
+    let show = |driver: &mut Driver<Pages>, rows: bool| {
+        driver.entity().update_app(driver.app_mut(), |view, _, cx| {
+            view.rows = rows;
+            cx.notify();
+        });
+    };
+    let mut driver = Driver::<Pages>::new();
+    let mut held = driver.tick(vec![]).root.expect("a first tree");
+    let overview = held.clone();
+    // The rows page as a copying diff sees it: against a driver of its own.
+    let mut reference = Driver::<Pages>::new();
+    reference.tick(vec![]);
+    show(&mut reference, true);
+    let rows = reference.tick(vec![]).root.expect("the rows tree");
+    let expected = wire::Frame {
+        patches: wire::diff(&mut overview.clone(), &mut rows.clone()),
+        ..wire::Frame::default()
+    };
+    assert!(
+        expected.patches.iter().any(|patch| matches!(
+            patch,
+            wire::Patch::Insert { .. } | wire::Patch::Replace { .. }
+        )),
+        "{:#?}",
+        expected.patches
+    );
+
+    show(&mut driver, true);
+    let sent = driver.tick_with(vec![], wire::encode);
+    assert_eq!(sent, wire::encode(&expected), "the bytes the host gets");
+    wire::apply(&mut held, expected.patches).unwrap();
+    assert_eq!(held, rows);
+    assert_eq!(
+        driver.last_root.as_ref(),
+        Some(&rows),
+        "the kept tree is whole again"
+    );
+    assert!(driver.tick(vec![]).unchanged);
+
+    show(&mut driver, false);
+    let back = driver.tick(vec![]);
+    assert!(!back.unchanged && !back.patches.is_empty());
+    wire::apply(&mut held, back.patches).unwrap();
+    assert_eq!(
+        held, overview,
+        "the frame after a switch still patches to the rendered tree"
+    );
+}
+
 #[test]
 fn primitive_sources_fallbacks_transformations_and_typed_ids_survive_lowering() {
     #[derive(Serialize, Deserialize)]

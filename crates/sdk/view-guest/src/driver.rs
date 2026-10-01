@@ -58,12 +58,12 @@ impl<V: View> Driver<V> {
         &mut self.app
     }
     /// A frame with the whole tree in it, patched or not: what a test reads.
-    /// The host gets [`Driver::tick_wire`]'s, which leaves the tree out
+    /// The host gets [`Driver::tick_with`]'s, which leaves the tree out
     /// when the host can keep or patch its own.
     /// It is held to the host's sanitizer and to `view_wire::audit`, as a
     /// test's frames are.
     pub fn tick(&mut self, events: Vec<wire::Event>) -> wire::Frame {
-        let mut frame = self.tick_wire(events);
+        let mut frame = self.tick_with(events, wire::Frame::clone);
         if frame.root.is_none() {
             frame.root = self.last_root.clone();
         }
@@ -71,7 +71,50 @@ impl<V: View> Driver<V> {
         frame
     }
 
-    pub(crate) fn tick_wire(&mut self, events: Vec<wire::Event>) -> wire::Frame {
+    /// Runs one tick and hands its frame to `send` — the host's encoder —
+    /// before putting back into the kept tree what the frame carried out of
+    /// it. The tree a frame sends whole, and the subtrees its patches
+    /// carry, are moved there and back rather than copied: the frame is
+    /// gone once it is encoded, and the kept tree is the next frame's base.
+    pub(crate) fn tick_with<R>(
+        &mut self,
+        events: Vec<wire::Event>,
+        send: impl FnOnce(&wire::Frame) -> R,
+    ) -> R {
+        let frame = self.tick_wire(events);
+        let sent = send(&frame);
+        self.put_back(frame);
+        sent
+    }
+
+    fn put_back(&mut self, frame: wire::Frame) {
+        let kept = match frame.root {
+            Some(root) => self.last_root.insert(root),
+            None if frame.patches.is_empty() => return,
+            None => {
+                let kept = self
+                    .last_root
+                    .as_mut()
+                    .expect("a patch frame has a tree to patch");
+                put_back(kept, frame.patches);
+                kept
+            }
+        };
+        // Remembered without the picture bytes this frame carried: the
+        // next view names those pictures by hash alone, and that is
+        // the same tree — and the tree the host keeps, which drops the
+        // bytes the same way once it has the pictures.
+        kept.for_each_mut(&mut |node| match node {
+            wire::Node::Svg {
+                source: wire::SvgSource::Data { bytes, .. },
+                ..
+            } => *bytes = None,
+            wire::Node::Image { data, .. } => *data = None,
+            _ => {}
+        });
+    }
+
+    fn tick_wire(&mut self, events: Vec<wire::Event>) -> wire::Frame {
         self.busy = false;
         self.settle();
         for event in events {
@@ -332,7 +375,7 @@ impl<V: View> Driver<V> {
         let unchanged = match (&mut root, &mut self.last_root) {
             (None, _) => true,
             (Some(root), Some(last)) => {
-                patches = wire::diff(last, root);
+                patches = wire::diff_taking(last, root);
                 patches.is_empty()
             }
             (Some(_), None) => false,
@@ -375,7 +418,10 @@ impl<V: View> Driver<V> {
 
     /// Keeps a changed tree as the next frame's base and says what to send:
     /// the tree itself (patches cleared), or nothing beside the patches.
-    fn keep(&mut self, tree: wire::Node, patches: &mut Vec<wire::Patch>) -> Option<wire::Node> {
+    /// The diff took the patches' subtrees out of `tree`; a tree sent whole
+    /// gets them back here, a patched one in [`Driver::put_back`] once the
+    /// frame is sent.
+    fn keep(&mut self, mut tree: wire::Node, patches: &mut Vec<wire::Patch>) -> Option<wire::Node> {
         // Property changes remain patches even for tiny trees; replacing
         // their identity would discard native state. Structural edits
         // use the whole tree when it has no more nodes than the patches
@@ -384,37 +430,47 @@ impl<V: View> Driver<V> {
         let only_props = patches
             .iter()
             .all(|patch| matches!(patch, wire::Patch::Props { .. }));
-        let carried: usize = patches
-            .iter()
-            .map(|patch| match patch {
-                wire::Patch::Replace { node, .. } | wire::Patch::Insert { node, .. } => {
-                    node.count()
-                }
-                _ => 1,
-            })
-            .sum();
-        if patches.len() > wire::MAX_PATCHES || (!only_props && carried >= tree.count()) {
-            patches.clear();
-        }
-        // Remembered without the picture bytes this frame carried: the
-        // next view names those pictures by hash alone, and that is
-        // the same tree — and the tree the host keeps, which drops the
-        // bytes the same way once it has the pictures. A frame that
-        // carries patches sends no tree, so the tree itself is kept.
-        let (mut kept, sent) = match patches.is_empty() {
-            true => (tree.clone(), Some(tree)),
-            false => (tree, None),
+        let carried = || -> usize {
+            patches
+                .iter()
+                .map(|patch| match patch {
+                    wire::Patch::Replace { node, .. } | wire::Patch::Insert { node, .. } => {
+                        node.count()
+                    }
+                    _ => 1,
+                })
+                .sum()
         };
-        kept.for_each_mut(&mut |node| match node {
-            wire::Node::Svg {
-                source: wire::SvgSource::Data { bytes, .. },
-                ..
-            } => *bytes = None,
-            wire::Node::Image { data, .. } => *data = None,
-            _ => {}
-        });
-        self.last_root = Some(kept);
-        sent
+        // The tree's count as rendered: the hollowed tree plus what each
+        // taken subtree holds beyond its stand-in.
+        let nodes = || -> usize {
+            let taken: usize = patches
+                .iter()
+                .map(|patch| match patch {
+                    wire::Patch::Replace { node, .. } | wire::Patch::Insert { node, .. } => {
+                        node.count() - 1
+                    }
+                    _ => 0,
+                })
+                .sum();
+            tree.count() + taken
+        };
+        if patches.len() > wire::MAX_PATCHES || (!only_props && carried() >= nodes()) {
+            put_back(&mut tree, std::mem::take(patches));
+        }
+        // A frame that carries patches sends no tree, so the tree itself is
+        // kept; one that sends the tree has nothing to keep until the tree
+        // comes back from the encoder.
+        match patches.is_empty() {
+            true => {
+                self.last_root = None;
+                Some(tree)
+            }
+            false => {
+                self.last_root = Some(tree);
+                None
+            }
+        }
     }
 
     /// Runs a route listener. A routed event carries no message back.
@@ -439,5 +495,30 @@ impl<V: View> Driver<V> {
             }
         }
         self.busy = true;
+    }
+}
+
+/// Puts the subtrees `patches` carry back into the tree `wire::diff_taking`
+/// took them from, which is `new` as it was: a patch's path and index are
+/// the position of its node in `new`. Each subtree goes into its stand-in's
+/// slot, never inserted, so the patches' order does not matter. Patches
+/// that carry no subtree are skipped.
+pub(crate) fn put_back(new: &mut wire::Node, patches: Vec<wire::Patch>) {
+    for patch in patches {
+        let (path, index, node) = match patch {
+            wire::Patch::Replace { path, node } => (path, None, node),
+            wire::Patch::Insert { path, index, node } => (path, Some(index), node),
+            wire::Patch::Props { .. } | wire::Patch::Remove { .. } | wire::Patch::Move { .. } => {
+                continue;
+            }
+        };
+        let mut target = &mut *new;
+        for index in path {
+            target = &mut target.children_mut()[index as usize];
+        }
+        match index {
+            Some(index) => target.children_mut()[index as usize] = node,
+            None => *target = node,
+        }
     }
 }
