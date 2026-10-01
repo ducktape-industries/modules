@@ -186,7 +186,7 @@ include `object_not_held`, `capacity`, `invalid_input`, `not_found`, `stale`, an
 and `wrong_state`; no record/emit survives a rejected operation. Malformed Borsh
 requests and Git protocol failures use the ABI refusal path.
 
-The current kernel revision `5d1d1f61d89960164cab919dfbb16a1d8cdb3b36` distinguishes
+The kernel (at the revision the workspace `Cargo.toml` pins) distinguishes
 unrostered blobs (`None`) from rostered blobs absent locally (`BlobUnavailable`).
 The latter is a host error before the guest receives a usable reply: `BlobStat`
 is not a local-availability probe either. The guest therefore returns

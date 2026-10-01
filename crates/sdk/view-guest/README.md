@@ -8,7 +8,7 @@ data through a fixed table of methods. This page is the whole surface.
 
 The rule: we re-implement only what touches the host or the wire; everything
 else is the gpui fork `Cargo.toml` pins (`gpui-pre`, at the rev it names),
-re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
+re-exported unchanged. The `pub use gpui::{…}` block at the top of `src/lib.rs` is the gpui list (`px`, `rems`,
 `Hsla`, `StyleRefinement`, `Styled`, `ElementId`, `SharedString`, the
 `*Event` types, `Role`, ...). Ours, defined in this crate:
 
@@ -95,6 +95,6 @@ It holds the view to its `export_view!` capabilities as the app does: a method
 whose capability the manifest leaves out panics with `undeclared_capability`.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,
 `crates/app/forge-view/src/screen_tests.rs`; `CHAT_SCREEN_EXPORT`,
-`crates/app/chat-view/src/tests.rs`) writes each screen's tree as JSON under
+`crates/app/chat-view/src/tests/mod.rs`) writes each screen's tree as JSON under
 `target/`; the app renders those with `dev/screens/chat-screens.sh
 FIXTURES_DIR OUTPUT_DIR` (`ducktape-app --render-tree`, debug builds).
