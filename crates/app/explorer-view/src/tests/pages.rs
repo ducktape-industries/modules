@@ -118,6 +118,63 @@ fn an_arrow_away_and_back_returns_to_the_block_it_left() {
     assert!(cx.find("explorer-blocks").is_some(), "{:?}", cx.texts());
 }
 
+/// Enter or Space on the pages opens the active tab's list, as a click on
+/// the tab does: with an account open, an arrow away and back opens that
+/// account again, and no link on any page leads to the Accounts list, so
+/// without the press the keys never reach the list again.
+#[test]
+fn enter_on_the_accounts_tab_shows_the_accounts_list_again() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("explorer-tab-accounts");
+    cx.run_until_parked();
+    cx.simulate_key_down("explorer-accounts-list", "down");
+    cx.simulate_key_down("explorer-accounts-list", "enter");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-account").is_some(), "{:?}", cx.texts());
+    cx.simulate_key_down("explorer-tabs", "right");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-list").is_some(), "{:?}", cx.texts());
+    cx.simulate_key_down("explorer-tabs", "left");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-account").is_some() && cx.find("explorer-accounts").is_none(),
+        "the arrow opens the account it left: {:?}",
+        cx.texts()
+    );
+    cx.simulate_key_down("explorer-tabs", "enter");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-accounts-list").is_some() && cx.find("explorer-account").is_none(),
+        "Enter on the Accounts tab opens the list: {:?}",
+        cx.texts()
+    );
+    assert!(
+        cx.interactivity("explorer-tab-accounts")
+            .aria
+            .active_descendant
+    );
+    // the list is the tab's page now: an arrow away and back stays on it
+    cx.simulate_key_down("explorer-tabs", "right");
+    cx.simulate_key_down("explorer-tabs", "left");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-accounts-list").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+    // Space is the same press
+    cx.simulate_key_down("explorer-accounts-list", "enter");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-account").is_some(), "{:?}", cx.texts());
+    cx.simulate_key_down("explorer-tabs", "space");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-accounts-list").is_some() && cx.find("explorer-account").is_none(),
+        "Space on the Accounts tab opens the list: {:?}",
+        cx.texts()
+    );
+}
+
 /// A restored view keeps each tab's last page along with the page shown:
 /// → then ← after a restore still comes back to the block, not to the
 /// Blocks list.

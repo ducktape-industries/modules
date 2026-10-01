@@ -96,7 +96,7 @@ fn a_pushed_head_is_drawn_with_the_page_it_brings_not_before() {
 fn a_refused_head_subscription_falls_back_to_polling() {
     let mut cx = TestAppContext::new();
     cx.host()
-        .refuse::<ChainHeads>("unknown_request", "this host has no chain.heads");
+        .refuse::<ChainHeads>(refusal::UNKNOWN_REQUEST, "this host has no chain.heads");
     let ticks = cx.host().stream::<ClockTicks>();
     let tip = Rc::new(RefCell::new(12));
     node(&mut cx, tip.clone());
