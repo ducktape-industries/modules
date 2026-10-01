@@ -111,9 +111,14 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     );
     cx.simulate_click("chat-menu-confirm-delete");
     cx.run_until_parked();
-    assert!(cx.host().requests::<Submit<ChatApi>>().iter().any(|op| {
-        matches!(op, Op::DeleteMessage { channel_id, seq: 1 } if channel_id == "general")
-    }));
+    assert!(
+        cx.host()
+            .requests::<Submit<::chat::Chat>>()
+            .iter()
+            .any(|op| {
+                matches!(op, Op::DeleteMessage { channel_id, seq: 1 } if channel_id == "general")
+            })
+    );
 }
 
 #[test]
@@ -193,7 +198,7 @@ fn reaction_picker_keeps_labels_and_its_stable_action_id() {
     cx.run_until_parked();
     assert!(
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| { matches!(op, Op::AddReaction { emoji, .. } if emoji == "🔥") })
     );

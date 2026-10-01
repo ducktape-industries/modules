@@ -1,18 +1,21 @@
 //! The module: the schedule folded at each block, then every op and every
 //! query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, QueryCtx, decoded};
+use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
 
 use crate::rules::{SCHEDULE, at, cancel, fold, init, publish, schedule, views_at};
 use crate::{Genesis, MODULE, Op, Query, Reply, Scheduled};
 
 pub struct Modules;
 
-impl Module for Modules {
+impl Program for Modules {
+    const NAME: &'static str = MODULE;
     type Op = Op;
     type Query = Query;
-    type Response = Reply;
+    type Reply = Reply;
+}
 
+impl Module for Modules {
     fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
         init(ctx, decoded::<Genesis>(MODULE, "Genesis", params)?);
         Ok(())

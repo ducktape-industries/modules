@@ -5,7 +5,7 @@ use ducktape_view_guest::Context;
 use ducktape_view_guest::host::Error;
 use ducktape_view_guest::wire;
 
-use crate::api::{ChatApi, ClipboardWrite, HostId, Submit};
+use crate::api::{ClipboardWrite, HostId, Submit};
 use crate::composer::Target;
 use crate::message::{ChatMessage, chat_message, mark_message_groups};
 use crate::{Chat, Control, Menu, Mode, Pane, links};
@@ -386,7 +386,7 @@ impl Chat {
         self.notice.clear();
         cx.spawn(async move |this, cx| {
             let host = cx.host();
-            let result = host.ask::<Submit<ChatApi>>(op).await;
+            let result = host.ask::<Submit<::chat::Chat>>(op).await;
             let _ = this.update(cx, |chat, cx| {
                 cx.notify();
                 match result {
@@ -422,7 +422,7 @@ impl Chat {
             let created = async {
                 let channel_id = host.ask::<HostId>("channel".into()).await?;
                 let op = new_channel(channel_id.clone(), name, members_only);
-                host.ask::<Submit<ChatApi>>(op).await?;
+                host.ask::<Submit<::chat::Chat>>(op).await?;
                 Ok::<_, Error>(channel_id)
             };
             let result = created.await;

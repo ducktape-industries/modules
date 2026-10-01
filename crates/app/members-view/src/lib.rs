@@ -25,8 +25,8 @@ use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, View, Window
 use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
 
-use identity::view::IdentityApi;
-use valset::view::ValsetApi;
+use identity::Identity;
+use valset::Valset;
 
 pub use activity::Recent;
 
@@ -160,7 +160,7 @@ impl View for Members {
                 }
                 Err(refusal) => cx.host().log_refused("members", "the session", &refusal),
             }));
-        let changes = cx.host().subscribe::<Changes<IdentityApi>>(());
+        let changes = cx.host().subscribe::<Changes<Identity>>(());
         self.watches.push(cx.for_each(changes, |view, bump, _, cx| {
             match bump {
                 Ok(_) => view.read(cx),
@@ -310,7 +310,7 @@ async fn roster(host: Host) -> Result<Vec<Row>, Error> {
     loop {
         let page = PageRequest { after, limit: None };
         let reply = match host
-            .ask::<Query<IdentityApi>>(identity::Query::List { page })
+            .ask::<Query<Identity>>(identity::Query::List { page })
             .await?
         {
             identity::Reply::Accounts(reply) => reply,
@@ -327,7 +327,7 @@ async fn roster(host: Host) -> Result<Vec<Row>, Error> {
     loop {
         let page = PageRequest { after, limit: None };
         let reply = match host
-            .ask::<Query<ValsetApi>>(valset::Query::Memberships { page })
+            .ask::<Query<Valset>>(valset::Query::Memberships { page })
             .await?
         {
             valset::Reply::Memberships(reply) => reply,

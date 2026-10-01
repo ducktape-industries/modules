@@ -13,7 +13,7 @@
 //! codec the program abi is written in, so a program's own request rides a
 //! method with no second encoding around it. The rule is held by types, not
 //! by review: [`Method`] is sealed, so a view cannot declare a kind or pick a
-//! codec, and [`Module`]'s bounds are borsh, so a program that speaks
+//! codec, and [`Program`]'s bounds are borsh, so a program that speaks
 //! anything else does not have a method.
 //!
 //! ABSENT is `None`, never a refusal: a method whose thing may not exist replies `Option`, and a refusal means the ask itself failed.
@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::WidgetCommand;
 pub use describe::{Description, Field, Value};
+pub use program::Program;
 
 mod sealed {
     pub trait Sealed {}
@@ -77,7 +78,7 @@ macro_rules! method {
 
 /// Every [`method!`] below, and [`ALL`] from the same list, so a method is
 /// never declared without being listed. `also` names the kinds written by
-/// hand: the three node methods generic over a [`Module`], and [`HostWidget`].
+/// hand: the three node methods generic over a [`Program`], and [`HostWidget`].
 macro_rules! methods {
     (
         also: [$($also:expr),* $(,)?];
@@ -92,16 +93,10 @@ macro_rules! methods {
 
 // ---------- the node ----------
 
-/// A program a view talks to: its name on the node and the types it speaks.
-/// Implemented next to the view (a marker type), never by the program
-/// crate, which must not link a view runtime. A read-only program names
-/// `()` as its `Op`.
-pub trait Module {
-    const NAME: &'static str;
-    type Op: BorshSerialize + BorshDeserialize + std::fmt::Debug;
-    type Query: BorshSerialize + BorshDeserialize + std::fmt::Debug;
-    type Reply: BorshSerialize + BorshDeserialize;
-}
+// A node method is addressed to a [`Program`]: the program crate's own
+// impl, on the type that is its `guest::Module` (`Query<chat::Chat>`), or a
+// role's (`program::role::Identity`). `program` is below both SDKs, so a
+// program's wasm links no view runtime to be named by a view.
 
 /// The envelope of a node method: the program addressed and the bytes it
 /// gets, which the host signs into a frame without reading.
@@ -122,8 +117,8 @@ fn decode_call<T: BorshDeserialize>(bytes: &[u8], target: &str) -> Result<T, Str
 
 /// `module.query`: one query to `P`, answered with the bytes it `Respond`ed.
 pub struct Query<P>(std::marker::PhantomData<P>);
-impl<P: Module> sealed::Sealed for Query<P> {}
-impl<P: Module> Method for Query<P> {
+impl<P: Program> sealed::Sealed for Query<P> {}
+impl<P: Program> Method for Query<P> {
     const KIND: &'static str = "module.query";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = P::Query;
@@ -148,8 +143,8 @@ impl<P: Module> Method for Query<P> {
 /// `op.submit`: one operation to `P`, signed with the seated key; the
 /// reply is the receipt's output, the program's own bytes.
 pub struct Submit<P>(std::marker::PhantomData<P>);
-impl<P: Module> sealed::Sealed for Submit<P> {}
-impl<P: Module> Method for Submit<P> {
+impl<P: Program> sealed::Sealed for Submit<P> {}
+impl<P: Program> Method for Submit<P> {
     const KIND: &'static str = "op.submit";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = P::Op;
@@ -175,8 +170,8 @@ impl<P: Module> Method for Submit<P> {
 /// carrying its height; `None` when the node link was reopened and the view
 /// should re-read. The request is `P`'s name, as the host reads it.
 pub struct Changes<P>(std::marker::PhantomData<P>);
-impl<P: Module> sealed::Sealed for Changes<P> {}
-impl<P: Module> Method for Changes<P> {
+impl<P: Program> sealed::Sealed for Changes<P> {}
+impl<P: Program> Method for Changes<P> {
     const KIND: &'static str = "module.changes";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = ();
@@ -568,7 +563,7 @@ mod tests {
     }
 
     struct Binary;
-    impl Module for Binary {
+    impl Program for Binary {
         const NAME: &'static str = "binary";
         type Op = ();
         type Query = (u64, String);

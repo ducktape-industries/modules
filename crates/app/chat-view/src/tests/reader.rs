@@ -86,7 +86,7 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
             assert!(matches!(command, wire::WidgetCommand::Focus { .. }));
             Ok(())
         });
-    cx.host().handle::<Ask<ChatApi>>(move |query| {
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
         Ok(match query {
             Query::Accounts { .. } => {
                 let mut accounts = vec![person(7, "eddy")];
@@ -103,12 +103,12 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    cx.host().handle::<Submit<ChatApi>>(|_| Ok(Vec::new()));
+    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
 
     let props = cx.host().stream::<HostSession>();
     let visible = cx.host().stream::<HostVisible>();
-    cx.host().never::<Changes<ChatApi>>();
-    let live = cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().never::<Changes<::chat::Chat>>();
+    let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();
     cx.run_until_parked();
     props.send(Session {
@@ -158,7 +158,7 @@ fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
             assert!(matches!(command, wire::WidgetCommand::Focus { .. }));
             Ok(())
         });
-    cx.host().handle::<Ask<ChatApi>>(move |query| {
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
         Ok(match query {
             Query::Accounts { .. } => {
                 let mut accounts = vec![person(7, "eddy")];
@@ -173,12 +173,12 @@ fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    cx.host().handle::<Submit<ChatApi>>(|_| Ok(Vec::new()));
+    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
 
     let props = cx.host().stream::<HostSession>();
     let visible = cx.host().stream::<HostVisible>();
-    cx.host().never::<Changes<ChatApi>>();
-    let live = cx.host().stream::<Changes<IdentityApi>>();
+    cx.host().never::<Changes<::chat::Chat>>();
+    let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();
     cx.run_until_parked();
     props.send(Session {
@@ -223,7 +223,7 @@ fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
 fn the_roster_is_read_past_its_first_page() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
-    cx.host().handle::<Ask<ChatApi>>(|query| {
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::Accounts { page } => {
                 let start = page.after.map_or(1, |after| after[0] as u64 * 256 + 1);

@@ -3,8 +3,8 @@
 CARGO ?= cargo
 WASM_OPT ?= wasm-opt
 
-# What a program links: abi, guest and store build for wasm32 with nothing else.
-PROGRAM_LINKABLE := abi guest store
+# What a program links: abi, program, guest and store build for wasm32 with nothing else.
+PROGRAM_LINKABLE := abi program guest store
 
 # The ducktape checkout the probe fixture the founding suite seats is copied
 # from (crates/kernel/fixtures, `make kernel-fixtures` there). The probe
@@ -14,7 +14,8 @@ DUCKTAPE ?= ../core
 
 # Every program, system and app: root members whose program ABI (the guest
 # glue, the `alloc`/`call` exports, the `ducktape.*` imports) sits behind their
-# `module` feature. Their views link the same crates with the feature off.
+# `module` feature. Their views link the same crates with the feature off
+# and name each program by its type (`Query<chat::Chat>`).
 # One cargo invocation per program: forge links chat and identity links
 # module-registry, and `-p a -p b --features module` in one call would unify
 # `module` into the other's link (two `alloc`/`call`).
@@ -30,7 +31,7 @@ VIEWS := chat-view members-view node-view explorer-view settings-view forge-view
 # read their contracts: module-registry's signing deps are dev-only, and `-e
 # normal` below is what says so. Every program crate is linked with `module`
 # off, which is what a plain `-p` build below checks.
-VIEW_LINKABLE := ducklink view-wire view-guest design store module-registry valset identity settings-view chat forge
+VIEW_LINKABLE := ducklink program view-wire view-guest design store module-registry valset identity settings-view chat forge
 VIEW_FORBIDDEN := blst commonware-cryptography wasm-bindgen js-sys web-sys
 
 # Cargo uses this directory for both workspaces.
@@ -101,12 +102,12 @@ new-view:
 scaffold-check:
 	@tools/scaffold-check.sh
 
-## builds abi and guest for wasm32-unknown-unknown.
+## builds abi, program, guest and store for wasm32-unknown-unknown.
 module-wasm-check:
 	@for crate in $(PROGRAM_LINKABLE); do \
 	  $(CARGO) build --target wasm32-unknown-unknown -p $$crate || exit 1; \
 	done; \
-	echo "abi, guest and store build for wasm32"
+	echo "abi, program, guest and store build for wasm32"
 
 ## builds every program (with `module` on) into $(RELEASE)/<name>.wasm. The
 ## founding suite reads the boot set from there.

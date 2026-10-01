@@ -4,7 +4,7 @@ The ducktape contract line and the modules written against it, one
 repository. Only what compiles to wasm lives here:
 
 ```
-crates/sdk/     abi error guest store conformance describe ducklink view-wire view-guest view-guest-derive design
+crates/sdk/     abi error program guest store conformance describe ducklink view-wire view-guest view-guest-derive design
 crates/system/  module-registry valset identity
 crates/app/     chat chat-view forge forge-view members-view node-view explorer-view settings-view
 crates/lib/     gitcore
@@ -14,7 +14,8 @@ crates/lib/     gitcore
 |---|---|
 | `crates/sdk/abi` | the borsh bytes ABI a module and the host share: `GuestCall`, `HostOp`/`HostReply`, `Env`, `Refusal`, `Principal`, `Roles`, and the `role::registry`, `role::validators` and `role::identity` interfaces the kernel calls, under the kernel's names. A copy of ducktape's `crates/kernel/abi`, plus what only a view needs (`unhex`, `preview`, and `Kind::badge`/`note`, an account's badge) |
 | `crates/sdk/error` | `Error { code, message }` and its `code` tokens, the one error type a module, the host and a view share (borsh; serde behind a feature). Depends on no ducktape crate; `guest` re-exports it and `view-wire` carries it |
-| `crates/sdk/guest` | the minimal module SDK, enough alone: the `Module` trait, the `ExecCtx` and `QueryCtx` contexts its entry points receive (env, raw state, blobs, events, `set_return_data`, `verify`, and `emit` (a write another module runs in this frame) and `query` (a read of one)), `ExecCtx::sender` (the `Principal` the host resolved: an account, a module's too, or `Root`), `Env.roles` (the module genesis bound to each role), the `Env` origin checks (`signer`, `sending_module`, `sent_by`) and `authority` (a stub that admits anyone), `export!`, `Error` and its constructors and `decoded` and `MockHost`, the native host the same contexts run over in a test, and `MockChain`, which seats several modules over their own `MockHost`s and runs a submission as one frame, its messages and replies as the kernel runs them. `src/kernel.rs` is the one place the kernel's names (`Refusal`, `ProgramId`, `ItemRef`, `Scan`, …) become the SDK's (`Error`, `ModuleId`, `MessageId`, `Range`, …), byte for byte; `kernel::error_from`/`refusal_from` convert an error. `examples/counter.rs` is a module written with it alone |
+| `crates/sdk/program` | the one `Program` trait: a program's `NAME` and the borsh `Op`, `Query` and `Reply` it speaks. A program crate implements it on its module type; a view names the program by that type (`Query<chat::Chat>`); `program::role::Identity` is the identity role as a view follows it, and the one place its program id is spelled. Below both SDKs: `guest` and `view-wire` re-export it |
+| `crates/sdk/guest` | the minimal module SDK, enough alone: the `Module` trait (over `Program`), the `ExecCtx` and `QueryCtx` contexts its entry points receive (env, raw state, blobs, events, `set_return_data`, `verify`, and `emit` (a write another module runs in this frame) and `query` (a read of one)), `ExecCtx::sender` (the `Principal` the host resolved: an account, a module's too, or `Root`), `Env.roles` (the module genesis bound to each role), the `Env` origin checks (`signer`, `sending_module`, `sent_by`) and `authority` (a stub that admits anyone), `export!`, `Error` and its constructors and `decoded` and `MockHost`, the native host the same contexts run over in a test, and `MockChain`, which seats several modules over their own `MockHost`s and runs a submission as one frame, its messages and replies as the kernel runs them. `src/kernel.rs` is the one place the kernel's names (`Refusal`, `ProgramId`, `ItemRef`, `Scan`, …) become the SDK's (`Error`, `ModuleId`, `MessageId`, `Range`, …), byte for byte; `kernel::error_from`/`refusal_from` convert an error. `examples/counter.rs` is a module written with it alone |
 | `crates/sdk/store` | optional typed storage over `guest`'s contexts: the `Map`/`Set`/`Item` descriptors with `KeyCodec`, and `PageRequest`/`PageResponse`. A read takes `&QueryCtx` (an `&ExecCtx` serves it), a write `&ExecCtx`. A view links it and calls none of it |
 | `crates/sdk/conformance` | proof that a module fills a role the kernel calls (`registry`, `validators`, `identity`), native over `MockHost`: a module takes it as a dev-dependency, implements the role's `Fixture` and calls its `run` in a test; see its [README](crates/sdk/conformance/README.md) |
 | `crates/sdk/describe` | what an op means to a person: the pure wasm module a program ships in its `ducktape.describe` section, and the sandbox that runs it |
@@ -54,16 +55,19 @@ update replaces a module's code under the same id. The system modules beyond the
 ## A module
 
 ```rust
-use guest::{Error, ExecCtx, Module, Principal, QueryCtx};
+use guest::{Error, ExecCtx, Module, Principal, Program, QueryCtx};
 
 /// A count per account.
 pub struct Counter;
 
-impl Module for Counter {
+impl Program for Counter {
+    const NAME: &'static str = "counter";
     type Op = u64;
     type Query = Principal;
-    type Response = u64;
+    type Reply = u64;
+}
 
+impl Module for Counter {
     fn execute(ctx: &ExecCtx, by: u64) -> Result<(), Error> {
         let who = guest::abi::encode(&ctx.sender()?);
         let n: u64 = ctx.record(&who)?.unwrap_or(0);

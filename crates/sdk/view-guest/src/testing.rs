@@ -296,7 +296,7 @@ pub use fake_host::{FakeHost, StreamSender};
 #[cfg(test)]
 pub(crate) struct Probe;
 #[cfg(test)]
-impl crate::methods::Module for Probe {
+impl crate::methods::Program for Probe {
     const NAME: &'static str = "probe";
     type Op = ();
     type Query = ();

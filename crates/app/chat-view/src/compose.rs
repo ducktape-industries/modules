@@ -4,7 +4,7 @@ use ducktape_view_guest::Context;
 use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::wire;
 
-use crate::api::{ChatApi, ClipboardRead, ClipboardWrite, HostId};
+use crate::api::{ClipboardRead, ClipboardWrite, HostId};
 use crate::composer::{Event, MentionChoice, Outcome, Send, Target, pending_row};
 use crate::names::mention_token;
 use crate::{Chat, Mode};
@@ -127,12 +127,12 @@ impl Chat {
             let host = cx.host();
             let result = async {
                 if let Some(open) = open_dm {
-                    host.ask::<Submit<ChatApi>>(open).await?;
+                    host.ask::<Submit<::chat::Chat>>(open).await?;
                 }
                 let id = host.ask::<HostId>("message".into()).await?;
                 let op = crate::composer::op(id, &send, &target)?;
                 let pending = me.and_then(|me| pending_row(&op, me));
-                host.ask::<Submit<ChatApi>>(op).await.map(|_| pending)
+                host.ask::<Submit<::chat::Chat>>(op).await.map(|_| pending)
             }
             .await;
             let _ = this.update(cx, |chat, cx| {

@@ -2,16 +2,13 @@
 //! invocation and answer it, and [`export!`](crate::export), which only
 //! points the two wasm exports at them.
 
-use borsh::{BorshDeserialize, BorshSerialize};
-
 use crate::{Cause, Error, ExecCtx, MessageId, Outcome, QueryCtx, decoded};
+pub use program::Program;
 
-/// A module: its op, query and response types, and what it does with each.
-pub trait Module {
-    type Op: BorshDeserialize;
-    type Query: BorshDeserialize;
-    type Response: BorshSerialize;
-
+/// A module: what a [`Program`] does with each op and query. The types it
+/// speaks (`Op`, `Query`, `Reply`) and its `NAME` are the program's, so a
+/// view and the module name one thing.
+pub trait Module: Program {
     /// Genesis, with the params the network was founded with. Nothing by
     /// default; override only where genesis needs it.
     fn init(_ctx: &ExecCtx, _params: &[u8]) -> Result<(), Error> {
@@ -33,7 +30,15 @@ pub trait Module {
         }
     }
 
-    fn query(ctx: &QueryCtx, query: Self::Query) -> Result<Self::Response, Error>;
+    fn query(ctx: &QueryCtx, query: Self::Query) -> Result<Self::Reply, Error>;
+
+    /// The bytes a query is answered with: [`Module::query`]'s `Reply` as
+    /// borsh. Override only for a query whose answer is not a `Reply` at
+    /// all (forge serves git's own wire through two of its queries); every
+    /// other program leaves it alone.
+    fn answer(ctx: &QueryCtx, query: Self::Query) -> Result<Vec<u8>, Error> {
+        Ok(abi::encode(&Self::query(ctx, query)?))
+    }
 }
 
 /// An execute's payload decoded as `M::Op` (refused as invalid input when it
@@ -47,12 +52,11 @@ pub fn execute<M: Module>(ctx: &ExecCtx, payload: &[u8]) -> Result<(), Error> {
     M::execute(ctx, op)
 }
 
-/// A query's request decoded as `M::Query`, answered, and the borsh of the
-/// response handed to the host.
+/// A query's request decoded as `M::Query`, and its [`Module::answer`]
+/// handed to the host.
 pub fn query<M: Module>(ctx: &QueryCtx, request: &[u8]) -> Result<(), Error> {
     let query = decoded::<M::Query>(&ctx.env().module, "Query", request)?;
-    let response = M::query(ctx, query)?;
-    ctx.respond(abi::encode(&response));
+    ctx.respond(M::answer(ctx, query)?);
     Ok(())
 }
 
@@ -148,11 +152,14 @@ mod tests {
     /// payload, and which keeps the replies it gets.
     struct Asker;
 
-    impl Module for Asker {
+    impl Program for Asker {
+        const NAME: &'static str = "asker";
         type Op = u64;
         type Query = ();
-        type Response = ();
+        type Reply = ();
+    }
 
+    impl Module for Asker {
         fn execute(_: &ExecCtx, _: u64) -> Result<(), Error> {
             Err(Error::new(code::WRONG_STATE, "a reply is not an op"))
         }
@@ -190,17 +197,20 @@ mod tests {
             unreachable!()
         };
         assert_eq!(
-            <() as Module>::reply(&host.exec(env), &id, &outcome),
+            Silent::reply(&host.exec(env), &id, &outcome),
             Err(refusal.clone())
         );
     }
 
     /// Keeps [`Module::reply`]'s default.
-    impl Module for () {
+    struct Silent;
+    impl Program for Silent {
+        const NAME: &'static str = "silent";
         type Op = ();
         type Query = ();
-        type Response = ();
-
+        type Reply = ();
+    }
+    impl Module for Silent {
         fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
             Ok(())
         }

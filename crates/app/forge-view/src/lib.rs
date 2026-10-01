@@ -28,8 +28,8 @@ use ducktape_view_guest::methods::Capability;
 use ducktape_view_guest::methods::{Changes, HostOffset, HostRoute, HostVisible};
 use ducktape_view_guest::{Context, IntoElement, Render, View, Window, design, export_view};
 
-use api::{ChatApi, ForgeApi, HostSession};
-use chat::view::IdentityApi;
+use api::HostSession;
+use program::role::Identity;
 pub(crate) use select::Stage;
 pub use state::Forge;
 
@@ -80,9 +80,9 @@ impl View for Forge {
         // a block to any program the screens read re-reads them; a refused
         // item is a block this view cannot see into: the host's log keeps
         // why, and the next block reconciles
-        let forge = cx.host().subscribe::<Changes<ForgeApi>>(());
-        let chat = cx.host().subscribe::<Changes<ChatApi>>(());
-        let identity = cx.host().subscribe::<Changes<IdentityApi>>(());
+        let forge = cx.host().subscribe::<Changes<forge::Forge>>(());
+        let chat = cx.host().subscribe::<Changes<::chat::Chat>>(());
+        let identity = cx.host().subscribe::<Changes<Identity>>(());
         self.watches.extend([
             cx.for_each(forge, |forge, head, _, cx| match head {
                 Ok(_) => forge.reconcile(cx),
@@ -118,7 +118,7 @@ impl View for Forge {
                 Err(refusal) => cx.host().log_refused("forge", "the UTC offset", &refusal),
             }));
         if self.names.is_idle() {
-            self.names = cx.load(chat::view::roster(cx.host()), |forge| &mut forge.names);
+            self.names = cx.load(queries::roster(cx.host()), |forge| &mut forge.names);
         }
         self.sync(cx);
     }

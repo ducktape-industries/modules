@@ -20,7 +20,7 @@ fn voting(this: [u8; 2], network: NetworkStatus) -> (TestAppContext, StreamSende
             ..status()
         })
     });
-    cx.host().stream::<Changes<ValsetApi>>();
+    cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
     cx.host()
         .handle::<ChainNetwork>(move |()| Ok(network.clone()));
@@ -225,7 +225,7 @@ fn a_node_without_the_network_says_so_and_logs_once() {
     let mut cx = TestAppContext::new();
     let ticks = node(&cx);
     unsupported(&cx);
-    cx.host().stream::<Changes<ValsetApi>>();
+    cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
     cx.open::<Nodes>();
     cx.run_until_parked();
