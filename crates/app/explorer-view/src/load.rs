@@ -181,7 +181,7 @@ impl Explorer {
                 };
                 // every row of the hash: a frame the node landed again is
                 // the same op, drawn once per landing
-                let rows = view.chain.txs.iter().chain(view.opened_tx(&hash));
+                let rows = view.chain.txs.iter().chain(view.opened_txs());
                 for tx in rows.filter(|tx| tx.hash == hash) {
                     let _ = tx.op.set(op.clone());
                 }
@@ -201,9 +201,13 @@ impl Explorer {
     }
 
     pub(crate) fn opened_tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
+        self.opened_txs().iter().find(|tx| &tx.hash == hash)
+    }
+
+    fn opened_txs(&self) -> &[TxRow] {
         match self.opened.ready() {
-            Some(Some((_, txs))) => txs.iter().find(|tx| &tx.hash == hash),
-            _ => None,
+            Some(Some((_, txs))) => txs,
+            _ => &[],
         }
     }
 
