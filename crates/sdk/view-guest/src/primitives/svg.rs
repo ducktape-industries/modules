@@ -74,6 +74,9 @@ pub struct Svg {
     transformation: Transformation,
 }
 
+/// A one-colour mask: the SVG's shapes are drawn in the element's own text
+/// colour (`text_color`), or else the text colour it inherits from its
+/// parents. Only its shape counts: its own fill and stroke colours are ignored.
 #[track_caller]
 pub fn svg() -> Svg {
     Svg {
