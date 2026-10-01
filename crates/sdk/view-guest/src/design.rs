@@ -970,14 +970,9 @@ fn explorer_link(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{App, Lowering, wire};
+    use crate::element::lower;
+    use crate::wire;
     use gpui::Toggled;
-
-    fn lower(element: impl IntoElement) -> wire::Node {
-        let mut app = App::for_driver();
-        let mut window = app.window();
-        Lowering::new(&mut window, &mut app).lower(element)
-    }
 
     fn interactivity(node: &wire::Node) -> &wire::Interactivity {
         match node {

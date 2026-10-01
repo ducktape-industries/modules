@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::{fixture, oid_list, oid_text, sha1};
+use common::{fixture, git_binary, oid_list, oid_text, sha1};
 use gitcore::server::admit_pack;
 use gitcore::wire::pktline::{self, Pkt, Reader};
 use gitcore::wire::upload::{
@@ -489,18 +489,4 @@ fn fetch_pack_is_valid_for_git() {
         .unwrap();
     assert!(fsck.status.success(), "{fsck:?}");
     std::fs::remove_dir_all(&dir).ok();
-}
-
-fn git_binary() -> Option<std::path::PathBuf> {
-    let output = std::process::Command::new("which")
-        .arg("git")
-        .output()
-        .ok()?;
-    let found = output.status.success();
-    if !found {
-        return None;
-    }
-    Some(std::path::PathBuf::from(
-        String::from_utf8_lossy(&output.stdout).trim(),
-    ))
 }

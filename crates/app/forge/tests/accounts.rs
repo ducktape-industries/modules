@@ -282,14 +282,6 @@ fn system_lines_carry_an_event_code_and_no_name() {
     assert_eq!(page.items[0].blocks, [code("closed")]);
 }
 
-fn opened(rig: &mut Rig, story: &Story) -> u64 {
-    let output = rig.execute(&story.open("Feature")).unwrap();
-    let OpReply::Change { n, .. } = abi::decode(&output).unwrap() else {
-        panic!()
-    };
-    n
-}
-
 /// A module's account is never asked to review or write: identity's
 /// profile of it names its module.
 #[test]

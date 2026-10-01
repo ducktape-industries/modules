@@ -3,7 +3,7 @@
 //! then heights that move like the kernel's.
 
 use super::*;
-use forge::{ChangeFilter, Query, ReviewDraft, Revision, Verdict};
+use forge::{ChangeFilter, OpReply, Query, ReviewDraft, Revision, Verdict};
 use gitcore::Tag;
 
 pub const REPO: &str = "project";
@@ -358,4 +358,13 @@ pub fn fixture_bounds() -> Bounds {
         blob_bytes: 64,
         record_bytes: 64 << 10,
     }
+}
+
+/// Opens a change titled Feature in the story's repo and returns its number.
+pub fn opened(rig: &mut Rig, story: &Story) -> u64 {
+    let output = rig.execute(&story.open("Feature")).unwrap();
+    let OpReply::Change { n, .. } = abi::decode(&output).unwrap() else {
+        panic!()
+    };
+    n
 }

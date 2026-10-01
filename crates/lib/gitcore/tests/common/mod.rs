@@ -86,3 +86,18 @@ pub fn file_tree(store: &mut MemoryObjects, files: &[(&str, &str)]) -> Oid {
         .collect();
     tree(store, &entries)
 }
+
+/// The git on PATH, or `None` where a test that drives real git stays out.
+pub fn git_binary() -> Option<std::path::PathBuf> {
+    let output = std::process::Command::new("which")
+        .arg("git")
+        .output()
+        .ok()?;
+    let found = output.status.success();
+    if !found {
+        return None;
+    }
+    Some(std::path::PathBuf::from(
+        String::from_utf8_lossy(&output.stdout).trim(),
+    ))
+}

@@ -64,14 +64,6 @@ fn involving_principal(rig: &Rig, principal: Principal) -> Vec<u64> {
     page.items.iter().map(|summary| summary.n).collect()
 }
 
-fn opened(rig: &mut Rig, story: &Story) -> u64 {
-    let output = rig.execute(&story.open("Feature")).unwrap();
-    let OpReply::Change { n, .. } = abi::decode(&output).unwrap() else {
-        panic!()
-    };
-    n
-}
-
 fn edit_reviewers(n: u64, reviewers: Vec<Principal>) -> Op {
     Op::ChangeEdit {
         repo: REPO.into(),

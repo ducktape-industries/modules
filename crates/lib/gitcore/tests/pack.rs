@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::{fixture, oid_list, oid_text};
+use common::{fixture, git_binary, oid_list, oid_text};
 use gitcore::pack::{self, PackWriter};
 use gitcore::{Commit, Error, Hash, Kind, Limits, MemoryObjects, Object, Objects, Oid};
 use std::collections::BTreeSet;
@@ -288,20 +288,6 @@ fn git_accepts_a_pack_we_wrote() {
         .unwrap();
     assert_eq!(body.stdout, expected.1.body);
     std::fs::remove_dir_all(&dir).ok();
-}
-
-fn git_binary() -> Option<std::path::PathBuf> {
-    let output = std::process::Command::new("which")
-        .arg("git")
-        .output()
-        .ok()?;
-    let found = output.status.success();
-    if !found {
-        return None;
-    }
-    Some(std::path::PathBuf::from(
-        String::from_utf8_lossy(&output.stdout).trim(),
-    ))
 }
 
 fn temp_dir(prefix: &str) -> std::path::PathBuf {

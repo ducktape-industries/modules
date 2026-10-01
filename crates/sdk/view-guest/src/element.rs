@@ -104,6 +104,15 @@ pub(crate) fn wire_id(id: ElementId) -> wire::ElementIdWire {
         .expect("element ID must be portable across the view boundary")
 }
 
+/// One element lowered by a fresh driver frame: what the tests under this
+/// crate read a node's wire shape through.
+#[cfg(test)]
+pub(crate) fn lower(element: impl IntoElement) -> wire::Node {
+    let mut app = App::for_driver();
+    let mut window = app.window();
+    Lowering::new(&mut window, &mut app).lower(element)
+}
+
 impl<'a> Lowering<'a> {
     pub(crate) fn new(window: &'a mut Window, app: &'a mut App) -> Self {
         Self {

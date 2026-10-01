@@ -1,12 +1,7 @@
 use crate::accesskit::{Action, ActionData, AriaCurrent, HasPopup, Invalid, Live};
+use crate::element::lower;
 use crate::prelude::*;
 use crate::{Driver, Lowering, View, wire};
-
-fn lower(element: impl IntoElement) -> wire::Node {
-    let mut app = App::for_driver();
-    let mut window = app.window();
-    Lowering::new(&mut window, &mut app).lower(element)
-}
 
 fn aria(node: &wire::Node) -> &wire::Aria {
     match node {
