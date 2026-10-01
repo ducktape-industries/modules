@@ -138,8 +138,8 @@ pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
     let mut i = 0;
     while i < V::TARGETS.len() {
         assert!(
-            wire::manifest::program_name(V::TARGETS[i]),
-            "a target is a program name: 1..=64 of [A-Za-z0-9_-]"
+            program::is_name(V::TARGETS[i]),
+            "a target is a program id: 1..=64 of [a-z0-9_-]"
         );
         i += 1;
     }

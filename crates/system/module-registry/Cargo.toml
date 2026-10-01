@@ -21,6 +21,7 @@ abi = { workspace = true }
 describe = { workspace = true }
 borsh = { workspace = true }
 guest = { workspace = true }
+program = { workspace = true }
 store = { workspace = true }
 
 # The founding suite (`tests/system.rs`) drives the built boot set on the host.

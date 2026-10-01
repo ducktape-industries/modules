@@ -337,3 +337,39 @@ fn the_roles_are_answered_as_the_kernel_binds_them() {
         Reply::Roles(roles)
     );
 }
+
+#[test]
+fn an_id_lands_only_in_its_one_spelling() {
+    let (store, code) = founded();
+    let view = |name: &str| {
+        Change::SetView(View {
+            name: name.into(),
+            view: code,
+        })
+    };
+    for (name, class) in [
+        ("System", "uppercase"),
+        ("\u{0455}ystem", "a Cyrillic look-alike"),
+        ("\u{202e}metsys", "a bidi control: reads `system`"),
+    ] {
+        for change in [Change::Set(entry(name, code)), view(name)] {
+            assert_eq!(
+                schedule(&store, 5, change).unwrap_err().code,
+                code::INVALID_INPUT,
+                "{class}"
+            );
+        }
+    }
+    schedule(&store, 5, Change::Set(entry("system", code))).unwrap();
+    schedule(&store, 5, view("a-view_2")).unwrap();
+    // an id that landed before the rule can still be removed
+    let store = MockHost::default();
+    crate::rules::init(
+        &store.exec(env(0, Origin::Root)),
+        Genesis {
+            programs: vec![entry("System", code)],
+            views: vec![],
+        },
+    );
+    schedule(&store, 5, Change::Remove("System".into())).unwrap();
+}
