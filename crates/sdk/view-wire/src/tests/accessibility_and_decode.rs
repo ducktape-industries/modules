@@ -112,7 +112,7 @@ fn uniform_list_path_must_match_its_typed_tree_ancestry() {
             id: Some(parent.clone()),
             style: gpui::StyleRefinement::default(),
             interactivity: Interactivity::default(),
-            children: vec![uniform(vec![parent.clone(), list.clone()])],
+            children: vec![uniform(vec![parent, list.clone()])],
         })),
         ..Default::default()
     };

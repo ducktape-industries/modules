@@ -49,13 +49,13 @@ impl Forge {
     /// Ask again for everything on screen, keeping the rows already there
     /// until the fresh ones land.
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
-        for query in self.data.keys().cloned().collect::<Vec<_>>() {
+        for query in self.data.keys().cloned() {
             let landing = query.clone();
             cx.refresh(queries::fetch(cx.host(), query), move |forge, reply, _| {
                 forge.data.insert(landing, Loadable::Ready(reply));
             });
         }
-        for channel in self.messages.keys().cloned().collect::<Vec<_>>() {
+        for channel in self.messages.keys().cloned() {
             let viewer = self.viewer();
             cx.refresh(
                 queries::conversation(cx.host(), channel.clone(), viewer),

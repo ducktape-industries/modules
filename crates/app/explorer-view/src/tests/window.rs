@@ -72,7 +72,7 @@ fn a_pushed_head_is_drawn_with_the_page_it_brings_not_before() {
     let mut cx = TestAppContext::new();
     let heads = cx.host().stream::<ChainHeads>();
     let tip = Rc::new(RefCell::new(12));
-    node(&mut cx, tip.clone());
+    node(&mut cx, tip);
     cx.open::<Explorer>();
     cx.run_until_parked();
     assert!(cx.has_text("12"), "the Height stat: {:?}", cx.texts());

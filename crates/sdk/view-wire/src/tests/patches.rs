@@ -58,7 +58,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
 /// are moved out of the new tree, one empty stand-in left for each.
 #[test]
 fn a_taking_diff_moves_the_carried_subtrees_out() {
-    let old = column(vec![
+    let mut old = column(vec![
         keyed("a", "one"),
         column(vec![keyed("x", "x"), keyed("y", "y")]),
         column(vec![text("replaced by a text")]),
@@ -71,7 +71,7 @@ fn a_taking_diff_moves_the_carried_subtrees_out() {
     ]);
     let expected = diff(&mut old.clone(), &mut new.clone());
     let mut hollow = new.clone();
-    let patches = diff_taking(&mut old.clone(), &mut hollow);
+    let patches = diff_taking(&mut old, &mut hollow);
     assert_eq!(patches, expected);
     let carried: usize = patches
         .iter()

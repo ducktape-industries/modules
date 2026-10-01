@@ -115,7 +115,7 @@ pub fn card(
         .id(format!("chat-message-{id}-row"))
         .relative()
         .w_full()
-        .group(group.clone())
+        .group(group)
         .on_hover(row_hover)
         // a row of the pane's grid; it never claims
         .role(ducktape_view_guest::Role::Row)

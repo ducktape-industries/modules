@@ -95,9 +95,7 @@ mod tests {
         malicious.extend_from_slice(b"Encoded");
         malicious.push(0xdd);
         malicious.extend_from_slice(&(crate::MAX_FRAME_BYTES as u32 + 1).to_be_bytes());
-        let error = crate::decode::<ImageData>(&malicious)
-            .unwrap_err()
-            .to_string();
+        let error = crate::decode::<ImageData>(&malicious).unwrap_err();
         assert!(
             error.contains("raster byte limit"),
             "reject the header before reading elements: {error}"

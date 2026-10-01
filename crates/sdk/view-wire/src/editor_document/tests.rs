@@ -410,9 +410,7 @@ fn decoder_rejects_advertised_oversized_chunks_before_reading_their_payload() {
     encoded.pop();
     encoded.push(0xdd);
     encoded.extend_from_slice(&((MAX_EDITOR_CHUNK_BYTES as u32) + 1).to_be_bytes());
-    let error = crate::decode::<EditorTransfer>(&encoded)
-        .unwrap_err()
-        .to_string();
+    let error = crate::decode::<EditorTransfer>(&encoded).unwrap_err();
     assert!(error.contains("editor chunk byte limit"), "{error}");
 }
 

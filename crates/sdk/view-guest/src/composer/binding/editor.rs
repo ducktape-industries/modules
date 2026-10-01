@@ -138,7 +138,7 @@ pub(super) fn editor<V: 'static>(
     let interacting = draft.clone();
     let decide_choices = choices.clone();
     let observed_choices = choices.clone();
-    let interaction_choices = choices.clone();
+    let interaction_choices = choices;
     let binding = EditorBinding::<Change>::new(
         claims,
         move |request| {

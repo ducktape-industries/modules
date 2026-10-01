@@ -58,7 +58,7 @@ fn column(children: Vec<wire::Node>) -> wire::Node {
 /// with a keyed list reordered below.
 #[test]
 fn put_back_completes_the_tree_a_taking_diff_hollowed() {
-    let old = column(vec![
+    let mut old = column(vec![
         keyed("a", "one"),
         column(vec![keyed("x", "x"), keyed("y", "y")]),
         column(vec![text("replaced by a text")]),
@@ -70,7 +70,7 @@ fn put_back_completes_the_tree_a_taking_diff_hollowed() {
         text("a text now"),
     ]);
     let mut hollow = new.clone();
-    let mut patches = wire::diff_taking(&mut old.clone(), &mut hollow);
+    let mut patches = wire::diff_taking(&mut old, &mut hollow);
     assert_ne!(hollow, new, "{patches:#?}");
     patches.reverse();
     crate::driver::put_back(&mut hollow, patches);

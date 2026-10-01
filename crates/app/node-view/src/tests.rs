@@ -129,7 +129,7 @@ fn texts_of(cx: &TestAppContext, key: &str) -> Vec<String> {
 fn collect(node: &ducktape_view_guest::wire::Node, texts: &mut Vec<String>) {
     use ducktape_view_guest::wire::Node;
     match node {
-        Node::Text(text) => texts.push(text.content.to_string()),
+        Node::Text(text) => texts.push(text.content.clone()),
         Node::Container(container) => {
             for child in &container.children {
                 collect(child, texts);

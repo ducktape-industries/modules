@@ -43,7 +43,7 @@ fn typed_ids_drive_keyed_patch_moves_without_stringification() {
         text(ElementIdWire::Uuid([2; 16]), "two"),
         text(ElementIdWire::Integer(11), "one changed"),
     ]);
-    let mut applied = old.clone();
+    let mut applied = old;
     let patches = diff(&mut applied, &mut new);
     assert!(
         patches
