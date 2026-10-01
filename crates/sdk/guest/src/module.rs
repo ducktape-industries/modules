@@ -202,6 +202,39 @@ mod tests {
         );
     }
 
+    /// Answers a query with bytes of its own, as forge serves git's wire:
+    /// its `Reply` is never what the host gets.
+    struct Raw;
+    impl Program for Raw {
+        const NAME: &'static str = "raw";
+        type Op = ();
+        type Query = ();
+        type Reply = u64;
+    }
+    impl Module for Raw {
+        fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn query(_: &QueryCtx, (): ()) -> Result<u64, Error> {
+            Ok(7)
+        }
+
+        fn answer(_: &QueryCtx, (): ()) -> Result<Vec<u8>, Error> {
+            Ok(b"git's own bytes".to_vec())
+        }
+    }
+
+    #[test]
+    fn a_query_is_answered_by_answer_not_by_querys_reply_as_borsh() {
+        let host = MockHost::default();
+        let request = abi::encode(&());
+        query::<Raw>(&host.query(MockHost::env("raw")), &request).unwrap();
+        assert_eq!(host.take_response(), b"git's own bytes");
+        query::<Silent>(&host.query(MockHost::env("silent")), &request).unwrap();
+        assert_eq!(host.take_response(), abi::encode(&()));
+    }
+
     /// Keeps [`Module::reply`]'s default.
     struct Silent;
     impl Program for Silent {
