@@ -1425,6 +1425,53 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
     );
 }
 
+/// Every element of the window keeps its path while a dropdown is open and
+/// after it closes: the host keys a list's scroll and a field's state by
+/// the ids above them, so a menu must not move the window under itself.
+#[test]
+fn a_dropdown_leaves_the_window_where_it_was() {
+    fn paths(
+        node: &wire::Node,
+        above: &mut Vec<wire::ElementIdWire>,
+        out: &mut Vec<Vec<wire::ElementIdWire>>,
+    ) {
+        let id = node.identity().cloned();
+        if let Some(id) = &id {
+            above.push(id.clone());
+            out.push(above.clone());
+        }
+        node.children()
+            .iter()
+            .for_each(|child| paths(child, above, out));
+        if id.is_some() {
+            above.pop();
+        }
+    }
+    let window = |cx: &TestAppContext| {
+        let mut out = Vec::new();
+        paths(cx.root(), &mut Vec::new(), &mut out);
+        let root = wire::ElementIdWire::Name("forge".into());
+        out.retain(|path| path.contains(&root));
+        out
+    };
+    let (mut cx, _view) = opened("default");
+    let closed = window(&cx);
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-ref-picker-menu").is_some(),
+        "the menu is open"
+    );
+    assert_eq!(window(&cx), closed);
+    cx.simulate_key_down("forge-ref-picker-menu", "escape");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-ref-picker-menu").is_none(),
+        "the menu is closed"
+    );
+    assert_eq!(window(&cx), closed);
+}
+
 /// The file tree claims a row before any key, and End takes the cursor to
 /// the last row.
 #[test]

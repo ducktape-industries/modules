@@ -5,7 +5,7 @@ use crate::element::wire_id;
 use crate::interactivity::EventListener;
 use crate::{
     AnyElement, App, ElementId, InteractiveElement, Interactivity, IntoElement, Lowering,
-    StatefulInteractiveElement, Window, wire,
+    ParentElement, StatefulInteractiveElement, Window, div, wire,
 };
 use gpui::{CursorStyle, Hsla, Pixels, StyleRefinement, Styled};
 
@@ -145,7 +145,7 @@ impl Element for ResizeHandle {
 pub struct ModalOverlay {
     id: ElementId,
     base: AnyElement,
-    modal: AnyElement,
+    modal: Option<AnyElement>,
     label: String,
     style: StyleRefinement,
     backdrop: Hsla,
@@ -154,16 +154,22 @@ pub struct ModalOverlay {
 
 /// `modal` over `base`, named `label`: what the dialog is, as assistive
 /// technology announces it.
+///
+/// `base` sits under `id` whether or not a modal is open: the host keeps a
+/// list's scroll and a field's state by the ids above it, so a modal
+/// opening must not move the base to a new path. With no modal it is a
+/// plain full-size container; the overlay's style, backdrop and dismiss
+/// apply only while one is open.
 pub fn modal_overlay(
     id: impl Into<ElementId>,
     label: impl Into<String>,
     base: impl IntoElement,
-    modal: impl IntoElement,
+    modal: Option<impl IntoElement>,
 ) -> ModalOverlay {
     ModalOverlay {
         id: id.into(),
         base: base.into_any_element(),
-        modal: modal.into_any_element(),
+        modal: modal.map(IntoElement::into_any_element),
         label: label.into(),
         style: StyleRefinement::default(),
         backdrop: Hsla::transparent_black(),
@@ -195,6 +201,11 @@ impl Element for ModalOverlay {
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        let Some(modal) = self.modal else {
+            // the id is already on the path: lower the container in place
+            let base = div().id(self.id).size_full().child(self.base);
+            return Element::lower(Box::new(base), lowering);
+        };
         wire::Node::Overlay {
             id: wire_id(self.id),
             label: Some(self.label),
@@ -202,7 +213,7 @@ impl Element for ModalOverlay {
             on_dismiss: self
                 .on_dismiss
                 .map(|listener| lowering.message_route(listener)),
-            children: vec![lowering.lower(self.base), lowering.lower(self.modal)],
+            children: vec![lowering.lower(self.base), lowering.lower(modal)],
         }
     }
 }
