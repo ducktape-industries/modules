@@ -149,8 +149,9 @@ impl FakeHost {
             {
                 assert!(
                     declared.contains(&capability),
-                    "undeclared_capability: `{}` needs the `{}` capability, \
+                    "{}: `{}` needs the `{}` capability, \
                      which this view's CAPABILITIES does not declare",
+                    methods::refusal::UNDECLARED_CAPABILITY,
                     request.kind,
                     capability.as_str()
                 );
