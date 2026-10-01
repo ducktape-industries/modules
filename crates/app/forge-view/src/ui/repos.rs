@@ -6,7 +6,7 @@ use ducktape_view_guest::{Div, Stateful};
 
 use crate::Forge;
 use crate::queries::PAGE;
-use crate::ui::components::{button, empty_state, heading, id, ref_label};
+use crate::ui::components::{PRESS_TARGET, button, empty_state, heading, id, ref_label};
 use crate::ui::{pending, staged};
 use forge::{Query, Reply, RepoInfo};
 
@@ -41,8 +41,6 @@ const ROW_H: Pixels = px(48.);
 const HEADER_H: Pixels = px(30.);
 /// A table cell's side inset.
 const CELL_X: Pixels = px(12.);
-/// The smallest box a pointer presses, each way (the door's AX-017).
-const PRESS_TARGET: Pixels = px(24.);
 
 /// Whether the list, `width` wide, holds the table: the name's floor and
 /// every column, inside the rows' side margins and the scroll bar's gutter.

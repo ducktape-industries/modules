@@ -11,7 +11,7 @@ use ducktape_view_guest::prelude::*;
 
 use crate::Forge;
 use crate::state::ReviewSession;
-use crate::ui::components::{badge, empty_state, id, path_text, quiet};
+use crate::ui::components::{PRESS_TARGET, badge, empty_state, id, path_text, quiet};
 use crate::ui::staged;
 use forge::{Content, FileDiff, FileStatus, LineKind, Query, Reply, Side};
 
@@ -591,6 +591,9 @@ fn gutter(
             path_text(&row.path)
         )))
         .w_full()
+        .min_h(PRESS_TARGET)
+        .flex()
+        .items_center()
         .hover(|style| style.bg(theme.accent_soft))
         .when(active, |button| button.bg(theme.accent_soft))
         .aria_label("Comment on this line")

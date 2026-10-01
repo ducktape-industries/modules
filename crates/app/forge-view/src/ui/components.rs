@@ -13,6 +13,9 @@ use ducktape_view_guest::{
     AnchoredPositionMode, Div, Edges, KeyDownEvent, Point, Stateful, accesskit,
 };
 
+/// The smallest box a pointer presses, each way (the door's AX-017).
+pub(crate) const PRESS_TARGET: Pixels = px(24.);
+
 pub(crate) fn id(text: impl Into<String>) -> ElementId {
     ElementId::Name(text.into().into())
 }
@@ -30,6 +33,8 @@ where
     selected: bool,
     /// `Some(cell)`: the arrows are on this row, at that cell
     active: Option<usize>,
+    /// a row of a [`grid`]: a `Row` of cells even with no control
+    in_grid: bool,
     children: Vec<AnyElement>,
     controls: Vec<AnyElement>,
     click: Option<F>,
@@ -46,6 +51,7 @@ where
         theme: *theme,
         selected: false,
         active: None,
+        in_grid: false,
         children: Vec::new(),
         controls: Vec::new(),
         click: None,
@@ -68,6 +74,13 @@ where
     /// control in order. A control claims for itself when it is the cell.
     pub fn active(mut self, cell: Option<usize>) -> Self {
         self.active = cell;
+        self
+    }
+    /// A row of a [`grid`]: its press is the first cell of a `Row` even
+    /// when no control sits beside it (the default head's ref, a tag), as
+    /// a grid holds rows of cells and never a list box's option.
+    pub fn in_grid(mut self) -> Self {
+        self.in_grid = true;
         self
     }
     pub fn cell(mut self, child: impl IntoElement) -> Self {
@@ -107,8 +120,8 @@ where
                 .children(self.children)
                 .children(self.controls);
         };
-        // no controls: the row is the option, and its press
-        if self.controls.is_empty() {
+        // no controls, in a list: the row is the option, and its press
+        if self.controls.is_empty() && !self.in_grid {
             let option = item
                 .hover(move |style| style.bg(hovered))
                 .aria_selected(self.selected)
@@ -116,7 +129,7 @@ where
                 .children(self.children);
             return design::item(option, Role::ListBoxOption, self.active.is_some());
         }
-        // controls: a grid row whose first cell is the press
+        // a grid row whose first cell is the press
         let press = div()
             .id(id(format!("{}-open", self.key)))
             .size_full()
@@ -190,7 +203,7 @@ pub(crate) fn list(
         .flex_col()
 }
 
-/// A grid of [`row`]s with controls as one Tab stop: ↑ ↓ walk the rows,
+/// A grid of [`row`]s (each [`Row::in_grid`]) as one Tab stop: ↑ ↓ walk the rows,
 /// ← → a row's cells (its press, then each control), Enter presses the
 /// active cell (`on_press(row, cell)`). `cells` is the active row's count.
 pub(crate) fn grid(

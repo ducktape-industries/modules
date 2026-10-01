@@ -168,12 +168,22 @@ fn replay(tape: &mut Tape) {
             page: PageRequest::first(2),
         },
     );
-    tape.capture(
+    let Reply::Refs { page, .. } = tape.capture(
         &rig,
         "refs",
         Query::Refs {
             repo: REPO.into(),
             page: PageRequest::first(2),
+        },
+    ) else {
+        panic!();
+    };
+    tape.capture(
+        &rig,
+        "refs-next",
+        Query::Refs {
+            repo: REPO.into(),
+            page: PageRequest::resume(page.next, 64),
         },
     );
     let Reply::Log { page, .. } = tape.capture(
