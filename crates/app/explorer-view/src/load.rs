@@ -179,7 +179,12 @@ impl Explorer {
                         decode::bytes(&tx.target, &tx.payload)
                     }
                 };
-                let _ = tx.op.set(op);
+                // every row of the hash: a frame the node landed again is
+                // the same op, drawn once per landing
+                let rows = view.chain.txs.iter().chain(view.opened_tx(&hash));
+                for tx in rows.filter(|tx| tx.hash == hash) {
+                    let _ = tx.op.set(op.clone());
+                }
                 cx.notify();
             });
         })

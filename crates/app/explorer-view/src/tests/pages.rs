@@ -395,6 +395,40 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
     assert_eq!(name(0xc3).as_deref(), Some("Direct message, c3c3c3c3…c3c3"));
 }
 
+/// The node lands the same frame again (the same bytes, so the same hash,
+/// in a later block or twice in one): each row is still its own element,
+/// so the host takes the frame instead of refusing it (a refused frame
+/// ends the view: "duplicate typed element identity among siblings"), and
+/// every row of that hash reads as the op it carries.
+#[test]
+fn a_frame_landed_again_is_a_row_of_its_own() {
+    let mut cx = TestAppContext::new();
+    cx.host().stream::<ChainHeads>();
+    node(&mut cx, Rc::new(RefCell::new(12)));
+    let mut blocks = chain(12);
+    let again = blocks[12].txs[0].clone();
+    blocks[11].txs.push(again.clone());
+    blocks[12].txs.push(again);
+    cx.host()
+        .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    let hash = abi::hex(&[0xb2; 32]);
+    for id in [
+        format!("explorer-tx-{hash}"),
+        format!("explorer-tx-{hash}-2"),
+        format!("explorer-tx-{hash}-3"),
+    ] {
+        assert!(cx.find(&id).is_some(), "{id}: {:?}", cx.texts());
+    }
+    let described = cx
+        .texts()
+        .iter()
+        .filter(|text| *text == "mystery · 4 bytes")
+        .count();
+    assert_eq!(described, 3, "{:?}", cx.texts());
+}
+
 #[test]
 fn an_account_shows_its_devices_and_what_it_used_in_the_window() {
     let (mut cx, _) = ready();
