@@ -292,11 +292,18 @@ fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: 
                 .justify_end()
                 .role(Role::GridCell)
                 .child(design::item(
+                    // two repositories last active in one block are two
+                    // links there: each says whose activity it is
                     design::block_link(
                         id(format!("forge-repo-{}-activity", info.name)),
                         info.repo.last_activity,
                         theme,
-                    ),
+                    )
+                    .aria_label(format!(
+                        "Open block {} in Explorer, {}",
+                        design::grouped(info.repo.last_activity),
+                        info.name
+                    )),
                     Role::Link,
                     active,
                 )),

@@ -1267,6 +1267,20 @@ fn a_repository_row_is_a_grid_row_whose_press_is_a_button_beside_its_controls() 
     }
 }
 
+/// A row's block link is named by its repository as well as its block:
+/// two repositories last active in one block are two links there, and the
+/// door's AX-016 asks that no two links share a name.
+#[test]
+fn a_repository_rows_block_link_is_named_by_its_repository() {
+    let (cx, _view) = booted("default");
+    let link = cx.interactivity("forge-repo-project-activity");
+    assert_eq!(link.role, Some(ducktape_view_guest::Role::Link));
+    assert_eq!(
+        link.aria.label.as_deref(),
+        Some("Open block 2 in Explorer, project")
+    );
+}
+
 /// The repository list is one grid: ↓ moves to the next repository, → to
 /// its Copy cell, and Enter presses the cell, so the address lands on
 /// the clipboard without opening the repository.
