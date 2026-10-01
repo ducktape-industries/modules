@@ -22,6 +22,9 @@ pub struct BlockRow {
 pub struct TxRow {
     pub hash: [u8; 32],
     pub height: u64,
+    /// its place in the block's transactions: with `height`, where it sits
+    /// on the chain, which no two rows share
+    pub index: u32,
     pub time: u64,
     pub signer: Vec<u8>,
     pub seq: u64,
@@ -52,6 +55,7 @@ const KEPT_PAYLOAD: usize = 4 << 10;
 struct StoredTx<'a> {
     hash: [u8; 32],
     height: u64,
+    index: u32,
     time: u64,
     signer: Cow<'a, [u8]>,
     seq: u64,
@@ -71,6 +75,7 @@ impl Serialize for TxRow {
         StoredTx {
             hash: self.hash,
             height: self.height,
+            index: self.index,
             time: self.time,
             signer: Cow::Borrowed(&self.signer),
             seq: self.seq,
@@ -89,6 +94,7 @@ impl<'de> Deserialize<'de> for TxRow {
         Ok(TxRow {
             hash: stored.hash,
             height: stored.height,
+            index: stored.index,
             time: stored.time,
             signer: stored.signer.into_owned(),
             seq: stored.seq,
@@ -115,10 +121,12 @@ pub(crate) fn rows(block: Block) -> (BlockRow, Vec<TxRow>) {
     let txs = block
         .txs
         .into_iter()
+        .enumerate()
         .rev()
-        .map(|tx| TxRow {
+        .map(|(index, tx)| TxRow {
             hash: tx.hash,
             height: block.height,
+            index: index as u32,
             time: block.time,
             signer: tx.signer,
             seq: tx.seq,
