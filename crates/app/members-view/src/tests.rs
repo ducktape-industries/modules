@@ -549,6 +549,57 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     );
 }
 
+/// Two transactions of one block are two links to it, and the same op
+/// twice in a block is one row twice. Each link is named by what was
+/// signed there, the lower of a like pair by its place among them, so no
+/// two share a name (the door's AX-016) and each still opens its block.
+#[test]
+fn each_activity_link_is_named_by_what_was_signed_in_its_block() {
+    let (mut cx, _) = ready();
+    // eddy posts 2 twice and then 3 at 12, after 2 at 11
+    cx.host().handle::<ChainBlocks>(|page: BlockPage| {
+        let post = |payload: u8| Tx {
+            signer: EDDY.to_vec(),
+            target: "chat".into(),
+            payload: vec![payload],
+            ..Tx::default()
+        };
+        let block = |height, txs| Block {
+            height,
+            time: height * 60_000,
+            txs,
+            ..Block::default()
+        };
+        Ok(match page.before {
+            None => vec![
+                block(12, vec![post(2), post(2), post(3)]),
+                block(11, vec![post(2)]),
+            ],
+            Some(_) => Vec::new(),
+        })
+    });
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    let names: Vec<String> = (0..4)
+        .map(|index| {
+            let link = cx.interactivity(&format!("members-block-{index}"));
+            assert_eq!(link.role, Some(ducktape_view_guest::Role::Link));
+            link.aria.label.as_deref().unwrap_or_default().to_owned()
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "Open block 12 in Explorer, Post 3 in chat",
+            "Open block 12 in Explorer, Post 2 in chat",
+            "Open block 12 in Explorer, Post 2 in chat (2)",
+            "Open block 11 in Explorer, Post 2 in chat",
+        ]
+    );
+    cx.simulate_click("members-block-2");
+    assert_eq!(cx.host().opened_links(), ["duck://explorer/block/12"]);
+}
+
 /// A row is called by the member's name, not the avatar's initial drawn
 /// before it; what else the row says is its description.
 #[test]

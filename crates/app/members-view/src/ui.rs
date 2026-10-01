@@ -872,6 +872,17 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
             .iter()
             .enumerate()
             .map(|(index, signed)| {
+                // two rows of one block are two links there, so each link
+                // says what was signed; the same op twice in a block reads
+                // as one row twice, and the lower one says which it is
+                let alike = recent.items[..index]
+                    .iter()
+                    .filter(|other| other.height == signed.height && other.title == signed.title)
+                    .count();
+                let signed_as = match alike {
+                    0 => signed.title.clone(),
+                    above => format!("{} ({})", signed.title, above + 1),
+                };
                 line()
                     .child(
                         div()
@@ -880,11 +891,17 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
                             .truncate()
                             .child(signed.title.clone()),
                     )
-                    .child(design::block_link(
-                        format!("members-block-{}", index),
-                        signed.height,
-                        theme,
-                    ))
+                    .child(
+                        design::block_link(
+                            format!("members-block-{}", index),
+                            signed.height,
+                            theme,
+                        )
+                        .aria_label(format!(
+                            "Open block {} in Explorer, {signed_as}",
+                            design::grouped(signed.height)
+                        )),
+                    )
                     .child(
                         div()
                             .w(px(52.))
