@@ -1674,3 +1674,9 @@ fn a_ref_without_compare_is_a_grid_row_of_one_cell() {
     cx.run_until_parked();
     view.read(|forge| assert_eq!(forge.head_name(), b"refs/tags/v1".to_vec()));
 }
+
+#[test]
+fn b2_forge_frame() {
+    let (cx, _) = opened("ok");
+    ducktape_view_guest::testing::b2_report("forge-opened", cx.root());
+}

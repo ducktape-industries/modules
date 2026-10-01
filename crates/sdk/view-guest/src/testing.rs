@@ -287,8 +287,10 @@ fn collect_keys(node: &Node, out: &mut Vec<String>) {
         .for_each(|child| collect_keys(child, out));
 }
 
+mod b2_bench;
 mod context;
 mod fake_host;
+pub use b2_bench::b2_report;
 pub use context::TestAppContext;
 pub use fake_host::{FakeHost, StreamSender};
 

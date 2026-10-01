@@ -231,3 +231,9 @@ fn person(number: u64, name: &str) -> chat::Profile {
         kind: chat::Kind::Person,
     }
 }
+
+#[test]
+fn b2_chat_frame() {
+    let (cx, _) = opened();
+    ducktape_view_guest::testing::b2_report("chat-general", cx.root());
+}

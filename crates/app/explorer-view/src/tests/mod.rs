@@ -2,6 +2,7 @@
 //! accounts, one validator and a registry, each answered as the program
 //! would. Tests by what they cover: `describe`, `window`, `pages`, `search`.
 mod describe;
+mod style_bytes;
 mod follow;
 mod pages;
 mod search;
