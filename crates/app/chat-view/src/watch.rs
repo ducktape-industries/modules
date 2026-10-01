@@ -1,7 +1,9 @@
 //! What chat follows while it is open: the session, routes opened into
 //! it, whether it is on screen, and the live heads of chat and identity.
 //! Every follower says what a refusal means to it; none ends on one.
-use ducktape_view_guest::Context;
+use ducktape_view_guest::host::Error;
+use ducktape_view_guest::{Context, Task};
+use futures::{Stream, StreamExt};
 
 use crate::api::{Changes, ChatApi, HostOffset, HostRoute, HostSession, HostVisible};
 use crate::{Chat, links};
@@ -25,7 +27,9 @@ impl Chat {
                     chat.notice = format!("Couldn’t read the session: {}", refusal.message)
                 }
             }),
-            cx.for_each(changes, |chat, head, _, cx| match head {
+            // a head only starts the re-reads; the room is drawn with what
+            // they bring, not before
+            Self::follow(changes, cx, |chat, head, cx| match head {
                 Ok(_) => chat.refresh(cx),
                 Err(refusal) => cx.host().log_refused("chat", "chat's live heads", &refusal),
             }),
@@ -47,7 +51,7 @@ impl Chat {
             }),
             // re-read the roster on identity's heads, so a name another
             // signer claims replaces its "account N" fallback
-            cx.for_each(identity, |chat, head, _, cx| match head {
+            Self::follow(identity, cx, |chat, head, cx| match head {
                 Ok(_) => chat.load_names(cx),
                 Err(refusal) => cx
                     .host()
@@ -59,5 +63,24 @@ impl Chat {
                 Err(refusal) => cx.host().log_refused("chat", "the UTC offset", &refusal),
             }),
         ];
+    }
+
+    /// `cx.for_each` without the redraw after every item, for a follower
+    /// whose `each` only starts reads: what it starts draws when it lands,
+    /// so a head drawn here would be a full render of the room that
+    /// changes nothing. `each` leaves the snapshot alone (the SDK's notify
+    /// contract): what it writes is drawn by the landing.
+    fn follow<T: 'static>(
+        mut stream: impl Stream<Item = Result<T, Error>> + Unpin + 'static,
+        cx: &mut Context<Self>,
+        mut each: impl FnMut(&mut Self, Result<T, Error>, &mut Context<Self>) + 'static,
+    ) -> Task<()> {
+        cx.spawn(async move |this, cx| {
+            while let Some(item) = stream.next().await {
+                if this.update(cx, |chat, cx| each(chat, item, cx)).is_err() {
+                    break;
+                }
+            }
+        })
     }
 }

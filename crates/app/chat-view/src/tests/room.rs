@@ -679,3 +679,63 @@ fn every_message_row_says_its_place_in_its_set() {
     assert_eq!(places("chat-message-m2-row"), vec![(Some(2), Some(2))]);
     assert_eq!(places("chat-message-m3-row"), vec![(Some(2), Some(2))]);
 }
+
+/// A live head of chat or identity starts the re-reads and draws nothing
+/// itself: the room is drawn once, with what they bring. `confirmation` is
+/// drawn but not in the snapshot, so a line set without a notify reaches
+/// the screen only if something else redraws the room.
+#[test]
+fn a_head_draws_the_room_with_what_it_rereads_not_before() {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx);
+    let props = cx.host().stream::<HostSession>();
+    let visible = cx.host().stream::<HostVisible>();
+    let changes = cx.host().stream::<Changes<ChatApi>>();
+    let identity = cx.host().stream::<Changes<IdentityApi>>();
+    let view = cx.open::<Chat>();
+    cx.run_until_parked();
+    props.send(Session {
+        signer: "0102".into(),
+        account: Some(7),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    visible.send(true);
+    cx.run_until_parked();
+    cx.simulate_click("chat-sidebar-channel-general");
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("hello") && cx.has_text("eddy"),
+        "{:?}",
+        cx.texts()
+    );
+
+    view.update(&mut cx, |chat, _, _| chat.confirmation = "Copied".into());
+    // the re-reads never come back: nothing on screen may move
+    cx.host().never::<Ask<ChatApi>>();
+    let asked = cx.host().requests::<Ask<ChatApi>>().len();
+    changes.send(Some(5));
+    identity.send(Some(5));
+    cx.run_until_parked();
+    assert!(
+        cx.host().requests::<Ask<ChatApi>>().len() > asked,
+        "the heads start the re-reads"
+    );
+    assert!(
+        !cx.has_text("Copied"),
+        "a head drew the room before anything landed: {:?}",
+        cx.texts()
+    );
+
+    // the re-reads land: the room is drawn with them
+    configure(&mut cx);
+    changes.send(Some(6));
+    identity.send(Some(6));
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("Copied") && cx.has_text("eddy"),
+        "{:?}",
+        cx.texts()
+    );
+}
