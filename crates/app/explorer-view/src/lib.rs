@@ -50,6 +50,8 @@ impl View for Explorer {
         Capability::Clock,
         Capability::Clipboard,
     ];
+    const TARGETS: &'static [&'static str] =
+        &[identity::MODULE, valset::MODULE, module_registry::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 640;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {

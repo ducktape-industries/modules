@@ -446,6 +446,10 @@ fn schema() -> String {
     render(&mut text, &tree);
     text.push_str("\n# tree: gpui's GridLocation, whose Range is not the tree's\n");
     render(&mut text, &grid);
+    text.push_str("\n# manifest: one line each, in order\n");
+    for line in view_wire::manifest::LINES {
+        writeln!(text, "{line}").unwrap();
+    }
     text
 }
 

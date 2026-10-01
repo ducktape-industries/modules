@@ -125,7 +125,6 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
             "abcd".into()
         },
         account: (!matches!(state, "empty" | "unregistered" | "suspended")).then_some(7),
-        dark,
         endpoint: "http://127.0.0.1:19001".into(),
         ..Session::default()
     });
@@ -572,7 +571,6 @@ fn long_host_key_is_truncated_and_non_validator_standing_is_quiet() {
     cx.open::<Settings>();
     props.send(Session {
         signer: long_hex.clone(),
-        dark: false,
         endpoint: "http://127.0.0.1:19001".into(),
         ..Session::default()
     });
@@ -629,7 +627,7 @@ fn a_person_creates_an_agent_and_adds_its_key() {
 
 /// The manager alone renames, suspends, resumes and revokes an agent from
 /// its line; each is one op, and the agents are read again after it.
-/// Revoking is final, so it takes a second press.
+/// Revoke is one press: the host confirms it natively before signing.
 #[test]
 fn a_manager_renames_suspends_and_revokes_an_agent() {
     let mut cx = fixture("ready", false);
@@ -722,21 +720,15 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
         logged.borrow_mut().push(op);
         Ok(Vec::new())
     });
-    cx.simulate_click("settings/agents/12/revoke");
-    cx.run_until_parked();
-    assert_eq!(sent(&cx), 2, "the first press only asks");
-    assert!(cx.has_text("Revoking is final: this agent account never acts again."));
-    assert!(cx.has_text("Revoke for good"));
-    // another action drops the question
     cx.simulate_click("settings/agents/12/resume");
     cx.run_until_parked();
-    assert!(!cx.has_text("Revoke for good"));
-    cx.simulate_click("settings/agents/12/revoke");
-    cx.run_until_parked();
-    assert!(cx.has_text("Revoke for good"));
     suspended(&cx, identity::Life::Revoked);
     cx.simulate_click("settings/agents/12/revoke");
     cx.run_until_parked();
+    assert!(
+        !cx.has_text("Revoke for good"),
+        "the view asks no confirmation of its own: the host does"
+    );
     assert_eq!(
         *log.borrow(),
         [
