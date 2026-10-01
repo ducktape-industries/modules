@@ -21,15 +21,15 @@ impl Explorer {
         self.pull(cx);
     }
 
-    /// A head `chain.heads` pushed: the status moves to it without a read,
-    /// and the window follows.
+    /// A head `chain.heads` pushed: the window follows it without a read,
+    /// and the status moves to it when the page lands. A head is not drawn
+    /// on its own: that redraw changed nothing (the page lands a tick later
+    /// and draws once) and cost a full render of the page that was up, 74M
+    /// fuel on Transactions, every block.
     pub(crate) fn at_head(&mut self, head: Head, cx: &mut Context<Self>) {
-        match &mut self.status {
-            Loadable::Ready(status) => {
-                if head.height > status.height {
-                    status.height = head.height;
-                    status.tip = head.id;
-                }
+        match &self.status {
+            Loadable::Ready(_) => {
+                self.head = self.head.max(head.height);
                 self.pull(cx);
             }
             _ => self.read_head(cx),
@@ -102,7 +102,10 @@ impl Explorer {
         if self.pulling {
             return;
         }
-        let head = self.status.ready().map(|status| status.height);
+        let head = self
+            .status
+            .ready()
+            .map(|status| status.height.max(self.head));
         let before = match (self.chain.top(), head) {
             (None, _) => None,
             (Some(top), Some(head)) if head > top => None,
@@ -125,6 +128,14 @@ impl Explorer {
                     Ok(page) => {
                         let was = (view.chain.top(), view.chain.blocks.len());
                         view.chain.land(before, page);
+                        // the status moves with the page that reached the head
+                        if let (Loadable::Ready(status), Some(top)) =
+                            (&mut view.status, view.chain.blocks.first())
+                            && top.height > status.height
+                        {
+                            status.height = top.height;
+                            status.tip = top.id;
+                        }
                         // a page that moved nothing is not asked for again
                         // until the head moves
                         if (view.chain.top(), view.chain.blocks.len()) != was {

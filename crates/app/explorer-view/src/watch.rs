@@ -26,16 +26,28 @@ impl Explorer {
         let valset = host.subscribe::<Changes<ValsetApi>>(());
         let registry = host.subscribe::<Changes<RegistryApi>>(());
         let offset = host.subscribe::<HostOffset>(());
-        self.followers = vec![
-            cx.for_each(heads, |view, head, _, cx| match head {
-                Some(Ok(head)) => view.at_head(head, cx),
-                Some(Err(refusal)) => {
-                    cx.host()
-                        .log_refused("explorer", "the chain's heads", &refusal);
-                    view.poll_head(cx);
+        // Not `cx.for_each`, which redraws the view after every item: a head
+        // is drawn with the page it brings (`at_head`). A refused or ended
+        // stream falls back to the clock, whose reads draw themselves.
+        let mut heads = heads;
+        let followed = cx.spawn(async move |this, cx| {
+            while let Some(head) = heads.next().await {
+                let landed = this.update(cx, |view, cx| match head {
+                    Some(Ok(head)) => view.at_head(head, cx),
+                    Some(Err(refusal)) => {
+                        cx.host()
+                            .log_refused("explorer", "the chain's heads", &refusal);
+                        view.poll_head(cx);
+                    }
+                    None => view.poll_head(cx),
+                });
+                if landed.is_err() {
+                    break;
                 }
-                None => view.poll_head(cx),
-            }),
+            }
+        });
+        self.followers = vec![
+            followed,
             cx.for_each(session, |view, session, _, cx| match session {
                 Ok(session) => view.session_chain = session.chain_id,
                 Err(refusal) => cx.host().log_refused("explorer", "the session", &refusal),

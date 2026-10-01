@@ -134,6 +134,10 @@ pub struct Explorer {
     /// a `chain.blocks` page is in flight
     #[serde(skip)]
     pub(crate) pulling: bool,
+    /// the newest height `chain.heads` announced; the status moves to it
+    /// when the page that reaches it lands (`pull`), not before
+    #[serde(skip)]
+    pub(crate) head: u64,
     /// the head is polled on the clock: `chain.heads` was refused or ended
     #[serde(skip)]
     pub(crate) polling: Option<Task<()>>,
