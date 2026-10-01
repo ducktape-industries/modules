@@ -130,7 +130,7 @@ impl Element for Svg {
         let source = match source {
             Source::None => wire::SvgSource::None,
             Source::Data(bytes) => {
-                let (hash, bytes) = lowering.picture(bytes);
+                let (hash, bytes) = lowering.picture(&bytes, bytes.len());
                 wire::SvgSource::Data { hash, bytes }
             }
             Source::Asset(path) => wire::SvgSource::Asset(path.to_string()),

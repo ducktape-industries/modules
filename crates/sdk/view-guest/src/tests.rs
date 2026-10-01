@@ -476,6 +476,7 @@ fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
 }
 
 mod lifecycle;
+mod picture_budget;
 mod primitive_tests;
 mod tick_alloc;
 
