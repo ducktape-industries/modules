@@ -104,8 +104,7 @@ pub fn list_item(spans: &[Span]) -> Option<(ListMarker, Vec<Span>)> {
 /// the CHAIN, so no renderer recovers it. Each line is therefore its own block.
 /// A rendered break has to be a block boundary rather than a `\n` inside one:
 /// a marked-up line renders as a single rich-text paragraph (chat-view's
-/// `rich_line`),
-/// one paragraph widget per typed line.
+/// `rich_line`), one paragraph widget per typed line.
 pub fn parse_message(input: &str) -> Vec<Block> {
     let lines: Vec<&str> = input.lines().collect();
     let mut blocks = Vec::new();
@@ -264,8 +263,8 @@ fn flush_plain(plain: &mut String, spans: &mut Vec<Span>) {
 /// `duck://` is a link scheme here exactly as `http(s)://` is: the app
 /// classifies a pressed link through its own module table
 /// (`Windows::open_link`, shell/entities/windows.rs) and refuses what it
-/// cannot open, so the tokenizer
-/// marks the run and decides nothing about where it points.
+/// cannot open, so the tokenizer marks the run and decides nothing about
+/// where it points.
 fn url_len(chars: &[char], at: usize) -> Option<usize> {
     let starts_link = LINK_SCHEMES.iter().any(|scheme| {
         let mut rest = chars[at..].iter();

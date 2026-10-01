@@ -8,9 +8,10 @@ data through a fixed table of methods. This page is the whole surface.
 
 The rule: we re-implement only what touches the host or the wire; everything
 else is the gpui fork `Cargo.toml` pins (`gpui-pre`, at the rev it names),
-re-exported unchanged. The `pub use gpui::{…}` block at the top of `src/lib.rs` is the gpui list (`px`, `rems`,
-`Hsla`, `StyleRefinement`, `Styled`, `ElementId`, `SharedString`, the
-`*Event` types, `Role`, ...). Ours, defined in this crate:
+re-exported unchanged. The `pub use gpui::{…}` block at the top of
+`src/lib.rs` is the gpui list (`px`, `rems`, `Hsla`, `StyleRefinement`,
+`Styled`, `ElementId`, `SharedString`, the `*Event` types, `Role`, ...).
+Ours, defined in this crate:
 
 - `App`, `AsyncApp`, `Context`, `Entity`, `WeakEntity` (`src/context.rs`),
   `Task` (`src/executor.rs`), `Window` (`src/window.rs`): the entity graph
