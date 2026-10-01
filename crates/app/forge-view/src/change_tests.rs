@@ -371,9 +371,43 @@ fn the_diff_draws_typed_lines_and_believes_the_program_about_a_literal_plus_plus
     };
     assert_eq!(
         gutter.interactivity.aria.label.as_deref(),
-        Some("Comment on this line")
+        Some("Comment on this line at src/lib.rs:5 (new)")
     );
     assert!(gutter.interactivity.on_click.is_some());
+}
+
+/// Every gutter of a reviewable diff is a button named by the line it
+/// comments on, its path, number and side: the door's AX-016 finds no two
+/// pressable buttons sharing a name, and the name holds the number drawn.
+#[test]
+fn no_two_gutter_buttons_share_a_name() {
+    use std::collections::HashSet;
+    let (cx, _view) = change_screen("reviewed", ChangeTab::Files);
+    fn gather(node: &ducktape_view_guest::wire::Node, names: &mut Vec<String>) {
+        if let Some(button) = node.interactivity().filter(|interactivity| {
+            interactivity.role == Some(ducktape_view_guest::Role::Button)
+                && interactivity.on_click.is_some()
+                && node
+                    .key()
+                    .is_some_and(|key| key.starts_with("forge-gutter-"))
+        }) {
+            names.push(button.aria.label.as_deref().unwrap_or_default().to_owned());
+        }
+        node.children()
+            .iter()
+            .for_each(|child| gather(child, names));
+    }
+    let mut names = Vec::new();
+    gather(cx.find("forge-diff").expect("the diff"), &mut names);
+    assert!(names.len() >= 3, "{names:?}");
+    let distinct: HashSet<&String> = names.iter().collect();
+    assert_eq!(distinct.len(), names.len(), "{names:?}");
+    for name in [
+        "Comment on this line at src/lib.rs:1 (old)",
+        "Comment on this line at src/lib.rs:1 (new)",
+    ] {
+        assert!(names.iter().any(|n| n == name), "{name} in {names:?}");
+    }
 }
 
 /// Under a review the diff is one grid: ↓ moves to the next line with a

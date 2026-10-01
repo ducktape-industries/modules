@@ -559,7 +559,8 @@ fn comment_box(
 }
 
 /// A gutter number. Under a review it is the button that anchors a comment
-/// at `path:line (side)`; otherwise it is a number.
+/// at `path:line (side)`, named by that anchor so no two gutters share a
+/// name (AX-016); otherwise it is a number.
 fn gutter(
     row: &Painted,
     new_side: bool,
@@ -596,7 +597,10 @@ fn gutter(
         .items_center()
         .hover(|style| style.bg(theme.accent_soft))
         .when(active, |button| button.bg(theme.accent_soft))
-        .aria_label("Comment on this line")
+        .aria_label(format!(
+            "Comment on this line at {}",
+            crate::state::anchor(&row.path, number, new_side)
+        ))
         .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| {
             comment(&at, window, app)
         })

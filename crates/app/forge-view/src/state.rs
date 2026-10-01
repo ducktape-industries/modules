@@ -322,13 +322,18 @@ impl PendingComment {
         self.path == other.path && self.new_side == other.new_side && self.line == other.line
     }
     pub fn anchor(&self) -> String {
-        format!(
-            "{}:{} ({})",
-            String::from_utf8_lossy(&self.path),
-            self.line,
-            if self.new_side { "new" } else { "old" }
-        )
+        anchor(&self.path, self.line, self.new_side)
     }
+}
+
+/// Where a line comment sits, as the composer and a gutter's name say it:
+/// `src/lib.rs:12 (new)`.
+pub(crate) fn anchor(path: &[u8], line: u64, new_side: bool) -> String {
+    format!(
+        "{}:{line} ({})",
+        String::from_utf8_lossy(path),
+        if new_side { "new" } else { "old" }
+    )
 }
 
 pub(crate) fn verdict_label(verdict: Verdict) -> &'static str {
