@@ -49,6 +49,11 @@ fn a_pushed_head_reads_only_the_new_blocks() {
     });
     cx.run_until_parked();
     assert!(cx.has_text("13–14 · 2 empty blocks"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("14"),
+        "the Height stat moved with the page: {:?}",
+        cx.texts()
+    );
     let explorer_asked = cx.host().requests::<ChainBlocks>();
     assert_eq!(explorer_asked.len(), 2, "{explorer_asked:?}");
     assert!(explorer_asked.iter().all(|ask| ask.before.is_none()));
@@ -57,6 +62,34 @@ fn a_pushed_head_reads_only_the_new_blocks() {
         1,
         "a head moves the status without a read"
     );
+}
+
+/// A head alone draws nothing: the screen moves once, when the page it
+/// brings lands. (Drawn per head item, the census spent 74M fuel on a
+/// redraw of the Transactions page that changed nothing, every block.)
+#[test]
+fn a_pushed_head_is_drawn_with_the_page_it_brings_not_before() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    assert!(cx.has_text("12"), "the Height stat: {:?}", cx.texts());
+    // the page the head asks for never comes: nothing on screen may move
+    cx.host().never::<ChainBlocks>();
+    heads.send(Head {
+        height: 40,
+        time: T0 + 40_000,
+        id: [40; 32],
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<ChainBlocks>().len(),
+        2,
+        "the head is pulled"
+    );
+    assert!(cx.has_text("12") && !cx.has_text("40"), "{:?}", cx.texts());
 }
 
 #[test]
