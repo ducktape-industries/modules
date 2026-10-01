@@ -77,7 +77,7 @@ mod window;
 
 mod snapshot;
 mod view;
-pub use view::{Capabilities, Loadable, Render, View};
+pub use view::{Loadable, Render, View};
 pub use wire::methods;
 mod context;
 pub use context::{App, AsyncApp, Callback, Context, Entity, Released, WeakEntity};
@@ -92,57 +92,48 @@ pub use driver::Driver;
 
 const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
 
-/// The length of [`manifest_bytes`] over the same arguments.
-pub const fn manifest_len(
-    name: &str,
-    description: &str,
-    capabilities: &[wire::methods::Capability],
-    min_width: u32,
-) -> usize {
+/// The length of [`manifest_bytes`] for the same view.
+pub const fn manifest_len<V: View>() -> usize {
     let mut len = MANIFEST_HEADER.len()
-        + name.len()
+        + V::NAME.len()
         + 1
-        + description.len()
+        + V::DESCRIPTION.len()
         + 1
         + 1
-        + digits(min_width)
+        + digits(V::MIN_WINDOW_WIDTH)
         + 1
         + wire::WIRE_ID.len();
     let mut i = 0;
-    while i < capabilities.len() {
-        len += capabilities[i].as_str().len() + 1;
+    while i < V::CAPABILITIES.len() {
+        len += V::CAPABILITIES[i].as_str().len() + 1;
         i += 1;
     }
     len
 }
 
-/// The manifest text (`view_wire::manifest`: header, name, description,
-/// capabilities, [`View::MIN_WINDOW_WIDTH`], [`wire::WIRE_ID`]), at compile
-/// time: a width outside `1..=8192` fails the build.
-pub const fn manifest_bytes<const N: usize>(
-    name: &str,
-    description: &str,
-    capabilities: &[wire::methods::Capability],
-    min_width: u32,
-) -> [u8; N] {
+/// The manifest text (`view_wire::manifest`: header, [`View::NAME`],
+/// [`View::DESCRIPTION`], [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`],
+/// [`wire::WIRE_ID`]), at compile time: a width outside `1..=8192` fails the
+/// build.
+pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
     assert!(
-        min_width >= 1 && min_width <= wire::MAX_PIXELS as u32,
+        V::MIN_WINDOW_WIDTH >= 1 && V::MIN_WINDOW_WIDTH <= wire::MAX_PIXELS as u32,
         "MIN_WINDOW_WIDTH is 1..=8192"
     );
     let mut out = [0u8; N];
     let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
-    at = put(&mut out, at, name.as_bytes());
+    at = put(&mut out, at, V::NAME.as_bytes());
     at = put(&mut out, at, b"\n");
-    at = put(&mut out, at, description.as_bytes());
+    at = put(&mut out, at, V::DESCRIPTION.as_bytes());
     at = put(&mut out, at, b"\n");
     let mut i = 0;
-    while i < capabilities.len() {
-        at = put(&mut out, at, capabilities[i].as_str().as_bytes());
+    while i < V::CAPABILITIES.len() {
+        at = put(&mut out, at, V::CAPABILITIES[i].as_str().as_bytes());
         at = put(&mut out, at, b",");
         i += 1;
     }
     at = put(&mut out, at, b"\n");
-    at = put_number(&mut out, at, min_width);
+    at = put_number(&mut out, at, V::MIN_WINDOW_WIDTH);
     at = put(&mut out, at, b"\n");
     at = put(&mut out, at, wire::WIRE_ID.as_bytes());
     assert!(at == N);
@@ -176,31 +167,20 @@ const fn put_number(out: &mut [u8], at: usize, mut number: u32) -> usize {
     end
 }
 
-/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view.
-/// Each capability is a [`wire::methods::Capability`] variant, the
-/// `<capability>` half of the method kinds the view asks through.
+/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view,
+/// from what its [`View`] impl says: `export_view!(Chat);`.
 #[macro_export]
 macro_rules! export_view {
-    ($app:ty, $name:expr, $description:expr, [$($capability:ident),* $(,)?]) => {
-        impl $crate::Capabilities for $app {
-            const CAPABILITIES: &'static [$crate::wire::methods::Capability] =
-                &[$($crate::wire::methods::Capability::$capability),*];
-        }
-        const MANIFEST_LEN: usize = $crate::manifest_len(
-            $name,
-            $description,
-            <$app as $crate::Capabilities>::CAPABILITIES,
-            <$app as $crate::View>::MIN_WINDOW_WIDTH,
-        );
+    ($app:ty) => {
+        const MANIFEST_LEN: usize = $crate::manifest_len::<$app>();
 
-        #[cfg_attr(target_arch = "wasm32", unsafe(link_section = "ducktape.view.manifest"))]
+        #[cfg_attr(
+            target_arch = "wasm32",
+            unsafe(link_section = "ducktape.view.manifest")
+        )]
         #[used]
-        static MANIFEST_SECTION: [u8; MANIFEST_LEN] = $crate::manifest_bytes(
-            $name,
-            $description,
-            <$app as $crate::Capabilities>::CAPABILITIES,
-            <$app as $crate::View>::MIN_WINDOW_WIDTH,
-        );
+        static MANIFEST_SECTION: [u8; MANIFEST_LEN] =
+            $crate::manifest_bytes::<$app, MANIFEST_LEN>();
 
         #[cfg(target_arch = "wasm32")]
         mod wasm_exports {

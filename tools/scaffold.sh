@@ -286,7 +286,7 @@ EOF
     cat > "$dir/src/lib.rs" <<EOF
 //! $title: the count the \`$program\` module keeps, re-read on every live
 //! bump of the module.
-use ducktape_view_guest::methods::{Changes, Query};
+use ducktape_view_guest::methods::{Capability, Changes, Query};
 use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::Error;
 use ducktape_view_guest::Loadable;
@@ -307,6 +307,9 @@ pub struct $title {
 }
 
 impl View for $title {
+    const NAME: &'static str = "$title";
+    const DESCRIPTION: &'static str = "The count the $program module keeps.";
+    const CAPABILITIES: &'static [Capability] = &[Capability::Module];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -380,12 +383,7 @@ async fn count(host: Host) -> Result<u64, Error> {
     Ok(count)
 }
 
-export_view!(
-    $title,
-    "$title",
-    "The count the $program module keeps.",
-    [Module]
-);
+export_view!($title);
 
 #[cfg(test)]
 mod tests;

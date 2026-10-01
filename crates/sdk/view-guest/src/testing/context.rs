@@ -1,6 +1,6 @@
 use super::{FakeHost, assert_frame_accessible, find, texts};
 use crate::{
-    App, Capabilities, Driver, Entity, View,
+    App, Driver, Entity, View,
     host::Host,
     wire::{Event, Frame, Node},
 };
@@ -43,7 +43,7 @@ impl TestAppContext {
     pub fn host(&self) -> FakeHost {
         self.host.clone()
     }
-    pub fn open<V: View + Capabilities>(&mut self) -> Entity<V> {
+    pub fn open<V: View>(&mut self) -> Entity<V> {
         self.host.declare(V::CAPABILITIES);
         let driver = Driver::<V>::initialize_in(self.fresh_app(), None);
         let entity = driver.entity();
@@ -56,7 +56,7 @@ impl TestAppContext {
     pub fn snapshot(&self) -> Result<Vec<u8>, String> {
         self.driver.as_ref().expect("open a view first").snapshot()
     }
-    pub fn restore<V: View + Capabilities>(&mut self, bytes: &[u8]) -> Result<Entity<V>, String> {
+    pub fn restore<V: View>(&mut self, bytes: &[u8]) -> Result<Entity<V>, String> {
         self.host.declare(V::CAPABILITIES);
         let driver = Driver::<V>::from_snapshot_in(self.fresh_app(), bytes)?;
         let entity = driver.entity();
@@ -201,6 +201,8 @@ mod tests {
         task: Option<Task<()>>,
     }
     impl View for LiveView {
+        const NAME: &'static str = "LiveView";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
         fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
             let mut view = Self::default();
             view.restored(window, cx);
@@ -219,9 +221,6 @@ mod tests {
                 }
             }));
         }
-    }
-    impl Capabilities for LiveView {
-        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
     }
     impl Render for LiveView {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
@@ -252,13 +251,12 @@ mod tests {
     #[derive(Default, Serialize, Deserialize)]
     struct Undeclared;
     impl View for Undeclared {
+        const NAME: &'static str = "Undeclared";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
         fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
             cx.host().log("hello");
             Self
         }
-    }
-    impl Capabilities for Undeclared {
-        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
     }
     impl Render for Undeclared {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
@@ -276,12 +274,10 @@ mod tests {
     #[derive(Default, Serialize, Deserialize)]
     struct Nameless;
     impl View for Nameless {
+        const NAME: &'static str = "Nameless";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self
         }
-    }
-    impl Capabilities for Nameless {
-        const CAPABILITIES: &'static [Capability] = &[];
     }
     impl Render for Nameless {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
@@ -310,6 +306,7 @@ mod tests {
     #[derive(Default, Serialize, Deserialize)]
     struct Twins;
     impl View for Twins {
+        const NAME: &'static str = "Twins";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self
         }
@@ -332,12 +329,10 @@ mod tests {
     #[derive(Default, Serialize, Deserialize)]
     struct NamelessTip;
     impl View for NamelessTip {
+        const NAME: &'static str = "NamelessTip";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self
         }
-    }
-    impl Capabilities for NamelessTip {
-        const CAPABILITIES: &'static [Capability] = &[];
     }
     impl Render for NamelessTip {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {

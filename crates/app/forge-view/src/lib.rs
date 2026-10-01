@@ -24,6 +24,7 @@ mod navigate;
 mod review;
 mod ui;
 
+use ducktape_view_guest::methods::Capability;
 use ducktape_view_guest::methods::{Changes, HostOffset, HostRoute, HostVisible};
 use ducktape_view_guest::{Context, IntoElement, Render, View, Window, design, export_view};
 
@@ -33,6 +34,16 @@ pub(crate) use select::Stage;
 pub use state::Forge;
 
 impl View for Forge {
+    const NAME: &'static str = "Forge";
+    const DESCRIPTION: &'static str =
+        "Repositories, code, commits and the changes waiting on your judgment.";
+    const CAPABILITIES: &'static [Capability] = &[
+        Capability::Module,
+        Capability::Op,
+        Capability::Host,
+        Capability::Link,
+        Capability::Clipboard,
+    ];
     const MIN_WINDOW_WIDTH: u32 = 640;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -119,12 +130,7 @@ impl Render for Forge {
     }
 }
 
-export_view!(
-    Forge,
-    "Forge",
-    "Repositories, code, commits and the changes waiting on your judgment.",
-    [Module, Op, Host, Link, Clipboard]
-);
+export_view!(Forge);
 
 #[cfg(test)]
 mod tests;

@@ -9,12 +9,20 @@ use std::future::Future;
 pub trait Render: 'static + Sized {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement;
 }
-/// The capabilities a view's manifest declares. `export_view!` implements
-/// it from its list, so `TestAppContext` refuses what the app would refuse.
-pub trait Capabilities {
-    const CAPABILITIES: &'static [crate::methods::Capability];
-}
+/// A root view: everything the host reads about it (the manifest
+/// `export_view!` writes: [`NAME`](View::NAME), [`DESCRIPTION`](View::DESCRIPTION),
+/// [`CAPABILITIES`](View::CAPABILITIES), [`MIN_WINDOW_WIDTH`](View::MIN_WINDOW_WIDTH))
+/// and its two lifecycle entries.
 pub trait View: Render + Serialize + DeserializeOwned {
+    /// The name on the tab and in the catalog, `1..=64` bytes.
+    const NAME: &'static str;
+    /// One line for the catalog, at most 256 bytes.
+    const DESCRIPTION: &'static str = "";
+    /// The `<capability>` halves of the method kinds this view asks
+    /// through, and the only ones the host lets it reach: a method whose
+    /// capability is not here is refused `undeclared_capability`, by the
+    /// app and by `TestAppContext` alike.
+    const CAPABILITIES: &'static [crate::methods::Capability] = &[];
     /// The narrowest content width, in logical px, at which every essential
     /// element is visible and nothing is clipped. The app never lays the
     /// view out narrower, and never sizes a window holding it narrower
@@ -27,6 +35,7 @@ pub trait View: Render + Serialize + DeserializeOwned {
     /// #[derive(Serialize, Deserialize)]
     /// struct Wide;
     /// impl View for Wide {
+    ///     const NAME: &'static str = "Wide";
     ///     const MIN_WINDOW_WIDTH: u32 = 640;
     ///     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
     ///         Wide
@@ -37,7 +46,7 @@ pub trait View: Render + Serialize + DeserializeOwned {
     /// #         div()
     /// #     }
     /// # }
-    /// view_guest::export_view!(Wide, "Wide", "", []);
+    /// view_guest::export_view!(Wide);
     /// # fn main() {}
     /// ```
     ///
@@ -49,6 +58,7 @@ pub trait View: Render + Serialize + DeserializeOwned {
     /// #[derive(Serialize, Deserialize)]
     /// struct Zero;
     /// impl View for Zero {
+    ///     const NAME: &'static str = "Zero";
     ///     const MIN_WINDOW_WIDTH: u32 = 0;
     ///     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
     ///         Zero
@@ -59,7 +69,7 @@ pub trait View: Render + Serialize + DeserializeOwned {
     /// #         div()
     /// #     }
     /// # }
-    /// view_guest::export_view!(Zero, "Zero", "", []);
+    /// view_guest::export_view!(Zero);
     /// # fn main() {}
     /// ```
     const MIN_WINDOW_WIDTH: u32 = 480;
@@ -242,6 +252,11 @@ mod follow_tests {
         live: Option<Task<()>>,
     }
     impl View for Heads {
+        const NAME: &'static str = "Heads";
+        const CAPABILITIES: &'static [crate::methods::Capability] = &[
+            crate::methods::Capability::Module,
+            crate::methods::Capability::Host,
+        ];
         fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
             let live = cx.host().subscribe::<Changes<Probe>>(());
             Self {
@@ -249,12 +264,6 @@ mod follow_tests {
                 live: Some(cx.for_each(live, |view: &mut Heads, _, _, _| view.seen += 1)),
             }
         }
-    }
-    impl crate::Capabilities for Heads {
-        const CAPABILITIES: &'static [crate::methods::Capability] = &[
-            crate::methods::Capability::Module,
-            crate::methods::Capability::Host,
-        ];
     }
     impl Render for Heads {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

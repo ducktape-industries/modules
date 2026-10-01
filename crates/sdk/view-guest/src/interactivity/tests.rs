@@ -114,6 +114,7 @@ struct Stepper {
 }
 
 impl View for Stepper {
+    const NAME: &'static str = "Stepper";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self::default()
     }
@@ -168,6 +169,7 @@ struct Pinned {
 }
 
 impl View for Pinned {
+    const NAME: &'static str = "Pinned";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self::default()
     }

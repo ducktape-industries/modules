@@ -13,6 +13,8 @@ pub struct Exported {
 }
 
 impl View for Exported {
+    const NAME: &'static str = "Exported";
+    const DESCRIPTION: &'static str = "export_view! wasm32 probe";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self::default()
     }
@@ -31,4 +33,4 @@ impl Render for Exported {
     }
 }
 
-view_guest::export_view!(Exported, "Exported", "export_view! wasm32 probe", []);
+view_guest::export_view!(Exported);

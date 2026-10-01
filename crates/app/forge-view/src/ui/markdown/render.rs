@@ -224,15 +224,13 @@ mod view_tests {
     struct Doc;
 
     impl View for Doc {
+        const NAME: &'static str = "Doc";
+        // the forge view's own manifest, so the doc reaches only what it does
+        const CAPABILITIES: &'static [ducktape_view_guest::methods::Capability] =
+            <crate::Forge as View>::CAPABILITIES;
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Doc
         }
-    }
-
-    // the forge view's own manifest, so the doc reaches only what it does
-    impl ducktape_view_guest::Capabilities for Doc {
-        const CAPABILITIES: &'static [ducktape_view_guest::methods::Capability] =
-            <crate::Forge as ducktape_view_guest::Capabilities>::CAPABILITIES;
     }
 
     impl Render for Doc {
