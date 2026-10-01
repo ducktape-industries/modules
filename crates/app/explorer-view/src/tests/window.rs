@@ -161,7 +161,7 @@ fn a_full_window_renders_inside_the_frame_budget() {
     big[..8].copy_from_slice(&(WINDOW as u64).to_le_bytes());
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
-    cx.simulate_click(&format!("explorer-tx-{}", abi::hex(&big)));
+    cx.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
     cx.run_until_parked();
     assert!(cx.has_text("1048576 bytes · 50505050…5050"));
     sizes.push(("a 1 MB push", cx.frame_bytes()));
@@ -203,7 +203,7 @@ fn a_snapshot_keeps_ops_not_payloads() {
     big[..8].copy_from_slice(&(WINDOW as u64).to_le_bytes());
     restored.simulate_click("explorer-tab-transactions");
     restored.run_until_parked();
-    restored.simulate_click(&format!("explorer-tx-{}", abi::hex(&big)));
+    restored.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
     restored.run_until_parked();
     assert!(restored.has_text("Push · app"), "{:?}", restored.texts());
 }

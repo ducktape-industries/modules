@@ -116,6 +116,7 @@ impl<V: View> Driver<V> {
 
     fn tick_wire(&mut self, events: Vec<wire::Event>) -> wire::Frame {
         self.busy = false;
+        let owed = slots::start_frame(&self.app.inner.slots);
         self.settle();
         for event in events {
             let editor_event = matches!(
@@ -135,7 +136,7 @@ impl<V: View> Driver<V> {
             }
         }
         self.settle();
-        self.frame()
+        self.frame(owed)
     }
 
     /// Runs one event: its route or its handler. A handler's message comes
@@ -360,13 +361,18 @@ impl<V: View> Driver<V> {
     }
 
     /// The frame after this tick's events: the tree lowered if anything
-    /// changed, then sent whole or as patches against the last one.
-    fn frame(&mut self) -> wire::Frame {
+    /// changed, or if the last frame owed a picture it drew, then sent whole
+    /// or as patches against the last one. A frame that owes a picture
+    /// asks for the next, until every picture drawn is sent.
+    fn frame(&mut self, owed: bool) -> wire::Frame {
         let render = self.app.inner.dirty.replace(false)
             || self.last_root.is_none()
-            || slots::editor_transferring(&self.app.inner.slots);
+            || slots::editor_transferring(&self.app.inner.slots)
+            || owed;
         let mut root = render.then(|| self.render_root());
-        self.busy |= self.app.inner.dirty.get() || executor::ready(&self.app.inner.tasks.borrow());
+        self.busy |= self.app.inner.dirty.get()
+            || executor::ready(&self.app.inner.tasks.borrow())
+            || slots::pictures_owed(&self.app.inner.slots);
         // Patches against the last tree, unless there is none — a first
         // frame or a resync. Nothing lowered is nothing changed, and a
         // lowered tree that diffs to no patches is the same tree

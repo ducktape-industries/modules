@@ -37,6 +37,11 @@ struct Tables {
     row: Option<Row>,
     tooltip_responses: Vec<crate::wire::TooltipResponse>,
     pictures: HashSet<u64>,
+    /// Picture bytes this frame carries so far, against the host's
+    /// [`crate::wire::MAX_PICTURE_BYTES_PER_FRAME`].
+    picture_bytes: usize,
+    /// A picture this frame drew went out by hash alone for want of budget.
+    pictures_owed: bool,
 }
 
 /// A route table. Routes taken while a list row lowers get ids from the row
@@ -127,19 +132,52 @@ impl Context {
     }
 }
 
-/// Returns a picture hash and its bytes the first time this driver sends it.
-pub fn picture(context: &Context, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u8>>) {
+/// Returns a picture hash, and its bytes the first time this driver sends
+/// it within the frame's picture budget. The host's sanitizer drops the
+/// bytes of every picture past [`crate::wire::MAX_PICTURE_BYTES_PER_FRAME`]
+/// in one frame, so a picture that does not fit in what is left goes out by
+/// hash alone, is not marked sent, and is owed: [`start_frame`] says so,
+/// and the driver draws again until every picture is held. `cost` is what
+/// the host counts for it, which for raw pixels is not their header.
+pub fn picture(context: &Context, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
+    use crate::wire::MAX_PICTURE_BYTES_PER_FRAME;
     use std::hash::{Hash, Hasher};
     let bytes = bytes.as_ref();
     let mut hasher = std::hash::DefaultHasher::new();
     bytes.hash(&mut hasher);
     let hash = hasher.finish();
-    let mut tables = context.0.borrow_mut();
-    if tables.pictures.len() >= 4_096 && !tables.pictures.contains(&hash) {
+    let tables = &mut *context.0.borrow_mut();
+    if tables.pictures.contains(&hash) {
+        return (hash, None);
+    }
+    // No frame can carry it: the host drops it whole, so it is neither
+    // sent nor owed, and the host draws its hash as a picture it lacks.
+    if cost > MAX_PICTURE_BYTES_PER_FRAME {
+        return (hash, None);
+    }
+    if cost > MAX_PICTURE_BYTES_PER_FRAME - tables.picture_bytes {
+        tables.pictures_owed = true;
+        return (hash, None);
+    }
+    if tables.pictures.len() >= 4_096 {
         tables.pictures.clear();
     }
-    let first = tables.pictures.insert(hash);
-    (hash, first.then(|| bytes.to_vec()))
+    tables.picture_bytes += cost;
+    tables.pictures.insert(hash);
+    (hash, Some(bytes.to_vec()))
+}
+
+/// Starts a frame's picture budget, and answers whether the last frame
+/// owed a picture it drew.
+pub(crate) fn start_frame(context: &Context) -> bool {
+    let tables = &mut *context.0.borrow_mut();
+    tables.picture_bytes = 0;
+    std::mem::take(&mut tables.pictures_owed)
+}
+
+/// Whether this frame drew a picture it had no budget left to send.
+pub(crate) fn pictures_owed(context: &Context) -> bool {
+    context.0.borrow().pictures_owed
 }
 
 pub(crate) fn clear_pictures(context: &Context) {
@@ -292,7 +330,7 @@ mod tests {
         let first = Context::default();
         let first_route =
             handler::<String, String>(&first, Box::new(|text| Some(format!("first:{text}"))));
-        assert!(picture(&first, b"svg").1.is_some());
+        assert!(picture(&first, b"svg", 3).1.is_some());
         {
             let second = Context::default();
             let route =
@@ -303,7 +341,7 @@ mod tests {
                 Some("second:x")
             );
             assert!(
-                picture(&second, b"svg").1.is_some(),
+                picture(&second, b"svg", 3).1.is_some(),
                 "a new host needs its own picture bytes"
             );
         }
@@ -312,7 +350,7 @@ mod tests {
             Some("first:x")
         );
         assert!(
-            picture(&first, b"svg").1.is_none(),
+            picture(&first, b"svg", 3).1.is_none(),
             "returning to the first driver preserves its picture history"
         );
     }
@@ -320,11 +358,11 @@ mod tests {
     #[test]
     fn clearing_picture_history_resends_content() {
         let context = Context::default();
-        assert!(picture(&context, b"image").1.is_some());
-        assert!(picture(&context, b"image").1.is_none());
+        assert!(picture(&context, b"image", 5).1.is_some());
+        assert!(picture(&context, b"image", 5).1.is_none());
         clear_pictures(&context);
         assert_eq!(
-            picture(&context, b"image").1.as_deref(),
+            picture(&context, b"image", 5).1.as_deref(),
             Some(b"image".as_slice())
         );
     }

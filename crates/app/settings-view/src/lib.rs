@@ -29,6 +29,7 @@ impl View for Settings {
         Capability::Host,
         Capability::Clipboard,
     ];
+    const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 560;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {

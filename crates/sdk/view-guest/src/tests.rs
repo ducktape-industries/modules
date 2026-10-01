@@ -476,6 +476,7 @@ fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
 }
 
 mod lifecycle;
+mod picture_budget;
 mod primitive_tests;
 mod tick_alloc;
 
@@ -512,6 +513,7 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
         const NAME: &'static str = "App";
         const DESCRIPTION: &'static str = "Words";
         const CAPABILITIES: &'static [Capability] = &[Capability::Clock, Capability::Module];
+        const TARGETS: &'static [&'static str] = &["chat", "identity"];
         const MIN_WINDOW_WIDTH: u32 = 560;
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             App
@@ -526,7 +528,7 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
     assert_eq!(
         std::str::from_utf8(&bytes).unwrap(),
         format!(
-            "ducktape.view.manifest\nApp\nWords\nclock,module,\n560\n{}",
+            "ducktape.view.manifest\nApp\nWords\nclock,module,\n560\n{}\nchat,identity,",
             wire::WIRE_ID
         )
     );
@@ -534,6 +536,7 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
     assert_eq!(manifest.min_width, 560);
     assert_eq!(manifest.wire_id, wire::WIRE_ID);
     assert_eq!(manifest.capabilities, App::CAPABILITIES);
+    assert_eq!(manifest.targets, App::TARGETS);
     assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
     // a view that declares nothing is laid out from 480 and reaches no method
     assert_eq!(<Probe as View>::MIN_WINDOW_WIDTH, 480);

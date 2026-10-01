@@ -44,7 +44,7 @@ impl TestAppContext {
         self.host.clone()
     }
     pub fn open<V: View>(&mut self) -> Entity<V> {
-        self.host.declare(V::CAPABILITIES);
+        self.host.declare(V::CAPABILITIES, V::TARGETS);
         let driver = Driver::<V>::initialize_in(self.fresh_app(), None);
         let entity = driver.entity();
         self.host.reset_connection();
@@ -57,7 +57,7 @@ impl TestAppContext {
         self.driver.as_ref().expect("open a view first").snapshot()
     }
     pub fn restore<V: View>(&mut self, bytes: &[u8]) -> Result<Entity<V>, String> {
-        self.host.declare(V::CAPABILITIES);
+        self.host.declare(V::CAPABILITIES, V::TARGETS);
         let driver = Driver::<V>::from_snapshot_in(self.fresh_app(), bytes)?;
         let entity = driver.entity();
         self.host.reset_connection();
@@ -203,6 +203,7 @@ mod tests {
     impl View for LiveView {
         const NAME: &'static str = "LiveView";
         const CAPABILITIES: &'static [Capability] = &[Capability::Module];
+        const TARGETS: &'static [&'static str] = &[<Probe as crate::methods::Program>::NAME];
         fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
             let mut view = Self::default();
             view.restored(window, cx);
@@ -268,6 +269,30 @@ mod tests {
     #[should_panic(expected = "undeclared_capability")]
     fn a_method_the_manifest_leaves_out_fails_the_test() {
         TestAppContext::new().open::<Undeclared>();
+    }
+
+    /// Follows `Probe`, which its `TARGETS` does not name.
+    #[derive(Default, Serialize, Deserialize)]
+    struct Untargeted;
+    impl View for Untargeted {
+        const NAME: &'static str = "Untargeted";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
+        const TARGETS: &'static [&'static str] = &["other"];
+        fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+            let _ = cx.host().subscribe::<Changes<Probe>>(());
+            Self
+        }
+    }
+    impl Render for Untargeted {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+            crate::div()
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "undeclared_target")]
+    fn a_program_the_targets_leave_out_fails_the_test() {
+        TestAppContext::new().open::<Untargeted>();
     }
 
     /// A button with nothing to say for itself.

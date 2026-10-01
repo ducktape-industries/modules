@@ -20,7 +20,6 @@ impl Settings {
 
     pub(crate) fn select_section(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;
-        self.revoking = None;
         cx.notify();
     }
 
@@ -164,22 +163,11 @@ impl Settings {
         self.submit_agent_op(op, |v| &mut v.agent_key, cx);
     }
 
-    /// Suspends or resumes an agent.
+    /// Suspends, resumes or revokes an agent: one press. Suspend and
+    /// Revoke are confirmed by the host, natively, before the key signs
+    /// them, so the view asks nothing of its own.
     pub(crate) fn set_standing(&mut self, op: identity::Op, cx: &mut Context<Self>) {
-        self.revoking = None;
         self.submit_agent_op(op, |v| &mut v.agent_standing, cx);
-    }
-
-    /// Revokes an agent on the second press: the first only asks.
-    pub(crate) fn revoke(&mut self, number: u64, cx: &mut Context<Self>) {
-        if self.revoking == Some(number) {
-            self.revoking = None;
-            let op = identity::Op::Revoke { account: number };
-            self.submit_agent_op(op, |v| &mut v.agent_standing, cx);
-        } else {
-            self.revoking = Some(number);
-            cx.notify();
-        }
     }
 
     /// Submits `op` from `form`; done, the form clears and the account is

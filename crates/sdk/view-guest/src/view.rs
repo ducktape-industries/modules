@@ -11,8 +11,8 @@ pub trait Render: 'static + Sized {
 }
 /// A root view: everything the host reads about it (the manifest
 /// `export_view!` writes: [`NAME`](View::NAME), [`DESCRIPTION`](View::DESCRIPTION),
-/// [`CAPABILITIES`](View::CAPABILITIES), [`MIN_WINDOW_WIDTH`](View::MIN_WINDOW_WIDTH))
-/// and its two lifecycle entries.
+/// [`CAPABILITIES`](View::CAPABILITIES), [`MIN_WINDOW_WIDTH`](View::MIN_WINDOW_WIDTH),
+/// [`TARGETS`](View::TARGETS)) and its two lifecycle entries.
 pub trait View: Render + Serialize + DeserializeOwned {
     /// The name on the tab and in the catalog, `1..=64` bytes.
     const NAME: &'static str;
@@ -23,6 +23,14 @@ pub trait View: Render + Serialize + DeserializeOwned {
     /// capability is not here is refused `undeclared_capability`, by the
     /// app and by `TestAppContext` alike.
     const CAPABILITIES: &'static [crate::methods::Capability] = &[];
+    /// The programs this view addresses (`op.submit`, `module.query`,
+    /// `module.changes`), by the name each `Program` carries
+    /// (`&[chat::Chat::NAME, program::role::Identity::NAME]`), and the only
+    /// ones the host signs or subscribes for it: a method naming another
+    /// is refused `undeclared_target`, by the app and by `TestAppContext`
+    /// alike. A view with the `op` or `module` capability names at least
+    /// one, or it does not compile.
+    const TARGETS: &'static [&'static str] = &[];
     /// The narrowest content width, in logical px, at which every essential
     /// element is visible and nothing is clipped. The app never lays the
     /// view out narrower, and never sizes a window holding it narrower
@@ -257,6 +265,7 @@ mod follow_tests {
             crate::methods::Capability::Module,
             crate::methods::Capability::Host,
         ];
+        const TARGETS: &'static [&'static str] = &[<Probe as crate::methods::Program>::NAME];
         fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
             let live = cx.host().subscribe::<Changes<Probe>>(());
             Self {
