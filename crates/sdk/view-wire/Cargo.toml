@@ -36,6 +36,8 @@ uuid = "1.1.2"
 error = { workspace = true, features = ["serde"] }
 # `module.describe` answers what a program says its op means.
 describe = { workspace = true, features = ["serde"] }
+# `Program`: the one trait a node method is addressed to.
+program = { workspace = true }
 memchr = "2"
 unicode-segmentation = "1"
 

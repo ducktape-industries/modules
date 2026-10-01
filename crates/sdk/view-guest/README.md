@@ -37,14 +37,16 @@ re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
 sealed, so a view cannot invent a kind. Three verbs on `Host` (`src/host.rs`):
 
 ```rust
-let reply = cx.host().ask::<Query<IdentityApi>>(identity::Query::List { page }).await?;
-let mut live = cx.host().subscribe::<Changes<ValsetApi>>(());
+let reply = cx.host().ask::<Query<identity::Identity>>(identity::Query::List { page }).await?;
+let mut live = cx.host().subscribe::<Changes<valset::Valset>>(());
 cx.host().notify::<methods::HostBadge>(3);
 ```
 
-A node program is addressed by a `methods::Module` impl beside the view
-(`crates/app/forge-view/src/api.rs`), never by the program crate; `Query<P>`,
-`Submit<P>` and `Changes<P>` are its three methods. Every refusal is the module SDK's `Error`
+A node program is addressed by its own type, the one that implements
+`program::Program` (`methods::Program` here) beside its `guest::Module`:
+`Query<P>`, `Submit<P>` and `Changes<P>` are its three methods, and
+`P::NAME` is the target they carry. A role a view follows without linking
+its program is `program::role::Identity`. Every refusal is the module SDK's `Error`
 (`code` token, `message`), one type end to end: a program's codes are
 `error::code`, the host's own are `methods::refusal`. `Loadable<T>` + `cx.load`
 (`src/view.rs`) hold an ask's four states and snapshot `Loading` as `Idle`.
@@ -54,25 +56,28 @@ A node program is addressed by a `methods::Module` impl beside the view
 account number, `None` until the host resolves one), `endpoint`; an item per
 change. Read "who am I" from `account`; no view asks identity for it.
 
-## Lifecycle, snapshot
+## The `View` trait
 
-`View` (`src/view.rs`): `new(window, cx)` on first mount, `restored` after a
-snapshot came back, `MIN_WINDOW_WIDTH` the narrowest width in px it works at
-(default 480, `1..=8192` or it does not compile): the app never lays it out
-narrower, and a narrower window scrolls it sideways. The
-snapshot is the view's own serde as the wire's named MessagePack
-(`src/snapshot.rs`), refused while work is pending; a host holds it to
-`view_wire::MAX_SNAPSHOT_BYTES` (8 MiB, `view-wire/src/snapshot.rs`). Derive `Serialize`/`Deserialize` and keep
+`View` (`src/view.rs`) is everything the host reads about a view and its two
+lifecycle entries: `NAME` (the tab and catalog name), `DESCRIPTION` (one
+catalog line, `""` by default), `CAPABILITIES` (the `methods::Capability`
+halves of the kinds it asks through, `&[]` by default: a method whose
+capability is not listed is refused `undeclared_capability`),
+`MIN_WINDOW_WIDTH` (the narrowest width in px it works at, default 480,
+`1..=8192` or it does not compile: the app never lays it out narrower, and
+a narrower window scrolls it sideways), `new(window, cx)` on first mount and
+`restored` after a snapshot came back. The snapshot is the view's own serde
+as the wire's named MessagePack (`src/snapshot.rs`), refused while work is
+pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
+`view-wire/src/snapshot.rs`). Derive `Serialize`/`Deserialize` and keep
 `Task`s out of the state (`Loadable` does).
 
 ## Exporting
 
-`export_view!(View, "Name", "description", [Module, Host])` (`src/lib.rs`)
-writes the five wasm exports and the manifest section `ducktape.view.manifest`
-(`view-wire/src/manifest.rs`: header, name, description, capabilities,
-`MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`). Each capability is a `methods::Capability`
-variant, the `<capability>` half of the kinds the view asks through; another
-name is a compile error.
+`export_view!(View)` (`src/lib.rs`) writes the five wasm exports and the
+manifest section `ducktape.view.manifest` from the trait's consts
+(`view-wire/src/manifest.rs`: header, `NAME`, `DESCRIPTION`,
+`CAPABILITIES`, `MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`).
 
 The ABI gate (`view-wire/src/abi.rs`, `tools/check-view-abi.py`): exactly one
 import, `ducktape_view.panicked`, and exactly five function exports,
@@ -92,7 +97,7 @@ another.
 `stream`, `requests`; then `simulate_click`, `texts`.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.
-It holds the view to its `export_view!` capabilities as the app does: a method
+It holds the view to its `View::CAPABILITIES` as the app does: a method
 whose capability the manifest leaves out panics with
 `methods::refusal::UNDECLARED_CAPABILITY`, the code the app refuses it with.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,

@@ -37,14 +37,14 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
         assert_eq!(kind, "channel");
         Ok("chan-1".into())
     });
-    cx.host().refuse::<Submit<ChatApi>>("no", "no");
+    cx.host().refuse::<Submit<::chat::Chat>>("no", "no");
     cx.simulate_click("chat-sidebar-new-channel");
     assert!(cx.has_text("Create a channel"));
     cx.simulate_input("chat-create-name", "random");
     cx.simulate_click("chat-create-members");
     cx.simulate_submit("chat-create-name");
     cx.run_until_parked();
-    assert!(cx.host().requests::<Submit<ChatApi>>().iter().any(|op| matches!(op, Op::CreateChannel { name, post_policy: PostPolicy::MembersOnly, .. } if name == "random")));
+    assert!(cx.host().requests::<Submit<::chat::Chat>>().iter().any(|op| matches!(op, Op::CreateChannel { name, post_policy: PostPolicy::MembersOnly, .. } if name == "random")));
     assert!(cx.has_text("Couldn’t create this channel: no"));
     let bytes = cx.snapshot().unwrap();
     let mut restored = TestAppContext::new();
@@ -54,7 +54,7 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
     let view = restored.restore::<Chat>(&bytes).unwrap();
     restored.run_until_parked();
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
-    assert!(restored.host().requests::<Ask<ChatApi>>().len() >= 2);
+    assert!(restored.host().requests::<Ask<::chat::Chat>>().len() >= 2);
 }
 
 #[test]
@@ -103,10 +103,13 @@ fn channel_create_preserves_busy_and_account_gates() {
     assert!(disabled(&cx, "chat-create-submit"));
     assert!(cx.has_text("Create an account to create a channel"));
     assert!(!disabled(&cx, "chat-create-cancel"));
-    let submitted = cx.host().requests::<Submit<ChatApi>>().len();
+    let submitted = cx.host().requests::<Submit<::chat::Chat>>().len();
     view.update(&mut cx, |chat, _, cx| chat.create_channel(cx));
     cx.run_until_parked();
-    assert_eq!(cx.host().requests::<Submit<ChatApi>>().len(), submitted);
+    assert_eq!(
+        cx.host().requests::<Submit<::chat::Chat>>().len(),
+        submitted
+    );
 
     view.update(&mut cx, |chat, _, cx| {
         chat.session.account = Some(7);

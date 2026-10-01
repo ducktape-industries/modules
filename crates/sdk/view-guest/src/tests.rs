@@ -34,6 +34,7 @@ impl Probe {
     }
 }
 impl View for Probe {
+    const NAME: &'static str = "Probe";
     fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::default();
         view.watch(cx, "visible");
@@ -233,6 +234,7 @@ fn tasks_are_awaitable_drop_cancels_and_detach_runs() {
 struct UniformProbe;
 
 impl View for UniformProbe {
+    const NAME: &'static str = "UniformProbe";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }
@@ -401,6 +403,7 @@ fn listener_guard_detects_missing_notify() {
     #[derive(Serialize, Deserialize)]
     struct Silent(bool);
     impl View for Silent {
+        const NAME: &'static str = "Silent";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self(false)
         }
@@ -473,6 +476,7 @@ fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
 }
 
 mod lifecycle;
+mod picture_budget;
 mod primitive_tests;
 mod tick_alloc;
 
@@ -481,6 +485,7 @@ fn notifying_during_render_requests_another_frame() {
     #[derive(Serialize, Deserialize)]
     struct Again(bool);
     impl View for Again {
+        const NAME: &'static str = "Again";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self(false)
         }
@@ -500,20 +505,44 @@ fn notifying_during_render_requests_another_frame() {
 }
 
 #[test]
-fn the_manifest_bytes_parse_back_with_the_min_width_and_the_wire_id() {
+fn the_manifest_bytes_are_what_the_view_trait_says() {
     use wire::methods::Capability;
-    const CAPABILITIES: &[Capability] = &[Capability::Clock, Capability::Module];
-    let bytes: [u8; manifest_len("App", "Words", CAPABILITIES, 560)] =
-        manifest_bytes("App", "Words", CAPABILITIES, 560);
+    #[derive(Serialize, Deserialize)]
+    struct App;
+    impl View for App {
+        const NAME: &'static str = "App";
+        const DESCRIPTION: &'static str = "Words";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Clock, Capability::Module];
+        const MIN_WINDOW_WIDTH: u32 = 560;
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            App
+        }
+    }
+    impl Render for App {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+    let bytes: [u8; manifest_len::<App>()] = manifest_bytes::<App, { manifest_len::<App>() }>();
+    assert_eq!(
+        std::str::from_utf8(&bytes).unwrap(),
+        format!(
+            "ducktape.view.manifest\nApp\nWords\nclock,module,\n560\n{}",
+            wire::WIRE_ID
+        )
+    );
     let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
     assert_eq!(manifest.min_width, 560);
     assert_eq!(manifest.wire_id, wire::WIRE_ID);
-    assert_eq!(manifest.capabilities, CAPABILITIES);
+    assert_eq!(manifest.capabilities, App::CAPABILITIES);
     assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
-    // a view that declares nothing is laid out from 480, as before
+    // a view that declares nothing is laid out from 480 and reaches no method
     assert_eq!(<Probe as View>::MIN_WINDOW_WIDTH, 480);
-    let bytes: [u8; manifest_len("App", "", &[], Probe::MIN_WINDOW_WIDTH)] =
-        manifest_bytes("App", "", &[], Probe::MIN_WINDOW_WIDTH);
+    assert_eq!(<Probe as View>::DESCRIPTION, "");
+    assert!(<Probe as View>::CAPABILITIES.is_empty());
+    let bytes: [u8; manifest_len::<Probe>()] =
+        manifest_bytes::<Probe, { manifest_len::<Probe>() }>();
     let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
     assert_eq!(manifest.min_width, 480);
+    assert_eq!(manifest.name, "Probe");
 }

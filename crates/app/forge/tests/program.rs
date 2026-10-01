@@ -26,6 +26,30 @@ fn founding_requires_bounds_and_ops_require_a_signer() {
     }
 }
 
+/// Git's two queries are `answer`'s, raw; `query` has no `Reply` for them.
+#[test]
+fn a_git_wire_query_answers_raw_bytes_and_is_no_reply() {
+    let sandbox = MemorySandbox::default();
+    sandbox.chain.init("forge", &bounds()).unwrap();
+    let advertise = Query::Advertise {
+        repo: "r".into(),
+        service: Service::UploadPack,
+    };
+    let refusal = Forge::query(&sandbox.reads(1), advertise.clone()).unwrap_err();
+    assert_eq!(refusal.code, code::INVALID_INPUT);
+    // `answer` serves it: refused for the repo, not for the shape
+    let answered = Forge::answer(&sandbox.reads(1), advertise).unwrap_err();
+    assert_eq!(answered.code, code::NOT_FOUND);
+    let repos = Query::Repos {
+        page: PageRequest::first(2),
+    };
+    let bytes = Forge::answer(&sandbox.reads(1), repos.clone()).unwrap();
+    assert_eq!(
+        abi::decode::<Reply>(&bytes).unwrap(),
+        Forge::query(&sandbox.reads(1), repos).unwrap()
+    );
+}
+
 #[test]
 fn create_names_an_owner_and_refuses_bad_or_taken_names() {
     let sandbox = founded();

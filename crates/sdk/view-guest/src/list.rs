@@ -401,6 +401,7 @@ mod tests {
     }
 
     impl View for ListView {
+        const NAME: &'static str = "ListView";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self {
                 state: ListState::new(2_000, ListAlignment::Bottom, px(160.)),
@@ -637,12 +638,10 @@ mod tests {
     #[derive(Default, Serialize, Deserialize)]
     struct IdentifiedList;
     impl View for IdentifiedList {
+        const NAME: &'static str = "IdentifiedList";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self
         }
-    }
-    impl crate::Capabilities for IdentifiedList {
-        const CAPABILITIES: &'static [crate::methods::Capability] = &[];
     }
     impl Render for IdentifiedList {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

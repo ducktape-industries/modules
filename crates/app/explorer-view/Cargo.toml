@@ -20,9 +20,9 @@ ducklink.workspace = true
 # The system programs the explorer asks: accounts, validators, the roster.
 # An op is described by its own program through `module.describe`, not
 # by a program crate linked here.
-identity = { workspace = true, features = ["view"] }
-module-registry = { workspace = true, features = ["view"] }
-valset = { workspace = true, features = ["view"] }
+identity.workspace = true
+module-registry.workspace = true
+valset.workspace = true
 serde.workspace = true
 
 # What a test needs to play the node: the borsh replies the program would

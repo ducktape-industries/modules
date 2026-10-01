@@ -9,11 +9,8 @@ struct BehaviorView {
     dismissed: bool,
 }
 
-impl crate::Capabilities for BehaviorView {
-    const CAPABILITIES: &'static [crate::methods::Capability] = &[];
-}
-
 impl View for BehaviorView {
+    const NAME: &'static str = "BehaviorView";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self::default()
     }
@@ -22,11 +19,8 @@ impl View for BehaviorView {
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 struct DefaultSensorView;
 
-impl crate::Capabilities for DefaultSensorView {
-    const CAPABILITIES: &'static [crate::methods::Capability] = &[];
-}
-
 impl View for DefaultSensorView {
+    const NAME: &'static str = "DefaultSensorView";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }

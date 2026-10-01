@@ -11,8 +11,6 @@ mod program;
 mod rules;
 #[cfg(test)]
 mod tests;
-#[cfg(feature = "view")]
-pub mod view;
 
 pub use program::Modules;
 pub use store::{PageRequest, PageResponse};

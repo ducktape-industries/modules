@@ -18,6 +18,7 @@ struct ComposerView {
 }
 
 impl View for ComposerView {
+    const NAME: &'static str = "ComposerView";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self {
             draft: Draft::from_body("hello", &[]),

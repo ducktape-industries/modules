@@ -150,7 +150,7 @@ impl FakeHost {
                 assert!(
                     declared.contains(&capability),
                     "{}: `{}` needs the `{}` capability, \
-                     which this view's export_view! does not declare",
+                     which this view's CAPABILITIES does not declare",
                     methods::refusal::UNDECLARED_CAPABILITY,
                     request.kind,
                     capability.as_str()
@@ -258,13 +258,13 @@ impl<C: Method> StreamSender<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::methods::{Changes, Module, Query};
+    use crate::methods::{Changes, Program, Query};
 
     struct First;
     struct Second;
     macro_rules! module {
         ($name:ident, $target:literal) => {
-            impl Module for $name {
+            impl Program for $name {
                 const NAME: &'static str = $target;
                 type Op = ();
                 type Query = String;

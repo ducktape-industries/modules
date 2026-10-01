@@ -287,7 +287,7 @@ fn a_block_opens_with_its_fields_its_proposer_and_its_transactions() {
 #[test]
 fn a_transaction_shows_its_block_signer_and_operation() {
     let (mut cx, _) = ready();
-    cx.simulate_click(&format!("explorer-tx-{}", abi::hex(&[0xa1; 32])));
+    cx.simulate_click("explorer-tx-11-0");
     cx.run_until_parked();
     let texts = cx.texts();
     assert!(cx.has_text("In block 11"), "{texts:?}");
@@ -323,7 +323,7 @@ fn a_rejected_transaction_says_so_and_why() {
         cx.find(&format!("explorer-tx-mark-{hash}")).is_some(),
         "its row marks it"
     );
-    cx.simulate_click(&format!("explorer-tx-{hash}"));
+    cx.simulate_click("explorer-tx-12-0");
     cx.run_until_parked();
     let texts = cx.texts();
     assert!(
@@ -341,7 +341,7 @@ fn a_transaction_without_a_receipt_shows_no_outcome() {
     let (mut cx, _) = ready();
     let hash = abi::hex(&[0xc3; 32]);
     assert!(cx.find(&format!("explorer-tx-mark-{hash}")).is_none());
-    cx.simulate_click(&format!("explorer-tx-{hash}"));
+    cx.simulate_click("explorer-tx-11-1");
     cx.run_until_parked();
     let texts = cx.texts();
     assert!(cx.has_text("ping"), "{texts:?}");
@@ -377,22 +377,54 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
         .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
     cx.open::<Explorer>();
     cx.run_until_parked();
-    let name = |seed: u8| match cx.find(&format!("explorer-tx-{}", abi::hex(&[seed; 32]))) {
+    let name = |id: &str| match cx.find(id) {
         Some(ducktape_view_guest::wire::Node::Container(row)) => {
             row.interactivity.aria.label.clone()
         }
-        _ => panic!("no row for {seed:#x}"),
+        _ => panic!("no row {id}"),
     };
     assert_eq!(
-        name(0xd4).as_deref(),
+        name("explorer-tx-12-0").as_deref(),
         Some("Push · big-history, Accepted, d4d4d4d4…d4d4")
     );
     assert_eq!(
-        name(0xe5).as_deref(),
+        name("explorer-tx-12-1").as_deref(),
         Some("Push · big-history, Accepted, e5e5e5e5…e5e5")
     );
     // no receipt, no outcome word, and no empty part in its place
-    assert_eq!(name(0xc3).as_deref(), Some("Direct message, c3c3c3c3…c3c3"));
+    assert_eq!(
+        name("explorer-tx-11-1").as_deref(),
+        Some("Direct message, c3c3c3c3…c3c3")
+    );
+}
+
+/// The node lands the same frame again (the same bytes, so the same hash,
+/// in a later block or twice in one): each row is still its own element,
+/// so the host takes the frame instead of refusing it (a refused frame
+/// ends the view: "duplicate typed element identity among siblings"), and
+/// every row of that hash reads as the op it carries.
+#[test]
+fn a_frame_landed_again_is_a_row_of_its_own() {
+    let mut cx = TestAppContext::new();
+    cx.host().stream::<ChainHeads>();
+    node(&mut cx, Rc::new(RefCell::new(12)));
+    let mut blocks = chain(12);
+    let again = blocks[12].txs[0].clone();
+    blocks[11].txs.push(again.clone());
+    blocks[12].txs.push(again);
+    cx.host()
+        .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    for id in ["explorer-tx-12-0", "explorer-tx-11-2", "explorer-tx-12-1"] {
+        assert!(cx.find(id).is_some(), "{id}: {:?}", cx.texts());
+    }
+    let described = cx
+        .texts()
+        .iter()
+        .filter(|text| *text == "mystery · 4 bytes")
+        .count();
+    assert_eq!(described, 3, "{:?}", cx.texts());
 }
 
 #[test]

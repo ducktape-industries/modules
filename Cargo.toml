@@ -2,7 +2,9 @@
 # one repository.
 #
 #   crates/sdk/     the contracts: `abi` (the borsh bytes ABI a program and the
-#                   host share), `error` (the one `Error` and its codes, below both SDKs), `guest` (the minimal module SDK: `Module`,
+#                   host share), `error` (the one `Error` and its codes, below both SDKs),
+#                   `program` (the one `Program` trait a program implements and a
+#                   view names it by, below both SDKs), `guest` (the minimal module SDK: `Module`,
 #                   `ExecCtx`/`QueryCtx`, `export!`, refusals; `MockHost`
 #                   runs a module natively), `store` (optional typed tables
 #                   and paging over guest's contexts), `ducklink` (the `duck://`
@@ -33,6 +35,7 @@ resolver = "2"
 members = [
     "crates/sdk/abi",
     "crates/sdk/error",
+    "crates/sdk/program",
     "crates/sdk/guest",
     "crates/sdk/store",
     "crates/sdk/ducklink",
@@ -64,6 +67,7 @@ version = "0.1.0"
 # ---- the contracts, in tree
 abi = { path = "crates/sdk/abi" }
 error = { path = "crates/sdk/error" }
+program = { path = "crates/sdk/program" }
 guest = { path = "crates/sdk/guest" }
 store = { path = "crates/sdk/store" }
 gitcore = { path = "crates/lib/gitcore" }

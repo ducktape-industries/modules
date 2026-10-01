@@ -14,6 +14,7 @@
 //! - `origin.rs`: the identity role's roster
 //! - `queries.rs`: one short function per question
 //! - `text.rs`: what search and tags read out of a message
+//! - `view.rs`: the reads a view makes of chat, folded into [`view::Names`]
 //! - `description.rs`: [`describe()`], an op in a person's words
 //!
 //! The module runs over `guest`'s contexts, so a native test runs it over
@@ -30,7 +31,6 @@ mod state;
 #[cfg(test)]
 mod tests;
 mod text;
-#[cfg(feature = "view")]
 pub mod view;
 
 use borsh::{BorshDeserialize, BorshSerialize};

@@ -5,14 +5,12 @@ edition.workspace = true
 
 # The types and the rules over `store` are always built; a view links them
 # with `module` off. `module` adds its wasm exports (`guest::export!`), which
-# only its own wasm build turns on. `view` adds the marker a view names
-# identity by.
+# only its own wasm build turns on.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
 module = []
-view = ["dep:ducktape-view-guest"]
 # `describe` makes this crate\'s wasm build the `ducktape.describe` module:
 # the `describe` export alone, no module, no imports.
 describe = []
@@ -23,5 +21,5 @@ describe = { workspace = true }
 borsh = { workspace = true }
 serde = { workspace = true }
 guest = { workspace = true }
+program = { workspace = true }
 store = { workspace = true }
-ducktape-view-guest = { workspace = true, optional = true }

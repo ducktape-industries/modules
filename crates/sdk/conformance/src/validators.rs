@@ -2,15 +2,14 @@
 //! [`run`] checks every rule below.
 
 use abi::role::validators::{Genesis, Member, Query, Reply};
-use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{Error, MockHost, Module};
+use guest::{Error, MockHost, Module, Program};
 
 use crate::{ask, init, same_bytes};
 
 /// What the suite needs from the module beyond the role: its own update
 /// path, which the role leaves to it.
 pub trait Fixture {
-    type Module: Module<Query: BorshSerialize, Response: BorshDeserialize>;
+    type Module: Module;
 
     /// Seats `member` as a validator, by the module's own op.
     fn seat(&self, host: &MockHost, member: Member) -> Result<(), Error>;
@@ -80,13 +79,13 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
     type M<F> = <F as Fixture>::Module;
     let m = module();
     for query in [Query::Validators, Query::Members] {
-        same_bytes::<<M<F> as Module>::Query>(&m, "Query", &query);
+        same_bytes::<<M<F> as Program>::Query>(&m, "Query", &query);
     }
     for reply in [
         Reply::Validators(vec![vec![1; 32]]),
         Reply::Members(vec![member(1)]),
     ] {
-        same_bytes::<<M<F> as Module>::Response>(&m, "Response", &reply);
+        same_bytes::<<M<F> as Program>::Reply>(&m, "Reply", &reply);
     }
 }
 

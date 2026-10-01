@@ -11,6 +11,7 @@ struct Form {
 }
 
 impl View for Form {
+    const NAME: &'static str = "Form";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self::default()
     }

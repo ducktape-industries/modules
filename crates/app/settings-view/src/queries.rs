@@ -7,7 +7,8 @@ use ducktape_view_guest::methods::Query;
 use identity::{Control, Kind, PageRequest, Reference, Standing};
 use serde::{Deserialize, Serialize};
 
-use crate::api::{IdentityApi, ValsetApi};
+use identity::Identity;
+use valset::Valset;
 
 /// Who the seated key is.
 #[derive(Clone, Serialize, Deserialize)]
@@ -90,7 +91,7 @@ pub(crate) async fn account(
         }));
     };
     let account = match host
-        .ask::<Query<IdentityApi>>(identity::Query::Get { number })
+        .ask::<Query<Identity>>(identity::Query::Get { number })
         .await?
     {
         identity::Reply::Account(account) => account,
@@ -124,7 +125,7 @@ pub(crate) async fn account(
 async fn held_by(host: &Host, key: &[u8]) -> Result<Option<(String, &'static str)>, Error> {
     let references = vec![Reference::Key(key.to_vec())];
     let number = match host
-        .ask::<Query<IdentityApi>>(identity::Query::Resolve { references })
+        .ask::<Query<Identity>>(identity::Query::Resolve { references })
         .await?
     {
         identity::Reply::Resolved(numbers) => numbers.into_iter().next().flatten(),
@@ -134,7 +135,7 @@ async fn held_by(host: &Host, key: &[u8]) -> Result<Option<(String, &'static str
         return Ok(None);
     };
     let profile = match host
-        .ask::<Query<IdentityApi>>(identity::Query::Profile { number })
+        .ask::<Query<Identity>>(identity::Query::Profile { number })
         .await?
     {
         identity::Reply::Profile(p) => p,
@@ -146,7 +147,7 @@ async fn held_by(host: &Host, key: &[u8]) -> Result<Option<(String, &'static str
 /// Every agent `manager` manages.
 async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
     let listed = pages(None, |after| {
-        let ask = host.ask::<Query<IdentityApi>>(identity::Query::Managed {
+        let ask = host.ask::<Query<Identity>>(identity::Query::Managed {
             by: manager,
             page: PageRequest { after, limit: None },
         });
@@ -178,7 +179,7 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
 
 async fn read_key(host: &Host, key: Vec<u8>, label: Option<String>) -> Result<Key, Error> {
     let membership = match host
-        .ask::<Query<ValsetApi>>(valset::Query::Membership { key: key.clone() })
+        .ask::<Query<Valset>>(valset::Query::Membership { key: key.clone() })
         .await?
     {
         valset::Reply::Membership(membership) => membership,

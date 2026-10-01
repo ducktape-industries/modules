@@ -373,7 +373,7 @@ fn the_picker_searches_and_enter_picks_the_first_match() {
     cx.run_until_parked();
     assert!(
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| matches!(op, Op::AddReaction { emoji, .. } if emoji == "🦆"))
     );
@@ -457,7 +457,7 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     cx.run_until_parked();
     assert!(
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| matches!(op, Op::AddReaction { emoji, seq: 1, .. } if emoji == "🔥"))
     );
@@ -679,7 +679,7 @@ fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
     cx.run_until_parked();
     let reacted = |cx: &TestAppContext| {
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| matches!(op, Op::AddReaction { emoji, seq: 1, .. } if emoji == "🔥"))
     };
@@ -729,7 +729,7 @@ fn two_arrows_and_enter_on_the_emoji_grid_add_the_third_emoji() {
     cx.run_until_parked();
     assert!(
         cx.host()
-            .requests::<Submit<ChatApi>>()
+            .requests::<Submit<::chat::Chat>>()
             .iter()
             .any(|op| matches!(op, Op::AddReaction { emoji, seq: 1, .. } if emoji == third))
     );

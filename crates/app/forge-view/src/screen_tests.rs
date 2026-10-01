@@ -2,13 +2,12 @@
 //! dark, for the app's renderer (`ducktape-app --render-tree <json>`).
 use super::{accounts, booted, change_screen, opened, refusal};
 use crate::Forge;
-use crate::api::ForgeApi;
-use crate::api::{Ask, ChatApi, HostSession};
+use crate::api::{Ask, HostSession};
 use crate::state::ChangeTab;
-use chat::view::IdentityApi;
 use ducktape_view_guest::Theme;
 use ducktape_view_guest::methods::{Changes, HostVisible, Query};
 use ducktape_view_guest::testing::TestAppContext;
+use program::role::Identity;
 
 /// `FORGE_SCREEN_EXPORT=1` writes each screen's tree for the app's
 /// node-less renderer (`ducktape-app --render-tree <json>`), light and dark.
@@ -75,10 +74,10 @@ fn screen(state: &str) -> TestAppContext {
             cx.host()
                 .handle::<Ask>(|_| Err(refusal("refused-not-found")));
             cx.host()
-                .handle::<Query<ChatApi>>(|_| Ok(chat::Reply::Accounts(accounts())));
-            cx.host().never::<Changes<ForgeApi>>();
-            cx.host().never::<Changes<ChatApi>>();
-            cx.host().never::<Changes<IdentityApi>>();
+                .handle::<Query<::chat::Chat>>(|_| Ok(chat::Reply::Accounts(accounts())));
+            cx.host().never::<Changes<forge::Forge>>();
+            cx.host().never::<Changes<::chat::Chat>>();
+            cx.host().never::<Changes<Identity>>();
             cx.host().never::<HostVisible>();
             cx.host()
                 .never::<ducktape_view_guest::methods::HostOffset>();

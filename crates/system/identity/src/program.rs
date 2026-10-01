@@ -1,6 +1,6 @@
 //! The module: every op and every query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, QueryCtx};
+use guest::{Error, ExecCtx, Module, Program, QueryCtx};
 
 use crate::rules::{
     ACCOUNTS, MANAGED, OF_MODULE, account, add_key, create, create_agent, generation, of_key,
@@ -10,11 +10,14 @@ use crate::{Op, Query, Reply};
 
 pub struct Identity;
 
-impl Module for Identity {
+impl Program for Identity {
+    const NAME: &'static str = crate::MODULE;
     type Op = Op;
     type Query = Query;
-    type Response = Reply;
+    type Reply = Reply;
+}
 
+impl Module for Identity {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         match op {
             Op::RegisterModule { module } => register_module(ctx, module),

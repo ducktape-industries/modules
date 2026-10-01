@@ -664,7 +664,6 @@ dependencies = [
  "serde",
  "store",
  "unicode-normalization",
- "view-guest",
 ]
 
 [[package]]
@@ -675,6 +674,7 @@ dependencies = [
  "chat",
  "ducklink",
  "futures",
+ "program",
  "serde",
  "serde_json",
  "view-guest",
@@ -2223,7 +2223,6 @@ dependencies = [
  "guest",
  "sha2 0.10.9",
  "store",
- "view-guest",
 ]
 
 [[package]]
@@ -2237,6 +2236,7 @@ dependencies = [
  "ducklink",
  "forge",
  "futures",
+ "program",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -2770,6 +2770,7 @@ dependencies = [
  "abi",
  "borsh",
  "error",
+ "program",
  "serde",
  "sha1",
  "sha2 0.10.9",
@@ -3104,9 +3105,9 @@ dependencies = [
  "borsh",
  "describe",
  "guest",
+ "program",
  "serde",
  "store",
- "view-guest",
 ]
 
 [[package]]
@@ -3711,7 +3712,6 @@ dependencies = [
  "store",
  "tempfile",
  "valset",
- "view-guest",
 ]
 
 [[package]]
@@ -4456,6 +4456,14 @@ checksum = "4488a4a36b9a4ba6b9334a32a39971f77c1436ec82c38707bce707699cc3bbcb"
 dependencies = [
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "program"
+version = "0.1.0"
+dependencies = [
+ "abi",
+ "borsh",
 ]
 
 [[package]]
@@ -6368,7 +6376,6 @@ dependencies = [
  "describe",
  "guest",
  "store",
- "view-guest",
 ]
 
 [[package]]
@@ -6453,6 +6460,7 @@ dependencies = [
  "error",
  "gpui-pre",
  "memchr",
+ "program",
  "rmp-serde",
  "serde",
  "serde-reflection",

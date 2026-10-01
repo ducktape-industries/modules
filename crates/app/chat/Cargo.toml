@@ -11,14 +11,11 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 module = []
-# `view` adds the marker a view names this module by.
-view = ["dep:ducktape-view-guest"]
 # `describe` makes this crate's wasm build the `ducktape.describe` module:
 # the `describe` export alone, no module, no imports.
 describe = []
 
 [dependencies]
-ducktape-view-guest = { workspace = true, optional = true }
 abi = { workspace = true }
 describe = { workspace = true }
 borsh = { workspace = true }

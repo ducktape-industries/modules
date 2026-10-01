@@ -7,9 +7,9 @@ use abi::role::identity::{Category, Kind, Profile, Query as Asked, Reply as Answ
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::*;
-use crate::{HashKind, Reply};
+use crate::{HashKind, Program, Reply};
 
-#[derive(Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 enum Step {
     Put(String, String),
     Emit {
@@ -30,11 +30,14 @@ enum Step {
 
 struct Bot;
 
-impl Module for Bot {
+impl Program for Bot {
+    const NAME: &'static str = "bot";
     type Op = Vec<Step>;
     type Query = String;
-    type Response = Option<Vec<u8>>;
+    type Reply = Option<Vec<u8>>;
+}
 
+impl Module for Bot {
     /// Genesis runs a script too.
     fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
         Bot::execute(ctx, crate::decoded("bot", "init", params)?)
@@ -110,11 +113,14 @@ fn log(ctx: &ExecCtx) -> Result<(), Error> {
 /// account 0, so the env the chain asks with shows.
 struct Ident;
 
-impl Module for Ident {
+impl Program for Ident {
+    const NAME: &'static str = "ident";
     type Op = ();
     type Query = Asked;
-    type Response = Answer;
+    type Reply = Answer;
+}
 
+impl Module for Ident {
     fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
         Ok(())
     }
@@ -553,11 +559,14 @@ fn a_seated_identity_module_is_asked_as_the_kernel_asks_it() {
 /// An identity that answers every question with a profile.
 struct Wrong;
 
-impl Module for Wrong {
+impl Program for Wrong {
+    const NAME: &'static str = "wrong";
     type Op = ();
     type Query = Asked;
-    type Response = Answer;
+    type Reply = Answer;
+}
 
+impl Module for Wrong {
     fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
         Ok(())
     }

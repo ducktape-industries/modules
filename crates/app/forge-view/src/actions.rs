@@ -8,7 +8,7 @@ use ducktape_view_guest::methods::HostId;
 use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::{Context, Editor, Window};
 
-use crate::api::{ChatApi, SubmitForge};
+use crate::api::SubmitForge;
 use crate::state::{ChangeForm, Forge, NewRepo, Pending, Progress, change_key};
 use forge::{Mergeability, Op, Revision, Settings, valid_repo_name};
 
@@ -339,7 +339,7 @@ impl Forge {
             let host = cx.host();
             let result = async {
                 let message_id = host.ask::<HostId>("message".into()).await?;
-                host.ask::<Submit<ChatApi>>(chat::Op::PostMessage {
+                host.ask::<Submit<::chat::Chat>>(chat::Op::PostMessage {
                     channel_id: channel,
                     message_id,
                     blocks: chat::parse_message(&text),

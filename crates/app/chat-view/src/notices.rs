@@ -8,7 +8,7 @@ use chat::{Block, ChannelInfo, Mark, MsgRow, Principal, Query, Reply};
 use ducktape_view_guest::Context;
 use ducktape_view_guest::methods::{HostBadge, Notification, NotifyPost, NotifySeen};
 
-use crate::api::{Ask, ChatApi};
+use crate::api::Ask;
 use crate::message::message_body;
 use crate::names::dm_peer_of;
 use crate::{Chat, links};
@@ -87,7 +87,7 @@ impl Chat {
         cx.spawn(async move |this, cx| {
             let host = cx.host();
             let asked = host
-                .ask::<Ask<ChatApi>>(Query::MessagesAround {
+                .ask::<Ask<::chat::Chat>>(Query::MessagesAround {
                     channel_id: channel.clone(),
                     seq: head,
                     viewer,

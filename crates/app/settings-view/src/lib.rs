@@ -16,9 +16,19 @@ mod watch;
 
 pub use state::Settings;
 
+use ducktape_view_guest::methods::Capability;
 use ducktape_view_guest::{Context, IntoElement, Render, View, Window, export_view};
 
 impl View for Settings {
+    const NAME: &'static str = "Account";
+    const DESCRIPTION: &'static str = "Your account, its keys, the agents it manages, and invites.";
+    const CAPABILITIES: &'static [Capability] = &[
+        Capability::Module,
+        Capability::Op,
+        Capability::Invite,
+        Capability::Host,
+        Capability::Clipboard,
+    ];
     const MIN_WINDOW_WIDTH: u32 = 560;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -42,12 +52,7 @@ impl Render for Settings {
     }
 }
 
-export_view!(
-    Settings,
-    "Account",
-    "Your account, its keys, the agents it manages, and invites.",
-    [Module, Op, Invite, Host, Clipboard]
-);
+export_view!(Settings);
 
 #[cfg(test)]
 mod tests;

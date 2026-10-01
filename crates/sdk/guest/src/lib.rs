@@ -1,5 +1,6 @@
-//! The minimal module SDK. A module is a type implementing [`Module`] and one
-//! [`export!`]; its entry points receive an [`ExecCtx`] or a [`QueryCtx`],
+//! The minimal module SDK. A module is a type implementing [`Program`] (its
+//! name and the three types it speaks, the same trait a view names it by)
+//! and [`Module`] (what it does with each), and one [`export!`]; its entry points receive an [`ExecCtx`] or a [`QueryCtx`],
 //! whose methods are the whole host surface: `env`, `sender` (the account a
 //! write acts as, which the host resolved through the identity role), raw
 //! state (`get`, `set`, `delete`, `scan`), blobs, `event`, `set_return_data`,
@@ -15,15 +16,18 @@
 //! that never wants a reply leaves `reply` at its default.
 //!
 //! ```ignore
-//! use guest::{Error, ExecCtx, Module, QueryCtx};
+//! use guest::{Error, ExecCtx, Module, Program, QueryCtx};
 //!
 //! pub struct Counter;
 //!
-//! impl Module for Counter {
+//! impl Program for Counter {
+//!     const NAME: &'static str = "counter";
 //!     type Op = u64;
 //!     type Query = ();
-//!     type Response = u64;
+//!     type Reply = u64;
+//! }
 //!
+//! impl Module for Counter {
 //!     fn execute(ctx: &ExecCtx, by: u64) -> Result<(), Error> {
 //!         let n: u64 = ctx.record("n")?.unwrap_or(0);
 //!         ctx.put("n", &(n + by));
@@ -66,7 +70,7 @@ pub use kernel::{
 pub use mock::{MockHost, MockState, Sibling, Verifier, blob_id, identity_role};
 #[cfg(target_arch = "wasm32")]
 pub use module::exports;
-pub use module::{Module, execute, query};
+pub use module::{Module, Program, execute, query};
 pub use refuse::{
     already_exists, capacity, corrupt, decoded, invalid, not_found, stale, unauthorized,
     unexpected_reply, wrong_state,

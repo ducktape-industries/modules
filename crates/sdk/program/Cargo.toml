@@ -1,0 +1,11 @@
+[package]
+name = "program"
+version.workspace = true
+edition.workspace = true
+
+# What a program is to everything that addresses it: one trait, below both
+# SDKs, so a program's own crate (through `guest`) and a view's wire
+# (`view-wire`) name the same thing.
+[dependencies]
+abi = { workspace = true }
+borsh = { workspace = true }

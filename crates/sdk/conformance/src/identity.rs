@@ -2,14 +2,13 @@
 //! module acts as. [`run`] checks every rule below.
 
 use abi::role::identity::{Category, Kind, Op, Profile, Query, Reply, Standing};
-use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{AccountNumber, Error, MockHost, Module, Origin, Principal, code};
+use guest::{AccountNumber, Error, MockHost, Module, Origin, Principal, Program, code};
 
 use crate::{ask, execute, root, same_bytes};
 
 /// What the suite needs from the module beyond the role.
 pub trait Fixture {
-    type Module: Module<Op: BorshSerialize, Query: BorshSerialize, Response: BorshDeserialize>;
+    type Module: Module;
 
     /// A founded host: the module's init run, and whatever its own ops
     /// need (a verifier).
@@ -147,7 +146,7 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
     let op = Op::RegisterModule {
         module: "chat".into(),
     };
-    same_bytes::<<M<F> as Module>::Op>(&m, "Op", &op);
+    same_bytes::<<M<F> as Program>::Op>(&m, "Op", &op);
     for query in [
         Query::Account(b"key".to_vec()),
         Query::OfModule("chat".into()),
@@ -157,7 +156,7 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
             limit: 5,
         },
     ] {
-        same_bytes::<<M<F> as Module>::Query>(&m, "Query", &query);
+        same_bytes::<<M<F> as Program>::Query>(&m, "Query", &query);
     }
     let profile = Profile {
         number: 1,
@@ -178,7 +177,7 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
             next: Some(1),
         },
     ] {
-        same_bytes::<<M<F> as Module>::Response>(&m, "Response", &reply);
+        same_bytes::<<M<F> as Program>::Reply>(&m, "Reply", &reply);
     }
 }
 

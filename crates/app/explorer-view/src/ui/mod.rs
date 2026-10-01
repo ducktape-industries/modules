@@ -527,8 +527,9 @@ fn tx_rows<'a>(
     })
 }
 
-/// `height` adds the block column; `who` the signer column, which an
-/// account's own activity leaves out.
+/// Its id is its place on the chain, which a frame the node landed again
+/// (the same hash) does not share; `height` adds the block column; `who` the signer column, which an account's own activity leaves
+/// out.
 fn tx_row(
     view: &Explorer,
     tx: &TxRow,
@@ -537,7 +538,7 @@ fn tx_row(
     cx: Cx,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let id = SharedString::from(format!("explorer-tx-{}", abi::hex(&tx.hash)));
+    let id = SharedString::from(format!("explorer-tx-{}-{}", tx.height, tx.index));
     let now = view.chain.now();
     view.describe(tx, cx);
     // empty until the host answers: the program column already says whose

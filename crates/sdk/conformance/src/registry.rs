@@ -2,8 +2,7 @@
 //! rule below.
 
 use abi::role::registry::{Entry, Genesis, Query, Reply, View};
-use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{BlobId, Error, MockHost, Module, ModuleId};
+use guest::{BlobId, Error, MockHost, Module, ModuleId, Program};
 
 use crate::{ask, init, same_bytes};
 
@@ -11,7 +10,7 @@ use crate::{ask, init, same_bytes};
 /// and scheduling changes, which the role leaves to it. Each op is sent at
 /// `height`; a change lands at `at`.
 pub trait Fixture {
-    type Module: Module<Query: BorshSerialize, Response: BorshDeserialize>;
+    type Module: Module;
 
     /// Stores `body` as code; its blob id.
     fn publish(&self, host: &MockHost, height: u64, body: &[u8]) -> Result<BlobId, Error>;
@@ -93,9 +92,9 @@ fn programs<F: Fixture>(host: &MockHost, height: u64) -> Vec<ModuleId> {
 pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
     type M<F> = <F as Fixture>::Module;
     let m = module();
-    same_bytes::<<M<F> as Module>::Query>(&m, "Query", &Query::At(5));
+    same_bytes::<<M<F> as Program>::Query>(&m, "Query", &Query::At(5));
     let reply = Reply::Programs(vec![entry("a", BlobId::Sha256([1; 32]))]);
-    same_bytes::<<M<F> as Module>::Response>(&m, "Response", &reply);
+    same_bytes::<<M<F> as Program>::Reply>(&m, "Reply", &reply);
 }
 
 /// `At` answers every founding program as founded, and no view: views are
