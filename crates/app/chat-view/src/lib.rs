@@ -48,6 +48,10 @@ impl View for Chat {
         Capability::Notify,
         Capability::Store,
     ];
+    const TARGETS: &'static [&'static str] = &[
+        chat::MODULE,
+        <program::role::Identity as ducktape_view_guest::methods::Program>::NAME,
+    ];
     const MIN_WINDOW_WIDTH: u32 = 560;
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {

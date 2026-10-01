@@ -52,7 +52,7 @@ its program is `program::role::Identity`. Every refusal is the module SDK's `Err
 (`src/view.rs`) hold an ask's four states and snapshot `Loading` as `Idle`.
 
 `Session` (`methods.rs`, `subscribe::<HostSession>`) is what every view is handed:
-`connected`, `dark`, `chain_id`, `signer` (the seated key, hex), `account` (its
+`connected`, `chain_id`, `signer` (the seated key, hex), `account` (its
 account number, `None` until the host resolves one), `endpoint`; an item per
 change. Read "who am I" from `account`; no view asks identity for it.
 
@@ -62,8 +62,11 @@ change. Read "who am I" from `account`; no view asks identity for it.
 lifecycle entries: `NAME` (the tab and catalog name), `DESCRIPTION` (one
 catalog line, `""` by default), `CAPABILITIES` (the `methods::Capability`
 halves of the kinds it asks through, `&[]` by default: a method whose
-capability is not listed is refused `undeclared_capability`),
-`MIN_WINDOW_WIDTH` (the narrowest width in px it works at, default 480,
+capability is not listed is refused `undeclared_capability`), `TARGETS` (the
+programs it addresses with `op.submit`, `module.query` and `module.changes`,
+by each `Program`'s `NAME`, `&[]` by default: a method naming another is
+refused `undeclared_target`, and a view with `op` or `module` that names
+none does not compile), `MIN_WINDOW_WIDTH` (the narrowest width in px it works at, default 480,
 `1..=8192` or it does not compile: the app never lays it out narrower, and
 a narrower window scrolls it sideways), `new(window, cx)` on first mount and
 `restored` after a snapshot came back. The snapshot is the view's own serde
@@ -77,7 +80,8 @@ pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
 `export_view!(View)` (`src/lib.rs`) writes the five wasm exports and the
 manifest section `ducktape.view.manifest` from the trait's consts
 (`view-wire/src/manifest.rs`: header, `NAME`, `DESCRIPTION`,
-`CAPABILITIES`, `MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`).
+`CAPABILITIES`, `MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`, `TARGETS`; the
+line list is `manifest::LINES`, part of `schema.txt` and so of `WIRE_ID`).
 
 The ABI gate (`view-wire/src/abi.rs`, `tools/check-view-abi.py`): exactly one
 import, `ducktape_view.panicked`, and exactly five function exports,
@@ -97,9 +101,11 @@ another.
 `stream`, `requests`; then `simulate_click`, `texts`.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.
-It holds the view to its `View::CAPABILITIES` as the app does: a method
-whose capability the manifest leaves out panics with
-`methods::refusal::UNDECLARED_CAPABILITY`, the code the app refuses it with.
+It holds the view to its `View::CAPABILITIES` and `View::TARGETS` as the app
+does: a method whose capability the manifest leaves out panics with
+`methods::refusal::UNDECLARED_CAPABILITY`, a node method naming a program
+the targets leave out with `methods::refusal::UNDECLARED_TARGET`, the codes
+the app refuses them with.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,
 `crates/app/forge-view/src/screen_tests.rs`; `CHAT_SCREEN_EXPORT`,
 `crates/app/chat-view/src/tests.rs`) writes each screen's tree as JSON under

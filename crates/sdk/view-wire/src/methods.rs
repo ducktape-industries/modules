@@ -326,7 +326,7 @@ pub struct Head {
 }
 // ---------- the host ----------
 
-/// The session facts every view is handed: the theme, the connection, the
+/// The session facts every view is handed: the connection, the
 /// network (`<label>#<salt>`), the seated key (hex), the account it belongs
 /// to (`None` while the host has not resolved one, or the key has none yet;
 /// an item follows when that changes) and the read-only endpoint.
@@ -336,7 +336,6 @@ pub struct Head {
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Session {
     pub connected: bool,
-    pub dark: bool,
     pub chain_id: String,
     pub signer: String,
     pub account: Option<u64>,
@@ -545,6 +544,12 @@ pub mod refusal {
     pub const UNKNOWN_REQUEST: &str = "unknown_request";
     /// The kind's capability is not in the view's manifest.
     pub const UNDECLARED_CAPABILITY: &str = "undeclared_capability";
+    /// The node method names a program the view's manifest does not list
+    /// among its targets.
+    pub const UNDECLARED_TARGET: &str = "undeclared_target";
+    /// The op needed the person's confirmation on the host and did not get
+    /// it: cancelled, or another confirmation for this view still waits.
+    pub const CONSENT_REFUSED: &str = "consent_refused";
     /// The payload does not decode as the method's request, or says nothing
     /// the method can act on.
     pub const MALFORMED_REQUEST: &str = "malformed_request";
@@ -669,6 +674,8 @@ mod tests {
         let codes = [
             (UNKNOWN_REQUEST, "unknown_request"),
             (UNDECLARED_CAPABILITY, "undeclared_capability"),
+            (UNDECLARED_TARGET, "undeclared_target"),
+            (CONSENT_REFUSED, "consent_refused"),
             (MALFORMED_REQUEST, "malformed_request"),
             (TOO_LARGE, "too_large"),
             (TICK_LIMIT, "tick_limit"),

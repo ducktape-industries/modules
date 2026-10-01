@@ -224,14 +224,8 @@ fn agents(
         v.agent_key.text = text.clone();
         cx.notify();
     });
-    let create = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| {
-        v.revoking = None;
-        v.submit_create_agent(cx)
-    });
-    let add = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| {
-        v.revoking = None;
-        v.submit_agent_key(cx)
-    });
+    let create = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_agent(cx));
+    let add = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_agent_key(cx));
     let rows: Vec<AnyElement> = account
         .agents
         .iter()
@@ -335,10 +329,8 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
                 v.rename_agent.entry(number).or_default().text = text.clone();
                 cx.notify();
             });
-            let submitted = cx.listener(move |v: &mut Settings, _: &(), _, cx| {
-                v.revoking = None;
-                v.submit_rename_agent(number, cx)
-            });
+            let submitted = cx
+                .listener(move |v: &mut Settings, _: &(), _, cx| v.submit_rename_agent(number, cx));
             let input = field(
                 &format!("settings/agents/{number}/name"),
                 &format!("Rename {}", agent.name),
@@ -387,7 +379,6 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
                 .text_size(design::text::CAPTION)
                 .text_color(theme.muted),
         );
-    let confirming = view.revoking == Some(number);
     let row = div()
         .id(format!("settings/agents/{number}"))
         .flex()
@@ -413,17 +404,6 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
         .border_color(theme.border)
         .when(revoked, |card| card.opacity(0.6))
         .child(row);
-    if confirming {
-        card = card.child(
-            secondary(
-                format!("settings/agents/{number}/revoke/warning"),
-                "Revoking is final: this agent account never acts again.",
-                theme,
-            )
-            .text_color(theme.danger)
-            .pb(design::space::MD),
-        );
-    }
     if let Some(form) = renaming {
         card = card.children(problem(
             &format!("agents/{number}/rename"),
@@ -436,7 +416,8 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
 }
 
 /// An agent's presses: Rename (Save while its field is open, with
-/// Cancel), Suspend or Resume, Revoke (a second press confirms).
+/// Cancel), Suspend or Resume, Revoke. Suspend and Revoke are confirmed
+/// by the host before the key signs them: one press here.
 fn actions(
     view: &Settings,
     number: u64,
@@ -456,16 +437,14 @@ fn actions(
     let toggled = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
         v.set_standing(toggle_op.clone(), cx)
     });
-    let revoke = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.revoke(number, cx));
-    let renamed = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-        v.revoking = None;
-        v.submit_rename_agent(number, cx)
+    let revoke = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
+        v.set_standing(identity::Op::Revoke { account: number }, cx)
     });
+    let renamed = cx
+        .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.submit_rename_agent(number, cx));
     let cancel = cx
         .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.cancel_rename_agent(number, cx));
     let busy = view.agent_standing.busy;
-    let confirming = view.revoking == Some(number);
-    let theme_ = *theme;
     div()
         .id(format!("settings/agents/{number}/actions"))
         .flex()
@@ -505,11 +484,7 @@ fn actions(
         .child(
             submit(
                 &format!("settings/agents/{number}/revoke"),
-                if confirming {
-                    "Revoke for good"
-                } else {
-                    "Revoke"
-                },
+                "Revoke",
                 "Working…",
                 busy,
                 false,
@@ -517,7 +492,6 @@ fn actions(
                 revoke,
             )
             .text_color(theme.danger)
-            .when(!confirming, |b| b.border_color(theme_.background))
-            .when(confirming, |b| b.border_color(theme_.danger)),
+            .border_color(theme.background),
         )
 }
