@@ -176,8 +176,8 @@ impl<'a> Lowering<'a> {
         slots::message_route(&self.app.inner.slots, listener)
     }
 
-    pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u8>>) {
-        slots::picture(&self.app.inner.slots, bytes)
+    pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
+        slots::picture(&self.app.inner.slots, bytes, cost)
     }
 
     pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
