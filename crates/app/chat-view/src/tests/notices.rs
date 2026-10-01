@@ -145,6 +145,14 @@ fn kept_cursors_bring_the_badge_back_after_a_relaunch() {
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&2));
     assert!(cx.find("chat-sidebar-channel-general-unread").is_some());
     assert!(cx.find("chat-sidebar-dm-8-unread").is_some());
+    // the direct room says it waits, as the channel does
+    assert_eq!(
+        cx.interactivity("chat-sidebar-dm-8")
+            .aria
+            .description
+            .as_deref(),
+        Some("Unread")
+    );
 
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();

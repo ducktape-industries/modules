@@ -272,6 +272,9 @@ fn channel_button(
         .hover(|s| s.bg(theme.sidebar_raised))
         .when(active && !selected, |row| row.bg(theme.sidebar_raised))
         .aria_selected(selected)
+        // the dot is drawn; the option says it, as a listbox reads each
+        // option's description with its name
+        .when(unread, |row| row.aria_description("Unread"))
         .on_click(click)
         .child(div().text_color(theme.sidebar_muted).child("#"))
         .child(
@@ -350,7 +353,17 @@ fn dm_button(
         .when(active && !selected, |row| row.bg(theme.sidebar_raised))
         // the peer's name, not the avatar's initial drawn before it
         .aria_label(name.clone())
-        .when(agent, |row| row.aria_description("Agent"))
+        // what the row is, then whether it waits: one description, as a
+        // second call would replace the first
+        .when_some(
+            match (agent, unread) {
+                (true, true) => Some("Agent, unread"),
+                (true, false) => Some("Agent"),
+                (false, true) => Some("Unread"),
+                (false, false) => None,
+            },
+            |row, description| row.aria_description(description),
+        )
         .aria_selected(selected)
         .on_click(click)
         .child(avatar(

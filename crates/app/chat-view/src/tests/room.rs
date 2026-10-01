@@ -170,10 +170,12 @@ fn unread_rooms_carry_a_dot_and_the_open_room_a_divider() {
     let (mut cx, view) = opened();
     view.update(&mut cx, |chat, _, cx| {
         chat.open("other".into(), cx);
+        chat.reads.cursors.insert("dm-7-8".into(), 0);
         chat.channels_arrived(
             vec![
                 channel("general", "General", 9),
                 channel("other", "Other", 0),
+                channel("dm-7-8", "dm", 1),
             ],
             cx,
         );
@@ -181,6 +183,16 @@ fn unread_rooms_carry_a_dot_and_the_open_room_a_divider() {
     });
     cx.run_until_parked();
     assert!(cx.find("chat-sidebar-channel-general-unread").is_some());
+    // the dot is only drawn: the option says it waits, as its description,
+    // and the room on screen says nothing
+    let says = |key: &str| cx.interactivity(key).aria.description.clone();
+    assert_eq!(
+        says("chat-sidebar-channel-general").as_deref(),
+        Some("Unread")
+    );
+    assert_eq!(says("chat-sidebar-channel-other"), None);
+    // an agent's direct room: one description, what it is and that it waits
+    assert_eq!(says("chat-sidebar-dm-8").as_deref(), Some("Agent, unread"));
     view.update(&mut cx, |chat, _, cx| {
         chat.reads.entering = true;
         chat.room = Some(Room {
