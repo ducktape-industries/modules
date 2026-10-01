@@ -616,7 +616,10 @@ fn head(
                 .when(over, |buttons| {
                     let close = cx.listener(|view, _: &ClickEvent, _, cx| {
                         view.selected = None;
+                        // the read in flight goes with the detail, a first
+                        // read or a re-read
                         view.activity = Loadable::Idle;
+                        view.rereading = None;
                         cx.notify();
                     });
                     buttons.child(design::button(

@@ -549,6 +549,57 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     );
 }
 
+/// A read in flight is dropped when someone else is chosen, a first read
+/// (held in `activity`) and a re-read (held in `rereading`) alike: left
+/// running, it would land on the account chosen since. A snapshot is
+/// refused while an ask is in flight, which is how the read is seen here.
+#[test]
+fn choosing_someone_else_drops_the_read_in_flight() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("members-row-7");
+    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    cx.host().never::<ChainBlocks>();
+    // ada's first read waits; chat is a module, with no keys to read for
+    cx.simulate_click("members-row-11");
+    assert!(cx.find("members-activity-loading").is_some());
+    assert!(cx.snapshot().is_err(), "ada's read is in flight");
+    cx.simulate_click("members-row-8");
+    assert!(cx.snapshot().is_ok(), "ada's read was left running");
+    // eddy's re-read waits behind what was read of him before
+    cx.simulate_click("members-row-7");
+    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    assert!(cx.snapshot().is_err(), "eddy's re-read is in flight");
+    cx.simulate_click("members-row-8");
+    assert!(cx.snapshot().is_ok(), "eddy's re-read was left running");
+}
+
+/// Close on the floated detail drops the read in flight as choosing someone
+/// else does. A re-read left running asked the chain for a detail nobody
+/// sees (up to 50 `chain.blocks` pages and 8 `module.describe` asks), then
+/// put its activity back on the closed detail and drew again.
+#[test]
+fn closing_the_detail_drops_the_read_in_flight() {
+    let (mut cx, _) = ready();
+    cx.simulate_measure("members-viewport", 720., 640.);
+    cx.simulate_click("members-row-7");
+    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    cx.simulate_click("members-detail-close");
+    cx.host().never::<ChainBlocks>();
+    // a first read, held in `activity`
+    cx.simulate_click("members-row-11");
+    assert!(cx.find("members-activity-loading").is_some());
+    assert!(cx.snapshot().is_err(), "ada's read is in flight");
+    cx.simulate_click("members-detail-close");
+    assert!(cx.snapshot().is_ok(), "Close left ada's read running");
+    // a re-read, held in `rereading` behind what was read of eddy before
+    cx.simulate_click("members-row-7");
+    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    assert!(cx.snapshot().is_err(), "eddy's re-read is in flight");
+    cx.simulate_click("members-detail-close");
+    assert!(cx.find("members-detail").is_none(), "the list alone");
+    assert!(cx.snapshot().is_ok(), "Close left eddy's re-read running");
+}
+
 /// A row is called by the member's name, not the avatar's initial drawn
 /// before it; what else the row says is its description.
 #[test]

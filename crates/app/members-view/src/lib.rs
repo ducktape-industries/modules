@@ -243,8 +243,8 @@ impl Members {
             .map(|device| device.key.clone())
             .collect();
         let work = activity::recent(cx.host(), keys);
-        // held in `activity` or `rereading`, so choosing someone else drops
-        // it unfinished
+        // held in `activity` or `rereading`, so choosing someone else, or
+        // closing the detail, drops it unfinished
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |view, cx| {
