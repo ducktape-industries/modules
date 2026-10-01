@@ -228,6 +228,25 @@ pub struct Request {
     pub payload: Vec<u8>,
 }
 
+/// The most requests (and the most cancels) one frame may carry: what a host
+/// accepts per tick.
+pub const MAX_REQUESTS: usize = 256;
+
+fn decode_patches<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Patch>, D::Error> {
+    crate::bounded_vec(d, MAX_PATCHES, "more patches than the host applies")
+}
+fn decode_tooltip_responses<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<TooltipResponse>, D::Error> {
+    crate::bounded_vec(d, MAX_PATCHES, "too many tooltip responses")
+}
+fn decode_requests<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Request>, D::Error> {
+    crate::bounded_vec(d, MAX_REQUESTS, "too many requests")
+}
+fn decode_cancels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u64>, D::Error> {
+    crate::bounded_vec(d, MAX_REQUESTS, "too many cancels")
+}
+
 /// What one tick of the guest produced.
 ///
 /// The tree crosses one of three ways: whole in `root`; not at all, with
@@ -244,17 +263,21 @@ pub struct Frame {
     #[serde(deserialize_with = "editor_document::decode_messages")]
     pub editor_documents: Vec<editor_document::EditorDocumentMessage>,
     /// Tooltip subtrees built only after a native hover request.
+    #[serde(deserialize_with = "decode_tooltip_responses")]
     pub tooltip_responses: Vec<TooltipResponse>,
     /// The tree to show. `None` with `unchanged` set means "what you have";
     /// `None` otherwise means "what you have, with `patches` applied".
     pub root: Option<Node>,
     /// Edits to the tree the host holds, in order, when `root` is `None`
     /// and `unchanged` is clear. The host applies them with [`apply`].
+    #[serde(deserialize_with = "decode_patches")]
     pub patches: Vec<Patch>,
     /// What the guest asked for while producing this frame.
+    #[serde(deserialize_with = "decode_requests")]
     pub requests: Vec<Request>,
     /// Requests the guest stopped waiting on — a dropped future or stream.
     /// The host frees whatever it kept for them and sends no more answers.
+    #[serde(deserialize_with = "decode_cancels")]
     pub cancels: Vec<u64>,
     /// `root` is `None` because the tree is the one the guest sent last:
     /// the host keeps what it has instead of decoding it again. Requests and
