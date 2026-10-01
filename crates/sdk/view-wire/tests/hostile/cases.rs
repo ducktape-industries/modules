@@ -516,12 +516,16 @@ fn more_patches_than_the_host_applies_are_refused_at_decode() {
 }
 
 #[test]
-fn an_8_mib_frame_of_remove_patches_is_refused_fast() {
+fn a_frame_of_remove_patches_near_the_frame_byte_limit_is_refused_fast() {
     let bytes = encode(&Frame {
-        patches: remove_patches(8 << 20 >> 4),
+        patches: remove_patches(381_000),
         ..Default::default()
     });
-    assert!(bytes.len() > 4 << 20, "{} bytes", bytes.len());
+    assert!(
+        (7 << 20..=MAX_FRAME_BYTES).contains(&bytes.len()),
+        "{} bytes",
+        bytes.len()
+    );
     let start = std::time::Instant::now();
     let error = decode::<Frame>(&bytes).unwrap_err();
     assert!(
@@ -538,6 +542,11 @@ fn more_requests_than_a_frame_takes_are_refused() {
         kind: String::new(),
         payload: Vec::new(),
     };
+    let at_bound = Frame {
+        requests: vec![request.clone(); MAX_REQUESTS],
+        ..Default::default()
+    };
+    assert!(decode::<Frame>(&encode(&at_bound)).is_ok());
     assert_frame_refused(
         Frame {
             requests: vec![request; MAX_REQUESTS + 1],
@@ -549,9 +558,14 @@ fn more_requests_than_a_frame_takes_are_refused() {
 
 #[test]
 fn more_cancels_than_a_frame_takes_are_refused() {
+    let at_bound = Frame {
+        cancels: vec![0; MAX_CANCELS],
+        ..Default::default()
+    };
+    assert!(decode::<Frame>(&encode(&at_bound)).is_ok());
     assert_frame_refused(
         Frame {
-            cancels: vec![0; MAX_REQUESTS + 1],
+            cancels: vec![0; MAX_CANCELS + 1],
             ..Default::default()
         },
         "too many cancels",
@@ -560,18 +574,17 @@ fn more_cancels_than_a_frame_takes_are_refused() {
 
 #[test]
 fn more_tooltip_responses_than_a_frame_takes_are_refused() {
-    assert_frame_refused(
-        Frame {
-            tooltip_responses: vec![
-                TooltipResponse {
-                    request: 0,
-                    character_index: None,
-                    content: None,
-                };
-                MAX_PATCHES + 1
-            ],
-            ..Default::default()
-        },
-        "too many tooltip responses",
-    );
+    let frame = |count| Frame {
+        tooltip_responses: vec![
+            TooltipResponse {
+                request: 0,
+                character_index: None,
+                content: None,
+            };
+            count
+        ],
+        ..Default::default()
+    };
+    assert!(decode::<Frame>(&encode(&frame(MAX_PATCHES))).is_ok());
+    assert_frame_refused(frame(MAX_PATCHES + 1), "too many tooltip responses");
 }

@@ -228,9 +228,12 @@ pub struct Request {
     pub payload: Vec<u8>,
 }
 
-/// The most requests (and the most cancels) one frame may carry: what a host
-/// accepts per tick.
+/// The most requests one frame may carry: what a host accepts per tick.
 pub const MAX_REQUESTS: usize = 256;
+
+/// The most cancels one frame may carry: a tick may cancel twice what it may
+/// request, so a view dropping many live subscriptions at once is not faulted.
+pub const MAX_CANCELS: usize = 2 * MAX_REQUESTS;
 
 fn decode_patches<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Patch>, D::Error> {
     crate::bounded_vec(d, MAX_PATCHES, "more patches than the host applies")
@@ -244,7 +247,7 @@ fn decode_requests<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Request
     crate::bounded_vec(d, MAX_REQUESTS, "too many requests")
 }
 fn decode_cancels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u64>, D::Error> {
-    crate::bounded_vec(d, MAX_REQUESTS, "too many cancels")
+    crate::bounded_vec(d, MAX_CANCELS, "too many cancels")
 }
 
 /// What one tick of the guest produced.
