@@ -152,8 +152,7 @@ pub struct Explorer {
     pub(crate) cursor: Option<(&'static str, usize)>,
     /// the page each tab showed last, which an arrow onto the tab opens
     /// again (→ then ← comes back to the block it left); `None`, the tab's
-    /// own list
-    #[serde(skip)]
+    /// own list. Kept with `route`, so a restored view comes back the same.
     pub(crate) left: [Option<Route>; 5],
 }
 

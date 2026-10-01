@@ -118,6 +118,35 @@ fn an_arrow_away_and_back_returns_to_the_block_it_left() {
     assert!(cx.find("explorer-blocks").is_some(), "{:?}", cx.texts());
 }
 
+/// A restored view keeps each tab's last page along with the page shown:
+/// → then ← after a restore still comes back to the block, not to the
+/// Blocks list.
+#[test]
+fn after_a_restore_an_arrow_away_and_back_returns_to_the_block() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("explorer-block-11");
+    cx.run_until_parked();
+    let bytes = cx.snapshot().unwrap();
+    let mut restored = TestAppContext::new();
+    restored.host().stream::<ChainHeads>();
+    node(&mut restored, Rc::new(RefCell::new(12)));
+    restored.restore::<Explorer>(&bytes).unwrap();
+    restored.run_until_parked();
+    assert!(
+        restored.find("explorer-block").is_some(),
+        "{:?}",
+        restored.texts()
+    );
+    restored.simulate_key_down("explorer-tabs", "right");
+    restored.simulate_key_down("explorer-tabs", "left");
+    assert!(
+        restored.find("explorer-block").is_some() && restored.find("explorer-blocks").is_none(),
+        "{:?}",
+        restored.texts()
+    );
+    assert!(restored.has_text(&abi::hex(&[111; 32])), "block 11's hash");
+}
+
 /// A list is one Tab stop: ↓ moves the active row, Enter opens it; the
 /// rows are options, never focusable, and the first is active on entry.
 #[test]
