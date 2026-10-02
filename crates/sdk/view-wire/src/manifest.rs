@@ -44,24 +44,6 @@ const MAX_CAPABILITIES: usize = 16;
 const MAX_WIRE_ID_BYTES: usize = 16;
 const MAX_TARGETS: usize = 16;
 
-/// Whether `name` is a program name as a method may address one: `1..=64`
-/// bytes of ASCII letters, digits, `-` and `_`. The one rule for a
-/// manifest's `targets` and a host's `Call.target`.
-pub const fn program_name(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    if bytes.is_empty() || bytes.len() > 64 {
-        return false;
-    }
-    let mut i = 0;
-    while i < bytes.len() {
-        if !(bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
 /// Whether a view declaring `capabilities` must name targets: it may
 /// address a program only through `op` or `module`.
 pub const fn needs_targets(capabilities: &[Capability]) -> bool {
@@ -161,7 +143,7 @@ impl Manifest {
                 .bytes()
                 .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
             && self.targets.len() <= MAX_TARGETS
-            && self.targets.iter().all(|target| program_name(target))
+            && self.targets.iter().all(|target| program::is_name(target))
             && (!self.targets.is_empty() || !needs_targets(&self.capabilities))
     }
 }
@@ -308,7 +290,6 @@ mod tests {
                 "accepted {caps:?} {targets:?}"
             );
         }
-        assert!(program_name("module-registry") && !program_name("") && !program_name("a b"));
     }
 
     // Claim: the wire id is short lowercase hex, so a host can show it in a

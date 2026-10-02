@@ -1737,6 +1737,7 @@ name = "ducklink"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "program",
 ]
 
 [[package]]
@@ -3708,6 +3709,7 @@ dependencies = [
  "host",
  "identity",
  "keyscheme",
+ "program",
  "serde_json",
  "store",
  "tempfile",
@@ -6435,6 +6437,7 @@ dependencies = [
  "error",
  "futures",
  "gpui-pre",
+ "program",
  "serde",
  "serde_json",
  "unicode-segmentation",

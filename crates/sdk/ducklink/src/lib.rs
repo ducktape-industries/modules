@@ -15,7 +15,7 @@
 //!
 //! THE FIRST PATH SEGMENT NAMES A PROGRAM. This crate does not know which
 //! programs exist — the `modules` program's roster does — so it checks only the
-//! spelling (`[a-z0-9_-]`, lowercase) and keeps the tail as decoded segments,
+//! spelling (`program::is_name`: `1..=64` of `[a-z0-9_-]`) and keeps the tail as decoded segments,
 //! interpreting none of it. What a tail MEANS is the program's to say, and a
 //! view that names one copies that rule beside itself.
 //!
@@ -237,18 +237,15 @@ pub fn number(segment: &str) -> Option<u64> {
     }
 }
 
-/// the program segment: a program's name as the roster spells it, `[a-z0-9_-]`.
+/// the program segment: a program id as the roster spells it
+/// (`program::is_name`).
 fn program_segment(program: &str) -> Result<(), Refused> {
-    let spelled = !program.is_empty()
-        && program
-            .bytes()
-            .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'));
-    match spelled {
+    match program::is_name(program) {
         true => Ok(()),
         false => Err(Refused::new(
             INVALID_INPUT,
             format!(
-                "A duck:// program segment is a program's name, [a-z0-9_-], and `{program}` is not one."
+                "A duck:// program segment is a program id, 1..=64 of [a-z0-9_-], and `{program}` is not one."
             ),
         )),
     }
@@ -439,10 +436,14 @@ mod tests {
     #[test]
     fn any_program_name_reads_but_only_one_spelling_of_it() {
         assert!(Link::parse("duck://dognet-b5b6ea90/a-program_nobody_built/x").is_ok());
+        let longest = format!("duck://dognet-b5b6ea90/{}/x", "p".repeat(64));
+        assert!(Link::parse(&longest).is_ok());
         for text in [
             "duck://dognet-b5b6ea90/Chat/general",
             "duck://dognet-b5b6ea90/ch%61t/general",
             "duck://dognet-b5b6ea90/chat.v2/general",
+            // longer than any id the roster holds
+            &format!("duck://dognet-b5b6ea90/{}/x", "p".repeat(65)),
         ] {
             assert!(Link::parse(text).is_err(), "{text}");
         }
