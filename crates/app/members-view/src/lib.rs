@@ -260,6 +260,11 @@ impl Members {
             let _ = this.update(cx, |view, cx| {
                 if let Ok(recent) = &result {
                     view.seen.insert(number, recent.clone());
+                    // a re-read that found nothing new leaves the
+                    // detail as it is drawn
+                    if view.activity.ready() == Some(recent) {
+                        return;
+                    }
                 }
                 view.activity = Loadable::from(result);
                 cx.notify();

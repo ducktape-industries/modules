@@ -549,6 +549,25 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     );
 }
 
+/// A re-read that finds what the detail already shows draws nothing: ↑
+/// back to eddy draws once, for the choice, and the re-read lands silent.
+#[test]
+fn a_re_read_that_finds_nothing_new_draws_nothing() {
+    let (mut cx, _) = ready();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    cx.simulate_key_down("members-list", "down");
+    cx.run_until_parked();
+    assert!(cx.has_text("ada's bio"));
+    let reads = cx.host().requests::<ChainBlocks>().len();
+    let before = cx.renders();
+    cx.simulate_key_down("members-list", "up");
+    cx.run_until_parked();
+    assert!(cx.has_text("eddy's bio") && cx.has_text("block 12"));
+    assert!(cx.host().requests::<ChainBlocks>().len() > reads, "eddy was read anew");
+    assert_eq!(cx.renders() - before, 1, "the same activity was drawn again");
+}
+
 /// A row is called by the member's name, not the avatar's initial drawn
 /// before it; what else the row says is its description.
 #[test]

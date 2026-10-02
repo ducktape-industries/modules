@@ -10,6 +10,7 @@ trait TestDriver {
     fn app_mut(&mut self) -> &mut App;
     fn host(&self) -> Host;
     fn snapshot(&self) -> Result<Vec<u8>, String>;
+    fn renders(&self) -> u64;
 }
 impl<V: View> TestDriver for Driver<V> {
     // what the host gets: the context patches its tree as the host does
@@ -24,6 +25,9 @@ impl<V: View> TestDriver for Driver<V> {
     }
     fn snapshot(&self) -> Result<Vec<u8>, String> {
         self.snapshot()
+    }
+    fn renders(&self) -> u64 {
+        self.renders
     }
 }
 
@@ -118,6 +122,12 @@ impl TestAppContext {
             }
         }
         panic!("view did not park after 10000 ticks");
+    }
+    /// How many times the view has rendered since it was opened or
+    /// restored: a test takes it before a step and after, to assert the
+    /// step drew nothing (or drew once).
+    pub fn renders(&self) -> u64 {
+        self.driver.as_ref().expect("open a view first").renders()
     }
     pub fn texts(&self) -> Vec<String> {
         texts(&self.frame)
@@ -245,6 +255,22 @@ mod tests {
         cx.run_until_parked();
         restored.read(|view| assert_eq!(view.items, 2));
         assert_eq!(cx.host().requests::<Changes<Probe>>().len(), 2);
+    }
+
+    #[test]
+    fn renders_counts_what_the_view_drew_and_nothing_else() {
+        let mut cx = TestAppContext::new();
+        let feed = cx.host().stream::<Changes<Probe>>();
+        cx.open::<LiveView>();
+        assert_eq!(cx.renders(), 1, "opening draws the view once");
+        cx.run_until_parked();
+        assert_eq!(cx.renders(), 1, "a parked view draws nothing");
+        feed.send(None);
+        cx.run_until_parked();
+        assert_eq!(cx.renders(), 2, "a notify draws it once more");
+        let snapshot = cx.snapshot().unwrap();
+        cx.restore::<LiveView>(&snapshot).unwrap();
+        assert_eq!(cx.renders(), 1, "a restored view counts from its own start");
     }
 
     /// Logs through `host`, which its manifest leaves out.

@@ -10,6 +10,8 @@ pub struct Driver<V: View> {
     pub(crate) entity: Entity<V>,
     pub(crate) last_root: Option<wire::Node>,
     pub(crate) busy: bool,
+    /// how many times the view has rendered: what a test counts
+    pub(crate) renders: u64,
 }
 impl<V: View> Drop for Driver<V> {
     fn drop(&mut self) {
@@ -46,6 +48,7 @@ impl<V: View> Driver<V> {
             entity,
             last_root: None,
             busy: false,
+            renders: 0,
         }
     }
     pub fn entity(&self) -> Entity<V> {
@@ -400,6 +403,7 @@ impl<V: View> Driver<V> {
     }
 
     fn render_root(&mut self) -> wire::Node {
+        self.renders += 1;
         slots::reset(&self.app.inner.slots);
         let mut window = self.app.window();
         let element = {
