@@ -281,11 +281,12 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
     });
     let root = lowered(&draft, "c", &choices);
     for (key, label) in [
-        ("c/bold", "Bold"),
-        ("c/italic", "Italic"),
-        ("c/code", "Code"),
-        ("c/quote", "Quote"),
-        ("c/restore", "Restore"),
+        ("c/bold", "Bold, New message"),
+        ("c/italic", "Italic, New message"),
+        ("c/code", "Code, New message"),
+        ("c/quote", "Quote, New message"),
+        ("c/restore", "Restore, New message"),
+        ("c/send", "Send, New message"),
     ] {
         let Some(wire::Node::Container(crate::wire::ContainerNode { interactivity, .. })) =
             node(&root, key)
@@ -310,6 +311,70 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
         selection: None,
     });
     drawn_with(&draft, "c", &choices);
+}
+
+/// A room's composer and its thread's are on screen together; each
+/// control's name ends with its field's, so no two presses read alike,
+/// and what the controls show stays the bare word.
+#[test]
+fn two_composers_name_their_controls_apart() {
+    let mut app = App::for_driver();
+    let entity = Entity::reserve(&app);
+    let mut window = app.window();
+    let mut cx = Context {
+        app: &mut app,
+        entity,
+    };
+    let draft = Draft::from_body("hello", &[]);
+    let pair = crate::div()
+        .child(view(
+            &draft,
+            "room",
+            "New message",
+            "Message #general",
+            "Send",
+            None,
+            true,
+            &[],
+            &mut cx,
+            |_: &mut ComposerView, _, _, _| {},
+        ))
+        .child(view(
+            &draft,
+            "thread",
+            "Reply",
+            "Reply in thread",
+            "Send",
+            None,
+            true,
+            &[],
+            &mut cx,
+            |_: &mut ComposerView, _, _, _| {},
+        ));
+    drop(cx);
+    let root = Lowering::new(&mut window, &mut app).lower(pair);
+    let mut presses = Vec::new();
+    let mut texts = Vec::new();
+    walk(&root, &mut |node| match node {
+        wire::Node::Container(crate::wire::ContainerNode { interactivity, .. })
+            if interactivity.on_click.is_some() =>
+        {
+            presses.push((interactivity.role, interactivity.aria.label.clone()));
+        }
+        wire::Node::Text(wire::TextNode { content, .. }) => texts.push(content.to_string()),
+        _ => {}
+    });
+    assert_eq!(presses.len(), 10, "four marks and a Send, twice");
+    for (index, press) in presses.iter().enumerate() {
+        assert!(
+            !presses[index + 1..].contains(press),
+            "two presses are {press:?}"
+        );
+    }
+    assert!(presses.contains(&(Some(Role::Button), Some("Bold, Reply".into()))));
+    assert!(presses.contains(&(Some(Role::Button), Some("Send, New message".into()))));
+    assert_eq!(texts.iter().filter(|text| *text == "Send").count(), 2);
+    assert!(!texts.iter().any(|text| text.contains(", ")));
 }
 
 /// The known faults, each and no other: the @-mention rows are menu items

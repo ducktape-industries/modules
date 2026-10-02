@@ -123,6 +123,8 @@ impl RenderOnce for Mark {
 struct ActionButton {
     id: ElementId,
     label: SharedString,
+    // what assistive technology reads: the label and the composer's field
+    name: SharedString,
     primary: bool,
     on_click: Option<Click>,
 }
@@ -139,7 +141,7 @@ impl RenderOnce for ActionButton {
         let mut button = div()
             .id(self.id)
             .role(Role::Button)
-            .aria_label(self.label.clone())
+            .aria_label(self.name)
             .aria_disabled(self.on_click.is_none())
             .flex()
             .items_center()
@@ -258,6 +260,9 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
         handle.clone(),
     );
     let mut rows: Vec<AnyElement> = Vec::new();
+    // a control's name ends with its field's, so a room's Bold and its
+    // thread's Bold read apart
+    let named = |control: &str| SharedString::from(format!("{control}, {label}"));
 
     if let Some((_, partial)) = draft.query(draft.editor.state_view()) {
         let matches = matching_choices(choices, &partial);
@@ -315,6 +320,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
                 .child(ActionButton {
                     id: ElementId::Name(format!("{key}/restore").into()),
                     label: "Restore".into(),
+                    name: named("Restore"),
                     primary: false,
                     on_click: press(editable, "restore".into(), &editor_id, &handle, cx),
                 })
@@ -338,11 +344,11 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
         }),
         ("“", "Quote", "quote", |sign| sign.text_size(px(16.))),
     ];
-    for (sign, label, tag, face) in faces {
+    for (sign, control, tag, face) in faces {
         toolbar = toolbar.child(Mark {
             id: ElementId::Name(format!("{key}/{tag}").into()),
             sign: sign.into(),
-            label: label.into(),
+            label: named(control),
             face,
             on_click: press(editable, tag.into(), &editor_id, &handle, cx),
         });
@@ -353,6 +359,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
         toolbar = toolbar.child(ActionButton {
             id: ElementId::Name(format!("{key}/cancel").into()),
             label: "Cancel".into(),
+            name: named("Cancel"),
             primary: false,
             on_click: Some(cancel),
         });
@@ -360,6 +367,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
     toolbar = toolbar.child(ActionButton {
         id: ElementId::Name(format!("{key}/send").into()),
         label: commit.to_owned().into(),
+        name: named(commit),
         primary: true,
         on_click: press(sendable, "send".into(), &editor_id, &handle, cx),
     });
