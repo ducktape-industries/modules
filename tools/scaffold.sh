@@ -297,13 +297,9 @@ impl View for $title {
     const TARGETS: &'static [&'static str] = &[$program_snake::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut view = Self::default();
-        view.restored(window, cx);
-        view
-    }
-
-    fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    /// Follows the module and reads the count: on the first mount and
+    /// after every redeploy, which restores the view from its snapshot.
+    fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let mut stream = cx.host().subscribe::<Changes<$program_snake::$title>>(());
         self.live = Some(cx.spawn(async move |this, cx| {
             while stream.next().await.is_some() {
@@ -321,7 +317,7 @@ impl Render for $title {
         let theme = *cx.global::<Theme>();
         let body = match &self.count {
             Loadable::Idle | Loadable::Loading(_) => "Reading…".to_owned(),
-            Loadable::Ready(count) => format!("Count: {count}"),
+            Loadable::Ready(count) | Loadable::Reloading(count, _) => format!("Count: {count}"),
             Loadable::Failed(refusal) => refusal.message.clone(),
         };
         div()
@@ -349,15 +345,10 @@ impl Render for $title {
 
 impl $title {
     /// One read: the boot, a restore, a live bump. A value already on
-    /// screen stays there while it runs.
+    /// screen stays there while it runs, and a bump that lands the same
+    /// count draws nothing.
     fn read(&mut self, cx: &mut Context<Self>) {
-        match self.count.ready() {
-            Some(_) => cx.refresh(count(cx.host()), |view, count, _| {
-                view.count = Loadable::Ready(count)
-            }),
-            None => self.count = cx.load(count(cx.host()), |view| &mut view.count),
-        }
-        cx.notify();
+        cx.reload(&mut self.count, count(cx.host()), |view| &mut view.count);
     }
 }
 

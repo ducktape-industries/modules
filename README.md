@@ -100,9 +100,11 @@ tests, the edit loop and founding.
 
 ## A view
 
-A view implements `Render::render(window, cx)` and serializable `View::new(window, cx)`.
-`Context<V>` dereferences to `App`; `listener` registers typed event callbacks and
-returns the ID used by `wire::Node`. Call `cx.notify()` after state changes.
+A view implements `Render::render(window, cx)` on serializable, `Default` state,
+and `View::attach(window, cx)` to follow the host. `Context<V>` dereferences to
+`App`; `listener` registers typed event callbacks and returns the ID used by
+`wire::Node`. Call `cx.notify()` after state changes: the view decides when it
+renders (`view-guest/README.md`, "When a view renders").
 Unnotified frames retain their tree and event routes; native debug builds catch
 serialized state changes without notification.
 
@@ -114,8 +116,8 @@ input simulation, and tree assertions. See `examples/exported_view.rs` in
 `view-guest` and each app view's `src/tests.rs`.
 
 Snapshot/restore transfers the root view's serde state, not entity identities.
-Snapshots wait for ordinary work to settle; parked host streams restart in
-`View::restored`. Keep independent writes in separate tasks: an opaque joined
+Snapshots wait for ordinary work to settle; host streams start in
+`View::attach`, which runs on a first mount and on a restore alike. Keep independent writes in separate tasks: an opaque joined
 future sharing a stream waiter cannot expose whether its other work is pending.
 The tree vocabulary, manifests, and five-function Wasm ABI are unchanged.
 

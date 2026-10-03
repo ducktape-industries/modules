@@ -243,6 +243,48 @@ pub(crate) fn booted_as(mode: &'static str, account: u64) -> (TestAppContext, En
     (cx, view)
 }
 
+/// A block that changed nothing on screen: a head of each program forge
+/// follows re-reads every query the repository page shows, the same
+/// replies land, and the view draws nothing for the heads or the landings.
+#[test]
+fn a_block_whose_rereads_land_the_same_replies_draws_nothing() {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx, "default");
+    let forge_heads = cx.host().stream::<Changes<forge::Forge>>();
+    let chat_heads = cx.host().stream::<Changes<::chat::Chat>>();
+    let identity_heads = cx.host().stream::<Changes<Identity>>();
+    let props = cx.host().stream::<HostSession>();
+    cx.host()
+        .stream::<ducktape_view_guest::methods::HostRoute>();
+    cx.open::<Forge>();
+    props.send(Session {
+        signer: abi::hex(b"reviewer"),
+        account: Some(2),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    cx.run_until_parked();
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    let renders = cx.renders();
+    let heads: [(&str, &dyn Fn()); 3] = [
+        ("forge", &|| forge_heads.send(Some(100))),
+        ("chat", &|| chat_heads.send(Some(101))),
+        ("identity", &|| identity_heads.send(Some(102))),
+    ];
+    for (program, send) in heads {
+        let asked = cx.host().requests::<Ask>().len();
+        send();
+        cx.run_until_parked();
+        assert!(
+            cx.host().requests::<Ask>().len() >= asked + 4,
+            "{program}: the page re-read"
+        );
+        assert_eq!(cx.renders(), renders, "{program}'s head drew nothing");
+    }
+}
+
 /// Boots and opens `project`.
 pub(crate) fn opened(mode: &'static str) -> (TestAppContext, Entity<Forge>) {
     opened_as(mode, 2)

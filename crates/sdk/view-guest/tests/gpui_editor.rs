@@ -5,7 +5,7 @@ use view_guest::{
     View, Window, wire,
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct EditorView {
     editor: Editor,
 }

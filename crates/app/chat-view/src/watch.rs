@@ -22,7 +22,8 @@ impl Chat {
             cx.for_each(props, |chat, props, _, cx| match props {
                 Ok(next) => chat.session_changed(next, cx),
                 Err(refusal) => {
-                    chat.notice = format!("Couldn’t read the session: {}", refusal.message)
+                    chat.notice = format!("Couldn’t read the session: {}", refusal.message);
+                    cx.notify();
                 }
             }),
             cx.for_each(changes, |chat, head, _, cx| match head {
@@ -37,6 +38,7 @@ impl Chat {
                         chat.search_clear();
                         chat.open_at(channel, seq, cx);
                         chat.settle_badge(cx);
+                        cx.notify();
                     }
                 }
                 Err(refusal) => cx.host().log_refused("chat", "the route", &refusal),
@@ -55,7 +57,10 @@ impl Chat {
             }),
             // the reader's zone, for the day and clock a message reads
             cx.for_each(offset, |_, offset, _, cx| match offset {
-                Ok(minutes) => design::set_utc_offset(minutes),
+                Ok(minutes) => {
+                    design::set_utc_offset(minutes);
+                    cx.notify();
+                }
                 Err(refusal) => cx.host().log_refused("chat", "the UTC offset", &refusal),
             }),
         ];

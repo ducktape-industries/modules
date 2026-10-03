@@ -20,7 +20,10 @@ impl Settings {
         self.followers = vec![
             cx.for_each(session, |view, session, _, cx| match session {
                 Ok(session) => view.session_changed(session, cx),
-                Err(refusal) => view.account = Loadable::Failed(refusal),
+                Err(refusal) => {
+                    view.account = Loadable::Failed(refusal);
+                    cx.notify();
+                }
             }),
             // an account, key or agent changed: the reader's may be among them
             cx.for_each(identity, |view, head, _, cx| match head {

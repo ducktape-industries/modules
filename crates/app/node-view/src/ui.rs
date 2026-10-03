@@ -83,7 +83,7 @@ fn pulse(answering: bool, status: &NodeStatus, theme: &Theme) -> impl IntoElemen
 /// here.
 fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     let status = match &view.status {
-        Loadable::Ready(status) => status,
+        Loadable::Ready(status) | Loadable::Reloading(status, _) => status,
         Loadable::Failed(refusal) => {
             let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| {
                 view.status = Loadable::Idle;
@@ -202,17 +202,23 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
             let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read(cx));
             design::refused("nodes", refusal.message.clone(), theme, retry).into_any_element()
         }
-        Loadable::Ready(nodes) if nodes.is_empty() => design::empty_state(
-            "nodes-empty",
-            "No members",
-            "The validator set of this network is empty.",
-            theme,
-        )
-        .into_any_element(),
+        Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) if nodes.is_empty() => {
+            design::empty_state(
+                "nodes-empty",
+                "No members",
+                "The validator set of this network is empty.",
+                theme,
+            )
+            .into_any_element()
+        }
         // the table reads the node's height: nothing until it answers,
         // and the numbers above say why
-        Loadable::Ready(_) if view.status.ready().is_none() => div().into_any_element(),
-        Loadable::Ready(nodes) => table::table(view, nodes, theme).into_any_element(),
+        Loadable::Ready(_) | Loadable::Reloading(_, _) if view.status.ready().is_none() => {
+            div().into_any_element()
+        }
+        Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) => {
+            table::table(view, nodes, theme).into_any_element()
+        }
     }
 }
 

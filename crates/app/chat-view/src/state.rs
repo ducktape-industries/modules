@@ -78,6 +78,9 @@ pub struct Chat {
     /// (re)started
     #[serde(skip)]
     pub(crate) recounted: bool,
+    /// the channel list read again while the one on screen stays
+    #[serde(skip)]
+    pub(crate) rereading_channels: Option<ducktape_view_guest::Task<()>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -97,6 +100,9 @@ pub struct Room {
     pub(crate) landed: bool,
     pub(crate) reaches_head: bool,
     pub(crate) at_tail: bool,
+    /// the rows read again while the ones on screen stay
+    #[serde(skip)]
+    pub(crate) rereading: Option<ducktape_view_guest::Task<()>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -107,6 +113,9 @@ pub struct Thread {
     pub(crate) next: Option<Vec<u8>>,
     #[serde(skip)]
     pub(crate) more_loading: bool,
+    /// the replies read again while the ones on screen stay
+    #[serde(skip)]
+    pub(crate) rereading: Option<ducktape_view_guest::Task<()>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]

@@ -49,17 +49,47 @@ A node program is addressed by its own type, the one that implements
 its program is `program::role::Identity`. Every refusal is the module SDK's `Error`
 (`code` token, `message`), one type end to end: a program's codes are
 `error::code`, the host's own are `methods::refusal`. `Loadable<T>` + `cx.load`
-(`src/view.rs`) hold an ask's four states and snapshot `Loading` as `Idle`.
+and `cx.reload` (`src/view.rs`) hold an ask's states and snapshot `Loading`
+as `Idle`.
 
 `Session` (`methods.rs`, `subscribe::<HostSession>`) is what every view is handed:
 `connected`, `chain_id`, `signer` (the seated key, hex), `account` (its
 account number, `None` until the host resolves one), `endpoint`; an item per
 change. Read "who am I" from `account`; no view asks identity for it.
 
+## When a view renders, and who decides
+
+A view renders on the tick after it called `cx.notify()`, once however many
+times it called it, and at no other time but its first frame and a host that
+lost its tree. The view decides: nothing in the SDK notifies on its behalf
+for something only the view can judge.
+
+- `cx.for_each(stream, each)` runs `each` per item and does not notify:
+  `each` calls `cx.notify()` when the item changed what the view shows. An
+  item that only starts a read draws nothing; the read draws when it lands.
+- `cx.load(work, at)` fills a `Loadable` slot and notifies when it lands
+  (`Loading` to `Ready` or `Failed` is always a change).
+- `cx.reload(&mut slot, work, at)` reads a slot again. The value on screen
+  stays (`Loadable::Reloading`) until the answer lands; it notifies only if
+  the answer differs from it, or is a refusal, which lands `Failed`. The read
+  lives in the slot: replacing or dropping the slot cancels it, so a newer
+  read supersedes an older one.
+- `cx.refresh(work, land)` hands the answer, the value or the refusal, to
+  `land`, which notifies if it moved anything. Keep the task it returns
+  beside what it reads: a newer one stored in its place cancels the older.
+- A list the host scrolls renders when it needs rows it does not hold.
+
+Native tests catch the one-way mistake: a change to the view's serialized
+state without `cx.notify()` panics (debug builds). They cannot see a
+`#[serde(skip)]` field or state outside the view (`design::set_utc_offset`):
+notify for those yourself. `TestAppContext::renders()` and `ticks()` count
+what the view did since it opened, so a test can pin that an event draws
+nothing.
+
 ## The `View` trait
 
-`View` (`src/view.rs`) is everything the host reads about a view and its two
-lifecycle entries: `NAME` (the tab and catalog name), `DESCRIPTION` (one
+`View` (`src/view.rs`) is everything the host reads about a view, how it is
+built and how it joins the host: `NAME` (the tab and catalog name), `DESCRIPTION` (one
 catalog line, `""` by default), `CAPABILITIES` (the `methods::Capability`
 halves of the kinds it asks through, `&[]` by default: a method whose
 capability is not listed is refused `undeclared_capability`), `TARGETS` (the
@@ -68,12 +98,16 @@ by each `Program`'s `NAME`, `&[]` by default: a method naming another is
 refused `undeclared_target`, and a view with `op` or `module` that names
 none does not compile), `MIN_WINDOW_WIDTH` (the narrowest width in px it works at, default 480,
 `1..=8192` or it does not compile: the app never lays it out narrower, and
-a narrower window scrolls it sideways), `new(window, cx)` on first mount and
-`restored` after a snapshot came back. The snapshot is the view's own serde
+a narrower window scrolls it sideways), `new(window, cx)`, the state on
+first mount (`Default::default()` unless the view says otherwise), and
+`attach(window, cx)`, which runs on every mount, first or restored from a
+snapshot, and starts what the view follows and reads. Subscribe in `attach`,
+never in `new`: a restored view is not built again, and only what `attach`
+starts follows the host after a redeploy. The snapshot is the view's own serde
 as the wire's named MessagePack (`src/snapshot.rs`), refused while work is
 pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
-`view-wire/src/snapshot.rs`). Derive `Serialize`/`Deserialize` and keep
-`Task`s out of the state (`Loadable` does).
+`view-wire/src/snapshot.rs`). Derive `Default`/`Serialize`/`Deserialize`
+and keep `Task`s out of the state (`Loadable` does).
 
 ## Exporting
 

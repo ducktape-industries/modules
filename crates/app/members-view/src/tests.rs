@@ -426,6 +426,21 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
     assert_eq!(restored.host().requests::<ChainBlocks>().len(), 1);
 }
 
+/// A block that changed no account: identity's head re-reads the roster,
+/// the same rows land, and the view draws nothing for either.
+#[test]
+fn a_live_bump_that_lands_the_same_roster_draws_nothing() {
+    let (mut cx, feed) = ready();
+    cx.simulate_click("members-row-9");
+    cx.run_until_parked();
+    let (asked, renders) = (cx.host().requests::<Query<Identity>>().len(), cx.renders());
+    feed.send(Some(13));
+    cx.run_until_parked();
+    assert_eq!(cx.host().requests::<Query<Identity>>().len(), asked + 1);
+    assert_eq!(cx.renders(), renders, "the same roster drew nothing");
+    assert!(cx.has_text("scout's bio"));
+}
+
 #[test]
 fn the_list_and_the_detail_are_accessible() {
     let (mut cx, _) = ready();

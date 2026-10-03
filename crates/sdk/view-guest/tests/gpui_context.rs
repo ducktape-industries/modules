@@ -120,7 +120,7 @@ fn pointer_listener_preserves_payload_and_routes_after_frame_reset() {
     assert_eq!(interactivity.on_mouse_down, Some(handler));
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct TooltipSurface;
 impl View for TooltipSurface {
     const NAME: &'static str = "TooltipSurface";
@@ -138,7 +138,7 @@ impl Render for TooltipSurface {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct TooltipContent;
 impl View for TooltipContent {
     const NAME: &'static str = "TooltipContent";
@@ -192,7 +192,7 @@ fn tooltip_delay_is_order_independent_and_builder_runs_only_after_request() {
     assert_eq!(children.len(), 1);
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct RichTooltipSurface;
 impl View for RichTooltipSurface {
     const NAME: &'static str = "RichTooltipSurface";
@@ -240,7 +240,7 @@ fn rich_text_tooltip_routes_character_index_and_explicit_none() {
     assert!(none.content.is_none());
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct FocusSurface;
 impl View for FocusSurface {
     const NAME: &'static str = "FocusSurface";
@@ -346,7 +346,7 @@ fn listeners_use_weak_entities() {
     });
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct GlobalReader {
     initial: usize,
 }
@@ -354,12 +354,7 @@ struct Configuration(usize);
 impl Global for Configuration {}
 impl View for GlobalReader {
     const NAME: &'static str = "GlobalReader";
-    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self {
-            initial: cx.global::<Configuration>().0,
-        }
-    }
-    fn restored(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.initial = cx.global::<Configuration>().0;
     }
 }

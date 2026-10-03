@@ -297,7 +297,9 @@ fn a_control_on_a_card_keeps_its_click_from_the_card_beneath() {
 fn replies_read_as_a_button() {
     let (mut cx, view) = opened();
     view.update(&mut cx, |chat, _, cx| {
-        if let Some(Loadable::Ready(rows)) = chat.room.as_mut().map(|room| &mut room.messages) {
+        if let Some(Loadable::Ready(rows) | Loadable::Reloading(rows, _)) =
+            chat.room.as_mut().map(|room| &mut room.messages)
+        {
             rows[0].reply_count = 3;
         }
         cx.notify();

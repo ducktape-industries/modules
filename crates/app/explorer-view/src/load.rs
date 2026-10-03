@@ -1,7 +1,8 @@
 //! The loaders: the head and the window it pulls (`chain.status`,
 //! `chain.blocks`), the lists the system programs answer, and what an op
-//! says it does (`module.describe`). Each first read is `cx.load`; a
-//! re-read is `cx.refresh`, which keeps what is on screen.
+//! says it does (`module.describe`). A list is read with `cx.reload`,
+//! which keeps what is on screen while it reads again and draws only what
+//! changed.
 use ducktape_view_guest::Context;
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::methods::{
@@ -28,7 +29,7 @@ impl Explorer {
     /// fuel on Transactions, every block.
     pub(crate) fn at_head(&mut self, head: Head, cx: &mut Context<Self>) {
         match &self.status {
-            Loadable::Ready(_) => {
+            Loadable::Ready(_) | Loadable::Reloading(_, _) => {
                 self.head = self.head.max(head.height);
                 self.pull(cx);
             }
@@ -49,51 +50,49 @@ impl Explorer {
         }));
     }
 
+    /// The node's status, and the window it moves. A status on screen stays
+    /// while it is read again; a refused re-read is logged and leaves it.
     pub(crate) fn read_head(&mut self, cx: &mut Context<Self>) {
         let ask = cx.host().ask::<ChainStatus>(());
         if self.status.ready().is_some() {
-            cx.refresh(ask, |view, status, cx| {
-                view.status = Loadable::Ready(status);
-                view.pull(cx);
-            });
+            self.rereading_status = Some(cx.refresh(ask, |view, status, cx| {
+                match status {
+                    Ok(status) => {
+                        if view.status.ready() != Some(&status) {
+                            view.status = Loadable::Ready(status);
+                            cx.notify();
+                        }
+                        view.pull(cx);
+                    }
+                    Err(refusal) => {
+                        cx.host()
+                            .log_refused("explorer", "the node's status", &refusal)
+                    }
+                }
+            }));
         } else if !self.status.is_loading() {
             self.status = cx.load(ask, |view| &mut view.status);
+            cx.notify();
         }
         // a failed window is read again with the head, not in a loop
         if self.chain.failed.is_some() {
             self.pull(cx);
         }
-        cx.notify();
     }
 
     pub(crate) fn read_accounts(&mut self, cx: &mut Context<Self>) {
         let work = queries::accounts(cx.host());
-        match self.accounts.ready() {
-            Some(_) => cx.refresh(work, |view, accounts, _| {
-                view.accounts = Loadable::Ready(accounts)
-            }),
-            None => self.accounts = cx.load(work, |view| &mut view.accounts),
-        }
+        cx.reload(&mut self.accounts, work, |view| &mut view.accounts);
     }
 
     pub(crate) fn read_validators(&mut self, cx: &mut Context<Self>) {
         let work = queries::validators(cx.host());
-        match self.validators.ready() {
-            Some(_) => cx.refresh(work, |view, keys, _| {
-                view.validators = Loadable::Ready(keys)
-            }),
-            None => self.validators = cx.load(work, |view| &mut view.validators),
-        }
+        cx.reload(&mut self.validators, work, |view| &mut view.validators);
     }
 
     pub(crate) fn read_network(&mut self, cx: &mut Context<Self>) {
         let work = queries::network(cx.host());
-        match self.network.ready() {
-            Some(_) => cx.refresh(work, |view, network, _| {
-                view.network = Loadable::Ready(network)
-            }),
-            None => self.network = cx.load(work, |view| &mut view.network),
-        }
+        cx.reload(&mut self.network, work, |view| &mut view.network);
     }
 
     /// Reads the next page the window wants, if any: the head when the
@@ -122,30 +121,33 @@ impl Explorer {
         cx.spawn(async move |this, cx| {
             let page = ask.await;
             // the view is gone: nothing is waiting for the page
-            let _ = this.update(cx, |view, cx| {
-                view.pulling = false;
-                match page {
-                    Ok(page) => {
-                        let was = (view.chain.top(), view.chain.blocks.len());
-                        view.chain.land(before, page);
-                        // the status moves with the page that reached the head
-                        if let (Loadable::Ready(status), Some(top)) =
-                            (&mut view.status, view.chain.blocks.first())
-                            && top.height > status.height
-                        {
-                            status.height = top.height;
-                            status.tip = top.id;
+            let _ =
+                this.update(cx, |view, cx| {
+                    view.pulling = false;
+                    match page {
+                        Ok(page) => {
+                            let was = (view.chain.top(), view.chain.blocks.len());
+                            view.chain.land(before, page);
+                            // the status moves with the page that reached the head
+                            if let (
+                                Loadable::Ready(status) | Loadable::Reloading(status, _),
+                                Some(top),
+                            ) = (&mut view.status, view.chain.blocks.first())
+                                && top.height > status.height
+                            {
+                                status.height = top.height;
+                                status.tip = top.id;
+                            }
+                            // a page that moved nothing is not asked for again
+                            // until the head moves
+                            if (view.chain.top(), view.chain.blocks.len()) != was {
+                                view.pull(cx);
+                            }
                         }
-                        // a page that moved nothing is not asked for again
-                        // until the head moves
-                        if (view.chain.top(), view.chain.blocks.len()) != was {
-                            view.pull(cx);
-                        }
+                        Err(refusal) => view.chain.failed = Some(refusal.message),
                     }
-                    Err(refusal) => view.chain.failed = Some(refusal.message),
-                }
-                cx.notify();
-            });
+                    cx.notify();
+                });
         })
         .detach();
     }

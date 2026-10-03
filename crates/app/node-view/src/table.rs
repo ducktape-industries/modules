@@ -113,7 +113,7 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
     // why the validators' cells are empty: this node hears no votes, or
     // does not report them (before its first answer, no line)
     let no_votes = match &view.network {
-        Loadable::Ready(_) if heard.is_none() => Some((
+        Loadable::Ready(_) | Loadable::Reloading(_, _) if heard.is_none() => Some((
             "nodes-no-votes",
             "This node isn't voting right now, so it can't see the validators' votes.",
         )),

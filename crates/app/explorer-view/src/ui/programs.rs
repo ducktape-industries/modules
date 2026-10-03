@@ -5,7 +5,7 @@ use module_registry::Scheduled;
 
 pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let network = match &view.network {
-        Loadable::Ready(network) => network,
+        Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
         Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-programs-loading", "Reading the registry…", theme);

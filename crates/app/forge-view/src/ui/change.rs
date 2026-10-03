@@ -295,7 +295,8 @@ fn tab_count(forge: &Forge, tab: ChangeTab) -> Option<u64> {
         ChangeTab::Conversation => {
             let (change, _, _, _) = forge.change()?;
             match forge.messages.get(&change.channel)? {
-                ducktape_view_guest::Loadable::Ready(rows) => Some(rows.len() as u64),
+                ducktape_view_guest::Loadable::Ready(rows)
+                | ducktape_view_guest::Loadable::Reloading(rows, _) => Some(rows.len() as u64),
                 _ => None,
             }
         }

@@ -220,7 +220,7 @@ mod view_tests {
     use ducktape_view_guest::testing::TestAppContext;
     use ducktape_view_guest::{Context, IntoElement, Render, View, Window};
 
-    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(Default, serde::Serialize, serde::Deserialize)]
     struct Doc;
 
     impl View for Doc {

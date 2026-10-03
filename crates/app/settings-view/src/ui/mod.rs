@@ -171,10 +171,12 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
             theme,
         ));
     let minted = match &view.invite {
-        Loadable::Ready(invite) => {
+        Loadable::Ready(invite) | Loadable::Reloading(invite, _) => {
             let copy = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.copy_invite(cx));
             let (copied, tone) = match &view.copied {
-                Loadable::Ready(()) => ("Copied".to_owned(), theme.success),
+                Loadable::Ready(()) | Loadable::Reloading((), _) => {
+                    ("Copied".to_owned(), theme.success)
+                }
                 Loadable::Failed(refusal) => (refusal.message.clone(), theme.danger),
                 Loadable::Idle | Loadable::Loading(_) => (String::new(), theme.muted),
             };

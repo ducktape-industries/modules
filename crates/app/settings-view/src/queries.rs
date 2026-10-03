@@ -11,7 +11,7 @@ use identity::Identity;
 use valset::Valset;
 
 /// Who the seated key is.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum Seat {
     /// a key no account holds
     Bare(Key),
@@ -24,7 +24,7 @@ pub enum Seat {
     Account(Account),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Account {
     pub number: u64,
     pub name: String,
@@ -38,7 +38,7 @@ pub struct Account {
 }
 
 /// An agent the account manages.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Agent {
     pub number: u64,
     pub name: String,
@@ -57,7 +57,7 @@ impl Agent {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Key {
     pub label: Option<String>,
     pub key: Vec<u8>,

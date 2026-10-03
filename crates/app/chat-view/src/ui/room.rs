@@ -225,14 +225,14 @@ fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
             theme,
         )
         .into_any_element(),
-        Loadable::Ready(rooms) if !rooms.is_empty() => empty_state(
+        Loadable::Ready(rooms) | Loadable::Reloading(rooms, _) if !rooms.is_empty() => empty_state(
             "chat-no-room",
             "No channel open",
             "Choose a channel from the sidebar.",
             theme,
         )
         .into_any_element(),
-        Loadable::Ready(_) => {
+        Loadable::Ready(_) | Loadable::Reloading(_, _) => {
             let open = cx.listener(|chat, _: &ClickEvent, _window, cx| {
                 chat.create = Some(Default::default());
                 cx.notify();
@@ -268,7 +268,7 @@ fn search_results(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl In
             vec![quiet("Searching…", theme).into_any_element()]
         }
         Loadable::Failed(refusal) => vec![quiet(refusal.message.clone(), theme).into_any_element()],
-        Loadable::Ready(hits) if hits.rows.is_empty() => vec![
+        Loadable::Ready(hits) | Loadable::Reloading(hits, _) if hits.rows.is_empty() => vec![
             empty_state(
                 "chat-search-empty",
                 "No results",
@@ -277,7 +277,7 @@ fn search_results(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl In
             )
             .into_any_element(),
         ],
-        Loadable::Ready(hits) => hit_list(chat, hits, cx, theme),
+        Loadable::Ready(hits) | Loadable::Reloading(hits, _) => hit_list(chat, hits, cx, theme),
     };
     let clear = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.search_clear();

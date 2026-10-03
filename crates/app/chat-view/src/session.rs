@@ -20,6 +20,10 @@ pub(crate) enum Gate {
 
 impl Chat {
     pub(crate) fn session_changed(&mut self, next: Session, cx: &mut Context<Self>) {
+        if next == self.session {
+            return;
+        }
+        cx.notify();
         let prev = std::mem::replace(&mut self.session, next);
         let reader_changed = self.session.signer != prev.signer
             || self.session.endpoint != prev.endpoint
@@ -53,8 +57,8 @@ impl Chat {
     }
 
     pub(crate) fn visibility_changed(&mut self, visible: bool, cx: &mut Context<Self>) {
-        if !visible {
-            self.create = None;
+        if !visible && self.create.take().is_some() {
+            cx.notify();
         }
         if self.reads.visible == visible {
             return;
@@ -66,8 +70,9 @@ impl Chat {
         }
     }
 
+    /// The roster's names, read again with the ones on screen kept.
     pub(crate) fn load_names(&mut self, cx: &mut Context<Self>) {
-        self.names = cx.load(roster(cx.host()), |chat| &mut chat.names);
+        cx.reload(&mut self.names, roster(cx.host()), |chat| &mut chat.names);
     }
 
     pub(crate) fn load_channels(&mut self, cx: &mut Context<Self>) {

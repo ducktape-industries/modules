@@ -105,26 +105,40 @@ impl Chat {
 
     pub(crate) fn reread_channels(&mut self, cx: &mut Context<Self>) {
         let list = queries::channels(cx.host());
-        cx.refresh(list, |chat, rooms, cx| chat.channels_landed(rooms, cx));
+        self.rereading_channels = Some(cx.refresh(list, |chat, rooms, cx| match rooms {
+            Ok(rooms) => chat.channels_landed(rooms, cx),
+            Err(refusal) => cx.host().log_refused("chat", "the channel list", &refusal),
+        }));
     }
 
-    /// Re-read what the room shows, keeping the rows there until fresh land.
+    /// Re-read what the room shows, keeping the rows there until fresh land;
+    /// rows that land as they were draw nothing. Each read is held by what
+    /// it reads, so leaving the room or the thread drops it.
     fn refresh_room(&mut self, cx: &mut Context<Self>) {
-        let Some(room) = &self.room else { return };
-        let (id, viewer) = (room.id.clone(), self.viewer());
+        let viewer = self.viewer();
+        let Some(room) = &mut self.room else { return };
+        let id = room.id.clone();
         if !room.landed {
             let shown = room
                 .messages
                 .ready()
                 .map_or(WINDOW, |rows| rows.len().max(WINDOW));
             let rows = queries::roots(cx.host(), id.clone(), viewer.clone(), None, shown);
-            cx.refresh(rows, |chat, (rows, has_older), _| {
-                if let Some(room) = chat.room.as_mut() {
-                    room.has_older = has_older;
-                    room.messages = Loadable::Ready(rows);
-                    room.settle();
+            room.rereading = Some(cx.refresh(rows, |chat, rows, cx| {
+                let room = room_of(chat);
+                match rows {
+                    Ok((rows, has_older)) => {
+                        let moved =
+                            room.messages.ready() != Some(&rows) || room.has_older != has_older;
+                        if moved {
+                            room.has_older = has_older;
+                            room.messages = Loadable::Ready(rows);
+                        }
+                        room.landed_rows(moved, cx);
+                    }
+                    Err(refusal) => cx.host().log_refused("chat", "the room", &refusal),
                 }
-            });
+            }));
         } else if let Some(seq) = room
             .messages
             .ready()
@@ -134,30 +148,43 @@ impl Chat {
             // a landed window re-reads around its middle row, so reactions,
             // edits and reply counts land there too
             let rows = queries::around(cx.host(), id.clone(), seq, viewer.clone());
-            cx.refresh(rows, |chat, rows, _| {
-                if let Some(room) = chat.room.as_mut() {
-                    room.messages = Loadable::Ready(rows);
-                    room.settle();
+            room.rereading = Some(cx.refresh(rows, |chat, rows, cx| {
+                let room = room_of(chat);
+                match rows {
+                    Ok(rows) => {
+                        let moved = room.messages.ready() != Some(&rows);
+                        if moved {
+                            room.messages = Loadable::Ready(rows);
+                        }
+                        room.landed_rows(moved, cx);
+                    }
+                    Err(refusal) => cx.host().log_refused("chat", "the room", &refusal),
                 }
-            });
+            }));
         }
         let roster = queries::members(cx.host(), id.clone());
-        cx.refresh(roster, |chat, members, _| {
-            room_of(chat).members = Loadable::Ready(members);
-        });
-        if let Some(root) = room.thread.as_ref().map(|thread| thread.root) {
+        cx.reload(&mut room.members, roster, |chat| &mut room_of(chat).members);
+        if let Some(thread) = room.thread.as_mut() {
+            let root = thread.root;
             let replies = queries::thread(cx.host(), id, root, viewer, None);
-            cx.refresh(replies, move |chat, (replies, next), _| {
-                let Some(thread) = chat.room.as_mut().and_then(|room| room.thread.as_mut()) else {
+            thread.rereading = Some(cx.refresh(replies, move |chat, replies, cx| {
+                let room = room_of(chat);
+                let Some(thread) = room.thread.as_mut().filter(|thread| thread.root == root) else {
                     return;
                 };
-                if thread.root == root {
-                    thread.replies = Loadable::Ready(replies);
-                    thread.has_more = next.is_some();
-                    thread.next = next;
-                    room_of(chat).settle();
+                match replies {
+                    Ok((replies, next)) => {
+                        let moved = thread.replies.ready() != Some(&replies) || thread.next != next;
+                        if moved {
+                            thread.replies = Loadable::Ready(replies);
+                            thread.has_more = next.is_some();
+                            thread.next = next;
+                        }
+                        room.landed_rows(moved, cx);
+                    }
+                    Err(refusal) => cx.host().log_refused("chat", "the thread", &refusal),
                 }
-            });
+            }));
         }
     }
 
@@ -343,12 +370,16 @@ impl Chat {
             .filter(|room| self.reads.visible && !room.landed)
             .map(|room| room.id.clone());
         let mut read = None;
+        // what the list, its unread marks and the divider draw
+        let mut moved = self.channels.ready() != Some(&channels);
         for info in &channels {
-            let cursor = self
-                .reads
-                .cursors
-                .entry(info.channel.id.clone())
-                .or_insert(info.head_seq);
+            let cursor = match self.reads.cursors.entry(info.channel.id.clone()) {
+                std::collections::btree_map::Entry::Occupied(cursor) => cursor.into_mut(),
+                std::collections::btree_map::Entry::Vacant(cursor) => {
+                    moved = true;
+                    cursor.insert(info.head_seq)
+                }
+            };
             if reading.as_deref() == Some(info.channel.id.as_str()) {
                 if self.reads.entering && info.head_seq > *cursor {
                     self.reads.boundary = *cursor;
@@ -357,6 +388,7 @@ impl Chat {
                 if info.head_seq > *cursor {
                     *cursor = info.head_seq;
                     read = Some(info.channel.id.clone());
+                    moved = true;
                 }
             }
         }
@@ -366,10 +398,14 @@ impl Chat {
             .iter()
             .map(|info| info.channel.id.as_str())
             .collect();
+        let kept = self.reads.cursors.len();
         self.reads
             .cursors
             .retain(|room, _| listed.contains(room.as_str()));
-        self.channels = Loadable::Ready(channels);
+        if moved || self.reads.cursors.len() != kept {
+            self.channels = Loadable::Ready(channels);
+            cx.notify();
+        }
         if let Some(room) = read {
             self.read_notices(&room, cx);
         }
@@ -425,6 +461,16 @@ impl Room {
         let messages = self.messages.ready();
         self.pending
             .retain(|p| !shown(&p.message_id, messages) && !shown(&p.message_id, replies));
+    }
+
+    /// A re-read landed: drops the sends it shows, and draws if the rows
+    /// `moved` or a send left.
+    fn landed_rows(&mut self, moved: bool, cx: &mut Context<Chat>) {
+        let pending = self.pending.len();
+        self.settle();
+        if moved || self.pending.len() != pending {
+            cx.notify();
+        }
     }
 }
 

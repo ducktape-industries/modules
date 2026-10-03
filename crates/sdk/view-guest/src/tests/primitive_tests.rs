@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct Picture(u32);
     impl View for Picture {
         const NAME: &'static str = "Picture";
@@ -83,7 +83,7 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
 /// the view rendered.
 #[test]
 fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole() {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct Pages {
         rows: bool,
         keyed_chrome: bool,
@@ -201,7 +201,7 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
 
 #[test]
 fn primitive_sources_fallbacks_transformations_and_typed_ids_survive_lowering() {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct Primitives;
     impl View for Primitives {
         const NAME: &'static str = "Primitives";

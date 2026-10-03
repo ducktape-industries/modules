@@ -18,12 +18,16 @@ pub(crate) const COMPARED_REFS: usize = 20;
 
 impl Forge {
     pub(crate) fn session_changed(&mut self, next: Session, cx: &mut Context<Self>) {
+        if next == self.session {
+            return;
+        }
         let reader_changed = next.signer != self.session.signer;
         self.session = next;
         if reader_changed {
             self.names = cx.load(queries::roster(cx.host()), |forge| &mut forge.names);
             self.data.clear();
         }
+        cx.notify();
         self.sync(cx);
     }
 
@@ -47,30 +51,52 @@ impl Forge {
     }
 
     /// Ask again for everything on screen, keeping the rows already there
-    /// until the fresh ones land.
+    /// until the fresh ones land; a read that lands what is there draws
+    /// nothing. Each read lives in its slot, so a screen the reader leaves
+    /// drops its reads with it. A first read still out starts over, so it
+    /// answers for this block; a refusal on screen keeps its reason and
+    /// its Retry rather than blinking to "Reading" on every block.
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
-        for query in self.data.keys().cloned().collect::<Vec<_>>() {
-            let landing = query.clone();
-            cx.refresh(queries::fetch(cx.host(), query), move |forge, reply, _| {
-                forge.data.insert(landing, Loadable::Ready(reply));
+        let mut asked = Vec::new();
+        for (query, slot) in self.data.iter_mut() {
+            match slot {
+                Loadable::Loading(_) => asked.push(query.clone()),
+                Loadable::Failed(_) | Loadable::Idle => {}
+                Loadable::Ready(_) | Loadable::Reloading(..) => {
+                    let landing = query.clone();
+                    cx.reload(
+                        slot,
+                        queries::fetch(cx.host(), query.clone()),
+                        move |forge| forge.data.entry(landing.clone()).or_insert(Loadable::Idle),
+                    );
+                }
+            }
+        }
+        for query in asked {
+            self.data.remove(&query);
+            self.read(query, cx);
+        }
+        let viewer = self.viewer();
+        for (channel, slot) in self.messages.iter_mut() {
+            if slot.failed().is_some() {
+                continue;
+            }
+            let landing = channel.clone();
+            let rows = queries::conversation(cx.host(), channel.clone(), viewer.clone());
+            cx.reload(slot, rows, move |forge| {
+                forge.messages.entry(landing.clone()).or_default()
             });
         }
-        for channel in self.messages.keys().cloned().collect::<Vec<_>>() {
-            let viewer = self.viewer();
-            cx.refresh(
-                queries::conversation(cx.host(), channel.clone(), viewer),
-                move |forge, rows, _| {
-                    forge.messages.insert(channel, Loadable::Ready(rows));
-                },
-            );
-        }
-        cx.notify();
         self.sync(cx);
     }
 
     /// A new block landed: retire what it carried, then re-read.
     pub(crate) fn reconcile(&mut self, cx: &mut Context<Self>) {
+        let pending = self.pending.len();
         self.pending.retain(|op| op.progress != Progress::Accepted);
+        if self.pending.len() != pending {
+            cx.notify();
+        }
         self.refresh(cx);
     }
 

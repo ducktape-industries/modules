@@ -80,14 +80,14 @@ pub(crate) fn hash_of(text: &str) -> Option<[u8; 32]> {
 }
 
 /// Every account identity lists, as identity answers them.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Accounts {
     #[serde(with = "borsh_bytes")]
     pub list: Vec<identity::Account>,
 }
 
 /// What the registry runs, lists and will change, as it answers them.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Network {
     #[serde(with = "borsh_bytes")]
     pub programs: Vec<registry::Entry>,
@@ -141,6 +141,9 @@ pub struct Explorer {
     /// the head is polled on the clock: `chain.heads` was refused or ended
     #[serde(skip)]
     pub(crate) polling: Option<Task<()>>,
+    /// the status read again while the one on screen stays
+    #[serde(skip)]
+    pub(crate) rereading_status: Option<Task<()>>,
     /// What the view follows (`watch.rs`); dropping them unsubscribes.
     #[serde(skip)]
     pub(crate) followers: Vec<Task<()>>,
