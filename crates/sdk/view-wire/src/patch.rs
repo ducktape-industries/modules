@@ -149,10 +149,11 @@ enum Edit {
 /// leaves `old == new`. Both are borrowed mutably only to compare a node's
 /// own fields with its children set aside; each is put back as it was.
 ///
-/// A list of children is matched by key — a keyed child that moved is a
-/// [`Patch::Move`], one that left a [`Patch::Remove`], a new one a
-/// [`Patch::Insert`] — and two lists of the same shape are matched by
-/// position. Keys are what [`sanitize`] already makes unique on the host.
+/// A list of children is matched by position over the runs it shares with
+/// the old one at the front and at the back, unkeyed children included,
+/// and by key in between — a keyed child that moved is a [`Patch::Move`],
+/// one that left a [`Patch::Remove`], a new one a [`Patch::Insert`]. Keys
+/// are what [`sanitize`] already makes unique on the host.
 pub fn diff(old: &mut Node, new: &mut Node) -> Vec<Patch> {
     let mut patches = Vec::new();
     diff_node(old, new, false, &mut Vec::new(), &mut patches);
@@ -281,6 +282,10 @@ fn diff_rows(
     }
 }
 
+/// A list of children: the runs it shares with the old list at the front
+/// and at the back are diffed in place, matched by position, and only the
+/// middle is matched by key. A child matches the one across from it when
+/// both carry one identity, or neither does and they are the same kind.
 fn diff_list(
     old: &mut [Node],
     new: &mut [Node],
@@ -288,26 +293,88 @@ fn diff_list(
     path: &mut Vec<u32>,
     out: &mut Vec<Patch>,
 ) {
-    let positional = old.len() == new.len()
-        && old
-            .iter()
-            .zip(new.iter())
-            .all(|(a, b)| match (a.identity(), b.identity()) {
-                (Some(a), Some(b)) => a == b,
-                (None, None) => std::mem::discriminant(a) == std::mem::discriminant(b),
-                _ => false,
-            });
-    if positional {
-        for (index, (old_child, new_child)) in old.iter_mut().zip(new.iter_mut()).enumerate() {
-            path.push(index as u32);
-            diff_node(old_child, new_child, take, path, out);
-            path.pop();
-        }
-        return;
+    let shared = old.len().min(new.len());
+    let mut prefix = 0;
+    while prefix < shared && matches(&old[prefix], &new[prefix]) {
+        prefix += 1;
     }
-    // An identity that appears once on each side is a child that survives;
-    // every other child — unkeyed, or a duplicate — is removed and inserted
-    // afresh. Typed GPUI IDs stay typed all the way through this map.
+    let mut suffix = 0;
+    while suffix < shared && matches(&old[old.len() - 1 - suffix], &new[new.len() - 1 - suffix]) {
+        suffix += 1;
+    }
+    if prefix + suffix > shared {
+        // Every child of the shorter list matches one across from it, and
+        // the run the longer list has besides may sit anywhere from
+        // `shared - suffix` to `prefix`: it starts where the children stop
+        // being equal, so a banner shown over a body of its own kind is
+        // the one inserted and the body is not sent again.
+        // ponytail: a run whose neighbours both changed lands at the
+        // front, which costs a props patch more than the ideal place.
+        let mut equal = 0;
+        while equal < prefix && own_fields_equal(&mut old[equal], &mut new[equal]) {
+            equal += 1;
+        }
+        prefix = equal.clamp(shared - suffix, prefix);
+        suffix = shared - prefix;
+    }
+    for index in 0..prefix {
+        path.push(index as u32);
+        diff_node(&mut old[index], &mut new[index], take, path, out);
+        path.pop();
+    }
+    let (old_end, new_end) = (old.len() - suffix, new.len() - suffix);
+    diff_keyed(
+        &mut old[prefix..old_end],
+        &mut new[prefix..new_end],
+        prefix,
+        take,
+        path,
+        out,
+    );
+    for back in 0..suffix {
+        path.push((new_end + back) as u32);
+        diff_node(
+            &mut old[old_end + back],
+            &mut new[new_end + back],
+            take,
+            path,
+            out,
+        );
+        path.pop();
+    }
+}
+
+/// Whether `old` and `new` are one child at one position (see
+/// [`diff_list`]).
+fn matches(old: &Node, new: &Node) -> bool {
+    match (old.identity(), new.identity()) {
+        (Some(a), Some(b)) => a == b,
+        (None, None) => std::mem::discriminant(old) == std::mem::discriminant(new),
+        _ => false,
+    }
+}
+
+/// Whether `old` and `new` agree on their own fields, children set aside.
+fn own_fields_equal(old: &mut Node, new: &mut Node) -> bool {
+    let (old_children, new_children) = (old.detach(), new.detach());
+    let same = old == new;
+    old.attach(old_children).expect("its own children");
+    new.attach(new_children).expect("its own children");
+    same
+}
+
+/// The middle of a list, at `offset` in it: an identity that appears
+/// once on each side is a child that survives; every other child, unkeyed
+/// or a duplicate, is removed and inserted afresh. Typed GPUI IDs stay
+/// typed all the way through this map.
+fn diff_keyed(
+    old: &mut [Node],
+    new: &mut [Node],
+    offset: usize,
+    take: bool,
+    path: &mut Vec<u32>,
+    out: &mut Vec<Patch>,
+) {
     let unique = |nodes: &[Node]| -> std::collections::HashMap<ElementIdWire, usize> {
         let mut seen = std::collections::HashMap::new();
         for (index, node) in nodes.iter().enumerate() {
@@ -322,7 +389,7 @@ fn diff_list(
     };
     let old_keys = unique(old);
     let new_keys = unique(new);
-    // The list as the host has it after the patches so far: old indices.
+    // The middle as the host has it after the patches so far: old indices.
     let mut live: Vec<usize> = Vec::with_capacity(new.len());
     for (index, node) in old.iter().enumerate() {
         let survives = node.identity().is_some_and(|identity| {
@@ -333,7 +400,7 @@ fn diff_list(
             true => live.push(index),
             false => out.push(Patch::Remove {
                 path: path.clone(),
-                index: live.len() as u32,
+                index: (offset + live.len()) as u32,
             }),
         }
     }
@@ -348,7 +415,7 @@ fn diff_list(
         let Some(wanted) = wanted else {
             out.push(Patch::Insert {
                 path: path.clone(),
-                index: index as u32,
+                index: (offset + index) as u32,
                 node: carry(new_child, take),
             });
             live.insert(index, usize::MAX);
@@ -362,13 +429,13 @@ fn diff_list(
         if at != index {
             out.push(Patch::Move {
                 path: path.clone(),
-                from: at as u32,
-                to: index as u32,
+                from: (offset + at) as u32,
+                to: (offset + index) as u32,
             });
             live.remove(at);
             live.insert(index, wanted);
         }
-        path.push(index as u32);
+        path.push((offset + index) as u32);
         diff_node(&mut old[wanted], new_child, take, path, out);
         path.pop();
     }
