@@ -117,7 +117,7 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
         };
         types.push(quote! {
             #(#variant_docs)*
-            #[derive(Clone, Debug)]
+            #[derive(Debug)]
             pub struct #name #shape
         });
         let (reply, arm) = match answer {
