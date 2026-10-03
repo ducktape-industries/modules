@@ -8,10 +8,12 @@ use serde::{Deserialize, Serialize};
 pub const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
 
 /// Bounds what a decode may descend into, since decoding is recursive: a
-/// [`Node`] holds its children and serde builds them from the inside out, so
-/// a chain of containers is a chain of stack frames. The tree the host walks
-/// afterwards — [`sanitize`], the renderer, `Drop` — recurses the same way,
-/// which is why the limit sits at decode rather than in each walk.
+/// [`Node`] holds its children, a tooltip's content and a patch's subtree,
+/// and serde builds them from the inside out, so a chain of nodes is a
+/// chain of stack frames. The tree the host walks afterwards —
+/// [`sanitize`], the renderer, `Drop` — recurses the same way, which is why
+/// the limit sits at decode rather than in each walk, and on [`Node`]
+/// itself rather than on the fields that happen to hold one.
 ///
 /// [`MAX_FRAME_BYTES`] of input is no protection: a chain deep
 /// enough to overflow a host thread's stack is a few tens of kilobytes.
@@ -33,7 +35,9 @@ mod budget {
 
     impl Node {
         pub(super) fn enter() -> Result<Self, &'static str> {
-            let depth = DEPTH.get() + 1;
+            // The nodes this one sits inside: a decode's outermost node is
+            // at 0, as `sanitize` counts depth.
+            let depth = DEPTH.get();
             if depth > MAX_DEPTH {
                 return Err("a tree deeper than the host renders");
             }
@@ -42,7 +46,7 @@ mod budget {
                 return Err("more nodes than the host holds");
             }
             NODES.set(nodes);
-            DEPTH.set(depth);
+            DEPTH.set(depth + 1);
             Ok(Self(()))
         }
     }
@@ -60,43 +64,22 @@ mod budget {
     }
 }
 
-pub(crate) fn decode_child<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Box<Node>, D::Error> {
-    let _node = budget::Node::enter().map_err(serde::de::Error::custom)?;
-    Box::<Node>::deserialize(deserializer)
+/// `Node`'s derived shape (`#[serde(remote = "Self")]`), unchanged on the
+/// wire.
+impl Serialize for Node {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Node::serialize(self, serializer)
+    }
 }
 
-pub(crate) fn decode_children<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<Node>, D::Error> {
-    struct Children;
-
-    impl<'de> serde::de::Visitor<'de> for Children {
-        type Value = Vec<Node>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("a list of nodes")
-        }
-
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut children: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut nodes = Vec::new();
-            // The guard is held while one child is built and dropped before
-            // the next: siblings share a depth, and each costs a node.
-            while let Some(child) = {
-                let _node = budget::Node::enter().map_err(serde::de::Error::custom)?;
-                children.next_element::<Node>()?
-            } {
-                nodes.push(child);
-            }
-            Ok(nodes)
-        }
+/// Every node decodes inside the budget, wherever it sits: a frame's root,
+/// a child, a tooltip's content, a patch's subtree. The guard is held while
+/// the node is built: siblings share a depth, and each costs a node.
+impl<'de> Deserialize<'de> for Node {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let _node = budget::Node::enter().map_err(serde::de::Error::custom)?;
+        Node::deserialize(deserializer)
     }
-
-    deserializer.deserialize_seq(Children)
 }
 
 /// Decodes a sequence of at most `limit` elements and refuses a longer one
