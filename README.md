@@ -102,8 +102,8 @@ tests, the edit loop and founding.
 
 A view implements `Render::render(window, cx)` on serializable, `Default` state,
 and `View::attach(window, cx)` to follow the host. `Context<V>` dereferences to
-`App`; `listener` registers typed event callbacks and returns the ID used by
-`wire::Node`. Call `cx.notify()` after state changes: the view decides when it
+`App`; `listener` turns a method into a typed event callback, whose route id
+the tree takes when it lowers to `wire::Node`. Call `cx.notify()` after state changes: the view decides when it
 renders (`view-guest/README.md`, "When a view renders").
 Unnotified frames retain their tree and event routes; native debug builds catch
 serialized state changes without notification.
@@ -113,7 +113,8 @@ call `.detach()`; dropping it cancels the future and any owned subscription.
 Consume host streams with `while let Some(item) = stream.next().await` and update
 through `WeakEntity`. `TestAppContext` supplies typed fake handlers and feeds,
 input simulation, and tree assertions. See `examples/exported_view.rs` in
-`view-guest` and each app view's `src/tests.rs`.
+`view-guest` for a whole view, and each app view's `src/tests.rs` (chat and
+explorer: `src/tests/`) for its tests.
 
 Snapshot/restore transfers the root view's serde state, not entity identities.
 Snapshots wait for ordinary work to settle; host streams start in
@@ -150,7 +151,7 @@ nothing built is committed, and nothing is packed here (qa's `make pack` embeds
 each view in its module for a founding). `make wasm-reproducible` proves the
 bytes do not depend on the checkout.
 
-View releases require `wasm-tools`, Python 3, and
+`make dev`'s view gate and view releases require `wasm-tools`, Python 3, and
 [Binaryen wasm-opt 132](https://github.com/WebAssembly/binaryen/releases/tag/version_132).
 `make wasm-views` builds, optimizes, and checks the exact guest ABI, printing
 `name  bytes`. The bytes before wasm-opt stay beside each

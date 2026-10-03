@@ -69,9 +69,10 @@ export CARGO BUILD_TARGET RELEASE WASM_BUILD WASM_OPT
 DEV_PROGRAMS = $(if $(or $P,$V),$P,$(PROGRAMS))
 DEV_VIEWS = $(if $(or $P,$V),$V,$(VIEWS))
 
-## the edit loop: rebuilds the programs and views cargo finds stale, gates
-## the rebuilt views (ABI), runs the native tests of the crates whose
-## test binaries cargo rebuilt; one line per artifact.
+## the edit loop: runs the native tests of the crates whose test binaries
+## cargo rebuilt, then rebuilds the programs and views cargo finds stale and
+## gates the rebuilt views (ABI: Binaryen wasm-opt 132, wasm-tools,
+## python3); one line per artifact.
 dev:
 	@tools/dev.sh "$(DEV_PROGRAMS)" "$(DEV_VIEWS)"
 
