@@ -54,8 +54,8 @@ pub mod prelude {
         PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy,
         ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
         StyledText, TextField, Textarea, Theme, UniformListScrollHandle, Window, anchored, canvas,
-        deferred, div, hsla,
-        img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
+        deferred, div, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg,
+        uniform_list,
     };
 }
 mod text;

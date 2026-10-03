@@ -284,6 +284,14 @@ pub(crate) fn host(context: &Context) -> crate::Host {
     context.0.borrow().host.clone()
 }
 
+pub(crate) fn widget(context: &Context, command: crate::wire::WidgetCommand) {
+    context.0.borrow_mut().widgets.push(command);
+}
+
+pub(crate) fn take_widgets(context: &Context) -> Vec<crate::wire::WidgetCommand> {
+    std::mem::take(&mut context.0.borrow_mut().widgets)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,16 +331,4 @@ mod tests {
             Some(b"image".as_slice())
         );
     }
-}
-
-pub(crate) fn host(context: &Context) -> crate::Host {
-    context.0.borrow().host.clone()
-}
-
-pub(crate) fn widget(context: &Context, command: crate::wire::WidgetCommand) {
-    context.0.borrow_mut().widgets.push(command);
-}
-
-pub(crate) fn take_widgets(context: &Context) -> Vec<crate::wire::WidgetCommand> {
-    std::mem::take(&mut context.0.borrow_mut().widgets)
 }

@@ -180,7 +180,13 @@ fn replaces(cx: &TestAppContext) -> Vec<Replace> {
                 text,
                 token,
                 ..
-            } => Some((target[0].clone(), revision, range.range(), text, token)),
+            } => Some((
+                target.last().cloned().unwrap(),
+                revision,
+                range.range(),
+                text,
+                token,
+            )),
             _ => None,
         })
         .collect()
