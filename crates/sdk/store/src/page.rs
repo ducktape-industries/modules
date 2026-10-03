@@ -2,7 +2,7 @@
 //! vocabulary every module's queries speak.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::Error;
+use guest::{Error, QueryCtx};
 use serde::{Deserialize, Serialize};
 
 use guest::{invalid, stale};
@@ -85,8 +85,10 @@ impl PageRequest {
     }
 
     /// This page over one listing: its cursor opened against `scope`, and
-    /// every `next` it answers bound to `scope` and pinned to `height`.
-    pub fn listing(&self, scope: Vec<u8>, height: u64) -> Result<Listing, Error> {
+    /// every `next` it answers bound to `scope` and pinned to the height of
+    /// `ctx`, which answers it.
+    pub fn listing(&self, ctx: &QueryCtx, scope: Vec<u8>) -> Result<Listing, Error> {
+        let height = ctx.env().height;
         let cursor = self.open(&scope)?;
         Ok(Listing {
             limit: self.limit(),
@@ -226,8 +228,16 @@ impl<T> PageResponse<T> {
 mod tests {
     use super::*;
 
+    /// A read at `height`.
+    fn at(height: u64) -> QueryCtx {
+        guest::MockHost::default().query(guest::Env {
+            height,
+            ..guest::MockHost::env("test")
+        })
+    }
+
     fn listing(page: &PageRequest) -> Listing {
-        page.listing(b"p/".to_vec(), 7).unwrap()
+        page.listing(&at(7), b"p/".to_vec()).unwrap()
     }
 
     #[test]
@@ -247,7 +257,7 @@ mod tests {
             Some(PageRequest::MAX_LIMIT)
         );
         assert_eq!(PageRequest::first(500).bounded(10).limit(), 10);
-        let other = page.listing(b"q/".to_vec(), 7).unwrap_err();
+        let other = page.listing(&at(7), b"q/".to_vec()).unwrap_err();
         assert_eq!(other.code, guest::code::STALE);
         assert_eq!(listing(&page).cursor_pin, Some(7));
         let pinned = listing(&PageRequest::first(2)).pinned(3).reply([
@@ -303,12 +313,17 @@ mod tests {
 
     #[test]
     fn a_cursor_cannot_escape_its_prefix() {
-        let past = PageRequest::default().listing(b"c/1/".to_vec(), 1).unwrap();
+        let past = PageRequest::default()
+            .listing(&at(1), b"c/1/".to_vec())
+            .unwrap();
         let page = PageRequest {
             after: Some(past.next(b"a/".to_vec())),
             limit: None,
         };
-        let scan = page.listing(b"c/1/".to_vec(), 1).unwrap().scan(b"c/1/");
+        let scan = page
+            .listing(&at(1), b"c/1/".to_vec())
+            .unwrap()
+            .scan(b"c/1/");
         assert!(!scan.admits(b"b/2"));
         assert!(scan.admits(b"c/1/2"));
         assert!(!scan.admits(b"c/2/2"));

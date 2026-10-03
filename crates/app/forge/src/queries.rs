@@ -52,7 +52,7 @@ pub(crate) fn refs(
 /// at, so a height alone would not tell).
 pub(crate) fn listing(ctx: &QueryCtx, page: PageRequest, scope: Vec<u8>) -> Result<Listing, Error> {
     let writes = writes(ctx)?;
-    let listing = page.listing(scope, ctx.env().height)?.pinned(writes);
+    let listing = page.listing(ctx, scope)?.pinned(writes);
     if listing.cursor_pin.is_some_and(|pinned| pinned != writes) {
         return Err(stale("the listing changed; restart it"));
     }

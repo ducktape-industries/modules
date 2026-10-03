@@ -102,7 +102,7 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
         head: &H,
         page: &PageRequest,
     ) -> Result<PageResponse<(K, V)>, Error> {
-        let listing = page.listing(self.key(head), ctx.env().height)?;
+        let listing = page.listing(ctx, self.key(head))?;
         self.page_of(ctx, head, &listing)
     }
 
