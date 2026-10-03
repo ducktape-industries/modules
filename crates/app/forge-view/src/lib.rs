@@ -76,9 +76,10 @@ impl View for Forge {
                 }
             }));
         // a block re-reads what it wrote to: forge's its reads on screen,
-        // chat's the change conversations, identity's the names. A refused
-        // item is a block this view cannot see into: the host's log keeps
-        // why, and the next block reconciles
+        // chat's the change conversations and the reads answered from chat
+        // (a judgment), identity's the names. A refused item is a block this
+        // view cannot see into: the host's log keeps why, and the next block
+        // reconciles
         let forge = cx.host().subscribe::<Changes<forge::Forge>>(());
         let chat = cx.host().subscribe::<Changes<::chat::Chat>>(());
         let identity = cx.host().subscribe::<Changes<Identity>>(());
@@ -90,7 +91,7 @@ impl View for Forge {
                     .log_refused("forge", "forge's live heads", &refusal),
             }),
             cx.for_each(chat, |forge, change, _, cx| match change {
-                Ok(change) => forge.reread_conversations(change.as_ref(), cx),
+                Ok(change) => forge.chat_changed(change.as_ref(), cx),
                 Err(refusal) => cx
                     .host()
                     .log_refused("forge", "chat's live heads", &refusal),

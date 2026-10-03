@@ -143,9 +143,10 @@ pub enum Service {
 
 /// A read. Each variant names the tables it is answered from (`#[reads]`,
 /// [`program::Reads`]), so a view following `module.changes` re-reads it
-/// only for a block that wrote to one of them. Git objects are not keys:
-/// they reach the store with the push or merge that moves a ref, so a read
-/// of objects follows `REFS`. The git client's own two questions declare
+/// only for a block that wrote to one of them; a judgment is answered
+/// partly from chat's and names those too. Git objects are not keys: they
+/// reach the store with the push or merge that moves a ref, so a read of
+/// objects follows `REFS`. The git client's own two questions declare
 /// nothing: no view follows them.
 #[derive(
     Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize, ::program::Ask,
@@ -230,8 +231,13 @@ pub enum Query {
         n: u64,
         page: PageRequest,
     },
-    /// What one person owes across every repository.
+    /// What one person owes across every repository. The threads it waits
+    /// on are chat's (`discussion`): a reply moves the author's `ANSWERED`
+    /// entry and the root row's `last_reply_seq`, in chat's `MESSAGES`, and
+    /// a review's root is found through `MESSAGE_IDS`. The reply rows and
+    /// reactions are not read.
     #[reads(CHANGES, REVIEWS, AUTHORED, REFS)]
+    #[reads(chat::Chat: chat::tables::ANSWERED, chat::tables::MESSAGE_IDS, chat::tables::MESSAGES)]
     Judgment {
         principal: Principal,
         page: PageRequest,

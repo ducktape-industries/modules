@@ -259,6 +259,40 @@ fn member_key(channel: &str) -> Vec<u8> {
     chat::tables::MEMBERS.key(&(channel.to_owned(), forge::Principal::Account(2)))
 }
 
+/// What a reply to the reader's thread in `channel` writes that a judgment
+/// reads: the reader's `ANSWERED` entry.
+fn answered_key(channel: &str) -> Vec<u8> {
+    chat::tables::ANSWERED.key(&(channel.to_owned(), forge::Principal::Account(2), 0u64))
+}
+
+/// What a review actually writes (`submit_review`, then `touch`): its
+/// record, its author index entry, the change's counts, forge's message
+/// counter, the repository's record and activity, and the write count.
+fn real_review_keys() -> Vec<Vec<u8>> {
+    let (repo, n, id) = ("project".to_owned(), 1u64, 1u64);
+    vec![
+        review_key(),
+        forge::tables::AUTHORED.key(&(repo.clone(), n, forge::Principal::Account(2), id)),
+        forge::tables::CHANGES.key(&(repo.clone(), n)),
+        forge::tables::MESSAGES.key(),
+        forge::tables::REPOS.key(&repo),
+        forge::tables::ACTIVITY.key(&(u64::MAX - 100, repo)),
+        forge::tables::WRITES.key(),
+    ]
+}
+
+/// What the line a review posts into the change's conversation writes in
+/// chat (`discussion::post`): the message row, its root entry, its id and
+/// the channel's head.
+fn posted_line_keys(channel: &str) -> Vec<Vec<u8>> {
+    vec![
+        chat::tables::MESSAGES.key(&(channel.to_owned(), 1u64)),
+        root_key(channel),
+        chat::tables::MESSAGE_IDS.key(&format!("{channel}:review:1")),
+        chat::tables::HEADS.key(&channel.to_owned()),
+    ]
+}
+
 /// The live heads of the three programs forge follows, in the test's hands.
 struct Heads {
     forge: StreamSender<Changes<forge::Forge>>,
@@ -2018,19 +2052,31 @@ fn costs(
 }
 
 /// What one block costs the repository page: the reads of the tables it
-/// wrote to, and nothing else. A review written re-reads nothing the Readme
-/// tab shows (before, any block of any of the three programs re-read all of
-/// it: 8 asks, 1,554 bytes); a ref moved re-reads the refs and what hangs
-/// off them; the repo record written re-reads the repositories and the
-/// activity; a chat block re-reads no forge read; an identity block only
-/// the names; and a reopened link (`None`) re-reads everything.
+/// wrote to, and nothing else. A review record written re-reads nothing the
+/// Readme tab shows (before, any block of any of the three programs re-read
+/// all of it: 8 asks, 1,554 bytes); a ref moved re-reads the refs and what
+/// hangs off them; the repo record written re-reads the repositories and
+/// the activity, so a real review block, which marks the repository active,
+/// costs those three; a chat block re-reads no forge read the Readme tab
+/// shows; an identity block only the names; and a reopened link (`None`)
+/// re-reads everything. On the Judgment filter a real review lands as a
+/// forge item and, with the line it posted, a chat item, and each asks the
+/// judgment again.
 #[test]
 fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     let mut costed = costed();
-    let review = costs(&mut costed, "Readme tab, a review written", |c| {
+    let review = costs(&mut costed, "Readme tab, a review record written", |c| {
         c.forge_heads.send(block(100, vec![review_key()]))
     });
     assert!(review.is_empty(), "{review:?}");
+    let real_review = costs(&mut costed, "Readme tab, a real review block", |c| {
+        c.forge_heads.send(block(100, real_review_keys()))
+    });
+    assert_eq!(
+        real_review.keys().collect::<Vec<_>>(),
+        ["Activity", "Repo", "Repos"],
+        "{real_review:?}"
+    );
     let pushed = costs(&mut costed, "Readme tab, a ref moved", |c| {
         c.forge_heads.send(block(101, vec![ref_key()]))
     });
@@ -2079,4 +2125,67 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
         "{all:?}"
     );
     assert_eq!(all.values().sum::<usize>(), 8);
+    costed.cx.simulate_click("forge-tab-changes");
+    costed.cx.run_until_parked();
+    costed.cx.simulate_click("forge-filter-judgment");
+    costed.cx.run_until_parked();
+    let judged = costs(
+        &mut costed,
+        "Judgment filter, a real review block, the forge item",
+        |c| c.forge_heads.send(block(106, real_review_keys())),
+    );
+    assert_eq!(
+        judged.keys().collect::<Vec<_>>(),
+        ["Activity", "Judgment", "Repo", "Repos"],
+        "{judged:?}"
+    );
+    let posted = costs(
+        &mut costed,
+        "Judgment filter, a real review block, the chat item",
+        |c| {
+            c.chat_heads
+                .send(block(106, posted_line_keys("forge:project:1")))
+        },
+    );
+    assert_eq!(
+        posted.keys().collect::<Vec<_>>(),
+        ["Judgment"],
+        "{posted:?}"
+    );
+}
+
+/// What a reader on "Needs my judgment" waits on is chat's: a chat block
+/// that answered a thread (an `ANSWERED` entry written) asks the judgment
+/// again, one that only seated a member does not, and a reopened chat link
+/// does. Before, a chat block re-read no forge read, and the list stayed
+/// stale until a forge block landed.
+#[test]
+fn a_chat_block_that_answered_a_thread_re_reads_the_judgment() {
+    let (mut cx, heads) = followed("judgment");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-filter-judgment");
+    cx.run_until_parked();
+    let judgments = |cx: &TestAppContext| {
+        cx.host()
+            .requests::<Ask>()
+            .iter()
+            .filter(|query| matches!(query, Query::Judgment { .. }))
+            .count()
+    };
+    let asked = judgments(&cx);
+    assert!(asked > 0, "the filter asked");
+    heads
+        .chat
+        .send(block(100, vec![member_key("forge:project:1")]));
+    cx.run_until_parked();
+    assert_eq!(judgments(&cx), asked, "a member seated moves no judgment");
+    heads
+        .chat
+        .send(block(101, vec![answered_key("forge:project:1")]));
+    cx.run_until_parked();
+    assert_eq!(judgments(&cx), asked + 1, "a thread answered");
+    heads.chat.send(None);
+    cx.run_until_parked();
+    assert_eq!(judgments(&cx), asked + 2, "a reopened chat link");
 }

@@ -59,19 +59,64 @@ fn ask_attr(attrs: &[Attribute]) -> Option<&Attribute> {
     attrs.iter().find(|attr| attr.path().is_ident("ask"))
 }
 
-/// What `#[reads(TABLE, ..)]` on a variant says a block must have written
-/// to for the answer to have moved: a block that wrote a key one of the
-/// tables owns. With no attribute, any block of the program (`true`).
-fn touched_by(attrs: &[Attribute]) -> syn::Result<Tokens> {
-    let Some(attr) = attrs.iter().find(|attr| attr.path().is_ident("reads")) else {
-        return Ok(quote!(true));
-    };
-    let tables = attr.parse_args_with(Punctuated::<Path, Token![,]>::parse_terminated)?;
-    if tables.is_empty() {
-        return Ok(quote!(false));
+/// One `#[reads(..)]`: the tables a block must have written to for the
+/// answer to have moved, and whose program they are. The query's own
+/// (`#[reads(MESSAGES, REACTIONS)]`), or another program's, named first
+/// (`#[reads(chat::Chat: chat::tables::ANSWERED, chat::tables::MESSAGES)]`)
+/// for a question answered partly from its tables.
+struct Group {
+    program: Option<Path>,
+    tables: Vec<Path>,
+}
+
+impl Parse for Group {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut group = Group {
+            program: None,
+            tables: Vec::new(),
+        };
+        if input.is_empty() {
+            return Ok(group);
+        }
+        let first = Path::parse_mod_style(input)?;
+        if input.parse::<Option<Token![:]>>()?.is_some() {
+            group.program = Some(first);
+        } else {
+            group.tables.push(first);
+            if !input.is_empty() {
+                input.parse::<Token![,]>()?;
+            }
+        }
+        let rest = Punctuated::<Path, Token![,]>::parse_terminated(input)?;
+        group.tables.extend(rest);
+        Ok(group)
     }
-    let owns = tables.iter().map(|table| quote!(#table.owns(key)));
-    Ok(quote!(keys.iter().any(|key| #(#owns)||*)))
+}
+
+/// What the `#[reads(..)]` attributes on a variant say a block must have
+/// written to for the answer to have moved: a block of a group's program
+/// that wrote a key one of the group's tables owns, for any group. With no
+/// attribute, any block of any program (`true`); a group with no tables
+/// never.
+fn touched_by(attrs: &[Attribute], own: &Path) -> syn::Result<Tokens> {
+    let mut groups = Vec::new();
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("reads")) {
+        let group: Group = attr.parse_args()?;
+        if group.tables.is_empty() {
+            groups.push(quote!(false));
+            continue;
+        }
+        let program = group.program.as_ref().unwrap_or(own);
+        let owns = group.tables.iter().map(|table| quote!(#table.owns(key)));
+        groups.push(quote! {
+            (program == <#program as ::program::Program>::NAME
+                && keys.iter().any(|key| #(#owns)||*))
+        });
+    }
+    if groups.is_empty() {
+        return Ok(quote!(true));
+    }
+    Ok(quote!(#(#groups)||*))
 }
 
 fn docs(attrs: &[Attribute]) -> impl Iterator<Item = &Attribute> {
@@ -99,7 +144,7 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
     let mut touched = Vec::new();
     for variant in &data.variants {
         let name = &variant.ident;
-        let touched_by = touched_by(&variant.attrs)?;
+        let touched_by = touched_by(&variant.attrs, &program)?;
         touched.push(quote!(#query::#name { .. } => #touched_by));
         let Some(attr) = ask_attr(&variant.attrs) else {
             continue;
@@ -177,9 +222,9 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
             }
 
             impl ::program::Reads for ask::#name {
-                // an undeclared variant answers `true` without reading `keys`
+                // an undeclared variant answers `true` without reading either
                 #[allow(unused_variables)]
-                fn touched_by(&self, keys: &[::std::vec::Vec<u8>]) -> bool {
+                fn touched_by(&self, program: &str, keys: &[::std::vec::Vec<u8>]) -> bool {
                     #touched_by
                 }
             }
@@ -205,9 +250,9 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
         #asks
 
         impl ::program::Reads for #query {
-            // a `Query` with no `#[reads]` answers `true` without reading `keys`
+            // a `Query` with no `#[reads]` answers `true` without reading either
             #[allow(unused_variables)]
-            fn touched_by(&self, keys: &[::std::vec::Vec<u8>]) -> bool {
+            fn touched_by(&self, program: &str, keys: &[::std::vec::Vec<u8>]) -> bool {
                 match self {
                     #(#touched,)*
                 }

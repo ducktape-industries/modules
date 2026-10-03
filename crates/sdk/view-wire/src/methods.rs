@@ -188,10 +188,13 @@ pub struct Change {
 impl Change {
     /// Whether this block can have changed the answer to `query`: it wrote
     /// a key of a table the query reads, as the program declares them
-    /// ([`program::Reads`]). A query whose program declares nothing for it
+    /// ([`program::Reads`]). `P` is the program whose block this is, the
+    /// one the `Changes<P>` subscription that carried it names: a query
+    /// answered partly from another program's tables is touched by that
+    /// program's blocks too. A query whose program declares nothing for it
     /// is touched by every block.
-    pub fn touches<Q: program::Reads + ?Sized>(&self, query: &Q) -> bool {
-        query.touched_by(&self.keys)
+    pub fn touches<P: Program, Q: program::Reads + ?Sized>(&self, query: &Q) -> bool {
+        query.touched_by(P::NAME, &self.keys)
     }
 }
 

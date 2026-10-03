@@ -255,6 +255,11 @@ impl<T: BorshSerialize + BorshDeserialize> Item<T> {
     pub fn owns(&self, key: &[u8]) -> bool {
         key == self.key.as_bytes()
     }
+
+    /// The one key this item is, as a block's writes list it.
+    pub fn key(&self) -> Vec<u8> {
+        self.key.as_bytes().to_vec()
+    }
 }
 
 fn decode_key<K: KeyCodec>(table: &str, raw: &[u8]) -> Result<K, Error> {

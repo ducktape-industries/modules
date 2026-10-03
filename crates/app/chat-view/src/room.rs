@@ -111,7 +111,7 @@ impl Chat {
         let list = ask::Channels {
             page: PageRequest::default(),
         };
-        if change.is_none_or(|change| change.touches(&list)) {
+        if change.is_none_or(|change| change.touches::<chat::Chat, _>(&list)) {
             self.reread_channels(cx);
         }
         self.refresh_room(change, cx);
@@ -130,7 +130,9 @@ impl Chat {
     /// were draw nothing. Each read is held by what it reads, so leaving the
     /// room or the thread drops it.
     fn refresh_room(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
-        let touched = |read: &dyn program::Reads| change.is_none_or(|change| change.touches(read));
+        let touched = |read: &dyn program::Reads| {
+            change.is_none_or(|change| change.touches::<chat::Chat, _>(read))
+        };
         let viewer = self.viewer();
         let Some(room) = &mut self.room else { return };
         let id = room.id.clone();

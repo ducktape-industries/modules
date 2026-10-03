@@ -40,22 +40,26 @@ pub trait Ask: Into<<Self::Program as Program>::Query> {
     fn answer(reply: <Self::Program as Program>::Reply) -> Option<Self::Reply>;
 }
 
-/// Which of its program's tables a query reads, so a follower re-reads it
-/// only when a block wrote to one of them: a view asks a block's change
-/// whether it touches the query (`change.touches(&query)`) and never maps
-/// keys to queries itself.
+/// Which tables a query reads, so a follower re-reads it only when a block
+/// wrote to one of them: a view asks a block's change whether it touches
+/// the query (`change.touches::<P, _>(&query)`, `P` the program whose
+/// block it is) and never maps keys to queries itself.
 ///
 /// `#[derive(Ask)]` writes it from `#[reads(TABLE, ..)]` on each variant:
 /// the `Map`/`Set`/`Item` consts the program answers that question from
-/// (`#[reads(MESSAGES, REACTIONS)]`), each asked `owns(&key)`. The program
-/// states it, since only the program knows its layout. A variant with no
-/// `#[reads]` is touched by every block of its program, which is what a
-/// follower did before, so a program adopts this one query at a time. A
-/// variant with ask types ([`Ask`]) gives them the same answer.
+/// (`#[reads(MESSAGES, REACTIONS)]`), each asked `owns(&key)`. A question
+/// answered partly from another program's tables names them in a second
+/// attribute, that program first (`#[reads(chat::Chat:
+/// chat::tables::ANSWERED, chat::tables::MESSAGES)]`), so a follower of
+/// that program's blocks re-reads the question too. The program states it,
+/// since only the program knows what it reads. A variant with no `#[reads]`
+/// is touched by every block of every program a follower asks about, which
+/// is what a follower did before, so a program adopts this one query at a
+/// time. A variant with ask types ([`Ask`]) gives them the same answer.
 pub trait Reads {
-    /// Whether a block that wrote `keys` (the program's own, as its change
-    /// lists them) can have changed this query's answer.
-    fn touched_by(&self, keys: &[Vec<u8>]) -> bool;
+    /// Whether a block of `program` (its [`Program::NAME`]) that wrote
+    /// `keys` can have changed this query's answer.
+    fn touched_by(&self, program: &str, keys: &[Vec<u8>]) -> bool;
 }
 
 pub use program_derive::Ask;

@@ -69,9 +69,20 @@ impl Forge {
             cx.notify();
         }
         self.reread(
-            |query| change.is_none_or(|change| change.touches(query)),
+            |query| change.is_none_or(|change| change.touches::<forge::Forge, _>(query)),
             cx,
         );
+    }
+
+    /// A chat block landed: the forge reads answered partly from chat (a
+    /// judgment waits on chat's threads) and the change conversations it
+    /// wrote to are read again. `None` is a reopened chat link: all of them.
+    pub(crate) fn chat_changed(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        self.reread(
+            |query| change.is_none_or(|change| change.touches::<chat::Chat, _>(query)),
+            cx,
+        );
+        self.reread_conversations(change, cx);
     }
 
     /// Asks again for the reads on screen that `touched` names, keeping what
@@ -80,8 +91,9 @@ impl Forge {
     /// refusal it shows, so a screen the reader leaves drops its reads with
     /// it. A read still out is left to land: its landing runs `sync`, and
     /// the next block asks it again. A refusal is asked again with every
-    /// block, whatever it wrote: forge refuses a listing `stale` when any
-    /// op moved its count, and the answer replaces the refusal.
+    /// forge or chat block, whatever it wrote: forge refuses a listing
+    /// `stale` when any op moved its count, and the answer replaces the
+    /// refusal.
     fn reread(&mut self, touched: impl Fn(&Query) -> bool, cx: &mut Context<Self>) {
         for (query, slot) in self.data.iter_mut() {
             let landing = query.clone();
@@ -128,7 +140,7 @@ impl Forge {
                 }
                 Loadable::Ready(_) | Loadable::Reloading(..)
                     if change.is_none_or(|change| {
-                        change.touches(&chat::ask::Roots {
+                        change.touches::<chat::Chat, _>(&chat::ask::Roots {
                             channel_id: channel.clone(),
                             viewer: viewer.clone(),
                             page: PageRequest::default(),

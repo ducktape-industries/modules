@@ -179,5 +179,9 @@ fn a_pushed_head_asks_for_the_blocks_since_the_top() {
         .map(|ask| (ask.before, ask.limit))
         .collect();
     assert_eq!(new, [(None, 3)]);
-    assert!(cx.has_text("3 transactions in the last 19 blocks"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("3 transactions in the last 19 blocks"),
+        "{:?}",
+        cx.texts()
+    );
 }
