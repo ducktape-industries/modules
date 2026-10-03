@@ -556,8 +556,6 @@ pub mod refusal {
     /// The payload, or what it would pull into the view, is over the host's
     /// limit.
     pub const TOO_LARGE: &str = "too_large";
-    /// More requests in one frame than the host takes.
-    pub const TICK_LIMIT: &str = "tick_limit";
     /// More requests waiting on the host at once than it takes.
     pub const IN_FLIGHT_LIMIT: &str = "in_flight_limit";
     /// More subscriptions of one kind than the host takes.
@@ -678,7 +676,6 @@ mod tests {
             (CONSENT_REFUSED, "consent_refused"),
             (MALFORMED_REQUEST, "malformed_request"),
             (TOO_LARGE, "too_large"),
-            (TICK_LIMIT, "tick_limit"),
             (IN_FLIGHT_LIMIT, "in_flight_limit"),
             (SUBSCRIPTION_LIMIT, "subscription_limit"),
             (NOT_CONNECTED, "not_connected"),
