@@ -5,12 +5,10 @@
 //! changed.
 use ducktape_view_guest::Context;
 use ducktape_view_guest::Loadable;
-use ducktape_view_guest::methods::{
-    BlockPage, ChainBlocks, ChainStatus, ClockTicks, Head, ModuleDescribe,
-};
+use ducktape_view_guest::methods::{BlockPage, ChainBlocks, ChainStatus, Head, ModuleDescribe};
 
 use crate::chain::{BlockRow, TxRow};
-use crate::{Explorer, PAGE, TICK, WINDOW, decode, queries};
+use crate::{Explorer, PAGE, WINDOW, decode, queries};
 
 impl Explorer {
     /// Everything, again: the boot, a restore, a retry.
@@ -35,19 +33,6 @@ impl Explorer {
             }
             _ => self.read_head(cx),
         }
-    }
-
-    /// `chain.heads` was refused or ended: the head is read on the clock
-    /// instead, from then on.
-    pub(crate) fn poll_head(&mut self, cx: &mut Context<Self>) {
-        if self.polling.is_some() {
-            return;
-        }
-        let ticks = cx.host().subscribe::<ClockTicks>(TICK);
-        self.polling = Some(cx.for_each(ticks, |view, tick, _, cx| match tick {
-            Ok(()) => view.read_head(cx),
-            Err(refusal) => cx.host().log_refused("explorer", "the clock", &refusal),
-        }));
     }
 
     /// The node's status, and the window it moves. A status on screen stays

@@ -138,9 +138,6 @@ pub struct Explorer {
     /// when the page that reaches it lands (`pull`), not before
     #[serde(skip)]
     pub(crate) head: u64,
-    /// the head is polled on the clock: `chain.heads` was refused or ended
-    #[serde(skip)]
-    pub(crate) polling: Option<Task<()>>,
     /// the status read again while the one on screen stays
     #[serde(skip)]
     pub(crate) rereading_status: Option<Task<()>>,

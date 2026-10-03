@@ -35,9 +35,6 @@ pub const WINDOW: usize = 1_000;
 /// Blocks per `chain.blocks` page (the node caps a page at 100). Small, so
 /// one reply's decoding stays well inside a tick's fuel.
 const PAGE: u32 = 20;
-/// How often the head is re-read, in milliseconds, where `chain.heads` is
-/// refused or ends: the fallback, not the way the head is followed.
-const TICK: i64 = 2_000;
 
 impl View for Explorer {
     const NAME: &'static str = "Explorer";

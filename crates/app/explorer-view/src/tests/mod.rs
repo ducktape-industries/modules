@@ -16,7 +16,7 @@ pub(crate) use ducktape_view_guest::host::Error;
 pub(crate) use ducktape_view_guest::methods::{
     Block, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads, ChainStatus, Changes,
     ClipboardWrite, ClockTicks, Description, Head, HostRoute, HostSession, ModuleDescribe,
-    NodeStatus, Outcome, Query, Receipt, Session, Tx, Value, refusal,
+    NodeStatus, Outcome, Query, Receipt, Session, Tx, Value,
 };
 pub(crate) use ducktape_view_guest::testing::TestAppContext;
 pub(crate) use identity::Identity;

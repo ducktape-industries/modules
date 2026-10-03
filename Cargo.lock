@@ -2002,7 +2002,6 @@ dependencies = [
  "chat",
  "ducklink",
  "forge",
- "futures",
  "identity",
  "module-registry",
  "serde",
