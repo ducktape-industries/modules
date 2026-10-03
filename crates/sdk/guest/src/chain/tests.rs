@@ -556,6 +556,24 @@ fn a_seated_identity_module_is_asked_as_the_kernel_asks_it() {
     assert_eq!(refused.code, code::UNEXPECTED_REPLY);
 }
 
+/// A chain asks the program genesis bound to the identity role, under
+/// whatever id it runs, and every frame carries that binding.
+#[test]
+fn the_chain_asks_the_roles_it_was_founded_with() {
+    let roles = Roles {
+        identity: "people".into(),
+        ..MockHost::roles()
+    };
+    let mut chain = MockChain::founded(roles.clone());
+    chain.seat::<Bot>("a");
+    chain.seat::<Ident>("people");
+    chain
+        .submit(Origin::Signed(vec![7]), "a", &vec![put("k", "v")])
+        .unwrap();
+    let ran = &logged(&chain, "a")[0];
+    assert_eq!((ran.sender.clone(), &ran.roles), (account(7), &roles));
+}
+
 /// An identity that answers every question with a profile.
 struct Wrong;
 

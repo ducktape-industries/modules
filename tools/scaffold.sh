@@ -194,18 +194,16 @@ use guest::{Env, MockHost, Module, code};
 
 use crate::{$title, MODULE, Op, Query, Reply};
 
-/// Signed by key 1, which holds account 1.
-fn signed() -> Env {
-    MockHost::env(MODULE).signed([1u8; 32], Some(1))
-}
-
+/// \`MockHost::env\` is a person's frame: signed by key \`[1; 32]\`, which
+/// holds account 1. The chain's own is \`.root()\`.
 #[test]
 fn bumps_add_up_and_read_back() {
     let host = MockHost::default();
-    $title::execute(&host.exec(signed()), Op::Bump { by: 2 }).unwrap();
+    let first = host.exec(MockHost::env(MODULE));
+    $title::execute(&first, Op::Bump { by: 2 }).unwrap();
     let later = Env {
         height: 2,
-        ..signed()
+        ..MockHost::env(MODULE)
     };
     $title::execute(&host.exec(later), Op::Bump { by: 3 }).unwrap();
     let count = $title::query(&host.query(MockHost::env(MODULE)), Query::Count).unwrap();

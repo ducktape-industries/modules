@@ -380,9 +380,11 @@ Poll::execute(&host.exec(ada), op)?;
 let reply = Poll::query(&host.query(MockHost::env(MODULE)), query)?;
 ```
 
-`MockHost::env(module)` is a direct call by the chain itself (`Root`); a
-test moves what it cares about with `Env::signed(key, account)`,
-`Env::from_module(module, account)` or struct update
+`MockHost::env(module)` is a person's frame, as the chain sends every one
+outside genesis: signed by key `[1; 32]`, which holds account 1. A test
+moves what it cares about with `Env::signed(key, account)`,
+`Env::from_module(module, account)`, `Env::root()` (the chain itself, as
+genesis calls `init`) or struct update
 (`Env { height: 7, ..MockHost::env(MODULE) }`). Siblings answer through
 `host.sibling::<chat::Chat>("chat", &chat_host)` (a second host holding
 chat's state, asked through chat's own decoding) and the identity role
@@ -418,8 +420,9 @@ let reply: Reply = chain.query(MODULE, &Query::Poll { poll_id: "lunch".into() })
 
 With no identity module seated, the chain's roster answers as the role
 would (`hold`, `register`, `profile` for an agent and its standing); seat
-`identity::Identity` at `MockHost::roles().identity` and the chain asks it
-instead, and the roster's edits do nothing (identity's own ops seat keys
+`identity::Identity` where genesis binds the identity role
+(`MockHost::roles()`, or the roles given `MockChain::founded(roles)`) and
+the chain asks it instead, and the roster's edits do nothing (identity's own ops seat keys
 then). `chain.init(module, &params)` runs `init` as the kernel admits a
 module: one frame, what it emits run after it, a refusal undoing it all;
 `chain.at(height, time)` moves the chain to another block. The two tests that matter

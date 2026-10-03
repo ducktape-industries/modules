@@ -104,18 +104,21 @@ impl MockHost {
         }
     }
 
-    /// A direct call to `module` by the chain itself: chain `net`, height
-    /// 1, time 0, the suite's [`roles`](MockHost::roles). Change what a
-    /// test cares about with [`Env::signed`], [`Env::from_module`] or
-    /// struct update: `Env { height: 7, ..MockHost::env("chat") }`.
+    /// A frame to `module` as a person sends one: signed by key `[1; 32]`,
+    /// which holds account 1, on chain `net` at height 1, time 0, under
+    /// the suite's [`roles`](MockHost::roles). The kernel sends a program
+    /// no other frame outside genesis; the chain itself is
+    /// [`Env::root`]. Change what a test cares about with [`Env::signed`],
+    /// [`Env::from_module`] or struct update:
+    /// `Env { height: 7, ..MockHost::env("chat") }`.
     pub fn env(module: impl Into<ModuleId>) -> Env {
         Env {
             chain_id: b"net".to_vec(),
             height: 1,
             time: 0,
             module: module.into(),
-            origin: Origin::Root,
-            sender: Some(Principal::Root),
+            origin: Origin::Signed(vec![1; 32]),
+            sender: Some(Principal::Account(1)),
             roles: MockHost::roles(),
             cause: Cause::Direct,
         }
@@ -351,6 +354,16 @@ impl MockState {
 /// The origins a test sends from, each with the sender the host would
 /// resolve for it (an account, or `None` when the key or module holds none).
 impl Env {
+    /// Sent by the chain itself, as genesis and the kernel's own calls are:
+    /// the most trusted frame, which no person's write ever is.
+    pub fn root(self) -> Env {
+        Env {
+            origin: Origin::Root,
+            sender: Some(Principal::Root),
+            ..self
+        }
+    }
+
     /// Signed by `key`, acting as `account`: the account identity says the
     /// key holds, or `None` for a key that holds none (a write refuses it).
     pub fn signed(self, key: impl Into<Vec<u8>>, account: Option<AccountNumber>) -> Env {
@@ -412,6 +425,16 @@ mod tests {
         fn query(ctx: &QueryCtx, (): ()) -> Result<(Origin, u64), Error> {
             Ok((ctx.env().origin.clone(), ctx.env().height))
         }
+    }
+
+    /// A test's frame acts as a person, as every frame the chain sends a
+    /// program outside genesis does; the chain itself is asked for by name.
+    #[test]
+    fn a_test_frame_acts_as_a_person_unless_it_says_root() {
+        let host = MockHost::default();
+        assert_eq!(host.exec(MockHost::env("m")).sender_account().unwrap(), 1);
+        let chain = host.exec(MockHost::env("m").root());
+        assert_eq!(chain.sender_account().unwrap_err().code, code::UNAUTHORIZED);
     }
 
     #[test]
