@@ -189,35 +189,34 @@ pub enum Node {
         #[serde(default, skip_serializing_if = "crate::is_default")]
         interactivity: Box<Interactivity>,
     },
-    Input {
-        options: InputOptions,
+    /// A text field, one line or many, whose text the host's editing engine
+    /// owns. `value`, `cursor` and `tokens` are the guest's copy: the host
+    /// adopts them on a fresh mount and whenever `generation` moves (a reset
+    /// the guest means), and otherwise reports its own text through
+    /// `on_change` as [`Event::Text`]. `revision` is the host's, as of the
+    /// last change the guest applied, so the host can let go of the edits
+    /// before it. A key in `claims` reaches the guest as [`Event::KeyDown`]
+    /// on `on_key` instead of editing; the engine's own keys cannot be
+    /// claimed ([`KeyClaim::engine_owned`]). Enter in a one-line field is
+    /// `on_submit`, as [`Event::Message`].
+    Field {
         id: ElementIdWire,
-        placeholder: String,
-        /// Copied document state, adopted by reset and host observation revision.
+        multiline: bool,
         value: String,
-        on_input: Option<u32>,
-        on_submit: Option<u32>,
-        secure: bool,
-        style: gpui::StyleRefinement,
-    },
-    /// A multiline text editor. The host owns the native editor's text and
-    /// selection — native widget interaction — and the guest sees document
-    /// state, unlike [`Node::Input`]. Its style, placeholder and label cross
-    /// as copied data.
-    Editor {
-        /// The guest's key claims and request/event routes. `None` claims no
-        /// key, and no transaction reaches the guest.
-        binding: Option<Box<EditorBinding>>,
-        id: ElementIdWire,
-        style: gpui::StyleRefinement,
+        cursor: TextRange,
+        generation: u64,
+        revision: u64,
+        #[serde(deserialize_with = "text::decode_tokens")]
+        tokens: Vec<TextToken>,
+        #[serde(deserialize_with = "text::decode_claims")]
+        claims: Vec<KeyClaim>,
+        options: InputOptions,
         placeholder: String,
-        /// The accessible name.
-        label: Option<String>,
-        /// A shared logical document; its bytes travel only through a requested transfer.
-        document: editor_document::EditorDocumentRef,
-        /// Mutable guest state route, present even while editing is disabled.
-        on_document: u32,
-        editable: bool,
+        secure: bool,
+        on_change: Option<u32>,
+        on_key: Option<u32>,
+        on_submit: Option<u32>,
+        style: gpui::StyleRefinement,
     },
     Space {
         style: gpui::StyleRefinement,

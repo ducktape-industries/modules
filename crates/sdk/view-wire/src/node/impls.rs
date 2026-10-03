@@ -20,8 +20,7 @@ impl Node {
             | Self::Image { id, .. }
             | Self::Svg { id, .. }
             | Self::RichText { id, .. } => id.as_ref(),
-            Self::Input { id, .. }
-            | Self::Editor { id, .. }
+            Self::Field { id, .. }
             | Self::UniformList { id, .. }
             | Self::ResizeHandle { id, .. }
             | Self::Sensor { id, .. }
@@ -61,8 +60,7 @@ impl Node {
             | Self::Sensor { style, .. }
             | Self::Image { style, .. }
             | Self::Svg { style, .. }
-            | Self::Input { style, .. }
-            | Self::Editor { style, .. }
+            | Self::Field { style, .. }
             | Self::Space { style }
             | Self::Overlay { style, .. }
             | Self::Canvas { style, .. } => Some(style),
@@ -71,11 +69,11 @@ impl Node {
     }
 
     /// The text the node itself draws: a text's content, a rich text's
-    /// text, an input's value. An editor's text is its document's.
+    /// text. A field's text is the host engine's.
     pub fn text(&self) -> Option<&str> {
         match self {
             Self::Text(crate::TextNode { content, .. }) => Some(content),
-            Self::RichText { text, .. } | Self::Input { value: text, .. } => Some(text),
+            Self::RichText { text, .. } => Some(text),
             _ => None,
         }
     }
@@ -101,8 +99,7 @@ impl Node {
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Svg { .. }
-            | Self::Input { .. }
-            | Self::Editor { .. }
+            | Self::Field { .. }
             | Self::Space { .. }
             | Self::Canvas { .. } => &[],
         }
@@ -132,8 +129,7 @@ impl Node {
             | Self::ResizeHandle { content, .. } => std::slice::from_mut(content),
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
-            | Self::Input { .. }
-            | Self::Editor { .. }
+            | Self::Field { .. }
             | Self::Space { .. }
             | Self::Svg { .. }
             | Self::Canvas { .. } => &mut [],
@@ -159,8 +155,7 @@ impl Node {
             | Self::ResizeHandle { .. }
             | Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
-            | Self::Input { .. }
-            | Self::Editor { .. }
+            | Self::Field { .. }
             | Self::Space { .. }
             | Self::Svg { .. }
             | Self::Canvas { .. } => None,

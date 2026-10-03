@@ -18,10 +18,6 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use gpui::{Bounds, Pixels, StyleRefinement, point, px, size};
-use view_wire::EditorInteraction;
-use view_wire::editor_document::{
-    EditorDocumentMessage, EditorDocumentRef, EditorTransfer, EditorTransferError, EditorTransferId,
-};
 use view_wire::list::{
     ListCommand, UniformListHorizontalSizing, UniformListScrollRequest, UniformListScrollStrategy,
     UniformListSizing,
@@ -30,14 +26,12 @@ use view_wire::methods::{self, Method, Program};
 use view_wire::{
     Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
     CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
-    ContainerNode, DispatchPhase, EditorBinding, EditorCursor, EditorDecision, EditorEditKind,
-    EditorFault, EditorHistoryEffect, EditorKeyClaim, EditorPatch, EditorPosition, EditorRequest,
-    EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId, ElementIdAtom,
-    ElementIdWire, Error, Event, Frame, GroupRefinement, HasPopup, ImageData, ImageObjectFit,
-    ImageStyle, Interactivity, Invalid, ListAlignment, ListOffset, ListRequest, ListScroll,
-    ListSizingBehavior, Live, Node, Patch, Request, RichTextHighlightStyle, RichTextHover,
-    RichTextRuns, SvgSource, SvgTransformation, TextNode, Tooltip, TooltipResponse, WidgetCommand,
-    click, interactivity, keyboard, mouse,
+    ContainerNode, DispatchPhase, ElementIdAtom, ElementIdWire, Error, Event, Frame,
+    GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
+    KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
+    Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource,
+    SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
+    WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -45,8 +39,8 @@ const MESSAGE: &str =
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 16;
-const EVENT_VARIANTS: usize = 35;
+const NODE_VARIANTS: usize = 15;
+const EVENT_VARIANTS: usize = 32;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -98,52 +92,6 @@ fn text(content: &str) -> Node {
 
 fn boxed(content: &str) -> Box<Node> {
     Box::new(text(content))
-}
-
-fn document(byte_len: u32) -> EditorDocumentRef {
-    EditorDocumentRef {
-        document: "app:draft".into(),
-        reset: 3,
-        text_revision: 5,
-        revision: 7,
-        cursor: EditorCursor::default(),
-        byte_len,
-    }
-}
-
-fn transaction() -> EditorTransactionId {
-    EditorTransactionId {
-        instance: 1,
-        document: "app:draft".into(),
-        reset: 0,
-        sequence: 2,
-        attempt: 0,
-        text_revision: 1,
-        revision: 3,
-    }
-}
-
-fn transfer() -> EditorTransferId {
-    EditorTransferId {
-        instance: 1,
-        document: "app:draft".into(),
-        reset: 0,
-        serial: 4,
-        attempt: 1,
-    }
-}
-
-/// A document reference at [`transfer`]'s reset, for the messages that echo
-/// both (`EditorTransfer::Begin`, `EditorDocumentMessage::Request`): a
-/// mismatched reset is `EditorTransferError::Identity`, which a bare
-/// `Event::EditorDocument` never decodes far enough to hit (unlike
-/// `Frame.editor_documents`, nothing here calls `validate`), but a matching
-/// one reads true either way.
-fn transfer_target(byte_len: u32) -> EditorDocumentRef {
-    EditorDocumentRef {
-        reset: 0,
-        ..document(byte_len)
-    }
 }
 
 fn key_state() -> keyboard::KeyState {

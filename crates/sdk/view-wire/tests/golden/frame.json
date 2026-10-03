@@ -3,73 +3,6 @@
     "upstream_sanitization": {
       "display_text_truncated": false
     },
-    "editor_decisions": [
-      {
-        "id": {
-          "instance": 1,
-          "document": "app:draft",
-          "reset": 0,
-          "sequence": 2,
-          "attempt": 0,
-          "text_revision": 1,
-          "revision": 3
-        },
-        "decision": {
-          "Apply": {
-            "patches": [],
-            "cursor": {
-              "position": {
-                "line": 0,
-                "column": 0
-              },
-              "selection": null
-            },
-            "history": "NewGroup"
-          }
-        }
-      },
-      {
-        "id": {
-          "instance": 1,
-          "document": "app:draft",
-          "reset": 0,
-          "sequence": 2,
-          "attempt": 0,
-          "text_revision": 1,
-          "revision": 3
-        },
-        "decision": {
-          "Apply": {
-            "patches": [],
-            "cursor": {
-              "position": {
-                "line": 0,
-                "column": 1
-              },
-              "selection": {
-                "line": 0,
-                "column": 3
-              }
-            },
-            "history": "NewGroup"
-          }
-        }
-      }
-    ],
-    "editor_documents": [
-      {
-        "Failed": {
-          "id": {
-            "instance": 1,
-            "document": "app:draft",
-            "reset": 0,
-            "serial": 4,
-            "attempt": 1
-          },
-          "reason": "Order"
-        }
-      }
-    ],
     "tooltip_responses": [
       {
         "request": 17,
@@ -480,7 +413,24 @@
             }
           },
           {
-            "Input": {
+            "Field": {
+              "id": {
+                "CodeLocation": {
+                  "file": "view.rs",
+                  "line": 10,
+                  "column": 2
+                }
+              },
+              "multiline": false,
+              "value": "x",
+              "cursor": {
+                "start": 0,
+                "end": 1
+              },
+              "generation": 2,
+              "revision": 3,
+              "tokens": [],
+              "claims": [],
               "options": {
                 "label": "",
                 "description": null,
@@ -489,42 +439,12 @@
                 "required": true,
                 "read_only": true
               },
-              "id": {
-                "Name": "input"
-              },
               "placeholder": "Name",
-              "value": "x",
-              "on_input": 20,
-              "on_submit": 21,
               "secure": false,
+              "on_change": 20,
+              "on_key": null,
+              "on_submit": 21,
               "style": {}
-            }
-          },
-          {
-            "Editor": {
-              "binding": null,
-              "id": {
-                "Name": "editor"
-              },
-              "style": {},
-              "placeholder": "Notes",
-              "label": "notes",
-              "document": {
-                "document": "app:draft",
-                "reset": 3,
-                "text_revision": 5,
-                "revision": 7,
-                "cursor": {
-                  "position": {
-                    "line": 0,
-                    "column": 0
-                  },
-                  "selection": null
-                },
-                "byte_len": 9
-              },
-              "on_document": 22,
-              "editable": true
             }
           },
           {
@@ -1430,51 +1350,7 @@
             }
           },
           {
-            "Input": {
-              "options": {
-                "label": "",
-                "description": "must not be empty",
-                "disabled": false,
-                "invalid": "true",
-                "required": true,
-                "read_only": true
-              },
-              "id": {
-                "CodeLocation": {
-                  "file": "view.rs",
-                  "line": 10,
-                  "column": 2
-                }
-              },
-              "placeholder": "Name",
-              "value": "x",
-              "on_input": 20,
-              "on_submit": 21,
-              "secure": false,
-              "style": {}
-            }
-          },
-          {
-            "Editor": {
-              "binding": {
-                "claims": [
-                  {
-                    "key": {
-                      "Named": "Tab"
-                    },
-                    "modifiers": {
-                      "control": false,
-                      "alt": false,
-                      "shift": false,
-                      "platform": false,
-                      "function": false
-                    },
-                    "command": true
-                  }
-                ],
-                "on_request": 90,
-                "on_event": 91
-              },
+            "Field": {
               "id": {
                 "OpaqueId": [
                   5,
@@ -1499,25 +1375,52 @@
                   5
                 ]
               },
-              "style": {},
-              "placeholder": "Notes",
-              "label": "notes",
-              "document": {
-                "document": "app:draft",
-                "reset": 3,
-                "text_revision": 5,
-                "revision": 7,
-                "cursor": {
-                  "position": {
-                    "line": 0,
-                    "column": 0
-                  },
-                  "selection": null
-                },
-                "byte_len": 9
+              "multiline": true,
+              "value": "hi @al",
+              "cursor": {
+                "start": 6,
+                "end": 6
               },
-              "on_document": 22,
-              "editable": true
+              "generation": 1,
+              "revision": 9,
+              "tokens": [
+                {
+                  "range": {
+                    "start": 3,
+                    "end": 6
+                  },
+                  "id": "<@1>"
+                }
+              ],
+              "claims": [
+                {
+                  "key": {
+                    "Named": "Enter"
+                  },
+                  "modifiers": {
+                    "control": false,
+                    "alt": false,
+                    "shift": false,
+                    "platform": false,
+                    "function": false
+                  },
+                  "command": true
+                }
+              ],
+              "options": {
+                "label": "notes",
+                "description": "must not be empty",
+                "disabled": false,
+                "invalid": "true",
+                "required": true,
+                "read_only": true
+              },
+              "placeholder": "Notes",
+              "secure": true,
+              "on_change": 22,
+              "on_key": 90,
+              "on_submit": null,
+              "style": {}
             }
           },
           {
@@ -2332,373 +2235,28 @@
       }
     },
     {
-      "Input": {
+      "Text": {
         "handler": 19,
-        "text": "xy"
-      }
-    },
-    {
-      "EditorDocument": {
-        "handler": 20,
-        "message": {
-          "Transfer": {
-            "Chunk": {
-              "id": {
-                "instance": 1,
-                "document": "app:draft",
-                "reset": 0,
-                "serial": 4,
-                "attempt": 1
-              },
-              "index": 0,
-              "bytes": [
-                100,
-                114,
-                97,
-                102,
-                116
-              ]
-            }
-          }
-        }
-      }
-    },
-    {
-      "EditorDocument": {
-        "handler": 20,
-        "message": {
-          "Request": {
-            "id": {
-              "instance": 1,
-              "document": "app:draft",
-              "reset": 0,
-              "serial": 4,
-              "attempt": 1
-            },
-            "target": {
-              "document": "app:draft",
-              "reset": 0,
-              "text_revision": 5,
-              "revision": 7,
-              "cursor": {
-                "position": {
-                  "line": 0,
-                  "column": 0
-                },
-                "selection": null
-              },
-              "byte_len": 9
-            }
-          }
-        }
-      }
-    },
-    {
-      "EditorDocument": {
-        "handler": 20,
-        "message": {
-          "Acknowledged": {
-            "id": {
-              "instance": 1,
-              "document": "app:draft",
-              "reset": 0,
-              "serial": 4,
-              "attempt": 1
-            }
-          }
-        }
-      }
-    },
-    {
-      "EditorDocument": {
-        "handler": 20,
-        "message": {
-          "Transfer": {
-            "Begin": {
-              "id": {
-                "instance": 1,
-                "document": "app:draft",
-                "reset": 0,
-                "serial": 4,
-                "attempt": 1
-              },
-              "target": {
-                "document": "app:draft",
-                "reset": 0,
-                "text_revision": 5,
-                "revision": 7,
-                "cursor": {
-                  "position": {
-                    "line": 0,
-                    "column": 0
-                  },
-                  "selection": null
-                },
-                "byte_len": 9
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "EditorDocument": {
-        "handler": 20,
-        "message": {
-          "Transfer": {
-            "Complete": {
-              "id": {
-                "instance": 1,
-                "document": "app:draft",
-                "reset": 0,
-                "serial": 4,
-                "attempt": 1
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "EditorDocument": {
-        "handler": 20,
-        "message": {
-          "Transfer": {
-            "Abort": {
-              "id": {
-                "instance": 1,
-                "document": "app:draft",
-                "reset": 0,
-                "serial": 4,
-                "attempt": 1
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "EditorRequest": {
-        "handler": 21,
-        "request": {
-          "id": {
-            "instance": 1,
-            "document": "app:draft",
-            "reset": 0,
-            "sequence": 2,
-            "attempt": 0,
-            "text_revision": 1,
-            "revision": 3
+        "change": {
+          "revision": 4,
+          "text": "xy",
+          "cursor": {
+            "start": 2,
+            "end": 2
           },
-          "state": {
-            "document": "app:draft",
-            "reset": 3,
-            "text_revision": 5,
-            "revision": 7,
-            "cursor": {
-              "position": {
-                "line": 0,
-                "column": 0
-              },
-              "selection": null
-            },
-            "byte_len": 9
+          "preedit": {
+            "start": 1,
+            "end": 2
           },
-          "input": {
-            "Interaction": {
-              "action": {
-                "Action": {
-                  "tag": "send"
-                }
-              }
+          "tokens": [
+            {
+              "range": {
+                "start": 0,
+                "end": 1
+              },
+              "id": "<@1>"
             }
-          },
-          "input_time_ms": 40
-        }
-      }
-    },
-    {
-      "EditorTransaction": {
-        "handler": 22,
-        "event": {
-          "Commit": {
-            "id": {
-              "instance": 1,
-              "document": "app:draft",
-              "reset": 0,
-              "sequence": 2,
-              "attempt": 0,
-              "text_revision": 1,
-              "revision": 3
-            },
-            "origin": {
-              "Key": {
-                "key": {
-                  "key": {
-                    "Named": "Enter"
-                  },
-                  "modified_key": {
-                    "Character": "\n"
-                  },
-                  "physical_key": {
-                    "Unidentified": {
-                      "MacOS": 36
-                    }
-                  },
-                  "location": "Standard",
-                  "modifiers": {
-                    "control": false,
-                    "alt": false,
-                    "shift": true,
-                    "platform": false,
-                    "function": false
-                  }
-                },
-                "repeat": false
-              }
-            },
-            "before": {
-              "document": "app:draft",
-              "reset": 3,
-              "text_revision": 5,
-              "revision": 7,
-              "cursor": {
-                "position": {
-                  "line": 0,
-                  "column": 0
-                },
-                "selection": null
-              },
-              "byte_len": 9
-            },
-            "after": {
-              "document": "app:draft",
-              "reset": 3,
-              "text_revision": 5,
-              "revision": 7,
-              "cursor": {
-                "position": {
-                  "line": 0,
-                  "column": 0
-                },
-                "selection": null
-              },
-              "byte_len": 10
-            },
-            "patches": [
-              {
-                "start_byte": 9,
-                "end_byte": 9,
-                "replacement": "z"
-              }
-            ],
-            "kind": "Insert",
-            "history": "ExtendPrevious",
-            "input_time_ms": 42
-          }
-        }
-      }
-    },
-    {
-      "EditorTransaction": {
-        "handler": 22,
-        "event": {
-          "Interaction": {
-            "id": {
-              "instance": 1,
-              "document": "app:draft",
-              "reset": 0,
-              "sequence": 2,
-              "attempt": 0,
-              "text_revision": 1,
-              "revision": 3
-            },
-            "state": {
-              "document": "app:draft",
-              "reset": 3,
-              "text_revision": 5,
-              "revision": 7,
-              "cursor": {
-                "position": {
-                  "line": 0,
-                  "column": 0
-                },
-                "selection": null
-              },
-              "byte_len": 9
-            },
-            "action": {
-              "Action": {
-                "tag": "toggle"
-              }
-            },
-            "input_time_ms": 1
-          }
-        }
-      }
-    },
-    {
-      "EditorTransaction": {
-        "handler": 22,
-        "event": {
-          "Fault": {
-            "id": {
-              "instance": 1,
-              "document": "app:draft",
-              "reset": 0,
-              "sequence": 2,
-              "attempt": 0,
-              "text_revision": 1,
-              "revision": 3
-            },
-            "state": {
-              "document": "app:draft",
-              "reset": 3,
-              "text_revision": 5,
-              "revision": 7,
-              "cursor": {
-                "position": {
-                  "line": 0,
-                  "column": 0
-                },
-                "selection": null
-              },
-              "byte_len": 9
-            },
-            "reason": "Overflow"
-          }
-        }
-      }
-    },
-    {
-      "EditorTransaction": {
-        "handler": 22,
-        "event": {
-          "Cancelled": {
-            "id": {
-              "instance": 1,
-              "document": "app:draft",
-              "reset": 0,
-              "sequence": 2,
-              "attempt": 0,
-              "text_revision": 1,
-              "revision": 3
-            },
-            "state": {
-              "document": "app:draft",
-              "reset": 3,
-              "text_revision": 5,
-              "revision": 7,
-              "cursor": {
-                "position": {
-                  "line": 0,
-                  "column": 0
-                },
-                "selection": null
-              },
-              "byte_len": 9
-            }
-          }
+          ]
         }
       }
     },
@@ -2940,13 +2498,23 @@
   ],
   [
     {
-      "EditorAction": {
+      "Replace": {
         "target": [
           {
-            "Name": "editor"
+            "Name": "field"
           }
         ],
-        "tag": "send"
+        "revision": 4,
+        "range": {
+          "start": 0,
+          "end": 5
+        },
+        "text": "@alice",
+        "token": "<@1>",
+        "cursor": {
+          "start": 6,
+          "end": 6
+        }
       }
     },
     "FocusPrevious",
@@ -3105,7 +2673,7 @@
       "CursorFront": {
         "target": [
           {
-            "Name": "editor"
+            "Name": "field"
           }
         ]
       }
@@ -3114,7 +2682,7 @@
       "CursorEnd": {
         "target": [
           {
-            "Name": "editor"
+            "Name": "field"
           }
         ]
       }
@@ -3123,7 +2691,7 @@
       "Cursor": {
         "target": [
           {
-            "Name": "editor"
+            "Name": "field"
           }
         ],
         "position": 3
@@ -3133,7 +2701,7 @@
       "SelectAll": {
         "target": [
           {
-            "Name": "editor"
+            "Name": "field"
           }
         ]
       }
@@ -3142,7 +2710,7 @@
       "Select": {
         "target": [
           {
-            "Name": "editor"
+            "Name": "field"
           }
         ],
         "start": 0,
@@ -3339,34 +2907,6 @@
       "Flex",
       "Grid",
       "None"
-    ],
-    "EditorDecision": [
-      "DefaultEditorAction",
-      "Noop"
-    ],
-    "EditorEditKind": [
-      "Insert",
-      "Backspace",
-      "Cursor",
-      "GuestPatch",
-      "Undo",
-      "Redo"
-    ],
-    "EditorHistoryEffect": [
-      "Native",
-      "NewGroup",
-      "ExtendPrevious",
-      "Undo",
-      "Redo"
-    ],
-    "EditorTransferError": [
-      "Limit",
-      "Identity",
-      "Order",
-      "Length",
-      "Utf8",
-      "Cursor",
-      "Aborted"
     ],
     "FlexDirection": [
       "Row",

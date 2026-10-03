@@ -97,27 +97,12 @@ pub enum Event {
         /// Native InteractiveText byte index; ordinary tooltips use None.
         character_index: Option<u32>,
     },
-    /// A text field's content changed. `handler` indexes the guest's
-    /// per-frame input-handler table; `text` is the whole value the host now
-    /// holds.
-    Input {
+    /// A field's text moved under the host's engine (typed, pasted, undone,
+    /// a guest `Replace` landed, a composition advanced): the whole text as
+    /// the host now holds it, at its `revision`.
+    Text {
         handler: u32,
-        text: String,
-    },
-    /// An editor's text or cursor changed. `reset` fences document replacements;
-    /// `revision` orders host observations. Caret-only changes are included.
-    /// Initial assignment, mirror repair and exact transfer acknowledgments.
-    EditorDocument {
-        handler: u32,
-        message: editor_document::EditorDocumentMessage,
-    },
-    EditorRequest {
-        handler: u32,
-        request: EditorRequest,
-    },
-    EditorTransaction {
-        handler: u32,
-        event: EditorTransactionEvent,
+        change: TextChange,
     },
     /// The host theme changed; the guest stores the corresponding `Theme` global.
     Theme {
@@ -260,11 +245,6 @@ pub struct Frame {
     /// Advisory producer report, sticky when a producer sanitizes before encoding.
     /// Receivers must independently sanitize the received whole/applied tree.
     pub upstream_sanitization: SanitizeReport,
-    #[serde(deserialize_with = "editor_transaction::decode_responses")]
-    pub editor_decisions: Vec<EditorResponse>,
-    /// One bounded document message, independent of display text budgets.
-    #[serde(deserialize_with = "editor_document::decode_messages")]
-    pub editor_documents: Vec<editor_document::EditorDocumentMessage>,
     /// Tooltip subtrees built only after a native hover request.
     #[serde(deserialize_with = "decode_tooltip_responses")]
     pub tooltip_responses: Vec<TooltipResponse>,

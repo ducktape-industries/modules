@@ -199,99 +199,17 @@ pub fn every_event() -> Vec<Event> {
             request: 17,
             character_index: Some(3),
         },
-        Event::Input {
+        Event::Text {
             handler: 19,
-            text: "xy".into(),
-        },
-        Event::EditorDocument {
-            handler: 20,
-            message: EditorDocumentMessage::Transfer(EditorTransfer::Chunk {
-                id: transfer(),
-                index: 0,
-                bytes: b"draft".to_vec(),
-            }),
-        },
-        Event::EditorDocument {
-            handler: 20,
-            message: EditorDocumentMessage::Request {
-                id: transfer(),
-                target: transfer_target(9),
-            },
-        },
-        Event::EditorDocument {
-            handler: 20,
-            message: EditorDocumentMessage::Acknowledged { id: transfer() },
-        },
-        Event::EditorDocument {
-            handler: 20,
-            message: EditorDocumentMessage::Transfer(EditorTransfer::Begin {
-                id: transfer(),
-                target: transfer_target(9),
-            }),
-        },
-        Event::EditorDocument {
-            handler: 20,
-            message: EditorDocumentMessage::Transfer(EditorTransfer::Complete { id: transfer() }),
-        },
-        Event::EditorDocument {
-            handler: 20,
-            message: EditorDocumentMessage::Transfer(EditorTransfer::Abort { id: transfer() }),
-        },
-        Event::EditorRequest {
-            handler: 21,
-            request: EditorRequest {
-                id: transaction(),
-                state: document(9),
-                input: EditorRequestInput::Interaction {
-                    action: EditorInteraction::Action { tag: "send".into() },
-                },
-                input_time_ms: 40,
-            },
-        },
-        Event::EditorTransaction {
-            handler: 22,
-            event: EditorTransactionEvent::Commit {
-                id: transaction(),
-                origin: Some(EditorRequestInput::Key {
-                    key: key_state(),
-                    repeat: false,
-                }),
-                before: document(9),
-                after: document(10),
-                patches: vec![EditorPatch {
-                    start_byte: 9,
-                    end_byte: 9,
-                    replacement: "z".into(),
+            change: TextChange {
+                revision: 4,
+                text: "xy".into(),
+                cursor: TextRange { start: 2, end: 2 },
+                preedit: Some(TextRange { start: 1, end: 2 }),
+                tokens: vec![TextToken {
+                    range: TextRange { start: 0, end: 1 },
+                    id: "<@1>".into(),
                 }],
-                kind: EditorEditKind::Insert,
-                history: EditorHistoryEffect::ExtendPrevious,
-                input_time_ms: 42,
-            },
-        },
-        Event::EditorTransaction {
-            handler: 22,
-            event: EditorTransactionEvent::Interaction {
-                id: transaction(),
-                state: document(9),
-                action: EditorInteraction::Action {
-                    tag: "toggle".into(),
-                },
-                input_time_ms: 1,
-            },
-        },
-        Event::EditorTransaction {
-            handler: 22,
-            event: EditorTransactionEvent::Fault {
-                id: transaction(),
-                state: document(9),
-                reason: EditorFault::Overflow,
-            },
-        },
-        Event::EditorTransaction {
-            handler: 22,
-            event: EditorTransactionEvent::Cancelled {
-                id: transaction(),
-                state: document(9),
             },
         },
         Event::Theme { dark: true },
@@ -426,31 +344,6 @@ pub fn every_event() -> Vec<Event> {
 pub fn every_frame() -> Frame {
     Frame {
         upstream_sanitization: Default::default(),
-        editor_decisions: vec![
-            EditorResponse {
-                id: transaction(),
-                decision: EditorDecision::Apply {
-                    patches: vec![],
-                    cursor: EditorCursor::default(),
-                    history: EditorHistoryEffect::NewGroup,
-                },
-            },
-            EditorResponse {
-                id: transaction(),
-                decision: EditorDecision::Apply {
-                    patches: vec![],
-                    cursor: EditorCursor {
-                        position: EditorPosition { line: 0, column: 1 },
-                        selection: Some(EditorPosition { line: 0, column: 3 }),
-                    },
-                    history: EditorHistoryEffect::NewGroup,
-                },
-            },
-        ],
-        editor_documents: vec![EditorDocumentMessage::Failed {
-            id: transfer(),
-            reason: EditorTransferError::Order,
-        }],
         tooltip_responses: vec![TooltipResponse {
             request: 17,
             character_index: Some(3),
@@ -512,10 +405,7 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::FileDropExit { .. } => "FileDropExit",
         Event::AuxClick { .. } => "AuxClick",
         Event::TooltipRequest { .. } => "TooltipRequest",
-        Event::Input { .. } => "Input",
-        Event::EditorDocument { .. } => "EditorDocument",
-        Event::EditorRequest { .. } => "EditorRequest",
-        Event::EditorTransaction { .. } => "EditorTransaction",
+        Event::Text { .. } => "Text",
         Event::Theme { .. } => "Theme",
         Event::Select { .. } => "Select",
         Event::RichTextHover { .. } => "RichTextHover",

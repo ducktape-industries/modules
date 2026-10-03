@@ -1,5 +1,14 @@
 use super::*;
 
+/// What `sanitize` refuses a tree for on a field's account (`validate_field`).
+const FIELD_REFUSALS: [&str; 5] = [
+    "field text exceeds its cap",
+    "field cursor is off its text",
+    "field token is off its text",
+    "field token id exceeds bounds",
+    "field claims a key the engine owns",
+];
+
 // --------------------------------------------------------------- test 1
 
 /// Random trees, decoded and sanitized, always land inside every bound
@@ -45,14 +54,17 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
                     .root
                     .as_ref()
                     .is_some_and(has_duplicate_typed_siblings);
-                let before = decoded.root.as_ref().map(document_refs).unwrap_or_default();
+                let before = decoded.root.as_ref().map(field_texts).unwrap_or_default();
                 match sanitize(&mut decoded) {
                     Ok(_) => {
                         check_frame(&decoded, &ctx);
-                        let after = decoded.root.as_ref().map(document_refs).unwrap_or_default();
-                        assert_eq!(
-                            before, after,
-                            "{ctx}: sanitize rewrote an editor document reference"
+                        // a subtree past the node budget is dropped whole;
+                        // every field left reads as it did
+                        let after = decoded.root.as_ref().map(field_texts).unwrap_or_default();
+                        let mut kept = before.iter();
+                        assert!(
+                            after.iter().all(|text| kept.any(|had| had == text)),
+                            "{ctx}: sanitize rewrote a field's text"
                         );
                     }
                     Err("duplicate typed element identity among siblings") => {
@@ -61,15 +73,11 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
                             "{ctx}: identity refusal must name an actual collision"
                         );
                     }
-                    // Other refusals protect editor
-                    // documents it could not keep whole; every other bound is
-                    // pulled into range instead.
+                    // Other refusals are a field off its own text or claiming
+                    // an engine key: the engine adopts a value whole or not at
+                    // all. Every other bound is pulled into range instead.
                     Err(refused) => assert!(
-                        [
-                            "invalid editor document references or budget",
-                            "frame budget would remove an editor document projection",
-                        ]
-                        .contains(&refused),
+                        FIELD_REFUSALS.contains(&refused),
                         "{ctx}: unexpected refusal: {refused}"
                     ),
                 }
@@ -214,11 +222,7 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                     );
                     continue;
                 }
-                if matches!(
-                    applied,
-                    Err("invalid editor document references or budget"
-                        | "frame budget would remove an editor document projection")
-                ) {
+                if applied.is_err_and(|refused| FIELD_REFUSALS.contains(&refused)) {
                     continue;
                 }
                 staged = candidate;
@@ -260,11 +264,7 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
             assert!(
                 hostile
                     || outcome.is_ok()
-                    || matches!(
-                        outcome,
-                        Err("invalid editor document references or budget"
-                            | "frame budget would remove an editor document projection")
-                    ),
+                    || outcome.is_err_and(|refused| FIELD_REFUSALS.contains(&refused)),
                 "{ctx}: a structurally valid sequence was refused: {outcome:?}"
             );
             match outcome {
@@ -282,10 +282,9 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                         "a list edit on no list",
                         "props of another arity",
                         "more patches than the host applies",
-                        "invalid editor document references or budget",
-                        "frame budget would remove an editor document projection",
                     ]
-                    .contains(&refused);
+                    .contains(&refused)
+                        || FIELD_REFUSALS.contains(&refused);
                     assert!(named, "{ctx}: unexpected refusal: {refused}");
                 }
             }
@@ -337,10 +336,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
                         let mut candidate = edited.clone();
                         match view_wire::apply(&mut candidate, vec![patch]) {
                             Ok(_) => edited = candidate,
-                            Err(
-                                "invalid editor document references or budget"
-                                | "frame budget would remove an editor document projection",
-                            ) => {}
+                            Err(refused) if FIELD_REFUSALS.contains(&refused) => {}
                             Err("duplicate typed element identity among siblings") => {
                                 assert!(
                                     has_duplicate_typed_siblings(&candidate),

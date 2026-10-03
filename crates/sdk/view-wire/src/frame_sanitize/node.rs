@@ -240,32 +240,24 @@ fn sanitize_fields(
                 spend_text(label, budgets);
             }
         }
-        Node::Input {
-            placeholder,
+        Node::Field {
             value,
+            cursor,
+            tokens,
+            claims,
             options,
+            placeholder,
             style,
             ..
         } => {
+            // the value is the engine's to adopt whole: bounded, never shaped
+            crate::validate_field(value, *cursor, tokens, claims)?;
             spend_text(placeholder, budgets);
-            spend_text(value, budgets);
             spend_text(&mut options.label, budgets);
             if let Some(description) = &mut options.description {
                 spend_text(description, budgets);
             }
             style_sanitize::sanitize(style);
-        }
-        Node::Editor {
-            style,
-            placeholder,
-            label,
-            ..
-        } => {
-            style_sanitize::sanitize(style);
-            spend_text(placeholder, budgets);
-            if let Some(label) = label {
-                spend_text(label, budgets);
-            }
         }
     }
     Ok(())
