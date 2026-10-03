@@ -2,6 +2,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use guest::HashKind;
 
+use crate::state::{ACTIVITY, AUTHORED, CHANGES, INVOLVED, REFS, REPOS, REVIEWS, WRITERS};
+
 pub use crate::read_contract::*;
 pub use crate::review_contract::*;
 pub use guest::Principal;
@@ -139,17 +141,29 @@ pub enum Service {
     UploadPack,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
+/// A read. Each variant names the tables it is answered from (`#[reads]`,
+/// [`program::Reads`]), so a view following `module.changes` re-reads it
+/// only for a block that wrote to one of them. Git objects are not keys:
+/// they reach the store with the push or merge that moves a ref, so a read
+/// of objects follows `REFS`. The git client's own two questions declare
+/// nothing: no view follows them.
+#[derive(
+    Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize, ::program::Ask,
+)]
+#[ask(crate::Forge)]
 pub enum Query {
+    #[reads(ACTIVITY, REPOS)]
     Repos {
         page: PageRequest,
     },
     /// Settings plus a page of granted writers; the owner is on the repo
     /// record.
+    #[reads(REPOS, WRITERS)]
     Repo {
         repo: String,
         page: PageRequest,
     },
+    #[reads(REFS)]
     Refs {
         repo: String,
         page: PageRequest,
@@ -164,24 +178,28 @@ pub enum Query {
     },
     /// The history `from` reaches, less what `exclude` reaches (`git log
     /// exclude..from`): a change's own commits exclude its target.
+    #[reads(REFS)]
     Log {
         repo: String,
         from: Revision,
         exclude: Option<Revision>,
         page: PageRequest,
     },
+    #[reads(REFS)]
     Tree {
         repo: String,
         at: String,
         path: Vec<u8>,
         page: PageRequest,
     },
+    #[reads(REFS)]
     Blob {
         repo: String,
         oid: String,
         range: Option<ByteRange>,
     },
     /// None base means the empty tree, for a root commit's diff.
+    #[reads(REFS)]
     Diff {
         repo: String,
         base: Option<String>,
@@ -189,25 +207,31 @@ pub enum Query {
         path: Option<Vec<u8>>,
         page: PageRequest,
     },
+    #[reads(REFS)]
     Compare {
         repo: String,
         from: Revision,
         into: Revision,
     },
+    #[reads(REPOS)]
     Activity {
         repo: String,
     },
+    #[reads(CHANGES, INVOLVED)]
     Changes {
         repo: String,
         filter: ChangeFilter,
         page: PageRequest,
     },
+    /// The change, its two heads and a page of its reviews.
+    #[reads(CHANGES, REVIEWS, REFS)]
     Change {
         repo: String,
         n: u64,
         page: PageRequest,
     },
     /// What one person owes across every repository.
+    #[reads(CHANGES, REVIEWS, AUTHORED, REFS)]
     Judgment {
         principal: Principal,
         page: PageRequest,

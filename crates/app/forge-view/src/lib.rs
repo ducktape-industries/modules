@@ -75,27 +75,28 @@ impl View for Forge {
                     cx.notify();
                 }
             }));
-        // a block to any program the screens read re-reads them; a refused
+        // a block re-reads what it wrote to: forge's its reads on screen,
+        // chat's the change conversations, identity's the names. A refused
         // item is a block this view cannot see into: the host's log keeps
         // why, and the next block reconciles
         let forge = cx.host().subscribe::<Changes<forge::Forge>>(());
         let chat = cx.host().subscribe::<Changes<::chat::Chat>>(());
         let identity = cx.host().subscribe::<Changes<Identity>>(());
         self.watches.extend([
-            cx.for_each(forge, |forge, head, _, cx| match head {
-                Ok(_) => forge.reconcile(cx),
+            cx.for_each(forge, |forge, change, _, cx| match change {
+                Ok(change) => forge.reconcile(change.as_ref(), cx),
                 Err(refusal) => cx
                     .host()
                     .log_refused("forge", "forge's live heads", &refusal),
             }),
-            cx.for_each(chat, |forge, head, _, cx| match head {
-                Ok(_) => forge.reconcile(cx),
+            cx.for_each(chat, |forge, change, _, cx| match change {
+                Ok(change) => forge.reread_conversations(change.as_ref(), cx),
                 Err(refusal) => cx
                     .host()
                     .log_refused("forge", "chat's live heads", &refusal),
             }),
-            cx.for_each(identity, |forge, head, _, cx| match head {
-                Ok(_) => forge.reconcile(cx),
+            cx.for_each(identity, |forge, change, _, cx| match change {
+                Ok(_) => forge.reread_names(cx),
                 Err(refusal) => cx
                     .host()
                     .log_refused("forge", "identity's live heads", &refusal),

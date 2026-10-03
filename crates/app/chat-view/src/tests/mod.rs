@@ -8,6 +8,7 @@ use ducktape_view_guest::wire;
 use ducktape_view_guest::{Entity, StyleRefinement, Styled};
 
 use crate::api::{Changes, HostId, HostSession, HostVisible, Session, Submit};
+use ducktape_view_guest::methods::Change;
 use ducktape_view_guest::methods::Query as Ask;
 use program::role::Identity;
 
@@ -191,9 +192,24 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     (cx, view)
 }
 
-/// A block that changed nothing chat shows: chat's head re-reads the
-/// channel list and the open room, identity's re-reads the names, the same
-/// answers land, and the view draws nothing for the heads or the landings.
+/// A block at `height` that wrote `keys`, as `module.changes` carries it.
+fn block(height: u64, keys: Vec<Vec<u8>>) -> Option<Change> {
+    Some(Change { height, keys })
+}
+
+/// What a message posted in `channel` writes: its root and the channel's
+/// head.
+fn posted(channel: &str) -> Vec<Vec<u8>> {
+    vec![
+        chat::tables::ROOTS.key(&(channel.to_owned(), 0u64)),
+        chat::tables::HEADS.key(&channel.to_owned()),
+    ]
+}
+
+/// A block that changed nothing chat shows: a chat block that wrote a room
+/// re-reads the channel list, the room and its roster, identity's block
+/// re-reads the names, the same answers land, and the view draws nothing
+/// for the items or the landings.
 #[test]
 fn a_block_whose_rereads_land_the_same_rows_draws_nothing() {
     let mut cx = TestAppContext::new();
@@ -219,7 +235,9 @@ fn a_block_whose_rereads_land_the_same_rows_draws_nothing() {
         cx.host().requests::<Ask<::chat::Chat>>().len(),
         cx.renders(),
     );
-    changes.send(Some(4));
+    let mut keys = posted("general");
+    keys.push(chat::tables::MEMBERS.key(&("general".to_owned(), Principal::Account(9))));
+    changes.send(block(4, keys));
     cx.run_until_parked();
     let reread = cx.host().requests::<Ask<::chat::Chat>>().len();
     assert!(
@@ -227,13 +245,66 @@ fn a_block_whose_rereads_land_the_same_rows_draws_nothing() {
         "the list, the rows and the roster: {reread}"
     );
     assert_eq!(cx.renders(), renders, "the same rows drew nothing");
-    identity.send(Some(5));
+    identity.send(block(5, Vec::new()));
     cx.run_until_parked();
     assert!(
         cx.host().requests::<Ask<::chat::Chat>>().len() > reread,
         "the names re-read"
     );
     assert_eq!(cx.renders(), renders, "the same names drew nothing");
+}
+
+/// A block re-reads only what it wrote to, as the program declares it: a
+/// member seated re-reads the room's roster and nothing else, a message
+/// posted re-reads the rows and the channel list (its head moved) and not
+/// the roster, and a reopened link (`None`) re-reads all three.
+#[test]
+fn a_block_re_reads_only_the_tables_it_wrote_to() {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx);
+    let changes = cx.host().stream::<Changes<::chat::Chat>>();
+    let props = cx.host().stream::<HostSession>();
+    let visible = cx.host().stream::<HostVisible>();
+    cx.open::<Chat>();
+    props.send(Session {
+        signer: "0102".into(),
+        account: Some(7),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    visible.send(true);
+    cx.run_until_parked();
+    cx.simulate_click("chat-sidebar-channel-general");
+    cx.run_until_parked();
+    let counts = |cx: &TestAppContext| {
+        let asked = cx.host().requests::<Ask<::chat::Chat>>();
+        let count = |pick: fn(&Query) -> bool| asked.iter().filter(|query| pick(query)).count();
+        (
+            count(|query| matches!(query, Query::Channels { .. })),
+            count(|query| matches!(query, Query::Roots { .. })),
+            count(|query| matches!(query, Query::Members { .. })),
+        )
+    };
+    let (list, rows, roster) = counts(&cx);
+    let seated = chat::tables::MEMBERS.key(&("general".to_owned(), Principal::Account(9)));
+    changes.send(block(4, vec![seated]));
+    cx.run_until_parked();
+    assert_eq!(counts(&cx), (list, rows, roster + 1), "a member seated");
+    changes.send(block(5, posted("general")));
+    cx.run_until_parked();
+    assert_eq!(
+        counts(&cx),
+        (list + 1, rows + 1, roster + 1),
+        "a message posted"
+    );
+    changes.send(None);
+    cx.run_until_parked();
+    assert_eq!(
+        counts(&cx),
+        (list + 2, rows + 2, roster + 2),
+        "a reopened link"
+    );
 }
 
 /// `CHAT_SCREEN_EXPORT=1` writes the opened room's tree for the app's

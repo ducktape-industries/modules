@@ -3,7 +3,7 @@ use crate::{Context, InteractiveElement, ParentElement, Render, Task, View, Wind
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use crate::methods::Changes;
+use crate::methods::{Change, Changes};
 use crate::testing::Probe;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -24,7 +24,7 @@ impl View for Streams {
             while let Some(value) = stream.next().await {
                 let pending = this
                     .update(cx, |view, cx| {
-                        view.values.push(value.unwrap().unwrap());
+                        view.values.push(value.unwrap().unwrap().height);
                         cx.notify();
                         view.pending_after_item
                     })
@@ -78,7 +78,10 @@ fn a_stream_task_awaiting_other_work_is_not_safe_to_snapshot() {
         view.pending_after_item = true;
         cx.notify();
     });
-    feed.send(Some(1));
+    feed.send(Some(Change {
+        height: 1,
+        keys: Vec::new(),
+    }));
     cx.tick(vec![]);
     streams.read(|view| assert_eq!(view.values, [1]));
     assert!(cx.snapshot().is_err());
@@ -90,7 +93,11 @@ fn a_hot_stream_yields_to_the_tick_budget_and_preserves_item_order() {
     let id = cx.last_frame().requests[0].id;
     let host = cx.app_mut().host();
     for value in 0..1000u64 {
-        host.fulfill(id, Ok(crate::methods::encode(&Some(value))), false);
+        let block = Some(Change {
+            height: value,
+            keys: Vec::new(),
+        });
+        host.fulfill(id, Ok(crate::methods::encode(&block)), false);
     }
     assert!(cx.tick(vec![]).busy);
     streams.read(|view| assert!(view.values.len() < 1000));

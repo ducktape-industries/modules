@@ -13,7 +13,7 @@ use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::{Entity, Theme, wire};
 use forge::{ChangeFilter, ChangeState, Op, PageRequest, PageResponse, Query, Reply};
 
-use ducktape_view_guest::methods::Changes;
+use ducktape_view_guest::methods::{Change, Changes};
 use program::role::Identity;
 
 #[path = "../../forge/fixtures/loader.rs"]
@@ -234,6 +234,31 @@ pub(crate) fn booted_as(mode: &'static str, account: u64) -> (TestAppContext, En
     (cx, view)
 }
 
+/// A block at `height` that wrote `keys`, as `module.changes` carries it.
+fn block(height: u64, keys: Vec<Vec<u8>>) -> Option<Change> {
+    Some(Change { height, keys })
+}
+
+/// What a push writes: the ref it moved.
+fn ref_key() -> Vec<u8> {
+    forge::tables::REFS.key(&("project".to_owned(), b"refs/heads/main".to_vec()))
+}
+
+/// What a review writes: its record.
+fn review_key() -> Vec<u8> {
+    forge::tables::REVIEWS.key(&("project".to_owned(), 1u64, 1u64))
+}
+
+/// What a message posted in `channel` writes: its root.
+fn root_key(channel: &str) -> Vec<u8> {
+    chat::tables::ROOTS.key(&(channel.to_owned(), 0u64))
+}
+
+/// What joining `channel` writes: a member row.
+fn member_key(channel: &str) -> Vec<u8> {
+    chat::tables::MEMBERS.key(&(channel.to_owned(), forge::Principal::Account(2)))
+}
+
 /// The live heads of the three programs forge follows, in the test's hands.
 struct Heads {
     forge: StreamSender<Changes<forge::Forge>>,
@@ -266,28 +291,31 @@ fn followed(mode: &'static str) -> (TestAppContext, Heads) {
     (cx, heads)
 }
 
-/// A block that changed nothing on screen: a head of each program forge
-/// follows re-reads every query the repository page shows, the same
-/// replies land, and the view draws nothing for the heads or the landings.
+/// A block that changed nothing on screen: a forge block re-reads the
+/// reads of the tables it wrote to, a chat block and an identity block
+/// re-read no forge read at all, the same replies land, and the view draws
+/// nothing for the items or the landings.
 #[test]
 fn a_block_whose_rereads_land_the_same_replies_draws_nothing() {
     let (mut cx, heads) = followed("default");
     let renders = cx.renders();
-    let sends: [(&str, &dyn Fn()); 3] = [
-        ("forge", &|| heads.forge.send(Some(100))),
-        ("chat", &|| heads.chat.send(Some(101))),
-        ("identity", &|| heads.identity.send(Some(102))),
-    ];
-    for (program, send) in sends {
-        let asked = cx.host().requests::<Ask>().len();
-        send();
-        cx.run_until_parked();
-        assert!(
-            cx.host().requests::<Ask>().len() >= asked + 4,
-            "{program}: the page re-read"
-        );
-        assert_eq!(cx.renders(), renders, "{program}'s head drew nothing");
-    }
+    let asked = cx.host().requests::<Ask>().len();
+    heads.forge.send(block(100, vec![ref_key()]));
+    cx.run_until_parked();
+    assert!(
+        cx.host().requests::<Ask>().len() > asked,
+        "the refs re-read"
+    );
+    let asked = cx.host().requests::<Ask>().len();
+    heads.chat.send(block(101, vec![root_key("general")]));
+    heads.identity.send(block(102, Vec::new()));
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<Ask>().len(),
+        asked,
+        "no forge read moved"
+    );
+    assert_eq!(cx.renders(), renders, "nothing drew");
 }
 
 /// A refusal on screen is asked again with each block, without a Retry:
@@ -312,14 +340,16 @@ fn a_refused_read_is_asked_again_with_each_block_until_it_answers() {
             .count()
     };
     let (renders, asked) = (cx.renders(), logs(&cx));
-    heads.forge.send(Some(100));
+    // a block that wrote nothing the log reads asks a refusal again all the
+    // same: forge refuses a listing `stale` when any op moved its count
+    heads.forge.send(block(100, vec![review_key()]));
     cx.run_until_parked();
     assert_eq!(logs(&cx), asked + 1, "the refusal was asked again");
     assert!(cx.has_text(&sentence));
     assert_eq!(cx.renders(), renders, "a refusal that holds drew nothing");
     cx.host()
         .handle::<Ask>(|query| Ok(answer(&query, "default")));
-    heads.forge.send(Some(101));
+    heads.forge.send(block(101, vec![review_key()]));
     cx.run_until_parked();
     assert!(!cx.has_text(&sentence), "{:?}", cx.texts());
     assert!(cx.has_text("Feature"), "{:?}", cx.texts());
@@ -350,13 +380,17 @@ fn a_refused_conversation_is_asked_again_with_each_block_until_it_answers() {
         cx.texts()
     );
     let renders = cx.renders();
-    heads.chat.send(Some(100));
+    heads
+        .chat
+        .send(block(100, vec![member_key("forge:project:1")]));
     cx.run_until_parked();
     assert!(cx.find("forge-conversation-refused").is_some());
     assert_eq!(cx.renders(), renders, "a refusal that holds drew nothing");
     cx.host()
         .handle::<ProgramQuery<::chat::Chat>>(|query| Ok(chat_answer(query)));
-    heads.chat.send(Some(101));
+    heads
+        .chat
+        .send(block(101, vec![member_key("forge:project:1")]));
     cx.run_until_parked();
     assert!(
         cx.find("forge-conversation-refused").is_none(),
@@ -376,7 +410,9 @@ fn a_block_leaves_a_read_still_out_to_land() {
     cx.run_until_parked();
     let blocks = |cx: &mut TestAppContext| {
         for height in 100..103 {
-            heads.chat.send(Some(height));
+            heads
+                .chat
+                .send(block(height, vec![root_key("forge:project:1")]));
             cx.run_until_parked();
         }
     };
@@ -1902,4 +1938,145 @@ fn a_ref_without_compare_is_a_grid_row_of_one_cell() {
     cx.simulate_key_down("forge-refs-list", "enter");
     cx.run_until_parked();
     view.read(|forge| assert_eq!(forge.head_name(), b"refs/tags/v1".to_vec()));
+}
+
+// ---------- what one block costs a repository page ----------
+
+/// The variant name of a forge query, for a count by kind.
+fn kind(query: &Query) -> String {
+    let text = format!("{query:?}");
+    text.split([' ', '(', '{']).next().unwrap_or("?").to_owned()
+}
+
+struct Costed {
+    cx: TestAppContext,
+    forge_heads: StreamSender<Changes<forge::Forge>>,
+    chat_heads: StreamSender<Changes<::chat::Chat>>,
+    identity_heads: StreamSender<Changes<Identity>>,
+    /// bytes of every forge reply the fake node handed back
+    reply_bytes: std::rc::Rc<std::cell::RefCell<usize>>,
+}
+
+/// `followed("default")` with the forge reply bytes counted.
+fn costed() -> Costed {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx, "default");
+    let reply_bytes = std::rc::Rc::new(std::cell::RefCell::new(0usize));
+    let counted = reply_bytes.clone();
+    cx.host().handle::<Ask>(move |query| {
+        let reply = answer(&query, "default");
+        *counted.borrow_mut() += borsh::to_vec(&reply).unwrap().len();
+        Ok(reply)
+    });
+    let forge_heads = cx.host().stream::<Changes<forge::Forge>>();
+    let chat_heads = cx.host().stream::<Changes<::chat::Chat>>();
+    let identity_heads = cx.host().stream::<Changes<Identity>>();
+    let props = cx.host().stream::<HostSession>();
+    cx.open::<Forge>();
+    cx.run_until_parked();
+    props.send(Session {
+        signer: abi::hex(b"reviewer"),
+        account: Some(2),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    cx.run_until_parked();
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    Costed {
+        cx,
+        forge_heads,
+        chat_heads,
+        identity_heads,
+        reply_bytes,
+    }
+}
+
+/// The forge asks one live item costs, by kind, printed with the reply
+/// bytes as `AUDIT <label>`.
+fn costs(
+    costed: &mut Costed,
+    label: &str,
+    send: impl FnOnce(&Costed),
+) -> std::collections::BTreeMap<String, usize> {
+    let before = costed.cx.host().requests::<Ask>().len();
+    let bytes_before = *costed.reply_bytes.borrow();
+    send(costed);
+    costed.cx.run_until_parked();
+    let asked = costed.cx.host().requests::<Ask>();
+    let mut by_kind = std::collections::BTreeMap::new();
+    for query in &asked[before..] {
+        *by_kind.entry(kind(query)).or_insert(0) += 1;
+    }
+    eprintln!(
+        "AUDIT {label}: {} module.query asks, {} reply bytes, by kind {by_kind:?}",
+        asked.len() - before,
+        *costed.reply_bytes.borrow() - bytes_before
+    );
+    by_kind
+}
+
+/// What one block costs the repository page: the reads of the tables it
+/// wrote to, and nothing else. A review written re-reads nothing the Readme
+/// tab shows (before, any block of any of the three programs re-read all of
+/// it: 8 asks, 1,554 bytes); a ref moved re-reads the refs and what hangs
+/// off them; the repo record written re-reads the repositories and the
+/// activity; a chat block re-reads no forge read; an identity block only
+/// the names; and a reopened link (`None`) re-reads everything.
+#[test]
+fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
+    let mut costed = costed();
+    let review = costs(&mut costed, "Readme tab, a review written", |c| {
+        c.forge_heads.send(block(100, vec![review_key()]))
+    });
+    assert!(review.is_empty(), "{review:?}");
+    let pushed = costs(&mut costed, "Readme tab, a ref moved", |c| {
+        c.forge_heads.send(block(101, vec![ref_key()]))
+    });
+    assert_eq!(
+        pushed.keys().collect::<Vec<_>>(),
+        ["Blob", "Refs", "Tree"],
+        "{pushed:?}"
+    );
+    let repo = forge::tables::REPOS.key(&"project".to_owned());
+    let configured = costs(&mut costed, "Readme tab, the repo record written", |c| {
+        c.forge_heads.send(block(102, vec![repo]))
+    });
+    assert_eq!(
+        configured.keys().collect::<Vec<_>>(),
+        ["Activity", "Repo", "Repos"],
+        "{configured:?}"
+    );
+    let chat = costs(&mut costed, "Readme tab, one Changes<chat> item", |c| {
+        c.chat_heads.send(block(103, vec![root_key("general")]))
+    });
+    assert!(chat.is_empty(), "{chat:?}");
+    let names = costed
+        .cx
+        .host()
+        .requests::<ProgramQuery<::chat::Chat>>()
+        .len();
+    let identity = costs(&mut costed, "Readme tab, one Changes<identity> item", |c| {
+        c.identity_heads.send(block(104, Vec::new()))
+    });
+    assert!(identity.is_empty(), "{identity:?}");
+    assert!(
+        costed
+            .cx
+            .host()
+            .requests::<ProgramQuery<::chat::Chat>>()
+            .len()
+            > names,
+        "the names re-read"
+    );
+    let all = costs(&mut costed, "Readme tab, a reopened link (None)", |c| {
+        c.forge_heads.send(None)
+    });
+    assert_eq!(
+        all.keys().collect::<Vec<_>>(),
+        ["Activity", "Blob", "Refs", "Repo", "Repos", "Tree"],
+        "{all:?}"
+    );
+    assert_eq!(all.values().sum::<usize>(), 8);
 }

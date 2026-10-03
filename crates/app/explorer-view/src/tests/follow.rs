@@ -28,7 +28,10 @@ fn an_identity_head_re_reads_the_accounts() {
             next: None,
         }))
     });
-    heads.send(Some(13));
+    heads.send(Some(ducktape_view_guest::methods::Change {
+        height: 13,
+        keys: Vec::new(),
+    }));
     cx.run_until_parked();
     assert!(cx.has_text("Module · chess"), "{:?}", cx.texts());
     assert!(cx.has_text("Agent · managed by Ada · suspended"), "kept");
@@ -63,7 +66,10 @@ fn a_registry_head_re_reads_the_programs() {
             other => panic!("unexpected query: {other:?}"),
         })
     });
-    heads.send(Some(13));
+    heads.send(Some(ducktape_view_guest::methods::Change {
+        height: 13,
+        keys: Vec::new(),
+    }));
     cx.run_until_parked();
     assert!(
         cx.has_text("3 programs") && cx.has_text("chess"),
@@ -113,4 +119,65 @@ fn refused_accounts_say_why_and_retry_reads_again() {
     cx.simulate_click("explorer-retry");
     cx.run_until_parked();
     assert!(cx.has_text("Module · forge"), "{:?}", cx.texts());
+}
+
+/// A pushed head asks the node for the blocks since the top, so one new
+/// block costs one block, not a page of 20 (`chain.blocks { before: None,
+/// limit: 20 }` per head, 2.3-2.6 KB carried for 1 new block on this
+/// fixture chain, before).
+#[test]
+fn a_pushed_head_asks_for_the_blocks_since_the_top() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(12u64));
+    node(&mut cx, tip.clone());
+    let bytes = Rc::new(RefCell::new(0usize));
+    {
+        let (tip, bytes) = (tip.clone(), bytes.clone());
+        cx.host().handle::<ChainBlocks>(move |ask| {
+            let page = page(&chain(*tip.borrow()), &ask);
+            *bytes.borrow_mut() += borsh::to_vec(&page).unwrap().len();
+            Ok(page)
+        });
+    }
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-transactions");
+    cx.run_until_parked();
+    for head in 13..=15u64 {
+        let asked = cx.host().requests::<ChainBlocks>().len();
+        let bytes_before = *bytes.borrow();
+        *tip.borrow_mut() = head;
+        heads.send(Head {
+            height: head,
+            time: T0 + head * 1000,
+            id: [(head as u8).wrapping_add(100); 32],
+        });
+        cx.run_until_parked();
+        let new: Vec<_> = cx.host().requests::<ChainBlocks>()[asked..]
+            .iter()
+            .map(|ask| (ask.before, ask.limit))
+            .collect();
+        eprintln!(
+            "AUDIT head {head}: {} chain.blocks asks {new:?}, {} block bytes carried for 1 new block",
+            new.len(),
+            *bytes.borrow() - bytes_before
+        );
+        assert_eq!(new, [(None, 1)]);
+    }
+    // a head three blocks on asks for the three
+    *tip.borrow_mut() = 18;
+    let asked = cx.host().requests::<ChainBlocks>().len();
+    heads.send(Head {
+        height: 18,
+        time: T0 + 18_000,
+        id: [118; 32],
+    });
+    cx.run_until_parked();
+    let new: Vec<_> = cx.host().requests::<ChainBlocks>()[asked..]
+        .iter()
+        .map(|ask| (ask.before, ask.limit))
+        .collect();
+    assert_eq!(new, [(None, 3)]);
+    assert!(cx.has_text("3 transactions in the last 19 blocks"), "{:?}", cx.texts());
 }

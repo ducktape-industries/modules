@@ -252,7 +252,13 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 }],
             },
         ),
-        exchange::<methods::Changes<Golden>>((), Some(9)),
+        exchange::<methods::Changes<Golden>>(
+            (),
+            Some(methods::Change {
+                height: 9,
+                keys: vec![b"a/1".to_vec(), b"b".to_vec()],
+            }),
+        ),
         exchange::<methods::Changes<Golden>>((), None),
         exchange::<ChainBlocks>(
             BlockPage {

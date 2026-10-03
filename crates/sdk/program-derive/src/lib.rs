@@ -1,15 +1,17 @@
 //! `#[derive(Ask)]` on a program's `Query`: one type per variant, asked
-//! alone, each knowing the reply that answers it (`program::Ask`).
+//! alone, each knowing the reply that answers it (`program::Ask`), and
+//! which tables each variant reads (`program::Reads`, from `#[reads(..)]`).
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
+use syn::punctuated::Punctuated;
 use syn::{
     Attribute, Data, DeriveInput, Error, Fields, Ident, Path, Token, Type, braced, parenthesized,
     parse_macro_input,
 };
 
-#[proc_macro_derive(Ask, attributes(ask))]
+#[proc_macro_derive(Ask, attributes(ask, reads))]
 pub fn derive_ask(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     asks(&input)
@@ -57,6 +59,21 @@ fn ask_attr(attrs: &[Attribute]) -> Option<&Attribute> {
     attrs.iter().find(|attr| attr.path().is_ident("ask"))
 }
 
+/// What `#[reads(TABLE, ..)]` on a variant says a block must have written
+/// to for the answer to have moved: a block that wrote a key one of the
+/// tables owns. With no attribute, any block of the program (`true`).
+fn touched_by(attrs: &[Attribute]) -> syn::Result<Tokens> {
+    let Some(attr) = attrs.iter().find(|attr| attr.path().is_ident("reads")) else {
+        return Ok(quote!(true));
+    };
+    let tables = attr.parse_args_with(Punctuated::<Path, Token![,]>::parse_terminated)?;
+    if tables.is_empty() {
+        return Ok(quote!(false));
+    }
+    let owns = tables.iter().map(|table| quote!(#table.owns(key)));
+    Ok(quote!(keys.iter().any(|key| #(#owns)||*)))
+}
+
 fn docs(attrs: &[Attribute]) -> impl Iterator<Item = &Attribute> {
     attrs.iter().filter(|attr| attr.path().is_ident("doc"))
 }
@@ -79,12 +96,15 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
         .parse_args()?;
     let mut types = Vec::new();
     let mut impls = Vec::new();
+    let mut touched = Vec::new();
     for variant in &data.variants {
+        let name = &variant.ident;
+        let touched_by = touched_by(&variant.attrs)?;
+        touched.push(quote!(#query::#name { .. } => #touched_by));
         let Some(attr) = ask_attr(&variant.attrs) else {
             continue;
         };
         let answer: Answer = attr.parse_args()?;
-        let name = &variant.ident;
         let variant_docs = docs(&variant.attrs);
         let (shape, unpack, pack) = match &variant.fields {
             Fields::Named(fields) => {
@@ -155,6 +175,14 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
                     }
                 }
             }
+
+            impl ::program::Reads for ask::#name {
+                // an undeclared variant answers `true` without reading `keys`
+                #[allow(unused_variables)]
+                fn touched_by(&self, keys: &[::std::vec::Vec<u8>]) -> bool {
+                    #touched_by
+                }
+            }
         });
     }
     let doc = format!(
@@ -162,12 +190,28 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
          variant, it is that variant on the wire, and [`program::Ask`] names \
          the reply that answers it."
     );
+    // a `Query` no caller asks alone (only `#[reads]`) has no `ask` module
+    let asks = (!types.is_empty()).then(|| {
+        quote! {
+            #[doc = #doc]
+            pub mod ask {
+                #[allow(unused_imports)]
+                use super::*;
+                #(#types)*
+            }
+        }
+    });
     Ok(quote! {
-        #[doc = #doc]
-        pub mod ask {
-            #[allow(unused_imports)]
-            use super::*;
-            #(#types)*
+        #asks
+
+        impl ::program::Reads for #query {
+            // a `Query` with no `#[reads]` answers `true` without reading `keys`
+            #[allow(unused_variables)]
+            fn touched_by(&self, keys: &[::std::vec::Vec<u8>]) -> bool {
+                match self {
+                    #(#touched,)*
+                }
+            }
         }
 
         #(#impls)*

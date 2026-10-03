@@ -26,6 +26,7 @@ use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
 
 use identity::Identity;
+use valset::Valset;
 
 pub use activity::Recent;
 
@@ -160,6 +161,7 @@ impl View for Members {
                 }
                 Err(refusal) => cx.host().log_refused("members", "the session", &refusal),
             }));
+        // the roster joins two programs: a block of either re-reads it
         let changes = cx.host().subscribe::<Changes<Identity>>(());
         self.watches.push(cx.for_each(changes, |view, bump, _, cx| {
             match bump {
@@ -169,6 +171,17 @@ impl View for Members {
                     .log_refused("members", "identity's live heads", &refusal),
             }
         }));
+        let standing = cx.host().subscribe::<Changes<Valset>>(());
+        self.watches
+            .push(cx.for_each(standing, |view, bump, _, cx| {
+                match bump {
+                    Ok(_) => view.read(cx),
+                    Err(refusal) => {
+                        cx.host()
+                            .log_refused("members", "valset's live heads", &refusal)
+                    }
+                }
+            }));
         // the reader's zone, for the day a key was added
         let offset = cx.host().subscribe::<HostOffset>(());
         self.watches
@@ -192,7 +205,7 @@ impl Render for Members {
 
 impl Members {
     /// One read of both programs — the boot, a retry, a restore, a live
-    /// bump. Rows already on screen stay there while it runs, so a bump
+    /// bump of either. Rows already on screen stay there while it runs, so a bump
     /// never blinks the list back to "Loading", and a bump that changed no
     /// row draws nothing; a refused bump is logged and leaves them. A newer
     /// read cancels the one before.

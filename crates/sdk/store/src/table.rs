@@ -130,6 +130,11 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
     pub fn prefix(&self) -> &'static str {
         self.prefix
     }
+
+    /// Whether `key`, as a block's writes list it, is a row of this table.
+    pub fn owns(&self, key: &[u8]) -> bool {
+        key.starts_with(self.prefix.as_bytes())
+    }
 }
 
 /// A [`Map`] with no values: which keys are present.
@@ -202,6 +207,11 @@ impl<K: KeyCodec> Set<K> {
     pub fn prefix(&self) -> &'static str {
         self.map.prefix
     }
+
+    /// Whether `key`, as a block's writes list it, is a row of this set.
+    pub fn owns(&self, key: &[u8]) -> bool {
+        self.map.owns(key)
+    }
 }
 
 /// One value at one key of this module's state: a counter, the params
@@ -239,6 +249,11 @@ impl<T: BorshSerialize + BorshDeserialize> Item<T> {
         change(&mut value);
         self.put(ctx, &value);
         Ok(value)
+    }
+
+    /// Whether `key`, as a block's writes list it, is this item.
+    pub fn owns(&self, key: &[u8]) -> bool {
+        key == self.key.as_bytes()
     }
 }
 

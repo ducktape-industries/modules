@@ -403,15 +403,49 @@ mod ask_tests {
         type Reply = Said;
     }
 
+    /// A table as a program declares one: `#[reads]` asks it `owns` alone.
+    struct Table(&'static str);
+    impl Table {
+        fn owns(&self, key: &[u8]) -> bool {
+            key.starts_with(self.0.as_bytes())
+        }
+    }
+    const PRICES: Table = Table("price/");
+    const STOCK: Table = Table("stock/");
+
     #[derive(Clone, Debug, BorshSerialize, BorshDeserialize, ::program::Ask)]
     #[ask(Shop)]
     pub enum Asked {
         #[ask(Said::Price(u64))]
+        #[reads(PRICES)]
         Price { item: String },
         #[ask(Said::Stock { count: u32, at: u64 })]
+        #[reads(STOCK, PRICES)]
         Stock(String),
         #[ask(Said::Open(bool))]
         Open,
+    }
+
+    /// A block's change touches the questions that read a table it wrote
+    /// to, asked of the query or of its ask type alike; a question that
+    /// declares nothing is touched by every block.
+    #[test]
+    fn a_change_touches_the_questions_that_read_what_it_wrote() {
+        let change = crate::methods::Change {
+            height: 3,
+            keys: vec![b"stock/tea".to_vec()],
+        };
+        assert!(!change.touches(&ask::Price { item: "tea".into() }));
+        assert!(change.touches(&ask::Stock("tea".into())));
+        assert!(change.touches(&ask::Open));
+        assert!(change.touches(&Asked::Stock("tea".into())));
+        assert!(!change.touches(&Asked::Price { item: "tea".into() }));
+        let elsewhere = crate::methods::Change {
+            height: 4,
+            keys: vec![b"shelf/1".to_vec()],
+        };
+        assert!(!elsewhere.touches(&ask::Stock("tea".into())));
+        assert!(elsewhere.touches(&Asked::Open));
     }
 
     #[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]

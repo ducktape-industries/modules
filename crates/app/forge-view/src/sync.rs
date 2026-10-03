@@ -6,11 +6,12 @@ use std::collections::BTreeSet;
 use ducktape_view_guest::Context;
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::host::Error;
+use ducktape_view_guest::methods::Change;
 
 use crate::api::Session;
 use crate::queries::{self, PAGE};
 use crate::state::{ChangeTab, Filter, Forge, Progress, RepoTab};
-use forge::{ChangeFilter, ChangeState, Query, Revision};
+use forge::{ChangeFilter, ChangeState, PageRequest, Query, Revision};
 
 /// How many branches the Refs screen compares against the default head in
 /// one pass. Beyond that the screen says so rather than walking a fleet of
@@ -52,14 +53,36 @@ impl Forge {
         self.data.insert(query, Loadable::Loading(task));
     }
 
-    /// Ask again for everything on screen, keeping what is there until the
-    /// fresh answer lands; a read that lands what is there draws nothing.
-    /// Each read lives in its slot, or beside the refusal it shows, so a
-    /// screen the reader leaves drops its reads with it. A read still out
-    /// is left to land: its landing runs `sync`, and the next block asks it
-    /// again. A refusal stays on screen while it is asked again, and an
-    /// answer replaces it.
+    /// Everything on screen, asked again: the view came back into sight.
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.reread(|_| true, cx);
+        self.reread_conversations(None, cx);
+    }
+
+    /// A forge block landed: retire the ops it carried, then ask again for
+    /// the reads it wrote to. `None` is a reopened node link: everything is
+    /// asked again.
+    pub(crate) fn reconcile(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        let pending = self.pending.len();
+        self.pending.retain(|op| op.progress != Progress::Accepted);
+        if self.pending.len() != pending {
+            cx.notify();
+        }
+        self.reread(
+            |query| change.is_none_or(|change| change.touches(query)),
+            cx,
+        );
+    }
+
+    /// Asks again for the reads on screen that `touched` names, keeping what
+    /// is there until the fresh answer lands; a read that lands what is
+    /// there draws nothing. Each read lives in its slot, or beside the
+    /// refusal it shows, so a screen the reader leaves drops its reads with
+    /// it. A read still out is left to land: its landing runs `sync`, and
+    /// the next block asks it again. A refusal is asked again with every
+    /// block, whatever it wrote: forge refuses a listing `stale` when any
+    /// op moved its count, and the answer replaces the refusal.
+    fn reread(&mut self, touched: impl Fn(&Query) -> bool, cx: &mut Context<Self>) {
         for (query, slot) in self.data.iter_mut() {
             let landing = query.clone();
             match slot {
@@ -74,47 +97,58 @@ impl Forge {
                     });
                     self.rereading.insert(query.clone(), task);
                 }
-                Loadable::Ready(_) | Loadable::Reloading(..) => {
+                Loadable::Ready(_) | Loadable::Reloading(..) if touched(query) => {
                     let work = queries::fetch(cx.host(), query.clone());
                     cx.reload(slot, work, move |forge| {
                         forge.data.entry(landing.clone()).or_insert(Loadable::Idle)
                     })
                 }
+                Loadable::Ready(_) | Loadable::Reloading(..) => {}
             }
         }
-        let viewer = self.viewer();
+        self.sync(cx);
+    }
+
+    /// A chat block landed: the change conversations it wrote to are read
+    /// again (`None`: every one), on the same terms as [`Self::reread`].
+    pub(crate) fn reread_conversations(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        let (host, viewer) = (cx.host(), self.viewer());
         for (channel, slot) in self.messages.iter_mut() {
             let landing = channel.clone();
+            let rows = || queries::conversation(host.clone(), channel.clone(), viewer.clone());
             match slot {
                 Loadable::Idle | Loadable::Loading(_) => {}
                 Loadable::Failed(_) => {
-                    let rows = queries::conversation(cx.host(), channel.clone(), viewer.clone());
-                    let task = cx.refresh(rows, move |forge, result, cx| {
+                    let task = cx.refresh(rows(), move |forge, result, cx| {
                         if replaces_refusal(forge.messages.get_mut(&landing), result) {
                             cx.notify();
                         }
                     });
                     self.rereading_messages.insert(channel.clone(), task);
                 }
-                Loadable::Ready(_) | Loadable::Reloading(..) => {
-                    let rows = queries::conversation(cx.host(), channel.clone(), viewer.clone());
-                    cx.reload(slot, rows, move |forge| {
+                Loadable::Ready(_) | Loadable::Reloading(..)
+                    if change.is_none_or(|change| {
+                        change.touches(&chat::ask::Roots {
+                            channel_id: channel.clone(),
+                            viewer: viewer.clone(),
+                            page: PageRequest::default(),
+                        })
+                    }) =>
+                {
+                    cx.reload(slot, rows(), move |forge| {
                         forge.messages.entry(landing.clone()).or_default()
                     })
                 }
+                Loadable::Ready(_) | Loadable::Reloading(..) => {}
             }
         }
-        self.sync(cx);
     }
 
-    /// A new block landed: retire what it carried, then re-read.
-    pub(crate) fn reconcile(&mut self, cx: &mut Context<Self>) {
-        let pending = self.pending.len();
-        self.pending.retain(|op| op.progress != Progress::Accepted);
-        if self.pending.len() != pending {
-            cx.notify();
-        }
-        self.refresh(cx);
+    /// An identity block landed: the names are read again.
+    pub(crate) fn reread_names(&mut self, cx: &mut Context<Self>) {
+        cx.reload(&mut self.names, queries::roster(cx.host()), |forge| {
+            &mut forge.names
+        });
     }
 
     /// Retry one read the reader asked to retry.

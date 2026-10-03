@@ -124,7 +124,10 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
     assert!(!cx.has_text("gary"));
 
     known.set(true);
-    live.send(Some(1));
+    live.send(Some(ducktape_view_guest::methods::Change {
+        height: 1,
+        keys: Vec::new(),
+    }));
     cx.run_until_parked();
 
     assert!(
@@ -192,7 +195,10 @@ fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
     });
 
     known.set(true);
-    live.send(Some(1));
+    live.send(Some(ducktape_view_guest::methods::Change {
+        height: 1,
+        keys: Vec::new(),
+    }));
     cx.run_until_parked();
 
     view.read(|chat| {

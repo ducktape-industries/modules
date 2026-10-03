@@ -174,16 +174,38 @@ impl<P: Program> Method for Submit<P> {
     }
 }
 
-/// `module.changes`: a subscription to `P`, one item per block that wrote to it,
-/// carrying its height; `None` when the node link was reopened and the view
-/// should re-read. The request is `P`'s name, as the host reads it.
+/// One block's writes to a program, as `module.changes` carries them: the
+/// block's height and every key it wrote under the program, as the node
+/// publishes them. A view asks it which of its reads moved
+/// ([`Change::touches`]) and re-reads those.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Change {
+    pub height: u64,
+    pub keys: Vec<Vec<u8>>,
+}
+
+impl Change {
+    /// Whether this block can have changed the answer to `query`: it wrote
+    /// a key of a table the query reads, as the program declares them
+    /// ([`program::Reads`]). A query whose program declares nothing for it
+    /// is touched by every block.
+    pub fn touches<Q: program::Reads + ?Sized>(&self, query: &Q) -> bool {
+        query.touched_by(&self.keys)
+    }
+}
+
+/// `module.changes`: a subscription to `P`, one item per block that wrote to
+/// it, carrying the block's height and the keys it wrote ([`Change`]);
+/// `None` when the node link was reopened and the view should re-read
+/// everything. The request is `P`'s name, as the host reads it.
 pub struct Changes<P>(std::marker::PhantomData<P>);
 impl<P: Program> sealed::Sealed for Changes<P> {}
 impl<P: Program> Method for Changes<P> {
     const KIND: &'static str = "module.changes";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = ();
-    type Reply = Option<u64>;
+    type Reply = Option<Change>;
     fn encode_request(_: &()) -> Vec<u8> {
         encode(&P::NAME.to_owned())
     }
@@ -194,10 +216,10 @@ impl<P: Program> Method for Changes<P> {
             false => Err(format!("expected program {}, got {name}", P::NAME)),
         }
     }
-    fn encode_reply(reply: &Option<u64>) -> Vec<u8> {
+    fn encode_reply(reply: &Option<Change>) -> Vec<u8> {
         encode(reply)
     }
-    fn decode_reply(bytes: &[u8]) -> Result<Option<u64>, String> {
+    fn decode_reply(bytes: &[u8]) -> Result<Option<Change>, String> {
         decode(bytes)
     }
 }

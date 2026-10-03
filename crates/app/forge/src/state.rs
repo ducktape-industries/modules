@@ -13,32 +13,32 @@ use crate::contract::{Bounds, Change, Principal, Repo, Review, Revision, valid_r
 use crate::objects::hash_of;
 
 /// The bounds forge was founded with.
-const BOUNDS: Item<Bounds> = Item::new("bounds");
+pub const BOUNDS: Item<Bounds> = Item::new("bounds");
 /// How many ops forge has accepted. Every listing cursor is pinned to it:
 /// only a forge op rewrites a listing, and two ops in one block share a
 /// height but not a count.
-const WRITES: Item<u64> = Item::new("writes");
+pub const WRITES: Item<u64> = Item::new("writes");
 /// One record per repository, by name.
-const REPOS: Map<String, Repo> = Map::new("p/");
+pub const REPOS: Map<String, Repo> = Map::new("p/");
 /// Index: every repository by its last activity, newest first.
-pub(crate) const ACTIVITY: Set<(u64, String)> = Set::new("a/");
+pub const ACTIVITY: Set<(u64, String)> = Set::new("a/");
 /// The principals the owner granted writes to, by repository.
-pub(crate) const WRITERS: Set<(String, Principal)> = Set::new("w/");
+pub const WRITERS: Set<(String, Principal)> = Set::new("w/");
 /// Each repository's refs and the oid bytes each points at.
-pub(crate) const REFS: Map<(String, Vec<u8>), Vec<u8>> = Map::new("r/");
+pub const REFS: Map<(String, Vec<u8>), Vec<u8>> = Map::new("r/");
 /// The last change number each repository gave out.
-const NUMBERS: Map<String, u64> = Map::new("n/");
+pub const NUMBERS: Map<String, u64> = Map::new("n/");
 /// Changes by repository and number; a scan across repositories lists them
 /// by name (Judgment pages this table whole).
-pub(crate) const CHANGES: Map<(String, u64), Change> = Map::new("c/");
+pub const CHANGES: Map<(String, u64), Change> = Map::new("c/");
 /// Reviews by repository, change number and review id.
-pub(crate) const REVIEWS: Map<(String, u64, u64), Review> = Map::new("v/");
+pub const REVIEWS: Map<(String, u64, u64), Review> = Map::new("v/");
 /// Index: the reviews one principal submitted on one change, oldest first.
-pub(crate) const AUTHORED: Set<(String, u64, Principal, u64)> = Set::new("u/");
+pub const AUTHORED: Set<(String, u64, Principal, u64)> = Set::new("u/");
 /// Index: the changes a principal authored, is asked to review, or reviewed.
-pub(crate) const INVOLVED: Set<(Principal, String, u64)> = Set::new("i/");
+pub const INVOLVED: Set<(Principal, String, u64)> = Set::new("i/");
 /// The last system message id forge posted into chat.
-const MESSAGES: Item<u64> = Item::new("system-message-seq");
+pub const MESSAGES: Item<u64> = Item::new("system-message-seq");
 
 /// Stored state that is not what forge wrote: an operator's problem.
 pub(crate) fn storage(sentence: impl Into<String>) -> Error {

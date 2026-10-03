@@ -2,7 +2,7 @@ use super::*;
 use abi::Scheme;
 use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::methods::{
-    Block, BlockPage, ChainBlocks, Description, ModuleDescribe, Session, Tx,
+    Block, BlockPage, ChainBlocks, Change, Description, ModuleDescribe, Session, Tx,
 };
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::wire::{ContainerNode, Node};
@@ -414,11 +414,51 @@ fn a_live_bump_that_lands_the_same_roster_draws_nothing() {
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
     let (asked, renders) = (cx.host().requests::<Query<Identity>>().len(), cx.renders());
-    feed.send(Some(13));
+    feed.send(Some(Change {
+        height: 13,
+        keys: Vec::new(),
+    }));
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<Query<Identity>>().len(), asked + 1);
     assert_eq!(cx.renders(), renders, "the same roster drew nothing");
     assert!(cx.has_text("scout's bio"));
+}
+
+/// A key seated or unseated is valset's block, not identity's: the standing
+/// in the list follows it with no identity bump.
+#[test]
+fn a_valset_block_reaches_the_standing_without_an_identity_bump() {
+    let mut cx = TestAppContext::new();
+    let session = cx.host().stream::<HostSession>();
+    let standing = cx.host().stream::<Changes<Valset>>();
+    respond(&mut cx);
+    cx.open::<Members>();
+    session.send(Session {
+        account: Some(7),
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    cx.run_until_parked();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    assert!(cx.has_text("Validator"), "{:?}", cx.texts());
+    cx.host().handle::<Query<Valset>>(|_| {
+        Ok(valset::Reply::Memberships(page(vec![valset::Membership {
+            key: EDDY.to_vec(),
+            address: "10.0.0.1:4000".into(),
+            role: valset::Role::Resident,
+        }])))
+    });
+    standing.send(Some(Change {
+        height: 13,
+        keys: Vec::new(),
+    }));
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("Resident") && !cx.has_text("Validator"),
+        "{:?}",
+        cx.texts()
+    );
 }
 
 /// The detail's activity read again lands what it shows: nothing draws.
