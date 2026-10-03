@@ -91,7 +91,7 @@ impl StyledText {
         clickable_ranges: Vec<Range<usize>>,
         on_click: Option<u32>,
         on_hover: Option<u32>,
-        tooltip: Option<wire::TooltipResponse>,
+        tooltip: Option<u32>,
     ) -> wire::Node {
         let runs = match self.runs {
             Some(runs) => wire::RichTextRuns::Runs(runs.into_iter().map(Into::into).collect()),
@@ -213,27 +213,29 @@ impl Element for InteractiveText {
         } = *self;
         let id = lowering.current_path().last().cloned();
         let on_click = on_click.map(|listener| {
-            lowering.route(move |index: &u32, window, cx| listener(*index as usize, window, cx))
+            lowering.route(
+                crate::slots::Kind::RichClick,
+                move |index: &u32, window, cx| listener(*index as usize, window, cx),
+            )
         });
         let on_hover = on_hover.map(|listener| {
-            lowering.route(move |event: &wire::RichTextHover, window, cx| {
-                listener(
-                    event.index.map(|index| index as usize),
-                    MouseMoveEvent {
-                        position: event.position,
-                        pressed_button: event.pressed_button.map(Into::into),
-                        modifiers: event.modifiers,
-                    },
-                    window,
-                    cx,
-                )
-            })
+            lowering.route(
+                crate::slots::Kind::RichHover,
+                move |event: &wire::RichTextHover, window, cx| {
+                    listener(
+                        event.index.map(|index| index as usize),
+                        MouseMoveEvent {
+                            position: event.position,
+                            pressed_button: event.pressed_button.map(Into::into),
+                            modifiers: event.modifiers,
+                        },
+                        window,
+                        cx,
+                    )
+                },
+            )
         });
-        let tooltip = tooltip.map(|builder| wire::TooltipResponse {
-            request: lowering.rich_text_tooltip(builder),
-            character_index: None,
-            content: None,
-        });
+        let tooltip = tooltip.map(|builder| lowering.rich_text_tooltip(builder));
         text.lower(id, clickable_ranges, on_click, on_hover, tooltip)
     }
 }
@@ -246,8 +248,9 @@ mod tests {
     use super::*;
     use std::{cell::RefCell, rc::Rc};
 
+    /// The route is the element's: lowering it again names the same one.
     #[test]
-    fn callbacks_are_allocated_only_while_lowering_each_frame() {
+    fn a_relowered_element_keeps_its_route() {
         let make = || {
             InteractiveText::new("rich", StyledText::new("one two"))
                 .on_click(vec![0..3, 4..7], |_, _, _| {})
@@ -257,20 +260,11 @@ mod tests {
         let first = Lowering::new(&mut window, &mut app).lower(make());
         let mut window = app.window();
         let second = Lowering::new(&mut window, &mut app).lower(make());
-        assert!(matches!(
-            first,
-            wire::Node::RichText {
-                on_click: Some(0),
-                ..
-            }
-        ));
-        assert!(matches!(
-            second,
-            wire::Node::RichText {
-                on_click: Some(1),
-                ..
-            }
-        ));
+        let route = |node| match node {
+            wire::Node::RichText { on_click, .. } => on_click.expect("a click route"),
+            node => panic!("{node:?}"),
+        };
+        assert_eq!(route(first), route(second));
     }
 
     #[test]
@@ -292,7 +286,6 @@ mod tests {
         else {
             panic!("first frame route");
         };
-        crate::slots::reset(&app.inner.slots);
         let second_hits = hits.clone();
         let mut window = app.window();
         let second = Lowering::new(&mut window, &mut app).lower(

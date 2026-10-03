@@ -585,10 +585,10 @@ fn more_tooltip_responses_than_a_frame_takes_are_refused() {
     assert_frame_refused(frame(MAX_PATCHES + 1), "too many tooltip responses");
 }
 
-/// A tooltip's content is a tree inside a node, so it nests like children
-/// do: content nested past what the host walks is refused, not decoded
-/// down the host's stack. Uncounted, 100 levels (9.5 KB of frame) aborted
-/// the app.
+/// A tooltip response's content is a tree of its own, decoded on the same
+/// depth budget as the frame's tree: content nested past what the host
+/// walks is refused, not decoded down the host's stack. Uncounted, 100
+/// levels (9.5 KB of frame) aborted the app.
 #[test]
 fn tooltip_content_nested_past_what_the_host_walks_is_refused() {
     let decoded = |levels: usize| {
@@ -596,20 +596,16 @@ fn tooltip_content_nested_past_what_the_host_walks_is_refused() {
             let mut node = Node::empty();
             for _ in 0..levels {
                 node = Node::Container(view_wire::ContainerNode {
-                    interactivity: Box::new(Interactivity {
-                        tooltip: Some(Tooltip {
-                            request: 0,
-                            content: Some(Box::new(node)),
-                            hoverable: false,
-                            delay_ms: 0,
-                        }),
-                        ..Default::default()
-                    }),
+                    children: vec![node],
                     ..Default::default()
                 });
             }
             let bytes = encode(&Frame {
-                root: Some(node),
+                tooltip_responses: vec![TooltipResponse {
+                    request: 0,
+                    character_index: None,
+                    content: Some(Box::new(node)),
+                }],
                 ..Default::default()
             });
             decode::<Frame>(&bytes).map(drop)

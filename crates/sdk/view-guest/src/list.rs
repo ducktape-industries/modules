@@ -282,16 +282,22 @@ impl Element for List {
             sizing_behavior,
         } = *self;
         let request_state = state.clone();
-        let request_handler = lowering.route(move |request: &wire::ListRequest, _, app| {
-            if request_state.request(request) {
-                app.notify();
-            }
-        });
+        let request_handler = lowering.route(
+            crate::slots::Kind::ListRequest,
+            move |request: &wire::ListRequest, _, app| {
+                if request_state.request(request) {
+                    app.notify();
+                }
+            },
+        );
         let scroll_handler = state.0.scroll_handler.borrow().is_some().then(|| {
             let scroll_state = state.clone();
-            lowering.route(move |event: &wire::ListScroll, window, app| {
-                scroll_state.observe(event, window, app)
-            })
+            lowering.route(
+                crate::slots::Kind::ListScroll,
+                move |event: &wire::ListScroll, window, app| {
+                    scroll_state.observe(event, window, app)
+                },
+            )
         });
         let (item_count, alignment, overdraw, following_tail, revision, commands, range) = {
             let mut inner = state.0.inner.borrow_mut();
@@ -307,11 +313,9 @@ impl Element for List {
         };
         let mut children = Vec::with_capacity(range.len().min(wire::MAX_LIST_ROWS));
         for index in range.clone().take(wire::MAX_LIST_ROWS) {
-            let outer = lowering.enter_row(state.0.id << 32 ^ index as u64);
             let (window, app) = lowering.parts();
             let row = render_item(index, window, app);
             children.push(lowering.lower_element(row));
-            lowering.leave_row(outer);
         }
         wire::Node::List {
             state: state.0.id,

@@ -151,16 +151,20 @@ pub enum HoverListenerMode {
     InputModalityIndependent,
 }
 
+/// A node's tooltip: the route the host asks ([`Event::TooltipRequest`])
+/// when the pointer rests on the node, and how to show what comes back.
+/// The content never travels in the tree: it comes back as a
+/// [`TooltipResponse`] in the frame, and the host keeps it beside the
+/// tree, by route, for as long as the route lives.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Tooltip {
-    /// Current-frame route used to construct the tooltip after native hover.
     pub request: u32,
-    /// Host-filled response cache for the currently displayed frame.
-    pub content: Option<Box<crate::Node>>,
     pub hoverable: bool,
     pub delay_ms: u64,
 }
 
+/// What the guest built for a tooltip request: the content for the route,
+/// or `None` where the builder had nothing to show.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TooltipResponse {
     pub request: u32,

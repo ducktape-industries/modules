@@ -124,17 +124,9 @@ impl<V: View> Driver<V> {
     /// back for the view to run; everything else has already happened.
     fn dispatch(&mut self, event: wire::Event) -> Option<Callback<V>> {
         match event {
-            wire::Event::Message(index) => {
-                let slots = self.app.inner.slots.clone();
-                let mut window = self.app.window();
-                slots::run_message_route(&slots, index, &mut window, &mut self.app);
-                None
-            }
+            wire::Event::Message(handler) => self.route(handler, &()),
             wire::Event::Click { handler, event } | wire::Event::AuxClick { handler, event } => {
-                let slots = self.app.inner.slots.clone();
-                let mut window = self.app.window();
-                slots::run_click(&slots, handler, &event.into(), &mut window, &mut self.app);
-                None
+                self.route(handler, &gpui::ClickEvent::from(event))
             }
             wire::Event::MouseDown { handler, event, .. } => {
                 self.route(handler, &event.into_gpui())
@@ -249,14 +241,18 @@ impl<V: View> Driver<V> {
 
     fn tooltip(&mut self, request: u32, character_index: Option<u32>) {
         let slots = self.app.inner.slots.clone();
-        if let Some(build) = slots::tooltip_route(&slots, request) {
-            let mut window = self.app.window();
-            let content = build(
-                character_index.map(|index| index as usize),
-                &mut window,
-                &mut self.app,
-            )
-            .map(|view| Box::new(Lowering::new(&mut window, &mut self.app).lower(view)));
+        let mut window = self.app.window();
+        let built = slots::build_tooltip(
+            &slots,
+            request,
+            character_index.map(|index| index as usize),
+            &mut window,
+            &mut self.app,
+        );
+        if let Some(content) = built {
+            let content = content.map(|view| {
+                Box::new(Lowering::within_tooltip(&mut window, &mut self.app, request).lower(view))
+            });
             slots::tooltip_response(
                 &slots,
                 wire::TooltipResponse {
@@ -317,7 +313,7 @@ impl<V: View> Driver<V> {
 
     fn render_root(&mut self) -> wire::Node {
         self.renders += 1;
-        slots::reset(&self.app.inner.slots);
+        slots::begin_frame(&self.app.inner.slots);
         let mut window = self.app.window();
         let element = {
             let mut cx = Context {
@@ -330,7 +326,9 @@ impl<V: View> Driver<V> {
                 .render(&mut window, &mut cx)
                 .into_element()
         };
-        Lowering::new(&mut window, &mut self.app).lower_element(element)
+        let root = Lowering::new(&mut window, &mut self.app).lower_element(element);
+        slots::end_frame(&self.app.inner.slots);
+        root
     }
 
     /// Keeps a changed tree as the next frame's base and says what to send:

@@ -137,10 +137,6 @@ fn tooltip_delay_is_order_independent_and_builder_runs_only_after_request() {
     assert_eq!(context.entries[1].value.as_deref(), Some("help"));
     assert!(tooltip.hoverable);
     assert_eq!(tooltip.delay_ms, 250);
-    assert!(
-        tooltip.content.is_none(),
-        "ordinary render must not build the tooltip"
-    );
     cx.simulate_hover("target", true);
     let response = cx.last_frame();
     let [response] = response.tooltip_responses.as_slice() else {

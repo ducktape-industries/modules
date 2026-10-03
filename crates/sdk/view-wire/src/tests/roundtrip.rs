@@ -118,51 +118,6 @@ fn tooltip_responses_share_the_frame_node_budget() {
 }
 
 #[test]
-fn rich_tooltip_cache_and_explicit_none_share_the_frame_budget() {
-    let mut frame = Frame {
-        root: Some(Node::RichText {
-            id: Some(ElementIdWire::Name("rich".into())),
-            style: gpui::StyleRefinement::default(),
-            text: "text".into(),
-            runs: RichTextRuns::default(),
-            font_family_overrides: Vec::new(),
-            clickable_ranges: Vec::new(),
-            on_click: None,
-            on_hover: None,
-            tooltip: Some(TooltipResponse {
-                request: 2,
-                character_index: Some(0),
-                content: Some(Box::new(column(
-                    (0..MAX_NODES).map(|_| Node::empty()).collect(),
-                ))),
-            }),
-        }),
-        tooltip_responses: vec![TooltipResponse {
-            request: 2,
-            character_index: Some(1),
-            content: None,
-        }],
-        ..Default::default()
-    };
-    sanitize(&mut frame).unwrap();
-    let Node::RichText {
-        tooltip: Some(tooltip),
-        ..
-    } = frame.root.unwrap()
-    else {
-        panic!("rich tooltip")
-    };
-    assert!(
-        tooltip
-            .content
-            .as_ref()
-            .is_some_and(|content| content.count() < MAX_NODES)
-    );
-    assert_eq!(frame.tooltip_responses.len(), 1);
-    assert!(frame.tooltip_responses[0].content.is_none());
-}
-
-#[test]
 fn a_frame_round_trips() {
     let frame = Frame {
         upstream_sanitization: Default::default(),

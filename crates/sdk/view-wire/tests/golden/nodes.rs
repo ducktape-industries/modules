@@ -194,7 +194,6 @@ fn full_interactivity() -> Interactivity {
         on_file_drop_exit: Some(80),
         tooltip: Some(Tooltip {
             request: 50,
-            content: Some(boxed("tooltip content")),
             hoverable: true,
             delay_ms: 300,
         }),
@@ -457,11 +456,7 @@ fn full_nodes() -> Vec<Node> {
             clickable_ranges: vec![0..4, 5..9],
             on_click: Some(1),
             on_hover: Some(2),
-            tooltip: Some(TooltipResponse {
-                request: 40,
-                character_index: Some(5),
-                content: Some(boxed("the paragraph's own tip")),
-            }),
+            tooltip: Some(40),
         },
         Node::RichText {
             id: None,
