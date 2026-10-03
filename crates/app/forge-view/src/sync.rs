@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 use ducktape_view_guest::Context;
 use ducktape_view_guest::Loadable;
+use ducktape_view_guest::host::Error;
 
 use crate::api::Session;
 use crate::queries::{self, PAGE};
@@ -26,6 +27,7 @@ impl Forge {
         if reader_changed {
             self.names = cx.load(queries::roster(cx.host()), |forge| &mut forge.names);
             self.data.clear();
+            self.rereading.clear();
         }
         cx.notify();
         self.sync(cx);
@@ -50,42 +52,54 @@ impl Forge {
         self.data.insert(query, Loadable::Loading(task));
     }
 
-    /// Ask again for everything on screen, keeping the rows already there
-    /// until the fresh ones land; a read that lands what is there draws
-    /// nothing. Each read lives in its slot, so a screen the reader leaves
-    /// drops its reads with it. A first read still out starts over, so it
-    /// answers for this block; a refusal on screen keeps its reason and
-    /// its Retry rather than blinking to "Reading" on every block.
+    /// Ask again for everything on screen, keeping what is there until the
+    /// fresh answer lands; a read that lands what is there draws nothing.
+    /// Each read lives in its slot, or beside the refusal it shows, so a
+    /// screen the reader leaves drops its reads with it. A read still out is left to land: its landing
+    /// runs `sync`, and the next block asks it again. A refusal stays on
+    /// screen while it is asked again, and an answer replaces it.
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
-        let mut asked = Vec::new();
         for (query, slot) in self.data.iter_mut() {
+            let landing = query.clone();
+            let work = queries::fetch(cx.host(), query.clone());
             match slot {
-                Loadable::Loading(_) => asked.push(query.clone()),
-                Loadable::Failed(_) | Loadable::Idle => {}
+                Loadable::Idle | Loadable::Loading(_) => {}
+                Loadable::Failed(_) => {
+                    let task = cx.refresh(work, move |forge, result, cx| {
+                        if replaces_refusal(forge.data.get_mut(&landing), result) {
+                            cx.notify();
+                            forge.sync(cx);
+                        }
+                    });
+                    self.rereading.insert(query.clone(), task);
+                }
                 Loadable::Ready(_) | Loadable::Reloading(..) => {
-                    let landing = query.clone();
-                    cx.reload(
-                        slot,
-                        queries::fetch(cx.host(), query.clone()),
-                        move |forge| forge.data.entry(landing.clone()).or_insert(Loadable::Idle),
-                    );
+                    cx.reload(slot, work, move |forge| {
+                        forge.data.entry(landing.clone()).or_insert(Loadable::Idle)
+                    })
                 }
             }
         }
-        for query in asked {
-            self.data.remove(&query);
-            self.read(query, cx);
-        }
         let viewer = self.viewer();
         for (channel, slot) in self.messages.iter_mut() {
-            if slot.failed().is_some() {
-                continue;
-            }
             let landing = channel.clone();
             let rows = queries::conversation(cx.host(), channel.clone(), viewer.clone());
-            cx.reload(slot, rows, move |forge| {
-                forge.messages.entry(landing.clone()).or_default()
-            });
+            match slot {
+                Loadable::Idle | Loadable::Loading(_) => {}
+                Loadable::Failed(_) => {
+                    let task = cx.refresh(rows, move |forge, result, cx| {
+                        if replaces_refusal(forge.messages.get_mut(&landing), result) {
+                            cx.notify();
+                        }
+                    });
+                    self.rereading_messages.insert(channel.clone(), task);
+                }
+                Loadable::Ready(_) | Loadable::Reloading(..) => {
+                    cx.reload(slot, rows, move |forge| {
+                        forge.messages.entry(landing.clone()).or_default()
+                    })
+                }
+            }
         }
         self.sync(cx);
     }
@@ -102,6 +116,7 @@ impl Forge {
 
     /// Retry one read the reader asked to retry.
     pub(crate) fn retry(&mut self, query: Query, cx: &mut Context<Self>) {
+        self.rereading.remove(&query);
         self.data.remove(&query);
         self.read(query, cx);
         cx.notify();
@@ -113,11 +128,13 @@ impl Forge {
         let needed = self.needed();
         let keys: BTreeSet<&Query> = needed.iter().collect();
         self.data.retain(|query, _| keys.contains(query));
+        self.rereading.retain(|query, _| keys.contains(query));
         for query in needed {
             self.read(query, cx);
         }
         let Some(channel) = self.open_channel() else {
             self.messages.clear();
+            self.rereading_messages.clear();
             return;
         };
         if !self.messages.contains_key(&channel) {
@@ -262,4 +279,19 @@ impl Forge {
             page: PAGE,
         })
     }
+}
+
+/// Lands a refusal's new answer on the slot that showed it: a value, or
+/// another refusal, replaces it, and the same refusal again changes
+/// nothing. A slot no longer showing a refusal (left, or retried) takes
+/// nothing. Says whether the slot changed.
+fn replaces_refusal<T>(slot: Option<&mut Loadable<T>>, result: Result<T, Error>) -> bool {
+    let Some(slot) = slot.filter(|slot| slot.failed().is_some()) else {
+        return false;
+    };
+    if slot.failed() == result.as_ref().err() {
+        return false;
+    }
+    *slot = Loadable::from(result);
+    true
 }
