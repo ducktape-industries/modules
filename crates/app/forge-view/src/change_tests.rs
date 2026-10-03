@@ -33,6 +33,7 @@ fn the_change_state_filter_checks_on_an_arrow() {
     use crate::state::Filter;
     view.read(|forge| assert_eq!(forge.filter, Filter::Open));
     assert!(!cx.interactivity("forge-filter-merged").focusable);
+    cx.simulate_focus("forge-filter-states");
     cx.simulate_key_down("forge-filter-states", "right");
     cx.run_until_parked();
     view.read(|forge| assert_eq!(forge.filter, Filter::Merged));
@@ -406,6 +407,7 @@ fn the_diff_gutters_are_a_grid_the_arrows_walk() {
         cx.interactivity(&format!("{first}-cell")).role,
         Some(ducktape_view_guest::Role::GridCell)
     );
+    cx.simulate_focus("forge-diff-lines");
     cx.simulate_key_down("forge-diff-lines", "right");
     let second = active_gutter(&cx);
     assert!(
@@ -467,6 +469,7 @@ fn the_verdicts_check_on_an_arrow() {
     assert_eq!(group.role, Some(ducktape_view_guest::Role::RadioGroup));
     assert!(group.focusable && group.tab_stop == Some(true));
     assert!(!cx.interactivity("forge-verdict-approve").focusable);
+    cx.simulate_focus("forge-verdicts");
     cx.simulate_key_down("forge-verdicts", "down");
     cx.run_until_parked();
     view.read(|forge| {

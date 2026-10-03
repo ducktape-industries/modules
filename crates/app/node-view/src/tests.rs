@@ -68,12 +68,10 @@ fn seen(height: u64) -> NetworkStatus {
 }
 
 /// The node: its status, its blocks, the clock, and the votes it heard.
-fn node(cx: &TestAppContext) -> StreamSender<ClockTicks> {
-    let ticks = cx.host().stream::<ClockTicks>();
+fn node(cx: &TestAppContext) {
     cx.host().handle::<ChainStatus>(|()| Ok(status()));
     cx.host().handle::<ChainBlocks>(|page| Ok(blocks(page)));
     cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
-    ticks
 }
 
 fn membership(key: &[u8], address: &str, role: valset::Role) -> valset::Membership {
@@ -111,8 +109,8 @@ fn respond(cx: &mut TestAppContext) {
 /// The sheet over the node, and its clock.
 fn ready() -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
-    let ticks = node(&cx);
-    cx.host().stream::<Changes<Valset>>();
+    node(&cx);
+    let ticks = cx.host().stream::<ClockTicks>();
     respond(&mut cx);
     cx.open::<Nodes>();
     cx.run_until_parked();
@@ -173,8 +171,8 @@ fn the_root_tracks_the_shared_theme() {
 #[test]
 fn the_head_names_the_network_and_this_node() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<Valset>>();
-    let ticks = node(&cx);
+    node(&cx);
+    let ticks = cx.host().stream::<ClockTicks>();
     cx.host()
         .refuse::<ChainStatus>("unavailable", "The node is unavailable. Try again.");
     respond(&mut cx);
@@ -284,7 +282,6 @@ fn a_new_head_reads_one_block() {
 fn loading_waits_for_the_host() {
     let mut cx = TestAppContext::new();
     node(&cx);
-    cx.host().stream::<Changes<Valset>>();
     cx.host().never::<Query<Valset>>();
     cx.open::<Nodes>();
     cx.run_until_parked();
@@ -295,7 +292,6 @@ fn loading_waits_for_the_host() {
 fn an_empty_set_says_so() {
     let mut cx = TestAppContext::new();
     node(&cx);
-    cx.host().stream::<Changes<Valset>>();
     cx.host().handle::<Query<Valset>>(|query| {
         Ok(match query {
             valset::Query::Validators => valset::Reply::Validators(vec![]),
@@ -312,7 +308,6 @@ fn an_empty_set_says_so() {
 fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     let mut cx = TestAppContext::new();
     node(&cx);
-    cx.host().stream::<Changes<Valset>>();
     cx.host()
         .refuse::<Query<Valset>>("unavailable", "valset is not running here");
     cx.open::<Nodes>();
@@ -352,10 +347,8 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
 
     let bytes = cx.snapshot().unwrap();
     let mut restored = TestAppContext::new();
-    restored.host().stream::<ClockTicks>();
     restored.host().never::<ChainStatus>();
     restored.host().never::<ChainNetwork>();
-    restored.host().stream::<Changes<Valset>>();
     restored.host().never::<Query<Valset>>();
     restored.restore::<Nodes>(&bytes).unwrap();
     restored.run_until_parked();
@@ -375,11 +368,11 @@ fn a_refused_live_head_is_logged_and_the_set_stays() {
     assert!(cx.has_text("10.0.0.1:4000"));
     assert!(
         cx.host()
-            .logs()
+            .requests::<ducktape_view_guest::methods::HostLog>()
             .iter()
             .any(|line| line.contains("valset's live heads") && line.contains("no live heads here")),
         "{:?}",
-        cx.host().logs()
+        cx.host().requests::<ducktape_view_guest::methods::HostLog>()
     );
 }
 

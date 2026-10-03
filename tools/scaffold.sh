@@ -272,14 +272,11 @@ EOF
     cat > "$dir/src/lib.rs" <<EOF
 //! $title: the count the \`$program\` module keeps, re-read on every live
 //! bump of the module.
-use ducktape_view_guest::methods::{Capability, Changes, Query};
-use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::{
-    Context, Host, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Task, Theme, View, Window, div, px,
-};
+use ducktape_view_guest::methods::{Capability, Changes, Query};
+// gpui's names: elements, styles, \`Render\`, \`Context\`, \`Window\`
+use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{Host, Loadable, Task, View, export_view};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
@@ -370,12 +367,24 @@ use ducktape_view_guest::testing::TestAppContext;
 
 fn ready() -> TestAppContext {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<$program_snake::$title>>();
     cx.host()
         .handle::<Query<$program_snake::$title>>(|_| Ok($program_snake::Reply::Count(5)));
     cx.open::<$title>();
     cx.run_until_parked();
     cx
+}
+
+/// A live bump re-reads the count; a re-read the module refuses says why,
+/// where the count was.
+#[test]
+fn a_refused_re_read_says_why() {
+    let mut cx = ready();
+    let bumps = cx.host().stream::<Changes<$program_snake::$title>>();
+    cx.host()
+        .refuse::<Query<$program_snake::$title>>("unavailable", "The count cannot be read.");
+    bumps.send(Some(2));
+    cx.run_until_parked();
+    assert!(cx.has_text("The count cannot be read."), "{:?}", cx.texts());
 }
 
 /// The ready screen; \`${upper}_SCREEN_EXPORT=1\` also writes its tree for the
@@ -402,7 +411,7 @@ EOF
 $dir/{Cargo.toml,src/lib.rs,src/tests.rs}, VIEWS and workspace members.
 Next:
   1. replace the screen in src/lib.rs with what the module's Query answers (it asks \`Query::Count\` until then)
-  2. \`make dev P=$program V=$name\` builds both, gates the view (ABI) and tests them
+  2. \`make dev P=$program V=$name\` tests both natively, then builds them and gates the view (ABI), which needs Binaryen wasm-opt 132, wasm-tools and python3 on PATH
   3. pack it into its module in qa: ("$program_snake", "$snake") in kit's view list (crates/kit/src/main.rs, \`pack\`); then \`kit build NAME && kit up NAME\`
 EOF
 }

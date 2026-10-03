@@ -81,25 +81,12 @@ fn row(seq: u64, author: u64, text: &str) -> MsgRow {
 
 /// The host methods chat only talks to, never hears back from here.
 fn quiet_methods(cx: &mut TestAppContext) {
-    cx.host().never::<api::HostRoute>();
-    cx.host().never::<api::HostOffset>();
-    cx.host().never::<ducktape_view_guest::methods::HostBadge>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::NotifyPost>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::NotifySeen>();
     cx.host()
         .handle::<ducktape_view_guest::methods::StoreGet>(|_| Ok(None));
-    cx.host().never::<ducktape_view_guest::methods::StoreSet>();
 }
 
 fn configure(cx: &mut TestAppContext) {
     quiet_methods(cx);
-    cx.host()
-        .handle::<ducktape_view_guest::methods::HostWidget>(|command| {
-            assert!(matches!(command, wire::WidgetCommand::Focus { .. }));
-            Ok(())
-        });
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::Accounts { .. } => Reply::Accounts(page(vec![
@@ -151,8 +138,6 @@ fn configure(cx: &mut TestAppContext) {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    cx.host().never::<Changes<::chat::Chat>>();
-    cx.host().never::<Changes<Identity>>();
     cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
 }
 

@@ -1,4 +1,5 @@
-use crate::{Context, Driver, InteractiveElement, ParentElement, Render, Task, View, Window, wire};
+use crate::testing::TestAppContext;
+use crate::{Context, InteractiveElement, ParentElement, Render, Task, View, Window};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +15,9 @@ struct Streams {
 }
 impl View for Streams {
     const NAME: &'static str = "Streams";
+    const CAPABILITIES: &'static [crate::methods::Capability] =
+        &[crate::methods::Capability::Module];
+    const TARGETS: &'static [&'static str] = &["probe"];
     fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut stream = cx.host().subscribe::<Changes<Probe>>(());
         let task = cx.spawn(async move |this, cx| {
@@ -44,85 +48,75 @@ impl Render for Streams {
     }
 }
 
+fn opened() -> (TestAppContext, crate::Entity<Streams>) {
+    let mut cx = TestAppContext::new();
+    let streams = cx.open::<Streams>();
+    (cx, streams)
+}
+
 #[test]
 fn snapshots_allow_parked_streams_and_reject_ordinary_pending_futures() {
-    let mut driver = Driver::<Streams>::new();
-    assert!(driver.snapshot().is_err(), "unpolled work is not quiescent");
-    driver.tick(vec![]);
-    assert!(driver.snapshot().is_ok());
-    let task = driver
-        .app
+    let (mut cx, _) = opened();
+    assert!(cx.snapshot().is_ok());
+    let task = cx
+        .app_mut()
         .spawn(async |_| futures::future::pending::<()>().await);
-    driver.tick(vec![]);
-    assert!(driver.snapshot().is_err());
+    assert!(cx.snapshot().is_err(), "unpolled work is not quiescent");
+    cx.tick(vec![]);
+    assert!(cx.snapshot().is_err());
     drop(task);
-    driver.tick(vec![]);
-    assert!(driver.snapshot().is_ok());
+    cx.tick(vec![]);
+    assert!(cx.snapshot().is_ok());
+    assert!(cx.snapshot().is_ok());
 }
 
 #[test]
 fn a_stream_task_awaiting_other_work_is_not_safe_to_snapshot() {
-    let mut driver = Driver::<Streams>::new();
-    let frame = driver.tick(vec![]);
-    driver
-        .entity
-        .clone()
-        .update_app(&mut driver.app, |view, _, cx| {
-            view.pending_after_item = true;
-            cx.notify();
-        });
-    driver.tick(vec![wire::Event::Response {
-        id: frame.requests[0].id,
-        result: Ok(crate::methods::encode(&Some(1u64))),
-        done: false,
-    }]);
-    driver.entity().read(|view| assert_eq!(view.values, [1]));
-    assert!(driver.snapshot().is_err());
+    let (mut cx, streams) = opened();
+    let feed = cx.host().stream::<Changes<Probe>>();
+    streams.update(&mut cx, |view, _, cx| {
+        view.pending_after_item = true;
+        cx.notify();
+    });
+    feed.send(Some(1));
+    cx.tick(vec![]);
+    streams.read(|view| assert_eq!(view.values, [1]));
+    assert!(cx.snapshot().is_err());
 }
 
 #[test]
 fn a_hot_stream_yields_to_the_tick_budget_and_preserves_item_order() {
-    let mut driver = Driver::<Streams>::new();
-    let frame = driver.tick(vec![]);
-    let id = frame.requests[0].id;
+    let (mut cx, streams) = opened();
+    let id = cx.last_frame().requests[0].id;
+    let host = cx.app_mut().host();
     for value in 0..1000u64 {
-        driver
-            .host()
-            .fulfill(id, Ok(crate::methods::encode(&Some(value))), false);
+        host.fulfill(id, Ok(crate::methods::encode(&Some(value))), false);
     }
-    let first = driver.tick(vec![]);
-    assert!(first.busy);
-    driver
-        .entity()
-        .read(|view| assert!(view.values.len() < 1000));
+    assert!(cx.tick(vec![]).busy);
+    streams.read(|view| assert!(view.values.len() < 1000));
     let mut parked = false;
     for _ in 0..20 {
-        if !driver.tick(vec![]).busy {
+        if !cx.tick(vec![]).busy {
             parked = true;
             break;
         }
     }
     assert!(parked, "hot stream eventually parks");
-    driver
-        .entity()
-        .read(|view| assert_eq!(view.values, (0..1000).collect::<Vec<_>>()));
-    assert!(driver.snapshot().is_ok());
-    driver.host().close_stream(id);
-    driver.tick(vec![]);
-    assert!(driver.app.inner.tasks.borrow().is_empty());
+    streams.read(|view| assert_eq!(view.values, (0..1000).collect::<Vec<_>>()));
+    assert!(cx.snapshot().is_ok());
+    host.close_stream(id);
+    cx.tick(vec![]);
+    assert!(cx.app_mut().inner.tasks.borrow().is_empty());
 }
 
 #[test]
 fn dropping_the_stream_task_cancels_its_host_subscription() {
-    let mut driver = Driver::<Streams>::new();
-    let first = driver.tick(vec![]);
-    driver
-        .entity
-        .clone()
-        .update_app(&mut driver.app, |view, _, _| {
-            view.task.take();
-        });
-    let cancelled = driver.tick(vec![]);
-    assert_eq!(cancelled.cancels, [first.requests[0].id]);
-    assert!(driver.snapshot().is_ok());
+    let (mut cx, streams) = opened();
+    let id = cx.last_frame().requests[0].id;
+    streams.update(&mut cx, |view, _, _| {
+        view.task.take();
+    });
+    cx.tick(vec![]);
+    assert_eq!(cx.last_frame().cancels, [id]);
+    assert!(cx.snapshot().is_ok());
 }

@@ -1,100 +1,105 @@
 use crate::{
-    host::{Error, malformed},
+    host::{Error, Shape, malformed},
     methods::{self, Method},
     wire::{Event, Frame, Request},
 };
 use std::{cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 
-type Key = (&'static str, Option<&'static str>, bool);
+/// A method kind and the program it addresses (`None` for the host's own).
+type Key = (String, Option<String>);
 type Handler = Box<dyn FnMut(&Request) -> Option<Event>>;
+type Stream = Rc<RefCell<StreamState>>;
 
 #[derive(Default)]
 struct State {
-    handlers: HashMap<Key, Handler>,
+    /// What answers an ask (`handle`, `refuse`, `never`).
+    asks: HashMap<Key, Handler>,
+    /// What answers a subscription instead of a feed (`refuse`).
+    refusals: HashMap<Key, Handler>,
+    /// One feed per method: the subscriptions it reaches.
+    streams: HashMap<Key, Stream>,
     requests: Vec<Request>,
     events: Vec<Event>,
-    logs: Vec<String>,
-    links: Vec<String>,
-    streams: Vec<Rc<RefCell<StreamState>>>,
     declared: Option<&'static [methods::Capability]>,
     /// The programs the view's `TARGETS` names; a node method naming
     /// another fails the test, as the app refuses it.
     targets: &'static [&'static str],
 }
 
-/// A typed host whose requests must be explicitly handled by a test.
+/// A typed host, by the shape of each request:
+/// - an ask waits for its answer, so the test says what comes back
+///   ([`handle`](Self::handle), [`refuse`](Self::refuse) or
+///   [`never`](Self::never)); an ask nothing answers fails the test;
+/// - a subscription stays open, quiet until the test feeds it through
+///   [`stream`](Self::stream), before or after the view subscribes;
+/// - a notify waits for nothing.
+///
+/// Every request is recorded: [`requests`](Self::requests).
 #[derive(Clone, Default)]
 pub struct FakeHost(Rc<RefCell<State>>);
 
+fn key<C: Method>() -> Key {
+    (C::KIND.to_owned(), C::TARGET.map(str::to_owned))
+}
+
+/// The entry for `kind` addressed to `target`, else the one addressed to
+/// no program in particular.
+fn find<'a, T>(
+    map: &'a mut HashMap<Key, T>,
+    kind: &str,
+    target: Option<&str>,
+) -> Option<&'a mut T> {
+    let exact = (kind.to_owned(), target.map(str::to_owned));
+    if map.contains_key(&exact) {
+        return map.get_mut(&exact);
+    }
+    map.get_mut(&(kind.to_owned(), None))
+}
+
 impl FakeHost {
+    /// Answers each ask of `C` with what `handler` returns.
     pub fn handle<C: Method>(
         &self,
-        handler: impl FnMut(C::Request) -> Result<C::Reply, Error> + 'static,
-    ) {
-        self.register::<C>(handler, false);
-    }
-    fn register<C: Method>(
-        &self,
         mut handler: impl FnMut(C::Request) -> Result<C::Reply, Error> + 'static,
-        stream: bool,
     ) {
-        self.0.borrow_mut().handlers.insert(
-            (C::KIND, C::TARGET, stream),
-            Box::new(move |request| {
-                let result = C::decode_request(&request.payload)
-                    .map_err(malformed)
-                    .and_then(&mut handler)
-                    .map(|reply| C::encode_reply(&reply));
-                Some(Event::Response {
-                    id: request.id,
-                    result,
-                    done: true,
-                })
-            }),
+        self.0.borrow_mut().asks.insert(
+            key::<C>(),
+            answer::<C>(move |request| Some(handler(request))),
         );
     }
 
+    /// The host never answers an ask of `C`: it stays pending.
     pub fn never<C: Method>(&self) {
-        for stream in [false, true] {
-            self.0.borrow_mut().handlers.insert(
-                (C::KIND, C::TARGET, stream),
-                Box::new(|request| {
-                    C::decode_request(&request.payload).expect("valid capability request");
-                    None
-                }),
-            );
-        }
+        self.0
+            .borrow_mut()
+            .asks
+            .insert(key::<C>(), answer::<C>(|_| None));
     }
 
+    /// Refuses every ask of and subscription to `C`.
     pub fn refuse<C: Method>(&self, code: &str, message: &str) {
         let refusal = Error::new(code, message);
-        self.handle::<C>({
-            let refusal = refusal.clone();
-            move |_| Err(refusal.clone())
-        });
-        self.register::<C>(move |_| Err(refusal.clone()), true);
+        let mut state = self.0.borrow_mut();
+        let ask = refusal.clone();
+        state
+            .asks
+            .insert(key::<C>(), answer::<C>(move |_| Some(Err(ask.clone()))));
+        state
+            .refusals
+            .insert(key::<C>(), answer::<C>(move |_| Some(Err(refusal.clone()))));
     }
 
+    /// The feed of `C`'s subscriptions: every one the view opens, before or
+    /// after this call, hears what it sends. One feed per method: a second
+    /// call hands out the same one.
     pub fn stream<C: Method>(&self) -> StreamSender<C> {
-        let state = Rc::new(RefCell::new(StreamState::default()));
-        let subscription = state.clone();
-        self.0.borrow_mut().streams.push(state.clone());
-        self.0.borrow_mut().handlers.insert(
-            (C::KIND, C::TARGET, true),
-            Box::new(move |request| {
-                C::decode_request(&request.payload).expect("valid capability request");
-                let mut stream = subscription.borrow_mut();
-                stream.ids.push(request.id);
-                if stream.closed {
-                    stream
-                        .host
-                        .as_ref()
-                        .expect("active stream host")
-                        .close_stream(request.id);
-                }
-                None
-            }),
-        );
+        let state = self
+            .0
+            .borrow_mut()
+            .streams
+            .entry(key::<C>())
+            .or_default()
+            .clone();
         StreamSender {
             state,
             host: self.clone(),
@@ -102,6 +107,7 @@ impl FakeHost {
         }
     }
 
+    /// Every `C` the view asked, subscribed to or notified, in order.
     pub fn requests<C: Method>(&self) -> Vec<C::Request> {
         self.0
             .borrow()
@@ -111,16 +117,10 @@ impl FakeHost {
             .map(|r| C::decode_request(&r.payload).expect("valid capability request"))
             .collect()
     }
-    pub fn logs(&self) -> Vec<String> {
-        self.0.borrow().logs.clone()
-    }
-    pub fn opened_links(&self) -> Vec<String> {
-        self.0.borrow().links.clone()
-    }
     pub(super) fn reset_connection(&self) {
         let mut state = self.0.borrow_mut();
         state.events.clear();
-        for stream in &state.streams {
+        for stream in state.streams.values() {
             let mut stream = stream.borrow_mut();
             if let Some(host) = stream.host.take() {
                 for id in stream.ids.drain(..) {
@@ -141,10 +141,25 @@ impl FakeHost {
     pub(super) fn take_events(&self) -> Vec<Event> {
         std::mem::take(&mut self.0.borrow_mut().events)
     }
+    /// Answers or feed items wait for the view's next tick.
+    pub(super) fn owes_events(&self) -> bool {
+        !self.0.borrow().events.is_empty()
+    }
 
     pub(super) fn accept(&self, frame: &Frame, host: &crate::host::Host) {
+        // The app refuses a frame past either budget whole, and the view
+        // with it; a test fails on it instead.
+        assert!(
+            frame.requests.len() <= crate::wire::MAX_REQUESTS
+                && frame.cancels.len() <= crate::wire::MAX_CANCELS,
+            "the host refuses a frame of {} requests and {} cancels: one frame carries at most {} and {}",
+            frame.requests.len(),
+            frame.cancels.len(),
+            crate::wire::MAX_REQUESTS,
+            crate::wire::MAX_CANCELS,
+        );
         let mut state = self.0.borrow_mut();
-        for stream in &state.streams {
+        for stream in state.streams.values() {
             let mut stream = stream.borrow_mut();
             stream.host = Some(host.clone());
             stream.ids.retain(|id| !frame.cancels.contains(id));
@@ -167,8 +182,9 @@ impl FakeHost {
             }
             // and a node method naming a program the manifest does not
             // list (`undeclared_target`)
+            let target = target_of(request);
             if state.declared.is_some()
-                && let Some(target) = target_of(request)
+                && let Some(target) = &target
             {
                 assert!(
                     state.targets.contains(&target.as_str()),
@@ -177,50 +193,83 @@ impl FakeHost {
                     request.kind,
                 );
             }
-            match request.kind.as_str() {
-                methods::HostLog::KIND => {
-                    state.logs.push(
-                        methods::HostLog::decode_request(&request.payload).expect("log line"),
-                    );
-                    continue;
-                }
-                methods::LinkOpen::KIND => {
-                    state
-                        .links
-                        .push(methods::LinkOpen::decode_request(&request.payload).expect("link"));
-                    continue;
-                }
-                _ => {}
-            }
-            let target = target_of(request);
-            let stream = host.is_stream(request.id);
-            let key = state
-                .handlers
-                .keys()
-                .find(|(kind, addressed, subscribed)| {
-                    *kind == request.kind
-                        && *addressed == target.as_deref()
-                        && *subscribed == stream
-                })
-                .or_else(|| {
-                    state.handlers.keys().find(|(kind, addressed, subscribed)| {
-                        *kind == request.kind && addressed.is_none() && *subscribed == stream
-                    })
-                })
-                .copied();
-            let Some(handler) = key.and_then(|key| state.handlers.get_mut(&key)) else {
-                panic!(
-                    "unhandled {} request {}",
-                    request.kind,
-                    host.diagnostic(request.id)
-                        .unwrap_or_else(|| String::from_utf8_lossy(&request.payload).into_owned())
-                );
+            let (kind, target) = (request.kind.as_str(), target.as_deref());
+            let shown = || {
+                host.diagnostic(request.id)
+                    .unwrap_or_else(|| String::from_utf8_lossy(&request.payload).into_owned())
             };
-            if let Some(event) = handler(request) {
-                state.events.push(event);
-            }
+            let event = match host.shape(request.id) {
+                Shape::Notify => {
+                    find(&mut state.asks, kind, target).and_then(|answer| answer(request))
+                }
+                Shape::Ask => {
+                    if let Some(answer) = find(&mut state.asks, kind, target) {
+                        answer(request)
+                    } else if find(&mut state.streams, kind, target).is_some() {
+                        panic!(
+                            "the view asks `{kind}` {}, and `stream` feeds only subscriptions: \
+                             answer the ask with `handle`, `refuse` or `never`",
+                            shown()
+                        )
+                    } else {
+                        panic!(
+                            "unhandled ask `{kind}` {}: the view waits for its answer, so say \
+                             what comes back with `handle`, `refuse` or `never`",
+                            shown()
+                        )
+                    }
+                }
+                Shape::Subscription => {
+                    if let Some(refuse) = find(&mut state.refusals, kind, target) {
+                        refuse(request)
+                    } else {
+                        if find(&mut state.streams, kind, target).is_none() {
+                            assert!(
+                                find(&mut state.asks, kind, target).is_none(),
+                                "the view subscribes to `{kind}` {}, and `handle` and `never` \
+                                 answer only asks: a subscription stays open by itself, and \
+                                 `stream` feeds it",
+                                shown()
+                            );
+                        }
+                        let stream = match find(&mut state.streams, kind, target) {
+                            Some(stream) => stream.clone(),
+                            None => state
+                                .streams
+                                .entry((kind.to_owned(), target.map(str::to_owned)))
+                                .or_default()
+                                .clone(),
+                        };
+                        let mut stream = stream.borrow_mut();
+                        stream.host = Some(host.clone());
+                        stream.ids.push(request.id);
+                        if stream.closed {
+                            host.close_stream(request.id);
+                        }
+                        None
+                    }
+                }
+            };
+            state.events.extend(event);
         }
     }
+}
+
+/// An answer to one request of `C`: the reply `reply` gives, if any.
+fn answer<C: Method>(
+    mut reply: impl FnMut(C::Request) -> Option<Result<C::Reply, Error>> + 'static,
+) -> Handler {
+    Box::new(move |request| {
+        let reply = match C::decode_request(&request.payload) {
+            Ok(decoded) => reply(decoded)?,
+            Err(error) => Err(malformed(error)),
+        };
+        Some(Event::Response {
+            id: request.id,
+            result: reply.map(|reply| C::encode_reply(&reply)),
+            done: true,
+        })
+    })
 }
 
 /// The program a node method addresses: `module.changes` names it outright,
@@ -249,15 +298,25 @@ struct StreamState {
     host: Option<crate::host::Host>,
 }
 
+/// What a test sends down a method's subscriptions.
+#[must_use = "the feed is how a test speaks for the host: keep it to send"]
 pub struct StreamSender<C: Method> {
-    state: Rc<RefCell<StreamState>>,
+    state: Stream,
     host: FakeHost,
     marker: PhantomData<C>,
 }
 impl<C: Method> StreamSender<C> {
+    /// One item to every open subscription; with none open, the item would
+    /// reach nobody, and the test fails instead.
     pub fn send(&self, item: C::Reply) {
         let state = self.state.borrow();
         assert!(!state.closed, "cannot send to a closed stream");
+        assert!(
+            !state.ids.is_empty(),
+            "no subscription to `{}` is open: the view has not subscribed (open it \
+             first) or it dropped the stream, and the item would reach nobody",
+            C::KIND
+        );
         let payload = C::encode_reply(&item);
         self.host
             .0
@@ -268,6 +327,10 @@ impl<C: Method> StreamSender<C> {
                 result: Ok(payload.clone()),
                 done: false,
             }));
+    }
+    /// Whether the view holds a subscription this feed reaches.
+    pub fn subscribed(&self) -> bool {
+        !self.state.borrow().ids.is_empty()
     }
     pub fn close(&self) {
         let mut state = self.state.borrow_mut();
@@ -356,7 +419,88 @@ mod tests {
             },
             &channel,
         );
+        assert!(!feed.subscribed());
+    }
+
+    /// Sends what `channel` asked since the last frame to `host`.
+    fn flush(host: &FakeHost, channel: &crate::host::Host) {
+        host.accept(
+            &Frame {
+                requests: channel.drain_outbox(),
+                cancels: channel.drain_cancels(),
+                ..Frame::default()
+            },
+            channel,
+        );
+    }
+
+    #[test]
+    fn a_subscription_nothing_feeds_stays_open_and_a_later_feed_reaches_it() {
+        use futures::StreamExt;
+        let host = FakeHost::default();
+        let channel = crate::host::Host::default();
+        let mut stream = channel.subscribe::<Changes<First>>(());
+        flush(&host, &channel);
+        assert_eq!(host.requests::<Changes<First>>().len(), 1);
+        assert!(host.take_events().is_empty());
+        let feed = host.stream::<Changes<First>>();
         feed.send(None);
+        for event in host.take_events() {
+            let crate::wire::Event::Response { id, result, done } = event else {
+                panic!("an answer")
+            };
+            channel.fulfill(id, result, done);
+        }
+        assert!(futures::executor::block_on(stream.next()).is_some());
+    }
+
+    #[test]
+    fn a_second_feed_of_one_method_is_the_first() {
+        let host = FakeHost::default();
+        let first = host.stream::<Changes<First>>();
+        let channel = crate::host::Host::default();
+        let _stream = channel.subscribe::<Changes<First>>(());
+        flush(&host, &channel);
+        let second = host.stream::<Changes<First>>();
+        second.send(None);
+        assert_eq!(host.take_events().len(), 1);
+        first.send(None);
+        assert_eq!(host.take_events().len(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "no subscription to `module.changes` is open")]
+    fn a_feed_nobody_hears_fails_the_test() {
+        FakeHost::default().stream::<Changes<First>>().send(None);
+    }
+
+    #[test]
+    #[should_panic(expected = "the view asks `module.query`")]
+    fn a_feed_for_an_ask_names_the_mismatch() {
+        let host = FakeHost::default();
+        let _feed = host.stream::<Query<First>>();
+        let channel = crate::host::Host::default();
+        let _ask = channel.ask::<Query<First>>("one".into());
+        flush(&host, &channel);
+    }
+
+    #[test]
+    #[should_panic(expected = "the view subscribes to `module.changes`")]
+    fn an_answer_for_a_subscription_names_the_mismatch() {
+        let host = FakeHost::default();
+        host.never::<Changes<First>>();
+        let channel = crate::host::Host::default();
+        let _stream = channel.subscribe::<Changes<First>>(());
+        flush(&host, &channel);
+    }
+
+    #[test]
+    fn a_notify_is_recorded() {
+        let host = FakeHost::default();
+        let channel = crate::host::Host::default();
+        channel.log("hello");
+        flush(&host, &channel);
+        assert_eq!(host.requests::<crate::methods::HostLog>(), ["hello"]);
         assert!(host.take_events().is_empty());
     }
 
@@ -414,14 +558,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "unhandled module.query request")]
-    fn unexpected_requests_fail_at_the_host_boundary() {
-        FakeHost::default().accept(
-            &Frame {
-                requests: vec![request::<Query<First>>(1, "unexpected".into())],
-                ..Frame::default()
-            },
-            &crate::host::Host::default(),
-        );
+    #[should_panic(expected = "unhandled ask `module.query`")]
+    fn an_ask_nothing_answers_fails_at_the_host_boundary() {
+        let host = FakeHost::default();
+        let channel = crate::host::Host::default();
+        let _ask = channel.ask::<Query<First>>("unexpected".into());
+        flush(&host, &channel);
     }
 }

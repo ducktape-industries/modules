@@ -1169,6 +1169,7 @@ mod tests {
         assert_eq!(handle.aria.orientation, Some(gpui::Orientation::Vertical));
         assert!(handle.focusable && handle.tab_stop == Some(true));
         assert_eq!(faults(&node), []);
+        cx.simulate_focus("panes-resize");
         for keystroke in ["left", "right", "shift-left", "shift-right", "up", "a"] {
             cx.simulate_key_down("panes-resize", keystroke);
         }
@@ -1211,6 +1212,7 @@ mod tests {
     fn a_segmented_choice_checks_the_next_choice_on_an_arrow() {
         let mut cx = crate::testing::TestAppContext::new();
         let format = cx.open::<Format>();
+        cx.simulate_focus("format");
         cx.simulate_key_down("format", "right");
         format.read(|view| assert_eq!(view.picked, 1));
         assert_eq!(
@@ -1336,6 +1338,8 @@ mod tests {
             cx.notify();
         });
         cx.run_until_parked();
+        // a person Tabs to the composite: its one Tab stop
+        cx.simulate_focus("picker");
         (cx, picker)
     }
 

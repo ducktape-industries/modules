@@ -84,9 +84,8 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Context, Driver, EditorBinding, EditorElement, EditorElementEvent, Render, View, Window,
-    };
+    use crate::testing::TestAppContext;
+    use crate::{Context, EditorBinding, EditorElement, EditorElementEvent, Render, View, Window};
     use serde::{Deserialize, Serialize};
     use std::rc::Rc;
     use wire::editor_document::{EditorTransfer, EditorTransferId};
@@ -148,14 +147,12 @@ mod tests {
 
     #[test]
     fn editor_view_progresses_without_messages_and_waits_for_exact_ack() {
-        let mut driver = Driver::<DocumentApp>::new();
-        let first = driver.tick(vec![]);
-        let wire::Node::Editor { on_document, .. } = first.root.unwrap() else {
+        let mut cx = TestAppContext::new();
+        let app = cx.open::<DocumentApp>();
+        let wire::Node::Editor { on_document, .. } = *cx.root() else {
             panic!("document view must render an editor")
         };
-        let target = driver
-            .entity()
-            .read(|view| view.editor.document_reference("app:draft".into()));
+        let target = app.read(|view| view.editor.document_reference("app:draft".into()));
         let id = EditorTransferId {
             instance: 9,
             document: target.document.clone(),
@@ -163,7 +160,7 @@ mod tests {
             serial: 4,
             attempt: 0,
         };
-        let begin = driver.tick(vec![wire::Event::EditorDocument {
+        cx.tick(vec![wire::Event::EditorDocument {
             handler: on_document,
             message: EditorDocumentMessage::Request {
                 id: id.clone(),
@@ -171,43 +168,44 @@ mod tests {
             },
         }]);
         assert!(matches!(
-            &begin.editor_documents[..],
+            &cx.last_frame().editor_documents[..],
             [EditorDocumentMessage::Transfer(
                 EditorTransfer::Begin { .. }
             )]
         ));
-        assert!(driver.snapshot().is_err());
-        let chunk = driver.tick(vec![]);
+        assert!(cx.snapshot().is_err());
+        cx.tick(vec![]);
         assert!(
-            matches!(&chunk.editor_documents[..], [EditorDocumentMessage::Transfer(EditorTransfer::Chunk { index: 0, bytes, .. })] if bytes.len() == wire::MAX_STRING_BYTES),
+            matches!(&cx.last_frame().editor_documents[..], [EditorDocumentMessage::Transfer(EditorTransfer::Chunk { index: 0, bytes, .. })] if bytes.len() == wire::MAX_STRING_BYTES),
             "unchanged view must produce the next bounded chunk"
         );
-        let complete = driver.tick(vec![]);
+        cx.tick(vec![]);
         assert!(matches!(
-            &complete.editor_documents[..],
+            &cx.last_frame().editor_documents[..],
             [EditorDocumentMessage::Transfer(
                 EditorTransfer::Complete { .. }
             )]
         ));
         assert!(
-            driver.snapshot().is_err(),
+            cx.snapshot().is_err(),
             "Complete is not a receiver acknowledgment"
         );
         let mut stale = id.clone();
         stale.serial -= 1;
-        driver.tick(vec![wire::Event::EditorDocument {
+        cx.tick(vec![wire::Event::EditorDocument {
             handler: u32::MAX,
             message: EditorDocumentMessage::Acknowledged { id: stale },
         }]);
         assert!(
-            driver.snapshot().is_err(),
+            cx.snapshot().is_err(),
             "a stale acknowledgment cannot release current source progress"
         );
-        driver.tick(vec![wire::Event::EditorDocument {
+        cx.tick(vec![wire::Event::EditorDocument {
             handler: u32::MAX,
             message: EditorDocumentMessage::Acknowledged { id },
         }]);
-        assert!(driver.snapshot().is_ok());
-        assert!(driver.tick(vec![]).editor_documents.is_empty());
+        assert!(cx.snapshot().is_ok());
+        cx.tick(vec![]);
+        assert!(cx.last_frame().editor_documents.is_empty());
     }
 }

@@ -5,7 +5,9 @@ use crate::{
 
 const MAX_ROUNDS: usize = 8;
 
-pub struct Driver<V: View> {
+/// One view's run loop: the wasm exports drive it on the host, and
+/// [`TestAppContext`](crate::testing::TestAppContext) drives it in a test.
+pub(crate) struct Driver<V: View> {
     pub(crate) app: App,
     pub(crate) entity: Entity<V>,
     pub(crate) last_root: Option<wire::Node>,
@@ -59,20 +61,6 @@ impl<V: View> Driver<V> {
     pub(crate) fn app_mut(&mut self) -> &mut App {
         &mut self.app
     }
-    /// A frame with the whole tree in it, patched or not: what a test reads.
-    /// The host gets [`Driver::tick_with`]'s, which leaves the tree out
-    /// when the host can keep or patch its own.
-    /// It is held to the host's sanitizer and to `view_wire::audit`, as a
-    /// test's frames are.
-    pub fn tick(&mut self, events: Vec<wire::Event>) -> wire::Frame {
-        let mut frame = self.tick_with(events, wire::Frame::clone);
-        if frame.root.is_none() {
-            frame.root = self.last_root.clone();
-        }
-        crate::testing::assert_frame_accessible(&frame);
-        frame
-    }
-
     /// Runs one tick and hands its frame to `send` — the host's encoder —
     /// before putting back into the kept tree what the frame carried out of
     /// it. The tree a frame sends whole, and the subtrees its patches
@@ -389,6 +377,11 @@ impl<V: View> Driver<V> {
         }
         let editor_decisions = slots::take_editor_responses(&self.app.inner.slots);
         self.busy |= slots::editor_responses_ready(&self.app.inner.slots);
+        let host = self.app.host();
+        let requests = host.drain_outbox();
+        let cancels = host.drain_cancels();
+        // what one frame cannot carry goes in the next
+        self.busy |= host.outbox_waiting();
         wire::Frame {
             upstream_sanitization: Default::default(),
             editor_decisions,
@@ -396,8 +389,8 @@ impl<V: View> Driver<V> {
             tooltip_responses: slots::take_tooltip_responses(&self.app.inner.slots),
             root,
             patches,
-            requests: self.app.host().drain_outbox(),
-            cancels: self.app.host().drain_cancels(),
+            requests,
+            cancels,
             unchanged,
             busy: self.busy,
         }

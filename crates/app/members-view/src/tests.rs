@@ -4,7 +4,7 @@ use ducktape_view_guest::methods::{
     Block, BlockPage, ChainBlocks, Description, ModuleDescribe, Session, Tx,
 };
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
-use ducktape_view_guest::wire::{ContainerNode, Node, TextNode};
+use ducktape_view_guest::wire::{ContainerNode, Node};
 use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
 
 // the list and the detail fit at 320, the desk's smallest window
@@ -154,8 +154,6 @@ fn ready() -> (TestAppContext, StreamSender<Changes<Identity>>) {
     let mut cx = TestAppContext::new();
     let session = cx.host().stream::<HostSession>();
     let feed = cx.host().stream::<Changes<Identity>>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
     respond(&mut cx);
     cx.open::<Members>();
     session.send(Session {
@@ -170,18 +168,13 @@ fn ready() -> (TestAppContext, StreamSender<Changes<Identity>>) {
 /// The colour `text` is drawn in under `key`, inherited down the tree.
 fn color_of(cx: &TestAppContext, key: &str, text: &str) -> Option<Hsla> {
     fn walk(node: &Node, text: &str, color: Option<Hsla>) -> Option<Option<Hsla>> {
-        match node {
-            Node::Text(TextNode { content, style, .. }) if content == text => {
-                Some(style.text.color.or(color))
-            }
-            Node::Container(ContainerNode {
-                style, children, ..
-            }) => {
-                let color = style.text.color.or(color);
-                children.iter().find_map(|child| walk(child, text, color))
-            }
-            _ => None,
+        let color = node.style().and_then(|style| style.text.color).or(color);
+        if node.text() == Some(text) {
+            return Some(color);
         }
+        node.children()
+            .iter()
+            .find_map(|child| walk(child, text, color))
     }
     walk(cx.find(key)?, text, None).flatten()
 }
@@ -244,7 +237,8 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
     assert!(cx.find("members-open-dm").is_none());
     cx.simulate_click("members-explorer");
     assert_eq!(
-        cx.host().opened_links(),
+        cx.host()
+            .requests::<ducktape_view_guest::methods::LinkOpen>(),
         vec!["duck://explorer/account/7".to_owned()]
     );
     // a managed agent is chosen in place
@@ -273,7 +267,8 @@ fn an_agent_names_its_manager_its_standing_and_its_devices() {
     assert!(!cx.has_text("Post 1 in chat") && !cx.has_text("Post 2 in chat"));
     cx.simulate_click("members-open-dm");
     assert_eq!(
-        cx.host().opened_links(),
+        cx.host()
+            .requests::<ducktape_view_guest::methods::LinkOpen>(),
         vec![ducklink::mint("testnet#0a1b2c3d", "chat", &["dm-7-9"]).unwrap()]
     );
     // the manager's name chooses the manager
@@ -330,10 +325,6 @@ fn the_filter_and_the_chips_narrow_together_and_keep_the_choice() {
 #[test]
 fn loading_waits_for_the_host() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<Identity>>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
     cx.host().never::<Query<Identity>>();
     cx.open::<Members>();
     cx.run_until_parked();
@@ -343,10 +334,6 @@ fn loading_waits_for_the_host() {
 #[test]
 fn a_roster_with_nobody_in_it_says_so() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<Identity>>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
     cx.host()
         .handle::<Query<Identity>>(|_| Ok(identity::Reply::Accounts(page(vec![]))));
     cx.host()
@@ -359,10 +346,6 @@ fn a_roster_with_nobody_in_it_says_so() {
 #[test]
 fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<Identity>>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
     cx.host()
         .refuse::<Query<Identity>>("unavailable", "identity is not running here");
     cx.open::<Members>();
@@ -406,11 +389,6 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
     cx.simulate_click("members-chip-2");
     let bytes = cx.snapshot().unwrap();
     let mut restored = TestAppContext::new();
-    restored.host().stream::<HostSession>();
-    restored.host().stream::<Changes<Identity>>();
-    restored
-        .host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
     restored.host().never::<Query<Identity>>();
     restored.host().never::<ChainBlocks>();
     let view = restored.restore::<Members>(&bytes).unwrap();
@@ -446,9 +424,6 @@ fn a_live_bump_that_lands_the_same_roster_draws_nothing() {
 fn an_activity_read_anew_that_lands_the_same_draws_nothing() {
     let mut cx = TestAppContext::new();
     let session = cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<Identity>>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
     respond(&mut cx);
     let view = cx.open::<Members>();
     session.send(Session {
@@ -502,6 +477,7 @@ fn the_first_row_is_active_before_a_choice_and_end_selects_the_last() {
             .all(|row| !cx.interactivity(row).aria.active_descendant)
     );
     // Enter selects the default row, which Home could not reach (it is there)
+    cx.simulate_focus("members-list");
     cx.simulate_key_down("members-list", "enter");
     cx.run_until_parked();
     assert_eq!(cx.interactivity(&rows[0]).aria.selected, Some(true));
@@ -528,6 +504,7 @@ fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
     assert!(list.focusable);
     // the first shown row is active before any choice, so ↓ selects the
     // second, and ↑ comes back
+    cx.simulate_focus("members-list");
     for (key, number, other) in [("down", 11, 7), ("up", 7, 11)] {
         cx.simulate_key_down("members-list", key);
         let (row, other) = (
@@ -638,10 +615,6 @@ fn a_managed_agent_is_named_by_the_agent_not_the_avatar() {
 #[test]
 fn a_kind_with_no_one_in_it_says_so_without_quoting_an_empty_filter() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<HostSession>();
-    cx.host().stream::<Changes<Identity>>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
     cx.host().handle::<Query<Identity>>(|_| {
         Ok(identity::Reply::Accounts(page(vec![person(
             7,

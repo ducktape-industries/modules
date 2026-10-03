@@ -88,7 +88,7 @@ pub use window::Window;
 mod slots;
 
 mod driver;
-pub use driver::Driver;
+pub(crate) use driver::Driver;
 
 const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
 
@@ -320,10 +320,11 @@ pub mod exports {
     /// A refused state leaves the driver that was there in place.
     pub fn restore<A: View>(ptr: u32, len: u32) -> u64 {
         install_panic_hook();
-        let restored = Driver::<A>::from_snapshot(&take(ptr, len)).map(|driver| {
-            DRIVER.set(Some(Box::new(driver)));
-            Vec::new()
-        });
+        let restored = Driver::<A>::from_snapshot_in(crate::App::for_driver(), &take(ptr, len))
+            .map(|driver| {
+                DRIVER.set(Some(Box::new(driver)));
+                Vec::new()
+            });
         answer(wire::abi::encode_result(restored))
     }
 

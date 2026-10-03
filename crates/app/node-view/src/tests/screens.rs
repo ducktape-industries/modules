@@ -115,7 +115,6 @@ fn sheet(
 ) -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
     let ticks = cx.host().stream::<ClockTicks>();
-    cx.host().stream::<Changes<Valset>>();
     cx.host()
         .handle::<ChainStatus>(move |()| Ok(sheet_status(this)));
     cx.host()
@@ -174,8 +173,6 @@ fn screen(state: &str) -> TestAppContext {
         }
         "loading" => {
             let mut cx = TestAppContext::new();
-            cx.host().stream::<ClockTicks>();
-            cx.host().stream::<Changes<Valset>>();
             cx.host().never::<ChainStatus>();
             cx.host().never::<ChainNetwork>();
             cx.host().never::<Query<Valset>>();
@@ -185,8 +182,6 @@ fn screen(state: &str) -> TestAppContext {
         }
         "status-refused" => {
             let mut cx = TestAppContext::new();
-            cx.host().stream::<ClockTicks>();
-            cx.host().stream::<Changes<Valset>>();
             cx.host()
                 .refuse::<ChainStatus>("unavailable", "The node is unavailable. Try again.");
             cx.host().never::<ChainNetwork>();
@@ -197,8 +192,6 @@ fn screen(state: &str) -> TestAppContext {
         }
         "members-refused" | "members-empty" => {
             let mut cx = TestAppContext::new();
-            cx.host().stream::<ClockTicks>();
-            cx.host().stream::<Changes<Valset>>();
             cx.host().handle::<ChainStatus>(|()| Ok(sheet_status(0)));
             cx.host()
                 .handle::<ChainBlocks>(|page| Ok(sheet_blocks(page)));

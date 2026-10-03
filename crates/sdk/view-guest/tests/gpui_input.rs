@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use view_guest::prelude::*;
-use view_guest::{Driver, ElementId, Input, View, Window, wire};
+use view_guest::testing::TestAppContext;
+use view_guest::{ElementId, Input, View, Window, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Form {
@@ -45,10 +46,8 @@ type Lowered<'a> = (
     &'a str,
 );
 
-fn input(frame: &wire::Frame) -> Lowered<'_> {
-    let wire::Node::Container(view_guest::wire::ContainerNode { children, .. }) =
-        frame.root.as_ref().expect("root")
-    else {
+fn input(cx: &TestAppContext) -> Lowered<'_> {
+    let wire::Node::Container(view_guest::wire::ContainerNode { children, .. }) = cx.root() else {
         panic!("root container")
     };
     let wire::Node::Input {
@@ -67,12 +66,12 @@ fn input(frame: &wire::Frame) -> Lowered<'_> {
 
 #[test]
 fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
-    let mut first = Driver::<Form>::new();
-    let mut second = Driver::<Form>::new();
-    let first_frame = first.tick(vec![]);
-    let second_frame = second.tick(vec![]);
-    let (id, first_input, first_submit, style, label) = input(&first_frame);
-    let (second_id, second_input, second_submit, _, _) = input(&second_frame);
+    let mut first = TestAppContext::new();
+    let mut second = TestAppContext::new();
+    let first_form = first.open::<Form>();
+    let second_form = second.open::<Form>();
+    let (id, first_input, first_submit, style, label) = input(&first);
+    let (second_id, second_input, second_submit, _, _) = input(&second);
     assert_eq!(label, "Search messages");
     assert_eq!(id, second_id);
     assert_eq!(first_input, second_input);
@@ -86,23 +85,20 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
     );
     assert_eq!(style, &gpui::StyleRefinement::default().w(px(240.)));
 
-    first.tick(vec![wire::Event::Input {
-        handler: first_input,
-        text: "hello".into(),
-    }]);
-    first.tick(vec![wire::Event::Message(first_submit)]);
-    first.entity().read(|form| {
+    first.simulate_input("Search", "hello");
+    first.simulate_submit("Search");
+    first_form.read(|form| {
         assert_eq!(form.value, "hello");
         assert_eq!(form.submits, 1);
     });
-    second.entity().read(|form| {
+    second_form.read(|form| {
         assert_eq!(form.value, "");
         assert_eq!(form.submits, 0);
     });
 
-    first.tick(vec![wire::Event::Input {
+    first.simulate_event(wire::Event::Input {
         handler: second_input,
         text: "stale".into(),
-    }]);
-    first.entity().read(|form| assert_eq!(form.value, "stale"));
+    });
+    first_form.read(|form| assert_eq!(form.value, "stale"));
 }

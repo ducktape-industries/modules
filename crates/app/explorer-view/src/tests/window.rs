@@ -112,7 +112,6 @@ fn a_refused_head_subscription_falls_back_to_polling() {
 #[test]
 fn a_refused_window_says_why_and_retry_reads_again() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     let tip = Rc::new(RefCell::new(12));
     node(&mut cx, tip);
     cx.host()
@@ -143,8 +142,9 @@ fn a_snapshot_restores_without_reading_the_window_again() {
 /// Every page over a full window stays inside the host's frame budgets, and
 /// under a per-page regression guard on its bytes: the native proxy for a
 /// render's fuel.
-/// (Time is no proxy here: a debug build JSON-encodes the whole view around
-/// every update to catch a missed `notify`.)
+/// (Time is no proxy here: a debug build encodes the whole view
+/// (`wire::encode`, MessagePack) around every update to catch a missed
+/// `notify`.)
 #[test]
 fn a_full_window_renders_inside_the_frame_budget() {
     let mut cx = TestAppContext::new();

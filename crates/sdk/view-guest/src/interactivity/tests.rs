@@ -1,6 +1,7 @@
 use crate::accesskit::{Action, ActionData, AriaCurrent, HasPopup, Invalid, Live};
 use crate::prelude::*;
-use crate::{Driver, Lowering, View, wire};
+use crate::testing::TestAppContext;
+use crate::{Lowering, View, wire};
 
 fn lower(element: impl IntoElement) -> wire::Node {
     let mut app = App::for_driver();
@@ -145,18 +146,14 @@ impl Render for Stepper {
 
 #[test]
 fn an_a11y_action_reaches_the_listener_its_route_names_with_its_data() {
-    let mut driver = Driver::<Stepper>::new();
-    let frame = driver.tick(Vec::new());
-    let root = frame.root.expect("a tree");
-    let &[(Action::Increment, handler)] = aria(&root).actions.as_slice() else {
-        panic!("one Increment route: {:?}", aria(&root).actions);
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<Stepper>();
+    let &[(Action::Increment, _)] = aria(cx.root()).actions.as_slice() else {
+        panic!("one Increment route: {:?}", aria(cx.root()).actions);
     };
     let data = Some(ActionData::Value("2".into()));
-    driver.tick(vec![wire::Event::A11yAction {
-        handler,
-        data: data.clone(),
-    }]);
-    driver.entity().read(|view| {
+    cx.simulate_a11y_action("stepper", Action::Increment, data.clone());
+    view.read(|view| {
         assert_eq!(view.count, 1);
         assert_eq!(view.data, data);
     });
@@ -196,16 +193,17 @@ impl Render for Pinned {
 
 #[test]
 fn a_custom_action_the_node_does_not_offer_is_not_heard() {
-    let mut driver = Driver::<Pinned>::new();
-    let root = driver.tick(Vec::new()).root.expect("a tree");
-    let &[(Action::CustomAction, handler)] = aria(&root).actions.as_slice() else {
-        panic!("one custom route: {:?}", aria(&root).actions);
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<Pinned>();
+    let &[(Action::CustomAction, _)] = aria(cx.root()).actions.as_slice() else {
+        panic!("one custom route: {:?}", aria(cx.root()).actions);
     };
     for id in [2, 1] {
-        driver.tick(vec![wire::Event::A11yAction {
-            handler,
-            data: Some(ActionData::CustomAction(id)),
-        }]);
+        cx.simulate_a11y_action(
+            "message",
+            Action::CustomAction,
+            Some(ActionData::CustomAction(id)),
+        );
     }
-    driver.entity().read(|view| assert_eq!(view.heard, [1]));
+    view.read(|view| assert_eq!(view.heard, [1]));
 }

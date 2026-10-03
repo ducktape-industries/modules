@@ -48,6 +48,38 @@ impl Node {
         }
     }
 
+    /// The style the node was authored with; `Anchored` and `Deferred`
+    /// carry none.
+    pub fn style(&self) -> Option<&gpui::StyleRefinement> {
+        match self {
+            Self::Container(crate::ContainerNode { style, .. })
+            | Self::Text(crate::TextNode { style, .. })
+            | Self::RichText { style, .. }
+            | Self::UniformList { style, .. }
+            | Self::List { style, .. }
+            | Self::ResizeHandle { style, .. }
+            | Self::Sensor { style, .. }
+            | Self::Image { style, .. }
+            | Self::Svg { style, .. }
+            | Self::Input { style, .. }
+            | Self::Editor { style, .. }
+            | Self::Space { style }
+            | Self::Overlay { style, .. }
+            | Self::Canvas { style, .. } => Some(style),
+            Self::Anchored { .. } | Self::Deferred { .. } => None,
+        }
+    }
+
+    /// The text the node itself draws: a text's content, a rich text's
+    /// text, an input's value. An editor's text is its document's.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Self::Text(crate::TextNode { content, .. }) => Some(content),
+            Self::RichText { text, .. } | Self::Input { value: text, .. } => Some(text),
+            _ => None,
+        }
+    }
+
     /// The node's children in order. One arm per variant, here and in
     /// [`Node::children_mut`] and [`Node::child_list_mut`]: everything that
     /// walks, diffs or patches a tree goes through these three, so a new

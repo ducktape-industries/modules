@@ -57,6 +57,7 @@ fn an_arrow_on_the_pages_opens_the_next_page() {
     assert_eq!(tabs.role, Some(ducktape_view_guest::Role::TabList));
     assert!(tabs.focusable && tabs.tab_stop == Some(true));
     assert!(!cx.interactivity("explorer-tab-blocks").focusable);
+    cx.simulate_focus("explorer-tabs");
     cx.simulate_key_down("explorer-tabs", "right");
     cx.run_until_parked();
     assert!(cx.find("explorer-blocks").is_some(), "{:?}", cx.texts());
@@ -89,6 +90,7 @@ fn an_arrow_away_and_back_returns_to_the_block_it_left() {
     cx.simulate_click("explorer-block-11");
     cx.run_until_parked();
     assert!(cx.find("explorer-block").is_some(), "{:?}", cx.texts());
+    cx.simulate_focus("explorer-tabs");
     cx.simulate_key_down("explorer-tabs", "right");
     cx.run_until_parked();
     assert!(
@@ -127,10 +129,13 @@ fn enter_on_the_accounts_tab_shows_the_accounts_list_again() {
     let (mut cx, _) = ready();
     cx.simulate_click("explorer-tab-accounts");
     cx.run_until_parked();
+    cx.simulate_focus("explorer-accounts-list");
     cx.simulate_key_down("explorer-accounts-list", "down");
     cx.simulate_key_down("explorer-accounts-list", "enter");
     cx.run_until_parked();
     assert!(cx.find("explorer-account").is_some(), "{:?}", cx.texts());
+    // the list left with its focus: Tab reaches the tabs
+    cx.simulate_focus("explorer-tabs");
     cx.simulate_key_down("explorer-tabs", "right");
     cx.run_until_parked();
     assert!(cx.find("explorer-list").is_some(), "{:?}", cx.texts());
@@ -163,9 +168,11 @@ fn enter_on_the_accounts_tab_shows_the_accounts_list_again() {
         cx.texts()
     );
     // Space is the same press
+    cx.simulate_focus("explorer-accounts-list");
     cx.simulate_key_down("explorer-accounts-list", "enter");
     cx.run_until_parked();
     assert!(cx.find("explorer-account").is_some(), "{:?}", cx.texts());
+    cx.simulate_focus("explorer-tabs");
     cx.simulate_key_down("explorer-tabs", "space");
     cx.run_until_parked();
     assert!(
@@ -185,7 +192,6 @@ fn after_a_restore_an_arrow_away_and_back_returns_to_the_block() {
     cx.run_until_parked();
     let bytes = cx.snapshot().unwrap();
     let mut restored = TestAppContext::new();
-    restored.host().stream::<ChainHeads>();
     node(&mut restored, Rc::new(RefCell::new(12)));
     restored.restore::<Explorer>(&bytes).unwrap();
     restored.run_until_parked();
@@ -194,6 +200,7 @@ fn after_a_restore_an_arrow_away_and_back_returns_to_the_block() {
         "{:?}",
         restored.texts()
     );
+    restored.simulate_focus("explorer-tabs");
     restored.simulate_key_down("explorer-tabs", "right");
     restored.simulate_key_down("explorer-tabs", "left");
     assert!(
@@ -227,6 +234,7 @@ fn an_arrow_and_enter_on_the_accounts_opens_the_second_account() {
     assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
     assert!(!first.focusable && first.aria.active_descendant);
     assert_eq!(first.aria.selected, Some(false));
+    cx.simulate_focus("explorer-accounts-list");
     cx.simulate_key_down("explorer-accounts-list", "down");
     assert!(!cx.interactivity(&rows[0]).aria.active_descendant);
     assert!(cx.interactivity(&rows[1]).aria.active_descendant);
@@ -359,7 +367,6 @@ fn a_transaction_without_a_receipt_shows_no_outcome() {
 #[test]
 fn two_like_transactions_are_named_apart_by_their_short_hash() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     let push = |seed| {
         let op = forge::Op::Push {
@@ -406,7 +413,6 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
 #[test]
 fn a_frame_landed_again_is_a_row_of_its_own() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     let mut blocks = chain(12);
     let again = blocks[12].txs[0].clone();
@@ -571,7 +577,6 @@ fn the_root_tracks_the_shared_theme() {
 #[test]
 fn accounts_say_what_each_is_as_members_does() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     cx.open::<Explorer>();
     cx.run_until_parked();

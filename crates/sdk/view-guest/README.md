@@ -8,9 +8,12 @@ data through a fixed table of methods. This page is the whole surface.
 
 The rule: we re-implement only what touches the host or the wire; everything
 else is the gpui fork `Cargo.toml` pins (`gpui-pre`, at the rev it names),
-re-exported unchanged. `src/lib.rs:5-13` is the gpui list (`px`, `rems`,
-`Hsla`, `StyleRefinement`, `Styled`, `ElementId`, `SharedString`, the
-`*Event` types, `Role`, ...). Ours, defined in this crate:
+re-exported unchanged. The `pub use gpui::{…}` at the top of `src/lib.rs`
+is the gpui list (`px`, `rems`, `Hsla`, `StyleRefinement`, `Styled`,
+`ElementId`, `SharedString`, the `*Event` types, `Role`, ...).
+`use ducktape_view_guest::prelude::*` brings in what a gpui view file
+imports: elements, styles, events and the traits whose methods they call.
+Ours, defined in this crate:
 
 - `App`, `AsyncApp`, `Context`, `Entity`, `WeakEntity` (`src/context.rs`),
   `Task` (`src/executor.rs`), `Window` (`src/window.rs`): the entity graph
@@ -107,7 +110,10 @@ starts follows the host after a redeploy. The snapshot is the view's own serde
 as the wire's named MessagePack (`src/snapshot.rs`), refused while work is
 pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
 `view-wire/src/snapshot.rs`). Derive `Default`/`Serialize`/`Deserialize`
-and keep `Task`s out of the state (`Loadable` does).
+and keep `Task`s out of the state (`Loadable` does). A module's type that
+derives only borsh goes in the state as its bytes:
+`#[serde(with = "ducktape_view_guest::borsh_bytes")]` on the field
+(`src/borsh_bytes.rs`).
 
 ## Exporting
 
@@ -131,8 +137,23 @@ another.
 ## Testing
 
 `testing::TestAppContext` (`src/testing/context.rs`) opens a view over a
-`FakeHost` (`src/testing/fake_host.rs`): `handle::<Method>`, `refuse`,
-`stream`, `requests`; then `simulate_click`, `texts`.
+`FakeHost` (`src/testing/fake_host.rs`) that answers by a request's shape.
+An ask waits for its answer, so a test says what comes back:
+`handle::<Method>`, `refuse`, or `never` for one that stays out; an ask
+nothing answers fails the test, naming it. A subscription nothing feeds
+stays open; `stream::<Method>()` is its feed, and a feed nobody hears
+fails the test. `requests::<Method>()` is everything the view sent,
+notifies too (`HostLog`, `LinkOpen`, `HostWidget`). Then
+`simulate_click`, `simulate_input`, `simulate_event` and a typed
+`simulate_*` per event; `texts`, `find`, `node(key).style()`/`.text()`/
+`.children()`, `interactivity`, `last_frame`, and a `TickReport` per tick.
+Keys go where the host sends them: `simulate_focus` (or a click, or the
+view's own `Window::focus`) puts the keyboard on a node, and a key goes
+down its focus path to the capture listeners and back up it; a key at a
+node off that path fails the test. A list shows the rows the host shows:
+its one measured row at first, then `simulate_viewport(rows)` or
+`simulate_range(key, range)`. A frame carries at most
+`view_wire::MAX_REQUESTS` requests; the rest go in the next.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.
 It holds the view to its `View::CAPABILITIES` and `View::TARGETS` as the app
@@ -142,6 +163,6 @@ the targets leave out with `methods::refusal::UNDECLARED_TARGET`, the codes
 the app refuses them with.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,
 `crates/app/forge-view/src/screen_tests.rs`; `CHAT_SCREEN_EXPORT`,
-`crates/app/chat-view/src/tests.rs`) writes each screen's tree as JSON under
+`crates/app/chat-view/src/tests/mod.rs`) writes each screen's tree as JSON under
 `target/`; the app renders those with `dev/screens/chat-screens.sh
 FIXTURES_DIR OUTPUT_DIR` (`ducktape-app --render-tree`, debug builds).

@@ -102,7 +102,8 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
     cx.simulate_rich_click(key, 0);
     cx.simulate_rich_click(key, 1);
     assert_eq!(
-        cx.host().opened_links(),
+        cx.host()
+            .requests::<ducktape_view_guest::methods::LinkOpen>(),
         vec![
             "duck://testnet-0a1b2c3d/chat/general",
             "https://one.example",
@@ -131,7 +132,9 @@ fn a_headers_block_number_opens_explorer_at_that_block() {
     cx.run_until_parked();
     assert!(cx.has_text("block 12,345"));
     cx.simulate_click("chat-message-late-height");
-    let opened = cx.host().opened_links();
+    let opened = cx
+        .host()
+        .requests::<ducktape_view_guest::methods::LinkOpen>();
     assert_eq!(
         opened.last().map(String::as_str),
         Some("duck://explorer/block/12345")
