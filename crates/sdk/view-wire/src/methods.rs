@@ -117,6 +117,8 @@ fn decode_call<T: BorshDeserialize>(bytes: &[u8], target: &str) -> Result<T, Str
 }
 
 /// `module.query`: one query to `P`, answered with the bytes it `Respond`ed.
+/// The node answers from its preconfirmed state: the last block and the ops
+/// it has accepted since, ahead of the block that will carry them.
 pub struct Query<P>(std::marker::PhantomData<P>);
 impl<P: Program> sealed::Sealed for Query<P> {}
 impl<P: Program> Method for Query<P> {
@@ -142,7 +144,12 @@ impl<P: Program> Method for Query<P> {
 }
 
 /// `op.submit`: one operation to `P`, signed with the seated key; the
-/// reply is the receipt's output, the program's own bytes.
+/// reply is the receipt's output, the program's own bytes. The receipt is
+/// the node's preconfirmation, not finality: the op ran over the
+/// preconfirmed state and waits for a block. Until a block carries it the
+/// node can still drop it (a block that lands first and makes it fail, a
+/// node restart), and no view is told; a `Query` reads it as landed
+/// meanwhile.
 pub struct Submit<P>(std::marker::PhantomData<P>);
 impl<P: Program> sealed::Sealed for Submit<P> {}
 impl<P: Program> Method for Submit<P> {
