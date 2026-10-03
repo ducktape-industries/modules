@@ -1530,7 +1530,7 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
             .requests::<ducktape_view_guest::methods::HostWidget>()
             .iter()
             .filter_map(|command| match command {
-                wire::WidgetCommand::Focus { target } => target.first().and_then(|id| match id {
+                wire::WidgetCommand::Focus { target } => target.last().and_then(|id| match id {
                     wire::ElementIdWire::Name(name) => Some(name.to_string()),
                     _ => None,
                 }),

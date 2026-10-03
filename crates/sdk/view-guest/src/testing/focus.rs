@@ -1,9 +1,9 @@
 //! Where the keyboard is, by the host's rules: a node holds focus when a
 //! test focuses it, when a press lands on it or inside it, when the view
-//! moves focus there itself (`Window::focus`, `FocusHandle::focus`), or
-//! when a dialog opens and takes the keyboard; it loses focus when it
-//! leaves the tree. Keys go down the focus path and back up it, and
-//! nowhere else.
+//! moves focus there itself (`Window::focus`, `FocusHandle::focus`,
+//! `Window::focus_next`), when Tab moves it, or when a dialog opens and
+//! takes the keyboard; it loses focus when it leaves the tree. Keys go down
+//! the focus path and back up it, and nowhere else.
 
 use super::{authored_path, chain};
 use crate::wire::{ElementIdWire, Node, WidgetCommand};
@@ -23,9 +23,7 @@ impl Focus {
         chain(root, &mut |chain| {
             let node = chain.last().unwrap();
             match self {
-                Self::Path(path) => {
-                    node.identity().is_some() && authored_path(chain).ends_with(path)
-                }
+                Self::Path(path) => node.identity().is_some() && authored_path(chain) == *path,
                 Self::Handle(handle) => node
                     .interactivity()
                     .is_some_and(|interactivity| interactivity.focus_handle == Some(*handle)),
@@ -42,19 +40,52 @@ impl Focus {
         }
     }
 
-    /// Where a widget command the view sent moves focus, if it does. The
-    /// host focuses any container a `Focus` names, and ignores one it
-    /// cannot find.
-    pub(super) fn moved_by(command: &WidgetCommand, root: &Node) -> Option<Self> {
-        let focus = match command {
-            WidgetCommand::Focus { target } => Self::Path(target.clone()),
-            WidgetCommand::FocusHandle { handle } => Self::Handle(*handle),
-            WidgetCommand::FocusNext | WidgetCommand::FocusPrevious => {
-                panic!("the test host does not model `{command:?}`: no view sends it yet")
+    /// Where a widget command the view sent moves focus, if it does, by
+    /// the host's rules: a `Focus` names one node by its whole path and
+    /// must be a container, an input or an editor; `FocusNext` and
+    /// `FocusPrevious` move as Tab and Shift-Tab do ([`tab`]). A focus the
+    /// host refuses fails the test.
+    pub(super) fn moved_by(
+        command: &WidgetCommand,
+        root: &Node,
+        focus: Option<&Self>,
+    ) -> Option<Self> {
+        match command {
+            WidgetCommand::Focus { target } => {
+                let focus = Self::Path(target.clone());
+                let Some(chain) = focus.chain(root) else {
+                    let mut named = Vec::new();
+                    super::chain(root, &mut |chain| {
+                        let ends = authored_path(chain).ends_with(target);
+                        if chain.last().unwrap().identity().is_some() && ends {
+                            named.push(authored_path(chain));
+                        }
+                        false
+                    });
+                    panic!(
+                        "the host refuses to focus {target:?}: no node has that path ({} end \
+                         with it: {named:?}; `Window::focus_path` names one)",
+                        named.len()
+                    )
+                };
+                assert!(
+                    matches!(
+                        chain.last().unwrap(),
+                        Node::Container(_) | Node::Input { .. } | Node::Editor { .. }
+                    ),
+                    "the host refuses to focus {target:?}: it focuses a container, an input or \
+                     an editor"
+                );
+                Some(focus)
             }
-            _ => return None,
-        };
-        focus.chain(root).is_some().then_some(focus)
+            WidgetCommand::FocusHandle { handle } => {
+                let focus = Self::Handle(*handle);
+                focus.chain(root).is_some().then_some(focus)
+            }
+            WidgetCommand::FocusNext => tab(root, focus, true),
+            WidgetCommand::FocusPrevious => tab(root, focus, false),
+            _ => None,
+        }
     }
 }
 
@@ -79,6 +110,59 @@ fn tab_stop(node: &Node) -> bool {
                 && holds_focus(node)
         }),
     }
+}
+
+/// Where Tab (`forward`) or Shift-Tab moves the keyboard from `focus`: to
+/// the next Tab stop in document order, around to the first after the
+/// last, inside the open dialog that holds `focus` (the host's focus trap
+/// holding the keys); focus outside every dialog walks the whole view.
+// ponytail: document order, and the view's own stops only: gpui orders
+// stops as they paint (a deferred popover's after the rest, which only
+// shows when focus walks outside a dialog), by `tab_index` and Tab groups,
+// which no shipped view uses, and Tab out of the last stop leaves the pane
+// for the shell's next one.
+pub(super) fn tab(root: &Node, focus: Option<&Focus>, forward: bool) -> Option<Focus> {
+    let held = focus.and_then(|focus| focus.chain(root));
+    let trap = held.and_then(|held| {
+        open_dialogs(root)
+            .into_iter()
+            .rev()
+            .find(|dialog| in_modal_layer(&held, dialog))
+    });
+    let mut stops = Vec::new();
+    chain(root, &mut |chain| {
+        let trapped = trap
+            .as_deref()
+            .is_none_or(|dialog| in_modal_layer(chain, dialog));
+        if trapped && tab_stop(chain.last().unwrap()) {
+            stops.push(Focus::at(chain));
+        }
+        false
+    });
+    let at = focus.and_then(|focus| stops.iter().position(|stop| stop == focus));
+    let next = match (at, forward) {
+        (Some(at), true) => (at + 1) % stops.len(),
+        (Some(at), false) => (at + stops.len() - 1) % stops.len(),
+        (None, true) => 0,
+        (None, false) => stops.len().checked_sub(1)?,
+    };
+    stops.into_iter().nth(next)
+}
+
+/// Whether the last node of `chain` is in the modal layer of the dialog
+/// at `dialog`: the overlay's second child, not the base under it.
+fn in_modal_layer(chain: &[&Node], dialog: &[ElementIdWire]) -> bool {
+    chain
+        .windows(2)
+        .enumerate()
+        .any(|(at, pair)| match pair[0] {
+            Node::Overlay { children, .. } => {
+                children.len() == 2
+                    && std::ptr::eq(pair[1], &children[1])
+                    && authored_path(&chain[..=at]) == dialog
+            }
+            _ => false,
+        })
 }
 
 /// Where a press on the last node of `chain` puts the keyboard: on the
@@ -116,20 +200,7 @@ pub(super) fn entered(
     dialog: &[ElementIdWire],
     focus: Option<&Focus>,
 ) -> Option<Focus> {
-    // in the modal layer, the overlay's second child, not the base under it
-    let inside = |chain: &[&Node]| {
-        chain
-            .windows(2)
-            .enumerate()
-            .any(|(at, pair)| match pair[0] {
-                Node::Overlay { children, .. } => {
-                    children.len() == 2
-                        && std::ptr::eq(pair[1], &children[1])
-                        && authored_path(&chain[..=at]) == dialog
-                }
-                _ => false,
-            })
-    };
+    let inside = |chain: &[&Node]| in_modal_layer(chain, dialog);
     if focus
         .and_then(|focus| focus.chain(root))
         .is_some_and(|chain| inside(&chain))

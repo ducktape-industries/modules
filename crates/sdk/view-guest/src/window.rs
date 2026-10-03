@@ -1,5 +1,5 @@
 //! The guest's single window delegates platform work to its host.
-use crate::{slots, wire};
+use crate::{ElementId, slots, wire};
 pub struct Window {
     slots: slots::Context,
 }
@@ -7,13 +7,109 @@ impl Window {
     pub(crate) fn new(slots: slots::Context) -> Self {
         Self { slots }
     }
-    pub fn focus(&mut self, target: impl Into<crate::ElementId>) {
-        self.dispatch(wire::WidgetCommand::Focus {
-            target: vec![crate::element::wire_id(target.into())],
-        });
+    /// Gives the keyboard to the element `id` names in the frame this tick
+    /// renders. `id` is the element's own: the SDK, which lowered the ids
+    /// above it, sends the host the element's whole path. An id two scopes
+    /// hold names neither, and the host refuses it; [`focus_path`]
+    /// names one.
+    ///
+    /// [`focus_path`]: Self::focus_path
+    pub fn focus(&mut self, id: impl Into<ElementId>) {
+        self.focus_path([id]);
     }
-    pub fn dispatch(&mut self, command: wire::WidgetCommand) {
-        slots::host(&self.slots).notify::<crate::methods::HostWidget>(command);
+    /// Gives the keyboard to the element whose path ends with `path`: the
+    /// ids above it that tell it apart, its own last (`["reply",
+    /// "input"]`).
+    pub fn focus_path<I: Into<ElementId>>(&mut self, path: impl IntoIterator<Item = I>) {
+        let target = path
+            .into_iter()
+            .map(|id| crate::element::wire_id(id.into()))
+            .collect();
+        self.dispatch(wire::WidgetCommand::Focus { target });
+    }
+    /// Moves the keyboard to the next Tab stop, as Tab does: round the open
+    /// dialog that holds it, never out of it.
+    pub fn focus_next(&mut self) {
+        self.dispatch(wire::WidgetCommand::FocusNext);
+    }
+    /// Moves the keyboard to the previous Tab stop, as Shift-Tab does:
+    /// round the open dialog that holds it, never out of it.
+    pub fn focus_prev(&mut self) {
+        self.dispatch(wire::WidgetCommand::FocusPrevious);
+    }
+    /// Asks the host for `command` with this tick's frame ([`send_widgets`]).
+    pub(crate) fn dispatch(&mut self, command: wire::WidgetCommand) {
+        slots::widget(&self.slots, command);
+    }
+}
+
+/// Sends the widget commands this tick asked for, in order, each target
+/// named by the path `root` (the tree this frame carries) gives it: the
+/// host matches whole paths. A view names a target by the ids it holds
+/// ([`Window::focus`]); the frame it renders is the first that holds an
+/// element it just opened, so the path is read there, not earlier.
+pub(crate) fn send_widgets(context: &slots::Context, root: Option<&wire::Node>) {
+    let host = slots::host(context);
+    for mut command in slots::take_widgets(context) {
+        if let (Some(root), Some(target)) = (root, target_mut(&mut command))
+            && let Some(path) = resolve(root, target)
+        {
+            *target = path;
+        }
+        host.notify::<crate::methods::HostWidget>(command);
+    }
+}
+
+fn target_mut(command: &mut wire::WidgetCommand) -> Option<&mut wire::WidgetTarget> {
+    use wire::WidgetCommand as C;
+    match command {
+        C::FocusPrevious | C::FocusNext | C::FocusHandle { .. } => None,
+        C::EditorAction { target, .. }
+        | C::Focus { target }
+        | C::CursorFront { target }
+        | C::CursorEnd { target }
+        | C::Cursor { target, .. }
+        | C::SelectAll { target }
+        | C::Select { target, .. }
+        | C::Snap { target, .. }
+        | C::SnapEnd { target }
+        | C::ScrollTo { target, .. }
+        | C::ScrollBy { target, .. } => Some(target),
+    }
+}
+
+/// The whole path of the one element `target` names in `root`: the one at
+/// exactly that path, else the one whose path ends with it. None when it
+/// is a whole path already, or when no element or more than one ends with
+/// it: it goes as named, and the host refuses a path it does not mount.
+fn resolve(root: &wire::Node, target: &[wire::ElementIdWire]) -> Option<wire::WidgetTarget> {
+    fn walk(
+        node: &wire::Node,
+        path: &mut Vec<wire::ElementIdWire>,
+        visit: &mut impl FnMut(&[wire::ElementIdWire]),
+    ) {
+        let id = node.identity();
+        if let Some(id) = id {
+            path.push(id.clone());
+            visit(path);
+        }
+        for child in node.children() {
+            walk(child, path, visit);
+        }
+        if id.is_some() {
+            path.pop();
+        }
+    }
+    let (mut whole, mut ending) = (false, Vec::new());
+    walk(root, &mut Vec::new(), &mut |path| {
+        whole |= path == target;
+        if path.ends_with(target) {
+            ending.push(path.to_vec());
+        }
+    });
+    match (whole, <[_; 1]>::try_from(ending)) {
+        (false, Ok([path])) => Some(path),
+        _ => None,
     }
 }
 #[cfg(test)]
@@ -93,22 +189,35 @@ mod tests {
     }
 
     #[test]
-    fn window_dispatch_enqueues_commands_in_order() {
+    fn widget_commands_go_out_with_the_frame_in_order() {
         let host = Host::default();
-        let mut window = Window::new(crate::slots::Context::with_host(host.clone()));
-        // Window mutations enqueue synchronously; explicit request futures wait for acknowledgments.
+        let slots = crate::slots::Context::with_host(host.clone());
+        let mut window = Window::new(slots.clone());
         window.focus("first");
+        window.focus_next();
         window.focus("second");
-        let requests = host.drain_outbox();
-        assert_eq!(requests.len(), 2);
-        for (request, name) in requests.iter().zip(["first", "second"]) {
-            assert_eq!(
-                wire::decode::<wire::WidgetCommand>(&request.payload).unwrap(),
+        assert!(
+            host.drain_outbox().is_empty(),
+            "nothing goes out before the frame"
+        );
+        super::send_widgets(&slots, None);
+        let sent: Vec<_> = host
+            .drain_outbox()
+            .iter()
+            .map(|request| wire::decode::<wire::WidgetCommand>(&request.payload).unwrap())
+            .collect();
+        assert_eq!(
+            sent,
+            [
                 wire::WidgetCommand::Focus {
-                    target: target(name)
-                }
-            );
-        }
+                    target: target("first")
+                },
+                wire::WidgetCommand::FocusNext,
+                wire::WidgetCommand::Focus {
+                    target: target("second")
+                },
+            ]
+        );
     }
 
     #[test]
@@ -117,6 +226,7 @@ mod tests {
         let handle = app.focus_handle();
         let mut window = app.window();
         handle.focus(&mut window, &mut app);
+        super::send_widgets(&app.inner.slots, None);
         let requests = app.host().drain_outbox();
         let [request] = requests.as_slice() else {
             panic!("one focus command")
@@ -125,5 +235,79 @@ mod tests {
             wire::decode::<wire::WidgetCommand>(&request.payload).unwrap(),
             wire::WidgetCommand::FocusHandle { handle: 0 }
         );
+    }
+
+    /// Two forms, each with a field named "input"; one press asks for the
+    /// right one by the ids that tell it apart, the other by the bare id
+    /// both hold.
+    #[derive(Default, Serialize, Deserialize)]
+    struct TwoForms;
+    impl View for TwoForms {
+        const NAME: &'static str = "TwoForms";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Host];
+    }
+    impl Render for TwoForms {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+            use crate::{InteractiveElement, ParentElement, StatefulInteractiveElement, div};
+            let form = |id: &'static str| {
+                div()
+                    .id(id)
+                    .child(Input::new("input", id).on_input(|_: &String, _, _| {}))
+            };
+            let press = |id: &'static str, focus: fn(&mut Window)| {
+                div()
+                    .id(id)
+                    .role(gpui::Role::Button)
+                    .focusable()
+                    .on_click(move |_, window, _| focus(window))
+                    .child(id)
+            };
+            div()
+                .id("forms")
+                .child(form("left"))
+                .child(form("right"))
+                .child(press("right-input", |window| {
+                    window.focus_path(["right", "input"])
+                }))
+                .child(press("any-input", |window| window.focus("input")))
+        }
+    }
+
+    fn path(names: &[&str]) -> wire::WidgetTarget {
+        names
+            .iter()
+            .map(|name| wire::ElementIdWire::Name((*name).into()))
+            .collect()
+    }
+
+    /// The host matches a target's whole path, so the SDK sends the one
+    /// the frame lowered: the right form's field, never the first that
+    /// ends with "input".
+    #[test]
+    fn a_focus_names_the_one_element_it_asks_for_by_its_whole_path() {
+        let mut cx = TestAppContext::new();
+        cx.open::<TwoForms>();
+        cx.simulate_click("right-input");
+        assert_eq!(
+            cx.host().requests::<HostWidget>().last(),
+            Some(&wire::WidgetCommand::Focus {
+                target: path(&["forms", "right", "input"])
+            })
+        );
+        let focused = cx.focused().expect("a field has the keys");
+        assert!(std::ptr::eq(
+            focused,
+            &cx.root().children()[1].children()[0]
+        ));
+    }
+
+    /// An id two scopes hold names neither: it goes out as named, and the
+    /// host refuses it, where it once focused the first in the tree.
+    #[test]
+    #[should_panic(expected = "the host refuses to focus")]
+    fn an_id_two_scopes_hold_focuses_neither() {
+        let mut cx = TestAppContext::new();
+        cx.open::<TwoForms>();
+        cx.simulate_click("any-input");
     }
 }

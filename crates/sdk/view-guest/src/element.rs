@@ -117,6 +117,10 @@ impl<'a> Lowering<'a> {
         self.app
     }
 
+    pub(crate) fn slots(&self) -> &slots::Context {
+        &self.app.inner.slots
+    }
+
     pub(crate) fn theme(&self) -> crate::Theme {
         *self.app.global::<crate::Theme>()
     }

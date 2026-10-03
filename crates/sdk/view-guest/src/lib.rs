@@ -31,7 +31,8 @@ pub use element::{
     UniformListScrollHandle, div, uniform_list,
 };
 pub use interactivity::{
-    FocusHandle, InteractiveElement, Interactivity, Stateful, StatefulInteractiveElement,
+    FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
+    StatefulInteractiveElement,
 };
 pub use list::{List, ListState, list};
 pub use primitives::{
@@ -50,10 +51,10 @@ pub mod prelude {
         ListAlignment, ListHorizontalSizingBehavior, ListOffset, ListScrollEvent,
         ListSizingBehavior, ListState, ModifiersChangedEvent, MouseButton, MouseDownEvent,
         MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ParentElement,
-        PinchEvent, Pixels, Render, RenderOnce, Role, ScrollStrategy, ScrollWheelEvent,
-        SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Theme,
-        UniformListScrollHandle, Window, anchored, canvas, deferred, div, hsla, img, list,
-        modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
+        PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy,
+        ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
+        StyledText, Theme, UniformListScrollHandle, Window, anchored, canvas, deferred, div, hsla,
+        img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
     };
 }
 mod editor;

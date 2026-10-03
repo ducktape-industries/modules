@@ -6,6 +6,11 @@ impl Interactivity {
         lowering: &Lowering<'_>,
     ) -> (Option<wire::ElementIdWire>, Box<wire::Interactivity>) {
         let scope = lowering.current_path();
+        if let Some(handle) = &self.scroll_handle
+            && self.id.is_some()
+        {
+            handle.track(lowering.slots(), scope);
+        }
         // an identified element lowers inside its own scope; its siblings
         // share the one above
         let scope = &scope[..scope.len() - usize::from(self.id.is_some())];

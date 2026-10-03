@@ -2,7 +2,6 @@
 //! edits, pastes and copies.
 use ducktape_view_guest::Context;
 use ducktape_view_guest::methods::Submit;
-use ducktape_view_guest::wire;
 
 use crate::api::{ClipboardRead, ClipboardWrite, HostId};
 use crate::composer::{Event, MentionChoice, Outcome, Send, Target, pending_row};
@@ -43,10 +42,7 @@ impl Chat {
         match draft.handle(event, &choices, cx) {
             Outcome::Updated => {}
             Outcome::Run(run) => run(self, window, cx),
-            Outcome::Enqueue(tag) => window.dispatch(wire::WidgetCommand::EditorAction {
-                target: vec![wire::ElementIdWire::Name(format!("{key}/editor").into())],
-                tag,
-            }),
+            Outcome::Enqueue(tag) => crate::composer::act(window, &key, tag),
             Outcome::Action(tag) => self.composer_action(target, &key, &tag, cx),
         }
     }
@@ -78,12 +74,7 @@ impl Chat {
                             Ok(clipboard) => {
                                 chat.drafts.entry(key.clone()).or_default().paste =
                                     Some(clipboard.text);
-                                window.dispatch(wire::WidgetCommand::EditorAction {
-                                    target: vec![wire::ElementIdWire::Name(
-                                        format!("{key}/editor").into(),
-                                    )],
-                                    tag: "paste-ready".into(),
-                                });
+                                crate::composer::act(window, &key, "paste-ready");
                             }
                             Err(refusal) => {
                                 chat.drafts.entry(key).or_default().note = refusal.message

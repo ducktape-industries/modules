@@ -246,7 +246,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
     handle: F,
 ) -> impl IntoElement + use<V, F> {
     let handle: Handle<V> = Rc::new(handle);
-    let editor_id = format!("{key}/editor");
+    let editor_id = super::editor_id(key);
     let editor = editor(
         draft,
         &editor_id,

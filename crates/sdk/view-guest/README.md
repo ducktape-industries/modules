@@ -23,14 +23,20 @@ Ours, defined in this crate:
   `resize_handle`, `modal_overlay` (`src/element.rs`, `src/list.rs`,
   `src/editor.rs`, `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
-  crossed as per-frame indices.
+  crossed as per-frame indices. `list` is gpui's: styled, with nothing to
+  press, name or hover (a `div` around it carries those); `canvas` is drawn
+  by calls (`rect`, `circle`, `line`), since gpui's paint closures cannot
+  cross.
 - A control is named from birth: `Input::new(id, label)`,
   `EditorElement::new(…, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words
   assistive technology reads; the audit catches one given none.
-- `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`
-  (`src/interactivity.rs`): listeners and
-  focus become wire routes.
+- `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`,
+  `ScrollHandle` (`src/interactivity.rs`): listeners and focus become wire
+  routes; `track_scroll` lets a handle move its scroller. `Window::focus(id)`
+  names an element by its own id, and the SDK sends the host the whole path
+  the frame it renders gives it (`focus_path` when two scopes hold the id);
+  `focus_next`/`focus_prev` move as Tab does.
 
 ## The methods
 

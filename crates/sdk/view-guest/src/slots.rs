@@ -42,6 +42,9 @@ struct Tables {
     picture_bytes: usize,
     /// A picture this frame drew went out by hash alone for want of budget.
     pictures_owed: bool,
+    /// Widget commands asked this tick, sent with its frame
+    /// ([`crate::window::send_widgets`]).
+    widgets: Vec<crate::wire::WidgetCommand>,
 }
 
 /// A route table. Routes taken while a list row lowers get ids from the row
@@ -431,4 +434,12 @@ mod response_budget_tests {
 
 pub(crate) fn host(context: &Context) -> crate::Host {
     context.0.borrow().host.clone()
+}
+
+pub(crate) fn widget(context: &Context, command: crate::wire::WidgetCommand) {
+    context.0.borrow_mut().widgets.push(command);
+}
+
+pub(crate) fn take_widgets(context: &Context) -> Vec<crate::wire::WidgetCommand> {
+    std::mem::take(&mut context.0.borrow_mut().widgets)
 }
