@@ -114,12 +114,21 @@ fn tab_stop(node: &Node) -> bool {
 
 /// Where Tab (`forward`) or Shift-Tab moves the keyboard from `focus`: to
 /// the next Tab stop in document order, around to the first after the
-/// last, inside the dialog that is open (the host's focus trap).
-// ponytail: document order, and the view's own stops only: gpui also orders
-// by `tab_index` and Tab groups, which no shipped view uses, and Tab out of
-// the last stop leaves the pane for the shell's next one.
+/// last, inside the open dialog that holds `focus` (the host's focus trap
+/// holding the keys); focus outside every dialog walks the whole view.
+// ponytail: document order, and the view's own stops only: gpui orders
+// stops as they paint (a deferred popover's after the rest, which only
+// shows when focus walks outside a dialog), by `tab_index` and Tab groups,
+// which no shipped view uses, and Tab out of the last stop leaves the pane
+// for the shell's next one.
 pub(super) fn tab(root: &Node, focus: Option<&Focus>, forward: bool) -> Option<Focus> {
-    let trap = open_dialogs(root).pop();
+    let held = focus.and_then(|focus| focus.chain(root));
+    let trap = held.and_then(|held| {
+        open_dialogs(root)
+            .into_iter()
+            .rev()
+            .find(|dialog| in_modal_layer(&held, dialog))
+    });
     let mut stops = Vec::new();
     chain(root, &mut |chain| {
         let trapped = trap

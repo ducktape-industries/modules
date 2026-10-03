@@ -27,11 +27,13 @@ impl Window {
             .collect();
         self.dispatch(wire::WidgetCommand::Focus { target });
     }
-    /// Moves the keyboard to the next Tab stop, as Tab does.
+    /// Moves the keyboard to the next Tab stop, as Tab does: round the open
+    /// dialog that holds it, never out of it.
     pub fn focus_next(&mut self) {
         self.dispatch(wire::WidgetCommand::FocusNext);
     }
-    /// Moves the keyboard to the previous Tab stop, as Shift-Tab does.
+    /// Moves the keyboard to the previous Tab stop, as Shift-Tab does:
+    /// round the open dialog that holds it, never out of it.
     pub fn focus_prev(&mut self) {
         self.dispatch(wire::WidgetCommand::FocusPrevious);
     }
