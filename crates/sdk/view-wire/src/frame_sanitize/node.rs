@@ -16,7 +16,8 @@ pub(super) fn sanitize_node(
     // on the empty node that stands in for it.
     budgets.nodes -= 1;
     if depth >= MAX_DEPTH {
-        *node = Node::empty();
+        let cut = std::mem::replace(node, Node::empty());
+        budgets.cut(|cuts| &mut cuts.depth, usize::from(cut != Node::empty()));
         return Ok(());
     }
     let entered = scopes.enter(identity::segment(node.identity().cloned(), row))?;
@@ -88,7 +89,10 @@ fn sanitize_fields(
             if let Some(request) = scroll_request {
                 request.offset = request.offset.min(MAX_UNIFORM_LIST_COUNT);
             }
+            let rows: usize = children.iter().map(Node::count).sum();
             uniform_list_rows(*count, indices, children);
+            let kept: usize = children.iter().map(Node::count).sum();
+            budgets.cut(|cuts| &mut cuts.nodes, rows - kept);
         }
         Node::List {
             path,
@@ -112,7 +116,11 @@ fn sanitize_fields(
             style_sanitize::sanitize(style)?;
             list_commands(commands, *item_count);
             *range_start = (*range_start).min(*item_count);
-            children.truncate(MAX_LIST_ROWS.min(item_count.saturating_sub(*range_start)));
+            cut_children(
+                children,
+                MAX_LIST_ROWS.min(item_count.saturating_sub(*range_start)),
+                budgets,
+            );
         }
         Node::Overlay {
             label,
@@ -120,9 +128,11 @@ fn sanitize_fields(
             children,
             ..
         } => {
-            label.iter_mut().for_each(truncate_string);
+            if let Some(label) = label {
+                cut_string(label, budgets);
+            }
             style_sanitize::sanitize(style)?;
-            children.truncate(2);
+            cut_children(children, 2, budgets);
         }
         Node::Canvas { style, commands } => {
             style_sanitize::sanitize(style)?;
@@ -192,7 +202,7 @@ fn sanitize_fields(
         } => {
             match source {
                 SvgSource::Data { bytes, .. } => spend_svg(bytes, budgets),
-                SvgSource::Asset(path) | SvgSource::External(path) => truncate_string(path),
+                SvgSource::Asset(path) | SvgSource::External(path) => cut_string(path, budgets),
                 SvgSource::None => {}
             }
             for value in &mut transformation.scale {
@@ -228,6 +238,13 @@ fn sanitize_fields(
         }
     }
     Ok(())
+}
+
+/// Keeps the first `keep` children and reports the rest as cut nodes.
+fn cut_children(children: &mut Vec<Node>, keep: usize, budgets: &mut Budgets) {
+    let dropped: usize = children.iter().skip(keep).map(Node::count).sum();
+    budgets.cut(|cuts| &mut cuts.nodes, dropped);
+    children.truncate(keep);
 }
 
 /// A uniform list names the path of ids that authored it, ending in its own,
@@ -318,10 +335,16 @@ fn sanitize_children(
             if drops {
                 break;
             }
-            node.children_mut()[child] = Node::empty();
+            let cut = std::mem::replace(&mut node.children_mut()[child], Node::empty());
+            if cut != Node::empty() {
+                budgets.at.push(child as u32);
+                budgets.cut(|cuts| &mut cuts.nodes, cut.count());
+                budgets.at.pop();
+            }
             continue;
         }
         let row = identity::row(node, child);
+        budgets.at.push(child as u32);
         sanitize_node(
             &mut node.children_mut()[child],
             depth + 1,
@@ -329,12 +352,19 @@ fn sanitize_children(
             scopes,
             row,
         )?;
+        budgets.at.pop();
         kept += 1;
     }
     if !drops {
         return Ok(());
     }
     if let Some(children) = node.child_list_mut() {
+        let dropped: usize = children[kept..].iter().map(Node::count).sum();
+        if dropped > 0 {
+            budgets.at.push(kept as u32);
+            budgets.cut(|cuts| &mut cuts.nodes, dropped);
+            budgets.at.pop();
+        }
         children.truncate(kept);
     }
     if let Node::Image {

@@ -296,23 +296,14 @@ impl TestAppContext {
     fn chain(&self, key: &str) -> Vec<&Node> {
         chain_to(self.root(), key).unwrap_or_else(|| panic!("no node {key:?} in {:?}", self.keys()))
     }
-    /// The last frame's whole tree as a host would take it on a fresh mount:
-    /// asserts the host's sanitizer passes it through untouched (inside
-    /// every node, text and picture budget) and answers its encoded bytes —
-    /// the proxy a native test has for the fuel a render spends.
+    /// The last frame's whole tree as a host would take it on a fresh mount,
+    /// in encoded bytes: the proxy a native test has for the fuel a render
+    /// spends. (Every tick already holds the tree to the host's budgets.)
     pub fn frame_bytes(&self) -> usize {
         let frame = Frame {
             root: Some(self.root().clone()),
             ..Frame::default()
         };
-        let mut sanitized = frame.clone();
-        if let Err(refused) = crate::wire::sanitize(&mut sanitized) {
-            panic!("the frame sanitizes: {refused}");
-        }
-        assert!(
-            sanitized.root == frame.root,
-            "the host would cut this frame: it is past a frame budget"
-        );
         crate::wire::encode(&frame).len()
     }
 

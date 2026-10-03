@@ -306,7 +306,6 @@ impl<V: View> Driver<V> {
         // what one frame cannot carry goes in the next
         self.busy |= host.outbox_waiting();
         wire::Frame {
-            upstream_sanitization: Default::default(),
             tooltip_responses: slots::take_tooltip_responses(&self.app.inner.slots),
             root,
             patches,

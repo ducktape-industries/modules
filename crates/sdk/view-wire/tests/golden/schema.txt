@@ -194,10 +194,6 @@ Aria struct
   invalid: Option(TypeName("Invalid"))
   has_popup: Option(TypeName("HasPopup"))
   current: Option(TypeName("AriaCurrent"))
-  labelled_by: Seq(Seq(TypeName("WireRepr")))
-  described_by: Seq(Seq(TypeName("WireRepr")))
-  controls: Seq(Seq(TypeName("WireRepr")))
-  error_message: Option(Seq(TypeName("WireRepr")))
   actions: Seq(Tuple([TypeName("Action"), U32]))
   custom_actions: Seq(Tuple([I32, Str]))
 AriaCurrent enum
@@ -547,7 +543,6 @@ FontStyle enum
   1 Italic: Unit
   2 Oblique: Unit
 Frame struct
-  upstream_sanitization: TypeName("SanitizeReport")
   tooltip_responses: Seq(TypeName("TooltipResponse"))
   root: Option(TypeName("Node"))
   patches: Seq(TypeName("Patch"))
@@ -620,7 +615,6 @@ Interactivity struct
   focus: Option(TypeName("StyleRefinement"))
   in_focus: Option(TypeName("StyleRefinement"))
   focus_visible: Option(TypeName("StyleRefinement"))
-  key_context: Option(TypeName("KeyContext"))
   focus_handle: Option(U64)
   occlude: Bool
   block_mouse_except_scroll: Bool
@@ -667,11 +661,6 @@ KeyClaim struct
   key: TypeName("Key")
   modifiers: TypeName("Modifiers")
   command: Bool
-KeyContext struct
-  entries: Seq(TypeName("KeyContextEntry"))
-KeyContextEntry struct
-  key: Str
-  value: Option(Str)
 KeyDown struct
   state: TypeName("KeyState")
   repeat: Bool
@@ -1199,8 +1188,6 @@ Role enum
 Runs enum
   0 Highlights: NewType(Seq(Tuple([TypeName("Range"), TypeName("HighlightStyle")])))
   1 Runs: NewType(Seq(TypeName("TextRun")))
-SanitizeReport struct
-  display_text_truncated: Bool
 ScrollDelta enum
   0 Lines struct
     x: F32

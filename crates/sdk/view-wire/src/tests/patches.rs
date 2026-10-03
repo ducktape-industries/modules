@@ -327,7 +327,9 @@ fn display_truncation_shortens_a_placeholder_and_never_a_fields_text() {
     assert_eq!(
         sanitize(&mut frame),
         Ok(SanitizeReport {
-            display_text_truncated: true
+            strings: 2,
+            first: Some(vec![0]),
+            ..Default::default()
         })
     );
     let Some(Node::Container(crate::ContainerNode { children, .. })) = &frame.root else {

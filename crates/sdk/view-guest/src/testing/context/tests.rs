@@ -135,6 +135,31 @@ fn every_frame_a_view_sends_is_audited() {
     TestAppContext::new().open::<Nameless>();
 }
 
+/// A view whose frame the host would cut: past the node budget, the host
+/// shows the first rows and drops the rest, so its test fails, where it
+/// passed when only a refused frame failed.
+#[derive(Default, Serialize, Deserialize)]
+struct Spreadsheet;
+impl View for Spreadsheet {
+    const NAME: &'static str = "Spreadsheet";
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self
+    }
+}
+impl Render for Spreadsheet {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+        crate::div()
+            .id("cells")
+            .children((0..crate::wire::MAX_NODES).map(|cell| crate::div().child(cell.to_string())))
+    }
+}
+
+#[test]
+#[should_panic(expected = "the host would cut this frame")]
+fn a_frame_the_host_would_cut_fails_its_test() {
+    TestAppContext::new().open::<Spreadsheet>();
+}
+
 /// Twins: two siblings with one typed id, which the audit (it keys on
 /// names) passes and the host refuses.
 #[derive(Default, Serialize, Deserialize)]

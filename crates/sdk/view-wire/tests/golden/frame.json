@@ -1,8 +1,5 @@
 [
   {
-    "upstream_sanitization": {
-      "display_text_truncated": false
-    },
     "tooltip_responses": [
       {
         "request": 17,
