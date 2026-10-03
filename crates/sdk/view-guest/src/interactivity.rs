@@ -47,8 +47,9 @@ pub struct Interactivity {
     pub(crate) group_hover: Option<(SharedString, Box<StyleRefinement>)>,
     pub(crate) group_active: Option<(SharedString, Box<StyleRefinement>)>,
     a11y_actions: Vec<(gpui::accesskit::Action, A11yListener)>,
-    pub(crate) on_click: Option<EventListener<ClickEvent>>,
-    pub(crate) on_aux_click: Option<EventListener<ClickEvent>>,
+    pub(crate) on_click: Vec<EventListener<ClickEvent>>,
+    pub(crate) on_aux_click: Vec<EventListener<ClickEvent>>,
+    consumes_click: bool,
     mouse_down: Vec<ButtonBinding<gpui::MouseDownEvent>>,
     capture_mouse_down: Vec<EventListener<gpui::MouseDownEvent>>,
     mouse_down_out: Vec<EventListener<gpui::MouseDownEvent>>,
@@ -67,6 +68,7 @@ pub struct Interactivity {
     key_up: Vec<EventListener<gpui::KeyUpEvent>>,
     capture_key_up: Vec<EventListener<gpui::KeyUpEvent>>,
     modifiers_changed: Vec<EventListener<gpui::ModifiersChangedEvent>>,
+    consumes_keys: Vec<SharedString>,
     on_hover: Option<EventListener<bool>>,
     hover_listener_mode: gpui::HoverListenerMode,
     on_file_drop_exit: Vec<EventListener<FileDropEvent>>,
@@ -318,6 +320,21 @@ pub trait InteractiveElement: Sized {
         self.interactivity()
             .modifiers_changed
             .push(Box::new(listener));
+        self
+    }
+
+    /// The keystrokes, in gpui's words (`"escape"`, `"shift-tab"`), this
+    /// element takes, with its `on_key_down` listeners or its keyboard
+    /// click (Enter, Space): the host stops each one here once they have
+    /// heard it, so no element around it hears it too.
+    /// gpui decides that inside the listener with `cx.stop_propagation()`;
+    /// a guest listener runs after the host has dispatched the key, so it
+    /// says which keys it takes up front.
+    fn consumes_keys<'a>(mut self, keys: impl IntoIterator<Item = &'a str>) -> Self {
+        self.interactivity().consumes_keys.extend(
+            keys.into_iter()
+                .map(|key| SharedString::from(key.to_owned())),
+        );
         self
     }
 
@@ -624,15 +641,27 @@ pub trait StatefulInteractiveElement: InteractiveElement {
             Some((group.into(), Box::new(f(StyleRefinement::default()))));
         self
     }
+    /// Every listener given runs, in order, as gpui's do.
     fn on_click(mut self, listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.interactivity().on_click = Some(Box::new(listener));
+        self.interactivity().on_click.push(Box::new(listener));
         self
     }
     fn on_aux_click(
         mut self,
         listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().on_aux_click = Some(Box::new(listener));
+        self.interactivity().on_aux_click.push(Box::new(listener));
+        self
+    }
+    /// This element's click consumes its press: the host stops the
+    /// pointer's click here, so an element under it (a card's own click)
+    /// does not take the same press. gpui calls `cx.stop_propagation()` in
+    /// the listener; a guest listener runs too late for that, so it says
+    /// so up front. A focusable element whose keyboard click must not
+    /// reach a composite around it consumes Enter and Space too, with
+    /// [`InteractiveElement::consumes_keys`].
+    fn consumes_click(mut self) -> Self {
+        self.interactivity().consumes_click = true;
         self
     }
     fn on_hover(mut self, listener: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {

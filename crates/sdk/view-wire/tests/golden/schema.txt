@@ -632,6 +632,7 @@ Interactivity struct
   group_active: Option(TypeName("GroupRefinement"))
   on_click: Option(U32)
   on_aux_click: Option(U32)
+  consumes_click: Bool
   on_mouse_down: Option(U32)
   capture_mouse_down: Option(U32)
   on_mouse_down_out: Option(U32)
@@ -650,6 +651,7 @@ Interactivity struct
   on_key_up: Option(U32)
   capture_key_up: Option(U32)
   on_modifiers_changed: Option(U32)
+  consumes_keys: Seq(Str)
   on_hover: Option(U32)
   on_file_drop_exit: Option(U32)
   tooltip: Option(TypeName("Tooltip"))

@@ -339,8 +339,10 @@ impl TestAppContext {
     /// `keystroke` (gpui's words: `"shift-left"`) goes down while `key`
     /// holds the keyboard or contains the node that does. The host sends
     /// it down the focus path to every capture listener, root first, then
-    /// up it to every key listener, focused node first; a node off the
-    /// focus path never hears it, and the test fails instead.
+    /// up it to every key listener, focused node first, until a node
+    /// consumes it ([`consumed_at`]): an open overlay's layer turns Escape
+    /// into its dismiss there. A node off the focus path never hears it,
+    /// and the test fails instead.
     pub fn simulate_key_down(&mut self, key: &str, keystroke: &str) {
         let event = gpui::KeyDownEvent {
             keystroke: keystroke_of(keystroke),
@@ -356,6 +358,7 @@ impl TestAppContext {
                 phase,
                 event: (&event).into(),
             },
+            |chain| consumed_at(chain, &event.keystroke),
         );
         self.run(events);
     }
@@ -374,6 +377,7 @@ impl TestAppContext {
                 phase,
                 event: (&event).into(),
             },
+            |_| None,
         );
         self.run(events);
     }
@@ -388,16 +392,20 @@ impl TestAppContext {
                 handler,
                 event: (&event).into(),
             },
+            |_| None,
         );
         self.run(events);
     }
-    /// The events a key-like input on the focus path through `key` makes.
+    /// The events a key-like input on the focus path through `key` makes:
+    /// `reach` says from which node of the chain up it still bubbles, and
+    /// what the node that stopped it makes of it.
     fn along_focus(
         &self,
         key: &str,
         capture: fn(&Interactivity) -> Option<u32>,
         bubble: fn(&Interactivity) -> Option<u32>,
         event: impl Fn(u32, DispatchPhase) -> Event,
+        reach: impl Fn(&[&Node]) -> Option<(usize, Option<Event>)>,
     ) -> Vec<Event> {
         let root = self.root();
         let focused = self.focus.as_ref().and_then(|focus| focus.chain(root));
@@ -415,9 +423,12 @@ impl TestAppContext {
                 }
             )
         };
-        let events = along(chain, capture, bubble, event);
+        let stopped = reach(chain);
+        let (from, made) = stopped.clone().unwrap_or((0, None));
+        let mut events = along(chain, from, capture, bubble, event);
+        events.extend(made);
         assert!(
-            !events.is_empty(),
+            !events.is_empty() || stopped.is_some(),
             "nothing on the focus path through {key:?} listens for it"
         );
         events
@@ -462,6 +473,7 @@ impl TestAppContext {
         let wire_event = wire::interactivity::MouseDown::from(&event);
         let mut events = along(
             &chain,
+            0,
             |i| i.capture_mouse_down,
             |i| i.on_mouse_down,
             |handler, phase| Event::MouseDown {
@@ -489,6 +501,7 @@ impl TestAppContext {
         let wire_event = wire::interactivity::MouseUp::from(&event);
         let mut events = along(
             &chain,
+            0,
             |i| i.capture_mouse_up,
             |i| i.on_mouse_up,
             |handler, phase| Event::MouseUp {
@@ -611,7 +624,7 @@ impl TestAppContext {
         bubble: fn(&Interactivity) -> Option<u32>,
         event: impl Fn(u32, DispatchPhase) -> Event,
     ) -> Vec<Event> {
-        let events = along(&self.chain(key), capture, bubble, event);
+        let events = along(&self.chain(key), 0, capture, bubble, event);
         assert!(
             !events.is_empty(),
             "nothing on the chain to {key:?} listens for it"
@@ -986,20 +999,64 @@ fn route(chain: &[&Node], key: &str, what: &str, pick: fn(&Interactivity) -> Opt
 /// route from the root down, then every bubble route from the last node up.
 fn along(
     chain: &[&Node],
+    from: usize,
     capture: fn(&Interactivity) -> Option<u32>,
     bubble: fn(&Interactivity) -> Option<u32>,
     event: impl Fn(u32, DispatchPhase) -> Event,
 ) -> Vec<Event> {
-    let routes = |pick: fn(&Interactivity) -> Option<u32>| {
-        chain
+    let routes = |nodes: &[&Node], pick: fn(&Interactivity) -> Option<u32>| {
+        nodes
             .iter()
             .filter_map(move |node| node.interactivity().and_then(pick))
+            .collect::<Vec<_>>()
     };
-    let captured = routes(capture).map(|handler| event(handler, DispatchPhase::Capture));
-    let bubbled: Vec<_> = routes(bubble)
-        .map(|handler| event(handler, DispatchPhase::Bubble))
-        .collect();
-    captured.chain(bubbled.into_iter().rev()).collect()
+    let captured = routes(chain, capture)
+        .into_iter()
+        .map(|handler| event(handler, DispatchPhase::Capture));
+    let bubbled = routes(&chain[from..], bubble)
+        .into_iter()
+        .rev()
+        .map(|handler| event(handler, DispatchPhase::Bubble));
+    captured.chain(bubbled).collect()
+}
+
+/// Where a key going down the focus `chain` stops, as the host stops it:
+/// the deepest node that consumes it (its `consumes_keys`) hears it last,
+/// and an open overlay's layer turns Escape into the overlay's dismiss and
+/// stops it.
+/// Answers, for a key that stops, the first node of the chain that still
+/// hears it and the dismiss; `None` for a key that bubbles to the root.
+fn consumed_at(chain: &[&Node], keystroke: &gpui::Keystroke) -> Option<(usize, Option<Event>)> {
+    let plain = !keystroke.modifiers.modified();
+    for (at, node) in chain.iter().enumerate().rev() {
+        if let Node::Overlay {
+            on_dismiss: Some(message),
+            children,
+            ..
+        } = node
+            && plain
+            && keystroke.key == "escape"
+            && chain.get(at + 1).is_some_and(|inside| {
+                children
+                    .get(1)
+                    .is_some_and(|layer| std::ptr::eq(layer, *inside))
+            })
+        {
+            return Some((at + 1, Some(Event::Message(*message))));
+        }
+        let Some(interactivity) = node.interactivity() else {
+            continue;
+        };
+        let consumes = interactivity.consumes_keys.iter().any(|consumed| {
+            gpui::Keystroke::parse(consumed).is_ok_and(|consumed| {
+                consumed.key == keystroke.key && consumed.modifiers == keystroke.modifiers
+            })
+        });
+        if consumes {
+            return Some((at, None));
+        }
+    }
+    None
 }
 
 /// The `pick` route of every node in `root` off `chain`: what hears a press

@@ -926,9 +926,8 @@ pub fn badge(
         .child(label.into())
 }
 
-/// `block 1,024`, quiet and mono, opening Explorer at that block. A view
-/// that draws it on a clickable card replaces the click (`on_click`) with
-/// its own that claims it and opens the same [`explorer::link`].
+/// `block 1,024`, quiet and mono, opening Explorer at that block. Its click
+/// consumes the press: a clickable card under it does not hear it.
 pub fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> Stateful<Div> {
     let label = format!("block {}", grouped(height));
     explorer_link(id, label, explorer::block_path(height), theme)
@@ -964,6 +963,8 @@ fn explorer_link(
         .aria_label(format!("Open {label} in Explorer"))
         .focusable()
         .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&link))
+        .consumes_click()
+        .consumes_keys(["enter", "space"])
         .child(label)
 }
 
@@ -1250,6 +1251,8 @@ mod tests {
         moved: Vec<usize>,
         moved_cell: Vec<usize>,
         pressed: Vec<usize>,
+        /// a focusable block link inside the composite, beside its items
+        link: bool,
     }
 
     impl crate::View for Picker {
@@ -1310,21 +1313,28 @@ mod tests {
                 _ => Role::ListBoxOption,
             };
             let active = self.active;
-            list.build().children((0..self.count).map(move |index| {
-                let row = div()
-                    .id(format!("pick-{index}"))
-                    .on_click(|_, _, _| {})
-                    .child(format!("Choice {index}"));
-                let row = match item_role {
-                    Role::GridCell => row,
-                    _ => row.aria_selected(index == active),
-                };
-                let cell = item(row, item_role, index == active);
-                match item_role {
-                    Role::GridCell => div().id(format!("row-{index}")).role(Role::Row).child(cell),
-                    _ => cell,
-                }
-            }))
+            let link = self.link;
+            list.build()
+                .children((0..self.count).map(move |index| {
+                    let row = div()
+                        .id(format!("pick-{index}"))
+                        .on_click(|_, _, _| {})
+                        .child(format!("Choice {index}"));
+                    let row = match item_role {
+                        Role::GridCell => row,
+                        _ => row.aria_selected(index == active),
+                    };
+                    let cell = item(row, item_role, index == active);
+                    match item_role {
+                        Role::GridCell => {
+                            div().id(format!("row-{index}")).role(Role::Row).child(cell)
+                        }
+                        _ => cell,
+                    }
+                }))
+                .when(link, |list| {
+                    list.child(block_link("inside", 12, &Theme::light()))
+                })
         }
     }
 
@@ -1374,6 +1384,23 @@ mod tests {
             assert_eq!(view.moved, [1, 2, 0]);
             assert_eq!(view.pressed, [2, 0]);
         });
+    }
+
+    /// A block link inside a composite consumes the keys that press it:
+    /// Space or Enter on it opens the link (gpui's click on the key's way
+    /// up) and never reaches the composite around it, which would press its
+    /// own active item too.
+    #[test]
+    fn a_block_link_inside_a_composite_keeps_its_press_from_it() {
+        let (mut cx, picker) = picker(|view| view.link = true);
+        cx.simulate_focus("inside");
+        cx.simulate_key_down("inside", "space");
+        cx.simulate_key_down("inside", "enter");
+        picker.read(|view| assert_eq!(view.pressed, Vec::<usize>::new()));
+        // the composite's own Enter still presses
+        cx.simulate_focus("picker");
+        cx.simulate_key_down("picker", "enter");
+        picker.read(|view| assert_eq!(view.pressed, [0]));
     }
 
     /// The helper remembers where the arrows went before the view draws

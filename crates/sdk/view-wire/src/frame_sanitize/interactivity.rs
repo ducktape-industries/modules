@@ -24,6 +24,13 @@ pub(super) fn sanitize_interactivity(
     {
         style_sanitize::sanitize(style)?;
     }
+    let keys = &mut interactivity.consumes_keys;
+    keys.truncate(crate::interactivity::MAX_CONSUMED_KEYS);
+    for key in keys {
+        let mut bounded = key.to_string();
+        truncate_to(&mut bounded, crate::interactivity::MAX_KEYSTROKE_BYTES);
+        *key = bounded.into();
+    }
     for style in [&mut interactivity.hover, &mut interactivity.active]
         .into_iter()
         .flatten()

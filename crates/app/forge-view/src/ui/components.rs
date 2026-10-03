@@ -452,7 +452,9 @@ pub(crate) fn menu(
         }))
         .on_press(move |index, window, app| picks[index](window, app))
         .build()
+        // Escape is the menu's: the overlay around it does not close it again
         .on_key_down(escape)
+        .consumes_keys(["escape"])
         .w(MENU_W)
         .py(design::space::XXS)
         .flex()

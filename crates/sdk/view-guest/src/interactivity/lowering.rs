@@ -84,12 +84,9 @@ impl Interactivity {
             group_active: self
                 .group_active
                 .map(|(group, style)| wire::GroupRefinement { group, style }),
-            on_click: self
-                .on_click
-                .map(|listener| lowering.route(Kind::Click, listener)),
-            on_aux_click: self
-                .on_aux_click
-                .map(|listener| lowering.route(Kind::AuxClick, listener)),
+            on_click: route_plain(self.on_click, lowering, Kind::Click),
+            on_aux_click: route_plain(self.on_aux_click, lowering, Kind::AuxClick),
+            consumes_click: self.consumes_click,
             on_mouse_down: route_buttons(
                 self.mouse_down,
                 lowering,
@@ -135,6 +132,7 @@ impl Interactivity {
                 lowering,
                 Kind::ModifiersChanged,
             ),
+            consumes_keys: self.consumes_keys,
             on_hover: self
                 .on_hover
                 .map(|listener| lowering.route(Kind::Hover, listener)),

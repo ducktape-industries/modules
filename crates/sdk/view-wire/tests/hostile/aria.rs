@@ -25,6 +25,24 @@ fn refused_past(at: impl Fn(usize) -> Aria, bound: usize, message: &str) {
 }
 
 #[test]
+fn decode_refuses_more_consumed_keys_than_a_node_takes() {
+    use view_wire::interactivity::MAX_CONSUMED_KEYS;
+    let frame = |keys: usize| Frame {
+        root: Some(Node::Container(ContainerNode {
+            interactivity: Box::new(Interactivity {
+                consumes_keys: vec!["escape".into(); keys],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })),
+        ..Frame::default()
+    };
+    assert!(decode::<Frame>(&encode(&frame(MAX_CONSUMED_KEYS))).is_ok());
+    let refused = decode::<Frame>(&encode(&frame(MAX_CONSUMED_KEYS + 1))).unwrap_err();
+    assert!(refused.contains("too many consumed keys"), "{refused}");
+}
+
+#[test]
 fn decode_refuses_more_actions_than_a_node_advertises() {
     refused_past(
         |len| Aria {

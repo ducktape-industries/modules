@@ -166,6 +166,7 @@ fn full_interactivity() -> Interactivity {
         }),
         on_click: Some(60),
         on_aux_click: Some(61),
+        consumes_click: true,
         on_mouse_down: Some(62),
         capture_mouse_down: Some(63),
         on_mouse_down_out: Some(64),
@@ -184,6 +185,7 @@ fn full_interactivity() -> Interactivity {
         on_key_up: Some(76),
         capture_key_up: Some(77),
         on_modifiers_changed: Some(78),
+        consumes_keys: vec!["escape".into(), "shift-tab".into()],
         on_hover: Some(79),
         on_file_drop_exit: Some(80),
         tooltip: Some(Tooltip {

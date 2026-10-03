@@ -133,8 +133,9 @@ pub fn card(
     (outer.into_any_element(), cells.controls)
 }
 
-/// A control's click: it claims the click from the card beneath, and does
-/// what Enter on its cell does ([`Chat::act`]).
+/// A control's click: it does what Enter on its cell does
+/// ([`Chat::act`]); the control consumes the press, so the card beneath
+/// does not hear it.
 fn acts(
     pane: Pane,
     seq: u64,
@@ -143,7 +144,6 @@ fn acts(
     cx: &mut Context<Chat>,
 ) -> impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static {
     cx.listener(move |chat, event: &ClickEvent, window, cx| {
-        chat.claim(event);
         let position = event.position();
         chat.layout.press = (position.x.into(), position.y.into());
         cx.notify();
@@ -151,8 +151,8 @@ fn acts(
     })
 }
 
-/// A press on the card selects the message, unless a control on it took
-/// the click first.
+/// A press on the card selects the message; a control on it consumes its
+/// own press, so the card never hears it.
 fn press(
     pane: Pane,
     seq: u64,
@@ -161,10 +161,6 @@ fn press(
     cx.listener(move |chat, event: &ClickEvent, _window, cx| {
         let position = event.position();
         let at = (position.x.into(), position.y.into());
-        // a reaction, the replies link or the toolbar took this click first
-        if chat.was_claimed(at) {
-            return;
-        }
         cx.notify();
         chat.layout.press = at;
         chat.press_message(pane, seq);
@@ -264,8 +260,8 @@ fn action_strip(
         .border_color(theme.border)
         // No occlude: an occluding bar took the row's hover away the
         // moment the pointer reached it, hid itself, and was never
-        // clickable. GPUI hands a click here to the card beneath too;
-        // each button claims it (`Chat::claim`) so the card stands down.
+        // clickable. Each button consumes its press (`consumes_click`),
+        // so the card beneath does not take it too.
         .invisible()
         .group_hover(group, |style| style.visible())
         .when(chosen, |actions| actions.visible());
@@ -345,7 +341,7 @@ fn content(
     theme: &Theme,
 ) -> AnyElement {
     let header = match message.show_author {
-        true => Some(header(&message, cells, cx, theme)),
+        true => Some(header(&message, cells, theme)),
         false => None,
     };
     let blocks = blocks(chat, &message, cells, cx, theme);
@@ -458,12 +454,7 @@ fn replies(
 
 /// A run's first message names its author, what the author is (an agent
 /// and its manager, a module), when it was posted and its block.
-fn header(
-    message: &ChatMessage,
-    cells: &mut Cells,
-    cx: &mut Context<Chat>,
-    theme: &Theme,
-) -> AnyElement {
+fn header(message: &ChatMessage, cells: &mut Cells, theme: &Theme) -> AnyElement {
     let mut header = div()
         .id(format!("chat-message-{}-header", message.id))
         .flex()
@@ -505,13 +496,9 @@ fn header(
         // the link opens Explorer at its block, and the card under it
         // stays unchosen
         let link = design::explorer::link(&design::explorer::block_path(message.height));
-        let active = cells.push(Control::Height(link.clone()));
-        let open = cx.listener(move |chat, event: &ClickEvent, _window, cx| {
-            chat.claim(event);
-            cx.host().open_link(&link);
-        });
+        let active = cells.push(Control::Height(link));
         let id = format!("chat-message-{}-height", message.id);
-        let link = design::block_link(id.clone(), message.height, theme).on_click(open);
+        let link = design::block_link(id.clone(), message.height, theme);
         header = header.child(cell(
             &id,
             true,
@@ -547,8 +534,7 @@ fn program_post(
         .flatten();
     if let Some(link) = link {
         let active = cells.push(Control::ProgramOpen(link.clone()));
-        let open = cx.listener(move |chat, event: &ClickEvent, _window, cx| {
-            chat.claim(event);
+        let open = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
             chat.open_link(link.clone(), cx);
         });
         let theme = *theme;
@@ -559,6 +545,7 @@ fn program_post(
             .cursor_pointer()
             .hover(move |style| style.text_decoration_1())
             .on_click(open)
+            .consumes_click()
             .child(format!("Open in {program}"));
         line = line.child(cell(
             &id,
@@ -609,7 +596,7 @@ fn reactions(
         reactions = reactions.child(cell(&id, writable, chip));
     }
     // the card under the `+` would otherwise take the same click and put
-    // the row's toolbar over the picker just opened: `acts` claims it
+    // the row's toolbar over the picker just opened: the `+` consumes it
     let active = writable && cells.push(Control::AddReaction);
     let id = format!("chat-message-{}-reaction-add", message.id);
     let add = reaction_button(

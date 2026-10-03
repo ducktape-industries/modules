@@ -8,6 +8,18 @@ use crate::{click, keyboard, mouse};
 use gpui::{Pixels, Point};
 use serde::{Deserialize, Serialize};
 
+/// The most keystrokes one node's key-down listeners consume.
+pub const MAX_CONSUMED_KEYS: usize = 16;
+/// The longest consumed keystroke: gpui's longest, `ctrl-alt-shift-cmd-fn-`
+/// and a key name, fits with room to spare.
+pub const MAX_KEYSTROKE_BYTES: usize = 64;
+
+pub(crate) fn decode_consumed_keys<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<gpui::SharedString>, D::Error> {
+    crate::bounded_vec(deserializer, MAX_CONSUMED_KEYS, "too many consumed keys")
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DispatchPhase {
     Capture,
