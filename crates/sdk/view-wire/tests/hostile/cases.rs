@@ -401,7 +401,7 @@ fn a_length_prefix_bomb_is_refused_without_the_allocation() {
     );
     assert!(
         start.elapsed() < std::time::Duration::from_secs(1),
-        "the hostile size hint must never cause allocation"
+        "the hostile size hint must cause only a bounded allocation"
     );
 }
 
