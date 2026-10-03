@@ -531,6 +531,56 @@ fn a_dms_details_show_its_two_people_and_nothing_to_reshape() {
     assert!(!cx.has_text("Remove"));
 }
 
+/// A room of 300 members lists every one, in the order the program
+/// answers: the read follows `next` past its first page of 256.
+#[test]
+fn a_room_lists_every_member_past_the_first_page() {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx);
+    let member = |number| chat::MemberRow {
+        principal: Principal::Account(number),
+        height: 1,
+        time: 1,
+    };
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
+        Ok(match query {
+            Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
+            Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 0)])),
+            Query::Roots { .. } => Reply::Roots(page(Vec::new())),
+            Query::Members { page: asked, .. } => Reply::Members(match asked.after {
+                None => ::chat::PageResponse {
+                    next: Some(vec![1]),
+                    ..page((1..=256).map(member).collect())
+                },
+                Some(_) => page((257..=300).map(member).collect()),
+            }),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+    let props = cx.host().stream::<HostSession>();
+    let visible = cx.host().stream::<HostVisible>();
+    cx.open::<Chat>();
+    props.send(Session {
+        signer: "0102".into(),
+        account: Some(7),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    visible.send(true);
+    cx.run_until_parked();
+    cx.simulate_click("chat-sidebar-channel-general");
+    cx.run_until_parked();
+    cx.simulate_click("chat-room-details");
+    let listed: Vec<String> = cx
+        .texts()
+        .into_iter()
+        .filter(|text| text.starts_with("account "))
+        .collect();
+    let numbers: Vec<String> = (1..=300).map(|n| format!("account {n}")).collect();
+    assert_eq!(listed, numbers);
+}
+
 /// A room opened around a landing seq (a notification, a link) re-reads its
 /// window on a chat write, so an edit or a reaction shows there too.
 #[test]

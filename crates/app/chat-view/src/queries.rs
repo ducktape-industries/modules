@@ -77,17 +77,21 @@ pub(crate) fn sorted(mut rows: Vec<MsgRow>) -> Vec<MsgRow> {
     rows
 }
 
+/// Every member of a room, in account order.
 pub(crate) async fn members(host: Host, channel_id: String) -> Result<Vec<MemberRow>, Error> {
-    match host
-        .ask::<Ask<::chat::Chat>>(Query::Members {
-            channel_id,
-            page: page(None, WINDOW),
-        })
-        .await?
-    {
-        Reply::Members(reply) => Ok(reply.items),
-        _ => Err(wrong_reply()),
-    }
+    pages(None, |after| {
+        let ask = host.ask::<Ask<::chat::Chat>>(Query::Members {
+            channel_id: channel_id.clone(),
+            page: page(after, WINDOW),
+        });
+        async move {
+            match ask.await? {
+                Reply::Members(reply) => Ok((reply.items, reply.next)),
+                _ => Err(wrong_reply()),
+            }
+        }
+    })
+    .await
 }
 
 /// One page of a thread's replies after `after`, and the cursor to page on.
