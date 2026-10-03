@@ -115,14 +115,8 @@ impl Module for Forge {
         let height = ctx.env().height;
         let bounds = load_bounds(ctx)?;
         let scope = query.scope();
-        let listing = |page: &PageRequest| {
-            listing(
-                ctx,
-                page.bounded(bounds.page_size as u64),
-                scope.clone(),
-                height,
-            )
-        };
+        let listing =
+            |page: &PageRequest| listing(ctx, page.bounded(bounds.page_size as u64), scope.clone());
         Ok(match &query {
             // `answer` takes git's two queries before `query` sees them
             Query::Advertise { .. } | Query::Upload { .. } => {

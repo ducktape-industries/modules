@@ -37,7 +37,7 @@ impl Module for Modules {
             Query::Views(height) => Reply::Views(views_at(ctx, height)?),
             Query::Scheduled { page } => Reply::Scheduled(
                 SCHEDULE
-                    .range(ctx, &page, height)?
+                    .range(ctx, &page)?
                     .map(|((height, _), change)| Scheduled { height, change }),
             ),
             Query::Program(program) => Reply::Program {

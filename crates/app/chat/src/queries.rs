@@ -53,10 +53,9 @@ fn info(ctx: &QueryCtx, channel: ChannelRow) -> Result<ChannelInfo, Error> {
 pub(crate) fn channels(
     ctx: &QueryCtx,
     page: &PageRequest,
-    height: u64,
 ) -> Result<PageResponse<ChannelInfo>, Error> {
     CHANNELS
-        .range(ctx, page, height)?
+        .range(ctx, page)?
         .try_map(|(_, channel)| info(ctx, channel))
 }
 
@@ -93,9 +92,8 @@ pub(crate) fn roots(
     ctx: &QueryCtx,
     channel_id: String,
     page: &PageRequest,
-    height: u64,
 ) -> Result<PageResponse<MsgRow>, Error> {
-    let keys = ROOTS.range_of(ctx, &channel_id, page, height)?;
+    let keys = ROOTS.range_of(ctx, &channel_id, page)?;
     rows_at(
         ctx,
         keys.map(|(channel_id, newest)| (channel_id, newest_first(newest))),
@@ -107,9 +105,8 @@ pub(crate) fn thread(
     channel_id: String,
     root: u64,
     page: &PageRequest,
-    height: u64,
 ) -> Result<Reply, Error> {
-    let keys = REPLIES.range_of(ctx, &(channel_id.clone(), root), page, height)?;
+    let keys = REPLIES.range_of(ctx, &(channel_id.clone(), root), page)?;
     Ok(Reply::Thread {
         root: MESSAGES.get(ctx, &(channel_id, root))?,
         replies: rows_at(ctx, keys.map(|(channel_id, _, reply)| (channel_id, reply)))?,
@@ -171,15 +168,14 @@ pub(crate) fn tagged(
     tag: &str,
     channel_id: Option<String>,
     page: &PageRequest,
-    height: u64,
 ) -> Result<PageResponse<MsgRow>, Error> {
     let label = tag_label(tag);
     let keys = match channel_id {
         Some(channel_id) => CHANNEL_TAGS
-            .range_of(ctx, &(channel_id, label), page, height)?
+            .range_of(ctx, &(channel_id, label), page)?
             .map(|(channel_id, _, newest)| (channel_id, newest_first(newest))),
         None => TAGS
-            .range_of(ctx, &label, page, height)?
+            .range_of(ctx, &label, page)?
             .map(|(_, _, channel_id, seq)| (channel_id, seq)),
     };
     rows_at(ctx, keys)

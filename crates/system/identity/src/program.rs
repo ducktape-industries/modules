@@ -42,7 +42,6 @@ impl Module for Identity {
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
-        let height = ctx.env().height;
         Ok(match query {
             Query::OfKey { key } => Reply::Number(of_key(ctx, &key)?),
             Query::OfModule { module } => Reply::Number(OF_MODULE.get(ctx, &module)?),
@@ -58,14 +57,12 @@ impl Module for Identity {
                     .map(|reference| resolve(ctx, reference))
                     .collect::<Result<Vec<_>, _>>()?,
             ),
-            Query::List { page } => Reply::Accounts(
-                ACCOUNTS
-                    .range(ctx, &page, height)?
-                    .map(|(_, account)| account),
-            ),
+            Query::List { page } => {
+                Reply::Accounts(ACCOUNTS.range(ctx, &page)?.map(|(_, account)| account))
+            }
             Query::Managed { by, page } => Reply::Accounts(
                 MANAGED
-                    .range_of(ctx, &by, &page, height)?
+                    .range_of(ctx, &by, &page)?
                     .try_map(|(_, number)| account(ctx, number))?,
             ),
         })

@@ -50,14 +50,9 @@ pub(crate) fn refs(
 /// and a push mid-walk restarts it, even one in the block that answered
 /// the cursor (the preconfirmed layer answers at the height its ops run
 /// at, so a height alone would not tell).
-pub(crate) fn listing(
-    ctx: &QueryCtx,
-    page: PageRequest,
-    scope: Vec<u8>,
-    height: u64,
-) -> Result<Listing, Error> {
+pub(crate) fn listing(ctx: &QueryCtx, page: PageRequest, scope: Vec<u8>) -> Result<Listing, Error> {
     let writes = writes(ctx)?;
-    let listing = page.listing(scope, height)?.pinned(writes);
+    let listing = page.listing(scope, ctx.env().height)?.pinned(writes);
     if listing.cursor_pin.is_some_and(|pinned| pinned != writes) {
         return Err(stale("the listing changed; restart it"));
     }

@@ -131,9 +131,7 @@ module's own rules, never a client's query); `range`/`range_of` for a page.
 
 ```rust
 pub(crate) fn polls(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<PollRow>, Error> {
-    Ok(POLLS
-        .range(ctx, page, ctx.env().height)?
-        .map(|(_, row)| row))
+    Ok(POLLS.range(ctx, page)?.map(|(_, row)| row))
 }
 ```
 
@@ -141,7 +139,8 @@ pub(crate) fn polls(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<P
 then `PageRequest::resume(reply.next, n)`); the limit is clamped to
 `PageRequest::MAX_LIMIT` (256), or to a module's own bound with
 `page.bounded(max)`. `PageResponse { height, items, next }` answers with the
-height that answered and an opaque cursor for the page after. A cursor is
+height that answered (the ctx's: no module passes it) and an opaque cursor
+for the page after. A cursor is
 bound to the listing it came from (a cursor from one listing handed to
 another is refused `stale`) and cannot escape its prefix.
 
