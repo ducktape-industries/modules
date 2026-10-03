@@ -46,6 +46,72 @@ impl From<Range<usize>> for TextRange {
     }
 }
 
+/// One edit the engine made: `range` of the text before it became `len`
+/// bytes. The host's edit log is these, each at the revision it made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Edit {
+    pub range: TextRange,
+    pub len: u32,
+}
+
+impl Edit {
+    /// Where an offset read before this edit stands after it. One at or
+    /// before the edit's start stays, so a letter typed at the end of a span
+    /// the guest clears is kept; one at or after its end moves with the
+    /// text; one inside the replaced span lands after the replacement.
+    pub fn map(self, offset: u32) -> u32 {
+        if offset <= self.range.start {
+            offset
+        } else if offset >= self.range.end {
+            offset - self.range.end + self.range.start + self.len
+        } else {
+            self.range.start + self.len
+        }
+    }
+}
+
+/// A `Replace` read at an older text, carried over the `edits` made since,
+/// oldest first: its range in the text as it stands, and its cursor, which
+/// the guest gave in the text after the replace's own edit of `len` bytes.
+pub fn rebase(
+    range: TextRange,
+    len: usize,
+    cursor: TextRange,
+    edits: impl IntoIterator<Item = Edit> + Clone,
+) -> (TextRange, TextRange) {
+    let len = len as u32;
+    let map = |offset: u32| {
+        edits
+            .clone()
+            .into_iter()
+            .fold(offset, |at, edit| edit.map(at))
+    };
+    let moved = TextRange {
+        start: map(range.start),
+        end: map(range.end),
+    };
+    let own_end = range.start + len;
+    // a cursor end before the replace's own edit moves as any offset; one
+    // in the replaced text keeps its place in it; one past it moves as the
+    // text it stood in and then by the edit's own growth
+    let place = |at: u32| {
+        if at <= range.start {
+            map(at)
+        } else if at <= own_end {
+            moved.start + (at - range.start)
+        } else {
+            map(range.end + (at - own_end)) - moved.end + moved.start + len
+        }
+    };
+    (
+        moved,
+        TextRange {
+            start: place(cursor.start),
+            end: place(cursor.end),
+        },
+    )
+}
+
 /// An atomic span of a field's text (a mention): the engine moves over,
 /// selects and deletes it whole. `id` is what the span means to the guest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -217,6 +283,33 @@ mod tests {
         // a repeated letter typed inside a run lands at the run's end,
         // the one place both texts still agree on
         assert_eq!(span("aaa", "aaaa"), Some((3..3, "a".into())));
+    }
+
+    /// The three asks a composer makes, each rebased over what the engine
+    /// did since the guest read the text.
+    #[test]
+    fn a_stale_replace_is_carried_over_the_edits_made_since() {
+        let edit = |range: Range<usize>, len| Edit {
+            range: range.into(),
+            len,
+        };
+        let at = |range: Range<usize>, len, cursor, edits: &[Edit]| {
+            let (range, cursor) =
+                rebase(range.into(), len, TextRange::caret(cursor), edits.to_vec());
+            (range.range(), cursor.range())
+        };
+        // Enter cleared "hello" while "x" was typed at its end: "x" stays
+        assert_eq!(at(0..5, 0, 0, &[edit(5..5, 1)]), (0..5, 0..0));
+        // a mention over "@na" (4..7) became "@Label" (6 bytes); the space
+        // the guest asked for at 7, cursor 8, lands after the label
+        assert_eq!(at(7..7, 1, 8, &[edit(4..7, 6)]), (10..10, 11..11));
+        // markers round a selection 2..5: the opening "**" went in at 2,
+        // so the closing one asked for at 5, cursor 7, moves by two
+        assert_eq!(at(5..5, 2, 7, &[edit(2..2, 2)]), (7..7, 9..9));
+        // a span wholly typed over lands after what replaced it
+        assert_eq!(at(2..4, 1, 3, &[edit(1..6, 2)]), (3..3, 4..4));
+        // the typing since is on the far side: nothing moves
+        assert_eq!(at(2..4, 1, 3, &[edit(9..9, 3)]), (2..4, 3..3));
     }
 
     #[test]

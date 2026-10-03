@@ -1,5 +1,7 @@
 use super::focus::{self, Focus};
 use super::{FakeHost, assert_frame_accessible, button, chain_to, input, keys, texts};
+use std::collections::HashMap;
+
 use crate::{
     App, Driver, Entity, View,
     host::Host,
@@ -69,8 +71,10 @@ pub struct TestAppContext {
     focus: Option<Focus>,
     globals: crate::context::Globals,
     ticks: u64,
-    /// The host engine's revision of the fields' text, one count for all.
+    /// The host engine's revision of the fields' text, one count for all,
+    /// and every edit it made, at the revision that made it.
     text_revision: u64,
+    edits: Vec<(u64, wire::Edit)>,
 }
 
 impl TestAppContext {
@@ -613,26 +617,38 @@ impl TestAppContext {
     /// The field with key or placeholder `name` now reads `text`: the
     /// host's engine took the typing and says so, caret at the end.
     pub fn simulate_input(&mut self, name: &str, text: &str) {
-        let Some(Node::Field { on_change, .. }) = self.input(name) else {
+        let Some(Node::Field {
+            on_change, value, ..
+        }) = self.input(name)
+        else {
             unreachable!()
         };
         let Some(handler) = on_change else {
             panic!("field {name:?} hears no change");
         };
+        let edit = wire::changed_span(value, text).map(|(range, text)| wire::Edit {
+            range,
+            len: text.len() as u32,
+        });
         let event = Event::Text {
             handler: *handler,
-            change: self.text_change(text.to_owned(), text.len(), Vec::new()),
+            change: self.text_change(edit, text.to_owned(), text.len(), Vec::new()),
         };
         self.run(vec![event]);
     }
-    /// The host's word on a field's text at its next revision.
+    /// The host's word on a field's text at its next revision, `edit` being
+    /// what changed it, logged for the asks that read an older text.
     fn text_change(
         &mut self,
+        edit: Option<wire::Edit>,
         text: String,
         caret: usize,
         tokens: Vec<wire::TextToken>,
     ) -> wire::TextChange {
         self.text_revision += 1;
+        if let Some(edit) = edit {
+            self.edits.push((self.text_revision, edit));
+        }
         wire::TextChange {
             revision: self.text_revision,
             text,
@@ -641,85 +657,87 @@ impl TestAppContext {
             tokens,
         }
     }
-    /// What the host's engine does with a `Replace` the view asked for:
-    /// the field's text as the view knew it, edited, comes back as the next
-    /// change. No typing races the ask in a test, so nothing is rebased.
+    /// What the host's engine does with the `Replace`s a frame asks for, in
+    /// order: each is carried over the edits made since the revision it
+    /// read (`wire::rebase`, the host's own rule; an earlier ask in the same
+    /// frame is one), applied to the field's text, and comes back as the
+    /// next change.
     fn replace(&mut self, frame: &Frame) -> Vec<Event> {
-        let Some(root) = self.tree.as_ref() else {
+        let Some(root) = self.tree.clone() else {
             return Vec::new();
         };
-        let mut asked = Vec::new();
+        let mut fields: HashMap<Vec<wire::ElementIdWire>, (u32, String, Vec<wire::TextToken>)> =
+            HashMap::new();
+        let mut events = Vec::new();
         for request in &frame.requests {
             if request.kind != <crate::methods::HostWidget as crate::methods::Method>::KIND {
                 continue;
             }
             let Ok(wire::WidgetCommand::Replace {
                 target,
+                revision,
                 range,
                 text,
                 token,
                 cursor,
-                ..
             }) = wire::decode::<wire::WidgetCommand>(&request.payload)
             else {
                 continue;
             };
-            let Some(chain) = Focus::Path(target.clone()).chain(root) else {
-                panic!("a Replace on a field that is not in the tree: {target:?}");
+            let (handler, value, tokens) = fields.entry(target.clone()).or_insert_with(|| {
+                let Some(chain) = Focus::Path(target.clone()).chain(&root) else {
+                    panic!("a Replace on a field that is not in the tree: {target:?}");
+                };
+                let Some(Node::Field {
+                    value,
+                    tokens,
+                    on_change: Some(handler),
+                    ..
+                }) = chain.last()
+                else {
+                    panic!("a Replace on no field that hears changes: {target:?}");
+                };
+                (*handler, value.clone(), tokens.clone())
+            });
+            let since: Vec<wire::Edit> = self
+                .edits
+                .iter()
+                .filter(|(at, _)| *at > revision)
+                .map(|(_, edit)| *edit)
+                .collect();
+            let (range, cursor) = wire::rebase(range, text.len(), cursor, since);
+            let range = range.range();
+            let delta = text.len() as i64 - range.len() as i64;
+            // the engine's spans: one an edit touches goes, one after it moves
+            tokens.retain(|token| {
+                token.range.end as usize <= range.start || token.range.start as usize >= range.end
+            });
+            for token in tokens.iter_mut() {
+                if token.range.start as usize >= range.end {
+                    token.range.start = (token.range.start as i64 + delta) as u32;
+                    token.range.end = (token.range.end as i64 + delta) as u32;
+                }
+            }
+            if let Some(id) = token {
+                tokens.push(wire::TextToken {
+                    range: wire::TextRange::from(range.start..range.start + text.len()),
+                    id,
+                });
+                tokens.sort_by_key(|token| token.range.start);
+            }
+            value.replace_range(range.clone(), &text);
+            let caret = (cursor.start as usize).min(value.len());
+            let edit = wire::Edit {
+                range: range.into(),
+                len: text.len() as u32,
             };
-            let Some(Node::Field {
-                value,
-                tokens,
-                on_change: Some(handler),
-                ..
-            }) = chain.last()
-            else {
-                panic!("a Replace on no field that hears changes: {target:?}");
-            };
-            asked.push((
-                *handler,
-                value.clone(),
-                tokens.clone(),
-                range,
-                text,
-                token,
-                cursor,
-            ));
+            let change = self.text_change(Some(edit), value.clone(), caret, tokens.clone());
+            events.push(Event::Text {
+                handler: *handler,
+                change,
+            });
         }
-        asked
-            .into_iter()
-            .map(|(handler, mut value, tokens, range, text, token, cursor)| {
-                let range = range.range();
-                let delta = text.len() as i64 - range.len() as i64;
-                let mut moved: Vec<_> = tokens
-                    .into_iter()
-                    .filter(|token| {
-                        token.range.end as usize <= range.start
-                            || token.range.start as usize >= range.end
-                    })
-                    .map(|mut token| {
-                        if token.range.start as usize >= range.end {
-                            token.range.start = (token.range.start as i64 + delta) as u32;
-                            token.range.end = (token.range.end as i64 + delta) as u32;
-                        }
-                        token
-                    })
-                    .collect();
-                if let Some(id) = token {
-                    moved.push(wire::TextToken {
-                        range: wire::TextRange::from(range.start..range.start + text.len()),
-                        id,
-                    });
-                    moved.sort_by_key(|token| token.range.start);
-                }
-                value.replace_range(range, &text);
-                let caret = (cursor.start as usize).min(value.len());
-                Event::Text {
-                    handler,
-                    change: self.text_change(value, caret, moved),
-                }
-            })
-            .collect()
+        events
     }
     /// The field with key or placeholder `name` is submitted (Enter).
     pub fn simulate_submit(&mut self, name: &str) {

@@ -47,8 +47,8 @@ pub use sanitization::SanitizeReport;
 
 pub mod text;
 pub use text::{
-    KeyClaim, MAX_FIELD_BYTES, MAX_FIELD_CLAIMS, MAX_FIELD_TOKENS, TextChange, TextRange,
-    TextToken, changed_span, validate_field,
+    Edit, KeyClaim, MAX_FIELD_BYTES, MAX_FIELD_CLAIMS, MAX_FIELD_TOKENS, TextChange, TextRange,
+    TextToken, changed_span, rebase, validate_field,
 };
 
 mod image;
