@@ -43,6 +43,12 @@ pub struct Draft {
     pub note: String,
     pub menu_index: usize,
     pub menu_dismissed: bool,
+    /// Bytes of the field a send asked the host to clear, where they now
+    /// lie: spoken for, not the draft's to send again, until the host's word
+    /// shows them gone. A replacement guest starts with none: the old
+    /// guest's ask went with its queue.
+    #[serde(skip)]
+    pub cleared: Vec<wire::TextRange>,
 }
 
 /// What a formatting mark wraps its selection in.
@@ -106,36 +112,56 @@ impl Draft {
         text.push_str(remaining);
         self.field.reset(text);
         self.field.tokens = tokens;
+        self.cleared.clear();
         self.menu_index = 0;
         self.menu_dismissed = false;
     }
 
-    /// The text with every mention as its token.
+    /// The text with every mention as its token, less what a send asked the
+    /// host to clear.
     pub fn body(&self) -> String {
-        let text = &self.field.text;
+        let text = self.field.text.as_str();
         let mut body = String::new();
-        let mut start = 0;
-        for token in &self.field.tokens {
-            body.push_str(&text[start..token.range.start as usize]);
-            body.push_str(&token.id);
-            start = token.range.end as usize;
+        let mut at = 0;
+        let end = wire::TextRange::caret(text.len());
+        for piece in self.cleared.iter().chain([&end]) {
+            let mut from = at;
+            for token in &self.field.tokens {
+                if token.range.start as usize >= at && token.range.end <= piece.start {
+                    body.push_str(&text[from..token.range.start as usize]);
+                    body.push_str(&token.id);
+                    from = token.range.end as usize;
+                }
+            }
+            body.push_str(&text[from..piece.start as usize]);
+            at = piece.end as usize;
         }
-        body.push_str(&text[start..]);
         body
     }
 
     /// The host's word on the field. Typing closes a dismissed menu's
-    /// dismissal and starts the next menu at its first row.
+    /// dismissal and starts the next menu at its first row, and carries what
+    /// a send asked to clear to where it now lies: gone once the clear
+    /// landed, or the writer deleted it.
     pub fn changed(&mut self, change: &wire::TextChange) {
-        if change.text != self.field.text {
+        if let Some((range, text)) = wire::changed_span(&self.field.text, &change.text) {
             self.menu_index = 0;
             self.menu_dismissed = false;
+            let edit = wire::Edit {
+                range,
+                len: text.len() as u32,
+            };
+            self.cleared = self
+                .cleared
+                .iter()
+                .flat_map(|piece| edit.cut(*piece))
+                .collect();
         }
         self.field.apply(change);
     }
 
     pub fn can_send(&self) -> bool {
-        !self.field.is_blank()
+        !self.body().trim().is_empty()
     }
 
     /// The `@name` being typed at the caret, if any: its span and the name
@@ -262,10 +288,14 @@ impl Draft {
                 if !self.can_send() {
                     return (Vec::new(), Outcome::Updated);
                 }
-                let clear = field.replace_all(target, "");
                 self.submitted = Some(Send {
                     body: self.body().trim().to_owned(),
                 });
+                // the whole text is spoken for until the host's word shows
+                // the clear landed: a second Enter before then sends only
+                // what was typed since
+                self.cleared = vec![wire::TextRange::from(0..text.len())];
+                let clear = field.replace_all(target, "");
                 return (vec![clear], Outcome::Action("send".into()));
             }
             "restore" => {
@@ -478,6 +508,76 @@ mod tests {
         assert_eq!(draft.submitted.take().unwrap().body, "first <@7>");
         let blank = Draft::from_body("  ", &[]);
         assert!(!blank.can_send());
+    }
+
+    /// A send speaks for the text it asked the host to clear: until the
+    /// host's word shows it gone, a second Enter sends only what was typed
+    /// since, and nothing when nothing was. The host answers the clear one
+    /// tick and two frames later; the keys do not wait for it.
+    #[test]
+    fn a_second_send_before_the_clear_lands_sends_only_what_was_typed_since() {
+        let mut draft = Draft::from_body("hi <@7>", &roster());
+        assert_eq!(draft.field.text, "hi @Ada");
+        let change = |draft: &mut Draft, revision, text: &str, tokens: Vec<wire::TextToken>| {
+            draft.changed(&wire::TextChange {
+                revision,
+                text: text.into(),
+                cursor: wire::TextRange::caret(text.len()),
+                preedit: None,
+                tokens,
+            })
+        };
+        let send = |draft: &mut Draft| {
+            let (edits, outcome) = draft.act("send", "c/editor", &roster());
+            let sent = matches!(outcome, Outcome::Action(tag) if tag == "send");
+            let clears = replaces(&edits);
+            let [clear] = clears.as_slice() else {
+                assert!(edits.is_empty(), "one clear or none: {edits:?}");
+                return (None, None);
+            };
+            (
+                Some(clear.0.clone()),
+                draft
+                    .submitted
+                    .take()
+                    .filter(|_| sent)
+                    .map(|send| send.body),
+            )
+        };
+        assert_eq!(send(&mut draft), (Some(0..7), Some("hi <@7>".into())));
+        // Enter again, the field still showing the text: nothing to send
+        assert!(!draft.can_send());
+        assert_eq!(send(&mut draft), (None, None));
+        // " yo" typed before the clear landed: that, and only that, is the
+        // next send; its clear covers the whole text as the draft sees it
+        let ada = |range: Range<usize>| wire::TextToken {
+            range: range.into(),
+            id: "<@7>".into(),
+        };
+        change(&mut draft, 1, "hi @Ada y", vec![ada(3..7)]);
+        change(&mut draft, 2, "hi @Ada yo", vec![ada(3..7)]);
+        assert_eq!(draft.cleared, [wire::TextRange::from(0..7)]);
+        assert_eq!(draft.body(), " yo");
+        assert_eq!(send(&mut draft), (Some(0..10), Some("yo".into())));
+        // the first clear lands, then the second: nothing is spoken for
+        change(&mut draft, 3, " yo", Vec::new());
+        assert_eq!(draft.cleared, [wire::TextRange::from(0..3)]);
+        assert!(!draft.can_send());
+        change(&mut draft, 4, "", Vec::new());
+        assert!(draft.cleared.is_empty());
+        // typed into the span being cleared: still the writer's, the clear
+        // lands round it
+        change(&mut draft, 5, "abc", Vec::new());
+        assert_eq!(send(&mut draft), (Some(0..3), Some("abc".into())));
+        change(&mut draft, 6, "abXc", Vec::new());
+        assert_eq!(
+            draft.cleared,
+            [wire::TextRange::from(0..2), wire::TextRange::from(3..4)]
+        );
+        assert_eq!(draft.body(), "X");
+        change(&mut draft, 7, "X", Vec::new());
+        assert!(draft.cleared.is_empty());
+        assert_eq!(draft.body(), "X");
     }
 
     #[test]
