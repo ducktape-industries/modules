@@ -20,7 +20,7 @@ fn focus_refinements_are_bounded_inside_tooltip_responses() {
         focus: Some(Box::new(
             StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.),
         )),
-        in_focus: Some(Box::new(StyleRefinement::default().m(px(-100.)))),
+        in_focus: Some(Box::new(StyleRefinement::default().m(px(-1e9)))),
         focus_visible: Some(Box::new(StyleRefinement::default().text_size(px(1e20)))),
         ..Default::default()
     };
@@ -65,7 +65,7 @@ fn focus_refinements_are_bounded_inside_tooltip_responses() {
         assert_eq!(interaction.focus.as_ref().unwrap().opacity, Some(1.));
         assert_eq!(
             interaction.in_focus.as_ref().unwrap().margin.left,
-            Some(px(0.).into())
+            Some(px(-8192.).into())
         );
         assert_eq!(
             interaction.focus_visible.as_ref().unwrap().text.font_size,

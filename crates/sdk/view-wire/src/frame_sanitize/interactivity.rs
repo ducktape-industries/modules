@@ -22,7 +22,7 @@ pub(super) fn sanitize_interactivity(
     .into_iter()
     .flatten()
     {
-        style_sanitize::sanitize(style);
+        style_sanitize::sanitize(style)?;
     }
     if let Some(context) = &mut interactivity.key_context {
         context
@@ -43,7 +43,7 @@ pub(super) fn sanitize_interactivity(
         .into_iter()
         .flatten()
     {
-        style_sanitize::sanitize(style);
+        style_sanitize::sanitize(style)?;
     }
     for group in [
         &mut interactivity.group_hover,
@@ -52,7 +52,7 @@ pub(super) fn sanitize_interactivity(
     .into_iter()
     .flatten()
     {
-        style_sanitize::sanitize(&mut group.style);
+        style_sanitize::sanitize(&mut group.style)?;
         let mut name = group.group.to_string();
         truncate_string(&mut name);
         group.group = name.into();

@@ -11,15 +11,28 @@ fn in_range(value: f32, min: f32, max: f32) {
     );
 }
 fn absolute_in(value: AbsoluteLength, max: f32) {
+    signed_absolute_in(value, max, false);
+}
+/// `-max..=max` when `signed` (a margin, an inset), else `0..=max`.
+fn signed_absolute_in(value: AbsoluteLength, max: f32, signed: bool) {
+    let min = |max: f32| if signed { -max } else { 0. };
     match value {
-        AbsoluteLength::Pixels(value) => in_range(value.into(), 0., max),
-        AbsoluteLength::Rems(value) => in_range(value.0, 0., (max / 32.).min(256.)),
+        AbsoluteLength::Pixels(value) => in_range(value.into(), min(max), max),
+        AbsoluteLength::Rems(value) => {
+            let max = (max / 32.).min(256.);
+            in_range(value.0, min(max), max)
+        }
     }
 }
 fn definite_in(value: DefiniteLength, max: f32, fraction: f32) {
+    signed_definite_in(value, max, fraction, false);
+}
+fn signed_definite_in(value: DefiniteLength, max: f32, fraction: f32, signed: bool) {
     match value {
-        DefiniteLength::Absolute(value) => absolute_in(value, max),
-        DefiniteLength::Fraction(value) => in_range(value, 0., fraction),
+        DefiniteLength::Absolute(value) => signed_absolute_in(value, max, signed),
+        DefiniteLength::Fraction(value) => {
+            in_range(value, if signed { -fraction } else { 0. }, fraction)
+        }
     }
 }
 fn color_in(value: Hsla) {
@@ -30,28 +43,30 @@ fn color_in(value: Hsla) {
 /// Every field [`gen_native_style`] fills is inside the bound `sanitize`
 /// promises for it.
 pub(super) fn check_native_style(style: &StyleRefinement) {
-    for value in [
-        style.inset.top,
-        style.inset.right,
-        style.inset.bottom,
-        style.inset.left,
+    let sizes = [
         style.size.width,
         style.size.height,
         style.min_size.width,
         style.min_size.height,
         style.max_size.width,
         style.max_size.height,
+    ];
+    let signed = [
+        style.inset.top,
+        style.inset.right,
+        style.inset.bottom,
+        style.inset.left,
         style.margin.top,
         style.margin.right,
         style.margin.bottom,
         style.margin.left,
         style.flex_basis,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if let Length::Definite(value) = value {
-            definite_in(value, MAX_PIXELS, 1.);
+    ];
+    for (values, signed) in [(&sizes[..], false), (&signed[..], true)] {
+        for value in values.iter().flatten() {
+            if let Length::Definite(value) = value {
+                signed_definite_in(*value, MAX_PIXELS, 1., signed);
+            }
         }
     }
     for value in [
@@ -94,11 +109,17 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
         }
     }
     if let Some(gpui::Fill::Color(background)) = &style.background {
-        color_in(
-            background
-                .as_solid()
-                .expect("only validated solid backgrounds"),
-        );
+        match (background.as_solid(), background.as_linear_gradient()) {
+            (Some(color), _) => color_in(color),
+            (None, Some((angle, stops, _))) => {
+                assert!(angle.is_finite());
+                for stop in stops {
+                    color_in(stop.color);
+                    in_range(stop.percentage, 0., 1.);
+                }
+            }
+            (None, None) => panic!("a pattern background was kept"),
+        }
     }
     let shadows = style.box_shadow.as_deref().unwrap_or_default();
     assert!(shadows.len() <= 4);
@@ -229,7 +250,15 @@ pub(super) fn gen_native_style(rng: &mut Rng) -> gpui::StyleRefinement {
     style.aspect_ratio = Some(gen_f32(rng));
     style.opacity = Some(gen_f32(rng));
     style.border_color = Some(gen_color(rng));
-    style.background = Some(gen_color(rng).into());
+    style.background = Some(match rng.next_bool() {
+        true => gen_color(rng).into(),
+        false => gpui::linear_gradient(
+            number(rng),
+            gpui::linear_color_stop(gen_color(rng), number(rng)),
+            gpui::linear_color_stop(gen_color(rng), number(rng)),
+        )
+        .into(),
+    });
     style.box_shadow = Some(
         (0..rng.next_range(20))
             .map(|_| gpui::BoxShadow {

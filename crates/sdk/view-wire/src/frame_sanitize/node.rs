@@ -69,7 +69,7 @@ fn sanitize_fields(
         Node::Container(crate::ContainerNode { style, .. })
         | Node::ResizeHandle { style, .. }
         | Node::Sensor { style, .. }
-        | Node::Space { style } => style_sanitize::sanitize(style),
+        | Node::Space { style } => style_sanitize::sanitize(style)?,
         Node::UniformList {
             id,
             path,
@@ -81,7 +81,7 @@ fn sanitize_fields(
             children,
             ..
         } => {
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             uniform_list_path(id, path, authored_path)?;
             *count = (*count).min(MAX_UNIFORM_LIST_COUNT);
             *measure_index = (*measure_index).min(count.saturating_sub(1));
@@ -109,7 +109,7 @@ fn sanitize_fields(
             *item_count = (*item_count).min(budgets.list_items);
             budgets.list_items -= *item_count;
             *overdraw = bounded(*overdraw).min(4096.0);
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             list_commands(commands, *item_count);
             *range_start = (*range_start).min(*item_count);
             children.truncate(MAX_LIST_ROWS.min(item_count.saturating_sub(*range_start)));
@@ -121,11 +121,11 @@ fn sanitize_fields(
             ..
         } => {
             label.iter_mut().for_each(truncate_string);
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             children.truncate(2);
         }
         Node::Canvas { style, commands } => {
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             canvas::sanitize(commands, budgets);
         }
         Node::Anchored {
@@ -154,11 +154,11 @@ fn sanitize_fields(
             clickable_ranges,
             ..
         } => {
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             rich_text::sanitize(text, runs, font_family_overrides, clickable_ranges, budgets);
         }
         Node::Text(crate::TextNode { style, content, .. }) => {
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             spend_text(content, budgets);
         }
         Node::Image {
@@ -171,7 +171,7 @@ fn sanitize_fields(
             ..
         } => {
             ImageData::sanitize(data, budgets);
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
@@ -202,7 +202,7 @@ fn sanitize_fields(
                 *value = signed_bounded(*value);
             }
             transformation.rotate = signed_bounded(transformation.rotate);
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
@@ -224,7 +224,7 @@ fn sanitize_fields(
             if let Some(description) = &mut options.description {
                 spend_text(description, budgets);
             }
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
         }
     }
     Ok(())

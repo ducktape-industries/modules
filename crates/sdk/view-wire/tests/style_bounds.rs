@@ -24,7 +24,7 @@ fn container(style: StyleRefinement) -> Node {
 fn whole_frames_bound_base_and_every_conditional_style() {
     let hostile = StyleRefinement::default()
         .w(px(f32::INFINITY))
-        .m(px(-900.))
+        .m(px(-1e9))
         .opacity(7.);
     let mut root = container(hostile.clone());
     let Node::Container(view_wire::ContainerNode { interactivity, .. }) = &mut root else {
@@ -61,7 +61,7 @@ fn whole_frames_bound_base_and_every_conditional_style() {
         interactivity.group_active.unwrap().style,
     ] {
         assert_eq!(style.size.width, Some(px(0.).into()));
-        assert_eq!(style.margin.left, Some(px(0.).into()));
+        assert_eq!(style.margin.left, Some(px(-8192.).into()));
         assert_eq!(style.opacity, Some(1.));
     }
 }

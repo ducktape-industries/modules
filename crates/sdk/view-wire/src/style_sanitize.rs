@@ -1,9 +1,21 @@
 //! Bounds applied before a guest refinement reaches native layout or painting.
-//! The host still clips the entire view slot: local clipping cannot contain a
-//! deferred or anchored element on its own.
+//!
+//! The rule for this file: clamp magnitudes, refuse a shape it cannot keep,
+//! and never silently delete a valid value. A number is held to a finite
+//! range (a margin or an inset to `±MAX_PIXELS`, a size to
+//! `0..=MAX_PIXELS`), a list or a string to a length; a background this
+//! file cannot read back (a pattern) refuses the frame. A value inside its
+//! bound passes unchanged, so a negative margin stays negative and a
+//! gradient stays a gradient.
+//!
+//! The host clips the entire view slot (`render.rs`, the slot's
+//! `overflow_hidden`): a negative margin or inset moves an element only
+//! inside that clip, and local clipping cannot contain a deferred or
+//! anchored element on its own.
 use crate::{MAX_PIXELS, MAX_TEXT_PIXELS, truncate_to};
 use gpui::{
-    AbsoluteLength, DefiniteLength, Fill, GridPlacement, Hsla, Length, StyleRefinement, px,
+    AbsoluteLength, Background, DefiniteLength, Fill, GridPlacement, Hsla, Length, StyleRefinement,
+    TextStyleRefinement, px,
 };
 
 const MAX_REMS: f32 = 256.;
@@ -18,31 +30,60 @@ pub(crate) fn clamp_finite(value: &mut f32, min: f32, max: f32) {
         min
     };
 }
-fn absolute(value: &mut AbsoluteLength, max: f32) {
+/// Holds `value` to `0..=max`, or to `-max..=max` when it may point either
+/// way (a margin, an inset); a signed NaN reads as 0.
+fn bound(value: &mut f32, max: f32, signed: bool) {
+    match signed {
+        true if value.is_nan() => *value = 0.,
+        true => *value = value.clamp(-max, max),
+        false => clamp_finite(value, 0., max),
+    }
+}
+fn absolute(value: &mut AbsoluteLength, max: f32, signed: bool) {
     match value {
         AbsoluteLength::Pixels(value) => {
             let mut number = f32::from(*value);
-            clamp_finite(&mut number, 0., max);
+            bound(&mut number, max, signed);
             *value = px(number);
         }
-        AbsoluteLength::Rems(value) => clamp_finite(&mut value.0, 0., (max / 32.).min(MAX_REMS)),
+        AbsoluteLength::Rems(value) => bound(&mut value.0, (max / 32.).min(MAX_REMS), signed),
     }
 }
-fn definite(value: &mut DefiniteLength, max: f32) {
+fn definite(value: &mut DefiniteLength, max: f32, signed: bool) {
     match value {
-        DefiniteLength::Absolute(value) => absolute(value, max),
-        DefiniteLength::Fraction(value) => clamp_finite(value, 0., 1.),
+        DefiniteLength::Absolute(value) => absolute(value, max, signed),
+        DefiniteLength::Fraction(value) => bound(value, 1., signed),
     }
 }
-fn length(value: &mut Length) {
+fn length(value: &mut Length, signed: bool) {
     if let Length::Definite(value) = value {
-        definite(value, MAX_PIXELS);
+        definite(value, MAX_PIXELS, signed);
     }
 }
 pub(crate) fn sanitize_hsla(value: &mut Hsla) {
     for number in [&mut value.h, &mut value.s, &mut value.l, &mut value.a] {
         clamp_finite(number, 0., 1.);
     }
+}
+/// A solid keeps its colour and a linear gradient its angle, stops and
+/// colour space, each bounded; a pattern's payload has no public read, so
+/// it is refused rather than forwarded unchecked to the shader.
+fn background(value: Background) -> Result<Background, &'static str> {
+    if let Some(mut color) = value.as_solid() {
+        sanitize_hsla(&mut color);
+        return Ok(color.into());
+    }
+    let Some((mut angle, mut stops, space)) = value.as_linear_gradient() else {
+        return Err("a pattern background does not cross the view wire");
+    };
+    if !angle.is_finite() {
+        angle = 0.;
+    }
+    for stop in &mut stops {
+        sanitize_hsla(&mut stop.color);
+        clamp_finite(&mut stop.percentage, 0., 1.);
+    }
+    Ok(gpui::linear_gradient(angle, stops[0], stops[1]).color_space(space))
 }
 fn grid(value: &mut GridPlacement) {
     match value {
@@ -53,22 +94,28 @@ fn grid(value: &mut GridPlacement) {
 }
 
 /// Apply once to each base and conditional refinement during the tree's
-/// existing sanitize walk. Absolute positioning remains local to the slot;
-/// finite, nonnegative offsets/margins and hard host clipping bound its reach.
-/// This pinned GPUI revision has no z-index field in StyleRefinement. Deferred
-/// painting must be bounded separately by the host's slot content mask.
-pub(crate) fn sanitize(style: &mut StyleRefinement) {
+/// existing sanitize walk. This pinned GPUI revision has no z-index field in
+/// StyleRefinement. Deferred painting must be bounded separately by the
+/// host's slot content mask.
+pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> {
     for value in [
-        &mut style.inset.top,
-        &mut style.inset.right,
-        &mut style.inset.bottom,
-        &mut style.inset.left,
         &mut style.size.width,
         &mut style.size.height,
         &mut style.min_size.width,
         &mut style.min_size.height,
         &mut style.max_size.width,
         &mut style.max_size.height,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        length(value, false);
+    }
+    for value in [
+        &mut style.inset.top,
+        &mut style.inset.right,
+        &mut style.inset.bottom,
+        &mut style.inset.left,
         &mut style.margin.top,
         &mut style.margin.right,
         &mut style.margin.bottom,
@@ -78,7 +125,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     .into_iter()
     .flatten()
     {
-        length(value);
+        length(value, true);
     }
     for value in [
         &mut style.padding.top,
@@ -91,7 +138,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     .into_iter()
     .flatten()
     {
-        definite(value, MAX_PIXELS);
+        definite(value, MAX_PIXELS, false);
     }
     for value in [
         &mut style.border_widths.top,
@@ -107,7 +154,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     .into_iter()
     .flatten()
     {
-        absolute(value, MAX_PIXELS);
+        absolute(value, MAX_PIXELS, false);
     }
     for value in [&mut style.flex_grow, &mut style.flex_shrink]
         .into_iter()
@@ -124,15 +171,9 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
     if let Some(value) = &mut style.border_color {
         sanitize_hsla(value);
     }
-    // Background's pattern/gradient payload is private in pinned GPUI. Only
-    // solids expose the numeric values needed for validation; reject opaque
-    // pattern parameters rather than forwarding unchecked shader inputs.
-    style.background = style.background.take().and_then(|Fill::Color(background)| {
-        background.as_solid().map(|mut value| {
-            sanitize_hsla(&mut value);
-            Fill::from(value)
-        })
-    });
+    if let Some(Fill::Color(value)) = &mut style.background {
+        *value = background(*value)?;
+    }
     if let Some(shadows) = &mut style.box_shadow {
         shadows.truncate(MAX_SHADOWS);
         for shadow in shadows {
@@ -165,7 +206,17 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
             grid(value);
         }
     }
-    let text = &mut style.text;
+    sanitize_text(&mut style.text);
+    #[cfg(debug_assertions)]
+    {
+        style.debug = None;
+        style.debug_below = None;
+    }
+    Ok(())
+}
+
+/// A text style's own bounds: colours, sizes, font lookup lists, ellipsis.
+pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
     if let Some(value) = &mut text.color {
         sanitize_hsla(value);
     }
@@ -173,11 +224,11 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
         sanitize_hsla(value);
     }
     if let Some(value) = &mut text.font_size {
-        absolute(value, MAX_TEXT_PIXELS);
+        absolute(value, MAX_TEXT_PIXELS, false);
     }
     if let Some(value) = &mut text.line_height {
         match value {
-            DefiniteLength::Absolute(value) => absolute(value, MAX_TEXT_PIXELS),
+            DefiniteLength::Absolute(value) => absolute(value, MAX_TEXT_PIXELS, false),
             DefiniteLength::Fraction(value) => clamp_finite(value, 0., 8.),
         }
     }
@@ -228,11 +279,6 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) {
             sanitize_hsla(value);
         }
     }
-    #[cfg(debug_assertions)]
-    {
-        style.debug = None;
-        style.debug_below = None;
-    }
 }
 
 #[cfg(test)]
@@ -241,15 +287,27 @@ mod tests {
     use gpui::{Overflow, Position, Styled, relative, rems, rgb};
 
     #[test]
-    fn absolute_position_and_negative_margins_cannot_move_before_slot_origin() {
+    fn negative_margins_and_insets_keep_their_sign_and_only_their_magnitude_is_cut() {
         let mut style = StyleRefinement::default()
             .absolute()
             .left(px(-50.))
-            .m(px(-20.));
-        sanitize(&mut style);
+            .m(px(-20.))
+            .mt(rems(-1e6))
+            .mr(relative(-3.))
+            .flex_basis(px(-1e9));
+        style.margin.bottom = Some(px(f32::NAN).into());
+        sanitize(&mut style).unwrap();
         assert_eq!(style.position, Some(Position::Absolute));
-        assert_eq!(style.inset.left, Some(px(0.).into()));
-        assert_eq!(style.margin.top, Some(px(0.).into()));
+        assert_eq!(style.inset.left, Some(px(-50.).into()));
+        assert_eq!(style.margin.left, Some(px(-20.).into()));
+        assert_eq!(style.margin.top, Some(rems(-MAX_REMS).into()));
+        assert_eq!(style.margin.right, Some(relative(-1.).into()));
+        assert_eq!(style.margin.bottom, Some(px(0.).into()));
+        assert_eq!(style.flex_basis, Some(px(-MAX_PIXELS).into()));
+        // a size may not point backwards
+        let mut size = StyleRefinement::default().w(px(-5.));
+        sanitize(&mut size).unwrap();
+        assert_eq!(size.size.width, Some(px(0.).into()));
     }
     #[test]
     fn bounds_pixels_rems_fractions_and_nonfinite_dimensions() {
@@ -258,7 +316,7 @@ mod tests {
             .h(rems(10000.))
             .min_w(relative(1000.));
         style.max_size.height = Some(px(1e20).into());
-        sanitize(&mut style);
+        sanitize(&mut style).unwrap();
         assert_eq!(style.size.width, Some(px(0.).into()));
         assert_eq!(style.size.height, Some(rems(MAX_REMS).into()));
         assert_eq!(style.min_size.width, Some(relative(1.).into()));
@@ -273,7 +331,7 @@ mod tests {
             l: f32::INFINITY,
             a: 9.,
         });
-        sanitize(&mut style);
+        sanitize(&mut style).unwrap();
         assert_eq!(style.opacity, Some(0.));
         assert_eq!(
             style.border_color,
@@ -289,7 +347,7 @@ mod tests {
     fn visible_overflow_is_local_and_requires_host_slot_clip() {
         let mut style = StyleRefinement::default();
         style.overflow.x = Some(Overflow::Visible);
-        sanitize(&mut style);
+        sanitize(&mut style).unwrap();
         assert_eq!(style.overflow.x, Some(Overflow::Visible));
     }
     #[test]
@@ -307,7 +365,7 @@ mod tests {
             ]),
             ..Default::default()
         };
-        sanitize(&mut style);
+        sanitize(&mut style).unwrap();
         let shadows = style.box_shadow.unwrap();
         assert_eq!(shadows.len(), MAX_SHADOWS);
         assert_eq!(shadows[0].blur_radius, px(128.));
@@ -325,7 +383,7 @@ mod tests {
             row: GridPlacement::Span(u16::MAX)..GridPlacement::Line(i16::MIN),
             column: GridPlacement::Auto..GridPlacement::Auto,
         });
-        sanitize(&mut style);
+        sanitize(&mut style).unwrap();
         assert_eq!(style.text.font_size, Some(px(MAX_TEXT_PIXELS).into()));
         assert_eq!(style.grid_cols.unwrap().repeat, MAX_GRID);
         assert_eq!(
@@ -338,10 +396,10 @@ mod tests {
         let mut style = StyleRefinement::default()
             .text_size(px(16.))
             .line_height(relative(1.5));
-        sanitize(&mut style);
+        sanitize(&mut style).unwrap();
         assert_eq!(style.text.line_height, Some(relative(1.5)));
         let once = style.clone();
-        sanitize(&mut style);
+        sanitize(&mut style).unwrap();
         assert_eq!(style, once);
     }
     #[test]
@@ -357,7 +415,7 @@ mod tests {
             100
         ])));
         style.text.text_overflow = Some(gpui::TextOverflow::Truncate("λ".repeat(100).into()));
-        sanitize(&mut style);
+        sanitize(&mut style).unwrap();
         assert_eq!(style.text.font_family.unwrap().len(), 256);
         let fonts = style.text.font_fallbacks.unwrap();
         assert_eq!(fonts.fallback_list().len(), 16);
@@ -370,17 +428,57 @@ mod tests {
     }
 
     #[test]
-    fn opaque_pattern_inputs_are_rejected_but_solid_colors_survive() {
-        let mut style = StyleRefinement::default().bg(gpui::linear_gradient(
-            0.,
-            gpui::linear_color_stop(rgb(0), 0.),
-            gpui::linear_color_stop(rgb(0xffffff), 1.),
-        ));
-        sanitize(&mut style);
-        assert!(style.background.is_none());
+    fn a_gradient_keeps_its_stops_bounded_and_a_pattern_is_refused() {
+        let gradient = gpui::linear_gradient(
+            30.,
+            gpui::linear_color_stop(rgb(0xff0000), 0.25),
+            gpui::linear_color_stop(rgb(0x0000ff), 1.),
+        )
+        .color_space(gpui::ColorSpace::Oklab);
+        let mut style = StyleRefinement::default().bg(gradient);
+        sanitize(&mut style).unwrap();
+        assert_eq!(style.background, Some(gradient.into()));
+        let hostile = gpui::linear_gradient(
+            f32::NAN,
+            gpui::linear_color_stop(
+                Hsla {
+                    h: 2.,
+                    s: -1.,
+                    l: 0.5,
+                    a: f32::INFINITY,
+                },
+                -4.,
+            ),
+            gpui::linear_color_stop(rgb(0x0000ff), f32::NAN),
+        );
+        let mut style = StyleRefinement::default().bg(hostile);
+        sanitize(&mut style).unwrap();
+        let Some(Fill::Color(kept)) = style.background else {
+            panic!("the gradient is kept")
+        };
+        let (angle, [from, to], _) = kept.as_linear_gradient().expect("still a gradient");
+        assert_eq!(angle, 0.);
+        assert_eq!(
+            (from.color, from.percentage, to.percentage),
+            (
+                Hsla {
+                    h: 1.,
+                    s: 0.,
+                    l: 0.5,
+                    a: 0.
+                },
+                0.,
+                0.
+            )
+        );
         let mut solid = StyleRefinement::default().bg(rgb(0x123456));
         let before = solid.background.clone();
-        sanitize(&mut solid);
+        sanitize(&mut solid).unwrap();
         assert_eq!(solid.background, before);
+        let mut pattern = StyleRefinement::default().bg(gpui::pattern_slash(rgb(0), 1., 4.));
+        assert_eq!(
+            sanitize(&mut pattern),
+            Err("a pattern background does not cross the view wire")
+        );
     }
 }
