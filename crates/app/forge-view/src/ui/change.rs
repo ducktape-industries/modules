@@ -580,19 +580,27 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
         1 => "1 line comment pending".to_owned(),
         n => format!("{n} line comments pending"),
     };
-    let mut finish = div().relative().flex_none().child(
-        button(
-            id("forge-finish-review"),
-            "Finish review ⌄",
-            theme,
-            finishing,
-        )
-        .kind(design::Kind::Primary)
-        .enabled(forge.may_write()),
+    let opener = button(
+        id("forge-finish-review"),
+        "Finish review ⌄",
+        theme,
+        finishing,
+    )
+    .kind(design::Kind::Primary)
+    .enabled(forge.may_write());
+    // the form is a dialog over the button: Tab stays in it, Escape or a
+    // press outside folds it. Its layer puts the form's anchor on the
+    // button's right edge, where it hangs from
+    let panel = review
+        .finishing
+        .then(|| finish_panel(forge, review, cx, theme));
+    let fold = cx.listener(|forge, _: &(), _, cx| forge.finishing(false, cx));
+    let finish = div().relative().flex_none().child(
+        modal_overlay(id("forge-finish"), "Finish your review", opener, panel)
+            .flex_col()
+            .items_end()
+            .on_dismiss(fold),
     );
-    if review.finishing {
-        finish = finish.child(finish_panel(forge, review, cx, theme));
-    }
     let bar = strip(theme)
         .child(badge(
             id("forge-review-state"),
@@ -626,7 +634,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
 
 /// The finish form, over the diff under its button: what the review says,
 /// its verdict, Submit review. A press outside folds it; nothing typed is
-/// lost.
+/// lost. It hangs from the point its overlay's layer puts it at.
 fn finish_panel(
     forge: &Forge,
     review: &crate::state::ReviewSession,
@@ -654,8 +662,6 @@ fn finish_panel(
         .bg(theme.background)
         .shadow_lg()
         .occlude()
-        .role(Role::Dialog)
-        .aria_label("Finish your review")
         .on_mouse_down_out(fold)
         .child(
             div()
@@ -671,28 +677,22 @@ fn finish_panel(
                     .enabled(forge.may_write()),
             ),
         );
-    // the panel hangs from the button's right edge: a zero-width box pinned
-    // there is where its anchor starts
-    div()
-        .absolute()
-        .top_0()
-        .right_0()
-        .child(deferred(
-            anchored()
-                .anchor(Anchor::TopRight)
-                .position_mode(AnchoredPositionMode::Local)
-                .position(Point {
-                    x: px(0.),
-                    y: px(0.),
-                })
-                .offset(Point {
-                    x: px(0.),
-                    y: design::size::CONTROL + design::space::XXS,
-                })
-                .snap_to_window_with_margin(ducktape_view_guest::Edges::all(design::space::SM))
-                .child(panel),
-        ))
-        .into_any_element()
+    deferred(
+        anchored()
+            .anchor(Anchor::TopRight)
+            .position_mode(AnchoredPositionMode::Local)
+            .position(Point {
+                x: px(0.),
+                y: px(0.),
+            })
+            .offset(Point {
+                x: px(0.),
+                y: design::size::CONTROL + design::space::XXS,
+            })
+            .snap_to_window_with_margin(ducktape_view_guest::Edges::all(design::space::SM))
+            .child(panel),
+    )
+    .into_any_element()
 }
 
 /// What the review says overall, typed while finishing.

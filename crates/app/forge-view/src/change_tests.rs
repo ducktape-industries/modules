@@ -4,7 +4,9 @@ use super::{booted, change_screen, change_screen_as, opened};
 use crate::api::SubmitForge;
 use crate::state::ChangeTab;
 use ducktape_view_guest::methods::Submit;
+use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire;
+use ducktape_view_guest::wire::Node;
 use forge::{LineComment, Op, Side, Verdict};
 
 /// The change tabs read a log or a whole diff on open, so → only moves and
@@ -746,6 +748,40 @@ fn a_merged_change_lists_the_commits_it_merged() {
         )),
         "{asked:?}"
     );
+}
+
+fn focused(cx: &TestAppContext) -> Option<String> {
+    cx.focused().and_then(Node::key).map(str::to_owned)
+}
+
+/// The finish form is a dialog: Tab from its last stop comes round to its
+/// first, and Shift-Tab back, instead of walking out into the diff.
+#[test]
+fn tab_stays_inside_the_finish_form() {
+    let (mut cx, _) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-start-review");
+    cx.run_until_parked();
+    cx.simulate_click("forge-finish-review");
+    cx.run_until_parked();
+    cx.simulate_focus("forge-submit-review");
+    cx.simulate_tab(true);
+    assert_eq!(focused(&cx).as_deref(), Some("forge-review-body"));
+    cx.simulate_tab(false);
+    assert_eq!(focused(&cx).as_deref(), Some("forge-submit-review"));
+}
+
+/// Opening the finish form puts the keys in it, and Escape folds it.
+#[test]
+fn the_finish_form_takes_the_keys_and_escape_folds_it() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-start-review");
+    cx.run_until_parked();
+    cx.simulate_click("forge-finish-review");
+    cx.run_until_parked();
+    assert_eq!(focused(&cx).as_deref(), Some("forge-review-body"));
+    cx.simulate_dismiss("forge-finish");
+    cx.run_until_parked();
+    view.read(|forge| assert!(!forge.review().unwrap().finishing));
 }
 
 /// A reader who cannot write (the session dropped) sees the verdicts, and
