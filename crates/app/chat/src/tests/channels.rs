@@ -220,6 +220,33 @@ fn the_owner_seats_and_unseats_members() {
     );
 }
 
+/// A room of 300 members lists them by account number, page after page:
+/// account 256 after 255, not first.
+#[test]
+fn members_list_by_account_number_across_pages() {
+    let mut chat = Chat::with_channel(PostPolicy::MembersOnly);
+    for number in (1..=300).rev() {
+        chat.ok(&ADA, membership(Principal::Account(number), true));
+    }
+    let mut listed = Vec::new();
+    let mut after = None;
+    loop {
+        let Reply::Members(members) = chat.ask(Query::Members {
+            channel_id: "general".into(),
+            page: PageRequest { after, limit: None },
+        }) else {
+            panic!("members answer members");
+        };
+        listed.extend(members.items.into_iter().map(|row| row.principal));
+        after = members.next;
+        if after.is_none() {
+            break;
+        }
+    }
+    let numbers: Vec<Principal> = (1..=300).map(Principal::Account).collect();
+    assert_eq!(listed, numbers);
+}
+
 pub(super) fn open_dm(counterpart: u64) -> Op {
     Op::CreateDmChannel {
         counterpart,
