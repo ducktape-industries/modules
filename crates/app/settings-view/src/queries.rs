@@ -2,13 +2,9 @@
 //! keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, malformed, pages, wrong_reply};
-use ducktape_view_guest::methods::Query;
+use ducktape_view_guest::host::{Error, malformed, pages};
 use identity::{Control, Kind, PageRequest, Reference, Standing};
 use serde::{Deserialize, Serialize};
-
-use identity::Identity;
-use valset::Valset;
 
 /// Who the seated key is.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -90,14 +86,7 @@ pub(crate) async fn account(
             None => Seat::Bare(key),
         }));
     };
-    let account = match host
-        .ask::<Query<Identity>>(identity::Query::Get { number })
-        .await?
-    {
-        identity::Reply::Account(account) => account,
-        _ => return Err(wrong_reply()),
-    };
-    let Some(account) = account else {
+    let Some(account) = host.query(identity::ask::Get { number }).await? else {
         return Ok(None);
     };
     let mut keys = Vec::new();
@@ -124,38 +113,24 @@ pub(crate) async fn account(
 /// (`Kind::note`); `None` for a key no account holds.
 async fn held_by(host: &Host, key: &[u8]) -> Result<Option<(String, &'static str)>, Error> {
     let references = vec![Reference::Key(key.to_vec())];
-    let number = match host
-        .ask::<Query<Identity>>(identity::Query::Resolve { references })
-        .await?
-    {
-        identity::Reply::Resolved(numbers) => numbers.into_iter().next().flatten(),
-        _ => return Err(wrong_reply()),
-    };
-    let Some(number) = number else {
+    let resolved = host.query(identity::ask::Resolve { references }).await?;
+    let Some(number) = resolved.into_iter().next().flatten() else {
         return Ok(None);
     };
-    let profile = match host
-        .ask::<Query<Identity>>(identity::Query::Profile { number })
-        .await?
-    {
-        identity::Reply::Profile(p) => p,
-        _ => return Err(wrong_reply()),
-    };
+    let profile = host.query(identity::ask::Profile { number }).await?;
     Ok(profile.and_then(|p| Some((p.name, p.kind.note()?))))
 }
 
 /// Every agent `manager` manages.
 async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
     let listed = pages(None, |after| {
-        let ask = host.ask::<Query<Identity>>(identity::Query::Managed {
+        let ask = host.query(identity::ask::Managed {
             by: manager,
             page: PageRequest { after, limit: None },
         });
         async move {
-            match ask.await? {
-                identity::Reply::Accounts(reply) => Ok((reply.items, reply.next)),
-                _ => Err(wrong_reply()),
-            }
+            let reply = ask.await?;
+            Ok((reply.items, reply.next))
         }
     })
     .await?;
@@ -178,13 +153,9 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
 }
 
 async fn read_key(host: &Host, key: Vec<u8>, label: Option<String>) -> Result<Key, Error> {
-    let membership = match host
-        .ask::<Query<Valset>>(valset::Query::Membership { key: key.clone() })
-        .await?
-    {
-        valset::Reply::Membership(membership) => membership,
-        _ => return Err(wrong_reply()),
-    };
+    let membership = host
+        .query(valset::ask::Membership { key: key.clone() })
+        .await?;
     Ok(Key {
         label,
         key,

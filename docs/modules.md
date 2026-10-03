@@ -54,10 +54,14 @@ pub enum Op {
     Close { poll_id: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[ask(Poll)]
 pub enum Query {
+    #[ask(Reply::Poll(Option<PollRow>))]
     Poll { poll_id: String },
+    #[ask(Reply::Polls(PageResponse<PollRow>))]
     Polls { page: PageRequest },
+    #[ask(Reply::Tally(Vec<u64>))]
     Tally { poll_id: String },
 }
 
@@ -81,6 +85,15 @@ fn op_variants_only_append() {
     assert_eq!(describe::variants::<Op>(), ["Open", "Vote", "Close"]);
 }
 ```
+
+**Each query names its reply.** `#[derive(program::Ask)]` with
+`#[ask(Poll)]` (the program) and, on each variant, the reply that answers
+it writes one type per query into `poll::ask`, built like the variant. A
+view asks one alone and gets that reply, typed:
+`cx.host().query(poll::ask::Tally { poll_id })` is a `Vec<u64>`, with the
+same bytes on the wire as `Query::Tally`, and no arm for the replies that
+answer other questions. A reply with named fields is answered as their
+tuple (`#[ask(Reply::Thread { root: Option<Row>, replies: PageResponse<Row> })]`).
 
 A field added to an existing variant changes its bytes too; that is a new
 variant. `Query` and `Reply` are looser (a view and its module ship

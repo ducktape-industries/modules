@@ -75,17 +75,21 @@ pub enum Op {
     Cancel { height: u64, program: ModuleId },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[ask(Modules)]
 pub enum Query {
+    #[ask(Reply::Programs(Vec<Entry>))]
     At(u64),
-    Scheduled {
-        page: PageRequest,
-    },
+    #[ask(Reply::Scheduled(PageResponse<Scheduled>))]
+    Scheduled { page: PageRequest },
+    #[ask(Reply::Program { height: u64, entry: Option<Entry> })]
     Program(ModuleId),
     /// The view-only entries at a height, by name.
+    #[ask(Reply::Views(Vec<View>))]
     Views(u64),
     /// The programs genesis bound to the roles the kernel calls, as the
     /// kernel hands them to this module (`Env::roles`).
+    #[ask(Reply::Roles(abi::Roles))]
     Roles,
 }
 

@@ -71,6 +71,8 @@ abi = { workspace = true }
 borsh = { workspace = true }
 describe = { workspace = true }
 guest = { workspace = true }
+# \`#[derive(program::Ask)]\`: each query asked alone, typed by its reply
+program = { workspace = true }
 store = { workspace = true }
 EOF
     cat > "$dir/src/lib.rs" <<EOF
@@ -100,8 +102,12 @@ pub enum Op {
     Bump { by: u64 },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// A read. Each variant names the reply that answers it, so a view asks
+/// it alone (\`host.query($snake::ask::Count)\`) and gets that reply.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[ask($title)]
 pub enum Query {
+    #[ask(Reply::Count(u64))]
     Count,
 }
 
@@ -271,7 +277,7 @@ EOF
 //! $title: the count the \`$program\` module keeps, re-read on every live
 //! bump of the module.
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::{Capability, Changes, Query};
+use ducktape_view_guest::methods::{Capability, Changes};
 // gpui's names: elements, styles, \`Render\`, \`Context\`, \`Window\`
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Host, Loadable, Task, View, export_view};
@@ -348,10 +354,7 @@ impl $title {
 }
 
 async fn count(host: Host) -> Result<u64, Error> {
-    let $program_snake::Reply::Count(count) = host
-        .ask::<Query<$program_snake::$title>>($program_snake::Query::Count)
-        .await?;
-    Ok(count)
+    host.query($program_snake::ask::Count).await
 }
 
 export_view!($title);
@@ -361,6 +364,7 @@ mod tests;
 EOF
     cat > "$dir/src/tests.rs" <<EOF
 use super::*;
+use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::testing::TestAppContext;
 
 fn ready() -> TestAppContext {

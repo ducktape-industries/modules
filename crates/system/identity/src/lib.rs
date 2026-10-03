@@ -215,37 +215,33 @@ pub enum Reference {
     Key(Vec<u8>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[ask(Identity)]
 pub enum Query {
     /// The identity role's queries (`abi::role::identity::Query`), first
     /// and in its order: the account a key acts as (refused while it does
     /// not act), a module's account, one account's profile and every
     /// account's.
-    OfKey {
-        key: Vec<u8>,
-    },
-    OfModule {
-        module: ModuleId,
-    },
-    Profile {
-        number: AccountNumber,
-    },
+    #[ask(Reply::Number(Option<AccountNumber>))]
+    OfKey { key: Vec<u8> },
+    #[ask(Reply::Number(Option<AccountNumber>))]
+    OfModule { module: ModuleId },
+    #[ask(Reply::Profile(Option<Profile>))]
+    Profile { number: AccountNumber },
+    #[ask(Reply::Profiles { profiles: Vec<Profile>, next: Option<AccountNumber> })]
     Profiles {
         after: Option<AccountNumber>,
         limit: u32,
     },
-    Get {
-        number: AccountNumber,
-    },
-    Generation {
-        key: Vec<u8>,
-    },
-    Resolve {
-        references: Vec<Reference>,
-    },
-    List {
-        page: PageRequest,
-    },
+    #[ask(Reply::Account(Option<Account>))]
+    Get { number: AccountNumber },
+    #[ask(Reply::Generation(u64))]
+    Generation { key: Vec<u8> },
+    #[ask(Reply::Resolved(Vec<Option<AccountNumber>>))]
+    Resolve { references: Vec<Reference> },
+    #[ask(Reply::Accounts(PageResponse<Account>))]
+    List { page: PageRequest },
+    #[ask(Reply::Accounts(PageResponse<Account>))]
     Managed {
         by: AccountNumber,
         page: PageRequest,

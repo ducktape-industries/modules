@@ -40,10 +40,17 @@ Ours, defined in this crate:
 sealed, so a view cannot invent a kind. Three verbs on `Host` (`src/host.rs`):
 
 ```rust
-let reply = cx.host().ask::<Query<identity::Identity>>(identity::Query::List { page }).await?;
+let status = cx.host().ask::<ChainStatus>(()).await?;
 let mut live = cx.host().subscribe::<Changes<valset::Valset>>(());
 cx.host().notify::<methods::HostBadge>(3);
 ```
+
+A program's query is asked alone, typed by the reply that answers it:
+`cx.host().query(identity::ask::List { page })` is `module.query` with the
+program's own bytes (`identity::Query::List`), answered with the page of
+accounts and nothing else. A program's `Query` derives `program::Ask`, which
+writes those types into its `ask` module; a reply to another question is
+refused as `unexpected_reply`, so a view has no arm for the others.
 
 A node program is addressed by its own type, the one that implements
 `program::Program` (`methods::Program` here) beside its `guest::Module`:

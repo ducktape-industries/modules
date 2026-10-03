@@ -4,11 +4,10 @@
 //! badge counts such messages in rooms still unread.
 use std::collections::BTreeMap;
 
-use chat::{Block, ChannelInfo, Mark, MsgRow, Principal, Query, Reply};
+use chat::{Block, ChannelInfo, Mark, MsgRow, Principal};
 use ducktape_view_guest::Context;
 use ducktape_view_guest::methods::{HostBadge, Notification, NotifyPost, NotifySeen};
 
-use crate::api::Ask;
 use crate::message::message_body;
 use crate::names::dm_peer_of;
 use crate::{Chat, links};
@@ -87,7 +86,7 @@ impl Chat {
         cx.spawn(async move |this, cx| {
             let host = cx.host();
             let asked = host
-                .ask::<Ask<::chat::Chat>>(Query::MessagesAround {
+                .query(chat::ask::MessagesAround {
                     channel_id: channel.clone(),
                     seq: head,
                     viewer,
@@ -100,14 +99,7 @@ impl Chat {
             let _ = this.update(cx, |chat, cx| {
                 cx.notify();
                 let rows = match asked {
-                    Ok(Reply::Messages(rows)) => rows,
-                    Ok(_) => {
-                        return cx.host().log_refused(
-                            "chat",
-                            "news",
-                            &ducktape_view_guest::host::wrong_reply(),
-                        );
-                    }
+                    Ok(rows) => rows,
                     Err(refusal) => return cx.host().log_refused("chat", "news", &refusal),
                 };
                 let empty = Names::default();

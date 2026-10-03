@@ -36,6 +36,7 @@ members = [
     "crates/sdk/abi",
     "crates/sdk/error",
     "crates/sdk/program",
+    "crates/sdk/program-derive",
     "crates/sdk/guest",
     "crates/sdk/store",
     "crates/sdk/ducklink",

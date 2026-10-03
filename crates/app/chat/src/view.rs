@@ -1,32 +1,29 @@
 //! The reads a view makes of chat, folded into what a principal is called:
 //! the roster into [`Names`], a channel's roots into one page. Each takes
-//! the asker (`|query| host.ask::<Query<Chat>>(query)` in a view) so this
-//! crate links no view runtime. Names are display text, not identity: "the
-//! same person" is the account number.
+//! the asker (`|ask| host.query(ask)` in a view) so this crate links no
+//! view runtime. Names are display text, not identity: "the same person"
+//! is the account number.
 use std::collections::BTreeMap;
 use std::future::Future;
 
-use guest::{Error, unexpected_reply};
+use guest::Error;
 
-use crate::{Kind, MODULE, MsgRow, PageRequest, Principal, Profile, Query, Reply, Standing};
+use crate::{Kind, MsgRow, PageRequest, PageResponse, Principal, Profile, Standing, ask};
 
 /// Every account's profile, every page of it, folded into [`Names`].
-pub async fn roster<F: Future<Output = Result<Reply, Error>>>(
-    ask: impl Fn(Query) -> F,
+pub async fn roster<F: Future<Output = Result<PageResponse<Profile>, Error>>>(
+    ask: impl Fn(ask::Accounts) -> F,
 ) -> Result<Names, Error> {
     let mut rows = Vec::new();
     let mut after = None;
     loop {
-        let page = ask(Query::Accounts {
+        let page = ask(ask::Accounts {
             page: PageRequest {
                 after,
                 limit: Some(PageRequest::MAX_LIMIT),
             },
         })
         .await?;
-        let Reply::Accounts(page) = page else {
-            return Err(unexpected_reply(MODULE, "Accounts", &page));
-        };
         rows.extend(page.items);
         after = page.next;
         if after.is_none() {
@@ -38,8 +35,8 @@ pub async fn roster<F: Future<Output = Result<Reply, Error>>>(
 /// A channel's roots as `viewer` sees them, oldest first: pages of
 /// `per_page` below the cursor `below` (or the newest) until at least
 /// `want` rows are read or the channel ends, and whether older ones remain.
-pub async fn roots<F: Future<Output = Result<Reply, Error>>>(
-    ask: impl Fn(Query) -> F,
+pub async fn roots<F: Future<Output = Result<PageResponse<MsgRow>, Error>>>(
+    ask: impl Fn(ask::Roots) -> F,
     channel_id: String,
     viewer: Vec<Principal>,
     mut below: Option<Vec<u8>>,
@@ -48,7 +45,7 @@ pub async fn roots<F: Future<Output = Result<Reply, Error>>>(
 ) -> Result<(Vec<MsgRow>, bool), Error> {
     let mut rows = Vec::new();
     loop {
-        let page = ask(Query::Roots {
+        let page = ask(ask::Roots {
             channel_id: channel_id.clone(),
             viewer: viewer.clone(),
             page: PageRequest {
@@ -57,9 +54,6 @@ pub async fn roots<F: Future<Output = Result<Reply, Error>>>(
             },
         })
         .await?;
-        let Reply::Roots(page) = page else {
-            return Err(unexpected_reply(MODULE, "Roots", &page));
-        };
         rows.extend(page.items);
         below = page.next;
         if below.is_none() || rows.len() >= want {

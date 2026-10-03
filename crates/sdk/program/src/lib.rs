@@ -19,6 +19,29 @@ pub trait Program {
     type Reply: BorshSerialize + BorshDeserialize;
 }
 
+/// One question to a program, as its own type: the program it asks, the
+/// reply that answers it, and how it rides the wire (`into` the program's
+/// `Query`, so its bytes are the enum's). A caller asks it and gets that
+/// reply, typed, with no arm for the others.
+///
+/// `#[derive(Ask)]` on a program's `Query` writes them: `#[ask(Program)]`
+/// on the enum, and on each variant a caller asks alone the reply that
+/// answers it, `#[ask(Reply::List(PageResponse<Row>))]` (or a reply's
+/// named fields, `#[ask(Reply::Thread { root: Option<Row>, replies:
+/// PageResponse<Row> })]`, answered as their tuple). Each such variant
+/// becomes a type of the same name and fields in a `pub mod ask` beside
+/// the enum (`identity::ask::List { page }`). A field type that shares a
+/// variant's name is written by its full path (`crate::Profile`).
+pub trait Ask: Into<<Self::Program as Program>::Query> {
+    type Program: Program;
+    type Reply;
+    /// The answer, out of the program's reply; `None` when it answers
+    /// another question.
+    fn answer(reply: <Self::Program as Program>::Reply) -> Option<Self::Reply>;
+}
+
+pub use program_derive::Ask;
+
 /// Whether `name` is a program id as the network spells one: `1..=64`
 /// bytes of lowercase ASCII letters, digits, `-` and `_`. One spelling per
 /// id, so no id reads as another (no capital, no look-alike letter, no

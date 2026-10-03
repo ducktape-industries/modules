@@ -124,30 +124,31 @@ pub enum Op {
 /// A read. `viewer` is the reader's principals: they decide
 /// [`Reaction::reacted_by_me`]. Every list takes a [`PageRequest`] and answers a
 /// [`PageResponse`] whose `next` resumes it.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ::program::Ask)]
+#[ask(Chat)]
 pub enum Query {
-    Channels {
-        page: PageRequest,
-    },
-    Channel {
-        channel_id: String,
-    },
+    #[ask(Reply::Channels(PageResponse<ChannelInfo>))]
+    Channels { page: PageRequest },
+    #[ask(Reply::Channel(Option<ChannelInfo>))]
+    Channel { channel_id: String },
     /// The message an emitted id names (forge finds its own posts so).
-    MessageById {
-        message_id: String,
-    },
+    #[ask(Reply::Message(Option<MsgRow>))]
+    MessageById { message_id: String },
     /// The author's most recently answered thread in this channel, if any.
+    #[ask(Reply::Attention(Option<MsgRow>))]
     ThreadAttention {
         channel_id: String,
         author: Principal,
     },
     /// One page of timeline roots, newest first.
+    #[ask(Reply::Roots(PageResponse<MsgRow>))]
     Roots {
         channel_id: String,
         viewer: Vec<Principal>,
         page: PageRequest,
     },
     /// `page.limit` messages centred on `seq`.
+    #[ask(Reply::Messages(Vec<MsgRow>))]
     MessagesAround {
         channel_id: String,
         seq: u64,
@@ -155,23 +156,27 @@ pub enum Query {
         page: PageRequest,
     },
     /// The root plus one page of replies, in post order.
+    #[ask(Reply::Thread { root: Option<MsgRow>, replies: PageResponse<MsgRow> })]
     Thread {
         channel_id: String,
         root_seq: u64,
         viewer: Vec<Principal>,
         page: PageRequest,
     },
+    #[ask(Reply::Members(PageResponse<MemberRow>))]
     Members {
         channel_id: String,
         page: PageRequest,
     },
     /// Every token of `text`, newest first, at most `page.limit` hits.
+    #[ask(Reply::Hits(MessageHits))]
     Search {
         text: String,
         viewer: Vec<Principal>,
         channel_id: Option<String>,
         page: PageRequest,
     },
+    #[ask(Reply::TagHits(PageResponse<MsgRow>))]
     TagSearch {
         tag: String,
         viewer: Vec<Principal>,
@@ -180,9 +185,8 @@ pub enum Query {
     },
     /// Every account's profile, ascending by number, a page at a time:
     /// the module asks the identity role, so a view links one module.
-    Accounts {
-        page: PageRequest,
-    },
+    #[ask(Reply::Accounts(PageResponse<Profile>))]
+    Accounts { page: PageRequest },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]

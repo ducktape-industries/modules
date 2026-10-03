@@ -661,6 +661,7 @@ dependencies = [
  "borsh",
  "describe",
  "guest",
+ "program",
  "serde",
  "store",
  "unicode-normalization",
@@ -4466,6 +4467,16 @@ version = "0.1.0"
 dependencies = [
  "abi",
  "borsh",
+ "program-derive",
+]
+
+[[package]]
+name = "program-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -6377,6 +6388,7 @@ dependencies = [
  "borsh",
  "describe",
  "guest",
+ "program",
  "store",
 ]
 
