@@ -18,14 +18,14 @@ const PAGE: u32 = 20;
 pub const SHOWN: usize = 8;
 
 /// The newest transactions an account signed in the window.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Recent {
     /// the newest block's time, which `when` counts back from
     pub now: u64,
     pub items: Vec<Signed>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Signed {
     /// what its program says it does: `Post in #general`
     pub title: String,

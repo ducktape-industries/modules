@@ -273,18 +273,29 @@ impl Members {
                 if let Ok(recent) = &result {
                     view.seen.insert(number, recent.clone());
                 }
-                view.activity = Loadable::from(result);
-                cx.notify();
+                match result {
+                    // read anew and the same: nothing to draw
+                    Ok(recent) if view.activity.ready() == Some(&recent) => {}
+                    result => {
+                        view.activity = Loadable::from(result);
+                        cx.notify();
+                    }
+                }
             });
         });
         match self.seen.get(&number) {
             Some(recent) => {
-                self.activity = Loadable::Ready(recent.clone());
+                if self.activity.ready() != Some(recent) {
+                    self.activity = Loadable::Ready(recent.clone());
+                    cx.notify();
+                }
                 self.rereading = Some(task);
             }
-            None => self.activity = Loadable::Loading(task),
+            None => {
+                self.activity = Loadable::Loading(task);
+                cx.notify();
+            }
         }
-        cx.notify();
     }
 
     fn selected_row(&self) -> Option<&Row> {

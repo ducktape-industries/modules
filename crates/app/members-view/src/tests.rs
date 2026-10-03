@@ -441,6 +441,35 @@ fn a_live_bump_that_lands_the_same_roster_draws_nothing() {
     assert!(cx.has_text("scout's bio"));
 }
 
+/// The detail's activity read again lands what it shows: nothing draws.
+#[test]
+fn an_activity_read_anew_that_lands_the_same_draws_nothing() {
+    let mut cx = TestAppContext::new();
+    let session = cx.host().stream::<HostSession>();
+    cx.host().stream::<Changes<Identity>>();
+    cx.host()
+        .never::<ducktape_view_guest::methods::HostOffset>();
+    respond(&mut cx);
+    let view = cx.open::<Members>();
+    session.send(Session {
+        account: Some(7),
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    cx.run_until_parked();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    let (asked, renders) = (cx.host().requests::<ChainBlocks>().len(), cx.renders());
+    view.update(&mut cx, |members, _, cx| members.read_activity(cx));
+    cx.run_until_parked();
+    assert!(
+        cx.host().requests::<ChainBlocks>().len() > asked,
+        "read anew"
+    );
+    assert_eq!(cx.renders(), renders, "the same activity drew nothing");
+}
+
 #[test]
 fn the_list_and_the_detail_are_accessible() {
     let (mut cx, _) = ready();
