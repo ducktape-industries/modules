@@ -340,11 +340,12 @@ fn a_refused_read_is_asked_again_with_each_block_until_it_answers() {
     assert!(cx.has_text("Feature"), "{:?}", cx.texts());
 }
 
-/// A change's conversation refused once (the node was away) is asked again
-/// with the next block, and its rows replace the refusal. It has no Retry
+/// A change's conversation refused (the node was away) is asked again with
+/// each block: while the refusal holds it stays, drawing nothing, and the
+/// block after the node answers replaces it with the rows. It has no Retry
 /// of its own, so before this only leaving the change cleared it.
 #[test]
-fn a_refused_conversation_is_asked_again_with_the_next_block() {
+fn a_refused_conversation_is_asked_again_with_each_block_until_it_answers() {
     let (mut cx, heads) = followed("default");
     cx.host()
         .handle::<ProgramQuery<::chat::Chat>>(|query| match query {
@@ -363,9 +364,14 @@ fn a_refused_conversation_is_asked_again_with_the_next_block() {
         "{:?}",
         cx.texts()
     );
+    let renders = cx.renders();
+    heads.chat.send(Some(100));
+    cx.run_until_parked();
+    assert!(cx.find("forge-conversation-refused").is_some());
+    assert_eq!(cx.renders(), renders, "a refusal that holds drew nothing");
     cx.host()
         .handle::<ProgramQuery<::chat::Chat>>(|query| Ok(chat_answer(query)));
-    heads.chat.send(Some(100));
+    heads.chat.send(Some(101));
     cx.run_until_parked();
     assert!(
         cx.find("forge-conversation-refused").is_none(),
