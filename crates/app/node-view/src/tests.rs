@@ -68,7 +68,10 @@ fn seen(height: u64) -> NetworkStatus {
 }
 
 /// The node: its status, its blocks, the clock, and the votes it heard.
-fn node(cx: &TestAppContext) {
+/// A node answering every ask, in a sheet with room for every column
+/// (from 1057 px).
+fn node(cx: &mut TestAppContext) {
+    cx.simulate_resize(1200., 680.);
     cx.host().handle::<ChainStatus>(|()| Ok(status()));
     cx.host().handle::<ChainBlocks>(|page| Ok(blocks(page)));
     cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
@@ -109,7 +112,7 @@ fn respond(cx: &mut TestAppContext) {
 /// The sheet over the node, and its clock.
 fn ready() -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     let ticks = cx.host().stream::<ClockTicks>();
     respond(&mut cx);
     cx.open::<Nodes>();
@@ -166,7 +169,7 @@ fn the_root_tracks_the_shared_theme() {
 #[test]
 fn the_head_names_the_network_and_this_node() {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     let ticks = cx.host().stream::<ClockTicks>();
     cx.host()
         .refuse::<ChainStatus>("unavailable", "The node is unavailable. Try again.");
@@ -276,7 +279,7 @@ fn a_new_head_reads_one_block() {
 #[test]
 fn loading_waits_for_the_host() {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     cx.host().never::<Query<Valset>>();
     cx.open::<Nodes>();
     cx.run_until_parked();
@@ -286,7 +289,7 @@ fn loading_waits_for_the_host() {
 #[test]
 fn an_empty_set_says_so() {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     cx.host().handle::<Query<Valset>>(|query| {
         Ok(match query {
             valset::Query::Validators => valset::Reply::Validators(vec![]),
@@ -302,7 +305,7 @@ fn an_empty_set_says_so() {
 #[test]
 fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     cx.host()
         .refuse::<Query<Valset>>("unavailable", "valset is not running here");
     cx.open::<Nodes>();
@@ -318,7 +321,7 @@ fn a_refusal_shows_its_sentence_and_retry_asks_again() {
 #[test]
 fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     let feed = cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
     cx.open::<Nodes>();
@@ -354,7 +357,7 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
 #[test]
 fn a_refused_live_head_is_logged_and_the_set_stays() {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     cx.host()
         .refuse::<Changes<Valset>>("unavailable", "no live heads here");
     respond(&mut cx);

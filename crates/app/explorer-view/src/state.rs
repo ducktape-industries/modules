@@ -144,9 +144,9 @@ pub struct Explorer {
     /// What the view follows (`watch.rs`); dropping them unsubscribes.
     #[serde(skip)]
     pub(crate) followers: Vec<Task<()>>,
-    /// the view's measured width; `None` until the first measure
+    /// the pane's width, read from the window each render
     #[serde(skip)]
-    pub(crate) width: Option<f32>,
+    pub(crate) width: f32,
     /// the list the arrows are in, and the row they are on
     #[serde(skip)]
     pub(crate) cursor: Option<(&'static str, usize)>,

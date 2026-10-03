@@ -1,11 +1,24 @@
-//! The guest's single window delegates platform work to its host.
+//! The guest's single window: what the host says about it, and the
+//! platform work it delegates to the host.
+use crate::context::AppState;
 use crate::{ElementId, slots, wire};
+use gpui::{Pixels, Size};
+use std::rc::Rc;
 pub struct Window {
-    slots: slots::Context,
+    app: Rc<AppState>,
 }
 impl Window {
-    pub(crate) fn new(slots: slots::Context) -> Self {
-        Self { slots }
+    pub(crate) fn new(app: Rc<AppState>) -> Self {
+        Self { app }
+    }
+    /// The size the view is laid out in, in logical pixels: its pane's
+    /// body, as the host knows it before the frame is drawn
+    /// ([`Event::Viewport`](wire::Event::Viewport)). It is in hand on the
+    /// first tick, moves ahead of the draw that shows a resize, and a
+    /// replacement has it before its first tree, so a layout decided from
+    /// it is right in the first frame it draws.
+    pub fn viewport_size(&self) -> Size<Pixels> {
+        self.app.viewport.get()
     }
     /// Gives the keyboard to the element `id` names in the frame this tick
     /// renders. `id` is the element's own: the SDK, which lowered the ids
@@ -39,7 +52,7 @@ impl Window {
     }
     /// Asks the host for `command` with this tick's frame ([`send_widgets`]).
     pub(crate) fn dispatch(&mut self, command: wire::WidgetCommand) {
-        slots::widget(&self.slots, command);
+        slots::widget(&self.app.slots, command);
     }
 }
 
@@ -192,9 +205,9 @@ mod tests {
 
     #[test]
     fn widget_commands_go_out_with_the_frame_in_order() {
-        let host = Host::default();
-        let slots = crate::slots::Context::with_host(host.clone());
-        let mut window = Window::new(slots.clone());
+        let app = crate::App::for_driver();
+        let host = app.host();
+        let mut window = app.window();
         window.focus("first");
         window.focus_next();
         window.focus("second");
@@ -202,7 +215,7 @@ mod tests {
             host.drain_outbox().is_empty(),
             "nothing goes out before the frame"
         );
-        super::send_widgets(&slots, None);
+        super::send_widgets(&app.inner.slots, None);
         let sent: Vec<_> = host
             .drain_outbox()
             .iter()

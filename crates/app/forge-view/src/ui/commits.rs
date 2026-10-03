@@ -94,19 +94,11 @@ pub(crate) fn log(
         list_id,
         "Commits",
         count,
+        Some(&handle),
         forge,
         cx,
         move |forge, index, _, cx| forge.open_commit(Some(oids[index].clone()), cx),
-    )
-    .on_key_down(cx.listener(|forge, event: &KeyDownEvent, _, _| {
-        if matches!(event.keystroke.key.as_str(), "up" | "down" | "home" | "end")
-            && let Some((_, row, _)) = forge.list_cursor
-        {
-            forge
-                .log_scroll
-                .scroll_to_item(row, ScrollStrategy::Nearest);
-        }
-    }));
+    );
     let rows = crate::ui::components::rows(element_id, count, None, Some(&handle), move |index| {
         let (oid, summary, author, time, parents) = rows[index].clone();
         let open = open.clone();

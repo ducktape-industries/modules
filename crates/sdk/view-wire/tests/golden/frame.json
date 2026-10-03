@@ -355,6 +355,7 @@
                 "offset": 0,
                 "strict": true
               },
+              "revision": 1,
               "indices": [
                 0,
                 1
@@ -851,6 +852,7 @@
                 "offset": 0,
                 "strict": true
               },
+              "revision": 1,
               "indices": [
                 0,
                 1
@@ -2185,6 +2187,17 @@
       }
     },
     {
+      "Viewport": {
+        "width": 900.0,
+        "height": 501.0
+      }
+    },
+    {
+      "Offset": {
+        "minutes": 540
+      }
+    },
+    {
       "Select": {
         "handler": 25,
         "index": 1
@@ -2265,7 +2278,8 @@
         ],
         "route": 3,
         "start": 0,
-        "end": 2
+        "end": 2,
+        "item_height": 40.0
       }
     },
     {

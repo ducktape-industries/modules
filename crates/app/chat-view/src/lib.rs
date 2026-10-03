@@ -84,7 +84,12 @@ impl View for Chat {
 }
 
 impl Render for Chat {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // the pane's size, as the host lays the frame out: the panes
+        // clamp to it before the frame that shows them
+        let size = window.viewport_size();
+        self.layout.viewport = (size.width.into(), size.height.into());
+        self.layout.clamp();
         ui::render(self, cx)
     }
 }

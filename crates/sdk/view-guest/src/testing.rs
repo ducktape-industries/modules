@@ -21,11 +21,12 @@
 //! }
 //! let mut cx = TestAppContext::new();
 //! cx.open::<Rows>();
-//! // the first frame holds the one row the host measures
-//! assert_eq!(cx.texts(), ["row 0"]);
-//! // a pane ten rows tall asks for the rows it shows
-//! cx.simulate_viewport(10);
-//! assert_eq!(cx.texts().len(), 10);
+//! // the first frame holds a screenful: the rows that fill the pane the
+//! // host opened the view in, and a margin past them
+//! assert!(cx.texts().len() > 20);
+//! // a scroll to rows the window does not hold moves the window to them
+//! cx.simulate_range("rows", 80..90);
+//! assert!(cx.texts().contains(&"row 89".to_owned()));
 //! ```
 
 use crate::wire::{Node, TooltipResponse};
@@ -190,7 +191,7 @@ pub(crate) fn keys(root: Option<&Node>) -> Vec<String> {
 mod context;
 mod fake_host;
 mod focus;
-pub use context::{TestAppContext, TickReport};
+pub use context::{TestAppContext, TickReport, VIEWPORT};
 pub use fake_host::{FakeHost, StreamSender};
 
 /// A program for the SDK's own tests to follow with `Changes<Probe>`.

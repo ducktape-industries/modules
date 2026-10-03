@@ -672,9 +672,8 @@ fn the_details_sidebar_holds_reviews_merge_status_and_line_comments() {
     assert!(cx.find("forge-dock").is_none());
     cx.update(&view, |forge, _, cx| {
         forge.open_change_tab(ChangeTab::Conversation, cx);
-        forge.measured(720., 760., cx);
     });
-    cx.run_until_parked();
+    cx.simulate_resize(720., 760.);
     assert!(cx.find("forge-dock").is_none(), "narrow folds the details");
     cx.simulate_click("forge-toggle-dock");
     cx.run_until_parked();

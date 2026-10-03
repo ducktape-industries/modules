@@ -252,13 +252,4 @@ impl Forge {
             String::from_utf8_lossy(path)
         ))
     }
-
-    pub(crate) fn measured(&mut self, width: f32, height: f32, cx: &mut Context<Self>) {
-        if (self.layout.width, self.layout.height) == (width, height) {
-            return;
-        }
-        self.layout.width = width;
-        self.layout.height = height;
-        cx.notify();
-    }
 }

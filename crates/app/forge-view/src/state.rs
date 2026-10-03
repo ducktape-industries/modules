@@ -408,8 +408,9 @@ pub(crate) enum Progress {
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Layout {
+    /// the pane's width, read from the window each render
+    #[serde(skip)]
     pub width: f32,
-    pub height: f32,
     /// the repositories rail
     pub tree: f32,
     /// the Code tab's file tree
@@ -421,8 +422,7 @@ pub(crate) struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            width: 1180.,
-            height: 760.,
+            width: 0.,
             tree: 220.,
             files: 300.,
             tree_open: false,

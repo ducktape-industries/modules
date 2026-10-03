@@ -195,6 +195,7 @@ fn rows_of_a_uniform_list_may_author_the_same_id_inside_them() {
         route,
         start: 0,
         end: 3,
+        item_height: f32::from(crate::design::size::ROW),
     }]);
     press_each(&mut cx);
     let log = view.read(|view| view.log.clone());

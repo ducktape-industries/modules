@@ -80,7 +80,17 @@ pub struct TestAppContext {
     /// and every edit it made, at the revision that made it.
     text_revision: u64,
     edits: Vec<(u64, wire::Edit)>,
+    /// The size the host lays the view out in, sent ahead of its first
+    /// tick as the app does ([`VIEWPORT`] until [`simulate_resize`]).
+    ///
+    /// [`simulate_resize`]: Self::simulate_resize
+    viewport: Option<(f32, f32)>,
 }
+
+/// The window a test host opens a view in, until a test resizes it: a
+/// desk's 60% × 70% of 1280 × 764 less the pane's chrome, about what the
+/// console gives a new window.
+pub const VIEWPORT: (f32, f32) = (766., 501.);
 
 impl TestAppContext {
     pub fn new() -> Self {
@@ -108,6 +118,8 @@ impl TestAppContext {
         self.mount(Box::new(driver));
         Ok(entity)
     }
+    /// Seats `driver` as the app seats a view: the host's facts (the
+    /// viewport, the reader's offset) reach it on its first tick.
     fn mount(&mut self, driver: Box<dyn TestDriver>) {
         self.host.reset_connection();
         self.driver = Some(driver);
@@ -115,7 +127,11 @@ impl TestAppContext {
         self.tree = None;
         self.styles = wire::Styles::default();
         self.ticks = 0;
-        self.run_until_parked();
+        let (width, height) = self.viewport.unwrap_or(VIEWPORT);
+        self.run(vec![
+            Event::Viewport { width, height },
+            Event::Offset { minutes: 0 },
+        ]);
     }
     /// How many times the open view rendered since it was opened or
     /// restored. A view renders on a tick after it called `cx.notify()`,
@@ -979,6 +995,21 @@ impl TestAppContext {
     pub fn simulate_theme(&mut self, dark: bool) {
         self.run(vec![Event::Theme { dark }]);
     }
+    /// The pane is `width` by `height`: what `Window::viewport_size` reads
+    /// from the next frame on, sent ahead of the draw as the host sends it
+    /// (a resize, a restore into another window). Before a view is opened,
+    /// the pane it opens in ([`VIEWPORT`] otherwise).
+    pub fn simulate_resize(&mut self, width: f32, height: f32) {
+        self.viewport = Some((width, height));
+        if self.driver.is_some() {
+            self.run(vec![Event::Viewport { width, height }]);
+        }
+    }
+    /// The reader's UTC offset is `minutes` now: the dates the view writes
+    /// read in that zone from the next frame on.
+    pub fn simulate_offset(&mut self, minutes: i32) {
+        self.run(vec![Event::Offset { minutes }]);
+    }
     /// The host lost the tree and asks for it whole.
     pub fn simulate_resync(&mut self) {
         self.run(vec![Event::Resync]);
@@ -990,9 +1021,9 @@ impl TestAppContext {
     /// rows it would show, as the host asks after it lays the frame out.
     /// A list anchored at its end shows its last rows, a uniform list
     /// scrolled to a row shows that row; every other list its first rows.
-    /// Until this (or [`simulate_range`](Self::simulate_range)), a uniform
-    /// list holds the one row the host measures, as the first frame on the
-    /// host does.
+    /// Before this (or [`simulate_range`](Self::simulate_range)) a list
+    /// holds the window it sized from its viewport, as the first frame on
+    /// the host does; rows the window holds change nothing.
     pub fn simulate_viewport(&mut self, rows: usize) {
         let mut events = Vec::new();
         super::chain(self.root(), &mut |chain| {
@@ -1192,6 +1223,7 @@ fn range_events(node: &Node, range: std::ops::Range<usize>) -> Vec<Event> {
                 route: *route,
                 start: range.start as u32,
                 end: range.end as u32,
+                item_height: f32::from(crate::design::size::ROW),
             },
             Event::UniformListState {
                 path: path.clone(),

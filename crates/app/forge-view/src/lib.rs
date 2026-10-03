@@ -25,8 +25,8 @@ mod review;
 mod ui;
 
 use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::methods::{Changes, HostOffset, HostRoute, HostVisible};
-use ducktape_view_guest::{Context, IntoElement, Render, View, Window, design, export_view};
+use ducktape_view_guest::methods::{Changes, HostRoute, HostVisible};
+use ducktape_view_guest::{Context, IntoElement, Render, View, Window, export_view};
 
 use api::HostSession;
 use program::role::Identity;
@@ -110,16 +110,6 @@ impl View for Forge {
                 Ok(false) => {}
                 Err(refusal) => cx.host().log_refused("forge", "visibility", &refusal),
             }));
-        // the reader's zone, for the dates a commit reads
-        let offset = cx.host().subscribe::<HostOffset>(());
-        self.watches
-            .push(cx.for_each(offset, |_, offset, _, cx| match offset {
-                Ok(minutes) => {
-                    design::set_utc_offset(minutes);
-                    cx.notify();
-                }
-                Err(refusal) => cx.host().log_refused("forge", "the UTC offset", &refusal),
-            }));
         if self.names.is_idle() {
             self.names = cx.load(queries::roster(cx.host()), |forge| &mut forge.names);
         }
@@ -128,7 +118,10 @@ impl View for Forge {
 }
 
 impl Render for Forge {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // the pane's width, as the host lays the frame out: the rail and
+        // the dock fold to it in the frame that shows them
+        self.layout.width = window.viewport_size().width.into();
         ui::render(self, cx)
     }
 }

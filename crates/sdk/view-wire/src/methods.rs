@@ -500,10 +500,6 @@ methods! {
     /// from the `ducktape.describe` module in the program's current code;
     /// `None` where the code carries none or it cannot read these bytes.
     ModuleDescribe, "module.describe", (String, Vec<u8>), Option<Description>;
-    /// `host.offset`: a subscription to the reader's UTC offset in minutes
-    /// (`540` in Seoul, `-300` in New York in winter), an item per change,
-    /// so a view writes a time in the reader's own zone.
-    HostOffset, "host.offset", (), i32;
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
@@ -678,12 +674,8 @@ mod tests {
     }
 
     #[test]
-    fn the_offset_round_trips_signed() {
-        for minutes in [0, 540, -330, -720, 840] {
-            let bytes = HostOffset::encode_reply(&minutes);
-            assert_eq!(HostOffset::decode_reply(&bytes).unwrap(), minutes);
-        }
-        assert_eq!(ALL.last(), Some(&"host.offset"), "a new method goes last");
+    fn a_new_method_goes_last() {
+        assert_eq!(ALL.last(), Some(&"module.describe"));
     }
 
     #[test]

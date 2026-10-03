@@ -489,7 +489,7 @@ fn the_latest_panels_stack_where_the_transactions_would_squeeze() {
     let breakpoint = f32::from(px(320.) + alone + design::size::SCROLLBAR);
     assert_eq!(breakpoint, 960.);
     for width in [640., 900., breakpoint - 1.] {
-        cx.simulate_measure("explorer-viewport", width, 760.);
+        cx.simulate_resize(width, 760.);
         cx.run_until_parked();
         assert_eq!(
             style(&cx, "explorer-latest").flex_direction,
@@ -511,7 +511,7 @@ fn the_latest_panels_stack_where_the_transactions_would_squeeze() {
         }
     }
     for width in [breakpoint, 1200.] {
-        cx.simulate_measure("explorer-viewport", width, 760.);
+        cx.simulate_resize(width, 760.);
         cx.run_until_parked();
         let row = style(&cx, "explorer-latest");
         assert_eq!(

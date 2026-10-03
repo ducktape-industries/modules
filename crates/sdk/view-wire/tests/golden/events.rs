@@ -218,6 +218,11 @@ pub fn every_event() -> Vec<Event> {
             },
         },
         Event::Theme { dark: true },
+        Event::Viewport {
+            width: 900.0,
+            height: 501.0,
+        },
+        Event::Offset { minutes: 540 },
         Event::Select {
             handler: 25,
             index: 1,
@@ -262,6 +267,7 @@ pub fn every_event() -> Vec<Event> {
             route: 3,
             start: 0,
             end: 2,
+            item_height: 40.0,
         },
         Event::UniformListState {
             path: vec![id("root"), id("uniform")],
@@ -412,6 +418,8 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::TooltipRequest { .. } => "TooltipRequest",
         Event::Text { .. } => "Text",
         Event::Theme { .. } => "Theme",
+        Event::Viewport { .. } => "Viewport",
+        Event::Offset { .. } => "Offset",
         Event::Select { .. } => "Select",
         Event::RichTextHover { .. } => "RichTextHover",
         Event::Size { .. } => "Size",

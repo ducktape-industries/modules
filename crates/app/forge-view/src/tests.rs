@@ -219,6 +219,8 @@ pub(crate) fn booted(mode: &'static str) -> (TestAppContext, Entity<Forge>) {
 /// owns `project`; 9 (Wren) is its granted writer.
 pub(crate) fn booted_as(mode: &'static str, account: u64) -> (TestAppContext, Entity<Forge>) {
     let mut cx = TestAppContext::new();
+    // a window with the rail and the dock beside the content (from 880 px)
+    cx.simulate_resize(1180., 760.);
     configure(&mut cx, mode);
     let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Forge>();
@@ -1254,7 +1256,7 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
 #[test]
 fn the_narrow_window_folds_the_rail_and_the_dock_into_toggles() {
     let (mut cx, view) = opened("default");
-    cx.simulate_measure("forge-viewport", 720., 600.);
+    cx.simulate_resize(720., 600.);
     cx.run_until_parked();
     view.read(|forge| assert!(forge.layout.narrow()));
     assert!(cx.find("forge-toggle-rail").is_some());
@@ -1273,7 +1275,7 @@ fn the_repositories_keep_their_table_at_the_width_a_window_opens() {
     let (mut cx, _) = booted("default");
     let column = |cx: &TestAppContext| cx.style("forge-repo-project-activity-cell").size.width;
     for width in [640., 768.] {
-        cx.simulate_measure("forge-viewport", width, 600.);
+        cx.simulate_resize(width, 600.);
         cx.run_until_parked();
         assert!(
             cx.find("forge-repos-columns").is_some(),
@@ -1282,7 +1284,7 @@ fn the_repositories_keep_their_table_at_the_width_a_window_opens() {
         assert!(column(&cx).is_some(), "activity column at {width}");
         assert!(cx.find("forge-narrow-bar").is_none(), "bar at {width}");
     }
-    cx.simulate_measure("forge-viewport", 600., 600.);
+    cx.simulate_resize(600., 600.);
     cx.run_until_parked();
     assert!(cx.find("forge-repos-columns").is_none());
     assert!(
@@ -1504,7 +1506,7 @@ fn a_repository_row_is_a_grid_row_whose_press_is_a_button_beside_its_controls() 
 #[test]
 fn the_repositories_grid_walks_cells_and_enter_presses_the_active_one() {
     let (mut cx, view) = booted("default");
-    cx.simulate_measure("forge-viewport", 1000., 600.);
+    cx.simulate_resize(1000., 600.);
     cx.run_until_parked();
     let copied = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
     let seen = copied.clone();

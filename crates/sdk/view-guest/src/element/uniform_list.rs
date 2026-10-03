@@ -1,4 +1,6 @@
 use super::*;
+use crate::list::MARGIN_ROWS;
+use gpui::Pixels;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Weak;
@@ -12,6 +14,9 @@ pub struct UniformListScrollHandle(Rc<RefCell<UniformListScrollState>>);
 #[derive(Default)]
 struct UniformListScrollState {
     pub(crate) request: Option<wire::list::UniformListScrollRequest>,
+    /// Moves with every request: the host applies a request once, when it
+    /// sees a revision it has not.
+    pub(crate) revision: u64,
     pub(crate) y_flipped: bool,
     pub(crate) top_index: usize,
     pub(crate) scrollable: bool,
@@ -30,12 +35,14 @@ impl UniformListScrollHandle {
             ScrollStrategy::Bottom => wire::list::UniformListScrollStrategy::Bottom,
             ScrollStrategy::Nearest => wire::list::UniformListScrollStrategy::Nearest,
         };
-        self.0.borrow_mut().request = Some(wire::list::UniformListScrollRequest {
+        let mut state = self.0.borrow_mut();
+        state.request = Some(wire::list::UniformListScrollRequest {
             index,
             strategy,
             offset,
             strict,
         });
+        state.revision = state.revision.wrapping_add(1);
     }
 
     pub fn scroll_to_item(&self, index: usize, strategy: ScrollStrategy) {
@@ -85,7 +92,10 @@ impl UniformListScrollHandle {
     }
 }
 
-/// A GPUI-shaped uniform list recipe. The host owns layout and virtualization.
+/// A GPUI-shaped uniform list. The host owns layout and virtualization; the
+/// guest lowers the rows of a window around what the host shows, sized
+/// from its viewport, so the first frame holds a screenful and a row the
+/// view scrolls to is in the frame that carries the scroll.
 pub struct UniformList {
     count: usize,
     processor: UniformProcessor,
@@ -198,17 +208,29 @@ impl Element for UniformList {
             .cloned()
             .expect("uniform list lowers inside its authored scope");
         let measure_index = self.measure_index.min(count.saturating_sub(1));
+        // the scroll the view asked for since the last frame anchors the
+        // window this frame lowers; it crosses once, under a new revision
+        let (scroll_request, revision) = match &self.scroll {
+            Some(handle) => {
+                let mut state = handle.0.borrow_mut();
+                state.y_flipped = self.y_flipped;
+                (state.request.take(), state.revision)
+            }
+            None => (None, 0),
+        };
         let scroll = self.scroll.as_ref().map(|handle| &handle.0);
-        let (route, ranges) =
-            lowering
-                .app
-                .inner
-                .uniform_lists
-                .route(&path, count, measure_index, scroll);
+        let viewport = lowering.window.viewport_size().height;
+        let (route, ranges) = lowering.app.inner.uniform_lists.route(
+            &path,
+            count,
+            measure_index,
+            scroll,
+            viewport,
+            scroll_request.as_ref(),
+        );
         let mut indices = Vec::new();
         let mut children = Vec::new();
-        'ranges: for range in ranges {
-            let range = range.start.min(count)..range.end.min(count);
+        for range in ranges {
             if range.is_empty() {
                 continue;
             }
@@ -218,19 +240,9 @@ impl Element for UniformList {
                 if indices.contains(&index) {
                     continue;
                 }
-                if indices.len() == wire::MAX_UNIFORM_LIST_ROWS {
-                    break 'ranges;
-                }
                 indices.push(index);
                 children.push(lowering.lower_row(index as usize, child));
             }
-        }
-        let scroll_request = self
-            .scroll
-            .as_ref()
-            .and_then(|handle| handle.0.borrow_mut().request.take());
-        if let Some(handle) = &self.scroll {
-            handle.0.borrow_mut().y_flipped = self.y_flipped;
         }
         let style = lowering.style(&self.interactivity.base_style);
         let (_, interactivity) = self.interactivity.into_wire(lowering);
@@ -246,6 +258,7 @@ impl Element for UniformList {
             horizontal_sizing: self.horizontal_sizing,
             y_flipped: self.y_flipped,
             scroll_request,
+            revision,
             indices,
             children,
         }
@@ -262,24 +275,33 @@ impl IntoElement for UniformList {
 
 impl gpui::prelude::FluentBuilder for UniformList {}
 
-const MAX_UNIFORM_LISTS: usize = 128;
-
 struct UniformListRoute {
     route: u32,
     count: usize,
     measure_index: usize,
-    ranges: Vec<Range<usize>>,
+    /// The rows lowered: a window around what the host shows, with
+    /// [`MARGIN_ROWS`] past each edge, sized from the viewport and the row
+    /// height. Empty until the list's first frame.
+    window: Range<usize>,
+    /// The row height the host measured, once it has
+    /// (`Event::UniformListRange`). Before that the design system's row.
+    item_height: Option<f32>,
     scroll: Option<Weak<RefCell<UniformListScrollState>>>,
+    /// The frame that last lowered this list.
+    seen: u64,
 }
 
-/// The uniform lists one driver has lowered, by authored path: each keeps
-/// the route id the host answers with, the row ranges the host asked for,
-/// and the scroll handle it reports into. The oldest is forgotten past
-/// [`MAX_UNIFORM_LISTS`].
+/// The uniform lists the frame being lowered holds, by authored path: each
+/// keeps the route id the host answers with, the window of rows it lowers,
+/// the row height the host measured and the scroll handle it reports into.
+/// A list the frame did not lower is forgotten with it ([`end_frame`]).
+///
+/// [`end_frame`]: Self::end_frame
 pub(crate) struct UniformLists {
     lists: RefCell<HashMap<Vec<wire::ElementIdWire>, UniformListRoute>>,
     // Route 0 is never given out.
     next_route: Cell<u32>,
+    frame: Cell<u64>,
 }
 
 impl Default for UniformLists {
@@ -287,91 +309,106 @@ impl Default for UniformLists {
         Self {
             lists: RefCell::default(),
             next_route: Cell::new(1),
+            frame: Cell::new(0),
         }
     }
 }
 
 impl UniformLists {
-    /// The route and row ranges to lower for the list at `path`, registering
-    /// it on first sight. `count` and `measure_index` arrive clamped by
-    /// [`UniformList::lower`]; the measurement row is always among the ranges.
+    /// The root is about to lower a frame.
+    pub(crate) fn begin_frame(&self) {
+        self.frame.set(self.frame.get() + 1);
+    }
+
+    /// The frame is lowered: a list it did not hold is forgotten, its
+    /// window and route with it.
+    pub(crate) fn end_frame(&self) {
+        let frame = self.frame.get();
+        self.lists.borrow_mut().retain(|_, list| list.seen == frame);
+    }
+
+    /// The route and row ranges to lower for the list at `path`,
+    /// registering it on first sight. `count` and `measure_index` arrive
+    /// clamped by [`UniformList::lower`]; the measurement row is always
+    /// among the ranges. The window is sized from `viewport` (the pane's
+    /// height, which the list's is at most) and the measured row height,
+    /// and anchored at `request`, the scroll the view asked for this frame,
+    /// so the row it moves to is in the frame that carries the move. With
+    /// no request it keeps its place and holds a screenful from its first
+    /// row, so rows that came back after a filter are in the frame that
+    /// shows them.
     fn route(
         &self,
         path: &[wire::ElementIdWire],
         count: usize,
         measure_index: usize,
         scroll: Option<&Rc<RefCell<UniformListScrollState>>>,
+        viewport: Pixels,
+        request: Option<&wire::list::UniformListScrollRequest>,
     ) -> (u32, Vec<Range<usize>>) {
         let mut lists = self.lists.borrow_mut();
-        if !lists.contains_key(path) {
-            if lists.len() == MAX_UNIFORM_LISTS
-                && let Some(old) = lists.keys().next().cloned()
-            {
-                lists.remove(&old);
-            }
+        let state = lists.entry(path.to_vec()).or_insert_with(|| {
             let route = self.next_route.get();
             self.next_route.set(route.wrapping_add(1).max(1));
-            lists.insert(
-                path.to_vec(),
-                UniformListRoute {
-                    route,
-                    count,
-                    measure_index,
-                    ranges: Vec::new(),
-                    scroll: scroll.map(Rc::downgrade),
-                },
-            );
-        }
-        let state = lists.get_mut(path).expect("uniform-list route inserted");
+            UniformListRoute {
+                route,
+                count,
+                measure_index,
+                window: 0..0,
+                item_height: None,
+                scroll: None,
+                seen: 0,
+            }
+        });
+        state.seen = self.frame.get();
         state.count = count;
-        let previous_measure_index = state.measure_index;
         state.measure_index = measure_index;
         state.scroll = scroll.map(Rc::downgrade);
-        state.ranges.retain_mut(|range| {
-            range.start = range.start.min(count);
-            range.end = range.end.min(count);
-            range.start < range.end
-        });
-        if previous_measure_index != state.measure_index {
-            let previous = previous_measure_index..previous_measure_index.saturating_add(1);
-            state.ranges.retain(|range| range != &previous);
+        let held = clamped(state.window.clone(), count);
+        let rows = rows_shown(viewport, state.item_height);
+        let target = match request {
+            Some(request) => anchored(request, rows, count),
+            None => clamped(held.start..held.end.max(held.start + rows), count),
+        };
+        state.window = window(&held, target, count, measure_index);
+        let measurement = measure_index..measure_index.saturating_add(1).min(count);
+        let mut ranges = vec![measurement];
+        if !state.window.is_empty() {
+            ranges.push(state.window.clone());
         }
-        let measurement = state.measure_index..state.measure_index.saturating_add(1).min(count);
-        if count > 0 && !state.ranges.iter().any(|range| range == &measurement) {
-            state.ranges.insert(0, measurement);
-        }
-        (state.route, state.ranges.clone())
+        (state.route, ranges)
     }
 
-    /// The host asked for rows `start..end` of the list at `path`: whether
-    /// that changes what the next frame lowers.
+    /// The host shows rows `start..end` of the list at `path`, whose rows
+    /// it measured `item_height` tall: whether that changes what the next
+    /// frame lowers. Rows the window holds change nothing; rows past it
+    /// move the window to them, with the margin past each edge.
     pub(crate) fn request_range(
         &self,
         path: Vec<wire::ElementIdWire>,
         route: u32,
         start: usize,
         end: usize,
+        item_height: f32,
     ) -> bool {
         let mut lists = self.lists.borrow_mut();
         let Some(state) = lists.get_mut(&path) else {
             return false;
         };
-        if state.route != route || start >= end || start >= state.count {
+        if state.route != route {
             return false;
         }
-        let end = end
-            .min(state.count)
-            .min(start.saturating_add(wire::MAX_UNIFORM_LIST_ROWS));
-        if end <= start {
+        if item_height.is_finite() && item_height > 0. {
+            state.item_height = Some(item_height.min(wire::MAX_PIXELS));
+        }
+        let target = clamped(start..end, state.count);
+        if target.is_empty() {
             return false;
         }
-        let next = if start == 0 { 0..end } else { start..end };
-        let changed = !state.ranges.iter().any(|range| range == &next);
-        if changed {
-            let measurement = state.measure_index..state.measure_index + 1;
-            state.ranges.retain(|range| range == &measurement);
-            state.ranges.push(next);
-        }
+        let held = clamped(state.window.clone(), state.count);
+        let next = window(&held, target, state.count, state.measure_index);
+        let changed = next != held;
+        state.window = next;
         changed
     }
 
@@ -396,4 +433,70 @@ impl UniformLists {
             scroll.scrolled_to_end = scrolled_to_end;
         }
     }
+}
+
+/// How many rows fill `viewport`: the measured row height, or the design
+/// system's row until the host has measured one (a shorter row would over-
+/// send, never leave a blank).
+fn rows_shown(viewport: Pixels, item_height: Option<f32>) -> usize {
+    let item_height = item_height.unwrap_or(f32::from(crate::design::size::ROW));
+    (f32::from(viewport) / item_height).ceil().max(1.) as usize
+}
+
+/// The rows a list shows after `request`, `rows` of them: what a native
+/// list scrolled that way shows.
+fn anchored(
+    request: &wire::list::UniformListScrollRequest,
+    rows: usize,
+    count: usize,
+) -> Range<usize> {
+    use wire::list::UniformListScrollStrategy as Strategy;
+    let index = request.index.min(count.saturating_sub(1));
+    let start = match request.strategy {
+        Strategy::Top => index,
+        Strategy::Center => index.saturating_sub(rows / 2),
+        Strategy::Bottom => (index + 1).saturating_sub(rows),
+        Strategy::Nearest if index < rows => 0,
+        Strategy::Nearest => index + 1 - rows,
+    };
+    let start = start.min(count.saturating_sub(rows));
+    start..(start + rows).min(count)
+}
+
+/// The window after the host (or a scroll) shows `target`: `held` when it
+/// holds every row shown, else `target` with [`MARGIN_ROWS`] past each edge,
+/// within `count` and the rows one frame carries. The rows on screen are
+/// always in it; rows a margin past them leave with the move.
+fn window(
+    held: &Range<usize>,
+    target: Range<usize>,
+    count: usize,
+    measure_index: usize,
+) -> Range<usize> {
+    if !held.is_empty() && held.start <= target.start && target.end <= held.end {
+        return held.clone();
+    }
+    let band = target.start.saturating_sub(MARGIN_ROWS)..target.end.saturating_add(MARGIN_ROWS);
+    let band = clamped(band, count);
+    if band.len() <= room(&band, measure_index) {
+        return band;
+    }
+    // more than one frame carries: the rows shown, from their first
+    let start = target
+        .start
+        .min(count.saturating_sub(wire::MAX_UNIFORM_LIST_ROWS));
+    let rows = room(&(start..start + wire::MAX_UNIFORM_LIST_ROWS), measure_index);
+    clamped(start..start + rows, count)
+}
+
+/// The rows one frame carries in `window`: every row a frame holds, less
+/// the measurement row where the window does not hold it, since it is
+/// sent either way.
+fn room(window: &Range<usize>, measure_index: usize) -> usize {
+    wire::MAX_UNIFORM_LIST_ROWS - usize::from(!window.contains(&measure_index))
+}
+
+fn clamped(range: Range<usize>, count: usize) -> Range<usize> {
+    let start = range.start.min(count);
+    start..range.end.clamp(start, count)
 }

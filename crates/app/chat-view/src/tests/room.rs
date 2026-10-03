@@ -85,23 +85,23 @@ fn the_room_shows_its_rows_intro_and_actions() {
     );
 }
 
+/// The panes lay out to the window the host says the view is in, in the
+/// frame that shows it: a narrower window clamps the sidebar before it
+/// is drawn, and the dividers keep their drag routes.
 #[test]
-fn viewport_and_pane_dividers_keep_their_behavior_routes() {
+fn the_panes_clamp_to_the_viewport_and_the_dividers_keep_their_behavior_routes() {
     let (mut cx, view) = opened();
+    view.read(|chat| {
+        assert_eq!(chat.layout.viewport, ducktape_view_guest::testing::VIEWPORT);
+    });
     let full = StyleRefinement::default().size_full();
-    let Some(wire::Node::Sensor {
-        on_show: Some(_),
-        on_resize: Some(_),
-        style,
-        ..
-    }) = cx.find("chat-viewport")
-    else {
-        panic!("chat viewport sensor")
-    };
-    let style = &cx.styles()[*style];
-    assert_eq!(style.size.width, full.size.width);
-    assert_eq!(style.size.height, full.size.height);
-    cx.simulate_measure("chat-viewport", 640., 480.);
+    let renders = cx.renders();
+    cx.simulate_resize(640., 480.);
+    assert_eq!(
+        cx.renders(),
+        renders + 1,
+        "one frame, laid out to the new size"
+    );
     view.read(|chat| {
         assert_eq!(chat.layout.viewport, (640., 480.));
         assert!(chat.layout.sidebar <= 320.);
@@ -117,7 +117,7 @@ fn viewport_and_pane_dividers_keep_their_behavior_routes() {
     cx.simulate_drag("chat-sidebar-resize", 18., 0.);
     view.read(|chat| assert_eq!(chat.layout.sidebar, sidebar + 18.));
 
-    cx.simulate_measure("chat-viewport", 1280., 800.);
+    cx.simulate_resize(1280., 800.);
     cx.simulate_click("chat-room-details");
     assert!(matches!(
         cx.find("chat-details-resize"),
@@ -130,7 +130,7 @@ fn viewport_and_pane_dividers_keep_their_behavior_routes() {
 
     // too narrow for the room beside it: the details cover the whole
     // screen, sidebar and room alike, with their close, and nothing to drag
-    cx.simulate_measure("chat-viewport", 720., 480.);
+    cx.simulate_resize(720., 480.);
     assert!(cx.find("chat-details-resize").is_none());
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
         cx.find("chat-side-over")

@@ -202,12 +202,20 @@ fn uniform_list_lowers_selected_measurement_and_scroll_request() {
         measure_index,
         y_flipped,
         scroll_request,
+        revision,
         ..
     } = root
     else {
         panic!("expected uniform list");
     };
-    assert_eq!(indices, [7]);
+    // the measurement row, then the window around the row scrolled to
+    // (one row tall: no viewport was sent) with the margin past each edge
+    let margin = crate::list::MARGIN_ROWS as u32;
+    let window = 42 - margin..43 + margin;
+    assert_eq!(
+        indices,
+        std::iter::once(7).chain(window).collect::<Vec<_>>()
+    );
     assert_eq!(measure_index, 7);
     assert!(y_flipped);
     assert!(scroll.y_flipped());
@@ -220,4 +228,5 @@ fn uniform_list_lowers_selected_measurement_and_scroll_request() {
             strict: true,
         })
     );
+    assert_eq!(revision, 1, "the first request");
 }

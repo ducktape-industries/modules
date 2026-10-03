@@ -584,11 +584,14 @@ fn sent<V: View>(driver: &mut Driver<V>, events: Vec<wire::Event>) -> Sent {
     })
 }
 
-/// One notch of a uniform list: the list node's own `indices` move (one
-/// `Props`), one row leaves and one comes in. The 24 rows that stayed are
-/// not sent again.
+/// One notch of a uniform list inside the window the guest holds sends
+/// nothing: the rows are there already. A scroll past the window's margin
+/// moves the window: the list node's own `indices` move (one `Props`), the
+/// rows that left are removed and the rows that came in are inserted; the
+/// rows both windows hold are not sent again.
 #[test]
-fn scrolling_a_uniform_list_one_row_sends_the_row_that_moved_in() {
+fn scrolling_a_uniform_list_sends_only_the_rows_that_moved_in() {
+    use crate::list::MARGIN_ROWS as M;
     let mut driver = Driver::<UniformTable>::new();
     tick(&mut driver, vec![]);
     let first = root(&driver);
@@ -596,33 +599,33 @@ fn scrolling_a_uniform_list_one_row_sends_the_row_that_moved_in() {
         panic!("no uniform list")
     };
     let (path, route) = (path.clone(), *route);
-    let shown = sent(
-        &mut driver,
-        vec![wire::Event::UniformListRange {
-            path: path.clone(),
-            route,
-            start: 100,
-            end: 124,
-        }],
-    );
-    let scrolled = sent(
-        &mut driver,
-        vec![wire::Event::UniformListRange {
-            path,
-            route,
-            start: 101,
-            end: 125,
-        }],
-    );
+    let range = |start: u32, end: u32| wire::Event::UniformListRange {
+        path: path.clone(),
+        route,
+        start,
+        end,
+        item_height: 26.,
+    };
+    let shown = sent(&mut driver, vec![range(100, 124)]);
+    let notch = sent(&mut driver, vec![range(101, 125)]);
+    let page = sent(&mut driver, vec![range(137, 161)]);
     eprintln!(
-        "UNIFORM shown={shown:?} ({} B) one-notch={scrolled:?} ({} B)",
-        shown.bytes, scrolled.bytes
+        "UNIFORM shown={shown:?} ({} B) one-notch={notch:?} ({} B) past-margin={page:?} ({} B)",
+        shown.bytes, notch.bytes, page.bytes
     );
-    assert!(!scrolled.whole, "{scrolled:?}");
+    assert!(!notch.whole, "{notch:?}");
     assert_eq!(
-        (scrolled.props, scrolled.inserts, scrolled.removes),
-        (1, 1, 1),
-        "{scrolled:?}"
+        (notch.props, notch.inserts, notch.removes),
+        (0, 0, 0),
+        "a notch inside the window: {notch:?}"
+    );
+    assert!(!page.whole, "{page:?}");
+    // the window moved from 100-M..124+M to 137-M..161+M
+    let moved = (137 - 100) as usize;
+    assert_eq!(
+        (page.props, page.inserts, page.removes),
+        (1, moved, moved),
+        "{page:?} (margin {M})"
     );
 }
 

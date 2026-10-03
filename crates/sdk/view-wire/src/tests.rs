@@ -76,6 +76,7 @@ fn uniform(path: Vec<ElementIdWire>) -> Node {
         horizontal_sizing: list::UniformListHorizontalSizing::FitList,
         y_flipped: false,
         scroll_request: None,
+        revision: 0,
         indices: vec![0],
         children: vec![text("row")],
     }

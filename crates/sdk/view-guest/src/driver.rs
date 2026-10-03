@@ -194,12 +194,14 @@ impl<V: View> Driver<V> {
                 route,
                 start,
                 end,
+                item_height,
             } => {
                 if self.app.inner.uniform_lists.request_range(
                     path,
                     route,
                     start as usize,
                     end as usize,
+                    item_height,
                 ) {
                     self.app.notify();
                 }
@@ -224,6 +226,25 @@ impl<V: View> Driver<V> {
             wire::Event::Theme { dark } => {
                 self.app
                     .set_global(if dark { Theme::dark() } else { Theme::light() });
+                self.app.notify();
+                None
+            }
+            wire::Event::Viewport { width, height } => {
+                let side = |v: f32| {
+                    px(if v.is_finite() {
+                        v.clamp(0., wire::MAX_PIXELS)
+                    } else {
+                        0.
+                    })
+                };
+                let viewport = gpui::size(side(width), side(height));
+                if self.app.inner.viewport.replace(viewport) != viewport {
+                    self.app.notify();
+                }
+                None
+            }
+            wire::Event::Offset { minutes } => {
+                crate::design::set_utc_offset(minutes);
                 self.app.notify();
                 None
             }
@@ -357,6 +378,7 @@ impl<V: View> Driver<V> {
     fn render_root(&mut self) -> wire::Node {
         self.renders += 1;
         slots::begin_frame(&self.app.inner.slots);
+        self.app.inner.uniform_lists.begin_frame();
         let entity = &self.entity;
         let root = self.app.update(|app| {
             let mut window = app.window();
@@ -374,6 +396,7 @@ impl<V: View> Driver<V> {
             Lowering::new(&mut window, app).lower_element(element)
         });
         slots::end_frame(&self.app.inner.slots);
+        self.app.inner.uniform_lists.end_frame();
         root
     }
 

@@ -182,7 +182,7 @@ fn a_full_window_renders_inside_the_frame_budget() {
         ("overview", 11_000),
         ("blocks", 12_000),
         ("transactions", 21_000),
-        ("accounts", 3_000),
+        ("accounts", 2_900),
         ("programs", 3_700),
         ("a 1 MB push", 4_000),
     ];

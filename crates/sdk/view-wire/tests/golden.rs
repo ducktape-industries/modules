@@ -41,7 +41,7 @@ const MESSAGE: &str =
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
 const NODE_VARIANTS: usize = 15;
-const EVENT_VARIANTS: usize = 32;
+const EVENT_VARIANTS: usize = 34;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -337,7 +337,6 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             },
         ),
         exchange::<HostVisible>((), true),
-        exchange::<HostOffset>((), -330),
         exchange::<HostBadge>(3, ()),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),

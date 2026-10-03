@@ -264,33 +264,164 @@ fn uniform_rows(cx: &TestAppContext) -> (usize, Vec<u32>, usize) {
     }
 }
 
+/// A uniform list's first frame holds a screenful: the rows that fill the
+/// viewport the host sent ahead of the tick, at the design system's row
+/// height until the host has measured one, and a margin past them. The
+/// host's first range, inside that window, changes nothing; a range past
+/// it moves the window there, margin and all; a request the window holds
+/// draws nothing new.
 #[test]
-fn uniform_list_lowers_only_initial_and_requested_ranges() {
+fn uniform_list_lowers_a_screenful_before_the_host_asks_and_grows_to_what_it_shows() {
     let (mut cx, _) = opened::<UniformProbe>();
-    let (count, indices, _) = uniform_rows(&cx);
+    let (count, indices, children) = uniform_rows(&cx);
     assert_eq!(count, 2_000);
-    assert_eq!(indices, [0]);
+    let row = f32::from(crate::design::size::ROW);
+    let rows = (crate::testing::VIEWPORT.1 / row).ceil() as usize;
+    let first: Vec<u32> = (0..rows as u32 + 12).collect();
+    assert_eq!(indices, first, "the viewport's rows and a margin past them");
+    assert_eq!(children, indices.len());
+    let renders = cx.renders();
+    cx.simulate_range("rows", 0..rows);
+    assert!(cx.last_frame().unchanged, "the rows shown are held already");
+    assert_eq!(cx.renders(), renders);
 
     cx.simulate_range("rows", 1_000..1_020);
     let (_, indices, children) = uniform_rows(&cx);
-    assert_eq!(indices.len(), 21);
     assert_eq!(children, indices.len());
-    assert_eq!(indices.first(), Some(&0));
+    assert_eq!(
+        indices.first(),
+        Some(&0),
+        "the measurement row is always sent"
+    );
     assert_eq!(
         &indices[1..],
-        (1_000..1_020).map(|index| index as u32).collect::<Vec<_>>()
+        (988..1_032).map(|index| index as u32).collect::<Vec<_>>(),
+        "the rows shown with a margin past each edge"
     );
     assert!(cx.reports()[0].patches <= wire::MAX_PATCHES);
 
-    cx.simulate_range("rows", 1_000..1_020);
+    cx.simulate_range("rows", 1_005..1_025);
     assert!(
         cx.last_frame().unchanged,
-        "duplicate range requests do not rerender"
+        "a range inside the window does not rerender"
     );
 
     cx.simulate_range("rows", 0..u32::MAX as usize);
     let (_, indices, _) = uniform_rows(&cx);
     assert_eq!(indices.len(), wire::MAX_UNIFORM_LIST_ROWS);
+    assert_eq!(
+        indices.last().copied(),
+        Some(wire::MAX_UNIFORM_LIST_ROWS as u32 - 1),
+        "the window's last row is sent, the measurement row inside it"
+    );
+}
+
+/// A filter leaves one row and is cleared: the rows that came back are in
+/// the frame that shows them, a screenful of them, with no host ask
+/// between.
+#[test]
+fn a_uniform_list_whose_rows_come_back_holds_a_screenful_again() {
+    #[derive(Default, Serialize, Deserialize)]
+    struct Filtered {
+        count: usize,
+    }
+    impl View for Filtered {
+        const NAME: &'static str = "Filtered";
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self { count: 300 }
+        }
+    }
+    impl Render for Filtered {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            uniform_list("rows", self.count, |range, _, _| {
+                range
+                    .map(|index| {
+                        div()
+                            .id(format!("row-{index}"))
+                            .child(format!("row {index}"))
+                    })
+                    .collect::<Vec<_>>()
+            })
+        }
+    }
+    let (mut cx, view) = opened::<Filtered>();
+    let (_, before, _) = uniform_rows(&cx);
+    assert!(before.len() > 20);
+    cx.update(&view, |view, _, cx| {
+        view.count = 1;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert_eq!(uniform_rows(&cx).1, [0]);
+    cx.update(&view, |view, _, cx| {
+        view.count = 300;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert_eq!(uniform_rows(&cx).1, before);
+}
+
+/// A row the view scrolls to is in the frame that carries the scroll: the
+/// window is anchored on it, so a composite's active row claims in the
+/// frame that answers the key, with no claimless frame between.
+#[test]
+fn a_uniform_list_lowers_the_row_it_is_scrolled_to_in_the_same_frame() {
+    #[derive(Default, Serialize, Deserialize)]
+    struct Scrolled {
+        #[serde(skip)]
+        scroll: UniformListScrollHandle,
+    }
+    impl View for Scrolled {
+        const NAME: &'static str = "Scrolled";
+    }
+    impl Render for Scrolled {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            uniform_list("rows", 2_000, |range, _, _| {
+                range
+                    .map(|index| {
+                        div()
+                            .id(format!("row-{index}"))
+                            .child(format!("row {index}"))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .track_scroll(&self.scroll)
+        }
+    }
+    let (mut cx, view) = opened::<Scrolled>();
+    let (_, before, _) = uniform_rows(&cx);
+    assert!(!before.contains(&1_500));
+    cx.update(&view, |view, _, cx| {
+        view.scroll
+            .scroll_to_item(1_500, gpui::ScrollStrategy::Nearest);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let (_, indices, _) = uniform_rows(&cx);
+    assert!(indices.contains(&1_500), "{indices:?}");
+    let wire::Node::UniformList {
+        scroll_request,
+        revision,
+        ..
+    } = cx.root()
+    else {
+        unreachable!()
+    };
+    assert_eq!(scroll_request.map(|request| request.index), Some(1_500));
+    assert_eq!(*revision, 1);
+    // the request crosses once: the next frame carries none, under the
+    // same revision, so a host that applied it does not again
+    cx.update(&view, |_, _, cx| cx.notify());
+    cx.run_until_parked();
+    let wire::Node::UniformList {
+        scroll_request,
+        revision,
+        ..
+    } = cx.root()
+    else {
+        unreachable!()
+    };
+    assert_eq!((scroll_request.is_none(), *revision), (true, 1));
 }
 
 #[test]

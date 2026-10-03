@@ -26,10 +26,10 @@ thread_local! {
     static UTC_OFFSET_MINUTES: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
 }
 
-/// Sets the reader's UTC offset in minutes, as `host.offset` hands it, for
-/// [`date`], [`day`], [`clock`] and [`local`]. Until a view sets it they
-/// read UTC.
-pub fn set_utc_offset(minutes: i32) {
+/// Sets the reader's UTC offset in minutes for [`date`], [`day`], [`clock`]
+/// and [`local`]. The driver sets it from the host's `Event::Offset`, which
+/// is in hand before the first frame, so a view never sees UTC.
+pub(crate) fn set_utc_offset(minutes: i32) {
     UTC_OFFSET_MINUTES.set(minutes);
 }
 

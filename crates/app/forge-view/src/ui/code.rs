@@ -151,32 +151,15 @@ fn tree_rows(forge: &Forge, rows: Vec<Row>, cx: &mut Context<Forge>, theme: &The
     }));
     let count = rows.len();
     let paint = move |index: usize| tree_row(&rows[index], &marks, press.clone(), &theme);
-    // A tree that fits is drawn whole; one that may overflow is a virtual
-    // list, whose scroll handle keeps the keyboard cursor in view. Half the
-    // window is a safe guess at the pane's height: over it costs nothing.
-    let list = if count as f32 * design::height::ROW as f32 <= forge.layout.height / 2. {
-        let mut list = div()
-            .id(id("forge-tree-list"))
-            .flex_1()
-            .min_h(px(0.))
-            .overflow_y_scroll()
-            .flex()
-            .flex_col();
-        for index in 0..count {
-            list = list.child(paint(index));
-        }
-        list.into_any_element()
-    } else {
-        uniform_list(
-            id("forge-tree-list"),
-            count,
-            move |range: Range<usize>, _, _| range.map(&paint).collect::<Vec<_>>(),
-        )
-        .track_scroll(&forge.tree_scroll)
-        .flex_1()
-        .min_h(px(0.))
-        .into_any_element()
-    };
+    // a virtual list, whose scroll handle keeps the keyboard cursor in view
+    let list = uniform_list(
+        id("forge-tree-list"),
+        count,
+        move |range: Range<usize>, _, _| range.map(&paint).collect::<Vec<_>>(),
+    )
+    .track_scroll(&forge.tree_scroll)
+    .flex_1()
+    .min_h(px(0.));
     div()
         .id(id("forge-tree-rows"))
         .flex_1()

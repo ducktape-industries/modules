@@ -30,9 +30,7 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
     // too narrow for the detail beside the list: the list takes the pane
     // and the chosen account floats over it
     let list = list_width(view);
-    let docked = view
-        .width
-        .is_none_or(|width| design::docks(width, list, DETAIL_MIN.into()));
+    let docked = design::docks(view.width, list, DETAIL_MIN.into());
     let screen = div()
         .id("members")
         .relative()
@@ -42,7 +40,7 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
         .text_color(theme.foreground)
         .text_size(text::BODY)
         .child(list_pane(view, docked.then_some(list), cx, &theme));
-    let screen = match (docked, view.selected_row().is_some()) {
+    match (docked, view.selected_row().is_some()) {
         (true, _) => screen
             .child(design::divider(
                 "members-list-resize",
@@ -61,26 +59,14 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
             &theme,
         )),
         (false, false) => screen,
-    };
-    let measured = cx.listener(|view, size: &(Pixels, Pixels), _, cx| {
-        view.width = Some(size.0.into());
-        cx.notify();
-    });
-    let resized = cx.listener(|view, size: &(Pixels, Pixels), _, cx| {
-        view.width = Some(size.0.into());
-        cx.notify();
-    });
-    ducktape_view_guest::sensor("members-viewport", screen)
-        .size_full()
-        .on_show(measured)
-        .on_resize(resized)
+    }
 }
 
 /// The list's width: dragged or [`LIST`], within [`LIST_W`] and never
 /// taking the detail's [`DETAIL_MIN`].
 fn list_width(view: &Members) -> f32 {
     let (lo, hi) = LIST_W;
-    let room = view.width.map_or(hi, |width| width - f32::from(DETAIL_MIN));
+    let room = view.width - f32::from(DETAIL_MIN);
     view.list.unwrap_or(LIST).clamp(lo, room.clamp(lo, hi))
 }
 

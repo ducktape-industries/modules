@@ -148,6 +148,8 @@ pub struct Details {
 
 #[derive(Serialize, Deserialize)]
 pub struct Layout {
+    /// the pane's size, read from the window each render
+    #[serde(skip)]
     pub(crate) viewport: (f32, f32),
     pub(crate) sidebar: f32,
     pub(crate) details: f32,
@@ -159,7 +161,7 @@ pub struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            viewport: (1280., 800.),
+            viewport: (0., 0.),
             sidebar: 236.,
             details: 320.,
             thread: 330.,

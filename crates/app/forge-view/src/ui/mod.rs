@@ -36,11 +36,6 @@ const FACT_LABEL_W: Pixels = px(120.);
 
 pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let measured = |cx: &mut Context<Forge>| {
-        cx.listener(|forge, size: &(Pixels, Pixels), _, cx| {
-            forge.measured(f32::from(size.0), f32::from(size.1), cx)
-        })
-    };
     let mut columns = div()
         .id(id("forge-columns"))
         .flex()
@@ -96,10 +91,7 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
             cx.listener(move |forge, _: &(), window, cx| forge.close_dropdown(menu, window, cx)),
         );
     }
-    ducktape_view_guest::sensor(id("forge-viewport"), root)
-        .size_full()
-        .on_show(measured(cx))
-        .on_resize(measured(cx))
+    root
 }
 
 fn main(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
