@@ -372,6 +372,10 @@ impl Styled for Input {
 }
 
 impl Element for Input {
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let this = *self;
         let id = wire_id(this.id);
@@ -482,6 +486,10 @@ impl Styled for Textarea {
 }
 
 impl Element for Textarea {
+    fn id(&self) -> Option<ElementId> {
+        Element::id(&self.0)
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         Element::lower(Box::new(self.0), lowering)
     }

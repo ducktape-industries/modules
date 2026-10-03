@@ -355,6 +355,93 @@ fn a_node_that_comes_back_takes_a_fresh_route() {
     }
 }
 
+// ---- fields: keyed by the field's own id --------------------------------
+
+/// A form whose fields hear changes and Enter, each logging `name:kind`.
+#[derive(Default, Serialize, Deserialize)]
+struct Form {
+    extra: bool,
+    #[serde(skip)]
+    log: Log,
+}
+impl View for Form {
+    const NAME: &'static str = "Form";
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self::default()
+    }
+}
+impl Render for Form {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let field = |name: &'static str| {
+            let (change, submit) = (self.log.clone(), self.log.clone());
+            Input::new(name, name)
+                .on_change(move |_, _, _| change.borrow_mut().push(format!("{name}:change")))
+                .on_submit(move |_, _, _| submit.borrow_mut().push(format!("{name}:submit")))
+        };
+        let mut form = div().id("form");
+        if self.extra {
+            form = form.child(field("extra"));
+        }
+        form.child(field("first")).child(field("second"))
+    }
+}
+
+/// `(on_change, on_submit)` of the field `key`.
+fn field_routes(root: &wire::Node, key: &str) -> (u32, u32) {
+    let Some(wire::Node::Field {
+        on_change: Some(change),
+        on_submit: Some(submit),
+        ..
+    }) = find(root, key)
+    else {
+        panic!("no field {key}")
+    };
+    (*change, *submit)
+}
+
+/// A field showing up above two others in one form (a conditional field
+/// going visible): the routes `second` was painted with still name it, so
+/// Enter and the text the host took from that paint reach `second`.
+#[test]
+fn a_field_inserted_above_leaves_the_fields_below_their_routes() {
+    let mut driver = Driver::<Form>::new();
+    tick(&mut driver, vec![]);
+    let (change, submit) = field_routes(&root(&driver), "second");
+    driver.entity().update_app(driver.app_mut(), |v, _, cx| {
+        v.extra = true;
+        cx.notify();
+    });
+    tick(&mut driver, vec![]);
+    assert_eq!(
+        field_routes(&root(&driver), "second"),
+        (change, submit),
+        "the field above renumbered second"
+    );
+    let log = driver.entity().read(|v| v.log.clone());
+    tick(
+        &mut driver,
+        vec![
+            wire::Event::Message(submit),
+            wire::Event::Text {
+                handler: change,
+                change: wire::TextChange {
+                    generation: 0,
+                    revision: 1,
+                    edit: None,
+                    text: "x".into(),
+                    cursor: wire::TextRange::caret(1),
+                    preedit: None,
+                    tokens: Default::default(),
+                },
+            },
+        ],
+    );
+    assert_eq!(
+        *log.borrow(),
+        vec!["second:submit".to_owned(), "second:change".to_owned()]
+    );
+}
+
 // ---- lists: rows keyed by the row element's own id -----------------------
 
 /// A chat-like keyed list: rows named by item.
