@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
+use view_guest::testing::TestAppContext;
 use view_guest::{
-    Callback, Context, Driver, Editor, EditorBinding, EditorElement, ElementId, Render, Styled,
-    View, Window, wire,
+    Callback, Context, Editor, EditorBinding, EditorElement, ElementId, Render, Styled, View,
+    Window, wire,
 };
 
 #[derive(Default, Serialize, Deserialize)]
@@ -41,8 +42,8 @@ impl Render for EditorView {
 
 #[test]
 fn editor_element_lowers_identity_style_and_document_without_author_routes() {
-    let mut driver = Driver::<EditorView>::new();
-    let frame = driver.tick(Vec::new());
+    let mut cx = TestAppContext::new();
+    cx.open::<EditorView>();
     let wire::Node::Editor {
         id,
         style,
@@ -51,7 +52,7 @@ fn editor_element_lowers_identity_style_and_document_without_author_routes() {
         document,
         binding,
         ..
-    } = frame.root.unwrap()
+    } = cx.root().clone()
     else {
         panic!("editor element must lower to the host editor primitive")
     };

@@ -37,7 +37,6 @@ fn search_finds_heights_hashes_accounts_and_programs() {
 #[test]
 fn the_search_field_holds_only_what_is_being_typed() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     let explorer = cx.open::<Explorer>();
     cx.run_until_parked();
@@ -64,8 +63,8 @@ fn the_search_field_holds_only_what_is_being_typed() {
 #[test]
 fn a_link_opens_the_page_it_names() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
-    let (_, routes) = node(&mut cx, Rc::new(RefCell::new(12)));
+    node(&mut cx, Rc::new(RefCell::new(12)));
+    let routes = cx.host().stream::<HostRoute>();
     cx.open::<Explorer>();
     cx.run_until_parked();
     let open = |cx: &mut TestAppContext, route: &str| {
@@ -93,8 +92,8 @@ fn a_link_opens_the_page_it_names() {
 #[test]
 fn a_page_copies_its_link_once_the_session_names_a_chain() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
-    let (props, _routes) = node(&mut cx, Rc::new(RefCell::new(12)));
+    node(&mut cx, Rc::new(RefCell::new(12)));
+    let props = cx.host().stream::<HostSession>();
     let copied = Rc::new(RefCell::new(String::new()));
     let seen = copied.clone();
     cx.host().handle::<ClipboardWrite>(move |text| {

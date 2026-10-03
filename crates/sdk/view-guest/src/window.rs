@@ -18,8 +18,9 @@ impl Window {
 }
 #[cfg(test)]
 mod tests {
-    use crate::methods::{HostWidget, Method};
-    use crate::{Context, Driver, ElementId, Host, Input, Render, View, Window, host, wire};
+    use crate::methods::{Capability, HostWidget, Method};
+    use crate::testing::TestAppContext;
+    use crate::{Context, ElementId, Host, Input, Render, View, Window, host, wire};
     use serde::{Deserialize, Serialize};
 
     fn target(name: &str) -> wire::WidgetTarget {
@@ -35,6 +36,7 @@ mod tests {
     struct WidgetView(bool);
     impl View for WidgetView {
         const NAME: &'static str = "WidgetView";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Host];
         fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
             let host = cx.host();
             cx.spawn(async move |this, cx| {
@@ -65,28 +67,29 @@ mod tests {
 
     #[test]
     fn widget_futures_wait_for_the_hosts_acknowledgment() {
-        let mut driver = Driver::<WidgetView>::new();
-        let frame = driver.tick(vec![]);
+        let mut cx = TestAppContext::new();
+        cx.host().never::<HostWidget>();
+        let view = cx.open::<WidgetView>();
+        let frame = cx.last_frame();
         let [focus] = frame.requests.as_slice() else {
             panic!("one focus request: {:?}", frame.requests)
         };
         assert_eq!(focus.kind, HostWidget::KIND);
         assert_eq!(
-            wire::decode::<wire::WidgetCommand>(&focus.payload).unwrap(),
-            wire::WidgetCommand::Focus {
+            cx.host().requests::<HostWidget>(),
+            [wire::WidgetCommand::Focus {
                 target: target("App/draft")
-            }
+            }]
         );
-        driver.tick(vec![]);
-        driver
-            .entity()
-            .read(|view| assert!(!view.0, "the future waits for the answer"));
-        driver.tick(vec![wire::Event::Response {
-            id: focus.id,
+        let id = focus.id;
+        cx.tick(vec![]);
+        view.read(|view| assert!(!view.0, "the future waits for the answer"));
+        cx.simulate_event(wire::Event::Response {
+            id,
             result: Ok(wire::encode(&())),
             done: true,
-        }]);
-        driver.entity().read(|view| assert!(view.0));
+        });
+        view.read(|view| assert!(view.0));
     }
 
     #[test]

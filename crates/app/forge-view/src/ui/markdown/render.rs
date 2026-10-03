@@ -261,7 +261,8 @@ mod view_tests {
             cx.simulate_rich_click("doc-1", index);
         }
         assert_eq!(
-            cx.host().opened_links(),
+            cx.host()
+                .requests::<ducktape_view_guest::methods::LinkOpen>(),
             vec!["duck://net-1/forge/rfcs", "https://x.example"]
         );
     }

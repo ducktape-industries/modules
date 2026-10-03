@@ -100,10 +100,18 @@ impl Host {
         registry.pending.insert(id, slot.clone());
         (id, slot)
     }
+    /// A request still in the outbox never reaches the host: it leaves
+    /// the outbox, and no cancel follows it for an id the host never saw.
     fn close(&self, id: u64) {
         let mut registry = self.0.borrow_mut();
-        if registry.pending.remove(&id).is_some() {
-            registry.cancels.push(id);
+        let open = registry.pending.remove(&id).is_some();
+        let unsent = registry.outbox.iter().position(|request| request.id == id);
+        match unsent {
+            Some(at) => {
+                registry.outbox.remove(at);
+            }
+            None if open => registry.cancels.push(id),
+            None => {}
         }
         registry.diagnostics.remove(&id);
     }
@@ -195,13 +203,22 @@ impl Host {
                     .is_some_and(|waiting| waiting.will_wake(waker))
         })
     }
-    pub(crate) fn is_stream(&self, id: u64) -> bool {
-        self.0
-            .borrow()
-            .pending
-            .get(&id)
-            .is_some_and(|slot| slot.borrow().stream)
+    /// What the view waits for on request `id`.
+    pub(crate) fn shape(&self, id: u64) -> Shape {
+        match self.0.borrow().pending.get(&id) {
+            Some(slot) if slot.borrow().stream => Shape::Subscription,
+            Some(_) => Shape::Ask,
+            None => Shape::Notify,
+        }
     }
+}
+
+/// How a request waits: for one answer, for many, or for none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Shape {
+    Ask,
+    Subscription,
+    Notify,
 }
 
 /// The host's eventual answer to a [`Host::ask`].
@@ -274,7 +291,9 @@ impl Stream for Subscription {
 }
 
 impl Host {
-    /// Everything asked since the last frame, in order.
+    /// What was asked since the last frame, in order, up to the
+    /// [`MAX_REQUESTS`](crate::wire::MAX_REQUESTS) one frame carries; the
+    /// rest wait, in order, for the next.
     pub(crate) fn drain_outbox(&self) -> Vec<Request> {
         let mut registry = self.0.borrow_mut();
         let keep: std::collections::HashSet<_> = registry
@@ -284,12 +303,23 @@ impl Host {
             .chain(registry.outbox.iter().map(|request| request.id))
             .collect();
         registry.diagnostics.retain(|id, _| keep.contains(id));
-        std::mem::take(&mut registry.outbox)
+        let sent = registry.outbox.len().min(crate::wire::MAX_REQUESTS);
+        registry.outbox.drain(..sent).collect()
     }
 
-    /// Everything abandoned since the last frame.
+    /// What was abandoned since the last frame, up to the
+    /// [`MAX_CANCELS`](crate::wire::MAX_CANCELS) one frame carries; the
+    /// rest wait for the next.
     pub(crate) fn drain_cancels(&self) -> Vec<u64> {
-        std::mem::take(&mut self.0.borrow_mut().cancels)
+        let mut registry = self.0.borrow_mut();
+        let sent = registry.cancels.len().min(crate::wire::MAX_CANCELS);
+        registry.cancels.drain(..sent).collect()
+    }
+
+    /// Requests or cancels left for a later frame.
+    pub(crate) fn outbox_waiting(&self) -> bool {
+        let registry = self.0.borrow();
+        !registry.outbox.is_empty() || !registry.cancels.is_empty()
     }
 
     /// Ends a stream: its subscriber reads `None` next; an id nobody waits

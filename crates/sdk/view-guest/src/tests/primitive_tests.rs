@@ -26,7 +26,7 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
         }
     }
     let mut driver = Driver::<Picture>::new();
-    let first = driver.tick(vec![]);
+    let first = driver.tick_with(vec![], wire::Frame::clone);
     let mut mounted = first.root.unwrap();
     let mut pictures = 0;
     mounted.for_each_mut(&mut |node| {
@@ -38,12 +38,12 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     });
     assert_eq!(pictures, 1);
     assert_eq!(driver.last_root.as_ref(), Some(&mounted));
-    assert!(driver.tick(vec![]).unchanged);
+    assert!(driver.tick_with(vec![], wire::Frame::clone).unchanged);
     driver.entity().update_app(driver.app_mut(), |view, _, cx| {
         view.0 = 1;
         cx.notify();
     });
-    let frame = driver.tick(vec![]);
+    let frame = driver.tick_with(vec![], wire::Frame::clone);
     assert!(!frame.unchanged);
     assert!(!frame.patches.is_empty());
     wire::apply(&mut mounted, frame.patches).unwrap();
@@ -55,7 +55,7 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     });
     assert_eq!(driver.last_root.as_ref(), Some(&mounted));
 
-    let resent = driver.tick(vec![wire::Event::Resync]);
+    let resent = driver.tick_with(vec![wire::Event::Resync], wire::Frame::clone);
     assert!(
         resent.root.as_ref().is_some_and(|root| {
             let mut found = false;
@@ -124,12 +124,12 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     // A frame that goes whole puts the taken subtrees back before it is
     // sent: the host gets the tree the view rendered, without a stand-in.
     let mut whole = Driver::<Pages>::new();
-    whole.tick(vec![]);
+    whole.tick_with(vec![], wire::Frame::clone);
     whole.entity().update_app(whole.app_mut(), |view, _, cx| {
         view.keyed_chrome = false;
         cx.notify();
     });
-    whole.tick(vec![]);
+    whole.tick_with(vec![], wire::Frame::clone);
     let mut rendered = Driver::<Pages>::new();
     rendered
         .entity()
@@ -140,12 +140,15 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
             };
             cx.notify();
         });
-    let rendered = rendered.tick(vec![]).root.expect("the rows tree");
+    let rendered = rendered
+        .tick_with(vec![], wire::Frame::clone)
+        .root
+        .expect("the rows tree");
     whole.entity().update_app(whole.app_mut(), |view, _, cx| {
         view.rows = true;
         cx.notify();
     });
-    let frame = whole.tick(vec![]);
+    let frame = whole.tick_with(vec![], wire::Frame::clone);
     assert!(frame.patches.is_empty(), "{:#?}", frame.patches);
     assert_eq!(frame.root.as_ref(), Some(&rendered));
     assert_eq!(whole.last_root.as_ref(), Some(&rendered));
@@ -157,13 +160,17 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
         });
     };
     let mut driver = Driver::<Pages>::new();
-    let mut held = driver.tick(vec![]).root.expect("a first tree");
+    let mut held = driver
+        .tick_with(vec![], wire::Frame::clone)
+        .root
+        .expect("a first tree");
     let overview = held.clone();
     // The rows page as a copying diff sees it: against a driver of its own.
     let mut reference = Driver::<Pages>::new();
-    reference.tick(vec![]);
+    reference.tick_with(vec![], wire::Frame::clone);
     show(&mut reference, true);
-    let rows = reference.tick(vec![]).root.expect("the rows tree");
+    reference.tick_with(vec![], wire::Frame::clone);
+    let rows = reference.last_root.clone().expect("the rows tree");
     let expected = wire::Frame {
         patches: wire::diff(&mut overview.clone(), &mut rows.clone()),
         ..wire::Frame::default()
@@ -187,10 +194,10 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
         Some(&rows),
         "the kept tree is whole again"
     );
-    assert!(driver.tick(vec![]).unchanged);
+    assert!(driver.tick_with(vec![], wire::Frame::clone).unchanged);
 
     show(&mut driver, false);
-    let back = driver.tick(vec![]);
+    let back = driver.tick_with(vec![], wire::Frame::clone);
     assert!(!back.unchanged && !back.patches.is_empty());
     wire::apply(&mut held, back.patches).unwrap();
     assert_eq!(
@@ -226,8 +233,9 @@ fn primitive_sources_fallbacks_transformations_and_typed_ids_survive_lowering() 
         }
     }
 
-    let frame = Driver::<Primitives>::new().tick(vec![]);
-    let children = frame.root.unwrap().children().to_vec();
+    let mut cx = crate::testing::TestAppContext::new();
+    cx.open::<Primitives>();
+    let children = cx.root().children().to_vec();
     let wire::Node::Image {
         id,
         data,

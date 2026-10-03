@@ -1,9 +1,8 @@
 use super::super::Send;
 use super::editor::{editor, key_tag};
 use super::*;
-use crate::{
-    App, Context, Driver, Entity, IntoElement, Lowering, Render, Role, View, Window, wire,
-};
+use crate::testing::TestAppContext;
+use crate::{App, Context, Entity, IntoElement, Lowering, Render, Role, View, Window, wire};
 use gpui::Modifiers;
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
@@ -19,6 +18,8 @@ struct ComposerView {
 
 impl View for ComposerView {
     const NAME: &'static str = "ComposerView";
+    // the composer moves focus back to its editor (`host.widget`)
+    const CAPABILITIES: &'static [crate::methods::Capability] = &[crate::methods::Capability::Host];
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self {
             draft: Draft::from_body("hello", &[]),
@@ -531,35 +532,24 @@ fn no_claimed_key_but_tab_and_backspace_asks_the_app_for_its_default() {
 
 #[test]
 fn click_binding_and_document_routes_dispatch_through_the_driver() {
-    let mut driver = Driver::<ComposerView>::new();
-    let frame = driver.tick(Vec::new());
-    let pressed = driver.tick(crate::testing::press(&frame, "c/bold"));
-    driver
-        .entity()
-        .read(|view| assert!(view.events.iter().any(|event| event == "action:bold")));
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<ComposerView>();
+    cx.simulate_click("c/bold");
+    view.read(|view| assert!(view.events.iter().any(|event| event == "action:bold")));
     // the press focused the mark; the keys go back to the editor
-    assert!(pressed.requests.iter().any(|request| {
-        request.kind == <crate::methods::HostWidget as crate::methods::Method>::KIND
-            && wire::decode::<wire::WidgetCommand>(&request.payload).unwrap()
-                == wire::WidgetCommand::Focus {
-                    target: vec![wire::ElementIdWire::Name("c/editor".into())],
-                }
-    }));
+    assert!(cx.host().requests::<crate::methods::HostWidget>().contains(
+        &wire::WidgetCommand::Focus {
+            target: vec![wire::ElementIdWire::Name("c/editor".into())],
+        }
+    ));
+    assert_eq!(cx.focused().and_then(wire::Node::key), Some("c/editor"));
 
-    let frame = driver.tick(Vec::new());
-    let wire::Node::Editor {
-        document,
-        on_document,
-        binding,
-        ..
-    } = editor_node(frame.root.as_ref().expect("composer frame"))
-    else {
+    let wire::Node::Editor { document, .. } = editor_node(cx.root()).clone() else {
         unreachable!()
     };
-    let binding = binding.as_ref().expect("composer binding");
-    driver.tick(vec![wire::Event::EditorRequest {
-        handler: binding.on_request,
-        request: wire::EditorRequest {
+    cx.simulate_editor_request(
+        "c/editor",
+        wire::EditorRequest {
             id: wire::EditorTransactionId {
                 instance: 1,
                 document: document.document.clone(),
@@ -580,10 +570,8 @@ fn click_binding_and_document_routes_dispatch_through_the_driver() {
             },
             input_time_ms: 1,
         },
-    }]);
-    driver
-        .entity()
-        .read(|view| assert!(view.events.iter().any(|event| event == "transaction")));
+    );
+    view.read(|view| assert!(view.events.iter().any(|event| event == "transaction")));
     let id = wire::editor_document::EditorTransferId {
         instance: 1,
         document: document.document.clone(),
@@ -591,14 +579,12 @@ fn click_binding_and_document_routes_dispatch_through_the_driver() {
         serial: 1,
         attempt: 0,
     };
-    driver.tick(vec![wire::Event::EditorDocument {
-        handler: *on_document,
-        message: wire::editor_document::EditorDocumentMessage::Request {
+    cx.simulate_editor_document(
+        "c/editor",
+        wire::editor_document::EditorDocumentMessage::Request {
             id,
             target: document.clone(),
         },
-    }]);
-    driver
-        .entity()
-        .read(|view| assert!(view.events.iter().any(|event| event == "document")));
+    );
+    view.read(|view| assert!(view.events.iter().any(|event| event == "document")));
 }

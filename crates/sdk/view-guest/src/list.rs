@@ -393,7 +393,8 @@ fn from_wire_offset(v: wire::ListOffset) -> ListOffset {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Context, Driver, ParentElement, Render, Role, View, div};
+    use crate::testing::TestAppContext;
+    use crate::{Context, Entity, ParentElement, Render, Role, View, div};
     use serde::{Deserialize, Serialize};
 
     #[derive(Default, Serialize, Deserialize)]
@@ -438,30 +439,32 @@ mod tests {
         }
     }
 
-    fn list_node(frame: &wire::Frame) -> &wire::Node {
-        frame.root.as_ref().expect("list root")
+    fn opened() -> (TestAppContext, Entity<ListView>) {
+        let mut cx = TestAppContext::new();
+        let view = cx.open::<ListView>();
+        (cx, view)
     }
 
     #[test]
     fn a_row_scrolled_in_leaves_the_other_rows_routes_alone() {
-        let mut driver = Driver::<ListView>::new();
-        let first = driver.tick(vec![]);
+        let (mut cx, _) = opened();
         let wire::Node::List {
             request_handler,
             range_start,
             ..
-        } = list_node(&first)
+        } = *cx.root()
         else {
             panic!("expected list")
         };
-        let (handler, start) = (*request_handler, *range_start);
-        let frame = driver.tick(vec![wire::Event::ListRequest {
+        let (handler, start) = (request_handler, range_start);
+        cx.tick(vec![wire::Event::ListRequest {
             handler,
             request: wire::ListRequest {
                 start: start - 1,
                 end: start,
             },
         }]);
+        let frame = cx.last_frame();
         let props = frame
             .patches
             .iter()
@@ -479,33 +482,32 @@ mod tests {
     /// the view does not render; a row outside it renders once.
     #[test]
     fn a_request_inside_the_window_renders_nothing() {
-        let mut driver = Driver::<ListView>::new();
-        let first = driver.tick(vec![]);
+        let (mut cx, _) = opened();
         let wire::Node::List {
             request_handler,
             range_start,
             ..
-        } = list_node(&first)
+        } = *cx.root()
         else {
             panic!("expected list")
         };
-        let (handler, start) = (*request_handler, *range_start);
+        let (handler, start) = (request_handler, range_start);
         let ask = |start, end| wire::Event::ListRequest {
             handler,
             request: wire::ListRequest { start, end },
         };
-        let renders = driver.renders;
-        assert!(driver.tick(vec![ask(start, start + 2)]).unchanged);
-        assert_eq!(driver.renders, renders, "rows it holds render nothing");
-        driver.tick(vec![ask(start - 1, start)]);
-        assert_eq!(driver.renders, renders + 1, "a row it lacks renders once");
+        let renders = cx.renders();
+        cx.tick(vec![ask(start, start + 2)]);
+        assert!(cx.last_frame().unchanged);
+        assert_eq!(cx.renders(), renders, "rows it holds render nothing");
+        cx.tick(vec![ask(start - 1, start)]);
+        assert_eq!(cx.renders(), renders + 1, "a row it lacks renders once");
     }
 
     #[test]
     fn two_thousand_items_only_evaluate_a_bounded_requested_window() {
-        let mut driver = Driver::<ListView>::new();
-        let first = driver.tick(vec![]);
-        let (handler, scroll_handler) = match list_node(&first) {
+        let (mut cx, view) = opened();
+        let (handler, scroll_handler) = match cx.root() {
             wire::Node::List {
                 item_count,
                 range_start,
@@ -524,18 +526,16 @@ mod tests {
             }
             other => panic!("expected list, got {other:?}"),
         };
-        driver
-            .entity()
-            .read(|view| assert_eq!(view.rendered.len(), INITIAL_ROWS));
+        view.read(|view| assert_eq!(view.rendered.len(), INITIAL_ROWS));
 
-        let second = driver.tick(vec![wire::Event::ListRequest {
+        cx.tick(vec![wire::Event::ListRequest {
             handler,
             request: wire::ListRequest {
                 start: 0,
                 end: usize::MAX,
             },
         }]);
-        match list_node(&second) {
+        match cx.root() {
             wire::Node::List {
                 range_start,
                 children,
@@ -546,11 +546,9 @@ mod tests {
             }
             other => panic!("expected list, got {other:?}"),
         }
-        driver
-            .entity()
-            .read(|view| assert_eq!(view.rendered.len(), INITIAL_ROWS + wire::MAX_LIST_ROWS));
+        view.read(|view| assert_eq!(view.rendered.len(), INITIAL_ROWS + wire::MAX_LIST_ROWS));
 
-        driver.tick(vec![wire::Event::ListScroll {
+        cx.tick(vec![wire::Event::ListScroll {
             handler: scroll_handler,
             event: wire::ListScroll {
                 visible_start: 1_990,
@@ -564,7 +562,7 @@ mod tests {
                 },
             },
         }]);
-        driver.entity().read(|view| {
+        view.read(|view| {
             assert_eq!(view.scrolls, 1);
             assert_eq!(view.state.logical_scroll_top().item_ix, 1_990);
             assert!(!view.state.is_following_tail());
@@ -573,15 +571,14 @@ mod tests {
 
     #[test]
     fn state_operations_cross_once_as_native_commands_and_patch_props() {
-        let mut driver = Driver::<ListView>::new();
-        driver.tick(vec![]);
-        let state = driver.entity().read(|view| view.state.clone());
+        let (mut cx, view) = opened();
+        let state = view.read(|view| view.state.clone());
         state.splice(0..0, 20);
         state.remeasure_items(100..102);
         state.scroll_to_reveal_item(1_999);
-        driver.app.notify();
-        let frame = driver.tick(vec![]);
-        match list_node(&frame) {
+        cx.app_mut().notify();
+        cx.tick(vec![]);
+        match cx.root() {
             wire::Node::List {
                 item_count,
                 commands,
@@ -598,29 +595,25 @@ mod tests {
             item_ix: 1_999,
             offset_in_item: px(3.),
         });
-        driver.app.notify();
-        let patched = driver.tick(vec![]);
+        cx.app_mut().notify();
+        cx.tick(vec![]);
         assert!(
-            patched
+            cx.last_frame()
                 .patches
                 .iter()
                 .any(|patch| matches!(patch, wire::Patch::Props { .. })),
             "same-shape state operations update by props patches"
         );
-        driver.app.notify();
-        let next = driver.tick(vec![]);
-        assert!(
-            matches!(list_node(&next), wire::Node::List { commands, .. } if commands.is_empty())
-        );
+        cx.app_mut().notify();
+        cx.tick(vec![]);
+        assert!(matches!(cx.root(), wire::Node::List { commands, .. } if commands.is_empty()));
     }
 
     #[test]
     fn list_handles_and_requested_windows_are_driver_isolated() {
-        let mut first = Driver::<ListView>::new();
-        let mut second = Driver::<ListView>::new();
-        let first_frame = first.tick(vec![]);
-        let second_frame = second.tick(vec![]);
-        let (first_state, first_handler) = match list_node(&first_frame) {
+        let (mut first, first_view) = opened();
+        let (second, second_view) = opened();
+        let (first_state, first_handler) = match first.root() {
             wire::Node::List {
                 state,
                 request_handler,
@@ -628,7 +621,7 @@ mod tests {
             } => (*state, *request_handler),
             _ => unreachable!(),
         };
-        let second_state = match list_node(&second_frame) {
+        let second_state = match second.root() {
             wire::Node::List { state, .. } => *state,
             _ => unreachable!(),
         };
@@ -637,12 +630,8 @@ mod tests {
             handler: first_handler,
             request: wire::ListRequest { start: 7, end: 9 },
         }]);
-        first
-            .entity()
-            .read(|view| assert_eq!(view.rendered.last().copied(), Some(8)));
-        second
-            .entity()
-            .read(|view| assert_eq!(view.rendered.last().copied(), Some(1_999)));
+        first_view.read(|view| assert_eq!(view.rendered.last().copied(), Some(8)));
+        second_view.read(|view| assert_eq!(view.rendered.last().copied(), Some(1_999)));
     }
 
     #[test]
@@ -692,7 +681,7 @@ mod tests {
 
     #[test]
     fn an_id_on_a_list_stays_off_the_path_the_host_checks() {
-        let mut cx = crate::testing::TestAppContext::new();
+        let mut cx = TestAppContext::new();
         // every frame goes through the host's sanitizer, which refuses a
         // list whose path is not the one it walked
         cx.open::<IdentifiedList>();

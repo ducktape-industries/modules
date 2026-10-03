@@ -13,9 +13,6 @@ impl<V: View> Driver<V> {
         }
         self.entity.read(|view| wire::try_encode(view))
     }
-    pub fn from_snapshot(bytes: &[u8]) -> Result<Self, String> {
-        Self::from_snapshot_in(App::for_driver(), bytes)
-    }
     pub(crate) fn from_snapshot_in(app: App, bytes: &[u8]) -> Result<Self, String> {
         let view = wire::decode(bytes)?;
         Ok(Self::initialize_in(app, Some(view)))

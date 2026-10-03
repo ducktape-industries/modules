@@ -81,11 +81,6 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
     let has_gary = known.clone();
     let mut cx = TestAppContext::new();
     quiet_methods(&mut cx);
-    cx.host()
-        .handle::<ducktape_view_guest::methods::HostWidget>(|command| {
-            assert!(matches!(command, wire::WidgetCommand::Focus { .. }));
-            Ok(())
-        });
     cx.host().handle::<Ask<::chat::Chat>>(move |query| {
         Ok(match query {
             Query::Accounts { .. } => {
@@ -107,7 +102,6 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
 
     let props = cx.host().stream::<HostSession>();
     let visible = cx.host().stream::<HostVisible>();
-    cx.host().never::<Changes<::chat::Chat>>();
     let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();
     cx.run_until_parked();
@@ -153,11 +147,6 @@ fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
     let has_gary = known.clone();
     let mut cx = TestAppContext::new();
     quiet_methods(&mut cx);
-    cx.host()
-        .handle::<ducktape_view_guest::methods::HostWidget>(|command| {
-            assert!(matches!(command, wire::WidgetCommand::Focus { .. }));
-            Ok(())
-        });
     cx.host().handle::<Ask<::chat::Chat>>(move |query| {
         Ok(match query {
             Query::Accounts { .. } => {
@@ -177,7 +166,6 @@ fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
 
     let props = cx.host().stream::<HostSession>();
     let visible = cx.host().stream::<HostVisible>();
-    cx.host().never::<Changes<::chat::Chat>>();
     let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();
     cx.run_until_parked();

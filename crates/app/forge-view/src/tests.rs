@@ -208,17 +208,6 @@ pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
     cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
     cx.host().handle::<SubmitForge>(|_| Ok(Vec::new()));
     cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
-    cx.host()
-        .handle::<ducktape_view_guest::methods::HostWidget>(|command| {
-            assert!(matches!(command, wire::WidgetCommand::Focus { .. }));
-            Ok(())
-        });
-    cx.host().never::<Changes<forge::Forge>>();
-    cx.host().never::<Changes<::chat::Chat>>();
-    cx.host().never::<Changes<Identity>>();
-    cx.host().never::<HostVisible>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
 }
 
 /// Boots the view, seats a reader and waits for the first reads to land.
@@ -232,8 +221,6 @@ pub(crate) fn booted_as(mode: &'static str, account: u64) -> (TestAppContext, En
     let mut cx = TestAppContext::new();
     configure(&mut cx, mode);
     let props = cx.host().stream::<HostSession>();
-    cx.host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
     let view = cx.open::<Forge>();
     cx.run_until_parked();
     props.send(Session {
@@ -265,8 +252,6 @@ fn followed(mode: &'static str) -> (TestAppContext, Heads) {
         identity: cx.host().stream(),
     };
     let props = cx.host().stream::<HostSession>();
-    cx.host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
     cx.open::<Forge>();
     props.send(Session {
         signer: abi::hex(b"reviewer"),
@@ -466,8 +451,6 @@ fn seated(key: &[u8], account: Option<u64>) -> (TestAppContext, Entity<Forge>) {
     let mut cx = TestAppContext::new();
     configure(&mut cx, "judgment");
     let props = cx.host().stream::<HostSession>();
-    cx.host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
     let view = cx.open::<Forge>();
     cx.run_until_parked();
     props.send(Session {
@@ -550,8 +533,6 @@ fn an_account_gained_later_is_who_forge_judges() {
     let mut cx = TestAppContext::new();
     configure(&mut cx, "judgment");
     let props = cx.host().stream::<HostSession>();
-    cx.host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
     let view = cx.open::<Forge>();
     cx.run_until_parked();
     let unregistered = Session {
@@ -623,7 +604,11 @@ fn the_repositories_list_shows_every_column_of_the_plan() {
         "the row shows where it clones from"
     );
     cx.simulate_click("forge-repo-project-activity");
-    assert_eq!(cx.host().opened_links(), ["duck://explorer/block/2"]);
+    assert_eq!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        ["duck://explorer/block/2"]
+    );
 }
 
 #[test]
@@ -651,14 +636,6 @@ fn a_refused_read_keeps_its_reason_and_offers_one_retry() {
         .handle::<Ask>(|_| Err(refusal("refused-object-not-held")));
     cx.host()
         .handle::<ProgramQuery<::chat::Chat>>(|_| Ok(chat::Reply::Accounts(accounts())));
-    cx.host().never::<Changes<forge::Forge>>();
-    cx.host().never::<Changes<::chat::Chat>>();
-    cx.host().never::<Changes<Identity>>();
-    cx.host().never::<HostVisible>();
-    cx.host()
-        .never::<ducktape_view_guest::methods::HostOffset>();
-    cx.host().never::<HostSession>();
-    cx.host().never::<ducktape_view_guest::methods::HostRoute>();
     cx.open::<Forge>();
     cx.run_until_parked();
     let sentence = "object ffffffffffffffffffffffffffffffffffffffff is not held by this node";
@@ -767,6 +744,7 @@ fn the_repository_tabs_move_on_an_arrow_and_open_on_enter() {
     // the repository opens on its README; the arrows start there
     view.read(|forge| assert_eq!(forge.nav().tab, RepoTab::Readme));
     assert!(cx.interactivity("forge-tab-readme").aria.active_descendant);
+    cx.simulate_focus("forge-tab-list");
     cx.simulate_key_down("forge-tab-list", "right");
     view.read(|forge| assert_eq!(forge.nav().tab, RepoTab::Readme));
     let code = cx.interactivity("forge-tab-code");
@@ -913,7 +891,11 @@ fn a_relative_link_opens_its_file_in_the_code_tab() {
     view.read(|forge| assert!(forge.notice.contains("missing.md"), "{}", forge.notice));
     // the web still goes to the host
     follow(&mut cx, b"", "https://x.example");
-    assert_eq!(cx.host().opened_links(), vec!["https://x.example"]);
+    assert_eq!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        vec!["https://x.example"]
+    );
 }
 
 #[test]
@@ -1269,6 +1251,7 @@ fn the_rail_is_a_list_box_whose_enter_opens_the_active_repository() {
         .iter()
         .filter_map(|row| row.key().map(str::to_owned))
         .collect();
+    cx.simulate_focus("forge-rail-list");
     cx.simulate_key_down("forge-rail-list", "end");
     let last = rows.last().expect("a repository");
     assert!(cx.interactivity(last).aria.active_descendant);
@@ -1280,6 +1263,7 @@ fn the_rail_is_a_list_box_whose_enter_opens_the_active_repository() {
     );
     cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
+    cx.simulate_focus("forge-rail-list");
     cx.simulate_key_down("forge-rail-list", "home");
     cx.simulate_key_down("forge-rail-list", "enter");
     cx.run_until_parked();
@@ -1303,10 +1287,6 @@ fn a_snapshot_restores_the_same_screen_without_replaying_events() {
 
     let mut restored = TestAppContext::new();
     configure(&mut restored, "default");
-    restored.host().never::<HostSession>();
-    restored
-        .host()
-        .never::<ducktape_view_guest::methods::HostRoute>();
     let view = restored.restore::<Forge>(&snapshot).unwrap();
     restored.run_until_parked();
     view.read(|forge| {
@@ -1491,6 +1471,7 @@ fn the_repositories_grid_walks_cells_and_enter_presses_the_active_one() {
     );
     // the second repository when there is one, else the first
     let at = usize::from(rows.len() > 1);
+    cx.simulate_focus("forge-repos-list");
     if at == 1 {
         cx.simulate_key_down("forge-repos-list", "down");
     }
@@ -1525,7 +1506,12 @@ fn the_repositories_grid_walks_cells_and_enter_presses_the_active_one() {
     );
     cx.simulate_key_down("forge-repos-list", "enter");
     cx.run_until_parked();
-    assert_eq!(cx.host().opened_links().len(), 1);
+    assert_eq!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::LinkOpen>()
+            .len(),
+        1
+    );
     // Home: back to the press; Enter opens the repository
     cx.simulate_key_down("forge-repos-list", "home");
     cx.simulate_key_down("forge-repos-list", "enter");
@@ -1676,6 +1662,7 @@ fn the_tree_claims_a_row_on_entry_and_end_reaches_the_last() {
     let last = format!("forge-tree-{}", path_of(&rows[rows.len() - 1].path));
     view.read(|forge| assert_eq!(forge.nav().cursor, None));
     assert!(cx.interactivity(&first).aria.active_descendant);
+    cx.simulate_focus("forge-tree-rows");
     cx.simulate_key_down("forge-tree-rows", "end");
     cx.run_until_parked();
     view.read(|forge| {
@@ -1736,6 +1723,7 @@ fn the_commit_list_is_a_list_box_whose_enter_opens_the_active_commit() {
     let first = cx.interactivity("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
     assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
     assert!(!first.focusable && first.aria.active_descendant);
+    cx.simulate_focus("forge-log-list");
     cx.simulate_key_down("forge-log-list", "down");
     let second: String = cx
         .find("forge-log")
@@ -1764,6 +1752,7 @@ fn the_change_list_is_a_list_box_whose_enter_opens_the_active_change() {
     let row = cx.interactivity("forge-change-1");
     assert_eq!(row.role, Some(ducktape_view_guest::Role::ListBoxOption));
     assert!(!row.focusable && row.aria.active_descendant);
+    cx.simulate_focus("forge-changes-list");
     cx.simulate_key_down("forge-changes-list", "enter");
     cx.run_until_parked();
     view.read(|forge| assert_eq!(forge.nav().change, Some(1)));
@@ -1791,6 +1780,7 @@ fn the_ref_list_is_a_grid_whose_right_reaches_compare() {
             .active_descendant
     );
     // ↓ to the second ref, → to its Compare, Enter starts a change from it
+    cx.simulate_focus("forge-refs-list");
     cx.simulate_key_down("forge-refs-list", "down");
     let branch = &rows[1];
     let label = &branch["forge-ref-row-".len()..];
@@ -1826,6 +1816,7 @@ fn a_reader_who_may_not_write_has_no_compare_cell() {
         .filter_map(|row| row.key().map(str::to_owned))
         .filter(|key| key.starts_with("forge-ref-row-"))
         .collect();
+    cx.simulate_focus("forge-refs-list");
     cx.simulate_key_down("forge-refs-list", "down");
     cx.simulate_key_down("forge-refs-list", "right");
     let branch = &rows[1];
@@ -1889,6 +1880,7 @@ fn a_ref_without_compare_is_a_grid_row_of_one_cell() {
             .unwrap_or_else(|| panic!("{label} is listed: {rows:?}"))
     };
     // ↓ to the default head, whose press claims; → finds no second cell
+    cx.simulate_focus("forge-refs-list");
     for _ in 0..at("main") {
         cx.simulate_key_down("forge-refs-list", "down");
     }

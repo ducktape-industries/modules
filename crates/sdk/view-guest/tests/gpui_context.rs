@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use view_guest::prelude::*;
-use view_guest::{Driver, View, testing::TestAppContext, wire};
+use view_guest::{View, testing::TestAppContext, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Counter {
@@ -25,19 +25,10 @@ impl Render for Counter {
             .child("Click")
     }
 }
-fn route(frame: &wire::Frame) -> u32 {
-    let wire::Node::Container(view_guest::wire::ContainerNode { interactivity, .. }) =
-        frame.root.as_ref().unwrap()
-    else {
-        panic!("a container")
-    };
-    interactivity.on_click.unwrap()
-}
-fn click(handler: u32) -> wire::Event {
-    wire::Event::Click {
-        handler,
-        event: (&ClickEvent::default()).into(),
-    }
+fn opened<V: View>() -> (TestAppContext, view_guest::Entity<V>) {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<V>();
+    (cx, view)
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -72,24 +63,15 @@ impl Render for PointerSurface {
 
 #[test]
 fn pointer_listener_preserves_payload_and_routes_after_frame_reset() {
-    let mut driver = Driver::<PointerSurface>::new();
-    let mut other = Driver::<PointerSurface>::new();
-    let first = driver.tick(vec![]);
-    let other_frame = other.tick(vec![]);
-    let wire::Node::Container(view_guest::wire::ContainerNode { interactivity, .. }) =
-        first.root.as_ref().unwrap()
-    else {
-        panic!("a container")
-    };
-    let handler = interactivity.on_mouse_down.expect("mouse route");
-    let wire::Node::Container(view_guest::wire::ContainerNode { interactivity, .. }) =
-        other_frame.root.as_ref().unwrap()
-    else {
-        panic!("a container")
-    };
-    assert_eq!(interactivity.on_mouse_down, Some(handler));
-    let event = wire::interactivity::MouseDown {
-        button: wire::click::MouseButton::Right,
+    let (mut cx, view) = opened::<PointerSurface>();
+    let (mut other, other_view) = opened::<PointerSurface>();
+    let handler = cx
+        .interactivity("surface")
+        .on_mouse_down
+        .expect("mouse route");
+    assert_eq!(other.interactivity("surface").on_mouse_down, Some(handler));
+    let event = MouseDownEvent {
+        button: MouseButton::Right,
         position: gpui::point(gpui::px(12.5), gpui::px(7.0)),
         modifiers: gpui::Modifiers {
             shift: true,
@@ -98,26 +80,18 @@ fn pointer_listener_preserves_payload_and_routes_after_frame_reset() {
         click_count: 2,
         first_mouse: true,
     };
-    let next = driver.tick(vec![wire::Event::MouseDown {
-        handler,
-        phase: wire::DispatchPhase::Bubble,
-        event,
-    }]);
-    driver.entity().read(|view| {
+    cx.simulate_mouse_down("surface", event.clone());
+    view.read(|view| {
         assert_eq!(view.seen, vec![(2, true, 12.5)]);
     });
-    other.tick(vec![wire::Event::MouseDown {
+    // a route no node holds reaches nothing
+    other.simulate_event(wire::Event::MouseDown {
         handler: handler + 1,
         phase: wire::DispatchPhase::Bubble,
-        event,
-    }]);
-    other.entity().read(|view| assert!(view.seen.is_empty()));
-    let wire::Node::Container(view_guest::wire::ContainerNode { interactivity, .. }) =
-        next.root.as_ref().unwrap()
-    else {
-        panic!("a container")
-    };
-    assert_eq!(interactivity.on_mouse_down, Some(handler));
+        event: (&event).into(),
+    });
+    other_view.read(|view| assert!(view.seen.is_empty()));
+    assert_eq!(cx.interactivity("surface").on_mouse_down, Some(handler));
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -154,14 +128,9 @@ impl Render for TooltipContent {
 
 #[test]
 fn tooltip_delay_is_order_independent_and_builder_runs_only_after_request() {
-    let mut driver = Driver::<TooltipSurface>::new();
-    let frame = driver.tick(vec![]);
-    let wire::Node::Container(view_guest::wire::ContainerNode { interactivity, .. }) =
-        frame.root.as_ref().unwrap()
-    else {
-        panic!("a container")
-    };
-    let tooltip = interactivity.tooltip.as_ref().expect("tooltip recipe");
+    let (mut cx, _) = opened::<TooltipSurface>();
+    let interactivity = cx.interactivity("target");
+    let tooltip = interactivity.tooltip.clone().expect("tooltip recipe");
     let context = interactivity.key_context.as_ref().expect("key context");
     assert_eq!(context.entries[0].key.as_ref(), "Tooltip");
     assert_eq!(context.entries[1].key.as_ref(), "mode");
@@ -172,10 +141,8 @@ fn tooltip_delay_is_order_independent_and_builder_runs_only_after_request() {
         tooltip.content.is_none(),
         "ordinary render must not build the tooltip"
     );
-    let response = driver.tick(vec![wire::Event::TooltipRequest {
-        request: tooltip.request,
-        character_index: None,
-    }]);
+    cx.simulate_hover("target", true);
+    let response = cx.last_frame();
     let [response] = response.tooltip_responses.as_slice() else {
         panic!("one tooltip response")
     };
@@ -209,31 +176,16 @@ impl Render for RichTooltipSurface {
 
 #[test]
 fn rich_text_tooltip_routes_character_index_and_explicit_none() {
-    let mut driver = Driver::<RichTooltipSurface>::new();
-    let frame = driver.tick(vec![]);
-    let wire::Node::RichText {
-        tooltip: Some(tooltip),
-        ..
-    } = frame.root.as_ref().unwrap()
-    else {
-        panic!("a rich text tooltip recipe")
-    };
-
-    let some = driver.tick(vec![wire::Event::TooltipRequest {
-        request: tooltip.request,
-        character_index: Some(6),
-    }]);
-    let [some] = some.tooltip_responses.as_slice() else {
+    let (mut cx, _) = opened::<RichTooltipSurface>();
+    cx.simulate_rich_hover("rich-tip", Some(6));
+    let [some] = cx.last_frame().tooltip_responses.as_slice() else {
         panic!("one tooltip response")
     };
     assert_eq!(some.character_index, Some(6));
     assert!(some.content.is_some());
 
-    let none = driver.tick(vec![wire::Event::TooltipRequest {
-        request: tooltip.request,
-        character_index: Some(0),
-    }]);
-    let [none] = none.tooltip_responses.as_slice() else {
+    cx.simulate_rich_hover("rich-tip", Some(0));
+    let [none] = cx.last_frame().tooltip_responses.as_slice() else {
         panic!("one explicit empty tooltip response")
     };
     assert_eq!(none.character_index, Some(0));
@@ -271,50 +223,35 @@ impl Render for FocusSurface {
 
 #[test]
 fn opaque_focus_allocations_share_only_through_clone() {
-    let frame = Driver::<FocusSurface>::new().tick(vec![]);
-    let wire::Node::Container(view_guest::wire::ContainerNode { children, .. }) =
-        frame.root.unwrap()
-    else {
-        panic!("root container")
-    };
-    let ids: Vec<_> = children
-        .iter()
-        .map(|node| match node {
-            wire::Node::Container(view_guest::wire::ContainerNode { interactivity, .. }) => {
-                interactivity.focus_handle.unwrap()
-            }
-            _ => panic!("focus container"),
-        })
-        .collect();
+    let (cx, _) = opened::<FocusSurface>();
+    let ids: Vec<_> = ["first", "same", "other"]
+        .map(|key| cx.interactivity(key).focus_handle.unwrap())
+        .to_vec();
     assert_eq!(ids[0], ids[1]);
     assert_ne!(ids[0], ids[2]);
 }
 
 #[test]
-fn click_routes_are_frame_owned_and_driver_isolated() {
-    let mut first = Driver::<Counter>::new();
-    let mut second = Driver::<Counter>::new();
-    let first_id = route(&first.tick(vec![]));
-    let second_id = route(&second.tick(vec![]));
-    assert_eq!(first_id, second_id);
+fn click_routes_are_frame_owned_and_isolated_per_view() {
+    let (mut first, first_view) = opened::<Counter>();
+    let (mut second, second_view) = opened::<Counter>();
+    let route = |cx: &TestAppContext| cx.interactivity("button").on_click.unwrap();
+    let first_id = route(&first);
+    assert_eq!(first_id, route(&second));
     for expected in 1..=20 {
-        let frame = first.tick(vec![click(first_id)]);
+        first.simulate_click("button");
         assert_eq!(
-            route(&frame),
+            route(&first),
             first_id,
             "reset must release previous frame routes"
         );
-        first
-            .entity()
-            .read(|view| assert_eq!(view.clicks, expected));
-        second.entity().read(|view| assert_eq!(view.clicks, 0));
+        first_view.read(|view| assert_eq!(view.clicks, expected));
+        second_view.read(|view| assert_eq!(view.clicks, 0));
     }
-    second.tick(vec![click(second_id)]);
-    second.entity().read(|view| assert_eq!(view.clicks, 1));
-    first.tick(vec![wire::Event::Message(first_id)]);
-    first
-        .entity()
-        .read(|view| assert_eq!(view.clicks, 20, "message and click routes differ"));
+    second.simulate_click("button");
+    second_view.read(|view| assert_eq!(view.clicks, 1));
+    first.simulate_event(wire::Event::Message(first_id));
+    first_view.read(|view| assert_eq!(view.clicks, 20, "message and click routes differ"));
 }
 
 #[test]
@@ -392,29 +329,20 @@ impl Render for ThemeReader {
 }
 #[test]
 fn host_theme_events_update_the_global_and_emit_style_patches() {
-    let mut driver = Driver::<ThemeReader>::new();
-    let first = driver.tick(vec![]);
-    let mut root = first.root.unwrap();
-    let changed = driver.tick(vec![wire::Event::Theme { dark: true }]);
+    let (mut cx, _) = opened::<ThemeReader>();
+    let background = |cx: &TestAppContext| cx.root().style().unwrap().background.clone();
+    cx.simulate_theme(true);
     assert!(matches!(
-        changed.patches.as_slice(),
+        cx.last_frame().patches.as_slice(),
         [wire::Patch::Props { .. }]
     ));
-    wire::apply(&mut root, changed.patches).unwrap();
-    let wire::Node::Container(view_guest::wire::ContainerNode { ref style, .. }) = root else {
-        panic!("container")
-    };
-    assert_eq!(style.background, Some(Theme::dark().surface.into()));
+    assert_eq!(background(&cx), Some(Theme::dark().surface.into()));
     assert_ne!(Theme::dark().surface, Theme::light().surface);
 
-    let changed = driver.tick(vec![wire::Event::Theme { dark: false }]);
+    cx.simulate_theme(false);
     assert!(matches!(
-        changed.patches.as_slice(),
+        cx.last_frame().patches.as_slice(),
         [wire::Patch::Props { .. }]
     ));
-    wire::apply(&mut root, changed.patches).unwrap();
-    let wire::Node::Container(view_guest::wire::ContainerNode { ref style, .. }) = root else {
-        panic!("container")
-    };
-    assert_eq!(style.background, Some(Theme::light().surface.into()));
+    assert_eq!(background(&cx), Some(Theme::light().surface.into()));
 }

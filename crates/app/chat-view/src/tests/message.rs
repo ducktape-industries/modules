@@ -345,6 +345,7 @@ fn an_arrow_on_the_emoji_tabs_opens_the_next_category() {
             .aria
             .active_descendant
     );
+    cx.simulate_focus("chat-reaction-tabs");
     cx.simulate_key_down("chat-reaction-tabs", "right");
     view.read(|chat| assert_eq!(chat.picker.tab, 1));
     assert!(
@@ -421,6 +422,7 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
             .is_some_and(|label| label.starts_with("Select message, shows its actions:"))
     );
 
+    cx.simulate_focus("chat-message-list");
     cx.simulate_key_down("chat-message-list", "up");
     assert!(cx.interactivity("chat-message-m1").aria.active_descendant);
     // the list draws the revealed row until the host asks for more
@@ -669,6 +671,7 @@ fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
         cx.notify();
     });
     cx.run_until_parked();
+    cx.simulate_focus("chat-message-list");
     cx.simulate_key_down("chat-message-list", "up");
     cx.simulate_key_down("chat-message-list", "right");
     cx.simulate_key_down("chat-message-list", "right");
@@ -716,6 +719,7 @@ fn two_arrows_and_enter_on_the_emoji_grid_add_the_third_emoji() {
             .active_descendant
     );
     assert!(!cx.interactivity(&key(third)).focusable);
+    cx.simulate_focus("chat-reaction-grid");
     cx.simulate_key_down("chat-reaction-grid", "right");
     cx.simulate_key_down("chat-reaction-grid", "right");
     assert!(cx.interactivity(&key(third)).aria.active_descendant);

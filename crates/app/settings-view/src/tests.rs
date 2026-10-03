@@ -76,8 +76,6 @@ fn fixture(state: &str, dark: bool) -> TestAppContext {
 /// The fixture, and the session feed the host speaks through.
 fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>) {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<Valset>>();
-    cx.host().stream::<Changes<Identity>>();
     let props = cx.host().stream::<HostSession>();
     respond(&cx);
     match state {
@@ -222,6 +220,7 @@ fn an_arrow_on_the_menu_opens_the_next_section() {
             .aria
             .active_descendant
     );
+    cx.simulate_focus("settings/nav");
     cx.simulate_key_down("settings/nav", "down");
     cx.run_until_parked();
     assert!(cx.find("settings/agents/12/suspend").is_some());
@@ -287,6 +286,7 @@ fn the_invite_lifetime_checks_the_next_choice_on_an_arrow() {
     };
     // the view opens on 7 days
     assert_eq!(checked(&cx), [(false, false), (true, true), (false, false)]);
+    cx.simulate_focus("settings/ttl");
     cx.simulate_key_down("settings/ttl", "right");
     assert_eq!(checked(&cx), [(false, false), (false, false), (true, true)]);
     cx.simulate_key_down("settings/ttl", "right");
@@ -310,7 +310,6 @@ fn a_refusal_retries_and_a_snapshot_restores() {
 #[test]
 fn an_account_changed_elsewhere_is_read_again() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<Valset>>();
     let accounts = cx.host().stream::<Changes<Identity>>();
     let props = cx.host().stream::<HostSession>();
     respond(&cx);
@@ -552,8 +551,6 @@ fn a_field_is_named_apart_from_its_hint() {
 #[test]
 fn long_host_key_is_truncated_and_non_validator_standing_is_quiet() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<Valset>>();
-    cx.host().stream::<Changes<Identity>>();
     let props = cx.host().stream::<HostSession>();
     let long_key = vec![0x11; 32];
     let long_hex = abi::hex(&long_key);
@@ -747,7 +744,6 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
 #[test]
 fn an_identity_head_re_reads_the_account_in_place() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<Changes<Valset>>();
     let heads = cx.host().stream::<Changes<Identity>>();
     let props = cx.host().stream::<HostSession>();
     respond(&cx);

@@ -1,13 +1,40 @@
-//! Helpers for a guest's own tests: build events the host would send, and
-//! read the tree a frame carries.
+//! A view's tests: [`TestAppContext`] drives one view as the app does, over
+//! a [`FakeHost`] that answers its requests by their shape, and holds every
+//! frame to the host's rules: its sanitizer, the accessibility audit, the
+//! per-frame request budget, and keys delivered only along the focus path.
+//!
+//! ```
+//! # use serde::{Deserialize, Serialize};
+//! # use view_guest::prelude::*;
+//! # use view_guest::{View, testing::TestAppContext};
+//! #[derive(Default, Serialize, Deserialize)]
+//! struct Rows;
+//! impl View for Rows {
+//!     const NAME: &'static str = "Rows";
+//! }
+//! impl Render for Rows {
+//!     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+//!         uniform_list("rows", 100, |range, _, _| {
+//!             range.map(|row| div().id(row).child(format!("row {row}"))).collect()
+//!         })
+//!     }
+//! }
+//! let mut cx = TestAppContext::new();
+//! cx.open::<Rows>();
+//! // the first frame holds the one row the host measures
+//! assert_eq!(cx.texts(), ["row 0"]);
+//! // a pane ten rows tall asks for the rows it shows
+//! cx.simulate_viewport(10);
+//! assert_eq!(cx.texts().len(), 10);
+//! ```
 
-use crate::wire::{Event, Frame, Node};
+use crate::wire::{Frame, Node, TooltipResponse};
 
 /// Every text the tree shows, depth first: text nodes and the value or
 /// placeholder of an input or editor.
-pub(crate) fn texts(frame: &Frame) -> Vec<String> {
+pub(crate) fn texts(root: Option<&Node>) -> Vec<String> {
     let mut out = Vec::new();
-    if let Some(root) = &frame.root {
+    if let Some(root) = root {
         collect_texts(root, &mut out);
     }
     out
@@ -43,29 +70,24 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
     }
 }
 
-/// The host's sanitizer, which must take the frame, and
-/// [`assert_accessible`] on each tree the frame carries: its root and
-/// every tooltip's content, which the host renders too.
-pub(crate) fn assert_frame_accessible(frame: &Frame) {
-    if let Some(root) = &frame.root {
+/// The host's sanitizer, which must take the tree the host holds and the
+/// tooltips a frame answered, and [`assert_accessible`] on each: the tree
+/// and every tooltip's content, which the host renders too.
+pub(crate) fn assert_frame_accessible(root: Option<&Node>, tooltips: &[TooltipResponse]) {
+    if let Some(root) = root {
         let mut hosted = Frame {
             root: Some(root.clone()),
-            tooltip_responses: frame.tooltip_responses.clone(),
+            tooltip_responses: tooltips.to_vec(),
             ..Frame::default()
         };
         if let Err(refused) = crate::wire::sanitize(&mut hosted) {
             panic!("the host refuses this frame: {refused}");
         }
     }
-    let tooltips = frame
-        .tooltip_responses
+    let tooltips = tooltips
         .iter()
         .filter_map(|response| response.content.as_deref());
-    frame
-        .root
-        .iter()
-        .chain(tooltips)
-        .for_each(assert_accessible);
+    root.into_iter().chain(tooltips).for_each(assert_accessible);
 }
 
 /// Panics listing each node assistive technology cannot name, place or
@@ -84,50 +106,50 @@ pub(crate) fn assert_accessible(tree: &Node) {
     );
 }
 
-pub(crate) fn has_text(frame: &Frame, content: &str) -> bool {
-    texts(frame).iter().any(|text| text == content)
-}
-
-pub(crate) fn rich_click(frame: &Frame, key: &str, index: usize) -> Event {
-    let Some(Node::RichText {
-        on_click: Some(handler),
-        clickable_ranges,
-        ..
-    }) = find(frame, key)
-    else {
-        panic!("{key} is not interactive rich text");
-    };
-    assert!(
-        index < clickable_ranges.len(),
-        "rich text click index out of bounds"
-    );
-    Event::Select {
-        handler: *handler,
-        index: u32::try_from(index).expect("rich text click index fits the wire"),
+/// The nodes from the root down to the first node, depth first, whose
+/// chain `matches` accepts.
+pub(crate) fn chain<'a>(
+    root: &'a Node,
+    matches: &mut dyn FnMut(&[&'a Node]) -> bool,
+) -> Option<Vec<&'a Node>> {
+    fn walk<'a>(
+        node: &'a Node,
+        chain: &mut Vec<&'a Node>,
+        matches: &mut dyn FnMut(&[&'a Node]) -> bool,
+    ) -> bool {
+        chain.push(node);
+        if matches(chain)
+            || node
+                .children()
+                .iter()
+                .any(|child| walk(child, chain, matches))
+        {
+            return true;
+        }
+        chain.pop();
+        false
     }
+    let mut out = Vec::new();
+    walk(root, &mut out, matches).then_some(out)
 }
 
-/// The node under `key` (`App/content/count`), if the tree has one.
-pub(crate) fn find<'a>(frame: &'a Frame, key: &str) -> Option<&'a Node> {
-    let root = frame.root.as_ref()?;
-    find_by(root, &|node| node.key() == Some(key))
+/// The chain down to the node under `key`.
+pub(crate) fn chain_to<'a>(root: &'a Node, key: &str) -> Option<Vec<&'a Node>> {
+    chain(root, &mut |chain| chain.last().unwrap().key() == Some(key))
 }
 
-/// The first node `matches` accepts, depth first.
-fn find_by<'a>(node: &'a Node, matches: &dyn Fn(&Node) -> bool) -> Option<&'a Node> {
-    if matches(node) {
-        return Some(node);
-    }
-    node.children()
+/// The ids the host files a node under: its own and its ancestors'.
+pub(crate) fn authored_path(chain: &[&Node]) -> Vec<crate::wire::ElementIdWire> {
+    chain
         .iter()
-        .find_map(|child| find_by(child, matches))
+        .filter_map(|node| node.identity().cloned())
+        .collect()
 }
 
 /// The button whose key, label or accessible name is `name`.
-fn button<'a>(frame: &'a Frame, name: &str) -> Option<&'a Node> {
-    let root = frame.root.as_ref()?;
-    find_by(root, &|node| match node {
-        Node::Container(crate::wire::ContainerNode { interactivity, .. })
+pub(crate) fn button<'a>(root: &'a Node, name: &str) -> Option<Vec<&'a Node>> {
+    chain(root, &mut |chain| match chain.last().unwrap() {
+        node @ Node::Container(crate::wire::ContainerNode { interactivity, .. })
             if interactivity.on_click.is_some() =>
         {
             let mut labels = Vec::new();
@@ -141,9 +163,8 @@ fn button<'a>(frame: &'a Frame, name: &str) -> Option<&'a Node> {
 }
 
 /// The input whose key or placeholder is `name`.
-fn input<'a>(frame: &'a Frame, name: &str) -> Option<&'a Node> {
-    let root = frame.root.as_ref()?;
-    find_by(root, &|node| match node {
+pub(crate) fn input<'a>(root: &'a Node, name: &str) -> Option<Vec<&'a Node>> {
+    chain(root, &mut |chain| match chain.last().unwrap() {
         Node::Input {
             id, placeholder, ..
         } => id.name() == Some(name) || placeholder == name,
@@ -151,145 +172,25 @@ fn input<'a>(frame: &'a Frame, name: &str) -> Option<&'a Node> {
     })
 }
 
-/// The events the host sends when the user presses the button with key or
-/// label `name`.
-pub(crate) fn press(frame: &Frame, name: &str) -> Vec<Event> {
-    match button(frame, name) {
-        Some(Node::Container(crate::wire::ContainerNode { interactivity, .. })) => {
-            vec![Event::Click {
-                handler: interactivity.on_click.expect("click route"),
-                event: (&gpui::ClickEvent::default()).into(),
-            }]
-        }
-        _ => panic!("no button {name:?} in {:?}", texts(frame)),
-    }
-}
-
-/// The events the host sends when the input with key or placeholder `name`
-/// now reads `text`.
-pub(crate) fn type_into(frame: &Frame, name: &str, text: &str) -> Vec<Event> {
-    let Some(Node::Input { on_input, .. }) = input(frame, name) else {
-        panic!("no input {name:?} in {:?}", texts(frame));
-    };
-    let Some(handler) = on_input else {
-        panic!("input {name:?} has no input route");
-    };
-    vec![Event::Input {
-        handler: *handler,
-        text: text.to_string(),
-    }]
-}
-
-/// The events the host sends when the user submits the input with key or
-/// placeholder `name`.
-pub(crate) fn submit(frame: &Frame, name: &str) -> Vec<Event> {
-    let Some(Node::Input { on_submit, .. }) = input(frame, name) else {
-        panic!("no input {name:?} in {:?}", texts(frame));
-    };
-    let Some(message) = on_submit else {
-        panic!("input {name:?} has no submit route");
-    };
-    vec![Event::Message(*message)]
-}
-
-/// The events the host sends when the sensor with key `name` measures its
-/// child at `width` by `height`: a first measurement is a show, so the
-/// show route hears it, and a sensor with only a resize route hears it
-/// there.
-pub(crate) fn measure(frame: &Frame, name: &str, width: f32, height: f32) -> Vec<Event> {
-    let Some(Node::Sensor {
-        on_show, on_resize, ..
-    }) = find(frame, name)
-    else {
-        panic!("no sensor {name:?} in {:?}", keys(frame));
-    };
-    let Some(handler) = on_show.or(*on_resize) else {
-        panic!("sensor {name:?} has no size route");
-    };
-    vec![Event::Size {
-        handler,
-        width,
-        height,
-    }]
-}
-
-/// The event the host sends while the named resize handle is grabbed.
-pub(crate) fn drag(frame: &Frame, name: &str, dx: f64, dy: f64) -> Vec<Event> {
-    let Some(Node::ResizeHandle { on_drag, .. }) = find(frame, name) else {
-        panic!("no resize handle {name:?} in {:?}", keys(frame));
-    };
-    let Some(handler) = on_drag else {
-        panic!("resize handle {name:?} has no drag route");
-    };
-    vec![Event::Drag {
-        handler: *handler,
-        dx,
-        dy,
-    }]
-}
-
-/// The event the host sends when `keystroke` (gpui's words: `"shift-left"`)
-/// goes down on the focused node with key `name`.
-pub(crate) fn key_down(frame: &Frame, name: &str, keystroke: &str) -> Vec<Event> {
-    let interactivity = match find(frame, name) {
-        Some(
-            Node::Container(crate::wire::ContainerNode { interactivity, .. })
-            | Node::UniformList { interactivity, .. }
-            | Node::List { interactivity, .. }
-            | Node::ResizeHandle { interactivity, .. }
-            | Node::Image { interactivity, .. }
-            | Node::Svg { interactivity, .. },
-        ) => interactivity,
-        _ => panic!("no interactive node {name:?} in {:?}", keys(frame)),
-    };
-    let Some(handler) = interactivity.on_key_down else {
-        panic!("{name:?} has no key route");
-    };
-    let keystroke = gpui::Keystroke::parse(keystroke).expect("a keystroke gpui reads");
-    let event = gpui::KeyDownEvent {
-        keystroke,
-        is_held: false,
-        prefer_character_input: false,
-    };
-    vec![Event::KeyDown {
-        handler,
-        phase: crate::wire::DispatchPhase::Bubble,
-        event: (&event).into(),
-    }]
-}
-
-/// The event the host sends when the modal backdrop dismisses an overlay.
-pub(crate) fn dismiss(frame: &Frame, name: &str) -> Vec<Event> {
-    let Some(Node::Overlay { on_dismiss, .. }) = find(frame, name) else {
-        panic!("no overlay {name:?} in {:?}", keys(frame));
-    };
-    let Some(message) = on_dismiss else {
-        panic!("overlay {name:?} has no dismiss route");
-    };
-    vec![Event::Message(*message)]
-}
-
 /// Every node key in the tree, depth first.
-pub(crate) fn keys(frame: &Frame) -> Vec<String> {
+pub(crate) fn keys(root: Option<&Node>) -> Vec<String> {
+    fn collect(node: &Node, out: &mut Vec<String>) {
+        if let Some(key) = node.key() {
+            out.push(key.to_string());
+        }
+        node.children().iter().for_each(|child| collect(child, out));
+    }
     let mut out = Vec::new();
-    if let Some(root) = &frame.root {
-        collect_keys(root, &mut out);
+    if let Some(root) = root {
+        collect(root, &mut out);
     }
     out
 }
 
-fn collect_keys(node: &Node, out: &mut Vec<String>) {
-    if let Some(key) = node.key() {
-        out.push(key.to_string());
-    }
-    node.children()
-        .iter()
-        .for_each(|child| collect_keys(child, out));
-}
-
 mod context;
 mod fake_host;
-pub use context::TestAppContext;
+mod focus;
+pub use context::{TestAppContext, TickReport};
 pub use fake_host::{FakeHost, StreamSender};
 
 /// A program for the SDK's own tests to follow with `Changes<Probe>`.

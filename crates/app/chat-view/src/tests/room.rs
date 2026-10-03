@@ -414,7 +414,6 @@ fn a_link_to_a_forge_room_lands_in_it() {
     configure(&mut cx);
     let routes = cx.host().stream::<api::HostRoute>();
     let props = cx.host().stream::<HostSession>();
-    cx.host().stream::<HostVisible>();
     let view = cx.open::<Chat>();
     props.send(Session {
         signer: "0102".into(),
@@ -468,7 +467,9 @@ fn a_link_to_a_forge_room_lands_in_it() {
         [Some("chat-message-forge-line-program-open")]
     );
     cx.simulate_click("chat-message-forge-line-program-open");
-    let opened = cx.host().opened_links();
+    let opened = cx
+        .host()
+        .requests::<ducktape_view_guest::methods::LinkOpen>();
     assert_eq!(
         opened.last().map(String::as_str),
         Some("duck://testnet-0a1b2c3d/forge/web/3")
@@ -652,6 +653,7 @@ fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
     // the thread's newest is its reply; the room's is still m2
     assert!(cx.interactivity("chat-message-m3").aria.active_descendant);
     assert!(cx.interactivity("chat-message-m2").aria.active_descendant);
+    cx.simulate_focus("chat-thread-list");
     cx.simulate_key_down("chat-thread-list", "up");
     view.read(|chat| {
         assert_eq!(chat.thread_cursor.id.as_deref(), Some("m1"));

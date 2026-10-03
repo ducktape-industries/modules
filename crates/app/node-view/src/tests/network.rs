@@ -13,14 +13,14 @@ fn unsupported(cx: &TestAppContext) {
 /// The sheet over node `this`, serving `chain.network` with `network`.
 fn voting(this: [u8; 2], network: NetworkStatus) -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
-    let ticks = node(&cx);
+    node(&cx);
+    let ticks = cx.host().stream::<ClockTicks>();
     cx.host().handle::<ChainStatus>(move |()| {
         Ok(NodeStatus {
             identity: this.to_vec(),
             ..status()
         })
     });
-    cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
     cx.host()
         .handle::<ChainNetwork>(move |()| Ok(network.clone()));
@@ -208,7 +208,7 @@ fn a_refusal_after_an_answer_keeps_the_votes() {
     assert!(!cx.has_text(NO_NETWORK));
     assert!(
         cx.host()
-            .logs()
+            .requests::<ducktape_view_guest::methods::HostLog>()
             .iter()
             .any(|line| line.contains("could not be reached"))
     );
@@ -223,9 +223,9 @@ fn a_refusal_after_an_answer_keeps_the_votes() {
 #[test]
 fn a_node_without_the_network_says_so_and_logs_once() {
     let mut cx = TestAppContext::new();
-    let ticks = node(&cx);
+    node(&cx);
+    let ticks = cx.host().stream::<ClockTicks>();
     unsupported(&cx);
-    cx.host().stream::<Changes<Valset>>();
     respond(&mut cx);
     cx.open::<Nodes>();
     cx.run_until_parked();
@@ -243,11 +243,17 @@ fn a_node_without_the_network_says_so_and_logs_once() {
     assert!(cx.find("nodes-footnote").is_none());
     let logged = cx
         .host()
-        .logs()
+        .requests::<ducktape_view_guest::methods::HostLog>()
         .iter()
         .filter(|line| line.contains("the validators' votes"))
         .count();
-    assert_eq!(logged, 1, "{:?}", cx.host().logs());
+    assert_eq!(
+        logged,
+        1,
+        "{:?}",
+        cx.host()
+            .requests::<ducktape_view_guest::methods::HostLog>()
+    );
 }
 
 /// Every status badge's text colour, in row order.

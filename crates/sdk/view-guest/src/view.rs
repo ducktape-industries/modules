@@ -291,9 +291,7 @@ mod follow_tests {
     use crate::methods::{self, Capability, Changes, Program, Query};
     use crate::testing::{Probe, TestAppContext};
     use crate::wire::Event;
-    use crate::{
-        Context, Driver, IntoElement, Loadable, ParentElement, Render, Task, View, Window,
-    };
+    use crate::{Context, IntoElement, Loadable, ParentElement, Render, Task, View, Window};
     use serde::{Deserialize, Serialize};
     use std::{cell::Cell, rc::Rc};
 
@@ -335,9 +333,7 @@ mod follow_tests {
         assert!(cx.has_text("2"), "the item that notifies is drawn");
         view.update(&mut cx, |heads, _, _| heads.live = None);
         cx.run_until_parked();
-        feed.send(None);
-        cx.run_until_parked();
-        view.read(|heads| assert_eq!(heads.seen, 2));
+        assert!(!feed.subscribed(), "dropping the task unsubscribed");
     }
 
     /// A program that keeps one number.
@@ -438,9 +434,11 @@ mod follow_tests {
     /// cancelled it, and so does a `refresh` task stored in its place.
     #[test]
     fn a_late_answer_never_lands_over_a_newer_one() {
-        let mut driver = Driver::<Count>::new();
-        let query = |frame: &crate::wire::Frame| -> Vec<u64> {
-            frame
+        let mut cx = TestAppContext::new();
+        cx.host().never::<Query<Counter>>();
+        let entity = cx.open::<Count>();
+        let query = |cx: &TestAppContext| -> Vec<u64> {
+            cx.last_frame()
                 .requests
                 .iter()
                 .filter(|request| request.kind == "module.query")
@@ -452,27 +450,29 @@ mod follow_tests {
             result: Ok(methods::encode(&value)),
             done: true,
         };
-        let first = query(&driver.tick(Vec::new()));
-        driver.tick(vec![answer(first[0], 0)]);
-        let entity = driver.entity();
-        entity.update_app(&mut driver.app, |view, _, cx| {
-            view.read(cx);
-            view.read(cx);
-            for _ in 0..2 {
+        let first = query(&cx);
+        cx.tick(vec![answer(first[0], 0)]);
+        // a reload and a refresh go out, then a newer pair replaces them
+        let read = |cx: &mut TestAppContext| {
+            entity.update(cx, |view, _, cx| {
+                view.read(cx);
                 let ask = cx.host().ask::<Query<Counter>>(());
                 view.read = Some(cx.refresh(ask, |view, value, cx| {
                     view.value = Loadable::from(value.map(|value| value * 10));
                     cx.notify();
                 }));
-            }
-        });
-        let ids = query(&driver.tick(Vec::new()));
-        assert_eq!(ids.len(), 4, "two reloads and two refreshes: {ids:?}");
-        // the two reloads: the newer lands, then the older
-        driver.tick(vec![answer(ids[1], 2), answer(ids[0], 1)]);
+            });
+            cx.tick(vec![]);
+            query(cx)
+        };
+        let older = read(&mut cx);
+        let newer = read(&mut cx);
+        assert_eq!((older.len(), newer.len()), (2, 2), "{older:?} {newer:?}");
+        // the reloads: the newer lands, then the older
+        cx.tick(vec![answer(newer[0], 2), answer(older[0], 1)]);
         entity.read(|view| assert_eq!(view.value.ready(), Some(&2), "{:?}", view.value));
-        // the two refreshes: the newer lands, then the older
-        driver.tick(vec![answer(ids[3], 4), answer(ids[2], 3)]);
+        // the refreshes: the newer lands, then the older
+        cx.tick(vec![answer(newer[1], 4), answer(older[1], 3)]);
         entity.read(|view| assert_eq!(view.value.ready(), Some(&40), "{:?}", view.value));
     }
 }

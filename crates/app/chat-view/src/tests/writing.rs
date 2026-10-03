@@ -49,8 +49,6 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
     let bytes = cx.snapshot().unwrap();
     let mut restored = TestAppContext::new();
     configure(&mut restored);
-    restored.host().never::<HostSession>();
-    restored.host().never::<HostVisible>();
     let view = restored.restore::<Chat>(&bytes).unwrap();
     restored.run_until_parked();
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
@@ -60,13 +58,7 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
 #[test]
 fn channel_create_preserves_busy_and_account_gates() {
     fn disabled(cx: &TestAppContext, id: &str) -> bool {
-        let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
-            interactivity,
-            ..
-        })) = cx.find(id)
-        else {
-            panic!("{id} button")
-        };
+        let interactivity = cx.interactivity(id);
         interactivity.aria.disabled == Some(true) && interactivity.on_click.is_none()
     }
 

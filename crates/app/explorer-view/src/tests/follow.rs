@@ -6,7 +6,6 @@ use super::*;
 #[test]
 fn an_identity_head_re_reads_the_accounts() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     let heads = cx.host().stream::<Changes<Identity>>();
     cx.open::<Explorer>();
@@ -39,7 +38,6 @@ fn an_identity_head_re_reads_the_accounts() {
 #[test]
 fn a_registry_head_re_reads_the_programs() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     let heads = cx.host().stream::<Changes<Modules>>();
     cx.open::<Explorer>();
@@ -78,7 +76,6 @@ fn a_registry_head_re_reads_the_programs() {
 #[test]
 fn an_empty_registry_says_so() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     cx.host().handle::<Query<Modules>>(|query| {
         Ok(match query {
@@ -104,7 +101,6 @@ fn an_empty_registry_says_so() {
 #[test]
 fn refused_accounts_say_why_and_retry_reads_again() {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     node(&mut cx, Rc::new(RefCell::new(12)));
     cx.host()
         .refuse::<Query<Identity>>("unavailable", "identity is not running here");

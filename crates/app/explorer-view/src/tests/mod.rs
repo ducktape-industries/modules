@@ -18,7 +18,7 @@ pub(crate) use ducktape_view_guest::methods::{
     ClipboardWrite, ClockTicks, Description, Head, HostRoute, HostSession, ModuleDescribe,
     NodeStatus, Outcome, Query, Receipt, Session, Tx, Value, refusal,
 };
-pub(crate) use ducktape_view_guest::testing::{StreamSender, TestAppContext};
+pub(crate) use ducktape_view_guest::testing::TestAppContext;
 pub(crate) use identity::Identity;
 pub(crate) use module_registry as registry;
 pub(crate) use module_registry::Modules;
@@ -189,15 +189,7 @@ pub(crate) fn forge() -> identity::Account {
     )
 }
 /// A node at `tip`, whose tip the test may move.
-pub(crate) fn node(
-    cx: &mut TestAppContext,
-    tip: Rc<RefCell<u64>>,
-) -> (StreamSender<HostSession>, StreamSender<HostRoute>) {
-    let feeds = (
-        cx.host().stream::<HostSession>(),
-        cx.host().stream::<HostRoute>(),
-    );
-    follow(cx);
+pub(crate) fn node(cx: &mut TestAppContext, tip: Rc<RefCell<u64>>) {
     let host = cx.host();
     let head = tip.clone();
     host.handle::<ChainStatus>(move |()| Ok(status(*head.borrow())));
@@ -223,7 +215,6 @@ pub(crate) fn node(
     host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
-    feeds
 }
 
 pub(crate) fn entry(program: &str, code: u8) -> registry::Entry {
@@ -261,7 +252,6 @@ pub(crate) fn respond(cx: &mut TestAppContext) {
 
 pub(crate) fn ready() -> (TestAppContext, Rc<RefCell<u64>>) {
     let mut cx = TestAppContext::new();
-    cx.host().stream::<ChainHeads>();
     let tip = Rc::new(RefCell::new(12));
     node(&mut cx, tip.clone());
     cx.open::<Explorer>();
@@ -318,11 +308,7 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
             }
         })
         .collect();
-    follow(cx);
     let host = cx.host();
-    host.stream::<ChainHeads>();
-    host.stream::<HostSession>();
-    host.stream::<HostRoute>();
     host.handle::<ChainStatus>(move |()| Ok(status(tip)));
     let blocks = chain.clone();
     host.handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
@@ -344,23 +330,10 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
     describes(cx);
 }
 
-/// The live heads of the three programs whose lists the explorer shows.
-pub(crate) fn follow(cx: &TestAppContext) {
-    cx.host()
-        .stream::<ducktape_view_guest::methods::HostOffset>();
-    cx.host().stream::<Changes<Identity>>();
-    cx.host().stream::<Changes<Valset>>();
-    cx.host().stream::<Changes<Modules>>();
-}
-
 /// A restore that must read nothing: every ask left unanswered.
 pub(crate) fn quiet_host(cx: &TestAppContext) {
-    follow(cx);
     let host = cx.host();
-    host.stream::<ChainHeads>();
     host.never::<ChainStatus>();
-    host.never::<HostSession>();
-    host.never::<HostRoute>();
     host.never::<ChainBlocks>();
     host.never::<Query<Identity>>();
     host.never::<Query<Valset>>();
