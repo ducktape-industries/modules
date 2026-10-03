@@ -99,7 +99,6 @@ fn a_pushed_head_is_drawn_with_the_page_it_brings_not_before() {
 fn the_head_is_followed_by_chain_heads_alone() {
     let mut cx = TestAppContext::new();
     let heads = cx.host().stream::<ChainHeads>();
-    cx.host().stream::<ClockTicks>();
     let tip = Rc::new(RefCell::new(12));
     node(&mut cx, tip.clone());
     cx.open::<Explorer>();
