@@ -35,14 +35,9 @@ impl Probe {
 }
 impl View for Probe {
     const NAME: &'static str = "Probe";
-    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut view = Self::default();
-        view.watch(cx, "visible");
-        view.watch(cx, "data");
-        view
-    }
-    fn restored(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.streams = Self::new(window, cx).streams;
+    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.watch(cx, "visible");
+        self.watch(cx, "data");
     }
 }
 impl Render for Probe {
@@ -400,7 +395,7 @@ fn update_guard_detects_missing_notify() {
 #[test]
 #[should_panic(expected = "state changed without cx.notify()")]
 fn listener_guard_detects_missing_notify() {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct Silent(bool);
     impl View for Silent {
         const NAME: &'static str = "Silent";
@@ -482,7 +477,7 @@ mod tick_alloc;
 
 #[test]
 fn notifying_during_render_requests_another_frame() {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct Again(bool);
     impl View for Again {
         const NAME: &'static str = "Again";
@@ -507,7 +502,7 @@ fn notifying_during_render_requests_another_frame() {
 #[test]
 fn the_manifest_bytes_are_what_the_view_trait_says() {
     use wire::methods::Capability;
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct App;
     impl View for App {
         const NAME: &'static str = "App";

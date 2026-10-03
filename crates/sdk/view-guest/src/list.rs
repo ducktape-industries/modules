@@ -173,7 +173,8 @@ impl ListState {
     /// host asks for the rows it is missing, not for all it shows, so
     /// replacing dropped the rows on screen and the next frame asked for those
     /// back. A request away from the window is a jump, and replaces it.
-    fn request(&self, request: &wire::ListRequest) {
+    /// Answers whether the window moved: a request inside it changes no row.
+    fn request(&self, request: &wire::ListRequest) -> bool {
         let mut inner = self.0.inner.borrow_mut();
         let count = inner.item_count;
         let asked = bounded_range(request.start..request.end, count);
@@ -186,6 +187,7 @@ impl ListState {
             (true, false) if asked.start < held.start => bounded_window(start, end, count),
             (true, false) => end - wire::MAX_LIST_ROWS..end,
         };
+        inner.requested != held
     }
     fn observe(&self, event: &wire::ListScroll, window: &mut Window, app: &mut App) {
         {
@@ -281,8 +283,11 @@ impl Element for List {
         interactivity.id = None;
         let (_, interactivity) = interactivity.into_wire(lowering);
         let request_state = state.clone();
-        let request_handler =
-            lowering.route(move |request: &wire::ListRequest, _, _| request_state.request(request));
+        let request_handler = lowering.route(move |request: &wire::ListRequest, _, app| {
+            if request_state.request(request) {
+                app.notify();
+            }
+        });
         let scroll_handler = state.0.scroll_handler.borrow().is_some().then(|| {
             let scroll_state = state.clone();
             lowering.route(move |event: &wire::ListScroll, window, app| {
@@ -391,7 +396,7 @@ mod tests {
     use crate::{Context, Driver, ParentElement, Render, Role, View, div};
     use serde::{Deserialize, Serialize};
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct ListView {
         #[serde(skip)]
         state: ListState,
@@ -468,6 +473,32 @@ mod tests {
             .filter(|patch| matches!(patch, wire::Patch::Insert { .. }))
             .count();
         assert_eq!((props, inserts), (0, 1), "{:?}", frame.patches);
+    }
+
+    /// The host asks for rows the window already holds: no row changes, so
+    /// the view does not render; a row outside it renders once.
+    #[test]
+    fn a_request_inside_the_window_renders_nothing() {
+        let mut driver = Driver::<ListView>::new();
+        let first = driver.tick(vec![]);
+        let wire::Node::List {
+            request_handler,
+            range_start,
+            ..
+        } = list_node(&first)
+        else {
+            panic!("expected list")
+        };
+        let (handler, start) = (*request_handler, *range_start);
+        let ask = |start, end| wire::Event::ListRequest {
+            handler,
+            request: wire::ListRequest { start, end },
+        };
+        let renders = driver.renders;
+        assert!(driver.tick(vec![ask(start, start + 2)]).unchanged);
+        assert_eq!(driver.renders, renders, "rows it holds render nothing");
+        driver.tick(vec![ask(start - 1, start)]);
+        assert_eq!(driver.renders, renders + 1, "a row it lacks renders once");
     }
 
     #[test]

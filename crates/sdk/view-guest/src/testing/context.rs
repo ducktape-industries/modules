@@ -10,6 +10,7 @@ trait TestDriver {
     fn app_mut(&mut self) -> &mut App;
     fn host(&self) -> Host;
     fn snapshot(&self) -> Result<Vec<u8>, String>;
+    fn renders(&self) -> u64;
 }
 impl<V: View> TestDriver for Driver<V> {
     // what the host gets: the context patches its tree as the host does
@@ -25,6 +26,9 @@ impl<V: View> TestDriver for Driver<V> {
     fn snapshot(&self) -> Result<Vec<u8>, String> {
         self.snapshot()
     }
+    fn renders(&self) -> u64 {
+        self.renders
+    }
 }
 
 /// A single view and its typed host, driven until no immediate work remains.
@@ -34,6 +38,7 @@ pub struct TestAppContext {
     driver: Option<Box<dyn TestDriver>>,
     frame: Frame,
     globals: crate::context::Globals,
+    ticks: u64,
 }
 
 impl TestAppContext {
@@ -50,6 +55,7 @@ impl TestAppContext {
         self.host.reset_connection();
         self.driver = Some(Box::new(driver));
         self.frame = Frame::default();
+        self.ticks = 0;
         self.run_until_parked();
         entity
     }
@@ -63,8 +69,21 @@ impl TestAppContext {
         self.host.reset_connection();
         self.driver = Some(Box::new(driver));
         self.frame = Frame::default();
+        self.ticks = 0;
         self.run_until_parked();
         Ok(entity)
+    }
+    /// How many times the open view rendered since it was opened or
+    /// restored. A view renders on a tick after it called `cx.notify()`,
+    /// and only then (or when the host lost its tree): read it before and
+    /// after an event to pin what the event costs.
+    pub fn renders(&self) -> u64 {
+        self.driver.as_ref().expect("open a view first").renders()
+    }
+    /// How many ticks the open view ran since it was opened or restored:
+    /// one per batch of host events, and again while it says it is busy.
+    pub fn ticks(&self) -> u64 {
+        self.ticks
     }
     pub(crate) fn app_mut(&mut self) -> &mut App {
         self.driver.as_mut().expect("open a view first").app_mut()
@@ -98,6 +117,7 @@ impl TestAppContext {
             events.extend(self.host.take_events());
             let driver = self.driver.as_mut().expect("open a view first");
             let mut frame = driver.tick(std::mem::take(&mut events));
+            self.ticks += 1;
             self.host.accept(&frame, &driver.host());
             if frame.root.is_none() {
                 frame.root = self.frame.root.take();
@@ -204,12 +224,8 @@ mod tests {
         const NAME: &'static str = "LiveView";
         const CAPABILITIES: &'static [Capability] = &[Capability::Module];
         const TARGETS: &'static [&'static str] = &[<Probe as crate::methods::Program>::NAME];
-        fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-            let mut view = Self::default();
-            view.restored(window, cx);
-            view
-        }
-        fn restored(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        // subscribes in `attach` alone: `new` is the default
+        fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
             let mut stream = cx.host().subscribe::<Changes<Probe>>(());
             self.task = Some(cx.spawn(async move |this, cx| {
                 while let Some(item) = stream.next().await {
@@ -229,8 +245,11 @@ mod tests {
         }
     }
 
+    /// A view that follows the host in `attach` alone keeps following it
+    /// after a redeploy restores it from its snapshot, and hears each item
+    /// once.
     #[test]
-    fn restoring_resubscribes_without_replaying_old_events_or_duplicate_ids() {
+    fn a_view_that_subscribes_in_attach_keeps_its_followers_across_a_restore() {
         let mut cx = TestAppContext::new();
         let feed = cx.host().stream::<Changes<Probe>>();
         cx.open::<LiveView>();

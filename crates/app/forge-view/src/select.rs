@@ -67,7 +67,7 @@ impl Forge {
 
     pub(crate) fn stage(&self, query: &Query) -> Stage<'_> {
         match self.data.get(query) {
-            Some(Loadable::Ready(reply)) => Stage::Ready(reply),
+            Some(Loadable::Ready(reply) | Loadable::Reloading(reply, _)) => Stage::Ready(reply),
             Some(Loadable::Failed(refusal)) => Stage::Failed(refusal),
             _ => Stage::Loading,
         }

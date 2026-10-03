@@ -235,7 +235,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
             ))
             .into_any_element();
         }
-        Loadable::Ready(rows) => rows,
+        Loadable::Ready(rows) | Loadable::Reloading(rows, _) => rows,
     };
     if all.is_empty() {
         return design::empty_state(
@@ -854,7 +854,7 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
                 .child(design::quiet(refusal.message.clone(), theme))
                 .into_any_element(),
         ],
-        Loadable::Ready(recent) if recent.items.is_empty() => {
+        Loadable::Ready(recent) | Loadable::Reloading(recent, _) if recent.items.is_empty() => {
             vec![
                 div()
                     .id("members-no-activity")
@@ -867,7 +867,7 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
                     .into_any_element(),
             ]
         }
-        Loadable::Ready(recent) => recent
+        Loadable::Ready(recent) | Loadable::Reloading(recent, _) => recent
             .items
             .iter()
             .enumerate()

@@ -9,7 +9,7 @@ use crate::api::{Ask, HostSession, Session, SubmitForge};
 use crate::state::{ChangeTab, Filter, RepoTab};
 use ducktape_view_guest::methods::HostId;
 use ducktape_view_guest::methods::{Query as ProgramQuery, Submit};
-use ducktape_view_guest::testing::TestAppContext;
+use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::{Entity, Theme, wire};
 use forge::{ChangeFilter, ChangeState, Op, PageRequest, PageResponse, Query, Reply};
 
@@ -172,6 +172,30 @@ fn forge_lines() -> Vec<chat::MsgRow> {
     rows
 }
 
+/// Chat's answers: the roster, and each change channel's rows.
+fn chat_answer(query: chat::Query) -> chat::Reply {
+    match query {
+        chat::Query::Accounts { .. } => chat::Reply::Accounts(accounts()),
+        chat::Query::Roots { channel_id, .. } => chat::Reply::Roots(PageResponse {
+            height: 1,
+            items: match channel_id.as_str() {
+                "forge:project:1" => forge_lines(),
+                // change 2 was opened, then closed
+                "forge:project:2" => (1..=2)
+                    .map(|seq| chat::MsgRow {
+                        channel_id: channel_id.clone(),
+                        message_id: format!("forge:{seq:016x}"),
+                        ..message(seq, forge::Principal::Account(FORGE), "raw forge text")
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            },
+            next: None,
+        }),
+        other => panic!("unexpected chat query: {other:?}"),
+    }
+}
+
 pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
     cx.host().handle::<Ask>(move |query| {
         if mode == "refused" && !matches!(query, Query::Repos { .. }) {
@@ -179,28 +203,8 @@ pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
         }
         Ok(answer(&query, mode))
     });
-    cx.host().handle::<ProgramQuery<::chat::Chat>>(|query| {
-        Ok(match query {
-            chat::Query::Accounts { .. } => chat::Reply::Accounts(accounts()),
-            chat::Query::Roots { channel_id, .. } => chat::Reply::Roots(PageResponse {
-                height: 1,
-                items: match channel_id.as_str() {
-                    "forge:project:1" => forge_lines(),
-                    // change 2 was opened, then closed
-                    "forge:project:2" => (1..=2)
-                        .map(|seq| chat::MsgRow {
-                            channel_id: channel_id.clone(),
-                            message_id: format!("forge:{seq:016x}"),
-                            ..message(seq, forge::Principal::Account(FORGE), "raw forge text")
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                },
-                next: None,
-            }),
-            other => panic!("unexpected chat query: {other:?}"),
-        })
-    });
+    cx.host()
+        .handle::<ProgramQuery<::chat::Chat>>(|query| Ok(chat_answer(query)));
     cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
     cx.host().handle::<SubmitForge>(|_| Ok(Vec::new()));
     cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
@@ -241,6 +245,188 @@ pub(crate) fn booted_as(mode: &'static str, account: u64) -> (TestAppContext, En
     });
     cx.run_until_parked();
     (cx, view)
+}
+
+/// The live heads of the three programs forge follows, in the test's hands.
+struct Heads {
+    forge: StreamSender<Changes<forge::Forge>>,
+    chat: StreamSender<Changes<::chat::Chat>>,
+    identity: StreamSender<Changes<Identity>>,
+}
+
+/// Boots like [`booted`], following heads the test sends, and opens
+/// `project`.
+fn followed(mode: &'static str) -> (TestAppContext, Heads) {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx, mode);
+    let heads = Heads {
+        forge: cx.host().stream(),
+        chat: cx.host().stream(),
+        identity: cx.host().stream(),
+    };
+    let props = cx.host().stream::<HostSession>();
+    cx.host()
+        .stream::<ducktape_view_guest::methods::HostRoute>();
+    cx.open::<Forge>();
+    props.send(Session {
+        signer: abi::hex(b"reviewer"),
+        account: Some(2),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    cx.run_until_parked();
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    (cx, heads)
+}
+
+/// A block that changed nothing on screen: a head of each program forge
+/// follows re-reads every query the repository page shows, the same
+/// replies land, and the view draws nothing for the heads or the landings.
+#[test]
+fn a_block_whose_rereads_land_the_same_replies_draws_nothing() {
+    let (mut cx, heads) = followed("default");
+    let renders = cx.renders();
+    let sends: [(&str, &dyn Fn()); 3] = [
+        ("forge", &|| heads.forge.send(Some(100))),
+        ("chat", &|| heads.chat.send(Some(101))),
+        ("identity", &|| heads.identity.send(Some(102))),
+    ];
+    for (program, send) in sends {
+        let asked = cx.host().requests::<Ask>().len();
+        send();
+        cx.run_until_parked();
+        assert!(
+            cx.host().requests::<Ask>().len() >= asked + 4,
+            "{program}: the page re-read"
+        );
+        assert_eq!(cx.renders(), renders, "{program}'s head drew nothing");
+    }
+}
+
+/// A refusal on screen is asked again with each block, without a Retry:
+/// while it holds it stays, drawing nothing, and the block after the node
+/// answers replaces it with the page.
+#[test]
+fn a_refused_read_is_asked_again_with_each_block_until_it_answers() {
+    let (mut cx, heads) = followed("default");
+    cx.host().handle::<Ask>(|query| match query {
+        Query::Log { .. } => Err(refusal("refused-not-found")),
+        query => Ok(answer(&query, "default")),
+    });
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    let sentence = refusal("refused-not-found").message;
+    assert!(cx.has_text(&sentence), "{:?}", cx.texts());
+    let logs = |cx: &TestAppContext| {
+        let asked = cx.host().requests::<Ask>();
+        asked
+            .iter()
+            .filter(|query| matches!(query, Query::Log { .. }))
+            .count()
+    };
+    let (renders, asked) = (cx.renders(), logs(&cx));
+    heads.forge.send(Some(100));
+    cx.run_until_parked();
+    assert_eq!(logs(&cx), asked + 1, "the refusal was asked again");
+    assert!(cx.has_text(&sentence));
+    assert_eq!(cx.renders(), renders, "a refusal that holds drew nothing");
+    cx.host()
+        .handle::<Ask>(|query| Ok(answer(&query, "default")));
+    heads.forge.send(Some(101));
+    cx.run_until_parked();
+    assert!(!cx.has_text(&sentence), "{:?}", cx.texts());
+    assert!(cx.has_text("Feature"), "{:?}", cx.texts());
+}
+
+/// A change's conversation refused (the node was away) is asked again with
+/// each block: while the refusal holds it stays, drawing nothing, and the
+/// block after the node answers replaces it with the rows. It has no Retry
+/// of its own, so before this only leaving the change cleared it.
+#[test]
+fn a_refused_conversation_is_asked_again_with_each_block_until_it_answers() {
+    let (mut cx, heads) = followed("default");
+    cx.host()
+        .handle::<ProgramQuery<::chat::Chat>>(|query| match query {
+            chat::Query::Roots { .. } => Err(ducktape_view_guest::host::Error::new(
+                "not_connected",
+                "the node is not connected",
+            )),
+            query => Ok(chat_answer(query)),
+        });
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-conversation-refused").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+    let renders = cx.renders();
+    heads.chat.send(Some(100));
+    cx.run_until_parked();
+    assert!(cx.find("forge-conversation-refused").is_some());
+    assert_eq!(cx.renders(), renders, "a refusal that holds drew nothing");
+    cx.host()
+        .handle::<ProgramQuery<::chat::Chat>>(|query| Ok(chat_answer(query)));
+    heads.chat.send(Some(101));
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-conversation-refused").is_none(),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.has_text("Reading it now"), "{:?}", cx.texts());
+}
+
+/// A read still out when a block lands is left to land: a block asks
+/// again only what is on screen, so heads that come faster than a slow
+/// read (a wide Compare, a large Diff) never restart it.
+#[test]
+fn a_block_leaves_a_read_still_out_to_land() {
+    let (mut cx, heads) = followed("default");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    let blocks = |cx: &mut TestAppContext| {
+        for height in 100..103 {
+            heads.chat.send(Some(height));
+            cx.run_until_parked();
+        }
+    };
+    // chat stops answering: the change's conversation is still out
+    cx.host().never::<ProgramQuery<::chat::Chat>>();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    let conversations = |cx: &TestAppContext| {
+        let asked = cx.host().requests::<ProgramQuery<::chat::Chat>>();
+        asked
+            .iter()
+            .filter(|query| matches!(query, chat::Query::Roots { .. }))
+            .count()
+    };
+    assert_eq!(conversations(&cx), 1);
+    blocks(&mut cx);
+    assert_eq!(
+        conversations(&cx),
+        1,
+        "the conversation was not asked again"
+    );
+    // then forge stops: the Files tab's diff is still out
+    cx.host().never::<Ask>();
+    cx.simulate_click("forge-change-tab-files");
+    cx.run_until_parked();
+    let diffs = |cx: &TestAppContext| {
+        let asked = cx.host().requests::<Ask>();
+        asked
+            .iter()
+            .filter(|query| matches!(query, Query::Diff { .. }))
+            .count()
+    };
+    assert_eq!(diffs(&cx), 1);
+    blocks(&mut cx);
+    assert_eq!(diffs(&cx), 1, "the diff was not asked again");
 }
 
 /// Boots and opens `project`.

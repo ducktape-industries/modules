@@ -12,8 +12,9 @@ pub trait Render: 'static + Sized {
 /// A root view: everything the host reads about it (the manifest
 /// `export_view!` writes: [`NAME`](View::NAME), [`DESCRIPTION`](View::DESCRIPTION),
 /// [`CAPABILITIES`](View::CAPABILITIES), [`MIN_WINDOW_WIDTH`](View::MIN_WINDOW_WIDTH),
-/// [`TARGETS`](View::TARGETS)) and its two lifecycle entries.
-pub trait View: Render + Serialize + DeserializeOwned {
+/// [`TARGETS`](View::TARGETS)), how it is built ([`new`](View::new)) and
+/// how it joins the host ([`attach`](View::attach)).
+pub trait View: Render + Serialize + DeserializeOwned + Default {
     /// The name on the tab and in the catalog, `1..=64` bytes.
     const NAME: &'static str;
     /// One line for the catalog, at most 256 bytes.
@@ -40,14 +41,11 @@ pub trait View: Render + Serialize + DeserializeOwned {
     /// ```
     /// # use serde::{Deserialize, Serialize};
     /// # use view_guest::{Context, IntoElement, Render, View, Window, div};
-    /// #[derive(Serialize, Deserialize)]
+    /// #[derive(Default, Serialize, Deserialize)]
     /// struct Wide;
     /// impl View for Wide {
     ///     const NAME: &'static str = "Wide";
     ///     const MIN_WINDOW_WIDTH: u32 = 640;
-    ///     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
-    ///         Wide
-    ///     }
     /// }
     /// # impl Render for Wide {
     /// #     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
@@ -63,14 +61,11 @@ pub trait View: Render + Serialize + DeserializeOwned {
     /// ```compile_fail,E0080
     /// # use serde::{Deserialize, Serialize};
     /// # use view_guest::{Context, IntoElement, Render, View, Window, div};
-    /// #[derive(Serialize, Deserialize)]
+    /// #[derive(Default, Serialize, Deserialize)]
     /// struct Zero;
     /// impl View for Zero {
     ///     const NAME: &'static str = "Zero";
     ///     const MIN_WINDOW_WIDTH: u32 = 0;
-    ///     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
-    ///         Zero
-    ///     }
     /// }
     /// # impl Render for Zero {
     /// #     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
@@ -81,31 +76,44 @@ pub trait View: Render + Serialize + DeserializeOwned {
     /// # fn main() {}
     /// ```
     const MIN_WINDOW_WIDTH: u32 = 480;
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self;
-    fn restored(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {}
+    /// The view's state on first mount, before it is attached. State only:
+    /// what it follows and asks starts in [`attach`](View::attach).
+    fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
+        Self::default()
+    }
+    /// Joins the host: every subscription, follower and read the view keeps
+    /// running. Called once per mount, after [`new`](View::new) on a first
+    /// mount and after the snapshot is decoded on a restore, so what is
+    /// started here survives a redeploy. It also repairs what a snapshot
+    /// cannot carry (a request in flight, a menu half open).
+    fn attach(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {}
 }
-/// Data the view asked for, in the four states it can be in. `Loading`
-/// carries the abort handle: dropping the slot cancels the load.
-/// Serialises `Loading` as `Idle`, so a restored view reloads it.
+/// Data the view asked for, in the states it can be in. `Loading` and
+/// `Reloading` carry the read's abort handle: dropping or replacing the
+/// slot cancels it. Serialises `Loading` as `Idle` and `Reloading` as the
+/// value it shows, so a restored view reads them again.
 #[derive(Default)]
 pub enum Loadable<T> {
     #[default]
     Idle,
     Loading(Task<()>),
     Ready(T),
+    /// The value on screen while [`Context::reload`] reads it again.
+    Reloading(T, Task<()>),
     Failed(Error),
 }
 
 impl<T> Loadable<T> {
+    /// The value on screen: ready, or ready while it is read again.
     pub fn ready(&self) -> Option<&T> {
         match self {
-            Self::Ready(value) => Some(value),
+            Self::Ready(value) | Self::Reloading(value, _) => Some(value),
             _ => None,
         }
     }
     pub fn ready_mut(&mut self) -> Option<&mut T> {
         match self {
-            Self::Ready(value) => Some(value),
+            Self::Ready(value) | Self::Reloading(value, _) => Some(value),
             _ => None,
         }
     }
@@ -148,7 +156,7 @@ impl<T: Serialize> Serialize for Loadable<T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             Self::Idle | Self::Loading(_) => LoadableSnapshot::<&T>::Idle,
-            Self::Ready(value) => LoadableSnapshot::Ready(value),
+            Self::Ready(value) | Self::Reloading(value, _) => LoadableSnapshot::Ready(value),
             Self::Failed(refusal) => LoadableSnapshot::Failed {
                 code: refusal.code.clone(),
                 message: refusal.message.clone(),
@@ -174,6 +182,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Loadable<T> {
             Self::Idle => f.write_str("Idle"),
             Self::Loading(_) => f.write_str("Loading"),
             Self::Ready(value) => f.debug_tuple("Ready").field(value).finish(),
+            Self::Reloading(value, _) => f.debug_tuple("Reloading").field(value).finish(),
             Self::Failed(refusal) => f.debug_tuple("Failed").field(refusal).finish(),
         }
     }
@@ -194,11 +203,54 @@ impl<V: View> Context<'_, V> {
         });
         Loadable::Loading(task)
     }
+    /// Reads the value `slot` holds again. A value already there stays on
+    /// screen (`Reloading`) until the answer lands; any other slot shows
+    /// `Loading`. The read lives in the slot: dropping or replacing the slot
+    /// cancels it, so a newer `reload` of the slot supersedes this one and
+    /// an older answer never lands over a newer one. `at` finds the slot
+    /// again when the answer lands: a value lands `Ready`, a refusal
+    /// `Failed`. It notifies when, and only when, it changes what the slot
+    /// shows: a re-read that lands the value already there draws nothing.
+    pub fn reload<T: PartialEq + 'static>(
+        &mut self,
+        slot: &mut Loadable<T>,
+        work: impl Future<Output = Result<T, Error>> + 'static,
+        at: impl Fn(&mut V) -> &mut Loadable<T> + 'static,
+    ) {
+        let task = self.spawn(async move |this, cx| {
+            let result = work.await;
+            let _ = this.update(cx, |view, cx| {
+                let slot = at(view);
+                match (slot.take(), result) {
+                    (Loadable::Reloading(shown, _), Ok(value)) if shown == value => {
+                        *slot = Loadable::Ready(shown)
+                    }
+                    (_, result) => {
+                        *slot = Loadable::from(result);
+                        cx.notify();
+                    }
+                }
+            });
+        });
+        *slot = match slot.take() {
+            Loadable::Ready(shown) | Loadable::Reloading(shown, _) => {
+                Loadable::Reloading(shown, task)
+            }
+            Loadable::Loading(_) => Loadable::Loading(task),
+            Loadable::Idle | Loadable::Failed(_) => {
+                self.notify();
+                Loadable::Loading(task)
+            }
+        };
+    }
+
     /// Runs `each` on every item `stream` yields, in order, until the
-    /// stream ends or the view is gone; the view is re-rendered after each.
-    /// Keep the task: dropping it unsubscribes. A refused item is handed to
-    /// `each` like any other and does not end the stream, so each follower
-    /// says what a refusal means to it.
+    /// stream ends or the view is gone. `each` decides what the item means:
+    /// it calls `cx.notify()` when the item changed what the view shows,
+    /// and an item that changes nothing draws nothing. Keep the task:
+    /// dropping it unsubscribes. A refused item is handed to `each` like
+    /// any other, so each follower says what a refusal means to it; a
+    /// refusal the host sends as the stream's last item ends the stream.
     pub fn for_each<T: 'static>(
         &mut self,
         mut stream: impl Stream<Item = T> + Unpin + 'static,
@@ -206,10 +258,7 @@ impl<V: View> Context<'_, V> {
     ) -> Task<()> {
         self.spawn(async move |this, cx| {
             while let Some(item) = stream.next().await {
-                let landed = this.update_in(cx, |view, window, cx| {
-                    each(view, item, window, cx);
-                    cx.notify();
-                });
+                let landed = this.update_in(cx, |view, window, cx| each(view, item, window, cx));
                 if landed.is_err() {
                     break;
                 }
@@ -217,40 +266,36 @@ impl<V: View> Context<'_, V> {
         })
     }
 
-    /// Re-reads what is already on screen: the old value stays until
-    /// `land` takes the new one, and stays if the read is refused. A
-    /// refusal lands in the host's log (`host.log`, so the view declares
-    /// `host`), named by the view, so a failed re-read is never silent.
+    /// Runs `work` and hands its answer, the value or the refusal, to
+    /// `land`, which changes what it changes and calls `cx.notify()` if
+    /// that moved what the view shows. Keep the task beside the value it
+    /// reads: a newer read stored in its place cancels this one, so an
+    /// older answer never lands over a newer one, and dropping it cancels
+    /// the read. A value kept whole in a [`Loadable`] is
+    /// [`reload`](Context::reload)'s.
     pub fn refresh<T: 'static>(
         &mut self,
         work: impl Future<Output = Result<T, Error>> + 'static,
-        land: impl FnOnce(&mut V, T, &mut Context<V>) + 'static,
-    ) {
+        land: impl FnOnce(&mut V, Result<T, Error>, &mut Context<V>) + 'static,
+    ) -> Task<()> {
         self.spawn(async move |this, cx| {
             let result = work.await;
             // the view is gone: nothing is waiting for the read
-            let _ = this.update(cx, |view, cx| match result {
-                Ok(value) => {
-                    land(view, value, cx);
-                    cx.notify();
-                }
-                Err(refusal) => cx.host().log(format!(
-                    "{}: a refresh was refused: {refusal}",
-                    std::any::type_name::<V>()
-                )),
-            });
+            let _ = this.update(cx, |view, cx| land(view, result, cx));
         })
-        .detach();
     }
 }
 
 #[cfg(test)]
 mod follow_tests {
-    use crate::methods::Changes;
-    use crate::testing::Probe;
-    use crate::testing::TestAppContext;
-    use crate::{Context, IntoElement, ParentElement, Render, Task, View, Window};
+    use crate::methods::{self, Capability, Changes, Program, Query};
+    use crate::testing::{Probe, TestAppContext};
+    use crate::wire::Event;
+    use crate::{
+        Context, Driver, IntoElement, Loadable, ParentElement, Render, Task, View, Window,
+    };
     use serde::{Deserialize, Serialize};
+    use std::{cell::Cell, rc::Rc};
 
     /// Counts the heads a program's live stream announces.
     #[derive(Default, Serialize, Deserialize)]
@@ -261,17 +306,14 @@ mod follow_tests {
     }
     impl View for Heads {
         const NAME: &'static str = "Heads";
-        const CAPABILITIES: &'static [crate::methods::Capability] = &[
-            crate::methods::Capability::Module,
-            crate::methods::Capability::Host,
-        ];
-        const TARGETS: &'static [&'static str] = &[<Probe as crate::methods::Program>::NAME];
-        fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
+        const TARGETS: &'static [&'static str] = &[<Probe as Program>::NAME];
+        fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
             let live = cx.host().subscribe::<Changes<Probe>>(());
-            Self {
-                seen: 0,
-                live: Some(cx.for_each(live, |view: &mut Heads, _, _, _| view.seen += 1)),
-            }
+            self.live = Some(cx.for_each(live, |view: &mut Heads, _, _, cx| {
+                view.seen += 1;
+                cx.notify();
+            }));
         }
     }
     impl Render for Heads {
@@ -290,7 +332,7 @@ mod follow_tests {
         feed.send(None);
         cx.run_until_parked();
         view.read(|heads| assert_eq!(heads.seen, 2));
-        assert!(cx.has_text("2"), "each item re-renders the view");
+        assert!(cx.has_text("2"), "the item that notifies is drawn");
         view.update(&mut cx, |heads, _, _| heads.live = None);
         cx.run_until_parked();
         feed.send(None);
@@ -298,29 +340,139 @@ mod follow_tests {
         view.read(|heads| assert_eq!(heads.seen, 2));
     }
 
+    /// A program that keeps one number.
+    struct Counter;
+    impl Program for Counter {
+        const NAME: &'static str = "counter";
+        type Op = ();
+        type Query = ();
+        type Reply = u64;
+    }
+
+    /// Shows the counter, read again on each of its heads.
+    #[derive(Default, Serialize, Deserialize)]
+    struct Count {
+        value: Loadable<u64>,
+        #[serde(skip)]
+        live: Option<Task<()>>,
+        #[serde(skip)]
+        read: Option<Task<()>>,
+    }
+    impl View for Count {
+        const NAME: &'static str = "Count";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
+        const TARGETS: &'static [&'static str] = &[Counter::NAME];
+        fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+            let live = cx.host().subscribe::<Changes<Counter>>(());
+            self.live = Some(cx.for_each(live, |view: &mut Count, _, _, cx| view.read(cx)));
+            self.read(cx);
+        }
+    }
+    impl Count {
+        fn read(&mut self, cx: &mut Context<Self>) {
+            let ask = cx.host().ask::<Query<Counter>>(());
+            cx.reload(&mut self.value, ask, |view| &mut view.value);
+        }
+    }
+    impl Render for Count {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            crate::div().child(match &self.value {
+                Loadable::Ready(value) | Loadable::Reloading(value, _) => value.to_string(),
+                Loadable::Failed(refusal) => refusal.message.clone(),
+                Loadable::Idle | Loadable::Loading(_) => "…".to_owned(),
+            })
+        }
+    }
+
+    /// A head whose re-read lands the number already on screen draws
+    /// nothing: neither the item nor the landing renders. A head that moves
+    /// the number draws it once.
     #[test]
-    fn a_refused_refresh_keeps_the_value_and_logs_why() {
-        use crate::methods::Query;
+    fn a_head_whose_reread_lands_the_same_value_draws_nothing() {
         let mut cx = TestAppContext::new();
+        let feed = cx.host().stream::<Changes<Counter>>();
+        let count = Rc::new(Cell::new(5u64));
+        let answer = count.clone();
         cx.host()
-            .refuse::<Query<Probe>>("stale", "the probe moved on");
-        let _feed = cx.host().stream::<Changes<Probe>>();
-        let view = cx.open::<Heads>();
-        view.update(&mut cx, |heads, _, cx| {
-            heads.seen = 7;
-            cx.notify();
-            cx.refresh(cx.host().ask::<Query<Probe>>(()), |heads, (), _| {
-                heads.seen = 0
-            });
-        });
+            .handle::<Query<Counter>>(move |()| Ok(answer.get()));
+        cx.open::<Count>();
+        assert!(cx.has_text("5"), "{:?}", cx.texts());
+        let renders = cx.renders();
+        feed.send(Some(1));
         cx.run_until_parked();
-        view.read(|heads| assert_eq!(heads.seen, 7));
-        let logs = cx.host().logs();
-        assert!(
-            logs.iter()
-                .any(|line| line.contains("refresh was refused")
-                    && line.contains("the probe moved on")),
-            "{logs:?}"
+        assert_eq!(
+            cx.host().requests::<Query<Counter>>().len(),
+            2,
+            "the head re-read"
         );
+        assert_eq!(cx.renders() - renders, 0, "the same count drew nothing");
+        count.set(6);
+        feed.send(Some(2));
+        cx.run_until_parked();
+        assert!(cx.has_text("6"), "{:?}", cx.texts());
+        assert_eq!(cx.renders() - renders, 1, "a moved count draws once");
+    }
+
+    /// The view declares no `host`: a refused re-read reaches the view
+    /// itself, in the slot it re-read, not a log it cannot write.
+    #[test]
+    fn a_refused_reload_lands_its_refusal_in_the_view() {
+        let mut cx = TestAppContext::new();
+        let feed = cx.host().stream::<Changes<Counter>>();
+        cx.host().handle::<Query<Counter>>(|()| Ok(5));
+        let view = cx.open::<Count>();
+        cx.host()
+            .refuse::<Query<Counter>>("stale", "the counter moved on");
+        feed.send(Some(1));
+        cx.run_until_parked();
+        view.read(|view| {
+            let refusal = view.value.failed().expect("the refusal landed");
+            assert_eq!(refusal.message, "the counter moved on");
+        });
+        assert!(cx.has_text("the counter moved on"), "{:?}", cx.texts());
+    }
+
+    /// Two reads of one value are out; the host answers the newer first
+    /// (the older was retrying a transport failure). The older answer must
+    /// not land over the newer one: in a `reload` slot the newer read
+    /// cancelled it, and so does a `refresh` task stored in its place.
+    #[test]
+    fn a_late_answer_never_lands_over_a_newer_one() {
+        let mut driver = Driver::<Count>::new();
+        let query = |frame: &crate::wire::Frame| -> Vec<u64> {
+            frame
+                .requests
+                .iter()
+                .filter(|request| request.kind == "module.query")
+                .map(|request| request.id)
+                .collect()
+        };
+        let answer = |id: u64, value: u64| Event::Response {
+            id,
+            result: Ok(methods::encode(&value)),
+            done: true,
+        };
+        let first = query(&driver.tick(Vec::new()));
+        driver.tick(vec![answer(first[0], 0)]);
+        let entity = driver.entity();
+        entity.update_app(&mut driver.app, |view, _, cx| {
+            view.read(cx);
+            view.read(cx);
+            for _ in 0..2 {
+                let ask = cx.host().ask::<Query<Counter>>(());
+                view.read = Some(cx.refresh(ask, |view, value, cx| {
+                    view.value = Loadable::from(value.map(|value| value * 10));
+                    cx.notify();
+                }));
+            }
+        });
+        let ids = query(&driver.tick(Vec::new()));
+        assert_eq!(ids.len(), 4, "two reloads and two refreshes: {ids:?}");
+        // the two reloads: the newer lands, then the older
+        driver.tick(vec![answer(ids[1], 2), answer(ids[0], 1)]);
+        entity.read(|view| assert_eq!(view.value.ready(), Some(&2), "{:?}", view.value));
+        // the two refreshes: the newer lands, then the older
+        driver.tick(vec![answer(ids[3], 4), answer(ids[2], 3)]);
+        entity.read(|view| assert_eq!(view.value.ready(), Some(&40), "{:?}", view.value));
     }
 }

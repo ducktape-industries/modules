@@ -51,26 +51,19 @@ impl View for Forge {
     ];
     const MIN_WINDOW_WIDTH: u32 = 640;
 
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut forge = Self::default();
-        forge.restored(window, cx);
-        forge
-    }
-
-    /// Every stream this view follows, restarted after a snapshot. A refused
-    /// item says so in the notice; none ends its stream.
-    fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    /// Every stream this view follows, on a first mount and after a
+    /// snapshot. A refused item says so in the notice.
+    fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.watches.clear();
         let props = cx.host().subscribe::<HostSession>(());
-        self.watches.push(cx.for_each(props, |forge, item, _, cx| {
-            match item {
+        self.watches
+            .push(cx.for_each(props, |forge, item, _, cx| match item {
                 Ok(session) => forge.session_changed(session, cx),
                 Err(refusal) => {
-                    forge.notice = format!("Couldn’t read the session: {}", refusal.message)
+                    forge.notice = format!("Couldn’t read the session: {}", refusal.message);
+                    cx.notify();
                 }
-            }
-            cx.notify();
-        }));
+            }));
         // `duck://<chain>/forge/<name>`: a link opened into this view names
         // the repository to open
         let routes = cx.host().subscribe::<HostRoute>(());
@@ -119,7 +112,10 @@ impl View for Forge {
         let offset = cx.host().subscribe::<HostOffset>(());
         self.watches
             .push(cx.for_each(offset, |_, offset, _, cx| match offset {
-                Ok(minutes) => design::set_utc_offset(minutes),
+                Ok(minutes) => {
+                    design::set_utc_offset(minutes);
+                    cx.notify();
+                }
                 Err(refusal) => cx.host().log_refused("forge", "the UTC offset", &refusal),
             }));
         if self.names.is_idle() {

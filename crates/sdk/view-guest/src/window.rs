@@ -31,7 +31,7 @@ mod tests {
             .await
     }
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct WidgetView(bool);
     impl View for WidgetView {
         const NAME: &'static str = "WidgetView";

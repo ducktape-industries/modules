@@ -54,13 +54,7 @@ impl View for Explorer {
         &[identity::MODULE, valset::MODULE, module_registry::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 640;
 
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut view = Self::default();
-        view.restored(window, cx);
-        view
-    }
-
-    fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.watch(cx);
         self.read_all(cx);
     }

@@ -43,6 +43,13 @@ pub struct Forge {
     #[serde(skip)]
     /// each change channel's rows
     pub(crate) messages: BTreeMap<String, Loadable<Vec<chat::MsgRow>>>,
+    /// a refusal on screen, read again with the block: the read lives
+    /// here because the slot holds the refusal, and a newer block's read
+    /// stored in its place cancels it
+    #[serde(skip)]
+    pub(crate) rereading: BTreeMap<Query, Task<()>>,
+    #[serde(skip)]
+    pub(crate) rereading_messages: BTreeMap<String, Task<()>>,
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
     #[serde(skip)]

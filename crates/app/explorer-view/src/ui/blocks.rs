@@ -25,7 +25,7 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
 pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyElement {
     let Some((block, txs)) = view.block(height) else {
         return match &view.opened {
-            Loadable::Ready(None) => empty_state(
+            Loadable::Ready(None) | Loadable::Reloading(None, _) => empty_state(
                 "explorer-no-block",
                 format!("No block {}", grouped(height)),
                 "This node keeps no finalized block at this height.",
@@ -33,7 +33,10 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyE
             )
             .into_any_element(),
             Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
-            Loadable::Idle | Loadable::Loading(_) | Loadable::Ready(Some(_)) => {
+            Loadable::Idle
+            | Loadable::Loading(_)
+            | Loadable::Ready(Some(_))
+            | Loadable::Reloading(Some(_), _) => {
                 quiet("explorer-block-loading", "Reading the block…", theme)
             }
         };

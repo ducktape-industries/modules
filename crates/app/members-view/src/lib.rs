@@ -57,6 +57,9 @@ pub struct Members {
     seen: std::collections::HashMap<u64, Recent>,
     #[serde(skip)]
     rereading: Option<Task<()>>,
+    /// the roster's re-read while the rows on screen stay
+    #[serde(skip)]
+    rereading_rows: Option<Task<()>>,
     #[serde(skip)]
     watches: Vec<Task<()>>,
     /// the pane's measured width; `None` until the first measure
@@ -96,7 +99,7 @@ impl Group {
 }
 
 /// One account as this screen shows it.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct Row {
     number: u64,
     name: String,
@@ -123,7 +126,7 @@ impl Row {
 }
 
 /// One key an account acts with.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct Device {
     label: Option<String>,
     key: Vec<u8>,
@@ -144,20 +147,17 @@ impl View for Members {
     const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 320;
 
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut view = Self::default();
-        view.restored(window, cx);
-        view
-    }
-
-    fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.watches.clear();
         let session = cx.host().subscribe::<HostSession>(());
         self.watches
             .push(cx.for_each(session, |view, session, _, cx| match session {
                 Ok(session) => {
-                    view.me = session.account;
-                    view.chain = session.chain_id;
+                    if (view.me, &view.chain) != (session.account, &session.chain_id) {
+                        view.me = session.account;
+                        view.chain = session.chain_id;
+                        cx.notify();
+                    }
                 }
                 Err(refusal) => cx.host().log_refused("members", "the session", &refusal),
             }));
@@ -174,7 +174,10 @@ impl View for Members {
         let offset = cx.host().subscribe::<HostOffset>(());
         self.watches
             .push(cx.for_each(offset, |_, offset, _, cx| match offset {
-                Ok(minutes) => design::set_utc_offset(minutes),
+                Ok(minutes) => {
+                    design::set_utc_offset(minutes);
+                    cx.notify();
+                }
                 Err(refusal) => cx.host().log_refused("members", "the UTC offset", &refusal),
             }));
         self.read(cx);
@@ -191,38 +194,42 @@ impl Render for Members {
 impl Members {
     /// One read of both programs — the boot, a retry, a restore, a live
     /// bump. Rows already on screen stay there while it runs, so a bump
-    /// never blinks the list back to "Loading"; a refused bump is logged
-    /// and leaves them.
+    /// never blinks the list back to "Loading", and a bump that changed no
+    /// row draws nothing; a refused bump is logged and leaves them. A newer
+    /// read cancels the one before.
     fn read(&mut self, cx: &mut Context<Self>) {
-        let work = roster(cx.host());
-        let task = cx.spawn(async move |this, cx| {
-            let result = work.await;
-            let _ = this.update(cx, |view, cx| {
-                let mut rescan = view.activity.is_idle();
-                match (result, view.rows.ready()) {
-                    (Ok(rows), old) => {
-                        let old = old.map_or(&[][..], Vec::as_slice);
-                        rescan |= view
-                            .selected
-                            .is_some_and(|number| keys(old, number) != keys(&rows, number));
-                        view.rows = Loadable::Ready(rows);
+        let task = cx.refresh(roster(cx.host()), |view, result, cx| {
+            let rescan = view.activity.is_idle();
+            match (result, view.rows.ready()) {
+                (Ok(rows), Some(old)) if *old == rows => {}
+                (Ok(rows), old) => {
+                    let old = old.map_or(&[][..], Vec::as_slice);
+                    let keys_moved = view
+                        .selected
+                        .is_some_and(|number| keys(old, number) != keys(&rows, number));
+                    view.rows = Loadable::Ready(rows);
+                    cx.notify();
+                    if keys_moved {
+                        return view.read_activity(cx);
                     }
-                    (Err(refusal), Some(_)) => {
-                        cx.host().log_refused("members", "a refresh", &refusal)
-                    }
-                    (Err(refusal), None) => view.rows = Loadable::Failed(refusal),
                 }
-                if rescan {
-                    view.read_activity(cx);
+                (Err(refusal), Some(_)) => cx.host().log_refused("members", "a refresh", &refusal),
+                (Err(refusal), None) => {
+                    view.rows = Loadable::Failed(refusal);
+                    cx.notify();
                 }
-                cx.notify();
-            });
+            }
+            if rescan {
+                view.read_activity(cx);
+            }
         });
         match self.rows.ready() {
-            Some(_) => task.detach(),
-            None => self.rows = Loadable::Loading(task),
+            Some(_) => self.rereading_rows = Some(task),
+            None => {
+                self.rows = Loadable::Loading(task);
+                cx.notify();
+            }
         }
-        cx.notify();
     }
 
     /// Shows `number` in the detail and reads what it signed lately.
@@ -238,13 +245,17 @@ impl Members {
 
     /// Reads the selected account's recent activity, once its keys are
     /// known; an account with no keys signs nothing and asks nothing.
+    /// Notifies when the detail's activity changes.
     fn read_activity(&mut self, cx: &mut Context<Self>) {
         self.rereading = None;
         let Some(row) = self.selected_row() else {
             return;
         };
         if row.devices.is_empty() {
-            self.activity = Loadable::Idle;
+            if !self.activity.is_idle() {
+                self.activity = Loadable::Idle;
+                cx.notify();
+            }
             return;
         }
         let number = row.number;
@@ -262,16 +273,28 @@ impl Members {
                 if let Ok(recent) = &result {
                     view.seen.insert(number, recent.clone());
                 }
-                view.activity = Loadable::from(result);
-                cx.notify();
+                match result {
+                    // read anew and the same: nothing to draw
+                    Ok(recent) if view.activity.ready() == Some(&recent) => {}
+                    result => {
+                        view.activity = Loadable::from(result);
+                        cx.notify();
+                    }
+                }
             });
         });
         match self.seen.get(&number) {
             Some(recent) => {
-                self.activity = Loadable::Ready(recent.clone());
+                if self.activity.ready() != Some(recent) {
+                    self.activity = Loadable::Ready(recent.clone());
+                    cx.notify();
+                }
                 self.rereading = Some(task);
             }
-            None => self.activity = Loadable::Loading(task),
+            None => {
+                self.activity = Loadable::Loading(task);
+                cx.notify();
+            }
         }
     }
 

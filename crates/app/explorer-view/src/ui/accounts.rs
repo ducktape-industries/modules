@@ -15,7 +15,7 @@ fn kind(view: &Explorer, account: &Account) -> String {
 
 pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let listed = match &view.accounts {
-        Loadable::Ready(listed) => listed,
+        Loadable::Ready(listed) | Loadable::Reloading(listed, _) => listed,
         Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-accounts-loading", "Reading accounts…", theme);
@@ -83,7 +83,7 @@ fn activity<'a>(view: &'a Explorer, account: &'a Account) -> impl Iterator<Item 
 pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
     let Some(account) = view.account(number) else {
         return match &view.accounts {
-            Loadable::Ready(_) => empty_state(
+            Loadable::Ready(_) | Loadable::Reloading(_, _) => empty_state(
                 "explorer-no-account",
                 format!("No account #{number}"),
                 "Identity holds no account by this number.",

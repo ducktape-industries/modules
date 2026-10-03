@@ -84,13 +84,7 @@ impl View for Nodes {
     const TARGETS: &'static [&'static str] = &[valset::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut view = Self::default();
-        view.restored(window, cx);
-        view
-    }
-
-    fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let heads = cx.host().subscribe::<Changes<Valset>>(());
         let ticks = cx.host().subscribe::<ClockTicks>(TICK);
         self.followers = vec![
@@ -100,9 +94,11 @@ impl View for Nodes {
                     .host()
                     .log_refused("nodes", "valset's live heads", &refusal),
             }),
+            // the header's age is drawn from the ticks
             cx.for_each(ticks, |view, tick, _, cx| match tick {
                 Ok(()) => {
                     view.ticks += 1;
+                    cx.notify();
                     view.read_status(cx);
                     view.read_network(cx);
                 }
@@ -126,11 +122,7 @@ impl Nodes {
     /// head. What is already on screen stays there while it runs.
     pub(crate) fn read(&mut self, cx: &mut Context<Self>) {
         let work = queries::nodes(cx.host());
-        match self.nodes.ready() {
-            Some(_) => cx.refresh(work, |view, nodes, _| view.nodes = Loadable::Ready(nodes)),
-            None => self.nodes = cx.load(work, |view| &mut view.nodes),
-        }
-        cx.notify();
+        cx.reload(&mut self.nodes, work, |view| &mut view.nodes);
     }
 
     /// The node's status. A refused re-read keeps the numbers on screen;

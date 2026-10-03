@@ -10,22 +10,28 @@ const AVATAR_XL: Pixels = px(40.);
 
 pub(super) fn account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
     match &view.account {
-        Loadable::Ready(Some(Seat::Bare(key))) => column("settings/account/data")
-            .gap_0()
-            .child(who("Unregistered key", "no account yet", theme))
-            .child(group("settings/keys", "Keys", Some(1), theme))
-            .child(key_row(0, "Host key", key, theme))
-            .child(create_account(view, cx, theme))
-            .into_any_element(),
+        Loadable::Ready(Some(Seat::Bare(key))) | Loadable::Reloading(Some(Seat::Bare(key)), _) => {
+            column("settings/account/data")
+                .gap_0()
+                .child(who("Unregistered key", "no account yet", theme))
+                .child(group("settings/keys", "Keys", Some(1), theme))
+                .child(key_row(0, "Host key", key, theme))
+                .child(create_account(view, cx, theme))
+                .into_any_element()
+        }
         // a key held by an agent that does not act goes by the agent
-        Loadable::Ready(Some(Seat::Stopped { key, name, note })) => column("settings/account/data")
-            .gap_0()
-            .child(who(name, "a key of an agent", theme))
-            .child(group("settings/keys", "Keys", Some(1), theme))
-            .child(key_row(0, "Host key", key, theme))
-            .child(secondary("settings/account/note", note, theme).pt(design::space::MD))
-            .into_any_element(),
-        Loadable::Ready(Some(Seat::Account(account))) => {
+        Loadable::Ready(Some(Seat::Stopped { key, name, note }))
+        | Loadable::Reloading(Some(Seat::Stopped { key, name, note }), _) => {
+            column("settings/account/data")
+                .gap_0()
+                .child(who(name, "a key of an agent", theme))
+                .child(group("settings/keys", "Keys", Some(1), theme))
+                .child(key_row(0, "Host key", key, theme))
+                .child(secondary("settings/account/note", note, theme).pt(design::space::MD))
+                .into_any_element()
+        }
+        Loadable::Ready(Some(Seat::Account(account)))
+        | Loadable::Reloading(Some(Seat::Account(account)), _) => {
             let kind = identity::view::kind(&account.kind, |_| None);
             let about = format!("account {} · {kind}", account.number);
             let keys = account
@@ -53,7 +59,7 @@ pub(super) fn account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme
                 )
                 .into_any_element()
         }
-        Loadable::Ready(None) => design::empty_state(
+        Loadable::Ready(None) | Loadable::Reloading(None, _) => design::empty_state(
             "settings/account/empty",
             "No account",
             "No host key is selected. Sign in with a key to create an account.",

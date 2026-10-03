@@ -38,7 +38,10 @@ pub fn wrong_reply() -> Error {
 pub type Page<T> = (Vec<T>, Option<Vec<u8>>);
 
 /// Follows a cursored listing from `after`: asks page after page, feeding
-/// each `next` back, until the listing ends. Fuel is the only bound.
+/// each `next` back, until the listing ends. Nothing here bounds how many
+/// pages that is: each page is a host round trip and so a tick of its own,
+/// with its own fuel, and the rows gather in the guest's memory until the
+/// last one lands. Fit for a whole list (a roster), not for a history.
 pub async fn pages<T, F: Future<Output = Result<Page<T>, Error>>>(
     mut after: Option<Vec<u8>>,
     mut ask: impl FnMut(Option<Vec<u8>>) -> F,

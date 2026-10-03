@@ -10,6 +10,9 @@ pub struct Driver<V: View> {
     pub(crate) entity: Entity<V>,
     pub(crate) last_root: Option<wire::Node>,
     pub(crate) busy: bool,
+    /// How many times the root rendered: what `TestAppContext::renders`
+    /// reads.
+    pub(crate) renders: u64,
 }
 impl<V: View> Drop for Driver<V> {
     fn drop(&mut self) {
@@ -33,19 +36,18 @@ impl<V: View> Driver<V> {
             app: &mut app,
             entity: entity.clone(),
         };
-        let value = match restored {
-            Some(mut value) => {
-                value.restored(&mut window, &mut cx);
-                value
-            }
+        let mut value = match restored {
+            Some(value) => value,
             None => V::new(&mut window, &mut cx),
         };
+        value.attach(&mut window, &mut cx);
         *entity.value.borrow_mut() = Some(value);
         Self {
             app,
             entity,
             last_root: None,
             busy: false,
+            renders: 0,
         }
     }
     pub fn entity(&self) -> Entity<V> {
@@ -185,11 +187,7 @@ impl<V: View> Driver<V> {
             }
             wire::Event::RichTextHover { handler, event } => self.route(handler, &event),
             wire::Event::ListScroll { handler, event } => self.route(handler, &event),
-            wire::Event::ListRequest { handler, request } => {
-                self.route(handler, &request);
-                self.app.notify();
-                None
-            }
+            wire::Event::ListRequest { handler, request } => self.route(handler, &request),
             wire::Event::TooltipRequest {
                 request,
                 character_index,
@@ -406,6 +404,7 @@ impl<V: View> Driver<V> {
     }
 
     fn render_root(&mut self) -> wire::Node {
+        self.renders += 1;
         slots::reset(&self.app.inner.slots);
         let mut window = self.app.window();
         let element = {

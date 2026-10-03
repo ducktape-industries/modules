@@ -32,17 +32,15 @@ impl View for Settings {
     const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
     const MIN_WINDOW_WIDTH: u32 = 560;
 
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut view = Self {
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self {
             // an invite lasts a week unless the reader picks otherwise
             ttl: 1,
             ..Self::default()
-        };
-        view.restored(window, cx);
-        view
+        }
     }
 
-    fn restored(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.watch(cx);
     }
 }

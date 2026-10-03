@@ -77,7 +77,7 @@ fn put_back_completes_the_tree_a_taking_diff_hollowed() {
     assert_eq!(hollow, new);
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct Pages {
     rows: bool,
     keyed_chrome: bool,

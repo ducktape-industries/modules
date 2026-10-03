@@ -205,6 +205,51 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     (cx, view)
 }
 
+/// A block that changed nothing chat shows: chat's head re-reads the
+/// channel list and the open room, identity's re-reads the names, the same
+/// answers land, and the view draws nothing for the heads or the landings.
+#[test]
+fn a_block_whose_rereads_land_the_same_rows_draws_nothing() {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx);
+    let changes = cx.host().stream::<Changes<::chat::Chat>>();
+    let identity = cx.host().stream::<Changes<Identity>>();
+    let props = cx.host().stream::<HostSession>();
+    let visible = cx.host().stream::<HostVisible>();
+    cx.open::<Chat>();
+    props.send(Session {
+        signer: "0102".into(),
+        account: Some(7),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    visible.send(true);
+    cx.run_until_parked();
+    cx.simulate_click("chat-sidebar-channel-general");
+    cx.run_until_parked();
+    assert!(cx.has_text("hello"), "{:?}", cx.texts());
+    let (asked, renders) = (
+        cx.host().requests::<Ask<::chat::Chat>>().len(),
+        cx.renders(),
+    );
+    changes.send(Some(4));
+    cx.run_until_parked();
+    let reread = cx.host().requests::<Ask<::chat::Chat>>().len();
+    assert!(
+        reread >= asked + 3,
+        "the list, the rows and the roster: {reread}"
+    );
+    assert_eq!(cx.renders(), renders, "the same rows drew nothing");
+    identity.send(Some(5));
+    cx.run_until_parked();
+    assert!(
+        cx.host().requests::<Ask<::chat::Chat>>().len() > reread,
+        "the names re-read"
+    );
+    assert_eq!(cx.renders(), renders, "the same names drew nothing");
+}
+
 /// `CHAT_SCREEN_EXPORT=1` writes the opened room's tree for the app's
 /// node-less renderer (`ducktape-app --render-tree`), light and dark.
 #[test]

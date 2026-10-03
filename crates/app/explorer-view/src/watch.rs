@@ -26,9 +26,9 @@ impl Explorer {
         let valset = host.subscribe::<Changes<Valset>>(());
         let registry = host.subscribe::<Changes<Modules>>(());
         let offset = host.subscribe::<HostOffset>(());
-        // Not `cx.for_each`, which redraws the view after every item: a head
-        // is drawn with the page it brings (`at_head`). A refused or ended
-        // stream falls back to the clock, whose reads draw themselves.
+        // A head is not drawn on its own: it is drawn with the page it
+        // brings (`at_head`). A refused or ended stream falls back to the
+        // clock, whose reads draw themselves.
         let mut heads = heads;
         let followed = cx.spawn(async move |this, cx| {
             while let Some(head) = heads.next().await {
@@ -49,7 +49,12 @@ impl Explorer {
         self.followers = vec![
             followed,
             cx.for_each(session, |view, session, _, cx| match session {
-                Ok(session) => view.session_chain = session.chain_id,
+                Ok(session) => {
+                    if view.session_chain != session.chain_id {
+                        view.session_chain = session.chain_id;
+                        cx.notify();
+                    }
+                }
                 Err(refusal) => cx.host().log_refused("explorer", "the session", &refusal),
             }),
             // `duck://<chain>/explorer/<route>`
@@ -81,7 +86,10 @@ impl Explorer {
             }),
             // the reader's zone, for the dates a block and a tx read
             cx.for_each(offset, |_, offset, _, cx| match offset {
-                Ok(minutes) => design::set_utc_offset(minutes),
+                Ok(minutes) => {
+                    design::set_utc_offset(minutes);
+                    cx.notify();
+                }
                 Err(refusal) => cx
                     .host()
                     .log_refused("explorer", "the UTC offset", &refusal),

@@ -33,13 +33,8 @@ impl Settings {
 
     /// The same account, re-read with what is on screen kept.
     pub(crate) fn refresh_account(&mut self, cx: &mut Context<Self>) {
-        if self.account.ready().is_none() {
-            return self.read_account(cx);
-        }
         let work = self.account_query(cx);
-        cx.refresh(work, |view, account, _| {
-            view.account = Loadable::Ready(account)
-        });
+        cx.reload(&mut self.account, work, |view| &mut view.account);
     }
 
     fn account_query(

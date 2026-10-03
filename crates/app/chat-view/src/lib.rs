@@ -54,14 +54,9 @@ impl View for Chat {
     ];
     const MIN_WINDOW_WIDTH: u32 = 560;
 
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut chat = Self::default();
-        chat.restored(window, cx);
-        chat
-    }
-
-    /// Follows the host again and re-reads what the snapshot showed.
-    fn restored(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    /// Follows the host and reads what the screen shows: on a first mount,
+    /// and again after a snapshot, whose in-flight work it parks.
+    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         // a send in flight when the snapshot was taken never came back:
         // park its body as a failed send the composer can restore
         for draft in self.drafts.values_mut() {

@@ -91,7 +91,7 @@ mod tests {
     use std::rc::Rc;
     use wire::editor_document::{EditorTransfer, EditorTransferId};
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct DocumentApp {
         editor: Editor,
     }
