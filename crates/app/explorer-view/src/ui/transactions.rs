@@ -11,22 +11,16 @@ pub(super) fn transactions(
     theme: &Theme,
 ) -> AnyElement {
     let window = plural(view.chain.blocks.len() as u64, "block", "blocks");
-    let matching: Vec<&TxRow> = view
-        .chain
-        .txs
-        .iter()
-        .filter(|tx| program.as_ref().is_none_or(|program| &tx.target == program))
-        .collect();
+    let matching = sent_to(view, program.as_deref()).count();
     let list = rows("explorer-transactions-list", "Transactions", view);
-    let rows = (!matching.is_empty()).then(|| {
+    let rows = (matching > 0).then(|| {
+        let program = program.clone();
         tx_rows(
             list,
-            matching.iter().copied().take(LIST_ROWS),
             view,
+            move |view| sent_to(view, program.as_deref()).take(LIST_ROWS).collect(),
             true,
             true,
-            cx,
-            theme,
         )
         .build(cx)
     });
@@ -34,7 +28,7 @@ pub(super) fn transactions(
         Some(program) => format!("Transactions · {program}"),
         None => "Transactions".into(),
     };
-    let empty = matching.is_empty().then(|| {
+    let empty = (matching == 0).then(|| {
         quiet(
             "explorer-no-txs",
             format!("No transactions in the last {window}."),
@@ -43,13 +37,17 @@ pub(super) fn transactions(
     });
     div()
         .id("explorer-transactions")
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col()
         .child(heading(
             "explorer-transactions-heading",
             &title,
             Some(caption(
                 format!(
                     "{} in the last {window}",
-                    plural(matching.len() as u64, "transaction", "transactions")
+                    plural(matching as u64, "transaction", "transactions")
                 ),
                 theme,
             )),
@@ -58,6 +56,17 @@ pub(super) fn transactions(
         .children(rows)
         .children(empty)
         .into_any_element()
+}
+
+/// The window's transactions, newest first; `program`'s alone when named.
+fn sent_to<'a, 'p>(
+    view: &'a Explorer,
+    program: Option<&'p str>,
+) -> impl Iterator<Item = &'a TxRow> + use<'a, 'p> {
+    view.chain
+        .txs
+        .iter()
+        .filter(move |tx| program.is_none_or(|program| tx.target == program))
 }
 
 pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> AnyElement {

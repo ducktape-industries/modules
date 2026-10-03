@@ -51,10 +51,22 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyE
         )
     });
     let list = rows("explorer-block-txs", "Transactions", view);
-    let rows =
-        (!txs.is_empty()).then(|| tx_rows(list, txs, view, false, true, cx, theme).build(cx));
+    let rows = (!txs.is_empty()).then(|| {
+        tx_rows(
+            list,
+            view,
+            move |view| view.block(height).map_or_else(Vec::new, |(_, txs)| txs),
+            false,
+            true,
+        )
+        .build(cx)
+    });
     div()
         .id("explorer-block")
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col()
         .child(title(view, height, cx, theme))
         .child(field("Hash", mono(abi::hex(&block.id)), theme))
         .child(field("Parent", parent(&block, cx, theme), theme))

@@ -1,5 +1,7 @@
 //! The explorer's pages. Square corners, rows split by one-pixel rules,
 //! hashes and numbers in the data face.
+use std::ops::Range;
+
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
@@ -293,6 +295,7 @@ fn row(id: ElementId, label: String, route: Route, cx: Cx, theme: &Theme) -> Sta
         .flex()
         .items_center()
         .gap_4()
+        .w_full()
         .h(ROW_H)
         .px_5()
         .border_b_1()
@@ -304,16 +307,25 @@ fn row(id: ElementId, label: String, route: Route, cx: Cx, theme: &Theme) -> Sta
 }
 
 /// A list of [`row`]s: one Tab stop, ↑ ↓ walk the rows, Home/End reach the
-/// ends, Enter opens the active row. Notes (a run of empty blocks) sit
-/// between the rows unroled. The active row is the view's cursor in this
-/// list, else the first.
+/// ends, Enter opens the active row. The active row is the view's cursor in
+/// this list, else the first. Rows handed over built ([`Rows::row`]) are
+/// drawn whole, with notes (a run of empty blocks) between them unroled;
+/// rows the list paints when asked ([`Rows::shown`]) are drawn as a
+/// `uniform_list`: the screenful the host shows and a margin, scrolled to
+/// the row the arrows move to ahead of the frame that claims it.
 struct Rows {
     id: &'static str,
     label: &'static str,
     active: usize,
+    scroll: UniformListScrollHandle,
     routes: Vec<Route>,
     children: Vec<AnyElement>,
+    paint: Option<Painter>,
 }
+
+/// Paints a range of a list's rows, each a [`row`], off the view they are
+/// read from: the host asks for a window at a time.
+type Painter = Box<dyn Fn(&Explorer, Range<usize>, Cx, &Theme) -> Vec<Stateful<Div>>>;
 
 fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
     let active = match view.cursor {
@@ -324,22 +336,56 @@ fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
         id,
         label,
         active,
+        scroll: view.scroll.clone(),
         routes: Vec::new(),
         children: Vec::new(),
+        paint: None,
     }
+}
+
+/// A row as its list's option: roled, and the claim when it is the active
+/// one.
+fn option(row: Stateful<Div>, active: bool, theme: &Theme) -> AnyElement {
+    design::item(row, Role::ListBoxOption, active)
+        .when(active, |row| row.bg(theme.surface_raised))
+        .into_any_element()
 }
 
 impl Rows {
     fn row(mut self, route: Route, row: Stateful<Div>, theme: &Theme) -> Self {
         let active = self.routes.len() == self.active;
-        let row = design::item(row, Role::ListBoxOption, active)
-            .when(active, |row| row.bg(theme.surface_raised));
         self.routes.push(route);
-        self.children.push(row.into_any_element());
+        self.children.push(option(row, active, theme));
         self
     }
     fn note(mut self, note: impl IntoElement) -> Self {
         self.children.push(note.into_any_element());
+        self
+    }
+    /// `routes.len()` rows the host asks for by index, painted as it shows
+    /// them.
+    fn shown(
+        mut self,
+        routes: Vec<Route>,
+        paint: impl Fn(&Explorer, Range<usize>, Cx, &Theme) -> Vec<Stateful<Div>> + 'static,
+    ) -> Self {
+        self.routes = routes;
+        self.paint = Some(Box::new(paint));
+        self
+    }
+    /// The painted rows built now, drawn whole: for a few rows in a flow
+    /// layout (the Overview's panels), where a window buys nothing and a
+    /// list sized by its box has no height to size from.
+    fn whole(mut self, view: &Explorer, cx: Cx, theme: &Theme) -> Self {
+        if let Some(paint) = self.paint.take() {
+            let rows = paint(view, 0..self.routes.len(), cx, theme);
+            let active = self.active;
+            self.children.extend(
+                rows.into_iter()
+                    .enumerate()
+                    .map(|(index, row)| option(row, index == active, theme)),
+            );
+        }
         self
     }
     fn build(self, cx: Cx) -> Stateful<Div> {
@@ -347,12 +393,18 @@ impl Rows {
             id,
             label,
             active,
+            scroll,
             routes,
             children,
+            paint,
         } = self;
         let count = routes.len();
-        design::composite(id, Role::ListBox, label)
-            .active(active.min(count.saturating_sub(1)), count)
+        let active = active.min(count.saturating_sub(1));
+        let mut list = design::composite(id, Role::ListBox, label).active(active, count);
+        if paint.is_some() {
+            list = list.track_scroll(&scroll);
+        }
+        let list = list
             .on_move(
                 cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
                     view.cursor = Some((id, index));
@@ -365,7 +417,26 @@ impl Rows {
                 }),
             )
             .build()
-            .children(children)
+            .children(children);
+        let Some(paint) = paint else {
+            return list;
+        };
+        let theme = *cx.global::<Theme>();
+        let window = uniform_list(
+            SharedString::from(format!("{id}-rows")),
+            count,
+            cx.processor(move |view: &mut Explorer, range: Range<usize>, _, cx| {
+                paint(view, range.clone(), cx, &theme)
+                    .into_iter()
+                    .zip(range)
+                    .map(|(row, index)| option(row, index == active, &theme))
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&scroll)
+        .flex_1()
+        .min_h(px(0.));
+        list.flex_1().min_h(px(0.)).flex().flex_col().child(window)
     }
 }
 
@@ -492,22 +563,22 @@ fn block_lines(
         })
 }
 
-/// `tx_row`s as a [`Rows`] list.
-fn tx_rows<'a>(
+/// `tx_row`s as a [`Rows`] list. `select` picks the transactions, in
+/// order, off the view: once here for their routes, and again for each
+/// window the host asks for, since a row borrows the view it is read from.
+fn tx_rows(
     list: Rows,
-    txs: impl IntoIterator<Item = &'a TxRow>,
     view: &Explorer,
+    select: impl Fn(&Explorer) -> Vec<&TxRow> + 'static,
     height: bool,
     who: bool,
-    cx: Cx,
-    theme: &Theme,
 ) -> Rows {
-    txs.into_iter().fold(list, |list, tx| {
-        list.row(
-            Route::Tx(tx.hash),
-            tx_row(view, tx, height, who, cx, theme),
-            theme,
-        )
+    let routes = select(view).iter().map(|tx| Route::Tx(tx.hash)).collect();
+    list.shown(routes, move |view, range, cx, theme| {
+        let txs = select(view);
+        range
+            .map(|index| tx_row(view, txs[index], height, who, cx, theme))
+            .collect()
     })
 }
 

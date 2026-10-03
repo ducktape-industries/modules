@@ -2,6 +2,7 @@
 //! explorer, and a page's link copied out of it.
 use ducktape_view_guest::Context;
 use ducktape_view_guest::Loadable;
+use ducktape_view_guest::ScrollStrategy;
 use ducktape_view_guest::methods::{BlockRef, ChainBlock, ClipboardWrite};
 
 use crate::Explorer;
@@ -26,6 +27,7 @@ impl Explorer {
         self.route = route;
         self.note = None;
         self.cursor = None;
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         // the field holds only what is being typed: a search that lands, a
         // tab, prev/next and a row all leave it empty
         self.search.reset("");

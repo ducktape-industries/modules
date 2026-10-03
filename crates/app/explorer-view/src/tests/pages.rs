@@ -583,3 +583,69 @@ fn accounts_say_what_each_is_as_members_does() {
         cx.texts()
     );
 }
+
+/// The Transactions list lowers the rows the host shows and a margin, not
+/// all fifty: the first frame is a screenful from the top, a scroll brings
+/// the rows it reaches and lets the ones far above go, ↓ scrolls the list
+/// to the row it moves to ahead of the frame that claims it, and the page
+/// opens at its top again.
+#[test]
+fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
+    use ducktape_view_guest::wire::Node;
+    use ducktape_view_guest::wire::list::UniformListScrollStrategy as Strategy;
+    let mut cx = TestAppContext::new();
+    heavy(&mut cx);
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-transactions");
+    cx.run_until_parked();
+    // row `index` is the transaction of block `WINDOW - index`
+    let row = |index: usize| format!("explorer-tx-{}-0", WINDOW - index);
+    let list = |cx: &TestAppContext| match cx.find("explorer-transactions-list-rows") {
+        Some(Node::UniformList {
+            count,
+            children,
+            scroll_request,
+            ..
+        }) => (*count, children.len(), *scroll_request),
+        other => panic!("no list of rows: {other:?}"),
+    };
+    let (count, lowered, _) = list(&cx);
+    assert_eq!(count, 50, "the fifty the page draws");
+    assert!(
+        (14..count).contains(&lowered),
+        "a screenful and a margin, not every row: {lowered}"
+    );
+    assert!(cx.find(&row(0)).is_some() && cx.find(&row(49)).is_none());
+    let first = cx.interactivity(&row(0));
+    assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert!(first.aria.active_descendant && !first.focusable);
+
+    // the host scrolled to rows 30..44: they come with a margin, the rows
+    // far above go, the measured row stays
+    cx.simulate_range("explorer-transactions-list", 30..44);
+    assert!(cx.find(&row(40)).is_some() && cx.find(&row(49)).is_some());
+    assert!(cx.find(&row(5)).is_none(), "{:?}", list(&cx));
+    assert!(cx.find(&row(0)).is_some(), "the row the host measures");
+
+    // ↓ on the list: the second row is active, and the frame that claims
+    // it carries the scroll to it (the request crosses once)
+    cx.simulate_focus("explorer-transactions-list");
+    cx.simulate_key_down("explorer-transactions-list", "down");
+    let (_, _, request) = list(&cx);
+    assert_eq!(
+        request.map(|request| (request.index, request.strategy)),
+        Some((1, Strategy::Nearest))
+    );
+    assert!(cx.interactivity(&row(1)).aria.active_descendant);
+    assert!(cx.find(&row(40)).is_none(), "{:?}", list(&cx));
+
+    // another page, and back: the list opens at its top, the first row
+    // active, the rows the scroll reached let go
+    cx.simulate_click("explorer-tab-blocks");
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-transactions");
+    cx.run_until_parked();
+    assert!(cx.interactivity(&row(0)).aria.active_descendant);
+    assert!(cx.find(&row(40)).is_none(), "{:?}", list(&cx));
+}

@@ -197,13 +197,12 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
     let txs = (!view.chain.txs.is_empty()).then(|| {
         tx_rows(
             list,
-            view.chain.txs.iter().take(LATEST),
             view,
+            |view| view.chain.txs.iter().take(LATEST).collect(),
             false,
             true,
-            cx,
-            theme,
         )
+        .whole(view, cx, theme)
         .build(cx)
     });
     let none = view.chain.txs.is_empty().then(|| {
