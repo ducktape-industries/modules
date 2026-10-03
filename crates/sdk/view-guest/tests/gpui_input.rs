@@ -44,6 +44,7 @@ type Lowered<'a> = (
     u32,
     &'a gpui::StyleRefinement,
     &'a str,
+    u64,
 );
 
 fn input(cx: &TestAppContext) -> Lowered<'_> {
@@ -56,12 +57,20 @@ fn input(cx: &TestAppContext) -> Lowered<'_> {
         on_submit: Some(on_submit),
         style,
         options,
+        generation,
         ..
     } = &children[0]
     else {
         panic!("input child")
     };
-    (id, *on_change, *on_submit, style, &options.label)
+    (
+        id,
+        *on_change,
+        *on_submit,
+        style,
+        &options.label,
+        *generation,
+    )
 }
 
 #[test]
@@ -70,8 +79,8 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
     let mut second = TestAppContext::new();
     let first_form = first.open::<Form>();
     let second_form = second.open::<Form>();
-    let (id, first_input, first_submit, style, label) = input(&first);
-    let (second_id, second_input, second_submit, _, _) = input(&second);
+    let (id, first_input, first_submit, style, label, first_generation) = input(&first);
+    let (second_id, second_input, second_submit, _, _, _) = input(&second);
     assert_eq!(label, "Search messages");
     assert_eq!(id, second_id);
     assert_eq!(first_input, second_input);
@@ -99,6 +108,7 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
     first.simulate_event(wire::Event::Text {
         handler: second_input,
         change: wire::TextChange {
+            generation: first_generation,
             revision: 9,
             edit: Some(wire::Edit {
                 range: wire::TextRange::caret(0),

@@ -144,8 +144,14 @@ impl Draft {
     /// host made carries what a send asked to clear to where it now lies:
     /// gone once the clear landed, or the writer deleted it. The host's edit,
     /// not a diff of the two texts: "oko" cleared of "ok" reads "o", and a
-    /// diff cannot tell the typed-ahead "o" from the sent one.
+    /// diff cannot tell the typed-ahead "o" from the sent one. A word on a
+    /// document `seed` has since left is nothing here, and the adopt of the
+    /// seeded one carries no edit: what a send spoke for in its bytes stays
+    /// where it is.
     pub fn changed(&mut self, change: &wire::TextChange) {
+        if !self.field.apply(change) {
+            return;
+        }
         if let Some(edit) = change.edit {
             self.menu_index = 0;
             self.menu_dismissed = false;
@@ -155,7 +161,6 @@ impl Draft {
                 .flat_map(|piece| edit.cut(*piece))
                 .collect();
         }
-        self.field.apply(change);
     }
 
     pub fn can_send(&self) -> bool {
@@ -472,6 +477,7 @@ mod tests {
         );
         // the host's answer: the span sits where the engine put it
         draft.changed(&wire::TextChange {
+            generation: draft.field.generation,
             revision: 1,
             edit: Some(wire::Edit {
                 range: wire::TextRange::from(3..5),
@@ -526,6 +532,7 @@ mod tests {
                       text: &str,
                       tokens: Vec<wire::TextToken>| {
             draft.changed(&wire::TextChange {
+                generation: draft.field.generation,
                 revision,
                 edit: Some(wire::Edit {
                     range: edit.0.into(),
@@ -601,6 +608,7 @@ mod tests {
         let mut draft = Draft::from_body("ok", &[]);
         let change = |draft: &mut Draft, revision, edit: (Range<usize>, u32), text: &str| {
             draft.changed(&wire::TextChange {
+                generation: draft.field.generation,
                 revision,
                 edit: Some(wire::Edit {
                     range: edit.0.into(),
@@ -635,6 +643,71 @@ mod tests {
         assert_eq!(send(&mut draft), "ok");
     }
 
+    /// A Restore and an Enter the guest handles in one tick, before the host
+    /// has adopted the seeded text: the send speaks for the seeded bytes
+    /// and asks a clear of them, both in the new document's coordinates, so
+    /// the ask names the new generation. The host's word on the old document
+    /// (a keystroke it echoed before it saw the reset) is nothing here; its
+    /// adopt of the new one carries no edit, so what the send spoke for
+    /// stays where it is until the clear lands.
+    #[test]
+    fn restore_then_send_in_one_tick_speak_of_the_seeded_document() {
+        let mut draft = Draft::from_body("", &[]);
+        let left = draft.field.generation;
+        draft.field.revision = 4;
+        draft.failed_send = Some(Send {
+            body: "hello".into(),
+        });
+        draft.act("restore", "c/editor", &[]);
+        assert_eq!(draft.field.text, "hello");
+        let seeded = draft.field.generation;
+        assert!(seeded > left);
+        let (asks, outcome) = draft.act("send", "c/editor", &[]);
+        assert!(matches!(outcome, Outcome::Action(tag) if tag == "send"));
+        assert_eq!(draft.submitted.take().unwrap().body, "hello");
+        let [
+            wire::WidgetCommand::Replace {
+                generation,
+                revision,
+                range,
+                ..
+            },
+        ] = asks.as_slice()
+        else {
+            panic!("one clear: {asks:?}")
+        };
+        assert_eq!((*generation, *revision, range.range()), (seeded, 4, 0..5));
+        let change = |generation, revision, edit: Option<(Range<usize>, u32)>, text: &str| {
+            wire::TextChange {
+                generation,
+                revision,
+                edit: edit.map(|(range, len)| wire::Edit {
+                    range: range.into(),
+                    len,
+                }),
+                text: text.into(),
+                cursor: wire::TextRange::caret(text.len()),
+                preedit: None,
+                tokens: Vec::new(),
+            }
+        };
+        // "a" typed into the empty field as Restore was clicked: a word on
+        // the document the reset left
+        draft.changed(&change(left, 5, Some((0..0, 1)), "a"));
+        assert_eq!(
+            (draft.field.text.as_str(), draft.field.revision),
+            ("hello", 4)
+        );
+        // the host adopts the seeded text: not an edit of anything
+        draft.changed(&change(seeded, 6, None, "hello"));
+        assert_eq!(draft.cleared, [wire::TextRange::from(0..5)]);
+        assert_eq!((draft.body().as_str(), draft.can_send()), ("", false));
+        // the clear lands
+        draft.changed(&change(seeded, 7, Some((0..5, 0)), ""));
+        assert!(draft.cleared.is_empty());
+        assert_eq!((draft.body().as_str(), draft.field.revision), ("", 7));
+    }
+
     #[test]
     fn restore_seeds_an_empty_field_only() {
         let mut draft = Draft::from_body("new typing", &[]);
@@ -647,6 +720,7 @@ mod tests {
         assert!(draft.failed_send.is_some());
         let generation = draft.field.generation;
         draft.changed(&wire::TextChange {
+            generation: draft.field.generation,
             revision: 9,
             edit: Some(wire::Edit {
                 range: wire::TextRange::from(0..10),
@@ -713,6 +787,7 @@ mod tests {
         dismissed.act("menu-dismiss", "c/editor", &roster());
         assert_eq!(dismissed.query(), None);
         dismissed.changed(&wire::TextChange {
+            generation: dismissed.field.generation,
             revision: 1,
             edit: Some(wire::Edit {
                 range: wire::TextRange::caret(2),

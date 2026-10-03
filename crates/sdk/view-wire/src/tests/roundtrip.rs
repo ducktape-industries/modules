@@ -201,6 +201,7 @@ fn a_frame_round_trips() {
         Event::Text {
             handler: 0,
             change: TextChange {
+                generation: 1,
                 revision: 3,
                 edit: Some(Edit {
                     range: TextRange::from(1..2),

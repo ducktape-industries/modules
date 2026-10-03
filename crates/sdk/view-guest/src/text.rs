@@ -74,13 +74,20 @@ impl TextField {
         };
     }
 
-    /// The host's word on the text, taken as is.
-    pub fn apply(&mut self, change: &TextChange) {
+    /// The host's word on the text, taken as is — when it is on this
+    /// document. A change to a generation this field has left (one the host
+    /// echoed before it adopted the reset) is not: the reset's text stands
+    /// until the host adopts it. Answers whether the change was taken.
+    pub fn apply(&mut self, change: &TextChange) -> bool {
+        if change.generation != self.generation {
+            return false;
+        }
         self.text.clone_from(&change.text);
         self.cursor = change.cursor;
         self.preedit = change.preedit;
         self.tokens.clone_from(&change.tokens);
         self.revision = change.revision;
+        true
     }
 
     pub fn is_blank(&self) -> bool {
@@ -94,7 +101,9 @@ impl TextField {
     /// Asks the host to put `text` in place of `range` of the text as
     /// known here, the caret at `cursor` after it — an offset into the new
     /// text, or one before `range`. With `token`, the inserted text is one
-    /// atomic span meaning `token`.
+    /// atomic span meaning `token`. The ask names this document's
+    /// generation: after a `reset`, `revision` is the host's count of the
+    /// old one, and only the generation says which text `range` is bytes of.
     pub fn replace(
         &self,
         target: impl Into<ElementId>,
@@ -105,6 +114,7 @@ impl TextField {
     ) -> wire::WidgetCommand {
         wire::WidgetCommand::Replace {
             target: vec![crate::element::wire_id(target.into())],
+            generation: self.generation,
             revision: self.revision,
             range: TextRange::from(range),
             text: text.into(),
@@ -147,15 +157,18 @@ mod tests {
     #[test]
     fn a_replace_speaks_at_the_revision_the_field_knows() {
         let mut field = TextField::new("say word now");
-        field.apply(&TextChange {
-            revision: 7,
+        let change = |generation, revision, text: &str| TextChange {
+            generation,
+            revision,
             edit: None,
-            text: "say word now".into(),
+            text: text.into(),
             cursor: TextRange::from(4..8),
             preedit: None,
             tokens: Vec::new(),
-        });
+        };
+        assert!(field.apply(&change(field.generation, 7, "say word now")));
         let wire::WidgetCommand::Replace {
+            generation,
             revision,
             range,
             text,
@@ -166,13 +179,22 @@ mod tests {
             unreachable!()
         };
         assert_eq!(
-            (revision, range, text, cursor),
+            (generation, revision, range, text, cursor),
             (
+                field.generation,
                 7,
                 TextRange::from(0..12),
                 String::new(),
                 TextRange::caret(0)
             )
         );
+        // a reset is a new document; the host's word on the old one, echoed
+        // before it adopted the reset, is not a word on this one
+        let left = field.generation;
+        field.reset("fresh");
+        assert!(!field.apply(&change(left, 8, "say word now!")));
+        assert_eq!((field.text.as_str(), field.revision), ("fresh", 7));
+        assert!(field.apply(&change(field.generation, 9, "fresh")));
+        assert_eq!(field.revision, 9);
     }
 }

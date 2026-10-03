@@ -10,12 +10,15 @@ pub type WidgetTarget = Vec<crate::ElementIdWire>;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum WidgetCommand {
     /// Replace `range` of a field's text, as the guest read it at the
-    /// host's `revision`, with `text` — one atomic span when `token` names
-    /// it — and put the cursor at `cursor`. Edits the engine made since
-    /// `revision` are rebased over, never lost, and the edit is one the
-    /// writer can undo.
+    /// host's `revision` of its document `generation`, with `text` — one
+    /// atomic span when `token` names it — and put the cursor at `cursor`.
+    /// Edits the engine made since `revision` are rebased over, never lost,
+    /// and the edit is one the writer can undo. The host holds an ask for a
+    /// generation it has not adopted yet until it has, and an ask for a
+    /// generation the guest has since left edits a document that is gone.
     Replace {
         target: WidgetTarget,
+        generation: u64,
         revision: u64,
         range: TextRange,
         text: String,
@@ -145,6 +148,7 @@ mod tests {
     fn a_replace_keeps_its_target_and_rejects_unbounded_text() {
         let mut command = WidgetCommand::Replace {
             target: target(crate::ElementIdWire::Name("Other/body".into())),
+            generation: 1,
             revision: 3,
             range: TextRange { start: 0, end: 2 },
             text: "@alice".into(),

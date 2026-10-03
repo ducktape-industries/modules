@@ -618,7 +618,10 @@ impl TestAppContext {
     /// host's engine took the typing and says so, caret at the end.
     pub fn simulate_input(&mut self, name: &str, text: &str) {
         let Some(Node::Field {
-            on_change, value, ..
+            on_change,
+            value,
+            generation,
+            ..
         }) = self.input(name)
         else {
             unreachable!()
@@ -632,7 +635,7 @@ impl TestAppContext {
         });
         let event = Event::Text {
             handler: *handler,
-            change: self.text_change(edit, text.to_owned(), text.len(), Vec::new()),
+            change: self.text_change(*generation, edit, text.to_owned(), text.len(), Vec::new()),
         };
         self.run(vec![event]);
     }
@@ -640,6 +643,7 @@ impl TestAppContext {
     /// what changed it, logged for the asks that read an older text.
     fn text_change(
         &mut self,
+        generation: u64,
         edit: Option<wire::Edit>,
         text: String,
         caret: usize,
@@ -650,6 +654,7 @@ impl TestAppContext {
             self.edits.push((self.text_revision, edit));
         }
         wire::TextChange {
+            generation,
             revision: self.text_revision,
             edit,
             text,
@@ -662,13 +667,14 @@ impl TestAppContext {
     /// order: each is carried over the edits made since the revision it
     /// read (`wire::rebase`, the host's own rule; an earlier ask in the same
     /// frame is one), applied to the field's text, and comes back as the
-    /// next change.
+    /// next change. An ask on a document the field has since left (its
+    /// generation moved) edits nothing: the frame's field is the document.
     fn replace(&mut self, frame: &Frame) -> Vec<Event> {
         let Some(root) = self.tree.clone() else {
             return Vec::new();
         };
-        let mut fields: HashMap<Vec<wire::ElementIdWire>, (u32, String, Vec<wire::TextToken>)> =
-            HashMap::new();
+        type Held = (u32, u64, String, Vec<wire::TextToken>);
+        let mut fields: HashMap<Vec<wire::ElementIdWire>, Held> = HashMap::new();
         let mut events = Vec::new();
         for request in &frame.requests {
             if request.kind != <crate::methods::HostWidget as crate::methods::Method>::KIND {
@@ -676,6 +682,7 @@ impl TestAppContext {
             }
             let Ok(wire::WidgetCommand::Replace {
                 target,
+                generation,
                 revision,
                 range,
                 text,
@@ -685,21 +692,27 @@ impl TestAppContext {
             else {
                 continue;
             };
-            let (handler, value, tokens) = fields.entry(target.clone()).or_insert_with(|| {
-                let Some(chain) = Focus::Path(target.clone()).chain(&root) else {
-                    panic!("a Replace on a field that is not in the tree: {target:?}");
-                };
-                let Some(Node::Field {
-                    value,
-                    tokens,
-                    on_change: Some(handler),
-                    ..
-                }) = chain.last()
-                else {
-                    panic!("a Replace on no field that hears changes: {target:?}");
-                };
-                (*handler, value.clone(), tokens.clone())
-            });
+            let (handler, held, value, tokens) =
+                fields.entry(target.clone()).or_insert_with(|| {
+                    let Some(chain) = Focus::Path(target.clone()).chain(&root) else {
+                        panic!("a Replace on a field that is not in the tree: {target:?}");
+                    };
+                    let Some(Node::Field {
+                        value,
+                        tokens,
+                        generation,
+                        on_change: Some(handler),
+                        ..
+                    }) = chain.last()
+                    else {
+                        panic!("a Replace on no field that hears changes: {target:?}");
+                    };
+                    (*handler, *generation, value.clone(), tokens.clone())
+                });
+            if generation != *held {
+                continue;
+            }
+            let held = *held;
             let since: Vec<wire::Edit> = self
                 .edits
                 .iter()
@@ -734,7 +747,7 @@ impl TestAppContext {
                 range: range.into(),
                 len: replacement.len() as u32,
             };
-            let change = self.text_change(Some(edit), value.clone(), caret, tokens.clone());
+            let change = self.text_change(held, Some(edit), value.clone(), caret, tokens.clone());
             events.push(Event::Text {
                 handler: *handler,
                 change,

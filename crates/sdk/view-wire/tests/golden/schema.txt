@@ -1283,6 +1283,7 @@ TextAlign enum
   1 Center: Unit
   2 Right: Unit
 TextChange struct
+  generation: U64
   revision: U64
   edit: Option(TypeName("Edit"))
   text: Str
@@ -1383,6 +1384,7 @@ WhiteSpace enum
 WidgetCommand enum
   0 Replace struct
     target: Seq(TypeName("WireRepr"))
+    generation: U64
     revision: U64
     range: TypeName("TextRange")
     text: Str

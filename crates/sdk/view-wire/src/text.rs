@@ -263,13 +263,17 @@ impl KeyClaim {
 }
 
 /// The host's word on a field's text: the whole text as the engine holds it
-/// at `revision`, the edit that made that revision from the text before it
-/// (`None` when only the cursor or the preedit moved), its cursor, the span
-/// an IME is still composing in, and the atomic spans where they now lie.
-/// The edit is told, not left for the guest to diff out: two texts cannot
-/// say which of two equal bytes went.
+/// at `revision`, the guest's `generation` that text is a document of, the
+/// edit that made that revision from the text before it, its cursor, the
+/// span an IME is still composing in, and the atomic spans where they now
+/// lie. The edit is told, not left for the guest to diff out: two texts
+/// cannot say which of two equal bytes went. It is `None` when only the
+/// cursor or the preedit moved, and when the change is the adopt of
+/// `generation`: a new document in the field, not an edit of the old one,
+/// so nothing the guest holds in the new document's bytes moves with it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextChange {
+    pub generation: u64,
     pub revision: u64,
     pub edit: Option<Edit>,
     pub text: String,

@@ -202,6 +202,7 @@ pub fn every_event() -> Vec<Event> {
         Event::Text {
             handler: 19,
             change: TextChange {
+                generation: 2,
                 revision: 4,
                 edit: Some(Edit {
                     range: TextRange { start: 1, end: 1 },

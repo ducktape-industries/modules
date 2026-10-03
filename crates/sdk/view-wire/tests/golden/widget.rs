@@ -35,6 +35,7 @@ pub fn every_widget_command() -> Vec<WidgetCommand> {
     vec![
         WidgetCommand::Replace {
             target: target("field"),
+            generation: 2,
             revision: 4,
             range: TextRange { start: 0, end: 5 },
             text: "@alice".into(),
