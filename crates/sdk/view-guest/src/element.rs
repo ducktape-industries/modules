@@ -31,6 +31,13 @@ pub trait Element: 'static + IntoElement {
     #[doc(hidden)]
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node;
 
+    /// Whether this element lowers to the node of an element it builds (a
+    /// view's render), rather than to a node of its own.
+    #[doc(hidden)]
+    fn defers(&self) -> bool {
+        false
+    }
+
     #[doc(hidden)]
     fn into_any(self) -> AnyElement {
         AnyElement(Box::new(self))
@@ -50,12 +57,17 @@ pub trait IntoElement: Sized {
 
 trait ElementObject {
     fn id(&self) -> Option<ElementId>;
+    fn defers(&self) -> bool;
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node;
 }
 
 impl<T: Element> ElementObject for T {
     fn id(&self) -> Option<ElementId> {
         Element::id(self)
+    }
+
+    fn defers(&self) -> bool {
+        Element::defers(self)
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
@@ -69,6 +81,10 @@ pub struct AnyElement(Box<dyn ElementObject>);
 impl Element for AnyElement {
     fn id(&self) -> Option<ElementId> {
         self.0.id()
+    }
+
+    fn defers(&self) -> bool {
+        self.0.defers()
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
@@ -90,11 +106,17 @@ impl IntoElement for AnyElement {
 
 impl gpui::prelude::FluentBuilder for AnyElement {}
 
-/// The explicit lowering context for one driver frame.
+/// The explicit lowering context for one driver frame. Every element is
+/// filed by the host's own rule ([`wire::identity`]), so the path a route,
+/// a list or a tooltip is keyed by here is the path the host files the
+/// node under, and a duplicate the host would refuse fails here, at the
+/// site that built it.
 pub struct Lowering<'a> {
     window: &'a mut Window,
     app: &'a mut App,
-    authored_path: Vec<wire::ElementIdWire>,
+    scopes: wire::identity::Scopes,
+    /// The index of the list row whose root lowers next ([`Self::lower_row`]).
+    row: Option<usize>,
 }
 
 /// An authored [`ElementId`] as the wire carries it. Every id a view can
@@ -110,7 +132,8 @@ impl<'a> Lowering<'a> {
         Self {
             window,
             app,
-            authored_path: Vec::new(),
+            scopes: Default::default(),
+            row: None,
         }
     }
 
@@ -121,7 +144,8 @@ impl<'a> Lowering<'a> {
         Self {
             window,
             app,
-            authored_path: Vec::new(),
+            scopes: Default::default(),
+            row: None,
         }
     }
 
@@ -146,22 +170,47 @@ impl<'a> Lowering<'a> {
         self.lower_element(element.into_element())
     }
 
+    /// Lowers `element` in its scope: its id (or, as a list row's root, its
+    /// index) claimed among its siblings', and everything it lowers under
+    /// it. A duplicate is the author's bug and panics here, naming the id
+    /// and the scope: the host's sanitizer refuses the same frame.
     pub(crate) fn lower_element<E: Element>(&mut self, element: E) -> wire::Node {
-        let id = element.id().map(wire_id);
-        if let Some(id) = &id {
-            self.authored_path.push(id.clone());
+        // a row's root is the first element under it that lowers to a node
+        // of its own: a deferred view lowers to the one its render returns
+        let defers = element.defers();
+        let row = if defers { None } else { self.row.take() };
+        let own = element.id().map(wire_id);
+        let identified = own.is_some();
+        let entered = self
+            .scopes
+            .enter(wire::identity::segment(own, row))
+            .unwrap_or_else(|duplicate| panic!("{duplicate}"));
+        if entered {
             slots::enter_scope(&self.app.inner.slots);
         }
         let node = Element::lower(Box::new(element), self);
-        if id.is_some() {
-            self.authored_path.pop();
+        debug_assert!(
+            defers || identified == node.identity().is_some(),
+            "an element's id is the id of the node it lowers to"
+        );
+        self.scopes.leave(entered);
+        if entered {
             slots::leave_scope(&self.app.inner.slots);
         }
         node
     }
 
+    /// Lowers row `index` of a list: filed under its own id, else under
+    /// its index, so the ids inside one row never meet another row's.
+    pub(crate) fn lower_row<E: Element>(&mut self, index: usize, element: E) -> wire::Node {
+        self.row = Some(index);
+        let node = self.lower_element(element);
+        debug_assert!(self.row.is_none(), "a row lowers to a node");
+        node
+    }
+
     pub(crate) fn current_path(&self) -> &[wire::ElementIdWire] {
-        &self.authored_path
+        self.scopes.path()
     }
 
     /// A route for a listener of `kind` on the element being lowered.
@@ -170,7 +219,7 @@ impl<'a> Lowering<'a> {
         kind: slots::Kind,
         listener: impl Fn(&A, &mut Window, &mut App) + 'static,
     ) -> u32 {
-        slots::route(&self.app.inner.slots, &self.authored_path, kind, listener)
+        slots::route(&self.app.inner.slots, self.scopes.path(), kind, listener)
     }
 
     pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
@@ -178,11 +227,11 @@ impl<'a> Lowering<'a> {
     }
 
     pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
-        slots::tooltip(&self.app.inner.slots, &self.authored_path, build)
+        slots::tooltip(&self.app.inner.slots, self.scopes.path(), build)
     }
 
     pub(crate) fn rich_text_tooltip(&self, build: slots::RichTextTooltipBuilder) -> u32 {
-        slots::rich_text_tooltip(&self.app.inner.slots, &self.authored_path, build)
+        slots::rich_text_tooltip(&self.app.inner.slots, self.scopes.path(), build)
     }
 }
 

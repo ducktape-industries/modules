@@ -209,7 +209,7 @@ impl TestAppContext {
                 self.tree.as_mut().expect("patch needs previous tree"),
                 frame.patches.clone(),
             )
-            .expect("valid view patches");
+            .unwrap_or_else(|refused| panic!("valid view patches: {refused}"));
         }
         assert_frame_accessible(self.tree.as_ref(), &frame.tooltip_responses);
         let report = TickReport {
@@ -306,7 +306,9 @@ impl TestAppContext {
             ..Frame::default()
         };
         let mut sanitized = frame.clone();
-        crate::wire::sanitize(&mut sanitized).expect("the frame sanitizes");
+        if let Err(refused) = crate::wire::sanitize(&mut sanitized) {
+            panic!("the frame sanitizes: {refused}");
+        }
         assert!(
             sanitized.root == frame.root,
             "the host would cut this frame: it is past a frame budget"

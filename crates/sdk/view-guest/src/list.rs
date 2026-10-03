@@ -315,7 +315,7 @@ impl Element for List {
         for index in range.clone().take(wire::MAX_LIST_ROWS) {
             let (window, app) = lowering.parts();
             let row = render_item(index, window, app);
-            children.push(lowering.lower_element(row));
+            children.push(lowering.lower_row(index, row));
         }
         wire::Node::List {
             state: state.0.id,

@@ -78,9 +78,9 @@ pub const MAX_PATCHES: usize = 1024;
 /// whose arity is not the node's, or more patches than [`MAX_PATCHES`]. The
 /// tree is then part-way through the sequence and not one the guest ever
 /// sent: the host drops it and asks for a whole one with [`Event::Resync`].
-pub fn apply(root: &mut Node, patches: Vec<Patch>) -> Result<SanitizeReport, &'static str> {
+pub fn apply(root: &mut Node, patches: Vec<Patch>) -> Result<SanitizeReport, Refused> {
     if patches.len() > MAX_PATCHES {
-        return Err("more patches than the host applies");
+        return Err("more patches than the host applies".into());
     }
     for patch in patches {
         apply_one(root, patch)?;

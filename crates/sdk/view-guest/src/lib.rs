@@ -370,3 +370,6 @@ mod tests;
 
 #[cfg(test)]
 mod stale_routes_tests;
+
+#[cfg(test)]
+mod row_identity_tests;

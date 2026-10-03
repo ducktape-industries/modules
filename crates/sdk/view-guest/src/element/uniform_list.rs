@@ -215,7 +215,7 @@ impl Element for UniformList {
                     break 'ranges;
                 }
                 indices.push(index);
-                children.push(lowering.lower_element(child));
+                children.push(lowering.lower_row(index as usize, child));
             }
         }
         let scroll_request = self

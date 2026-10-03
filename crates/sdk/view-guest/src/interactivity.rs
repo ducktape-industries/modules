@@ -398,6 +398,10 @@ impl<E: Element> Element for Stateful<E> {
         self.element.id()
     }
 
+    fn defers(&self) -> bool {
+        self.element.defers()
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         Element::lower(Box::new(self.element), lowering)
     }

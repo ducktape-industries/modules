@@ -59,6 +59,10 @@ impl<V: RenderOnce> ViewElement<V> {
 }
 
 impl<V: RenderOnce> Element for ViewElement<V> {
+    fn defers(&self) -> bool {
+        true
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         lowering.render_once(self.view)
     }

@@ -297,18 +297,32 @@ pub(super) fn check_frame(frame: &Frame, ctx: &str) {
 }
 
 pub(super) fn has_duplicate_typed_siblings(node: &Node) -> bool {
-    fn walk<'a>(node: &'a Node, scope: &mut HashSet<&'a ElementIdWire>) -> bool {
-        if let Some(id) = node.identity() {
-            if !scope.insert(id) {
-                return true;
+    // Filed under its own id, or as a list's row under its index; unique
+    // among the filed nodes under the nearest filed ancestor.
+    fn walk(node: &Node, row: Option<usize>, scope: &mut HashSet<ElementIdWire>) -> bool {
+        let row_of = |at: usize| match node {
+            Node::List { range_start, .. } => Some(range_start + at),
+            Node::UniformList { indices, .. } => indices.get(at).map(|index| *index as usize),
+            _ => None,
+        };
+        let filed = node
+            .identity()
+            .cloned()
+            .or_else(|| row.map(|index| ElementIdWire::Integer(index as u64)));
+        let mut own = HashSet::new();
+        let scope = match filed {
+            Some(id) => {
+                if !scope.insert(id) {
+                    return true;
+                }
+                &mut own
             }
-            let mut child_scope = HashSet::new();
-            node.children()
-                .iter()
-                .any(|child| walk(child, &mut child_scope))
-        } else {
-            node.children().iter().any(|child| walk(child, scope))
-        }
+            None => scope,
+        };
+        node.children()
+            .iter()
+            .enumerate()
+            .any(|(at, child)| walk(child, row_of(at), scope))
     }
-    walk(node, &mut HashSet::new())
+    walk(node, None, &mut HashSet::new())
 }

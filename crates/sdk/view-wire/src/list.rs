@@ -265,7 +265,10 @@ mod variable_tests {
             root: Some(root),
             ..Default::default()
         };
-        assert_eq!(sanitize(&mut frame), Err("list authored path is invalid"));
+        assert_eq!(
+            sanitize(&mut frame),
+            Err(crate::Refused::Invalid("list authored path is invalid"))
+        );
     }
 
     #[test]

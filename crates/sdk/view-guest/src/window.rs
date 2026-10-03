@@ -85,23 +85,25 @@ fn target_mut(command: &mut wire::WidgetCommand) -> Option<&mut wire::WidgetTarg
 fn resolve(root: &wire::Node, target: &[wire::ElementIdWire]) -> Option<wire::WidgetTarget> {
     fn walk(
         node: &wire::Node,
+        row: Option<usize>,
         path: &mut Vec<wire::ElementIdWire>,
         visit: &mut impl FnMut(&[wire::ElementIdWire]),
     ) {
-        let id = node.identity();
-        if let Some(id) = id {
-            path.push(id.clone());
+        let segment = wire::identity::segment(node.identity().cloned(), row);
+        let entered = segment.is_some();
+        if let Some(segment) = segment {
+            path.push(segment);
             visit(path);
         }
-        for child in node.children() {
-            walk(child, path, visit);
+        for (at, child) in node.children().iter().enumerate() {
+            walk(child, wire::identity::row(node, at), path, visit);
         }
-        if id.is_some() {
+        if entered {
             path.pop();
         }
     }
     let (mut whole, mut ending) = (false, Vec::new());
-    walk(root, &mut Vec::new(), &mut |path| {
+    walk(root, None, &mut Vec::new(), &mut |path| {
         whole |= path == target;
         if path.ends_with(target) {
             ending.push(path.to_vec());

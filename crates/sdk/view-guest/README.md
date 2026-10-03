@@ -30,6 +30,11 @@ Ours, defined in this crate:
   press, name or hover (a `div` around it carries those); `canvas` is drawn
   by calls (`rect`, `circle`, `line`), since gpui's paint closures cannot
   cross.
+- An id is unique among the ids under its nearest identified ancestor, as
+  gpui's are (`view_wire::identity`). A row of a `list` or `uniform_list` is
+  filed under its own id, else its index, and the ids inside it under the
+  row: rows need no index formatted into their ids. A duplicate panics where
+  it is lowered, naming the id and its scope, as the host would refuse it.
 - A control is named from birth: `Input::new(id, label)`,
   `Textarea::new(id, &field, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words

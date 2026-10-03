@@ -3,7 +3,7 @@
 use gpui::{ElementId, SharedString};
 use std::sync::Arc;
 use view_wire::{
-    ElementIdAtom, ElementIdWire, Frame, MAX_ELEMENT_ID_DEPTH, Node, apply, diff, sanitize,
+    ElementIdAtom, ElementIdWire, Frame, MAX_ELEMENT_ID_DEPTH, Node, Refused, apply, diff, sanitize,
 };
 
 fn text(id: ElementIdWire, content: &str) -> Node {
@@ -63,8 +63,8 @@ fn duplicate_typed_sibling_ids_are_refused() {
         ..Frame::default()
     };
     assert_eq!(
-        sanitize(&mut frame),
-        Err("duplicate typed element identity among siblings")
+        sanitize(&mut frame).unwrap_err().to_string(),
+        "duplicate typed element identity among siblings: same twice under the root"
     );
 }
 
@@ -77,10 +77,10 @@ fn duplicate_ids_through_anonymous_wrappers_share_the_parent_scope() {
         ])),
         ..Frame::default()
     };
-    assert_eq!(
+    assert!(matches!(
         sanitize(&mut frame),
-        Err("duplicate typed element identity among siblings")
-    );
+        Err(Refused::Duplicate(duplicate)) if duplicate.id == ElementIdWire::Name("same".into())
+    ));
 }
 
 #[test]
@@ -124,10 +124,7 @@ fn patch_inserting_a_collision_hidden_by_a_wrapper_is_refused() {
             node: container(vec![text(ElementIdWire::Name("same".into()), "two")]),
         }],
     );
-    assert_eq!(
-        result,
-        Err("duplicate typed element identity among siblings")
-    );
+    assert!(matches!(result, Err(Refused::Duplicate(_))));
 }
 
 #[test]

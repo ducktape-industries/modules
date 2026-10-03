@@ -1,16 +1,17 @@
 use super::*;
 
 /// One node and, within what is left of the budgets, everything under it.
-/// The walk per node: its typed id claimed in its scope and checked, its
-/// interactivity bounded, its own fields bounded by [`sanitize_fields`],
-/// then its children.
+/// The walk per node: its typed id claimed in its scope and checked
+/// (`row` is its index when it is a row of a list: [`identity::segment`]),
+/// its interactivity bounded, its own fields bounded by
+/// [`sanitize_fields`], then its children.
 pub(super) fn sanitize_node(
     node: &mut Node,
     depth: usize,
     budgets: &mut Budgets,
-    identity_scopes: &mut IdentityScopes,
-    authored_path: &mut Vec<ElementIdWire>,
-) -> Result<(), &'static str> {
+    scopes: &mut identity::Scopes,
+    row: Option<usize>,
+) -> Result<(), Refused> {
     // The caller guarantees one node of budget; a node too deep spends it
     // on the empty node that stands in for it.
     budgets.nodes -= 1;
@@ -18,11 +19,7 @@ pub(super) fn sanitize_node(
         *node = Node::empty();
         return Ok(());
     }
-    let typed_id = node.identity().cloned();
-    let typed_scope_started = claim_typed_scope(node, identity_scopes)?;
-    if let Some(id) = &typed_id {
-        authored_path.push(id.clone());
-    }
+    let entered = scopes.enter(identity::segment(node.identity().cloned(), row))?;
     if let Node::Container(crate::ContainerNode { interactivity, .. })
     | Node::UniformList { interactivity, .. }
     | Node::List { interactivity, .. }
@@ -44,24 +41,21 @@ pub(super) fn sanitize_node(
             tooltip.delay_ms = tooltip.delay_ms.min(60_000);
         }
     }
-    // Every variant that carries an id (`Node::identity`) has it checked.
-    if let Some(id) = &typed_id {
+    // Every id a node is filed under (its own, a row's index) is checked.
+    if let Some(id) = entered.then(|| scopes.path().last()).flatten() {
         id.validate_host()?;
     }
-    sanitize_fields(node, budgets, authored_path)?;
+    sanitize_fields(node, budgets, scopes.path())?;
     let takes_focus = node
         .interactivity()
         .is_some_and(|i| (i.focusable || i.focus_handle.is_some()) && i.role.is_some());
     let claimed_outside =
         takes_focus.then(|| std::mem::replace(&mut budgets.active_descendant, false));
-    sanitize_children(node, depth, budgets, identity_scopes, authored_path)?;
+    sanitize_children(node, depth, budgets, scopes)?;
     if let Some(claimed) = claimed_outside {
         budgets.active_descendant = claimed;
     }
-    finish_typed_scope(identity_scopes, typed_scope_started);
-    if typed_scope_started {
-        authored_path.pop();
-    }
+    scopes.leave(entered);
     Ok(())
 }
 
@@ -70,7 +64,7 @@ fn sanitize_fields(
     node: &mut Node,
     budgets: &mut Budgets,
     authored_path: &[ElementIdWire],
-) -> Result<(), &'static str> {
+) -> Result<(), Refused> {
     match node {
         Node::Container(crate::ContainerNode { style, .. })
         | Node::ResizeHandle { style, .. }
@@ -107,7 +101,7 @@ fn sanitize_fields(
             ..
         } => {
             if path != authored_path {
-                return Err("list authored path is invalid");
+                return Err("list authored path is invalid".into());
             }
             for id in path.iter() {
                 id.validate_host()?;
@@ -297,56 +291,63 @@ fn list_commands(commands: &mut Vec<ListCommand>, item_count: usize) {
     }
 }
 
-/// The children, in tree order, on what is left of the node budget.
+/// The children, in tree order, on what is left of the node budget; a
+/// list's children each as its row.
 fn sanitize_children(
     node: &mut Node,
     depth: usize,
     budgets: &mut Budgets,
-    identity_scopes: &mut IdentityScopes,
-    authored_path: &mut Vec<ElementIdWire>,
-) -> Result<(), &'static str> {
+    scopes: &mut identity::Scopes,
+) -> Result<(), Refused> {
     // Children past the budget are dropped, not stood in for: a layout of
     // ten thousand rows becomes its first rows, which is what a host can
     // lay out, rather than ten thousand empty nodes it still has to walk.
-    if let Node::Container(crate::ContainerNode { children, .. })
-    | Node::List { children, .. }
-    | Node::Overlay { children, .. }
-    | Node::Anchored { children, .. }
-    | Node::Image {
-        state_children: children,
-        ..
-    } = node
-    {
-        let mut kept = 0;
-        for child in children.iter_mut() {
-            if budgets.nodes == 0 {
+    // A single slot (a wrapper's content) keeps its place as an empty
+    // node, as does a uniform list's row, which its index names.
+    let drops = matches!(
+        node,
+        Node::Container(_)
+            | Node::List { .. }
+            | Node::Overlay { .. }
+            | Node::Anchored { .. }
+            | Node::Image { .. }
+    );
+    let mut kept = 0;
+    for child in 0..node.children().len() {
+        if budgets.nodes == 0 {
+            if drops {
                 break;
             }
-            sanitize_node(child, depth + 1, budgets, identity_scopes, authored_path)?;
-            kept += 1;
-        }
-        children.truncate(kept);
-        if let Node::Image {
-            loading,
-            fallback,
-            state_children,
-            ..
-        } = node
-            && state_children.len() < usize::from(*loading) + usize::from(*fallback)
-        {
-            *loading = false;
-            *fallback = false;
-            state_children.clear();
-        }
-        return Ok(());
-    }
-    // A single slot (a wrapper's content) keeps its place as an empty node.
-    for child in node.children_mut() {
-        if budgets.nodes == 0 {
-            *child = Node::empty();
+            node.children_mut()[child] = Node::empty();
             continue;
         }
-        sanitize_node(child, depth + 1, budgets, identity_scopes, authored_path)?;
+        let row = identity::row(node, child);
+        sanitize_node(
+            &mut node.children_mut()[child],
+            depth + 1,
+            budgets,
+            scopes,
+            row,
+        )?;
+        kept += 1;
+    }
+    if !drops {
+        return Ok(());
+    }
+    if let Some(children) = node.child_list_mut() {
+        children.truncate(kept);
+    }
+    if let Node::Image {
+        loading,
+        fallback,
+        state_children,
+        ..
+    } = node
+        && state_children.len() < usize::from(*loading) + usize::from(*fallback)
+    {
+        *loading = false;
+        *fallback = false;
+        state_children.clear();
     }
     Ok(())
 }
