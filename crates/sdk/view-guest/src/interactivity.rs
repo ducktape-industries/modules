@@ -34,16 +34,16 @@ pub struct Interactivity {
     pub(crate) tab_stop: Option<bool>,
     pub(crate) tab_index: Option<i32>,
     pub(crate) tab_group: bool,
-    pub(crate) focus: Option<StyleRefinement>,
-    pub(crate) in_focus: Option<StyleRefinement>,
-    pub(crate) focus_visible: Option<StyleRefinement>,
+    pub(crate) focus: Option<Box<StyleRefinement>>,
+    pub(crate) in_focus: Option<Box<StyleRefinement>>,
+    pub(crate) focus_visible: Option<Box<StyleRefinement>>,
     pub(crate) key_context: Option<wire::KeyContext>,
     pub(crate) focus_handle: Option<FocusHandle>,
     pub(crate) group: Option<SharedString>,
-    pub(crate) hover: Option<StyleRefinement>,
-    pub(crate) active: Option<StyleRefinement>,
-    pub(crate) group_hover: Option<(SharedString, StyleRefinement)>,
-    pub(crate) group_active: Option<(SharedString, StyleRefinement)>,
+    pub(crate) hover: Option<Box<StyleRefinement>>,
+    pub(crate) active: Option<Box<StyleRefinement>>,
+    pub(crate) group_hover: Option<(SharedString, Box<StyleRefinement>)>,
+    pub(crate) group_active: Option<(SharedString, Box<StyleRefinement>)>,
     /// Relation targets: siblings' ids, lowered to their paths.
     labelled_by: Vec<ElementId>,
     described_by: Vec<ElementId>,
@@ -133,7 +133,7 @@ pub trait InteractiveElement: Sized {
     }
 
     fn hover(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().hover = Some(f(StyleRefinement::default()));
+        self.interactivity().hover = Some(Box::new(f(StyleRefinement::default())));
         self
     }
 
@@ -142,7 +142,8 @@ pub trait InteractiveElement: Sized {
         group: impl Into<SharedString>,
         f: impl FnOnce(StyleRefinement) -> StyleRefinement,
     ) -> Self {
-        self.interactivity().group_hover = Some((group.into(), f(StyleRefinement::default())));
+        self.interactivity().group_hover =
+            Some((group.into(), Box::new(f(StyleRefinement::default()))));
         self
     }
 
@@ -355,17 +356,17 @@ pub trait InteractiveElement: Sized {
     }
 
     fn focus(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().focus = Some(f(StyleRefinement::default()));
+        self.interactivity().focus = Some(Box::new(f(StyleRefinement::default())));
         self
     }
 
     fn in_focus(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().in_focus = Some(f(StyleRefinement::default()));
+        self.interactivity().in_focus = Some(Box::new(f(StyleRefinement::default())));
         self
     }
 
     fn focus_visible(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().focus_visible = Some(f(StyleRefinement::default()));
+        self.interactivity().focus_visible = Some(Box::new(f(StyleRefinement::default())));
         self
     }
 }
@@ -618,7 +619,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self
     }
     fn active(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().active = Some(f(StyleRefinement::default()));
+        self.interactivity().active = Some(Box::new(f(StyleRefinement::default())));
         self
     }
     fn group_active(
@@ -626,7 +627,8 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         group: impl Into<SharedString>,
         f: impl FnOnce(StyleRefinement) -> StyleRefinement,
     ) -> Self {
-        self.interactivity().group_active = Some((group.into(), f(StyleRefinement::default())));
+        self.interactivity().group_active =
+            Some((group.into(), Box::new(f(StyleRefinement::default()))));
         self
     }
     fn on_click(mut self, listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {

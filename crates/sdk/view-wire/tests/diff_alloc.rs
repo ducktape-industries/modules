@@ -5,7 +5,7 @@
 use gpui::StyleRefinement;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use view_wire::{ContainerNode, Interactivity, Node, TextNode};
+use view_wire::{ContainerNode, Node, TextNode};
 
 struct Counting;
 static ALLOCATED: AtomicUsize = AtomicUsize::new(0);
@@ -33,7 +33,7 @@ fn column(children: Vec<Node>) -> Node {
     Node::Container(ContainerNode {
         id: None,
         style: StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         children,
     })
 }

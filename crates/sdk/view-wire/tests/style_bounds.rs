@@ -3,15 +3,15 @@
 //! bounds, and anchored offsets keep their sign while their magnitude is cut.
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, ContainerNode, Frame, GroupRefinement,
-    Interactivity, Node, Patch, TextNode, decode, encode, sanitize,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, ContainerNode, Frame, GroupRefinement, Node,
+    Patch, TextNode, decode, encode, sanitize,
 };
 
 fn container(style: StyleRefinement) -> Node {
     Node::Container(view_wire::ContainerNode {
         id: None,
         style,
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         children: vec![Node::Text(view_wire::TextNode {
             id: None,
             style: StyleRefinement::default(),
@@ -30,15 +30,15 @@ fn whole_frames_bound_base_and_every_conditional_style() {
     let Node::Container(view_wire::ContainerNode { interactivity, .. }) = &mut root else {
         unreachable!()
     };
-    interactivity.hover = Some(hostile.clone());
-    interactivity.active = Some(hostile.clone());
+    interactivity.hover = Some(Box::new(hostile.clone()));
+    interactivity.active = Some(Box::new(hostile.clone()));
     interactivity.group_hover = Some(GroupRefinement {
         group: "row".into(),
-        style: hostile.clone(),
+        style: Box::new(hostile.clone()),
     });
     interactivity.group_active = Some(GroupRefinement {
         group: "row".into(),
-        style: hostile,
+        style: Box::new(hostile),
     });
     let mut frame = Frame {
         root: Some(root),
@@ -54,7 +54,7 @@ fn whole_frames_bound_base_and_every_conditional_style() {
         unreachable!()
     };
     for style in [
-        style,
+        Box::new(style),
         interactivity.hover.unwrap(),
         interactivity.active.unwrap(),
         interactivity.group_hover.unwrap().style,

@@ -3,8 +3,7 @@
 use gpui::{ElementId, SharedString};
 use std::sync::Arc;
 use view_wire::{
-    ElementIdAtom, ElementIdWire, Frame, Interactivity, MAX_ELEMENT_ID_DEPTH, Node, apply, diff,
-    sanitize,
+    ElementIdAtom, ElementIdWire, Frame, MAX_ELEMENT_ID_DEPTH, Node, apply, diff, sanitize,
 };
 
 fn text(id: ElementIdWire, content: &str) -> Node {
@@ -19,7 +18,7 @@ fn container(children: Vec<Node>) -> Node {
     Node::Container(view_wire::ContainerNode {
         id: None,
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         children,
     })
 }
@@ -28,7 +27,7 @@ fn identified_container(id: ElementIdWire, children: Vec<Node>) -> Node {
     Node::Container(view_wire::ContainerNode {
         id: Some(id),
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         children,
     })
 }

@@ -16,7 +16,7 @@ fn el(key: &str, interactivity: Interactivity, children: Vec<Node>) -> Node {
     Node::Container(ContainerNode {
         id: Some(ElementIdWire::Name(key.into())),
         style: StyleRefinement::default(),
-        interactivity,
+        interactivity: Box::new(interactivity),
         children,
     })
 }
@@ -94,7 +94,7 @@ fn handle(interactivity: Interactivity) -> Node {
     Node::ResizeHandle {
         id: ElementIdWire::Name("divider".into()),
         style: StyleRefinement::default(),
-        interactivity,
+        interactivity: Box::new(interactivity),
         on_press: None,
         on_release: None,
         on_drag: Some(1),
@@ -117,7 +117,7 @@ fn image(interactivity: Interactivity, label: Option<&str>) -> Node {
         fallback: false,
         state_children: Vec::new(),
         style: StyleRefinement::default(),
-        interactivity,
+        interactivity: Box::new(interactivity),
     }
 }
 

@@ -210,7 +210,7 @@ pub(super) fn sanitize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ElementIdWire, Frame, Interactivity, Node};
+    use crate::{ElementIdWire, Frame, Node};
 
     #[test]
     fn hostile_utf8_ranges_and_run_lengths_never_reach_gpui() {
@@ -264,7 +264,7 @@ mod tests {
             root: Some(Node::Container(crate::ContainerNode {
                 id: Some(ElementIdWire::Name("root".into())),
                 style: gpui::StyleRefinement::default(),
-                interactivity: Interactivity::default(),
+                interactivity: Default::default(),
                 children: vec![rich(), rich()],
             })),
             ..Default::default()
@@ -278,7 +278,7 @@ mod tests {
             Node::Container(crate::ContainerNode {
                 id: Some(ElementIdWire::Name(name.into())),
                 style: gpui::StyleRefinement::default(),
-                interactivity: Interactivity::default(),
+                interactivity: Default::default(),
                 children: vec![rich()],
             })
         };
@@ -286,7 +286,7 @@ mod tests {
             root: Some(Node::Container(crate::ContainerNode {
                 id: Some(ElementIdWire::Name("root".into())),
                 style: gpui::StyleRefinement::default(),
-                interactivity: Interactivity::default(),
+                interactivity: Default::default(),
                 children: vec![parent("left"), parent("right")],
             })),
             ..Default::default()

@@ -19,11 +19,11 @@ pub struct Interactivity {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub tab_group: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub focus: Option<StyleRefinement>,
+    pub focus: Option<Box<StyleRefinement>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub in_focus: Option<StyleRefinement>,
+    pub in_focus: Option<Box<StyleRefinement>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub focus_visible: Option<StyleRefinement>,
+    pub focus_visible: Option<Box<StyleRefinement>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key_context: Option<crate::interactivity::KeyContext>,
     /// Guest-app-local opaque focus allocation. It is never an authored element ID.
@@ -38,9 +38,9 @@ pub struct Interactivity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<SharedString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hover: Option<StyleRefinement>,
+    pub hover: Option<Box<StyleRefinement>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active: Option<StyleRefinement>,
+    pub active: Option<Box<StyleRefinement>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_hover: Option<GroupRefinement>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,5 +96,5 @@ pub struct Interactivity {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GroupRefinement {
     pub group: SharedString,
-    pub style: StyleRefinement,
+    pub style: Box<StyleRefinement>,
 }

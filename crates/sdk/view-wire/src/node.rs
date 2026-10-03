@@ -65,7 +65,6 @@ pub struct SvgTransformation {
 /// One widget. Retained elements carry their native typed identity across
 /// frames for host state, focus, and accessibility ancestry.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[allow(clippy::large_enum_variant)]
 pub enum Node {
     /// One native GPUI paragraph with optional interactive byte ranges.
     RichText {
@@ -98,7 +97,7 @@ pub enum Node {
         route: u32,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
         count: usize,
         measure_index: usize,
         sizing: crate::list::UniformListSizing,
@@ -128,7 +127,7 @@ pub enum Node {
         range_start: usize,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
         #[serde(deserialize_with = "decode_children")]
         children: Vec<Node>,
     },
@@ -138,7 +137,7 @@ pub enum Node {
         id: ElementIdWire,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
         on_press: Option<u32>,
         on_release: Option<u32>,
         on_drag: Option<u32>,
@@ -177,7 +176,7 @@ pub enum Node {
         state_children: Vec<Node>,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
     },
     /// A vector picture. Its bytes cross ONCE: the frame that first shows a
     /// picture carries them under `hash`, and every frame after — a changed
@@ -191,7 +190,7 @@ pub enum Node {
         label: Option<String>,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
     },
     Input {
         options: InputOptions,

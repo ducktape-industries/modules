@@ -57,6 +57,19 @@ fn a_chain_that_overflowed_the_host_stack_is_an_error_not_a_crash() {
     assert!(decode::<Frame>(&bytes).is_err());
 }
 
+/// Every lower, clone, diff, move and decode level pays for a node's
+/// inline bytes, so the rarely set parts sit behind a pointer as gpui keeps
+/// them: a node's interactivity and the conditional styles inside it. Inline
+/// they made a node 6,112 bytes.
+#[test]
+fn a_node_keeps_its_rarely_set_parts_behind_a_pointer() {
+    assert!(
+        std::mem::size_of::<Node>() <= 1024,
+        "{} bytes",
+        std::mem::size_of::<Node>()
+    );
+}
+
 #[test]
 fn more_nodes_than_the_host_holds_is_refused() {
     let wide = column((0..MAX_DECODED_NODES + 2).map(|_| Node::empty()).collect());
@@ -111,7 +124,7 @@ fn uniform_list_path_must_match_its_typed_tree_ancestry() {
         root: Some(Node::Container(crate::ContainerNode {
             id: Some(parent.clone()),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
             children: vec![uniform(vec![parent.clone(), list.clone()])],
         })),
         ..Default::default()

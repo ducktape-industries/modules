@@ -1046,12 +1046,12 @@ mod tests {
         let plain = lower(button("save", "Save", &theme, |_, _, _| {}));
         assert_eq!(
             interactivity(&plain).focus_visible,
-            Some(focus_ring(theme.accent))
+            Some(Box::new(focus_ring(theme.accent)))
         );
         let ink = lower(button("send", "Send", &theme, |_, _, _| {}).kind(Kind::Primary));
         assert_eq!(
             interactivity(&ink).focus_visible,
-            Some(focus_ring(theme.primary_foreground))
+            Some(Box::new(focus_ring(theme.primary_foreground)))
         );
         let own = lower(
             div()
@@ -1061,7 +1061,7 @@ mod tests {
         );
         assert_eq!(
             interactivity(&own).focus_visible,
-            Some(StyleRefinement::default().opacity(0.5))
+            Some(Box::new(StyleRefinement::default().opacity(0.5)))
         );
         let still = lower(div().id("box").child("text"));
         assert_eq!(interactivity(&still).focus_visible, None);

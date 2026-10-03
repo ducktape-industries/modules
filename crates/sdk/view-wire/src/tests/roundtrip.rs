@@ -45,7 +45,7 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
     let mut root = Node::Container(crate::ContainerNode {
         id: Some(ElementIdWire::Name("root".into())),
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         children: vec![text(&"x".repeat(MAX_TEXT_BYTES_PER_FRAME / 2 + 1))],
     });
     let report = apply(

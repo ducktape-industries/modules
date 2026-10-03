@@ -9,7 +9,7 @@ pub struct ContainerNode {
     pub id: Option<ElementIdWire>,
     pub style: StyleRefinement,
     #[serde(default, skip_serializing_if = "crate::is_default")]
-    pub interactivity: Interactivity,
+    pub interactivity: Box<Interactivity>,
     #[serde(deserialize_with = "decode_children")]
     pub children: Vec<Node>,
 }

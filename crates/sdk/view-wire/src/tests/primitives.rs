@@ -6,7 +6,7 @@ fn a_container_is_cut_at_the_node_budget() {
     let root = sanitized_root(Node::Container(crate::ContainerNode {
         id: Some(ElementIdWire::Name("App/cells".into())),
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         children: (0..MAX_NODES + 5).map(|_| text("x")).collect(),
     }));
     let Node::Container(crate::ContainerNode { children, .. }) = &root else {
@@ -34,7 +34,7 @@ fn svg_and_raster_images_share_the_frame_picture_budget() {
         fallback: false,
         state_children: vec![],
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
     };
     let mut frame = Frame {
         root: Some(column(vec![

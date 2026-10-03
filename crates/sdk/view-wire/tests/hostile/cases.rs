@@ -380,7 +380,7 @@ fn a_length_prefix_bomb_is_refused_without_the_allocation() {
         root: Some(Node::Container(view_wire::ContainerNode {
             id: None,
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
             children,
         })),
         ..Default::default()
@@ -441,7 +441,7 @@ fn resize_handle_round_trip_retains_routes_and_checks_its_child() {
             style: gen_native_style(&mut Rng::new(99)),
         }),
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
     });
     assert_eq!(tree_depth(frame.root.as_ref().unwrap()), 1);
     let mut decoded: Frame = decode(&encode(&frame)).unwrap();
