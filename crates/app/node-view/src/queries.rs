@@ -1,10 +1,8 @@
 //! Typed reads of valset, folded into one row per key.
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, pages, wrong_reply};
-use ducktape_view_guest::methods::Query;
+use ducktape_view_guest::host::{Error, pages};
 use serde::{Deserialize, Serialize};
-use valset::Valset;
-use valset::{Membership, PageRequest, Query as Ask, Reply, Role};
+use valset::{Membership, PageRequest, Role, ask};
 
 /// One member of the network, once: its key, the address it is reached at
 /// (empty for a seated key valset holds no membership for), whether it
@@ -55,19 +53,14 @@ pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
 /// The set, read twice: the consensus keys the program answers, then every
 /// membership behind them.
 pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
-    let validators = match host.ask::<Query<Valset>>(Ask::Validators).await? {
-        Reply::Validators(keys) => keys,
-        _ => return Err(wrong_reply()),
-    };
+    let validators = host.query(ask::Validators).await?;
     let members = pages(None, |after| {
-        let ask = host.ask::<Query<Valset>>(Ask::Memberships {
+        let ask = host.query(ask::Memberships {
             page: PageRequest { after, limit: None },
         });
         async move {
-            match ask.await? {
-                Reply::Memberships(reply) => Ok((reply.items, reply.next)),
-                _ => Err(wrong_reply()),
-            }
+            let reply = ask.await?;
+            Ok((reply.items, reply.next))
         }
     })
     .await?;

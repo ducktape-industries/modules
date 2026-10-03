@@ -71,6 +71,8 @@ abi = { workspace = true }
 borsh = { workspace = true }
 describe = { workspace = true }
 guest = { workspace = true }
+# \`#[derive(program::Ask)]\`: each query asked alone, typed by its reply
+program = { workspace = true }
 store = { workspace = true }
 EOF
     cat > "$dir/src/lib.rs" <<EOF
@@ -100,8 +102,12 @@ pub enum Op {
     Bump { by: u64 },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// A read. Each variant names the reply that answers it, so a view asks
+/// it alone (\`host.query($snake::ask::Count)\`) and gets that reply.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[ask($title)]
 pub enum Query {
+    #[ask(Reply::Count(u64))]
     Count,
 }
 
@@ -194,18 +200,16 @@ use guest::{Env, MockHost, Module, code};
 
 use crate::{$title, MODULE, Op, Query, Reply};
 
-/// Signed by key 1, which holds account 1.
-fn signed() -> Env {
-    MockHost::env(MODULE).signed([1u8; 32], Some(1))
-}
-
+/// \`MockHost::env\` is a person's frame: signed by key \`[1; 32]\`, which
+/// holds account 1. The chain's own is \`.root()\`.
 #[test]
 fn bumps_add_up_and_read_back() {
     let host = MockHost::default();
-    $title::execute(&host.exec(signed()), Op::Bump { by: 2 }).unwrap();
+    let first = host.exec(MockHost::env(MODULE));
+    $title::execute(&first, Op::Bump { by: 2 }).unwrap();
     let later = Env {
         height: 2,
-        ..signed()
+        ..MockHost::env(MODULE)
     };
     $title::execute(&host.exec(later), Op::Bump { by: 3 }).unwrap();
     let count = $title::query(&host.query(MockHost::env(MODULE)), Query::Count).unwrap();
@@ -273,7 +277,7 @@ EOF
 //! $title: the count the \`$program\` module keeps, re-read on every live
 //! bump of the module.
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::{Capability, Changes, Query};
+use ducktape_view_guest::methods::{Capability, Changes};
 // gpui's names: elements, styles, \`Render\`, \`Context\`, \`Window\`
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Host, Loadable, Task, View, export_view};
@@ -350,10 +354,7 @@ impl $title {
 }
 
 async fn count(host: Host) -> Result<u64, Error> {
-    let $program_snake::Reply::Count(count) = host
-        .ask::<Query<$program_snake::$title>>($program_snake::Query::Count)
-        .await?;
-    Ok(count)
+    host.query($program_snake::ask::Count).await
 }
 
 export_view!($title);
@@ -363,6 +364,7 @@ mod tests;
 EOF
     cat > "$dir/src/tests.rs" <<EOF
 use super::*;
+use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::testing::TestAppContext;
 
 fn ready() -> TestAppContext {

@@ -18,15 +18,14 @@ mod ui;
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::export_view;
-use ducktape_view_guest::host::{Error, malformed};
+use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::methods::{Changes, HostOffset, HostSession, Query};
+use ducktape_view_guest::methods::{Changes, HostOffset, HostSession};
 use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, View, Window};
 use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
 
 use identity::Identity;
-use valset::Valset;
 
 pub use activity::Recent;
 
@@ -333,13 +332,7 @@ async fn roster(host: Host) -> Result<Vec<Row>, Error> {
     let mut after = None;
     loop {
         let page = PageRequest { after, limit: None };
-        let reply = match host
-            .ask::<Query<Identity>>(identity::Query::List { page })
-            .await?
-        {
-            identity::Reply::Accounts(reply) => reply,
-            other => return Err(unexpected(identity::MODULE, &other)),
-        };
+        let reply = host.query(identity::ask::List { page }).await?;
         accounts.extend(reply.items);
         match reply.next {
             Some(next) => after = Some(next),
@@ -350,13 +343,7 @@ async fn roster(host: Host) -> Result<Vec<Row>, Error> {
     let mut after = None;
     loop {
         let page = PageRequest { after, limit: None };
-        let reply = match host
-            .ask::<Query<Valset>>(valset::Query::Memberships { page })
-            .await?
-        {
-            valset::Reply::Memberships(reply) => reply,
-            other => return Err(unexpected(valset::MODULE, &other)),
-        };
+        let reply = host.query(valset::ask::Memberships { page }).await?;
         members.extend(reply.items);
         match reply.next {
             Some(next) => after = Some(next),
@@ -401,10 +388,6 @@ fn row(account: &identity::Account, members: &[valset::Membership]) -> Row {
                 .into()
             }),
     }
-}
-
-fn unexpected(program: &str, reply: &impl std::fmt::Debug) -> Error {
-    malformed(format!("{program} answered {reply:?}"))
 }
 
 export_view!(Members);

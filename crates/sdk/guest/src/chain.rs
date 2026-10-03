@@ -25,7 +25,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
     AccountNumber, Cause, Env, Error, ExecCtx, MessageId, MockHost, Module, ModuleId, Origin,
-    Outcome, Principal, QueryCtx, code, identity_role, unauthorized, unexpected_reply,
+    Outcome, Principal, QueryCtx, Roles, code, identity_role, unauthorized, unexpected_reply,
 };
 
 /// How deep messages nest in one frame: a submission runs at depth 0 and
@@ -102,11 +102,13 @@ impl Roster {
 }
 
 /// Several modules over one clock, run as the kernel runs them. The chain
-/// is at a height and time ([`at`](MockChain::at) moves it); every module is seated
+/// is founded with the roles genesis binds ([`founded`](MockChain::founded);
+/// [`MockHost::roles`] by default) and is at a height and time
+/// ([`at`](MockChain::at) moves it); every module is seated
 /// by name ([`seat`](MockChain::seat)) over a host of its own
 /// ([`host`](MockChain::host)); a signed submission is one frame
 /// ([`submit`](MockChain::submit)). Who a key or a module acts as: the
-/// module seated at [`MockHost::roles`]`().identity`, asked as the kernel
+/// module seated at the identity role's binding, asked as the kernel
 /// asks it, or, when none is, the [`Roster`].
 ///
 /// ```ignore
@@ -121,6 +123,8 @@ impl Roster {
 /// let reply: chat::Reply = chain.query("chat", &chat::Query::Roots { .. })?;
 /// ```
 pub struct MockChain {
+    /// What genesis bound each role to: every frame's env carries it.
+    roles: Roles,
     seats: BTreeMap<ModuleId, Seat>,
     roster: Rc<RefCell<Roster>>,
     /// The frame-wide number the next emitted message gets.
@@ -131,20 +135,26 @@ pub struct MockChain {
 
 impl Default for MockChain {
     fn default() -> MockChain {
+        MockChain::founded(MockHost::roles())
+    }
+}
+
+impl MockChain {
+    /// A chain whose genesis binds the roles to `roles`, nothing seated.
+    pub fn founded(roles: Roles) -> MockChain {
         MockChain {
+            roles,
             seats: BTreeMap::new(),
             roster: Rc::default(),
             next_message: Cell::new(0),
             clock: Cell::new((1, 0)),
         }
     }
-}
 
-impl MockChain {
     /// Seats `M` as `module`, over a fresh host of its own, which every
     /// module seated may query and which is returned for the test to read
-    /// and write (`chain.host(module)` finds it again). Seated at
-    /// [`MockHost::roles`]`().identity`, `M` is the identity the chain asks.
+    /// and write (`chain.host(module)` finds it again). Seated at the
+    /// identity role's binding, `M` is the identity the chain asks.
     pub fn seat<M: Module>(&mut self, module: impl Into<ModuleId>) -> MockHost {
         let module = module.into();
         let host = MockHost::default();
@@ -156,7 +166,7 @@ impl MockChain {
         };
         let roster = self.roster.clone();
         host.borrow_mut().siblings.insert(
-            MockHost::roles().identity,
+            self.roles.identity.clone(),
             Box::new(move |_, request| identity_role(&roster.borrow().profiles(), request)),
         );
         // a module may query itself, as the kernel answers it
@@ -231,7 +241,8 @@ impl MockChain {
         Env {
             height,
             time,
-            ..MockHost::env(module)
+            roles: self.roles.clone(),
+            ..MockHost::env(module).root()
         }
     }
 
@@ -319,7 +330,7 @@ impl MockChain {
     /// kernel asks: the seated identity module with the chain's own env, or
     /// the roster. A reply that is not `Account` is refused.
     fn account(&self, asked: Query) -> Result<Option<Principal>, Error> {
-        let identity = MockHost::roles().identity;
+        let identity = self.roles.identity.clone();
         let account = if self.seats.contains_key(&identity) {
             let env = Env {
                 sender: None,

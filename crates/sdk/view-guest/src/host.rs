@@ -29,8 +29,8 @@ pub fn malformed(error: String) -> Error {
 }
 
 /// A reply of another variant than the question asks for: the program
-/// answered something else. Every typed ask's fallback arm.
-pub fn wrong_reply() -> Error {
+/// answered something else.
+fn wrong_reply() -> Error {
     malformed("the program answered another question".into())
 }
 
@@ -141,6 +141,18 @@ impl Host {
         let response = self.request(D::KIND, &D::encode_request(&request));
         self.remember(response.id, &request);
         async move { D::decode_reply(&response.await?).map_err(malformed) }
+    }
+    /// One question to a program, typed alone ([`program::Ask`]): the
+    /// program's `module.query`, with the same bytes, answered with the
+    /// reply that answers it, or refused as an unexpected reply when the
+    /// program answered another question.
+    /// `host.query(identity::ask::List { page })` is a page of accounts.
+    pub fn query<A: program::Ask + 'static>(
+        &self,
+        ask: A,
+    ) -> impl Future<Output = Result<A::Reply, Error>> + 'static + use<A> {
+        let reply = self.ask::<methods::Query<A::Program>>(ask.into());
+        async move { A::answer(reply.await?).ok_or_else(wrong_reply) }
     }
     /// A subscription: an item per answer until the stream is dropped.
     pub fn subscribe<D: Method>(
@@ -374,5 +386,67 @@ mod pages_tests {
         assert_eq!(all, (0..10).collect::<Vec<_>>());
         let resumed = futures::executor::block_on(pages(Some(vec![6]), listing)).unwrap();
         assert_eq!(resumed, (6..10).collect::<Vec<_>>());
+    }
+}
+
+#[cfg(test)]
+mod ask_tests {
+    use super::Host;
+    use crate::methods::{Method, Query};
+    use borsh::{BorshDeserialize, BorshSerialize};
+
+    pub struct Shop;
+    impl program::Program for Shop {
+        const NAME: &'static str = "shop";
+        type Op = ();
+        type Query = Asked;
+        type Reply = Said;
+    }
+
+    #[derive(Clone, Debug, BorshSerialize, BorshDeserialize, ::program::Ask)]
+    #[ask(Shop)]
+    pub enum Asked {
+        #[ask(Said::Price(u64))]
+        Price { item: String },
+        #[ask(Said::Stock { count: u32, at: u64 })]
+        Stock(String),
+        #[ask(Said::Open(bool))]
+        Open,
+    }
+
+    #[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
+    pub enum Said {
+        Price(u64),
+        Stock { count: u32, at: u64 },
+        Open(bool),
+    }
+
+    /// Asks `ask` and answers it `said`: the bytes it sent, and what the
+    /// asker got.
+    fn asked<A: program::Ask + 'static>(
+        ask: A,
+        said: Said,
+    ) -> (Vec<u8>, Result<A::Reply, super::Error>) {
+        let host = Host::default();
+        let answer = host.query(ask);
+        let [request] = host.drain_outbox().try_into().unwrap();
+        assert_eq!(request.kind, "module.query");
+        host.fulfill(request.id, Ok(borsh::to_vec(&said).unwrap()), true);
+        (request.payload, futures::executor::block_on(answer))
+    }
+
+    /// A question asked alone is the program's own query on the wire, and
+    /// gets the reply that answers it; another reply is refused as such.
+    #[test]
+    fn a_typed_ask_sends_the_query_and_reads_its_own_reply() {
+        let (sent, price) = asked(ask::Price { item: "tea".into() }, Said::Price(3));
+        let query = Asked::Price { item: "tea".into() };
+        assert_eq!(sent, Query::<Shop>::encode_request(&query));
+        assert_eq!(price.unwrap(), 3);
+        let stock = asked(ask::Stock("tea".into()), Said::Stock { count: 2, at: 9 });
+        assert_eq!(stock.1.unwrap(), (2, 9));
+        assert!(asked(ask::Open, Said::Open(true)).1.unwrap());
+        let wrong = asked(ask::Open, Said::Price(3)).1.unwrap_err();
+        assert_eq!(wrong.code, ::error::code::UNEXPECTED_REPLY);
     }
 }

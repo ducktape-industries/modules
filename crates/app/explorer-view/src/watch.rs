@@ -4,7 +4,6 @@
 use ducktape_view_guest::Context;
 use ducktape_view_guest::design;
 use ducktape_view_guest::methods::{ChainHeads, Changes, HostOffset, HostRoute, HostSession};
-use futures::StreamExt;
 use identity::Identity;
 use module_registry::Modules;
 use valset::Valset;
@@ -15,39 +14,23 @@ impl Explorer {
     /// Subscribes every follower; the ones before are dropped with them.
     pub(crate) fn watch(&mut self, cx: &mut Context<Self>) {
         let host = cx.host();
-        // `None` once the stream ends: the head is polled from then on
-        let heads = host
-            .subscribe::<ChainHeads>(())
-            .map(Some)
-            .chain(futures::stream::iter([None]));
+        let heads = host.subscribe::<ChainHeads>(());
         let session = host.subscribe::<HostSession>(());
         let routes = host.subscribe::<HostRoute>(());
         let identity = host.subscribe::<Changes<Identity>>(());
         let valset = host.subscribe::<Changes<Valset>>(());
         let registry = host.subscribe::<Changes<Modules>>(());
         let offset = host.subscribe::<HostOffset>(());
-        // A head is not drawn on its own: it is drawn with the page it
-        // brings (`at_head`). A refused or ended stream falls back to the
-        // clock, whose reads draw themselves.
-        let mut heads = heads;
-        let followed = cx.spawn(async move |this, cx| {
-            while let Some(head) = heads.next().await {
-                let landed = this.update(cx, |view, cx| match head {
-                    Some(Ok(head)) => view.at_head(head, cx),
-                    Some(Err(refusal)) => {
-                        cx.host()
-                            .log_refused("explorer", "the chain's heads", &refusal);
-                        view.poll_head(cx);
-                    }
-                    None => view.poll_head(cx),
-                });
-                if landed.is_err() {
-                    break;
-                }
-            }
-        });
         self.followers = vec![
-            followed,
+            // A head is not drawn on its own: it is drawn with the page it
+            // brings (`at_head`). The host keeps the stream across a
+            // reconnect, opened again at the new node's tip.
+            cx.for_each(heads, |view, head, _, cx| match head {
+                Ok(head) => view.at_head(head, cx),
+                Err(refusal) => cx
+                    .host()
+                    .log_refused("explorer", "the chain's heads", &refusal),
+            }),
             cx.for_each(session, |view, session, _, cx| match session {
                 Ok(session) => {
                     if view.session_chain != session.chain_id {

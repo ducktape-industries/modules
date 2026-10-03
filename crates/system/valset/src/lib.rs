@@ -43,11 +43,16 @@ pub enum Op {
     Remove { key: Vec<u8> },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[ask(Valset)]
 pub enum Query {
+    #[ask(Reply::Validators(Vec<Vec<u8>>))]
     Validators,
+    #[ask(Reply::Members(Vec<Member>))]
     Members,
+    #[ask(Reply::Memberships(PageResponse<Membership>))]
     Memberships { page: PageRequest },
+    #[ask(Reply::Membership(Option<Membership>))]
     Membership { key: Vec<u8> },
 }
 

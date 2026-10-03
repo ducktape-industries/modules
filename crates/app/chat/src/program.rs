@@ -68,9 +68,8 @@ impl Module for Chat {
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
-        let height = ctx.env().height;
         let (reply, viewer) = match query {
-            Query::Channels { page } => (Reply::Channels(channels(ctx, &page, height)?), vec![]),
+            Query::Channels { page } => (Reply::Channels(channels(ctx, &page)?), vec![]),
             Query::Channel { channel_id } => (Reply::Channel(channel(ctx, &channel_id)?), vec![]),
             Query::MessageById { message_id } => (Reply::Message(by_id(ctx, &message_id)?), vec![]),
             Query::ThreadAttention { channel_id, author } => (
@@ -81,7 +80,7 @@ impl Module for Chat {
                 channel_id,
                 viewer,
                 page,
-            } => (Reply::Roots(roots(ctx, channel_id, &page, height)?), viewer),
+            } => (Reply::Roots(roots(ctx, channel_id, &page)?), viewer),
             Query::MessagesAround {
                 channel_id,
                 seq,
@@ -96,9 +95,9 @@ impl Module for Chat {
                 root_seq,
                 viewer,
                 page,
-            } => (thread(ctx, channel_id, root_seq, &page, height)?, viewer),
+            } => (thread(ctx, channel_id, root_seq, &page)?, viewer),
             Query::Members { channel_id, page } => {
-                let members = MEMBERS.range_of(ctx, &channel_id, &page, height)?;
+                let members = MEMBERS.range_of(ctx, &channel_id, &page)?;
                 (Reply::Members(members.map(|(_, member)| member)), vec![])
             }
             Query::Search {
@@ -113,7 +112,7 @@ impl Module for Chat {
                 channel_id,
                 page,
             } => (
-                Reply::TagHits(tagged(ctx, &tag, channel_id, &page, height)?),
+                Reply::TagHits(tagged(ctx, &tag, channel_id, &page)?),
                 viewer,
             ),
             Query::Accounts { page } => {

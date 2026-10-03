@@ -89,14 +89,10 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
         self.scan(ctx, Range::prefix(self.prefix))
     }
 
-    /// One page of the table in key order, resumable through `PageResponse::next`.
-    pub fn range(
-        &self,
-        ctx: &QueryCtx,
-        page: &PageRequest,
-        height: u64,
-    ) -> Result<PageResponse<(K, V)>, Error> {
-        self.range_of(ctx, &(), page, height)
+    /// One page of the table in key order, resumable through
+    /// `PageResponse::next`, answered at the ctx's height.
+    pub fn range(&self, ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<(K, V)>, Error> {
+        self.range_of(ctx, &(), page)
     }
 
     /// One page of the keys whose leading elements are `head`.
@@ -105,9 +101,8 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
         ctx: &QueryCtx,
         head: &H,
         page: &PageRequest,
-        height: u64,
     ) -> Result<PageResponse<(K, V)>, Error> {
-        let listing = page.listing(self.key(head), height)?;
+        let listing = page.listing(ctx, self.key(head))?;
         self.page_of(ctx, head, &listing)
     }
 
@@ -182,13 +177,8 @@ impl<K: KeyCodec> Set<K> {
         self.scan(ctx, Range::prefix(self.map.prefix))
     }
 
-    pub fn range(
-        &self,
-        ctx: &QueryCtx,
-        page: &PageRequest,
-        height: u64,
-    ) -> Result<PageResponse<K>, Error> {
-        Ok(self.map.range(ctx, page, height)?.map(|(k, ())| k))
+    pub fn range(&self, ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<K>, Error> {
+        Ok(self.map.range(ctx, page)?.map(|(k, ())| k))
     }
 
     pub fn range_of<H: KeyCodec>(
@@ -196,9 +186,8 @@ impl<K: KeyCodec> Set<K> {
         ctx: &QueryCtx,
         head: &H,
         page: &PageRequest,
-        height: u64,
     ) -> Result<PageResponse<K>, Error> {
-        Ok(self.map.range_of(ctx, head, page, height)?.map(|(k, ())| k))
+        Ok(self.map.range_of(ctx, head, page)?.map(|(k, ())| k))
     }
 
     pub fn page_of<H: KeyCodec>(
@@ -302,9 +291,7 @@ mod tests {
         PAIRS.put(&ctx, &(2, "a".into()), &3);
         let under_one = PAIRS.scan(&ctx, PAIRS.prefix_of(&1u64)).unwrap();
         assert_eq!(under_one.len(), 2);
-        let paged = PAIRS
-            .range_of(&ctx, &1u64, &PageRequest::first(1), 0)
-            .unwrap();
+        let paged = PAIRS.range_of(&ctx, &1u64, &PageRequest::first(1)).unwrap();
         assert_eq!((paged.items.len(), paged.next.is_some()), (1, true));
         assert_eq!(under_one[0].0.1, "a");
         assert_eq!(PAIRS.scan(&ctx, PAIRS.below(&2u64)).unwrap().len(), 2);
@@ -358,19 +345,24 @@ mod tests {
         assert_eq!(order(NAMED.below(&"abc".to_string())).len(), 2);
     }
 
+    /// A page answers at the height of the ctx that asked it.
     #[test]
     fn a_range_pages_with_lookahead() {
-        let ctx = exec();
+        let host = MockHost::default();
+        let ctx = host.exec(guest::Env {
+            height: 3,
+            ..MockHost::env("test")
+        });
         for n in 0..5u64 {
             NUMBERS.put(&ctx, &n, &n.to_string());
         }
-        let reply = NUMBERS.range(&ctx, &PageRequest::first(2), 3).unwrap();
+        let reply = NUMBERS.range(&ctx, &PageRequest::first(2)).unwrap();
         assert_eq!((reply.items.len(), reply.height), (2, 3));
         let page = PageRequest::resume(reply.next, 2);
-        let reply = NUMBERS.range(&ctx, &page, 3).unwrap();
+        let reply = NUMBERS.range(&ctx, &page).unwrap();
         assert_eq!(reply.items[0].0, 2);
         assert!(reply.next.is_some());
         let page = PageRequest::resume(reply.next, 2);
-        assert_eq!(NUMBERS.range(&ctx, &page, 3).unwrap().next, None);
+        assert_eq!(NUMBERS.range(&ctx, &page).unwrap().next, None);
     }
 }

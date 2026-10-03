@@ -21,4 +21,5 @@ abi = { workspace = true }
 describe = { workspace = true }
 borsh = { workspace = true }
 guest = { workspace = true }
+program = { workspace = true }
 store = { workspace = true }

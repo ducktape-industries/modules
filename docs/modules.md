@@ -54,10 +54,14 @@ pub enum Op {
     Close { poll_id: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[ask(Poll)]
 pub enum Query {
+    #[ask(Reply::Poll(Option<PollRow>))]
     Poll { poll_id: String },
+    #[ask(Reply::Polls(PageResponse<PollRow>))]
     Polls { page: PageRequest },
+    #[ask(Reply::Tally(Vec<u64>))]
     Tally { poll_id: String },
 }
 
@@ -81,6 +85,15 @@ fn op_variants_only_append() {
     assert_eq!(describe::variants::<Op>(), ["Open", "Vote", "Close"]);
 }
 ```
+
+**Each query names its reply.** `#[derive(program::Ask)]` with
+`#[ask(Poll)]` (the program) and, on each variant, the reply that answers
+it writes one type per query into `poll::ask`, built like the variant. A
+view asks one alone and gets that reply, typed:
+`cx.host().query(poll::ask::Tally { poll_id })` is a `Vec<u64>`, with the
+same bytes on the wire as `Query::Tally`, and no arm for the replies that
+answer other questions. A reply with named fields is answered as their
+tuple (`#[ask(Reply::Thread { root: Option<Row>, replies: PageResponse<Row> })]`).
 
 A field added to an existing variant changes its bytes too; that is a new
 variant. `Query` and `Reply` are looser (a view and its module ship
@@ -131,9 +144,7 @@ module's own rules, never a client's query); `range`/`range_of` for a page.
 
 ```rust
 pub(crate) fn polls(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<PollRow>, Error> {
-    Ok(POLLS
-        .range(ctx, page, ctx.env().height)?
-        .map(|(_, row)| row))
+    Ok(POLLS.range(ctx, page)?.map(|(_, row)| row))
 }
 ```
 
@@ -141,7 +152,8 @@ pub(crate) fn polls(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<P
 then `PageRequest::resume(reply.next, n)`); the limit is clamped to
 `PageRequest::MAX_LIMIT` (256), or to a module's own bound with
 `page.bounded(max)`. `PageResponse { height, items, next }` answers with the
-height that answered and an opaque cursor for the page after. A cursor is
+height that answered (the ctx's: no module passes it) and an opaque cursor
+for the page after. A cursor is
 bound to the listing it came from (a cursor from one listing handed to
 another is refused `stale`) and cannot escape its prefix.
 
@@ -381,9 +393,11 @@ Poll::execute(&host.exec(ada), op)?;
 let reply = Poll::query(&host.query(MockHost::env(MODULE)), query)?;
 ```
 
-`MockHost::env(module)` is a direct call by the chain itself (`Root`); a
-test moves what it cares about with `Env::signed(key, account)`,
-`Env::from_module(module, account)` or struct update
+`MockHost::env(module)` is a person's frame, as the chain sends every one
+outside genesis: signed by key `[1; 32]`, which holds account 1. A test
+moves what it cares about with `Env::signed(key, account)`,
+`Env::from_module(module, account)`, `Env::root()` (the chain itself, as
+genesis calls `init`) or struct update
 (`Env { height: 7, ..MockHost::env(MODULE) }`). Siblings answer through
 `host.sibling::<chat::Chat>("chat", &chat_host)` (a second host holding
 chat's state, asked through chat's own decoding) and the identity role
@@ -419,8 +433,9 @@ let reply: Reply = chain.query(MODULE, &Query::Poll { poll_id: "lunch".into() })
 
 With no identity module seated, the chain's roster answers as the role
 would (`hold`, `register`, `profile` for an agent and its standing); seat
-`identity::Identity` at `MockHost::roles().identity` and the chain asks it
-instead, and the roster's edits do nothing (identity's own ops seat keys
+`identity::Identity` where genesis binds the identity role
+(`MockHost::roles()`, or the roles given `MockChain::founded(roles)`) and
+the chain asks it instead, and the roster's edits do nothing (identity's own ops seat keys
 then). `chain.init(module, &params)` runs `init` as the kernel admits a
 module: one frame, what it emits run after it, a refusal undoing it all;
 `chain.at(height, time)` moves the chain to another block. The two tests that matter

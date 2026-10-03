@@ -1,13 +1,10 @@
 //! Typed reads of the chat module. Every list takes a `PageRequest` and answers a
 //! `PageResponse`; `next` is the cursor of the page after it.
 use chat::view::Names;
-use chat::{
-    ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, PageResponse, Principal, Query, Reply,
-};
+use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, pages, wrong_reply};
+use ducktape_view_guest::host::{Error, pages};
 
-use crate::api::Ask;
 use crate::{PAGE, WINDOW};
 
 fn page(after: Option<Vec<u8>>, limit: usize) -> PageRequest {
@@ -20,14 +17,12 @@ fn page(after: Option<Vec<u8>>, limit: usize) -> PageRequest {
 /// Every room.
 pub(crate) async fn channels(host: Host) -> Result<Vec<ChannelInfo>, Error> {
     pages(None, |after| {
-        let ask = host.ask::<Ask<::chat::Chat>>(Query::Channels {
+        let ask = host.query(ask::Channels {
             page: page(after, PAGE),
         });
         async move {
-            match ask.await? {
-                Reply::Channels(reply) => Ok((reply.items, reply.next)),
-                _ => Err(wrong_reply()),
-            }
+            let reply = ask.await?;
+            Ok((reply.items, reply.next))
         }
     })
     .await
@@ -42,13 +37,13 @@ pub(crate) async fn roots(
     below: Option<Vec<u8>>,
     limit: usize,
 ) -> Result<(Vec<MsgRow>, bool), Error> {
-    let ask = move |query| host.ask::<Ask<::chat::Chat>>(query);
+    let ask = move |ask| host.query(ask);
     ::chat::view::roots(ask, channel_id, viewer, below, limit, PAGE as u64).await
 }
 
 /// Every account's profile, folded into [`Names`].
 pub(crate) async fn roster(host: Host) -> Result<Names, Error> {
-    ::chat::view::roster(move |query| host.ask::<Ask<::chat::Chat>>(query)).await
+    ::chat::view::roster(move |ask| host.query(ask)).await
 }
 
 /// The rows around a landing seq, oldest first.
@@ -58,18 +53,15 @@ pub(crate) async fn around(
     seq: u64,
     viewer: Vec<Principal>,
 ) -> Result<Vec<MsgRow>, Error> {
-    match host
-        .ask::<Ask<::chat::Chat>>(Query::MessagesAround {
+    let rows = host
+        .query(ask::MessagesAround {
             channel_id,
             seq,
             viewer,
             page: page(None, WINDOW / 2),
         })
-        .await?
-    {
-        Reply::Messages(rows) => Ok(sorted(rows)),
-        _ => Err(wrong_reply()),
-    }
+        .await?;
+    Ok(sorted(rows))
 }
 
 pub(crate) fn sorted(mut rows: Vec<MsgRow>) -> Vec<MsgRow> {
@@ -77,17 +69,19 @@ pub(crate) fn sorted(mut rows: Vec<MsgRow>) -> Vec<MsgRow> {
     rows
 }
 
+/// Every member of a room, in account order.
 pub(crate) async fn members(host: Host, channel_id: String) -> Result<Vec<MemberRow>, Error> {
-    match host
-        .ask::<Ask<::chat::Chat>>(Query::Members {
-            channel_id,
-            page: page(None, WINDOW),
-        })
-        .await?
-    {
-        Reply::Members(reply) => Ok(reply.items),
-        _ => Err(wrong_reply()),
-    }
+    pages(None, |after| {
+        let ask = host.query(ask::Members {
+            channel_id: channel_id.clone(),
+            page: page(after, WINDOW),
+        });
+        async move {
+            let reply = ask.await?;
+            Ok((reply.items, reply.next))
+        }
+    })
+    .await
 }
 
 /// One page of a thread's replies after `after`, and the cursor to page on.
@@ -98,21 +92,15 @@ pub(crate) async fn thread(
     viewer: Vec<Principal>,
     after: Option<Vec<u8>>,
 ) -> Result<(Vec<MsgRow>, Option<Vec<u8>>), Error> {
-    match host
-        .ask::<Ask<::chat::Chat>>(Query::Thread {
+    let (_root, replies) = host
+        .query(ask::Thread {
             channel_id,
             root_seq,
             viewer,
             page: page(after, WINDOW),
         })
-        .await?
-    {
-        Reply::Thread {
-            replies: PageResponse { items, next, .. },
-            ..
-        } => Ok((sorted(items), next)),
-        _ => Err(wrong_reply()),
-    }
+        .await?;
+    Ok((sorted(replies.items), replies.next))
 }
 
 /// A search: `#tag` pages through the tag index, anything else is a
@@ -125,23 +113,28 @@ pub(crate) async fn search_hits(
     viewer: Vec<Principal>,
     after: Option<Vec<u8>>,
 ) -> Result<(Vec<MsgRow>, bool, Option<Vec<u8>>), Error> {
-    let query = match text.strip_prefix('#') {
-        Some(tag) if !tag.is_empty() => Query::TagSearch {
-            tag: tag.to_owned(),
-            viewer,
-            channel_id,
-            page: page(after, PAGE),
-        },
-        _ => Query::Search {
-            text,
-            viewer,
-            channel_id,
-            page: page(None, PAGE),
-        },
-    };
-    match host.ask::<Ask<::chat::Chat>>(query).await? {
-        Reply::Hits(MessageHits { hits, capped }) => Ok((hits, capped, None)),
-        Reply::TagHits(PageResponse { items, next, .. }) => Ok((items, false, next)),
-        _ => Err(wrong_reply()),
+    match text.strip_prefix('#') {
+        Some(tag) if !tag.is_empty() => {
+            let tagged = host
+                .query(ask::TagSearch {
+                    tag: tag.to_owned(),
+                    viewer,
+                    channel_id,
+                    page: page(after, PAGE),
+                })
+                .await?;
+            Ok((tagged.items, false, tagged.next))
+        }
+        _ => {
+            let MessageHits { hits, capped } = host
+                .query(ask::Search {
+                    text,
+                    viewer,
+                    channel_id,
+                    page: page(None, PAGE),
+                })
+                .await?;
+            Ok((hits, capped, None))
+        }
     }
 }

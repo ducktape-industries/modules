@@ -5,7 +5,7 @@
 use ducktape_view_guest::Host;
 use ducktape_view_guest::host::{Error, pages};
 
-use crate::api::{Ask as Forge, AskChat};
+use crate::api::Ask as Forge;
 use forge::{PageRequest, PageResponse, Query, Reply};
 
 /// What one page asks for: 64 rows, from the start. A limit above the
@@ -87,12 +87,12 @@ pub(crate) async fn conversation(
     channel_id: String,
     viewer: Vec<forge::Principal>,
 ) -> Result<Vec<chat::MsgRow>, Error> {
-    let ask = move |query| host.ask::<AskChat>(query);
+    let ask = move |ask| host.query(ask);
     let (rows, _) = chat::view::roots(ask, channel_id, viewer, None, usize::MAX, PER_PAGE).await?;
     Ok(rows)
 }
 
 /// Every account's profile, folded into [`Names`](chat::view::Names).
 pub(crate) async fn roster(host: Host) -> Result<chat::view::Names, Error> {
-    chat::view::roster(move |query| host.ask::<AskChat>(query)).await
+    chat::view::roster(move |ask| host.query(ask)).await
 }

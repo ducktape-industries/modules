@@ -1,11 +1,13 @@
 use super::*;
 use abi::Scheme;
+use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::methods::{
     Block, BlockPage, ChainBlocks, Description, ModuleDescribe, Session, Tx,
 };
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::wire::{ContainerNode, Node};
 use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
+use valset::Valset;
 
 // the list and the detail fit at 320, the desk's smallest window
 #[test]

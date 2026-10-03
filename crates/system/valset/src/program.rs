@@ -39,11 +39,9 @@ impl Module for Valset {
             Query::Members => {
                 Reply::Members(memberships(ctx)?.iter().map(Membership::member).collect())
             }
-            Query::Memberships { page } => Reply::Memberships(
-                MEMBERS
-                    .range(ctx, &page, ctx.env().height)?
-                    .map(|(_, membership)| membership),
-            ),
+            Query::Memberships { page } => {
+                Reply::Memberships(MEMBERS.range(ctx, &page)?.map(|(_, membership)| membership))
+            }
             Query::Membership { key } => Reply::Membership(MEMBERS.get(ctx, &key)?),
         })
     }
