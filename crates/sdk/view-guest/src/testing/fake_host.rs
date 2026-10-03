@@ -138,6 +138,10 @@ impl FakeHost {
         state.declared = Some(capabilities);
         state.targets = targets;
     }
+    /// Events the host owes the view's next tick, after whatever it owes already.
+    pub(super) fn owe(&self, events: Vec<Event>) {
+        self.0.borrow_mut().events.extend(events);
+    }
     pub(super) fn take_events(&self) -> Vec<Event> {
         std::mem::take(&mut self.0.borrow_mut().events)
     }

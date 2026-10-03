@@ -3,11 +3,11 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use view_guest::prelude::*;
 use view_guest::testing::TestAppContext;
-use view_guest::{ElementId, Input, View, Window, wire};
+use view_guest::{ElementId, Input, TextField, View, Window, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Form {
-    value: String,
+    value: TextField,
     submits: usize,
 }
 
@@ -23,11 +23,11 @@ impl Render for Form {
         let id = ElementId::NamedChild(Arc::new(ElementId::Name("chat".into())), "search".into());
         div().child(
             Input::new(id, "Search messages")
-                .value(self.value.clone())
+                .value(&self.value)
                 .placeholder("Search")
                 .w(px(240.))
-                .on_input(cx.listener(|view, text: &String, _, cx| {
-                    view.value = text.clone();
+                .on_change(cx.listener(|view, change: &wire::TextChange, _, cx| {
+                    view.value.apply(change);
                     cx.notify();
                 }))
                 .on_submit(cx.listener(|view, _: &(), _, cx| {
@@ -50,9 +50,9 @@ fn input(cx: &TestAppContext) -> Lowered<'_> {
     let wire::Node::Container(view_guest::wire::ContainerNode { children, .. }) = cx.root() else {
         panic!("root container")
     };
-    let wire::Node::Input {
+    let wire::Node::Field {
         id,
-        on_input: Some(on_input),
+        on_change: Some(on_change),
         on_submit: Some(on_submit),
         style,
         options,
@@ -61,7 +61,7 @@ fn input(cx: &TestAppContext) -> Lowered<'_> {
     else {
         panic!("input child")
     };
-    (id, *on_input, *on_submit, style, &options.label)
+    (id, *on_change, *on_submit, style, &options.label)
 }
 
 #[test]
@@ -88,17 +88,28 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
     first.simulate_input("Search", "hello");
     first.simulate_submit("Search");
     first_form.read(|form| {
-        assert_eq!(form.value, "hello");
+        assert_eq!(form.value.text, "hello");
         assert_eq!(form.submits, 1);
     });
     second_form.read(|form| {
-        assert_eq!(form.value, "");
+        assert_eq!(form.value.text, "");
         assert_eq!(form.submits, 0);
     });
 
-    first.simulate_event(wire::Event::Input {
+    first.simulate_event(wire::Event::Text {
         handler: second_input,
-        text: "stale".into(),
+        change: wire::TextChange {
+            revision: 9,
+            text: "stale".into(),
+            cursor: wire::TextRange::caret(5),
+            preedit: None,
+            tokens: Vec::new(),
+        },
     });
-    first_form.read(|form| assert_eq!(form.value, "stale"));
+    first_form.read(|form| {
+        assert_eq!(
+            (form.value.text.as_str(), form.value.revision),
+            ("stale", 9)
+        )
+    });
 }

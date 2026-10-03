@@ -113,10 +113,6 @@ impl<'a> Lowering<'a> {
         }
     }
 
-    pub(crate) fn app(&mut self) -> &mut App {
-        self.app
-    }
-
     pub(crate) fn slots(&self) -> &slots::Context {
         &self.app.inner.slots
     }
@@ -272,17 +268,22 @@ pub fn div() -> Div {
     Div::default()
 }
 
-/// A single-line host text input. GPUI core has no text-input element, so this
-/// recipe carries a typed identity and lowers to the host's native field. Its
-/// label is what assistive technology calls it: a field has one from birth.
+/// A text field the host's editing engine owns, shown as the host's native
+/// one-line field. It shows a [`TextField`](crate::TextField): the host
+/// adopts the field's text when its generation moves and otherwise tells
+/// the view what it holds through `on_change`. Its label is what assistive
+/// technology calls it: a field has one from birth.
 pub struct Input {
     id: ElementId,
-    value: String,
+    multiline: bool,
+    field: Option<crate::TextField>,
     placeholder: String,
     options: wire::InputOptions,
     secure: bool,
+    claims: Vec<wire::KeyClaim>,
     style: StyleRefinement,
-    on_input: Option<EventListener<String>>,
+    on_change: Option<EventListener<wire::TextChange>>,
+    on_key: Option<EventListener<gpui::KeyDownEvent>>,
     on_submit: Option<EventListener<()>>,
 }
 
@@ -290,21 +291,26 @@ impl Input {
     pub fn new(id: impl Into<ElementId>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
-            value: String::new(),
+            multiline: false,
+            field: None,
             placeholder: String::new(),
             options: wire::InputOptions {
                 label: label.into(),
                 ..Default::default()
             },
             secure: false,
+            claims: Vec::new(),
             style: StyleRefinement::default(),
-            on_input: None,
+            on_change: None,
+            on_key: None,
             on_submit: None,
         }
     }
 
-    pub fn value(mut self, value: impl Into<String>) -> Self {
-        self.value = value.into();
+    /// The field whose text this shows; without one the field is empty
+    /// and the view hears nothing typed into it.
+    pub fn value(mut self, field: &crate::TextField) -> Self {
+        self.field = Some(field.clone());
         self
     }
 
@@ -344,11 +350,18 @@ impl Input {
         self
     }
 
-    pub fn on_input(mut self, listener: impl Fn(&String, &mut Window, &mut App) + 'static) -> Self {
-        self.on_input = Some(Box::new(listener));
+    /// Hears the host's text whenever it moves: typed, pasted, undone, or
+    /// an asked-for edit landed. A view keeps its field current with
+    /// [`TextField::apply`](crate::TextField::apply).
+    pub fn on_change(
+        mut self,
+        listener: impl Fn(&wire::TextChange, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_change = Some(Box::new(listener));
         self
     }
 
+    /// Enter in a one-line field.
     pub fn on_submit(mut self, listener: impl Fn(&(), &mut Window, &mut App) + 'static) -> Self {
         self.on_submit = Some(Box::new(listener));
         self
@@ -365,18 +378,33 @@ impl Element for Input {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let this = *self;
         let id = wire_id(this.id);
-        let on_input = this.on_input.map(|listener| lowering.route(listener));
+        let field = this.field.unwrap_or_default();
+        crate::text::lowered_generation(field.generation);
+        let on_change = this.on_change.map(|listener| lowering.route(listener));
+        let on_key = this.on_key.map(|listener| lowering.route(listener));
         let on_submit = this
             .on_submit
             .map(|listener| lowering.message_route(listener));
-        wire::Node::Input {
-            options: this.options,
+        let claims = this.claims;
+        debug_assert!(
+            !claims.iter().any(wire::KeyClaim::engine_owned),
+            "Backspace, Delete, Tab and the undo chords are the engine's: the host refuses a claim on them"
+        );
+        wire::Node::Field {
             id,
+            multiline: this.multiline,
+            value: field.text,
+            cursor: field.cursor,
+            generation: field.generation,
+            revision: field.revision,
+            tokens: field.tokens,
+            claims,
+            options: this.options,
             placeholder: this.placeholder,
-            value: this.value,
-            on_input,
-            on_submit,
             secure: this.secure,
+            on_change,
+            on_key,
+            on_submit,
             style: this.style,
         }
     }
@@ -391,6 +419,82 @@ impl IntoElement for Input {
 }
 
 impl gpui::prelude::FluentBuilder for Input {}
+
+/// The many-line [`Input`]: the host's native text area over a
+/// [`TextField`](crate::TextField). Enter is a new line unless the view
+/// claims it; a claimed key reaches `on_key` instead of editing.
+pub struct Textarea(Input);
+
+impl Textarea {
+    pub fn new(
+        id: impl Into<ElementId>,
+        field: &crate::TextField,
+        label: impl Into<String>,
+    ) -> Self {
+        let mut input = Input::new(id, label).value(field);
+        input.multiline = true;
+        Self(input)
+    }
+
+    pub fn placeholder(self, placeholder: impl Into<String>) -> Self {
+        Self(self.0.placeholder(placeholder))
+    }
+
+    pub fn read_only(self, read_only: bool) -> Self {
+        Self(self.0.read_only(read_only))
+    }
+
+    /// A key the view hears on `on_key` instead of the engine. The engine's
+    /// own keys — Backspace, Delete, Tab, undo and redo — cannot be claimed.
+    pub fn claim(mut self, claim: wire::KeyClaim) -> Self {
+        self.0.claims.push(claim);
+        self
+    }
+
+    pub fn claims(mut self, claims: impl IntoIterator<Item = wire::KeyClaim>) -> Self {
+        self.0.claims.extend(claims);
+        self
+    }
+
+    /// See [`Input::on_change`].
+    pub fn on_change(
+        self,
+        listener: impl Fn(&wire::TextChange, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self(self.0.on_change(listener))
+    }
+
+    /// Hears every claimed key as the host receives it, text untouched.
+    pub fn on_key(
+        mut self,
+        listener: impl Fn(&gpui::KeyDownEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.0.on_key = Some(Box::new(listener));
+        self
+    }
+}
+
+impl Styled for Textarea {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.0.style
+    }
+}
+
+impl Element for Textarea {
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        Element::lower(Box::new(self.0), lowering)
+    }
+}
+
+impl IntoElement for Textarea {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::prelude::FluentBuilder for Textarea {}
 
 /// Add children to an element recipe.
 pub trait ParentElement {

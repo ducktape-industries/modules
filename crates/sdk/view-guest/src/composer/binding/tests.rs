@@ -1,11 +1,8 @@
 use super::super::Send;
-use super::editor::{editor, key_tag};
 use super::*;
 use crate::testing::TestAppContext;
 use crate::{App, Context, Entity, IntoElement, Lowering, Render, Role, View, Window, wire};
-use gpui::Modifiers;
 use serde::{Deserialize, Serialize};
-use std::rc::Rc;
 use wire::keyboard::{Key, Named};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -18,7 +15,8 @@ struct ComposerView {
 
 impl View for ComposerView {
     const NAME: &'static str = "ComposerView";
-    // the composer moves focus back to its editor (`host.widget`)
+    // the composer moves focus back to its editor and asks it for edits
+    // (`host.widget`)
     const CAPABILITIES: &'static [crate::methods::Capability] = &[crate::methods::Capability::Host];
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self {
@@ -42,14 +40,16 @@ impl Render for ComposerView {
             true,
             &choices,
             cx,
-            |view, event, _, cx| {
-                let event = match event {
+            |view, event, window, cx| {
+                view.events.push(match &event {
                     Event::Action(tag) => format!("action:{tag}"),
-                    Event::Document(_) => "document".into(),
-                    Event::Transaction(_) => "transaction".into(),
-                    Event::Committed(change) => format!("commit:{}", change.tag),
-                };
-                view.events.push(event);
+                    Event::Changed(_) => "changed".into(),
+                    Event::Key(..) => "key".into(),
+                });
+                let choices = view.choices.clone();
+                if let Outcome::Action(tag) = view.draft.handle(event, "c", &choices, window) {
+                    view.events.push(format!("outcome:{tag}"));
+                }
                 cx.notify();
             },
         )
@@ -101,15 +101,15 @@ fn lowered(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
     Lowering::new(&mut window, &mut app).lower(element)
 }
 
-fn find_editor(root: &wire::Node) -> Option<&wire::Node> {
-    if matches!(root, wire::Node::Editor { .. }) {
+fn find_field(root: &wire::Node) -> Option<&wire::Node> {
+    if matches!(root, wire::Node::Field { .. }) {
         return Some(root);
     }
-    root.children().iter().find_map(find_editor)
+    root.children().iter().find_map(find_field)
 }
 
-fn editor_node(root: &wire::Node) -> &wire::Node {
-    find_editor(root).expect("composer includes one editor")
+fn field_node(root: &wire::Node) -> &wire::Node {
+    find_field(root).expect("composer includes one field")
 }
 
 fn node<'a>(root: &'a wire::Node, key: &str) -> Option<&'a wire::Node> {
@@ -128,70 +128,62 @@ fn clickable(root: &wire::Node, key: &str) -> Option<u32> {
     interactivity.on_click
 }
 
-#[test]
-fn two_drafts_at_one_key_are_two_documents_the_host_can_tell_apart() {
-    let field = |draft: &Draft, document: &str| {
-        let mut app = App::for_driver();
-        let mut window = app.window();
-        let handle: Handle<()> = Rc::new(|_, _, _, _| {});
-        let field = editor(
-            draft,
-            "c/editor",
-            document,
-            "New message",
-            "Message",
-            true,
-            &[],
-            handle,
-        );
-        let wire::Node::Editor { id, document, .. } =
-            Lowering::new(&mut window, &mut app).lower(field)
-        else {
-            panic!("the composer's field is an editor node");
-        };
-        (id, document.document)
-    };
-    let (a_key, a_document) = field(&Draft::from_body("room a draft", &[]), "chat\u{1f}room-a");
-    let (b_key, b_document) = field(&Draft::default(), "chat\u{1f}room-b");
-    assert_eq!(a_key, b_key, "the field keeps its placement and its name");
-    assert_ne!(
-        a_document, b_document,
-        "two drafts at one element ID must not share host editor state"
-    );
-    assert_eq!(a_document, "chat\u{1f}room-a");
-    assert_eq!(b_document, "chat\u{1f}room-b");
+fn roster() -> Vec<MentionChoice> {
+    vec![MentionChoice {
+        token: "<@1>".into(),
+        label: "Ada".into(),
+    }]
 }
 
-#[test]
-fn discarded_composer_editor_does_not_register_routes_before_lowering() {
-    let mut app = App::for_driver();
-    let handle: Handle<()> = Rc::new(|_, _, _, _| {});
-    drop(editor(
-        &Draft::default(),
-        "c/editor",
-        "discarded",
-        "New message",
-        "Message",
-        true,
-        &[],
-        handle.clone(),
-    ));
-    let field = editor(
-        &Draft::default(),
-        "c/editor",
-        "lowered",
-        "New message",
-        "Message",
-        true,
-        &[],
-        handle,
-    );
-    let mut window = app.window();
-    let wire::Node::Editor { on_document, .. } = Lowering::new(&mut window, &mut app).lower(field)
-    else {
+fn caret(body: &str, at: usize) -> Draft {
+    let mut draft = Draft::from_body(body, &roster());
+    draft.field.cursor = wire::TextRange::caret(at);
+    draft
+}
+
+fn claimed(draft: &Draft) -> Vec<wire::KeyClaim> {
+    // the key claims, with the menu open or shut
+    let root = lowered(draft, "c", &roster());
+    let wire::Node::Field { claims, .. } = field_node(&root) else {
         unreachable!()
     };
-    assert_eq!(on_document, 0, "discarding a recipe must consume no route");
+    claims.clone()
+}
+
+fn bare(key: Named) -> wire::KeyClaim {
+    wire::KeyClaim {
+        key: Key::Named(key),
+        modifiers: gpui::Modifiers::default(),
+        command: false,
+    }
+}
+
+/// One edit the view asked of the host: target, revision, range, text, token.
+type Replace = (
+    wire::ElementIdWire,
+    u64,
+    std::ops::Range<usize>,
+    String,
+    Option<String>,
+);
+
+/// The edits the view asked of the host, in order.
+fn replaces(cx: &TestAppContext) -> Vec<Replace> {
+    cx.host()
+        .requests::<crate::methods::HostWidget>()
+        .into_iter()
+        .filter_map(|command| match command {
+            wire::WidgetCommand::Replace {
+                target,
+                revision,
+                range,
+                text,
+                token,
+                ..
+            } => Some((target[0].clone(), revision, range.range(), text, token)),
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]
@@ -205,14 +197,18 @@ fn the_send_is_the_only_primary_and_is_dead_on_an_empty_draft() {
 #[test]
 fn the_field_is_named_apart_from_the_hint_drawn_in_it() {
     let root = drawn(&Draft::default());
-    let wire::Node::Editor {
-        label, placeholder, ..
-    } = editor_node(&root)
+    let wire::Node::Field {
+        options,
+        placeholder,
+        multiline,
+        ..
+    } = field_node(&root)
     else {
         unreachable!()
     };
-    assert_eq!(label.as_deref(), Some("New message"));
+    assert_eq!(options.label, "New message");
     assert_eq!(placeholder, "Message #general");
+    assert!(multiline);
 }
 
 #[test]
@@ -232,7 +228,7 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
                 marks.push(interactivity.aria.label.clone());
             }
         }
-        wire::Node::Editor { style, .. } => {
+        wire::Node::Field { style, .. } => {
             body_size = style.text.font_size;
             editor_bounds = Some((style.min_size.height, style.max_size.height));
         }
@@ -253,24 +249,32 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
     );
 }
 
+/// A draft restored from a body carries its mention as one span of the
+/// field, and is a document the host has not seen.
 #[test]
-fn restored_mention_draft_keeps_its_document_and_binding() {
-    let choices = vec![MentionChoice {
-        token: "<@1>".into(),
-        label: "Ada".into(),
-    }];
-    let root = drawn_with(&Draft::from_body("Hi <@1>", &choices), "c", &choices);
-    let wire::Node::Editor {
-        document,
-        on_document: _,
-        binding,
+fn a_restored_mention_draft_is_a_new_document_with_its_mention_as_a_span() {
+    let choices = roster();
+    let before = Draft::default().field.generation;
+    let draft = Draft::from_body("Hi <@1>", &choices);
+    let root = drawn_with(&draft, "c", &choices);
+    let wire::Node::Field {
+        value,
+        tokens,
+        generation,
         ..
-    } = editor_node(&root)
+    } = field_node(&root)
     else {
         unreachable!()
     };
-    assert_eq!(document.document, "c");
-    assert!(binding.is_some());
+    assert_eq!(value, "Hi @Ada");
+    assert_eq!(
+        tokens,
+        &[wire::TextToken {
+            range: wire::TextRange::from(3..7),
+            id: "<@1>".into(),
+        }]
+    );
+    assert!(*generation > before);
 }
 
 #[test]
@@ -306,10 +310,7 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
     assert_eq!(interactivity.role, Some(Role::MenuItem));
     assert_eq!(interactivity.aria.label.as_deref(), Some("@Ada"));
     // with the menu shut, the whole composer passes the audit
-    draft.editor.move_to(wire::EditorCursor {
-        position: wire::EditorPosition { line: 0, column: 0 },
-        selection: None,
-    });
+    draft.field.cursor = wire::TextRange::caret(0);
     drawn_with(&draft, "c", &choices);
 }
 
@@ -332,165 +333,6 @@ fn the_mention_menu_is_not_yet_reachable() {
 }
 
 #[test]
-fn menu_navigation_commits_before_enter_chooses_a_stable_identity() {
-    let choices = vec![
-        MentionChoice {
-            token: "<@1>".into(),
-            label: "Ada".into(),
-        },
-        MentionChoice {
-            token: "<@2>".into(),
-            label: "Alan".into(),
-        },
-    ];
-    let mut draft = Draft::from_body("@A", &choices);
-    draft.editor.move_to(wire::EditorCursor {
-        position: wire::EditorPosition { line: 0, column: 2 },
-        selection: None,
-    });
-    let cursor = draft.editor.cursor();
-    draft.committed("@A", "@A", cursor, "menu-next", &choices);
-    let key = key_state(&bare(Named::Enter));
-    assert_eq!(
-        key_tag(&draft, &choices, draft.editor.state_view(), &key),
-        "mention:<@2>"
-    );
-    draft.committed("@A", "@A", cursor, "menu-dismiss", &choices);
-    assert_eq!(
-        key_tag(&draft, &choices, draft.editor.state_view(), &key),
-        "send"
-    );
-    draft.observed("@A", "@Al");
-    assert!(!draft.menu_dismissed);
-}
-
-fn roster() -> Vec<MentionChoice> {
-    vec![MentionChoice {
-        token: "<@1>".into(),
-        label: "Ada".into(),
-    }]
-}
-
-fn caret(body: &str, at: usize) -> Draft {
-    let choices = roster();
-    let mut draft = Draft::from_body(body, &choices);
-    let text = draft.editor.text();
-    draft.editor.move_to(wire::EditorCursor {
-        position: wire::editor_position(&text, at),
-        selection: None,
-    });
-    draft
-}
-
-fn key_state(claim: &wire::EditorKeyClaim) -> wire::keyboard::KeyState {
-    wire::keyboard::KeyState {
-        key: claim.key.clone(),
-        modifiers: Modifiers {
-            control: claim.command,
-            ..claim.modifiers
-        },
-        modified_key: claim.key.clone(),
-        physical_key: wire::keyboard::Physical::Unidentified(
-            wire::keyboard::NativeCode::Unidentified,
-        ),
-        location: wire::keyboard::Location::Standard,
-    }
-}
-
-fn claimed(draft: &Draft) -> Vec<wire::EditorKeyClaim> {
-    // the key claims, with the menu open or shut
-    let root = lowered(draft, "c", &roster());
-    let wire::Node::Editor { binding, .. } = editor_node(&root) else {
-        unreachable!()
-    };
-    binding
-        .as_ref()
-        .expect("the field carries its binding")
-        .claims
-        .clone()
-}
-
-fn decision(draft: &Draft, claim: &wire::EditorKeyClaim) -> wire::EditorDecision {
-    let choices = roster();
-    let state = draft.editor.state_view();
-    let tag = key_tag(draft, &choices, state, &key_state(claim));
-    draft.decide(&tag, &choices, state)
-}
-
-fn bare(key: Named) -> wire::EditorKeyClaim {
-    wire::EditorKeyClaim {
-        key: Key::Named(key),
-        modifiers: Modifiers::default(),
-        command: false,
-    }
-}
-
-#[test]
-fn escape_with_no_menu_is_the_hosts_and_says_nothing_if_asked() {
-    let draft = caret("hello", 5);
-    assert!(!claimed(&draft).contains(&bare(Named::Escape)));
-    assert_eq!(
-        key_tag(
-            &draft,
-            &roster(),
-            draft.editor.state_view(),
-            &key_state(&bare(Named::Escape))
-        ),
-        "ignore"
-    );
-    assert!(matches!(
-        decision(&draft, &bare(Named::Escape)),
-        wire::EditorDecision::Noop
-    ));
-}
-
-#[test]
-fn cut_with_nothing_selected_says_nothing() {
-    let draft = caret("hello", 2);
-    let cut = wire::EditorKeyClaim {
-        key: Key::Character("x".into()),
-        modifiers: Modifiers::default(),
-        command: true,
-    };
-    assert_eq!(
-        key_tag(
-            &draft,
-            &roster(),
-            draft.editor.state_view(),
-            &key_state(&cut)
-        ),
-        "cut"
-    );
-    assert!(matches!(decision(&draft, &cut), wire::EditorDecision::Noop));
-}
-
-#[test]
-fn forward_delete_removes_what_is_ahead_of_the_caret() {
-    let removed = |draft: &Draft| {
-        let before = draft.editor.text();
-        match decision(draft, &bare(Named::Delete)) {
-            wire::EditorDecision::Apply {
-                patches, cursor, ..
-            } => Some(wire::patched_editor_text(&before, &patches, cursor).unwrap()),
-            wire::EditorDecision::Noop => None,
-            other => panic!("a delete never hands the key back: {other:?}"),
-        }
-    };
-    assert_eq!(removed(&caret("hello", 2)).as_deref(), Some("helo"));
-    assert_eq!(removed(&caret("héllo", 1)).as_deref(), Some("hllo"));
-    assert_eq!(removed(&caret("a👨‍👩‍👧b", 1)).as_deref(), Some("ab"));
-    assert_eq!(removed(&caret("hello", 5)), None);
-    let mut mention = Draft::from_body("Hi <@1> there", &roster());
-    let at = mention.mentions[0].range.start;
-    let text = mention.editor.text();
-    mention.editor.move_to(wire::EditorCursor {
-        position: wire::editor_position(&text, at),
-        selection: None,
-    });
-    assert_eq!(removed(&mention).as_deref(), Some("Hi  there"));
-}
-
-#[test]
 fn the_arrows_are_claimed_only_while_the_menu_is_open() {
     let closed = claimed(&caret("hello", 5));
     for key in [Named::ArrowUp, Named::ArrowDown, Named::Escape] {
@@ -502,36 +344,138 @@ fn the_arrows_are_claimed_only_while_the_menu_is_open() {
     }
 }
 
+/// Editing and history are the engine's: no state of the draft claims
+/// Backspace, Delete, Tab, undo or redo, and a read-only composer claims
+/// nothing.
 #[test]
-fn no_claimed_key_but_tab_and_backspace_asks_the_app_for_its_default() {
-    let drafts = [
+fn no_claim_is_on_a_key_the_engine_owns() {
+    for draft in [
         Draft::default(),
         caret("hello", 2),
         caret("hello", 5),
         caret("@A", 2),
-    ];
-    for draft in drafts {
-        for claim in claimed(&draft) {
-            let native = matches!(
-                decision(&draft, &claim),
-                wire::EditorDecision::DefaultEditorAction
-            );
-            let allowed = !claim.command
-                && matches!(
-                    claim.key,
-                    Key::Named(Named::Tab) | Key::Named(Named::Backspace)
-                );
-            assert!(
-                !native || allowed,
-                "{:?} asks for an unsafe native default",
-                claim.key
-            );
-        }
+    ] {
+        let claims = claimed(&draft);
+        assert!(claims.contains(&bare(Named::Enter)));
+        assert!(
+            claims.iter().all(|claim| !claim.engine_owned()),
+            "{claims:?}"
+        );
     }
+    let mut app = App::for_driver();
+    let entity = Entity::reserve(&app);
+    let mut window = app.window();
+    let mut cx = Context {
+        app: &mut app,
+        entity,
+    };
+    let element = view(
+        &caret("@A", 2),
+        "c",
+        "New message",
+        "Message #general",
+        "Send",
+        None,
+        false,
+        &roster(),
+        &mut cx,
+        |_: &mut ComposerView, _, _, _| {},
+    );
+    drop(cx);
+    let root = Lowering::new(&mut window, &mut app).lower(element);
+    let wire::Node::Field {
+        claims,
+        options,
+        on_key,
+        ..
+    } = field_node(&root)
+    else {
+        unreachable!()
+    };
+    assert!(claims.is_empty() && on_key.is_none() && options.read_only);
 }
 
+fn key(keystroke: &str) -> wire::keyboard::KeyState {
+    (&gpui::Keystroke::parse(keystroke).unwrap()).into()
+}
+
+/// Down picks the second name and Enter takes it as one span with a space
+/// after; Escape shuts the menu and Enter then sends, once per press.
+/// Every edit is asked of the host at the revision the draft knows, never
+/// applied here.
 #[test]
-fn click_binding_and_document_routes_dispatch_through_the_driver() {
+fn menu_navigation_then_enter_picks_a_stable_identity_and_escape_leaves_enter_to_send() {
+    let choices = vec![
+        MentionChoice {
+            token: "<@1>".into(),
+            label: "Ada".into(),
+        },
+        MentionChoice {
+            token: "<@2>".into(),
+            label: "Alan".into(),
+        },
+    ];
+    let mut draft = caret("@A", 2);
+    let press = |draft: &mut Draft, keystroke: &str, repeat: bool| {
+        let tag = draft.key_tag(&key(keystroke), repeat)?;
+        Some(draft.act(&tag, "c/editor", &choices))
+    };
+    press(&mut draft, "down", false).unwrap();
+    assert_eq!(draft.menu_index, 1);
+    let (edits, _) = press(&mut draft, "enter", false).unwrap();
+    assert_eq!(
+        edits
+            .iter()
+            .map(|edit| match edit {
+                wire::WidgetCommand::Replace {
+                    range, text, token, ..
+                } => (range.range(), text.clone(), token.clone()),
+                other => panic!("{other:?}"),
+            })
+            .collect::<Vec<_>>(),
+        [
+            (0..2, "@Alan".into(), Some("<@2>".into())),
+            (2..2, " ".into(), None)
+        ]
+    );
+    // the keys the menu owns go back to the engine once it is shut
+    press(&mut draft, "escape", false).unwrap();
+    assert!(draft.menu_dismissed && draft.query().is_none());
+    assert!(press(&mut draft, "down", false).is_none());
+    assert!(
+        press(&mut draft, "enter", true).is_none(),
+        "a held Enter sends nothing"
+    );
+    let (edits, outcome) = press(&mut draft, "enter", false).unwrap();
+    assert!(matches!(outcome, Outcome::Action(tag) if tag == "send"));
+    assert_eq!(edits.len(), 1, "one clear of the field");
+    assert_eq!(draft.submitted.take().unwrap().body, "@A");
+}
+
+/// Enter in the composer sends: the view hears it, the host clears the
+/// field at the revision the draft knew and says so.
+#[test]
+fn enter_sends_and_the_host_clears_the_field() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<ComposerView>();
+    cx.simulate_field_key("c/editor", "enter");
+    view.read(|view| {
+        assert!(view.events.iter().any(|event| event == "outcome:send"));
+        assert_eq!(view.draft.field.text, "", "the host cleared the field");
+        assert_eq!(view.draft.field.revision, 1);
+    });
+    let field = wire::ElementIdWire::Name("c/editor".into());
+    assert_eq!(replaces(&cx), [(field, 0, 0..5, String::new(), None)]);
+    assert!(
+        clickable(cx.root(), "c/send").is_none(),
+        "nothing left to send"
+    );
+}
+
+/// A press on a mark focuses the field again and asks the host to wrap
+/// the selection; the host's answer comes back as a change.
+#[test]
+fn a_mark_pressed_asks_the_host_for_the_edit_and_hands_the_keys_back() {
     let mut cx = TestAppContext::new();
     let view = cx.open::<ComposerView>();
     cx.simulate_click("c/bold");
@@ -552,48 +496,16 @@ fn click_binding_and_document_routes_dispatch_through_the_driver() {
         cx.host().requests::<crate::methods::HostWidget>()
     );
     assert_eq!(cx.focused().and_then(wire::Node::key), Some("c/editor"));
-
-    let wire::Node::Editor { document, .. } = editor_node(cx.root()).clone() else {
-        unreachable!()
-    };
-    cx.simulate_editor_request(
-        "c/editor",
-        wire::EditorRequest {
-            id: wire::EditorTransactionId {
-                instance: 1,
-                document: document.document.clone(),
-                reset: document.reset,
-                sequence: 1,
-                attempt: 0,
-                text_revision: document.text_revision,
-                revision: document.revision,
-            },
-            state: document.clone(),
-            input: wire::EditorRequestInput::Key {
-                key: key_state(&wire::EditorKeyClaim {
-                    key: Key::Character("b".into()),
-                    modifiers: Modifiers::default(),
-                    command: true,
-                }),
-                repeat: false,
-            },
-            input_time_ms: 1,
-        },
+    let field = wire::ElementIdWire::Name("c/editor".into());
+    assert_eq!(
+        replaces(&cx),
+        [(field, 0, 5..5, "****".into(), None)],
+        "a caret at the end of `hello` gets an empty pair"
     );
-    view.read(|view| assert!(view.events.iter().any(|event| event == "transaction")));
-    let id = wire::editor_document::EditorTransferId {
-        instance: 1,
-        document: document.document.clone(),
-        reset: document.reset,
-        serial: 1,
-        attempt: 0,
-    };
-    cx.simulate_editor_document(
-        "c/editor",
-        wire::editor_document::EditorDocumentMessage::Request {
-            id,
-            target: document.clone(),
-        },
-    );
-    view.read(|view| assert!(view.events.iter().any(|event| event == "document")));
+    view.read(|view| {
+        assert!(view.events.iter().any(|event| event == "changed"));
+        assert_eq!(view.draft.field.text, "hello****");
+        assert_eq!(view.draft.field.cursor, wire::TextRange::caret(7));
+        assert_eq!(view.draft.field.revision, 1);
+    });
 }

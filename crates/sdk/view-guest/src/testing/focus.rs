@@ -92,7 +92,7 @@ impl Focus {
 /// Whether a person can put the keyboard on `node`: by click or Tab.
 pub(super) fn holds_focus(node: &Node) -> bool {
     match node {
-        Node::Input { .. } | Node::Editor { .. } => true,
+        Node::Field { .. } => true,
         _ => node.interactivity().is_some_and(|interactivity| {
             interactivity.focusable || interactivity.focus_handle.is_some()
         }),
@@ -102,7 +102,7 @@ pub(super) fn holds_focus(node: &Node) -> bool {
 /// Whether Tab stops at `node`.
 fn tab_stop(node: &Node) -> bool {
     match node {
-        Node::Input { .. } | Node::Editor { .. } => true,
+        Node::Field { .. } => true,
         _ => node.interactivity().is_some_and(|interactivity| {
             interactivity
                 .tab_stop

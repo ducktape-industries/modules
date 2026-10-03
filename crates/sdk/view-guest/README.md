@@ -18,17 +18,17 @@ Ours, defined in this crate:
 - `App`, `AsyncApp`, `Context`, `Entity`, `WeakEntity` (`src/context.rs`),
   `Task` (`src/executor.rs`), `Window` (`src/window.rs`): the entity graph
   and the tick loop run inside the guest, so the host never sees a closure.
-- `div`, `uniform_list`, `list`, `Input`, `Editor`, `img`/`Img`, `svg`/`Svg`,
+- `div`, `uniform_list`, `list`, `Input`, `Textarea`, `img`/`Img`, `svg`/`Svg`,
   `canvas`/`Canvas`, `InteractiveText`/`StyledText`, `sensor`,
   `resize_handle`, `modal_overlay` (`src/element.rs`, `src/list.rs`,
-  `src/editor.rs`, `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
+  `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
   crossed as per-frame indices. `list` is gpui's: styled, with nothing to
   press, name or hover (a `div` around it carries those); `canvas` is drawn
   by calls (`rect`, `circle`, `line`), since gpui's paint closures cannot
   cross.
 - A control is named from birth: `Input::new(id, label)`,
-  `EditorElement::new(…, label)`, `modal_overlay(id, label, …)`, and
+  `Textarea::new(id, &field, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words
   assistive technology reads; the audit catches one given none.
 - `InteractiveElement`, `StatefulInteractiveElement`, `FocusHandle`,

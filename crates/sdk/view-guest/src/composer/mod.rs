@@ -1,28 +1,20 @@
-//! Guest-owned rich composer state shared by conversation views.
+//! The rich composer conversation views share: a draft over the host's
+//! text field, the @-mention menu, formatting marks, and the sends it made.
+//! The host's engine owns the text, its undo and its clipboard; the draft
+//! follows it and asks for edits.
 
 mod binding;
-mod editing;
 
 pub use binding::{Click, Event, Outcome, view};
 
-use crate::{Editor, ElementId, Window, wire};
+use crate::{ElementId, TextField, Window, wire};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
+use wire::keyboard::{Key, Named};
 
 /// The id of the editor [`view`] draws for the draft `key`.
 fn editor_id(key: &str) -> String {
     format!("{key}/editor")
-}
-
-/// Hands `tag` to the editor [`view`] drew for the draft `key`, after the
-/// edits the host is applying there: it comes back as [`Event::Action`].
-pub fn act(window: &mut Window, key: &str, tag: impl Into<String>) {
-    window.dispatch(wire::WidgetCommand::EditorAction {
-        target: vec![crate::element::wire_id(ElementId::Name(
-            editor_id(key).into(),
-        ))],
-        tag: tag.into(),
-    });
 }
 
 /// Gives the keyboard to the editor [`view`] drew for the draft `key`.
@@ -37,37 +29,43 @@ pub struct MentionChoice {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Mention {
-    pub range: Range<usize>,
-    pub token: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Send {
     pub body: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct History {
-    pub text: String,
-    pub mentions: Vec<Mention>,
-    pub cursor: wire::EditorCursor,
-}
-
+/// A mention is an atomic span of the field whose token is what it means.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Draft {
-    pub editor: Editor,
-    pub mentions: Vec<Mention>,
+    pub field: TextField,
     pub failed_send: Option<Send>,
     pub submitted: Option<Send>,
     pub in_flight: Vec<Send>,
     pub note: String,
-    pub paste: Option<String>,
-    pub clipboard: Option<String>,
     pub menu_index: usize,
     pub menu_dismissed: bool,
-    pub undo: Vec<History>,
-    pub redo: Vec<History>,
+}
+
+/// What a formatting mark wraps its selection in.
+fn markers(tag: &str) -> Option<(&'static str, &'static str)> {
+    match tag {
+        "bold" => Some(("**", "**")),
+        "italic" => Some(("*", "*")),
+        "code" => Some(("```\n", "\n```")),
+        "quote" => Some(("> ", "")),
+        _ => None,
+    }
+}
+
+pub(crate) fn matching_choices<'a>(
+    choices: &'a [MentionChoice],
+    partial: &str,
+) -> Vec<&'a MentionChoice> {
+    let needle = partial.to_lowercase();
+    choices
+        .iter()
+        .filter(|choice| choice.label.to_lowercase().starts_with(&needle))
+        .take(32)
+        .collect()
 }
 
 impl Draft {
@@ -77,10 +75,12 @@ impl Draft {
         draft
     }
 
+    /// A new document in the field: `body` with its `<@n>` tokens shown
+    /// as the names the roster gives them.
     pub fn seed(&mut self, body: &str, roster: &[MentionChoice]) {
         let body = body.replace("\r\n", "\n").replace('\r', "\n");
         let mut text = String::new();
-        let mut mentions = Vec::new();
+        let mut tokens = Vec::new();
         let mut remaining = body.as_str();
         while let Some(start) = remaining.find("<@") {
             text.push_str(&remaining[..start]);
@@ -94,9 +94,9 @@ impl Draft {
                     let start = text.len();
                     text.push('@');
                     text.push_str(&choice.label);
-                    mentions.push(Mention {
-                        range: start..text.len(),
-                        token: token.into(),
+                    tokens.push(wire::TextToken {
+                        range: wire::TextRange::from(start..text.len()),
+                        id: token.into(),
                     });
                 }
                 None => text.push_str(token),
@@ -104,58 +104,253 @@ impl Draft {
             remaining = &remaining[end + 1..];
         }
         text.push_str(remaining);
-        self.editor.replace(Editor::new(text));
-        self.mentions = mentions;
-        self.undo.clear();
-        self.redo.clear();
+        self.field.reset(text);
+        self.field.tokens = tokens;
+        self.menu_index = 0;
+        self.menu_dismissed = false;
     }
 
-    #[cfg(test)]
-    fn body(&self) -> String {
-        self.body_of(self.editor.state_view().text)
-    }
-
-    pub(crate) fn body_of(&self, text: &str) -> String {
+    /// The text with every mention as its token.
+    pub fn body(&self) -> String {
+        let text = &self.field.text;
         let mut body = String::new();
         let mut start = 0;
-        for mention in &self.mentions {
-            body.push_str(&text[start..mention.range.start]);
-            body.push_str(&mention.token);
-            start = mention.range.end;
+        for token in &self.field.tokens {
+            body.push_str(&text[start..token.range.start as usize]);
+            body.push_str(&token.id);
+            start = token.range.end as usize;
         }
         body.push_str(&text[start..]);
         body
     }
 
-    pub fn observed(&mut self, before: &str, after: &str) {
-        if before != after {
+    /// The host's word on the field. Typing closes a dismissed menu's
+    /// dismissal and starts the next menu at its first row.
+    pub fn changed(&mut self, change: &wire::TextChange) {
+        if change.text != self.field.text {
             self.menu_index = 0;
             self.menu_dismissed = false;
         }
-        let Ok(patches) = wire::editor_document::editor_changed_span(before, after) else {
-            return;
+        self.field.apply(change);
+    }
+
+    pub fn can_send(&self) -> bool {
+        !self.field.is_blank()
+    }
+
+    /// The `@name` being typed at the caret, if any: its span and the name
+    /// so far. None with a selection, inside a mention, or after Escape.
+    pub(crate) fn query(&self) -> Option<(Range<usize>, String)> {
+        if self.menu_dismissed || !self.field.cursor.is_empty() {
+            return None;
+        }
+        let text = self.field.text.as_str();
+        let at = self.field.cursor.start as usize;
+        let before = text.get(..at)?;
+        let after = text.get(at..)?;
+        let handle_char = |c: char| c.is_alphanumeric() || matches!(c, '-' | '_' | '.');
+        if after.chars().next().is_some_and(handle_char) {
+            return None;
+        }
+        let line = before.rsplit('\n').next()?;
+        let start = line.rfind('@')?;
+        let partial = &line[start + 1..];
+        let valid = partial.chars().all(|c| handle_char(c) || c == ' ')
+            && line[..start]
+                .chars()
+                .next_back()
+                .is_none_or(char::is_whitespace);
+        if !valid {
+            return None;
+        }
+        let range = before.len() - line.len() + start..at;
+        let overlaps = self.field.tokens.iter().any(|token| {
+            range.start < token.range.end as usize && range.end > token.range.start as usize
+        });
+        if overlaps {
+            return None;
+        }
+        Some((range, partial.into()))
+    }
+
+    /// The menu's choices and which row is picked.
+    fn menu<'a>(&self, choices: &'a [MentionChoice]) -> Option<(Vec<&'a MentionChoice>, usize)> {
+        let (_, partial) = self.query()?;
+        let matches = matching_choices(choices, &partial);
+        let selected = self.menu_index.min(matches.len().saturating_sub(1));
+        Some((matches, selected))
+    }
+
+    /// The keys the composer hears instead of the engine: Enter to send or
+    /// to pick a mention, the arrows and Escape while the menu is open, and
+    /// the formatting chords.
+    fn claims(&self) -> Vec<wire::KeyClaim> {
+        let bare = |key| wire::KeyClaim {
+            key: Key::Named(key),
+            modifiers: gpui::Modifiers::default(),
+            command: false,
         };
-        for patch in patches.into_iter().rev() {
-            let replaced = patch.start_byte as usize..patch.end_byte as usize;
-            self.mentions.retain_mut(|mention| {
-                if mention.range.end <= replaced.start {
-                    return true;
-                }
-                if mention.range.start >= replaced.end {
-                    mention.range.start =
-                        replaced.start + patch.replacement.len() + mention.range.start
-                            - replaced.end;
-                    mention.range.end =
-                        replaced.start + patch.replacement.len() + mention.range.end - replaced.end;
-                    return true;
-                }
-                false
-            });
+        let chord = |key: &str, shift| wire::KeyClaim {
+            key: Key::Character(key.into()),
+            modifiers: gpui::Modifiers {
+                shift,
+                ..gpui::Modifiers::default()
+            },
+            command: true,
+        };
+        let mut claims = vec![bare(Named::Enter)];
+        if self.query().is_some() {
+            claims.extend([Named::ArrowUp, Named::ArrowDown, Named::Escape].map(bare));
+        }
+        claims.extend(
+            [("b", false), ("i", false), ("c", true), ("9", true)].map(|(k, s)| chord(k, s)),
+        );
+        claims
+    }
+
+    /// What a claimed key does; `None` leaves the draft as it is.
+    fn key_tag(&self, key: &wire::keyboard::KeyState, repeat: bool) -> Option<String> {
+        if key.modifiers.control || key.modifiers.platform {
+            return match (&key.key, key.modifiers.shift) {
+                (Key::Character(key), false) if key == "b" => Some("bold".into()),
+                (Key::Character(key), false) if key == "i" => Some("italic".into()),
+                (Key::Character(key), true) if key == "c" => Some("code".into()),
+                (Key::Character(key), true) if key == "9" => Some("quote".into()),
+                _ => None,
+            };
+        }
+        match &key.key {
+            Key::Named(Named::Enter) => match self.query() {
+                Some(_) => Some("mention".into()),
+                None if repeat => None,
+                None => Some("send".into()),
+            },
+            // the arrows and Escape are claimed only while the menu is open;
+            // one from a frame before it shut is the engine's to have had
+            Key::Named(Named::ArrowDown) if self.query().is_some() => Some("menu-next".into()),
+            Key::Named(Named::ArrowUp) if self.query().is_some() => Some("menu-previous".into()),
+            Key::Named(Named::Escape) if self.query().is_some() => Some("menu-dismiss".into()),
+            _ => None,
         }
     }
 
-    pub(crate) fn can_send(&self, text: &str) -> bool {
-        !text.trim().is_empty()
+    /// The edits `tag` asks of the host's field `target`, if any, and
+    /// whether the view has a send to make.
+    fn act(
+        &mut self,
+        tag: &str,
+        target: &str,
+        choices: &[MentionChoice],
+    ) -> (Vec<wire::WidgetCommand>, Outcome) {
+        let target = gpui::ElementId::Name(target.to_owned().into());
+        let field = &self.field;
+        let text = field.text.as_str();
+        let edits = match tag {
+            "menu-next" => {
+                self.menu_index = self.menu_index.saturating_add(1);
+                Vec::new()
+            }
+            "menu-previous" => {
+                self.menu_index = self.menu_index.saturating_sub(1);
+                Vec::new()
+            }
+            "menu-dismiss" => {
+                self.menu_dismissed = true;
+                Vec::new()
+            }
+            "send" => {
+                if !self.can_send() {
+                    return (Vec::new(), Outcome::Updated);
+                }
+                let clear = field.replace_all(target, "");
+                self.submitted = Some(Send {
+                    body: self.body().trim().to_owned(),
+                });
+                return (vec![clear], Outcome::Action("send".into()));
+            }
+            "restore" => {
+                if !text.is_empty() {
+                    return (Vec::new(), Outcome::Updated);
+                }
+                if let Some(send) = self.failed_send.take() {
+                    self.seed(&send.body, choices);
+                }
+                Vec::new()
+            }
+            // the picked row, or the one the press named
+            "mention" => match self.menu(choices) {
+                Some((matches, selected)) => matches
+                    .get(selected)
+                    .map_or_else(Vec::new, |choice| self.mention(choice, &target)),
+                None => Vec::new(),
+            },
+            _ => match (markers(tag), tag.strip_prefix("mention:")) {
+                (Some((open, close)), _) => {
+                    let range = field.selection();
+                    if range.is_empty() {
+                        let caret = range.start + open.len();
+                        vec![field.replace(target, range, format!("{open}{close}"), None, caret)]
+                    } else {
+                        // two insertions, so a mention inside the selection
+                        // stays one span: the host rebases the second over
+                        // the first
+                        let mut edits = vec![field.replace(
+                            target.clone(),
+                            range.start..range.start,
+                            open,
+                            None,
+                            range.start + open.len(),
+                        )];
+                        if !close.is_empty() {
+                            edits.push(field.replace(
+                                target,
+                                range.end..range.end,
+                                close,
+                                None,
+                                range.end + close.len(),
+                            ));
+                        }
+                        edits
+                    }
+                }
+                (None, Some(token)) => choices
+                    .iter()
+                    .find(|choice| choice.token == token)
+                    .map_or_else(Vec::new, |choice| self.mention(choice, &target)),
+                (None, None) => Vec::new(),
+            },
+        };
+        (edits, Outcome::Updated)
+    }
+
+    /// The `@name` being typed becomes the mention `choice`, a space after
+    /// it for the next word.
+    fn mention(
+        &self,
+        choice: &MentionChoice,
+        target: &gpui::ElementId,
+    ) -> Vec<wire::WidgetCommand> {
+        let Some((range, _)) = self.query() else {
+            return Vec::new();
+        };
+        let label = format!("@{}", choice.label);
+        let end = range.start + label.len();
+        vec![
+            self.field.replace(
+                target.clone(),
+                range.clone(),
+                label,
+                Some(choice.token.clone()),
+                end,
+            ),
+            self.field.replace(
+                target.clone(),
+                range.end..range.end,
+                " ",
+                None,
+                range.end + 1,
+            ),
+        ]
     }
 
     pub fn failed(&mut self, send: Send) {
@@ -182,8 +377,6 @@ impl Draft {
             self.failed(send);
             self.note = "A send was interrupted; check the conversation before restoring it".into();
         }
-        self.paste = None;
-        self.clipboard = None;
     }
 }
 
@@ -191,35 +384,128 @@ impl Draft {
 mod tests {
     use super::*;
 
-    /// Bold is `**…**` and italic `*…*`: the chat message parser reads
-    /// emphasis by the flanking rule, so an `_` inside a word is a letter.
-    #[test]
-    fn formatting_wraps_the_latest_selection_without_losing_mention_identity() {
-        let choices = vec![MentionChoice {
+    fn roster() -> Vec<MentionChoice> {
+        vec![MentionChoice {
             token: "<@7>".into(),
             label: "Ada".into(),
-        }];
-        for (tag, body) in [("bold", "Hi **<@7>**"), ("italic", "Hi *<@7>*")] {
-            let mut draft = Draft::from_body("Hi <@7>", &choices);
-            draft.editor.move_to(wire::EditorCursor {
-                position: wire::EditorPosition { line: 0, column: 7 },
-                selection: Some(wire::EditorPosition { line: 0, column: 3 }),
-            });
-            let before = draft.editor.text();
-            let cursor = draft.editor.cursor();
-            let wire::EditorDecision::Apply {
-                patches,
-                cursor: next,
+        }]
+    }
+
+    fn replaces(edits: &[wire::WidgetCommand]) -> Vec<(Range<usize>, &str, Option<&str>, usize)> {
+        edits
+            .iter()
+            .map(|edit| match edit {
+                wire::WidgetCommand::Replace {
+                    range,
+                    text,
+                    token,
+                    cursor,
+                    ..
+                } => (
+                    range.range(),
+                    text.as_str(),
+                    token.as_deref(),
+                    cursor.start as usize,
+                ),
+                other => panic!("not a replace: {other:?}"),
+            })
+            .collect()
+    }
+
+    /// Bold is `**…**` and italic `*…*`: the chat message parser reads
+    /// emphasis by the flanking rule, so an `_` inside a word is a letter.
+    /// A selection is wrapped by two insertions, so the mention in it
+    /// stays one span.
+    #[test]
+    fn formatting_wraps_the_selection_around_a_mention() {
+        let mut draft = Draft::from_body("Hi <@7>", &roster());
+        assert_eq!(draft.field.text, "Hi @Ada");
+        draft.field.cursor = wire::TextRange::from(3..7);
+        let (bold, _) = draft.act("bold", "c/editor", &roster());
+        assert_eq!(
+            replaces(&bold),
+            [(3..3, "**", None, 5), (7..7, "**", None, 9)]
+        );
+        let (quote, _) = draft.act("quote", "c/editor", &roster());
+        assert_eq!(replaces(&quote), [(3..3, "> ", None, 5)]);
+        draft.field.cursor = wire::TextRange::caret(7);
+        let (italic, _) = draft.act("italic", "c/editor", &roster());
+        assert_eq!(replaces(&italic), [(7..7, "**", None, 8)]);
+    }
+
+    #[test]
+    fn a_picked_mention_is_one_span_with_a_space_after_it() {
+        let mut draft = Draft::from_body("hi @A", &roster());
+        assert_eq!(draft.query(), Some((3..5, "A".into())));
+        let (edits, _) = draft.act("mention:<@7>", "c/editor", &roster());
+        assert_eq!(
+            replaces(&edits),
+            [(3..5, "@Ada", Some("<@7>"), 7), (5..5, " ", None, 6)]
+        );
+        // the host's answer: the span sits where the engine put it
+        draft.changed(&wire::TextChange {
+            revision: 1,
+            text: "hi @Ada ".into(),
+            cursor: wire::TextRange::caret(8),
+            preedit: None,
+            tokens: vec![wire::TextToken {
+                range: wire::TextRange::from(3..7),
+                id: "<@7>".into(),
+            }],
+        });
+        assert_eq!(draft.body(), "hi <@7> ");
+        assert_eq!(draft.query(), None, "a mention is never a query");
+    }
+
+    #[test]
+    fn a_send_clears_the_field_at_the_revision_it_knows_and_keeps_the_body() {
+        let mut draft = Draft::from_body("first <@7>", &roster());
+        draft.field.revision = 4;
+        let (edits, outcome) = draft.act("send", "c/editor", &roster());
+        assert!(matches!(outcome, Outcome::Action(tag) if tag == "send"));
+        let [
+            wire::WidgetCommand::Replace {
+                revision,
+                range,
+                text,
                 ..
-            } = draft.decide(tag, &choices, draft.editor.state_view())
-            else {
-                panic!("format decision");
-            };
-            let after = wire::patched_editor_text(&before, &patches, next).unwrap();
-            draft.committed(&before, &after, cursor, tag, &choices);
-            draft.editor.replace(Editor::new(after));
-            assert_eq!(draft.body(), body);
+            },
+        ] = edits.as_slice()
+        else {
+            panic!("one clear")
+        };
+        assert_eq!((revision, range.range(), text.as_str()), (&4, 0..10, ""));
+        assert_eq!(draft.submitted.take().unwrap().body, "first <@7>");
+        let blank = Draft::from_body("  ", &[]);
+        assert!(!blank.can_send());
+    }
+
+    #[test]
+    fn restore_seeds_an_empty_field_only() {
+        let mut draft = Draft::from_body("new typing", &[]);
+        for body in ["first", "second"] {
+            draft.failed(Send { body: body.into() });
         }
+        assert_eq!(draft.failed_send.as_ref().unwrap().body, "first\nsecond");
+        draft.act("restore", "c/editor", &[]);
+        assert_eq!(draft.field.text, "new typing");
+        assert!(draft.failed_send.is_some());
+        let generation = draft.field.generation;
+        draft.changed(&wire::TextChange {
+            revision: 9,
+            text: String::new(),
+            cursor: wire::TextRange::caret(0),
+            preedit: None,
+            tokens: Vec::new(),
+        });
+        draft.act("restore", "c/editor", &[]);
+        assert_eq!(draft.field.text, "first\nsecond");
+        assert!(
+            draft.field.generation > generation,
+            "a restore is a new document"
+        );
+        assert_eq!(draft.field.revision, 9);
+        assert!(draft.failed_send.is_none());
     }
 
     #[test]
@@ -231,122 +517,53 @@ mod tests {
         let mut restored: Draft =
             serde_json::from_slice(&serde_json::to_vec(&draft).unwrap()).unwrap();
         restored.retire_device_requests();
-        assert_eq!(restored.editor.text(), "new typing");
+        assert_eq!(restored.field.text, "new typing");
         assert_eq!(restored.failed_send.as_ref().unwrap().body, "in flight");
         assert!(restored.in_flight.is_empty());
     }
 
     #[test]
-    fn two_failed_sends_preserve_both_bodies_and_restore_cannot_erase_new_typing() {
-        let mut draft = Draft::from_body("new typing", &[]);
-        for body in ["first", "second"] {
-            draft.failed(Send { body: body.into() });
-        }
-        assert_eq!(draft.failed_send.as_ref().unwrap().body, "first\nsecond");
-        assert_eq!(
-            draft.decide("restore", &[], draft.editor.state_view()),
-            wire::EditorDecision::Noop
-        );
-        assert_eq!(draft.editor.text(), "new typing");
-    }
-
-    #[test]
-    fn undo_restores_the_identity_removed_by_an_atomic_delete() {
-        let choices = vec![MentionChoice {
-            token: "<@7>".into(),
-            label: "Ada".into(),
-        }];
-        let mut draft = Draft::from_body("@literal <@7>", &choices);
-        let cursor = wire::EditorCursor {
-            position: wire::EditorPosition {
-                line: 0,
-                column: 13,
-            },
-            selection: None,
-        };
-        draft.committed("@literal @Ada", "@literal ", cursor, "backspace", &choices);
-        draft.editor.replace(Editor::new("@literal "));
-        let wire::EditorDecision::Apply {
-            patches,
-            cursor: next,
-            ..
-        } = draft.decide("undo", &choices, draft.editor.state_view())
-        else {
-            panic!("undo decision")
-        };
-        let after = wire::patched_editor_text("@literal ", &patches, next).unwrap();
-        draft.committed("@literal ", &after, draft.editor.cursor(), "undo", &choices);
-        draft.editor.replace(Editor::new(after));
-        assert_eq!(draft.body(), "@literal <@7>");
-    }
-
-    #[test]
-    fn delayed_paste_uses_current_selection_and_preserves_stable_mentions() {
-        let choices = vec![MentionChoice {
-            token: "<@7>".into(),
-            label: "Ada".into(),
-        }];
-        let mut draft = Draft::from_body("new typing ", &choices);
-        draft.editor.move_to(wire::EditorCursor {
-            position: wire::EditorPosition {
-                line: 0,
-                column: 11,
-            },
-            selection: None,
-        });
-        draft.paste = Some("hello <@7>".into());
-        let before = draft.editor.text();
-        let old_cursor = draft.editor.cursor();
-        let wire::EditorDecision::Apply {
-            patches, cursor, ..
-        } = draft.decide("paste-ready", &choices, draft.editor.state_view())
-        else {
-            panic!("paste decision")
-        };
-        let after = wire::patched_editor_text(&before, &patches, cursor).unwrap();
-        draft.committed(&before, &after, old_cursor, "paste-ready", &choices);
-        draft.editor.replace(Editor::new(after));
-        assert_eq!(draft.body(), "new typing hello <@7>");
-        assert!(draft.paste.is_none());
-    }
-
-    #[test]
     fn restored_drafts_keep_stable_mentions_when_labels_change() {
-        let roster = vec![MentionChoice {
-            token: "<@7>".into(),
-            label: "Ada".into(),
-        }];
-        let draft = Draft::from_body("Hello <@7>", &roster);
-        assert_eq!(draft.editor.text(), "Hello @Ada");
+        let draft = Draft::from_body("Hello <@7>", &roster());
+        assert_eq!(draft.field.text, "Hello @Ada");
         assert_eq!(draft.body(), "Hello <@7>");
         let restored: Draft = serde_json::from_slice(&serde_json::to_vec(&draft).unwrap()).unwrap();
         assert_eq!(restored.body(), "Hello <@7>");
     }
 
     #[test]
-    fn a_failed_send_preserves_newer_typing() {
-        let mut draft = Draft::from_body("first", &[]);
-        let before = draft.editor.text();
-        draft.committed(&before, "", draft.editor.cursor(), "send", &[]);
-        let sent = draft.submitted.take().unwrap();
-        draft.editor.replace(Editor::new(""));
-        assert_eq!(sent.body, "first");
-        assert!(draft.editor.text().is_empty());
-        draft.seed("second", &[]);
-        draft.failed(sent);
-        assert_eq!(draft.editor.text(), "second");
-        assert_eq!(draft.failed_send.as_ref().unwrap().body, "first");
-    }
-
-    #[test]
-    fn deleting_a_mention_removes_identity_and_moves_following_ranges() {
-        let roster = vec![MentionChoice {
-            token: "<@7>".into(),
-            label: "Ada".into(),
-        }];
-        let mut draft = Draft::from_body("<@7> and <@7>", &roster);
-        draft.observed("@Ada and @Ada", " and @Ada");
-        draft.editor.replace(crate::Editor::new(" and @Ada"));
-        assert_eq!(draft.body(), " and <@7>");
+    fn the_menu_opens_on_a_name_being_typed_and_nowhere_else() {
+        let caret = |text: &str, at: usize| {
+            let mut draft = Draft::from_body(text, &roster());
+            draft.field.cursor = wire::TextRange::caret(at);
+            draft
+        };
+        assert_eq!(caret("@A", 2).query(), Some((0..2, "A".into())));
+        assert_eq!(
+            caret("mail@A", 6).query(),
+            None,
+            "an address is not a mention"
+        );
+        assert_eq!(caret("@A b", 2).query(), Some((0..2, "A".into())));
+        assert_eq!(
+            caret("@Ab", 2).query(),
+            None,
+            "the caret is inside the name"
+        );
+        let mut dismissed = caret("@A", 2);
+        dismissed.act("menu-dismiss", "c/editor", &roster());
+        assert_eq!(dismissed.query(), None);
+        dismissed.changed(&wire::TextChange {
+            revision: 1,
+            text: "@Al".into(),
+            cursor: wire::TextRange::caret(3),
+            preedit: None,
+            tokens: Vec::new(),
+        });
+        assert_eq!(
+            dismissed.query(),
+            Some((0..3, "Al".into())),
+            "typing on reopens it"
+        );
     }
 }

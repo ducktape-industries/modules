@@ -3,7 +3,6 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
-use std::sync::{Arc, Weak};
 
 type ClickRoute = Rc<dyn Fn(&gpui::ClickEvent, &mut crate::Window, &mut crate::App)>;
 type TooltipRoute =
@@ -12,23 +11,12 @@ pub(crate) type TooltipBuilder =
     Box<dyn Fn(&mut crate::Window, &mut crate::App) -> crate::AnyView + 'static>;
 pub(crate) type RichTextTooltipBuilder =
     Box<dyn Fn(usize, &mut crate::Window, &mut crate::App) -> Option<crate::AnyView> + 'static>;
-type EditorReceiver = (
-    crate::wire::editor_document::EditorTransferId,
-    crate::wire::editor_document::EditorDocumentRef,
-    crate::wire::editor_document::EditorTransferReceiver,
-);
 type EventHandler<A> = Rc<dyn Fn(&A, &mut crate::Window, &mut crate::App)>;
 
 struct EventRoute<A>(EventHandler<A>);
 
 #[derive(Default)]
 struct Tables {
-    identity: Arc<()>,
-    editor_responses: Vec<crate::wire::EditorResponse>,
-    editor_documents: Vec<crate::wire::editor_document::EditorDocumentMessage>,
-    editor_sender: Option<crate::wire::editor_document::EditorTransferSender>,
-    editor_receiver: Option<EditorReceiver>,
-    editor_pending: Vec<crate::wire::EditorTransactionId>,
     host: crate::Host,
     messages: Routes<Rc<dyn Any>>,
     handlers: Routes<Rc<dyn Any>>,
@@ -123,16 +111,6 @@ impl Context {
         context.0.borrow_mut().host = host;
         context
     }
-
-    pub(crate) fn identity(&self) -> Weak<()> {
-        Arc::downgrade(&self.0.borrow().identity)
-    }
-
-    /// Whether `identity` is this driver's: a route from another driver, or
-    /// from one already dropped, never runs here.
-    pub(crate) fn owns(&self, identity: &Weak<()>) -> bool {
-        Weak::ptr_eq(identity, &self.identity())
-    }
 }
 
 /// Returns a picture hash, and its bytes the first time this driver sends
@@ -187,16 +165,6 @@ pub(crate) fn clear_pictures(context: &Context) {
     context.0.borrow_mut().pictures.clear();
 }
 
-/// A typed handler returns None for a value it cannot route.
-pub fn handler<A: 'static, M: 'static>(
-    context: &Context,
-    handler: Box<dyn Fn(A) -> Option<M>>,
-) -> u32 {
-    let tables = &mut *context.0.borrow_mut();
-    let handler: Rc<dyn Any> = Rc::new(handler);
-    tables.handlers.push(&mut tables.row, handler, "handler")
-}
-
 pub(crate) fn reset(context: &Context) {
     let old = {
         let mut tables = context.0.borrow_mut();
@@ -233,15 +201,6 @@ pub(crate) fn tooltip_response(context: &Context, response: crate::wire::Tooltip
 
 pub(crate) fn take_tooltip_responses(context: &Context) -> Vec<crate::wire::TooltipResponse> {
     std::mem::take(&mut context.0.borrow_mut().tooltip_responses)
-}
-
-pub(crate) fn run_handler<A: 'static, M: 'static>(
-    context: &Context,
-    index: u32,
-    value: A,
-) -> Option<M> {
-    let handler = context.0.borrow().handlers.get(index)?;
-    handler.downcast_ref::<Box<dyn Fn(A) -> Option<M>>>()?(value)
 }
 
 pub(crate) fn route<A: 'static>(
@@ -321,37 +280,32 @@ pub(crate) fn run_click(
     }
 }
 
-mod editor;
-pub(crate) use editor::*;
+pub(crate) fn host(context: &Context) -> crate::Host {
+    context.0.borrow().host.clone()
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn nested_contexts_restore_typed_routes_and_picture_history() {
+    fn nested_contexts_keep_their_own_routes_and_picture_history() {
         let first = Context::default();
-        let first_route =
-            handler::<String, String>(&first, Box::new(|text| Some(format!("first:{text}"))));
+        let first_route = route::<String>(&first, |_, _, _| {});
         assert!(picture(&first, b"svg", 3).1.is_some());
         {
             let second = Context::default();
-            let route =
-                handler::<String, String>(&second, Box::new(|text| Some(format!("second:{text}"))));
-            assert_eq!(route, 0, "each driver starts its own typed route table");
+            let route = route::<String>(&second, |_, _, _| {});
             assert_eq!(
-                run_handler::<String, String>(&second, route, "x".into()).as_deref(),
-                Some("second:x")
+                (first_route, route),
+                (0, 0),
+                "each driver starts its own route table"
             );
             assert!(
                 picture(&second, b"svg", 3).1.is_some(),
                 "a new host needs its own picture bytes"
             );
         }
-        assert_eq!(
-            run_handler::<String, String>(&first, first_route, "x".into()).as_deref(),
-            Some("first:x")
-        );
         assert!(
             picture(&first, b"svg", 3).1.is_none(),
             "returning to the first driver preserves its picture history"
@@ -368,67 +322,6 @@ mod tests {
             picture(&context, b"image", 5).1.as_deref(),
             Some(b"image".as_slice())
         );
-    }
-}
-
-#[cfg(test)]
-mod response_budget_tests {
-    use super::*;
-    use crate::wire::{
-        self, EditorDecision, EditorHistoryEffect, EditorPatch, EditorResponse, EditorTransactionId,
-    };
-
-    #[test]
-    fn independent_large_responses_cross_decodable_frames_without_losing_identity() {
-        let context = Context::default();
-        for sequence in 1..=2 {
-            editor_response(
-                &context,
-                EditorResponse {
-                    id: EditorTransactionId {
-                        instance: 1,
-                        document: format!("app:doc{sequence}"),
-                        reset: 0,
-                        sequence,
-                        attempt: 1,
-                        text_revision: 0,
-                        revision: 0,
-                    },
-                    decision: EditorDecision::Apply {
-                        patches: vec![EditorPatch {
-                            start_byte: 0,
-                            end_byte: 0,
-                            replacement: "x"
-                                .repeat(wire::editor_transaction::MAX_EDITOR_PATCH_BYTES),
-                        }],
-                        cursor: Default::default(),
-                        history: EditorHistoryEffect::NewGroup,
-                    },
-                },
-            );
-        }
-        for sequence in 1..=2 {
-            let frame = wire::Frame {
-                editor_decisions: take_editor_responses(&context),
-                ..Default::default()
-            };
-            assert_eq!(
-                frame.editor_decisions.len(),
-                1,
-                "one complete response per aggregate byte budget"
-            );
-            assert_eq!(frame.editor_decisions[0].id.sequence, sequence);
-            assert!(wire::decode::<wire::Frame>(&wire::encode(&frame)).is_ok());
-            assert_eq!(
-                context.0.borrow().editor_responses.len(),
-                (2 - sequence) as usize
-            );
-            assert!(
-                editor_pending(&context),
-                "sent responses remain outstanding until their commits"
-            );
-        }
-        assert!(take_editor_responses(&context).is_empty());
     }
 }
 
