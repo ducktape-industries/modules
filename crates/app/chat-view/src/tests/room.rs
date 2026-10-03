@@ -168,7 +168,7 @@ fn timeline_retains_virtual_tail_anchoring_and_scroll_feedback() {
 #[test]
 fn unread_rooms_carry_a_dot_and_the_open_room_a_divider() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.open("other".into(), cx);
         chat.channels_arrived(
             vec![
@@ -181,7 +181,7 @@ fn unread_rooms_carry_a_dot_and_the_open_room_a_divider() {
     });
     cx.run_until_parked();
     assert!(cx.find("chat-sidebar-channel-general-unread").is_some());
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.reads.entering = true;
         chat.room = Some(Room {
             id: "general".into(),
@@ -275,7 +275,7 @@ fn a_menu_opening_leaves_the_timeline_where_it_was() {
     }
     let (mut cx, view) = opened();
     let closed = list_path(cx.root()).expect("the timeline is a list");
-    view.update(&mut cx, |chat, window, cx| {
+    cx.update(&view, |chat, window, cx| {
         cx.notify();
         chat.open_menu(Pane::Timeline, 2, 0, Mode::More, window, cx);
     });
@@ -338,7 +338,7 @@ fn create_channel_leaves_the_room_where_it_was() {
 #[test]
 fn a_field_is_named_apart_from_its_hint() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         cx.notify();
         chat.open_thread(1, cx);
     });
@@ -394,7 +394,7 @@ fn a_text_field_is_named_apart_from_its_hint() {
 #[test]
 fn an_empty_thread_says_so_and_its_field_takes_focus() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         cx.notify();
         chat.open_thread(1, cx);
     });
@@ -434,7 +434,7 @@ fn a_link_to_a_forge_room_lands_in_it() {
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "forge:web:3"));
     // forge's own line reads as its event with a way to where forge shows
     // the change, not as a code block
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let line = chat::MsgRow {
             channel_id: "forge:web:3".into(),
             seq: 1,
@@ -506,7 +506,7 @@ fn a_dms_details_show_its_two_people_and_nothing_to_reshape() {
         time: 1,
     };
     let seat_both = |cx: &mut TestAppContext| {
-        view.update(cx, |chat, _, cx| {
+        cx.update(&view, |chat, _, cx| {
             chat.room.as_mut().unwrap().members = Loadable::Ready(vec![seat(7), seat(8)]);
             cx.notify();
         });
@@ -602,7 +602,7 @@ fn a_landed_room_rereads_its_window() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room.as_mut().unwrap().landed = true;
         cx.notify();
         chat.refresh(cx);
@@ -617,7 +617,7 @@ fn a_landed_room_rereads_its_window() {
 #[test]
 fn jump_to_latest_floats_over_the_list() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room = Some(Room {
             id: "general".into(),
             messages: Loadable::Ready(vec![row(1, 7, "old"), row(2, 8, "older")]),
@@ -686,7 +686,7 @@ pub(super) fn claims(cx: &TestAppContext, key: &str) -> bool {
 #[test]
 fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let room = chat.room.as_mut().unwrap();
         room.messages.ready_mut().unwrap()[0].reply_count = 1;
         room.thread = Some(Thread {
@@ -732,7 +732,7 @@ fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
 #[test]
 fn every_message_row_says_its_place_in_its_set() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let room = chat.room.as_mut().unwrap();
         let rows = room.messages.ready_mut().unwrap();
         rows[0].reply_count = 1;

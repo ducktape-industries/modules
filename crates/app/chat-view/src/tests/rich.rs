@@ -25,7 +25,7 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
             marks: vec![chat::Mark::Code],
         },
     ];
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room
             .as_mut()
             .unwrap()
@@ -115,7 +115,7 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
 #[test]
 fn a_headers_block_number_opens_explorer_at_that_block() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         // Start a new author run so the header shows its block number.
         let mut late = row(3, 7, "late");
         late.message_id = "late".into();
@@ -149,7 +149,7 @@ fn a_header_tells_the_time_and_a_new_day_opens_under_a_divider() {
     // 24 Sep 2026, 15:42 UTC, and the next morning
     let today = 1_790_264_527_000;
     let tomorrow = today + 18 * 3_600_000;
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let messages = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
         for (seq, time) in [(3, today), (4, tomorrow)] {
             let mut late = row(seq, 7, "late");
@@ -177,7 +177,7 @@ fn a_header_tells_the_time_and_a_new_day_opens_under_a_divider() {
 #[test]
 fn list_lines_render_as_list_rows() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let mut list = row(3, 7, "list");
         list.message_id = "list".into();
         list.blocks = chat::parse_message("- **apples**\n2. pears\nplain");
@@ -214,7 +214,7 @@ fn an_offset_landing_late_moves_the_day_dividers() {
     let afternoon = 1_790_254_800_000;
     let evening = afternoon + 3 * 3_600_000;
     let offset = cx.host().stream::<api::HostOffset>();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let messages = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
         for (seq, time) in [(3, afternoon), (4, evening)] {
             let mut late = row(seq, 7, "late");

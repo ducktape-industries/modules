@@ -33,17 +33,21 @@ impl<V: View> Driver<V> {
     }
     pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Self {
         let entity = Entity::reserve(&app);
-        let mut window = app.window();
-        let mut cx = Context {
-            app: &mut app,
-            entity: entity.clone(),
-        };
-        let mut value = match restored {
-            Some(value) => value,
-            None => V::new(&mut window, &mut cx),
-        };
-        value.attach(&mut window, &mut cx);
-        *entity.value.borrow_mut() = Some(value);
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        app.inner.root.set(Some((entity.id, encode_root::<V>)));
+        app.update(|app| {
+            let mut window = app.window();
+            let mut cx = Context {
+                app,
+                entity: entity.clone(),
+            };
+            let mut value = match restored {
+                Some(value) => value,
+                None => V::new(&mut window, &mut cx),
+            };
+            value.attach(&mut window, &mut cx);
+            *entity.value.borrow_mut() = Some(value);
+        });
         Self {
             app,
             entity,
@@ -110,9 +114,11 @@ impl<V: View> Driver<V> {
         self.settle();
         for event in events {
             if let Some(callback) = self.dispatch(event) {
-                self.entity.clone().update_app(&mut self.app, |v, w, cx| {
-                    callback(v, w, cx);
-                });
+                let mut window = self.app.window();
+                self.entity
+                    .update_in_window(&mut self.app, &mut window, |v, w, cx| {
+                        callback(v, w, cx);
+                    });
                 self.settle();
             }
         }
@@ -314,19 +320,22 @@ impl<V: View> Driver<V> {
     fn render_root(&mut self) -> wire::Node {
         self.renders += 1;
         slots::begin_frame(&self.app.inner.slots);
-        let mut window = self.app.window();
-        let element = {
-            let mut cx = Context {
-                app: &mut self.app,
-                entity: self.entity.clone(),
+        let entity = &self.entity;
+        let root = self.app.update(|app| {
+            let mut window = app.window();
+            let element = {
+                let mut cx = Context {
+                    app,
+                    entity: entity.clone(),
+                };
+                let mut view = entity.value.borrow_mut();
+                view.as_mut()
+                    .expect("entity initialized")
+                    .render(&mut window, &mut cx)
+                    .into_element()
             };
-            let mut view = self.entity.value.borrow_mut();
-            view.as_mut()
-                .expect("entity initialized")
-                .render(&mut window, &mut cx)
-                .into_element()
-        };
-        let root = Lowering::new(&mut window, &mut self.app).lower_element(element);
+            Lowering::new(&mut window, app).lower_element(element)
+        });
         slots::end_frame(&self.app.inner.slots);
         root
     }
@@ -411,6 +420,13 @@ impl<V: View> Driver<V> {
         }
         self.busy = true;
     }
+}
+
+/// The root's snapshot bytes, for the debug check that a change to them
+/// notified.
+#[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+fn encode_root<V: View>(view: &dyn std::any::Any) -> Vec<u8> {
+    wire::encode(view.downcast_ref::<V>().expect("the root view"))
 }
 
 /// Puts the subtrees `patches` carry back into the tree `wire::diff_taking`

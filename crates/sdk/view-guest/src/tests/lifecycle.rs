@@ -74,7 +74,7 @@ fn snapshots_allow_parked_streams_and_reject_ordinary_pending_futures() {
 fn a_stream_task_awaiting_other_work_is_not_safe_to_snapshot() {
     let (mut cx, streams) = opened();
     let feed = cx.host().stream::<Changes<Probe>>();
-    streams.update(&mut cx, |view, _, cx| {
+    cx.update(&streams, |view, _, cx| {
         view.pending_after_item = true;
         cx.notify();
     });
@@ -113,7 +113,7 @@ fn a_hot_stream_yields_to_the_tick_budget_and_preserves_item_order() {
 fn dropping_the_stream_task_cancels_its_host_subscription() {
     let (mut cx, streams) = opened();
     let id = cx.last_frame().requests[0].id;
-    streams.update(&mut cx, |view, _, _| {
+    cx.update(&streams, |view, _, _| {
         view.task.take();
     });
     cx.tick(vec![]);

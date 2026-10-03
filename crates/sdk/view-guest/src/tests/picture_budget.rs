@@ -155,7 +155,7 @@ fn frames_to_park(
 }
 
 fn show(driver: &mut Driver<Gallery>, sizes: Vec<usize>) {
-    driver.entity().update_app(driver.app_mut(), |view, _, cx| {
+    driver.entity().update(driver.app_mut(), |view, cx| {
         view.0 = sizes;
         cx.notify();
     });

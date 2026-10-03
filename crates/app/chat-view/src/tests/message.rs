@@ -41,7 +41,7 @@ fn action_strip_keeps_the_rows_hover_and_is_not_inside_selection_target() {
 
 /// The pointer over message `seq`'s row, as the host reports it.
 pub(super) fn hover(cx: &mut TestAppContext, view: &Entity<Chat>, seq: u64) {
-    view.update(cx, |chat, _, cx| {
+    cx.update(view, |chat, _, cx| {
         chat.hovered = Some((Pane::Timeline, seq));
         cx.notify();
     });
@@ -51,7 +51,7 @@ pub(super) fn hover(cx: &mut TestAppContext, view: &Entity<Chat>, seq: u64) {
 #[test]
 fn copy_range_keeps_its_distinct_message_plate() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.copy = Some(CopyRange {
             pane: Pane::Timeline,
             anchor: 1,
@@ -78,7 +78,7 @@ fn copy_range_keeps_its_distinct_message_plate() {
 #[test]
 fn reaction_rows_keep_add_action_and_selected_accessibility() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
             .reactions
             .push(chat::Reaction {
@@ -114,7 +114,7 @@ fn reaction_rows_keep_add_action_and_selected_accessibility() {
 #[test]
 fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let rows = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
         for (row, mine) in rows.iter_mut().zip([true, false]) {
             row.reactions.push(chat::Reaction {
@@ -160,7 +160,7 @@ fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
 fn the_small_press_targets_are_at_least_24_px_each_way() {
     use ducktape_view_guest::px;
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
             .reactions
             .push(chat::Reaction {
@@ -204,7 +204,7 @@ fn the_small_press_targets_are_at_least_24_px_each_way() {
 fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
     use ducktape_view_guest::{design, px};
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.search.draft.reset("hello");
         chat.confirmation = "Saved".into();
         chat.hovered = Some((Pane::Timeline, 1));
@@ -241,7 +241,7 @@ fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
 #[test]
 fn thread_root_uses_reply_count_as_a_separator() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let room = chat.room.as_mut().unwrap();
         room.messages.ready_mut().unwrap()[0].reply_count = 2;
         room.thread = Some(Thread {
@@ -296,7 +296,7 @@ fn a_control_on_a_card_keeps_its_click_from_the_card_beneath() {
 #[test]
 fn replies_read_as_a_button() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         if let Some(Loadable::Ready(rows) | Loadable::Reloading(rows, _)) =
             chat.room.as_mut().map(|room| &mut room.messages)
         {
@@ -392,7 +392,7 @@ fn the_picker_searches_and_enter_picks_the_first_match() {
 #[test]
 fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
             .reactions
             .push(chat::Reaction {
@@ -522,7 +522,7 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
         count: 2,
         reacted_by_me: false,
     };
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let room = chat.room.as_mut().unwrap();
         let rows = room.messages.ready_mut().unwrap();
         rows[0].reactions.push(fire());
@@ -619,7 +619,7 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
     });
     // a room the reader may not write in: a disabled control's cell is
     // disabled too, as the arrows skip it; the others are not
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let channels = chat.channels.ready_mut().unwrap();
         let general = channels
             .iter_mut()
@@ -660,7 +660,7 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
 #[test]
 fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
             .reactions
             .push(chat::Reaction {
@@ -677,7 +677,7 @@ fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
     cx.simulate_key_down("chat-message-list", "right");
     assert!(super::room::claims(&cx, "chat-message-m1-reaction-🔥"));
     // the recorded controls are another row's: nothing to press
-    view.update(&mut cx, |chat, _, _| {
+    cx.update(&view, |chat, _, _| {
         chat.timeline_cursor.controls_of = Some("m2".into());
     });
     cx.simulate_key_down("chat-message-list", "enter");
@@ -690,7 +690,7 @@ fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
     };
     assert!(!reacted(&cx), "a stale row's control is not pressed");
     // drawn again, the row's controls are its own
-    view.update(&mut cx, |_, _, cx| cx.notify());
+    cx.update(&view, |_, _, cx| cx.notify());
     cx.run_until_parked();
     cx.simulate_key_down("chat-message-list", "enter");
     cx.run_until_parked();

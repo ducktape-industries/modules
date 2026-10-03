@@ -188,7 +188,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Loadable<T> {
     }
 }
 
-impl<V: View> Context<'_, V> {
+impl<V: 'static> Context<'_, V> {
     pub fn load<T: 'static>(
         &mut self,
         work: impl Future<Output = Result<T, Error>> + 'static,
@@ -331,7 +331,7 @@ mod follow_tests {
         cx.run_until_parked();
         view.read(|heads| assert_eq!(heads.seen, 2));
         assert!(cx.has_text("2"), "the item that notifies is drawn");
-        view.update(&mut cx, |heads, _, _| heads.live = None);
+        cx.update(&view, |heads, _, _| heads.live = None);
         cx.run_until_parked();
         assert!(!feed.subscribed(), "dropping the task unsubscribed");
     }
@@ -454,7 +454,7 @@ mod follow_tests {
         cx.tick(vec![answer(first[0], 0)]);
         // a reload and a refresh go out, then a newer pair replaces them
         let read = |cx: &mut TestAppContext| {
-            entity.update(cx, |view, _, cx| {
+            cx.update(&entity, |view, _, cx| {
                 view.read(cx);
                 let ask = cx.host().ask::<Query<Counter>>(());
                 view.read = Some(cx.refresh(ask, |view, value, cx| {

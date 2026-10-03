@@ -112,14 +112,7 @@ impl Render for TooltipSurface {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
 struct TooltipContent;
-impl View for TooltipContent {
-    const NAME: &'static str = "TooltipContent";
-    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
-        Self
-    }
-}
 impl Render for TooltipContent {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div().id("tip").child("Help")
@@ -257,7 +250,7 @@ fn globals_return_borrowed_non_clone_values() {
     let mut cx = TestAppContext::new();
     let entity = cx.open::<Counter>();
     cx.set_global(NonClone(7));
-    entity.update(&mut cx, |_, _, cx| {
+    cx.update(&entity, |_, _, cx| {
         let global: &NonClone = cx.global::<NonClone>();
         assert_eq!(global.0, 7);
     });
@@ -267,14 +260,14 @@ fn globals_return_borrowed_non_clone_values() {
 fn listeners_use_weak_entities() {
     let mut first = TestAppContext::new();
     let entity = first.open::<Counter>();
-    let listener = entity.update(&mut first, |_, _, cx| {
+    let listener = first.update(&entity, |_, _, cx| {
         cx.listener(|_: &mut Counter, _: &ClickEvent, _, _| panic!("released listener ran"))
     });
     drop(entity);
     drop(first);
     let mut second = TestAppContext::new();
     let other = second.open::<Counter>();
-    other.update(&mut second, |_, window, cx| {
+    second.update(&other, |_, window, cx| {
         listener(&ClickEvent::default(), window, cx)
     });
 }

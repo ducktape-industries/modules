@@ -4,7 +4,7 @@
 
 use super::{Draft, MentionChoice, matching_choices};
 use crate::prelude::*;
-use crate::{App, View, wire};
+use crate::{App, wire};
 use std::rc::Rc;
 
 /// What the composer hears: the host's text moved, a key it claimed went
@@ -182,7 +182,7 @@ impl RenderOnce for MentionItem {
 /// A press that acts on the draft. A pointer press focuses the control it
 /// lands on, so the press hands the keys back to `editor` first: the
 /// typing goes on where it was.
-fn press<V: View + 'static>(
+fn press<V: 'static>(
     editable: bool,
     tag: String,
     editor: &str,
@@ -204,7 +204,7 @@ fn press<V: View + 'static>(
 }
 
 /// The host's text area over the draft: what it shows, what it claims.
-fn editor<V: View + 'static>(
+fn editor<V: 'static>(
     draft: &Draft,
     key: &str,
     label: &str,
@@ -242,7 +242,7 @@ fn editor<V: View + 'static>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn view<V: View + 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'static>(
+pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'static>(
     draft: &Draft,
     key: &str,
     // what the field is, for assistive technology ("New message"); the

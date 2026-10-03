@@ -3,7 +3,7 @@ use super::{FakeHost, assert_frame_accessible, button, chain_to, input, keys, te
 use std::collections::HashMap;
 
 use crate::{
-    App, Driver, Entity, View,
+    App, Context, Driver, Entity, View, Window,
     host::Host,
     wire::{self, DispatchPhase, Event, Frame, Interactivity, Node},
 };
@@ -130,6 +130,18 @@ impl TestAppContext {
     }
     pub(crate) fn app_mut(&mut self) -> &mut App {
         self.driver.as_mut().expect("open a view first").app_mut()
+    }
+    /// Runs `f` on `entity` (the open view, or a child it built) between
+    /// ticks, as a listener would. It does not tick: what it changes renders
+    /// on the next tick, after a `cx.notify()`.
+    pub fn update<T: 'static, R>(
+        &mut self,
+        entity: &Entity<T>,
+        f: impl FnOnce(&mut T, &mut Window, &mut Context<T>) -> R,
+    ) -> R {
+        let app = self.app_mut();
+        let mut window = app.window();
+        entity.update_in_window(app, &mut window, f)
     }
     fn fresh_app(&self) -> App {
         let mut app = App::for_driver();

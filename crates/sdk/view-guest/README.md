@@ -15,9 +15,11 @@ is the gpui list (`px`, `rems`, `Hsla`, `StyleRefinement`, `Styled`,
 imports: elements, styles, events and the traits whose methods they call.
 Ours, defined in this crate:
 
-- `App`, `AsyncApp`, `Context`, `Entity`, `WeakEntity` (`src/context.rs`),
-  `Task` (`src/executor.rs`), `Window` (`src/window.rs`): the entity graph
-  and the tick loop run inside the guest, so the host never sees a closure.
+- `App`, `AppContext`, `AsyncApp`, `Context`, `Entity`, `WeakEntity`
+  (`src/context.rs`), `Task` (`src/executor.rs`), `Window`
+  (`src/window.rs`): the entity graph and the tick loop run inside the
+  guest, so the host never sees a closure. Its `EventEmitter` and
+  `Subscription` are gpui's.
 - `div`, `uniform_list`, `list`, `Input`, `Textarea`, `img`/`Img`, `svg`/`Svg`,
   `canvas`/`Canvas`, `InteractiveText`/`StyledText`, `sensor`,
   `resize_handle`, `modal_overlay` (`src/element.rs`, `src/list.rs`,
@@ -98,10 +100,10 @@ for something only the view can judge.
 
 Native tests catch the one-way mistake: a change to the view's serialized
 state without `cx.notify()` panics (debug builds). They cannot see a
-`#[serde(skip)]` field or state outside the view (`design::set_utc_offset`):
-notify for those yourself. `TestAppContext::renders()` and `ticks()` count
-what the view did since it opened, so a test can pin that an event draws
-nothing.
+`#[serde(skip)]` field, a child entity's state or state outside the view
+(`design::set_utc_offset`): notify for those yourself.
+`TestAppContext::renders()` and `ticks()` count what the view did since it
+opened, so a test can pin that an event draws nothing.
 
 ## The `View` trait
 
@@ -128,6 +130,51 @@ and keep `Task`s out of the state (`Loadable` does). A module's type that
 derives only borsh goes in the state as its bytes:
 `#[serde(with = "ducktape_view_guest::borsh_bytes")]` on the field
 (`src/borsh_bytes.rs`).
+
+## Child entities
+
+A view composes as a gpui view does. `cx.new(|cx| Sidebar::new(cx))` builds
+a child entity from any `'static` state, with no `View` of its own. A child
+that implements `Render` is a child element (`.child(self.sidebar.clone())`)
+and a tooltip's content (`.tooltip(|_, cx| cx.new(|_| Tip("Help")).into())`).
+`entity.update(cx, |sidebar, cx| sidebar.select(i, cx))` runs on it from a
+listener's `App`, an entity's `Context` or a task's `AsyncApp` (each an
+`AppContext`); a test does it between ticks with
+`TestAppContext::update(&entity, ..)`. A child's `cx.notify()` renders the
+view, as the root's does. A child that implements `EventEmitter<E>` tells
+what `cx.subscribe(&child, ..)`s with `cx.emit(event)`, and
+`cx.observe(&child, ..)` hears its `cx.notify()`: both are heard once the
+update that raised them is done, so a parent may update the child back, and
+only while the `Subscription` they return is kept.
+
+The snapshot is the root's serde alone. Keep a child `#[serde(skip)]` in an
+`Option`, beside its subscriptions, and build both in `attach`, from the
+root's state, so a restore builds them again:
+
+```rust
+#[derive(Default, Serialize, Deserialize)]
+struct Shell {
+    picked: Option<usize>,
+    #[serde(skip)]
+    sidebar: Option<Entity<Sidebar>>,
+    #[serde(skip)]
+    subscriptions: Vec<Subscription>,
+}
+impl View for Shell {
+    const NAME: &'static str = "Shell";
+    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let picked = self.picked;
+        let sidebar = cx.new(|cx| Sidebar::new(picked, cx));
+        self.subscriptions.push(cx.subscribe(&sidebar, |shell, _, Selected(row): &Selected, cx| {
+            shell.picked = Some(*row);
+            cx.notify();
+        }));
+        self.sidebar = Some(sidebar);
+    }
+}
+```
+
+`tests/gpui_entities.rs` is the whole of it, `Sidebar` included.
 
 ## Exporting
 

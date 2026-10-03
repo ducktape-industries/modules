@@ -114,7 +114,7 @@ impl Render for Pages {
 }
 
 fn notify(driver: &mut Driver<Pages>, change: impl FnOnce(&mut Pages)) {
-    driver.entity().update_app(driver.app_mut(), |view, _, cx| {
+    driver.entity().update(driver.app_mut(), |view, cx| {
         change(view);
         cx.notify();
     });
