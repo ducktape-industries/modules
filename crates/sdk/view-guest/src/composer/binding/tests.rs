@@ -536,12 +536,21 @@ fn click_binding_and_document_routes_dispatch_through_the_driver() {
     let view = cx.open::<ComposerView>();
     cx.simulate_click("c/bold");
     view.read(|view| assert!(view.events.iter().any(|event| event == "action:bold")));
-    // the press focused the mark; the keys go back to the editor
-    assert!(cx.host().requests::<crate::methods::HostWidget>().contains(
-        &wire::WidgetCommand::Focus {
-            target: vec![wire::ElementIdWire::Name("c/editor".into())],
-        }
-    ));
+    // the press focused the mark; the keys go back to the editor, named
+    // by its whole path
+    let editor = cx.find("c/editor").and_then(wire::Node::identity).cloned();
+    assert!(
+        cx.host()
+            .requests::<crate::methods::HostWidget>()
+            .iter()
+            .any(|command| matches!(
+                command,
+                wire::WidgetCommand::Focus { target }
+                    if target.len() > 1 && target.last() == editor.as_ref()
+            )),
+        "{:?}",
+        cx.host().requests::<crate::methods::HostWidget>()
+    );
     assert_eq!(cx.focused().and_then(wire::Node::key), Some("c/editor"));
 
     let wire::Node::Editor { document, .. } = editor_node(cx.root()).clone() else {

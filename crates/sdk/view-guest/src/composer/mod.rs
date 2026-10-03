@@ -5,9 +5,30 @@ mod editing;
 
 pub use binding::{Click, Event, Outcome, view};
 
-use crate::{Editor, wire};
+use crate::{Editor, ElementId, Window, wire};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
+
+/// The id of the editor [`view`] draws for the draft `key`.
+fn editor_id(key: &str) -> String {
+    format!("{key}/editor")
+}
+
+/// Hands `tag` to the editor [`view`] drew for the draft `key`, after the
+/// edits the host is applying there: it comes back as [`Event::Action`].
+pub fn act(window: &mut Window, key: &str, tag: impl Into<String>) {
+    window.dispatch(wire::WidgetCommand::EditorAction {
+        target: vec![crate::element::wire_id(ElementId::Name(
+            editor_id(key).into(),
+        ))],
+        tag: tag.into(),
+    });
+}
+
+/// Gives the keyboard to the editor [`view`] drew for the draft `key`.
+pub fn focus(window: &mut Window, key: &str) {
+    window.focus(ElementId::Name(editor_id(key).into()));
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MentionChoice {

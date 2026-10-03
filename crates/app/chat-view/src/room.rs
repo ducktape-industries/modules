@@ -291,9 +291,7 @@ impl Chat {
                             thread: Some(root),
                         }
                         .key();
-                        window.focus(ducktape_view_guest::ElementId::Name(
-                            format!("{key}/editor").into(),
-                        ));
+                        crate::composer::focus(window, &key);
                     }
                     Err(refusal) => thread.replies = Loadable::Failed(refusal),
                 }

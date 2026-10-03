@@ -207,3 +207,62 @@ fn a_custom_action_the_node_does_not_offer_is_not_heard() {
     }
     view.read(|view| assert_eq!(view.heard, [1]));
 }
+
+/// A log that scrolls inside a pane, and a press that sends it to its end
+/// or back to its top.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Log {
+    #[serde(skip)]
+    scroll: ScrollHandle,
+}
+impl View for Log {
+    const NAME: &'static str = "Log";
+    const CAPABILITIES: &'static [crate::methods::Capability] = &[crate::methods::Capability::Host];
+}
+impl Render for Log {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let press = |id: &'static str| div().id(id).role(Role::Button).focusable().child(id);
+        div()
+            .id("pane")
+            .child(
+                div()
+                    .id("log")
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
+                    .child("line"),
+            )
+            .child(
+                press("end")
+                    .on_click(cx.listener(|log: &mut Self, _, _, _| log.scroll.scroll_to_bottom())),
+            )
+            .child(
+                press("top").on_click(cx.listener(|log: &mut Self, _, _, _| {
+                    log.scroll.set_offset(gpui::point(px(0.), px(-40.)))
+                })),
+            )
+    }
+}
+
+/// gpui's `track_scroll`: the handle moves the div it tracks, named by
+/// the whole path the frame drew it at.
+#[test]
+fn a_scroll_handle_moves_the_div_it_tracks() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Log>();
+    let log = named(&["pane", "log"]);
+    cx.simulate_click("end");
+    cx.simulate_click("top");
+    assert_eq!(
+        cx.host().requests::<crate::methods::HostWidget>(),
+        [
+            wire::WidgetCommand::SnapEnd {
+                target: log.clone()
+            },
+            wire::WidgetCommand::ScrollTo {
+                target: log,
+                x: 0.,
+                y: 40.,
+            },
+        ]
+    );
+}

@@ -34,9 +34,9 @@ fn the_room_shows_its_rows_intro_and_actions() {
             .iter()
             .any(|command| {
                 matches!(command, wire::WidgetCommand::Focus { target }
-                if *target == vec![wire::ElementIdWire::Name(
+                if target.last() == Some(&wire::ElementIdWire::Name(
                     ui::menu::focus_key(Pane::Timeline, Mode::Reactions).into()
-                )])
+                )))
             })
     );
     view.read(|chat| {
@@ -402,7 +402,7 @@ fn an_empty_thread_says_so_and_its_field_takes_focus() {
         cx.host()
             .requests::<ducktape_view_guest::methods::HostWidget>()
             .iter()
-            .any(|command| matches!(command, wire::WidgetCommand::Focus { target } if *target == vec![field.clone()]))
+            .any(|command| matches!(command, wire::WidgetCommand::Focus { target } if target.last() == Some(&field)))
     );
 }
 

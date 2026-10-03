@@ -153,7 +153,8 @@ pub struct ModalOverlay {
 }
 
 /// `modal` over `base`, named `label`: what the dialog is, as assistive
-/// technology announces it.
+/// technology announces it. An open modal has a name: an empty `label`
+/// panics, where the host would draw the modal as no dialog at all.
 ///
 /// `base` sits under `id` whether or not a modal is open: the host keeps a
 /// list's scroll and a field's state by the ids above it, so a modal
@@ -166,11 +167,16 @@ pub fn modal_overlay(
     base: impl IntoElement,
     modal: Option<impl IntoElement>,
 ) -> ModalOverlay {
+    let label = label.into();
+    assert!(
+        modal.is_none() || !label.is_empty(),
+        "an open modal_overlay is a dialog, and a dialog has a name: its label is empty"
+    );
     ModalOverlay {
         id: id.into(),
         base: base.into_any_element(),
         modal: modal.map(IntoElement::into_any_element),
-        label: label.into(),
+        label,
         style: StyleRefinement::default(),
         backdrop: Hsla::transparent_black(),
         on_dismiss: None,

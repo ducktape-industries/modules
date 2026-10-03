@@ -215,7 +215,7 @@ impl TestAppContext {
         for request in &frame.requests {
             if request.kind == <crate::methods::HostWidget as crate::methods::Method>::KIND
                 && let Ok(command) = wire::decode::<wire::WidgetCommand>(&request.payload)
-                && let Some(focus) = Focus::moved_by(&command, root)
+                && let Some(focus) = Focus::moved_by(&command, root, self.focus.as_ref())
             {
                 self.focus = Some(focus);
             }
@@ -307,6 +307,12 @@ impl TestAppContext {
              no input or editor"
         );
         self.focus = Some(Focus::at(&chain));
+    }
+    /// Tab (`forward`) or Shift-Tab, as the host moves the keyboard for
+    /// it: to the next Tab stop in document order, kept inside an open
+    /// dialog.
+    pub fn simulate_tab(&mut self, forward: bool) {
+        self.focus = focus::tab(self.root(), self.focus.as_ref(), forward);
     }
     /// `keystroke` (gpui's words: `"shift-left"`) goes down while `key`
     /// holds the keyboard or contains the node that does. The host sends

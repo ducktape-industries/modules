@@ -181,3 +181,16 @@ fn a_modal_opening_leaves_its_base_where_it_was() {
     let path = list_path(&closed).expect("the base's list");
     assert_eq!(list_path(&open), Some(path));
 }
+
+/// An open modal is a dialog, and a dialog has a name: the host draws an
+/// unnamed one as no dialog at all, so the view stops where it is built.
+#[test]
+#[should_panic(expected = "a dialog has a name: its label is empty")]
+fn an_open_modal_overlay_needs_a_label() {
+    let _ = modal_overlay("dialog", "", div(), Some(div()));
+}
+
+#[test]
+fn a_closed_modal_overlay_needs_no_label() {
+    let _ = modal_overlay("dialog", "", div(), None::<crate::Div>);
+}

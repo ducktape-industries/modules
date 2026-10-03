@@ -3,7 +3,6 @@
 use chat::{MsgRow, Op, PostPolicy, Principal};
 use ducktape_view_guest::Context;
 use ducktape_view_guest::host::Error;
-use ducktape_view_guest::wire;
 
 use crate::api::{ClipboardWrite, HostId, Submit};
 use crate::composer::Target;
@@ -94,11 +93,7 @@ impl Chat {
         });
         self.menu_cursor = 0;
         if mode != Mode::Editing {
-            window.dispatch(wire::WidgetCommand::Focus {
-                target: vec![wire::ElementIdWire::Name(
-                    crate::ui::menu::focus_key(pane, mode).into(),
-                )],
-            });
+            window.focus(crate::ui::menu::focus_key(pane, mode));
         }
     }
 

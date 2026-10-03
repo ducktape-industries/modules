@@ -374,6 +374,76 @@ fn a_dialog_that_opens_takes_the_keyboard() {
     assert_eq!(cx.focused().and_then(Node::key), Some("confirm"));
 }
 
+/// Tab walks the view's Tab stops in document order; in an open dialog it
+/// goes round the dialog's, never out to the screen under it.
+#[test]
+fn tab_stays_in_an_open_dialog() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Dialog>();
+    cx.simulate_tab(true);
+    assert_eq!(cx.focused().and_then(Node::key), Some("screen"));
+    cx.simulate_click("screen");
+    assert_eq!(cx.focused().and_then(Node::key), Some("confirm"));
+    for forward in [true, false] {
+        cx.simulate_tab(forward);
+        assert_eq!(
+            cx.focused().and_then(Node::key),
+            Some("confirm"),
+            "the dialog's one stop, not the screen"
+        );
+    }
+}
+
+/// Three buttons; the first moves the keyboard on as Tab does, and a list
+/// that asks for the keys by id is refused: the host focuses a container,
+/// an input or an editor.
+#[derive(Default, Serialize, Deserialize)]
+struct Moves;
+impl View for Moves {
+    const NAME: &'static str = "Moves";
+    const CAPABILITIES: &'static [Capability] = &[Capability::Host];
+}
+impl Render for Moves {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+        let press = |id: &'static str, then: fn(&mut Window)| {
+            crate::div()
+                .id(id)
+                .role(Role::Button)
+                .focusable()
+                .on_click(move |_: &ClickEvent, window, _| then(window))
+                .child(id)
+        };
+        crate::div()
+            .id("moves")
+            .child(press("next", |window| window.focus_next()))
+            .child(press("back", |window| window.focus_prev()))
+            .child(press("rows", |window| window.focus("table")))
+            .child(crate::uniform_list("table", 3, |range, _, _| {
+                range
+                    .map(|row| crate::div().id(row).child(format!("row {row}")))
+                    .collect()
+            }))
+    }
+}
+
+#[test]
+fn focus_next_and_prev_move_as_tab_does() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Moves>();
+    cx.simulate_click("next");
+    assert_eq!(cx.focused().and_then(Node::key), Some("back"));
+    cx.simulate_click("back");
+    assert_eq!(cx.focused().and_then(Node::key), Some("next"));
+}
+
+#[test]
+#[should_panic(expected = "it focuses a container, an input or an editor")]
+fn a_focus_on_a_uniform_list_is_refused() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Moves>();
+    cx.simulate_click("rows");
+}
+
 /// Asks the host three hundred times on its first tick.
 #[derive(Default, Serialize, Deserialize)]
 struct Fanout {

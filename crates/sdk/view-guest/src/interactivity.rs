@@ -16,6 +16,8 @@ pub(crate) use bindings::EventListener;
 
 mod focus;
 pub use focus::FocusHandle;
+mod scroll;
+pub use scroll::ScrollHandle;
 
 struct TooltipBuilder {
     build: slots::TooltipBuilder,
@@ -39,6 +41,7 @@ pub struct Interactivity {
     pub(crate) focus_visible: Option<Box<StyleRefinement>>,
     pub(crate) key_context: Option<wire::KeyContext>,
     pub(crate) focus_handle: Option<FocusHandle>,
+    scroll_handle: Option<ScrollHandle>,
     pub(crate) group: Option<SharedString>,
     pub(crate) hover: Option<Box<StyleRefinement>>,
     pub(crate) active: Option<Box<StyleRefinement>>,
@@ -618,6 +621,13 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self.interactivity().base_style.restrict_scroll_to_axis = Some(true);
         self
     }
+    /// The div `handle` moves: it scrolls (`overflow_y_scroll`) and has
+    /// an id, as gpui's does.
+    fn track_scroll(mut self, handle: &ScrollHandle) -> Self {
+        self.interactivity().scroll_handle = Some(handle.clone());
+        self
+    }
+
     fn active(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
         self.interactivity().active = Some(Box::new(f(StyleRefinement::default())));
         self

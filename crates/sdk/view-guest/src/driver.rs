@@ -356,6 +356,10 @@ impl<V: View> Driver<V> {
             || slots::editor_transferring(&self.app.inner.slots)
             || owed;
         let mut root = render.then(|| self.render_root());
+        crate::window::send_widgets(
+            &self.app.inner.slots,
+            root.as_ref().or(self.last_root.as_ref()),
+        );
         self.busy |= self.app.inner.dirty.get()
             || executor::ready(&self.app.inner.tasks.borrow())
             || slots::pictures_owed(&self.app.inner.slots);

@@ -147,7 +147,7 @@ fn delete_confirmation_opens_with_the_keys_on_its_first_button() {
             .any(|command| matches!(
                 command,
                 wire::WidgetCommand::Focus { target }
-                    if target == &[wire::ElementIdWire::Name("chat-menu-cancel-delete".into())]
+                    if target.last() == Some(&wire::ElementIdWire::Name("chat-menu-cancel-delete".into()))
             )),
         "Cancel takes the keys on open"
     );
@@ -275,7 +275,7 @@ fn the_message_menu_walks_its_items_and_enter_runs_one() {
             .any(|command| matches!(
                 command,
                 wire::WidgetCommand::Focus { target }
-                    if target == &[wire::ElementIdWire::Name("chat-room-message-action-focus".into())]
+                    if target.last() == Some(&wire::ElementIdWire::Name("chat-room-message-action-focus".into()))
             )),
         "the menu takes the keys on open"
     );
@@ -305,7 +305,7 @@ fn the_message_menu_walks_its_items_and_enter_runs_one() {
             .any(|command| matches!(
                 command,
                 wire::WidgetCommand::Focus { target }
-                    if target == &[wire::ElementIdWire::Name("chat-room-message-reaction-focus".into())]
+                    if target.last() == Some(&wire::ElementIdWire::Name("chat-room-message-reaction-focus".into()))
             )),
         "the search field takes the keys on open"
     );
