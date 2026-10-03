@@ -55,30 +55,91 @@ pub struct Edit {
 }
 
 impl Edit {
-    /// Where an offset read before this edit stands after it. One at or
-    /// before the edit's start stays, so a letter typed at the end of a span
-    /// the guest clears is kept; one at or after its end moves with the
-    /// text; one inside the replaced span lands after the replacement.
+    /// Where an offset at or after the replaced span stands after it.
+    fn shift(self, offset: u32) -> u32 {
+        offset - self.range.end + self.range.start + self.len
+    }
+
+    /// Where an offset read before this edit stands after it, as a place
+    /// before anything inserted exactly there: one at or before the edit's
+    /// start stays; one at or after its end moves with the text; one inside
+    /// the replaced span lands after the replacement.
     pub fn map(self, offset: u32) -> u32 {
         if offset <= self.range.start {
             offset
         } else if offset >= self.range.end {
-            offset - self.range.end + self.range.start + self.len
+            self.shift(offset)
         } else {
             self.range.start + self.len
         }
     }
+
+    /// The same, as a place after anything inserted exactly there: only an
+    /// offset before the edit's start stays.
+    pub fn map_after(self, offset: u32) -> u32 {
+        if offset < self.range.start {
+            offset
+        } else if offset >= self.range.end {
+            self.shift(offset)
+        } else {
+            self.range.start + self.len
+        }
+    }
+
+    /// What stands of `piece`, a span of the text before this edit, after
+    /// it: the part before the replaced span as it was, the part after it
+    /// moved with the text. The part the edit replaced is gone, and what it
+    /// inserted was never the piece's.
+    pub fn cut(self, piece: TextRange) -> impl Iterator<Item = TextRange> {
+        let before = (piece.start < self.range.start).then(|| TextRange {
+            start: piece.start,
+            end: piece.end.min(self.range.start),
+        });
+        let after = (piece.end > self.range.end).then(|| TextRange {
+            start: self.shift(piece.start.max(self.range.end)),
+            end: self.shift(piece.end),
+        });
+        before.into_iter().chain(after)
+    }
+}
+
+/// A `Replace` read at an older text, carried over the edits made since.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rebased {
+    /// The span of the text as it stands that the replacement covers: from
+    /// the first byte the guest read that still stands to the last.
+    pub range: TextRange,
+    /// The bytes inside `range` typed since the guest read, in order: not
+    /// the guest's to replace, they stay, after its text.
+    pub kept: Vec<TextRange>,
+    /// Where the cursor the guest gave, in the text after its own edit,
+    /// stands once the replacement has landed.
+    pub cursor: TextRange,
+}
+
+impl Rebased {
+    /// What goes in place of `range`: the guest's `text`, then what was
+    /// typed into the span since, as it reads in `current`.
+    pub fn replacement(&self, current: &str, text: &str) -> String {
+        let mut replacement = text.to_owned();
+        for kept in &self.kept {
+            replacement.push_str(current.get(kept.range()).unwrap_or_default());
+        }
+        replacement
+    }
 }
 
 /// A `Replace` read at an older text, carried over the `edits` made since,
-/// oldest first: its range in the text as it stands, and its cursor, which
-/// the guest gave in the text after the replace's own edit of `len` bytes.
+/// oldest first: the ask replaces only the bytes that existed when the
+/// guest read, so a letter typed into the span since stays. The cursor is
+/// the one the guest gave in the text after the replace's own edit of
+/// `len` bytes.
 pub fn rebase(
     range: TextRange,
     len: usize,
     cursor: TextRange,
     edits: impl IntoIterator<Item = Edit> + Clone,
-) -> (TextRange, TextRange) {
+) -> Rebased {
     let len = len as u32;
     let map = |offset: u32| {
         edits
@@ -86,30 +147,71 @@ pub fn rebase(
             .into_iter()
             .fold(offset, |at, edit| edit.map(at))
     };
-    let moved = TextRange {
-        start: map(range.start),
-        end: map(range.end),
+    let map_after = |offset: u32| {
+        edits
+            .clone()
+            .into_iter()
+            .fold(offset, |at, edit| edit.map_after(at))
     };
-    let own_end = range.start + len;
-    // a cursor end before the replace's own edit moves as any offset; one
-    // in the replaced text keeps its place in it; one past it moves as the
-    // text it stood in and then by the edit's own growth
-    let place = |at: u32| {
-        if at <= range.start {
-            map(at)
-        } else if at <= own_end {
-            moved.start + (at - range.start)
-        } else {
-            map(range.end + (at - own_end)) - moved.end + moved.start + len
+    // the bytes the guest read that still stand, as pieces of the text now
+    let mut pieces = if range.is_empty() {
+        Vec::new()
+    } else {
+        vec![range]
+    };
+    for edit in edits.clone() {
+        pieces = pieces
+            .into_iter()
+            .flat_map(|piece| edit.cut(piece))
+            .collect();
+    }
+    let (covered, kept) = match (pieces.first(), pieces.last()) {
+        (Some(first), Some(last)) => (
+            TextRange {
+                start: first.start,
+                end: last.end,
+            },
+            pieces
+                .windows(2)
+                .map(|pair| TextRange {
+                    start: pair[0].end,
+                    end: pair[1].start,
+                })
+                .collect(),
+        ),
+        // a caret stays before what was typed at it since; a span typed
+        // over whole lands after what replaced it
+        _ => {
+            let at = match range.is_empty() {
+                true => map(range.start),
+                false => map_after(range.start),
+            };
+            (TextRange::caret(at as usize), Vec::new())
         }
     };
-    (
-        moved,
-        TextRange {
+    let removed: u32 = pieces.iter().map(|piece| piece.end - piece.start).sum();
+    let own_end = range.start + len;
+    // a cursor before the replace's own edit moves as any offset; one in
+    // the replaced text keeps its place in it; one at or past its end stands
+    // after what was typed at the span's end since, then past the edit's own
+    // growth and the bytes it took
+    let place = |at: u32| {
+        if at >= own_end {
+            (map_after(range.end + (at - own_end)) + len).saturating_sub(removed)
+        } else if at >= range.start {
+            covered.start + (at - range.start)
+        } else {
+            map(at)
+        }
+    };
+    Rebased {
+        range: covered,
+        kept,
+        cursor: TextRange {
             start: place(cursor.start),
             end: place(cursor.end),
         },
-    )
+    }
 }
 
 /// An atomic span of a field's text (a mention): the engine moves over,
@@ -144,13 +246,15 @@ impl KeyClaim {
     }
 
     /// The engine's own keys, which no guest claims: Backspace, Delete, Tab
-    /// and the undo and redo chords. Editing and history are the engine's.
+    /// and the undo and redo chords, under the command key or either
+    /// modifier it stands for. Editing and history are the engine's.
     pub fn engine_owned(&self) -> bool {
         use crate::keyboard::{Key, Named};
         match &self.key {
             Key::Named(Named::Backspace | Named::Delete | Named::Tab) => true,
             Key::Character(character) => {
-                self.command && matches!(character.to_ascii_lowercase().as_str(), "z" | "y")
+                (self.command || self.modifiers.control || self.modifiers.platform)
+                    && matches!(character.to_ascii_lowercase().as_str(), "z" | "y")
             }
             _ => false,
         }
@@ -285,8 +389,10 @@ mod tests {
         assert_eq!(span("aaa", "aaaa"), Some((3..3, "a".into())));
     }
 
-    /// The three asks a composer makes, each rebased over what the engine
-    /// did since the guest read the text.
+    /// The asks a composer makes, each rebased over what the engine did
+    /// since the guest read the text: the ask takes only the bytes the guest
+    /// read, what was typed into or at the end of them since stays, and the
+    /// caret lands after it.
     #[test]
     fn a_stale_replace_is_carried_over_the_edits_made_since() {
         let edit = |range: Range<usize>, len| Edit {
@@ -294,22 +400,55 @@ mod tests {
             len,
         };
         let at = |range: Range<usize>, len, cursor, edits: &[Edit]| {
-            let (range, cursor) =
-                rebase(range.into(), len, TextRange::caret(cursor), edits.to_vec());
-            (range.range(), cursor.range())
+            let rebased = rebase(range.into(), len, TextRange::caret(cursor), edits.to_vec());
+            (
+                rebased.range.range(),
+                rebased
+                    .kept
+                    .iter()
+                    .map(|kept| (kept.start as usize, kept.end as usize))
+                    .collect::<Vec<_>>(),
+                rebased.cursor.range(),
+            )
         };
-        // Enter cleared "hello" while "x" was typed at its end: "x" stays
-        assert_eq!(at(0..5, 0, 0, &[edit(5..5, 1)]), (0..5, 0..0));
+        // Enter cleared "hello" while "x" was typed at its end: "x" stays,
+        // the caret after it
+        assert_eq!(at(0..5, 0, 0, &[edit(5..5, 1)]), (0..5, vec![], 1..1));
+        // "x" typed at the start: the clear moves past it
+        assert_eq!(at(0..5, 0, 0, &[edit(0..0, 1)]), (1..6, vec![], 1..1));
+        // "x" typed inside "hel|lo": the clear covers "helxlo" and keeps the
+        // "x" (3..4) in it, the caret after it
+        assert_eq!(at(0..5, 0, 0, &[edit(3..3, 1)]), (0..6, vec![(3, 4)], 1..1));
+        assert_eq!(
+            rebase(
+                TextRange::from(0..5),
+                0,
+                TextRange::caret(0),
+                [edit(3..3, 1)]
+            )
+            .replacement("helxlo", ""),
+            "x"
+        );
+        // "ll" typed over as "L": "he" and "o" are the clear's, "L" stays
+        assert_eq!(at(0..5, 0, 0, &[edit(2..4, 1)]), (0..4, vec![(2, 3)], 1..1));
         // a mention over "@na" (4..7) became "@Label" (6 bytes); the space
         // the guest asked for at 7, cursor 8, lands after the label
-        assert_eq!(at(7..7, 1, 8, &[edit(4..7, 6)]), (10..10, 11..11));
+        assert_eq!(at(7..7, 1, 8, &[edit(4..7, 6)]), (10..10, vec![], 11..11));
+        // "z" typed right after "@na" before the label landed: the label
+        // takes "@na" only, the caret lands after "z"; the space then goes in
+        // before "z", which starts the next word, the caret after it
+        assert_eq!(at(4..7, 6, 10, &[edit(7..7, 1)]), (4..7, vec![], 11..11));
+        assert_eq!(
+            at(7..7, 1, 8, &[edit(7..7, 1), edit(4..7, 6)]),
+            (10..10, vec![], 12..12)
+        );
         // markers round a selection 2..5: the opening "**" went in at 2,
         // so the closing one asked for at 5, cursor 7, moves by two
-        assert_eq!(at(5..5, 2, 7, &[edit(2..2, 2)]), (7..7, 9..9));
+        assert_eq!(at(5..5, 2, 7, &[edit(2..2, 2)]), (7..7, vec![], 9..9));
         // a span wholly typed over lands after what replaced it
-        assert_eq!(at(2..4, 1, 3, &[edit(1..6, 2)]), (3..3, 4..4));
+        assert_eq!(at(2..4, 1, 3, &[edit(1..6, 2)]), (3..3, vec![], 4..4));
         // the typing since is on the far side: nothing moves
-        assert_eq!(at(2..4, 1, 3, &[edit(9..9, 3)]), (2..4, 3..3));
+        assert_eq!(at(2..4, 1, 3, &[edit(9..9, 3)]), (2..4, vec![], 3..3));
     }
 
     #[test]
@@ -362,6 +501,24 @@ mod tests {
             ..claim(Key::Character("z".into()))
         };
         assert!(undo.engine_owned());
+        // the chord under either key the command stands for, on any host
+        for (control, platform, shift) in [
+            (true, false, false),
+            (false, true, false),
+            (true, false, true),
+        ] {
+            let modifiers = gpui::Modifiers {
+                control,
+                platform,
+                shift,
+                ..Default::default()
+            };
+            let chord = KeyClaim {
+                modifiers,
+                ..claim(Key::Character("z".into()))
+            };
+            assert!(chord.engine_owned(), "{modifiers:?}");
+        }
         assert!(!claim(Key::Character("z".into())).engine_owned());
         assert!(!claim(Key::Named(Named::Enter)).engine_owned());
         assert_eq!(

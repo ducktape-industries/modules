@@ -705,9 +705,10 @@ impl TestAppContext {
                 .filter(|(at, _)| *at > revision)
                 .map(|(_, edit)| *edit)
                 .collect();
-            let (range, cursor) = wire::rebase(range, text.len(), cursor, since);
-            let range = range.range();
-            let delta = text.len() as i64 - range.len() as i64;
+            let rebased = wire::rebase(range, text.len(), cursor, since);
+            let range = rebased.range.range();
+            let replacement = rebased.replacement(value, &text);
+            let delta = replacement.len() as i64 - range.len() as i64;
             // the engine's spans: one an edit touches goes, one after it moves
             tokens.retain(|token| {
                 token.range.end as usize <= range.start || token.range.start as usize >= range.end
@@ -718,18 +719,19 @@ impl TestAppContext {
                     token.range.end = (token.range.end as i64 + delta) as u32;
                 }
             }
-            if let Some(id) = token {
+            // one span only when the replacement is the guest's text alone
+            if let Some(id) = token.filter(|_| replacement == text) {
                 tokens.push(wire::TextToken {
                     range: wire::TextRange::from(range.start..range.start + text.len()),
                     id,
                 });
                 tokens.sort_by_key(|token| token.range.start);
             }
-            value.replace_range(range.clone(), &text);
-            let caret = (cursor.start as usize).min(value.len());
+            value.replace_range(range.clone(), &replacement);
+            let caret = (rebased.cursor.start as usize).min(value.len());
             let edit = wire::Edit {
                 range: range.into(),
-                len: text.len() as u32,
+                len: replacement.len() as u32,
             };
             let change = self.text_change(Some(edit), value.clone(), caret, tokens.clone());
             events.push(Event::Text {

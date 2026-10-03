@@ -99,8 +99,15 @@ impl WidgetCommand {
             ..
         } = self
         {
+            // the range is bytes of a text under the cap; the cursor is bytes
+            // of the text the replace can leave, at most the cap plus its own
             let off = |range: &TextRange| range.start > range.end;
-            if off(range) || off(cursor) || text.len() > crate::text::MAX_FIELD_BYTES {
+            if off(range)
+                || off(cursor)
+                || text.len() > crate::text::MAX_FIELD_BYTES
+                || range.end as usize > crate::text::MAX_FIELD_BYTES
+                || cursor.end as usize > crate::text::MAX_FIELD_BYTES + text.len()
+            {
                 return Err("replace range or text exceeds bounds".into());
             }
             if token
@@ -160,6 +167,28 @@ mod tests {
         *text = String::new();
         *range = TextRange { start: 2, end: 0 };
         assert!(command.validate().is_err());
+        // a range or cursor off any text a field can hold is refused, not
+        // carried into the host's arithmetic
+        let WidgetCommand::Replace { range, .. } = &mut command else {
+            unreachable!()
+        };
+        *range = TextRange::from(0..crate::text::MAX_FIELD_BYTES + 1);
+        assert!(command.validate().is_err());
+        let WidgetCommand::Replace { range, cursor, .. } = &mut command else {
+            unreachable!()
+        };
+        *range = TextRange::from(0..2);
+        *cursor = TextRange::caret(crate::text::MAX_FIELD_BYTES + 1);
+        assert!(command.validate().is_err());
+        let WidgetCommand::Replace { text, cursor, .. } = &mut command else {
+            unreachable!()
+        };
+        *text = "ab".into();
+        *cursor = TextRange::caret(crate::text::MAX_FIELD_BYTES + 2);
+        assert!(
+            command.validate().is_ok(),
+            "the end of the text the replace can leave"
+        );
     }
 
     #[test]
