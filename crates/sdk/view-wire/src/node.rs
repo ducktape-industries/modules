@@ -64,8 +64,11 @@ pub struct SvgTransformation {
 
 /// One widget. Retained elements carry their native typed identity across
 /// frames for host state, focus, and accessibility ancestry.
+///
+/// The shape is derived; `Serialize` and `Deserialize` are the codec's
+/// (`codec.rs`), which decodes every node inside the frame's budget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[allow(clippy::large_enum_variant)]
+#[serde(remote = "Self")]
 pub enum Node {
     /// One native GPUI paragraph with optional interactive byte ranges.
     RichText {
@@ -87,7 +90,6 @@ pub enum Node {
         position: Option<[f32; 2]>,
         position_mode: AnchoredPositionMode,
         offset: Option<[f32; 2]>,
-        #[serde(deserialize_with = "decode_children")]
         children: Vec<Node>,
     },
     /// A GPUI uniform-height list. The host owns the native viewport; the
@@ -98,7 +100,7 @@ pub enum Node {
         route: u32,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
         count: usize,
         measure_index: usize,
         sizing: crate::list::UniformListSizing,
@@ -107,7 +109,6 @@ pub enum Node {
         scroll_request: Option<crate::list::UniformListScrollRequest>,
         #[serde(deserialize_with = "list::decode_indices")]
         indices: Vec<u32>,
-        #[serde(deserialize_with = "decode_children")]
         children: Vec<Node>,
     },
     /// A native variable-height GPUI list with a bounded frame-owned row window.
@@ -128,8 +129,7 @@ pub enum Node {
         range_start: usize,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
-        #[serde(deserialize_with = "decode_children")]
+        interactivity: Box<Interactivity>,
         children: Vec<Node>,
     },
     Container(ContainerNode),
@@ -138,18 +138,16 @@ pub enum Node {
         id: ElementIdWire,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
         on_press: Option<u32>,
         on_release: Option<u32>,
         on_drag: Option<u32>,
         cursor: Option<mouse::Cursor>,
-        #[serde(deserialize_with = "decode_child")]
         content: Box<Node>,
     },
     /// A deferred draw, painted after everything in the frame that is not.
     Deferred {
         priority: usize,
-        #[serde(deserialize_with = "decode_child")]
         content: Box<Node>,
     },
     /// Watches its child's laid-out size. `on_show` hears the size when the
@@ -160,7 +158,6 @@ pub enum Node {
         style: gpui::StyleRefinement,
         on_show: Option<u32>,
         on_resize: Option<u32>,
-        #[serde(deserialize_with = "decode_child")]
         child: Box<Node>,
     },
     Text(TextNode),
@@ -173,11 +170,10 @@ pub enum Node {
         image_style: ImageStyle,
         loading: bool,
         fallback: bool,
-        #[serde(deserialize_with = "decode_children")]
         state_children: Vec<Node>,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
     },
     /// A vector picture. Its bytes cross ONCE: the frame that first shows a
     /// picture carries them under `hash`, and every frame after — a changed
@@ -191,7 +187,7 @@ pub enum Node {
         label: Option<String>,
         style: gpui::StyleRefinement,
         #[serde(default, skip_serializing_if = "crate::is_default")]
-        interactivity: Interactivity,
+        interactivity: Box<Interactivity>,
     },
     Input {
         options: InputOptions,
@@ -233,7 +229,6 @@ pub enum Node {
         label: Option<String>,
         style: gpui::StyleRefinement,
         on_dismiss: Option<u32>,
-        #[serde(deserialize_with = "decode_children")]
         children: Vec<Node>,
     },
     /// Bounded geometry painted by the host, in widget-local coordinates.

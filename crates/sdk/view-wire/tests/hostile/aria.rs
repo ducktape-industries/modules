@@ -7,10 +7,10 @@ fn with_aria(aria: Aria) -> Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 aria,
                 ..Default::default()
-            },
+            }),
             children: Vec::new(),
         })),
         ..Frame::default()
@@ -101,7 +101,7 @@ fn sanitized(interactivity: Interactivity) -> Result<Interactivity, &'static str
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: gpui::StyleRefinement::default(),
-            interactivity,
+            interactivity: Box::new(interactivity),
             children: Vec::new(),
         })),
         ..Frame::default()
@@ -110,7 +110,7 @@ fn sanitized(interactivity: Interactivity) -> Result<Interactivity, &'static str
     let Some(Node::Container(ContainerNode { interactivity, .. })) = frame.root else {
         unreachable!("a container stays a container")
     };
-    Ok(interactivity)
+    Ok(*interactivity)
 }
 
 fn aria(aria: Aria) -> Aria {
@@ -207,14 +207,14 @@ fn only_the_first_active_descendant_in_a_frame_is_kept() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
                     active_descendant: true,
                     ..Default::default()
                 },
                 ..Default::default()
-            },
+            }),
             children: Vec::new(),
         })
     };
@@ -222,7 +222,7 @@ fn only_the_first_active_descendant_in_a_frame_is_kept() {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
             children: vec![option("first"), option("second")],
         })),
         ..Frame::default()
@@ -248,14 +248,14 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
                     active_descendant: true,
                     ..Default::default()
                 },
                 ..Default::default()
-            },
+            }),
             children: Vec::new(),
         })
     };
@@ -263,11 +263,11 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBox),
                 focusable: true,
                 ..Default::default()
-            },
+            }),
             children: rows,
         })
     };
@@ -275,7 +275,7 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
             children: vec![
                 list("rooms", vec![option("general"), option("random")]),
                 list("members", vec![option("minseo")]),
@@ -316,14 +316,14 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
                     active_descendant: true,
                     ..Default::default()
                 },
                 ..Default::default()
-            },
+            }),
             children: Vec::new(),
         })
     };
@@ -331,10 +331,10 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 focusable: true,
                 ..Default::default()
-            },
+            }),
             children: vec![row],
         })
     };
@@ -342,11 +342,11 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
         root: Some(Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name("pane".into())),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::Group),
                 focusable: true,
                 ..Default::default()
-            },
+            }),
             children: vec![
                 box_("channels", option("general")),
                 box_("people", option("minseo")),
@@ -528,14 +528,14 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
             live: Some(Live::Off),
             ..Default::default()
         },
-        focus: Some(gen_native_style(&mut Rng::new(5))),
+        focus: Some(Box::new(gen_native_style(&mut Rng::new(5)))),
         ..Default::default()
     };
     let mut frame = Frame {
         root: Some(Node::ResizeHandle {
             id: ElementIdWire::Name("divider".into()),
             style: gpui::StyleRefinement::default(),
-            interactivity: hostile(),
+            interactivity: Box::new(hostile()),
             on_press: None,
             on_release: None,
             on_drag: None,
@@ -554,7 +554,7 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
                 scroll_handler: None,
                 range_start: 0,
                 style: gpui::StyleRefinement::default(),
-                interactivity: hostile(),
+                interactivity: Box::new(hostile()),
                 children: Vec::new(),
             }),
         }),

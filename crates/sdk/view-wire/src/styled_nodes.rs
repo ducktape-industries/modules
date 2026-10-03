@@ -1,6 +1,6 @@
 //! GPUI-styled wire payloads; the host assigns these refinements unchanged
 //! after the frame sanitizer has checked them.
-use crate::{ElementIdWire, Interactivity, Node, decode_children};
+use crate::{ElementIdWire, Interactivity, Node};
 use gpui::{StyleRefinement, Styled};
 use serde::{Deserialize, Serialize};
 
@@ -9,8 +9,7 @@ pub struct ContainerNode {
     pub id: Option<ElementIdWire>,
     pub style: StyleRefinement,
     #[serde(default, skip_serializing_if = "crate::is_default")]
-    pub interactivity: Interactivity,
-    #[serde(deserialize_with = "decode_children")]
+    pub interactivity: Box<Interactivity>,
     pub children: Vec<Node>,
 }
 impl Styled for ContainerNode {

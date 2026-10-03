@@ -157,7 +157,7 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
             fallback: false,
             state_children: Vec::new(),
             style: gen_native_style(rng),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
         };
     }
     Node::Svg {
@@ -173,10 +173,10 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
         },
         label: rng.next_bool().then(|| gen_string(rng)),
         style: gen_native_style(rng),
-        interactivity: Interactivity {
-            hover: Some(gen_native_style(rng)),
+        interactivity: Box::new(Interactivity {
+            hover: Some(Box::new(gen_native_style(rng))),
             ..Default::default()
-        },
+        }),
     }
 }
 
@@ -204,19 +204,19 @@ pub(super) fn gen_container(rng: &mut Rng, children: Vec<Node>) -> Node {
     let group = |rng: &mut Rng| {
         refinement(rng).map(|style| GroupRefinement {
             group: "row".into(),
-            style,
+            style: Box::new(style),
         })
     };
     Node::Container(view_wire::ContainerNode {
         id: None,
         style: refinement(rng).unwrap_or_default(),
-        interactivity: Interactivity {
-            hover: refinement(rng),
-            active: refinement(rng),
+        interactivity: Box::new(Interactivity {
+            hover: refinement(rng).map(Box::new),
+            active: refinement(rng).map(Box::new),
             group_hover: group(rng),
             group_active: group(rng),
             ..Default::default()
-        },
+        }),
         children,
     })
 }

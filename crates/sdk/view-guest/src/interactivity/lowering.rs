@@ -4,7 +4,7 @@ impl Interactivity {
     pub(crate) fn into_wire(
         self,
         lowering: &Lowering<'_>,
-    ) -> (Option<wire::ElementIdWire>, wire::Interactivity) {
+    ) -> (Option<wire::ElementIdWire>, Box<wire::Interactivity>) {
         let scope = lowering.current_path();
         // an identified element lowers inside its own scope; its siblings
         // share the one above
@@ -51,7 +51,7 @@ impl Interactivity {
                     .min(u64::MAX as u128) as u64,
             }
         });
-        let wire = wire::Interactivity {
+        let wire = Box::new(wire::Interactivity {
             role: self.role,
             aria,
             focusable: self.focusable,
@@ -64,7 +64,7 @@ impl Interactivity {
             // a focusable node shows the focus ring unless it draws its own
             focus_visible: self.focus_visible.or_else(|| {
                 self.focusable
-                    .then(|| crate::design::focus_ring(lowering.theme().accent))
+                    .then(|| Box::new(crate::design::focus_ring(lowering.theme().accent)))
             }),
             key_context: self.key_context,
             focus_handle: self.focus_handle.map(|handle| handle.id),
@@ -116,7 +116,7 @@ impl Interactivity {
             on_hover: self.on_hover.map(|listener| lowering.route(listener)),
             on_file_drop_exit: route_plain(self.on_file_drop_exit, lowering),
             tooltip,
-        };
+        });
         (id, wire)
     }
 }

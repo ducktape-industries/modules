@@ -28,7 +28,7 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
             Err(message) => {
                 let root = frame.root.as_ref().expect("gen_frame always sets a root");
                 let depth_over = tree_depth(root) > MAX_DEPTH;
-                let count_over = root.count() > MAX_DECODED_NODES + 1;
+                let count_over = root.count() > MAX_DECODED_NODES;
                 assert!(
                     depth_over || count_over,
                     "{ctx}: decode refused a tree that was not actually over either \
@@ -380,7 +380,7 @@ fn a_length_prefix_bomb_is_refused_without_the_allocation() {
         root: Some(Node::Container(view_wire::ContainerNode {
             id: None,
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
             children,
         })),
         ..Default::default()
@@ -401,7 +401,7 @@ fn a_length_prefix_bomb_is_refused_without_the_allocation() {
     );
     assert!(
         start.elapsed() < std::time::Duration::from_secs(1),
-        "the hostile size hint must never cause allocation"
+        "the hostile size hint must cause only a bounded allocation"
     );
 }
 
@@ -441,7 +441,7 @@ fn resize_handle_round_trip_retains_routes_and_checks_its_child() {
             style: gen_native_style(&mut Rng::new(99)),
         }),
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
     });
     assert_eq!(tree_depth(frame.root.as_ref().unwrap()), 1);
     let mut decoded: Frame = decode(&encode(&frame)).unwrap();
@@ -587,4 +587,42 @@ fn more_tooltip_responses_than_a_frame_takes_are_refused() {
     };
     assert!(decode::<Frame>(&encode(&frame(MAX_PATCHES))).is_ok());
     assert_frame_refused(frame(MAX_PATCHES + 1), "too many tooltip responses");
+}
+
+/// A tooltip's content is a tree inside a node, so it nests like children
+/// do: content nested past what the host walks is refused, not decoded
+/// down the host's stack. Uncounted, 100 levels (9.5 KB of frame) aborted
+/// the app.
+#[test]
+fn tooltip_content_nested_past_what_the_host_walks_is_refused() {
+    let decoded = |levels: usize| {
+        on_big_stack(move || {
+            let mut node = Node::empty();
+            for _ in 0..levels {
+                node = Node::Container(view_wire::ContainerNode {
+                    interactivity: Box::new(Interactivity {
+                        tooltip: Some(Tooltip {
+                            request: 0,
+                            content: Some(Box::new(node)),
+                            hoverable: false,
+                            delay_ms: 0,
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+            }
+            let bytes = encode(&Frame {
+                root: Some(node),
+                ..Default::default()
+            });
+            decode::<Frame>(&bytes).map(drop)
+        })
+    };
+    assert_eq!(decoded(MAX_DEPTH), Ok(()));
+    let refused = decoded(MAX_DEPTH + 1).unwrap_err();
+    assert!(
+        refused.contains("deeper than the host renders"),
+        "{refused}"
+    );
 }

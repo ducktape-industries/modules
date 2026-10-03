@@ -140,15 +140,15 @@ fn full_interactivity() -> Interactivity {
         tab_stop: Some(true),
         tab_index: Some(1),
         tab_group: true,
-        focus: Some(full_style()),
-        in_focus: Some(truncating(
+        focus: Some(Box::new(full_style())),
+        in_focus: Some(Box::new(truncating(
             gpui::linear_gradient(90., stop, stop),
             gpui::TextOverflow::Truncate("…".into()),
-        )),
-        focus_visible: Some(truncating(
+        ))),
+        focus_visible: Some(Box::new(truncating(
             gpui::pattern_slash(gpui::blue(), 1., 2.),
             gpui::TextOverflow::TruncateStart("…".into()),
-        )),
+        ))),
         key_context: Some(interactivity::KeyContext {
             entries: vec![interactivity::KeyContextEntry {
                 key: "mode".into(),
@@ -160,15 +160,15 @@ fn full_interactivity() -> Interactivity {
         block_mouse_except_scroll: true,
         hover_listener_mode: interactivity::HoverListenerMode::InputModalityIndependent,
         group: Some("card".into()),
-        hover: Some(backdrop(gpui::checkerboard(gpui::black(), 4.))),
-        active: Some(StyleRefinement::default()),
+        hover: Some(Box::new(backdrop(gpui::checkerboard(gpui::black(), 4.)))),
+        active: Some(Default::default()),
         group_hover: Some(GroupRefinement {
             group: "card".into(),
-            style: StyleRefinement::default(),
+            style: Default::default(),
         }),
         group_active: Some(GroupRefinement {
             group: "card".into(),
-            style: gpui::StyleRefinement::default(),
+            style: Default::default(),
         }),
         on_click: Some(60),
         on_aux_click: Some(61),
@@ -207,7 +207,7 @@ pub fn every_node() -> Node {
     Node::Container(ContainerNode {
         id: Some(id("root")),
         style: style(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         children,
     })
 }
@@ -252,7 +252,7 @@ fn first_nodes() -> Vec<Node> {
             path: vec![id("root"), id("uniform")],
             route: 3,
             style: style(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
             count: 100,
             measure_index: 0,
             sizing: UniformListSizing::Auto,
@@ -287,7 +287,7 @@ fn first_nodes() -> Vec<Node> {
             scroll_handler: Some(5),
             range_start: 0,
             style: style(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBox),
                 aria: Aria {
                     label: Some("rows".into()),
@@ -308,13 +308,13 @@ fn first_nodes() -> Vec<Node> {
                 },
                 focusable: true,
                 ..Default::default()
-            },
+            }),
             children: vec![text("item")],
         },
         Node::ResizeHandle {
             id: id("handle"),
             style: style(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::Splitter),
                 aria: Aria {
                     label: Some("Resize".into()),
@@ -324,7 +324,7 @@ fn first_nodes() -> Vec<Node> {
                 focusable: true,
                 on_key_down: Some(9),
                 ..Default::default()
-            },
+            }),
             on_press: Some(6),
             on_release: Some(7),
             on_drag: Some(8),
@@ -360,7 +360,7 @@ fn first_nodes() -> Vec<Node> {
             fallback: false,
             state_children: vec![text("while loading")],
             style: style(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
         },
         Node::Svg {
             id: Some(id("svg")),
@@ -375,7 +375,7 @@ fn first_nodes() -> Vec<Node> {
             },
             label: Some("a picture".into()),
             style: style(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
         },
         Node::Input {
             options: view_wire::InputOptions {
@@ -512,10 +512,10 @@ fn full_nodes() -> Vec<Node> {
             path: vec![id("root"), id("uniform")],
             route: 3,
             style: style(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 focusable: true,
                 ..Default::default()
-            },
+            }),
             count: 100,
             measure_index: 0,
             sizing: UniformListSizing::Auto,
@@ -558,7 +558,7 @@ fn full_nodes() -> Vec<Node> {
             scroll_handler: Some(5),
             range_start: 0,
             style: style(),
-            interactivity: full_interactivity(),
+            interactivity: Box::new(full_interactivity()),
             children: vec![text("item")],
         },
         Node::Image {
@@ -578,10 +578,10 @@ fn full_nodes() -> Vec<Node> {
             fallback: false,
             state_children: vec![text("while loading")],
             style: style(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 focusable: true,
                 ..Default::default()
-            },
+            }),
         },
         Node::Image {
             id: Some(ElementIdWire::Uuid([9; 16])),
@@ -596,7 +596,7 @@ fn full_nodes() -> Vec<Node> {
             fallback: false,
             state_children: vec![],
             style: style(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
         },
         Node::Image {
             id: None,
@@ -611,7 +611,7 @@ fn full_nodes() -> Vec<Node> {
             fallback: false,
             state_children: vec![],
             style: style(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
         },
         Node::Image {
             id: None,
@@ -626,7 +626,7 @@ fn full_nodes() -> Vec<Node> {
             fallback: true,
             state_children: vec![],
             style: style(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
         },
         Node::Svg {
             id: Some(ElementIdWire::Path(b"a/b".to_vec())),
@@ -641,10 +641,10 @@ fn full_nodes() -> Vec<Node> {
             },
             label: Some("a picture".into()),
             style: style(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 focusable: true,
                 ..Default::default()
-            },
+            }),
         },
         Node::Svg {
             id: None,
@@ -656,7 +656,7 @@ fn full_nodes() -> Vec<Node> {
             },
             label: None,
             style: style(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
         },
         Node::Svg {
             id: None,
@@ -668,7 +668,7 @@ fn full_nodes() -> Vec<Node> {
             },
             label: None,
             style: style(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
         },
         Node::Input {
             options: view_wire::InputOptions {
@@ -804,10 +804,10 @@ fn full_nodes() -> Vec<Node> {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::FocusHandle(11)),
             style: style(),
-            interactivity: Interactivity {
+            interactivity: Box::new(Interactivity {
                 focusable: true,
                 ..Default::default()
-            },
+            }),
             children: vec![],
         }),
     ]

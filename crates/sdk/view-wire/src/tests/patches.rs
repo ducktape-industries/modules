@@ -13,7 +13,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
         Node::Container(crate::ContainerNode {
             id: Some(ElementIdWire::Name("box".into())),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
             children: vec![keyed("inner", "deep")],
         }),
     ]);
@@ -24,7 +24,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
         Node::Container(crate::ContainerNode {
             id: Some(ElementIdWire::Name("box".into())),
             style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            interactivity: Default::default(),
             children: vec![Node::empty()],
         }),
     ]);

@@ -53,7 +53,7 @@ fn column(children: Vec<Node>) -> Node {
     Node::Container(crate::ContainerNode {
         id: None,
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         children,
     })
 }
@@ -73,7 +73,7 @@ fn uniform(path: Vec<ElementIdWire>) -> Node {
         path,
         route: 1,
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
         count: 1,
         measure_index: 0,
         sizing: list::UniformListSizing::Auto,
@@ -134,7 +134,7 @@ fn picture(bytes: Option<Vec<u8>>) -> Node {
         },
         label: None,
         style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        interactivity: Default::default(),
     }
 }
 

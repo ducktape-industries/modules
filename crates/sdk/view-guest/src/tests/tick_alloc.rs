@@ -47,7 +47,7 @@ fn column(children: Vec<wire::Node>) -> wire::Node {
     wire::Node::Container(wire::ContainerNode {
         id: None,
         style: gpui::StyleRefinement::default(),
-        interactivity: wire::Interactivity::default(),
+        interactivity: Default::default(),
         children,
     })
 }

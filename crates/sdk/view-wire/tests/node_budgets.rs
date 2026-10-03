@@ -9,7 +9,7 @@ fn container(interactivity: Interactivity, children: Vec<Node>) -> Node {
     Node::Container(view_wire::ContainerNode {
         id: None,
         style: StyleRefinement::default(),
-        interactivity,
+        interactivity: Box::new(interactivity),
         children,
     })
 }
@@ -17,9 +17,11 @@ fn container(interactivity: Interactivity, children: Vec<Node>) -> Node {
 #[test]
 fn focus_refinements_are_bounded_inside_tooltips() {
     let hostile = Interactivity {
-        focus: Some(StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.)),
-        in_focus: Some(StyleRefinement::default().m(px(-100.))),
-        focus_visible: Some(StyleRefinement::default().text_size(px(1e20))),
+        focus: Some(Box::new(
+            StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.),
+        )),
+        in_focus: Some(Box::new(StyleRefinement::default().m(px(-100.)))),
+        focus_visible: Some(Box::new(StyleRefinement::default().text_size(px(1e20)))),
         ..Default::default()
     };
     let root = container(
