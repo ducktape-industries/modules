@@ -3,7 +3,8 @@
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    AnyElement, App, ClickEvent, Context, Div, ElementId, RenderOnce, Role, Stateful, Theme, Window,
+    AnyElement, App, ClickEvent, Context, Div, ElementId, RenderOnce, Role, Stateful, Theme,
+    Window, wire,
 };
 
 use super::{
@@ -29,7 +30,7 @@ pub(super) fn reactions(
         .gap(px(STACK_GAP))
         .p(px(PICKER_INSET))
         .child(search_field(chat, menu, cx, theme));
-    let body = match chat.picker.query.trim().is_empty() {
+    let body = match chat.picker.query.is_blank() {
         true => browse(chat, menu.seq, cx, theme),
         false => matches(chat, menu.seq, cx, theme),
     };
@@ -50,8 +51,8 @@ fn pick(chat: &Chat, seq: u64, emoji: &str, cx: &mut Context<Chat>) -> Option<Pr
 
 /// The field that takes the keys; Enter reacts with its first match.
 fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> Input {
-    let typed = cx.listener(|chat, query: &String, _, cx| {
-        chat.picker.query = query.clone();
+    let typed = cx.listener(|chat, change: &wire::TextChange, _, cx| {
+        chat.picker.query.apply(change);
         cx.notify();
     });
     let key = focus_key(menu.pane, Mode::Reactions);
@@ -63,10 +64,10 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
         .border_color(theme.border_strong)
         .bg(theme.background)
         .text_size(design::text::SECONDARY)
-        .value(chat.picker.query.clone())
+        .value(&chat.picker.query)
         .placeholder("Search emoji")
-        .on_input(typed);
-    let first = emoji::search(&chat.picker.query).first().copied();
+        .on_change(typed);
+    let first = emoji::search(&chat.picker.query.text).first().copied();
     match first.filter(|_| chat.may_write()) {
         Some(first) => {
             let seq = menu.seq;
@@ -163,7 +164,7 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
 /// A search's matches, counted, scrolled in the room the tabs and grid
 /// leave.
 fn matches(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
-    let found = emoji::search(&chat.picker.query);
+    let found = emoji::search(&chat.picker.query.text);
     let count = match found.len() {
         0 => "No emoji match".to_owned(),
         n => design::plural(n as u64, "match", "matches"),

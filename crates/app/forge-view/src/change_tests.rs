@@ -258,13 +258,16 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
     assert!(
         matches!(
             cx.find("forge-reply"),
-            Some(ducktape_view_guest::wire::Node::Editor { .. })
+            Some(ducktape_view_guest::wire::Node::Field {
+                multiline: true,
+                ..
+            })
         ),
         "the reply is the host's multi-line editor"
     );
     // what the host's editor holds once the reply is typed
     view.update(&mut cx, |forge, _, cx| {
-        forge.reply = ducktape_view_guest::Editor::new("looks right to me");
+        forge.reply = ducktape_view_guest::TextField::new("looks right to me");
         cx.notify();
     });
     cx.run_until_parked();
@@ -279,7 +282,7 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
                 chat::Op::PostMessage { channel_id, .. } if channel_id == "forge:project:1"
             ))
     );
-    view.read(|forge| assert!(forge.reply.text().is_empty()));
+    view.read(|forge| assert!(forge.reply.text.is_empty()));
 }
 
 #[test]
@@ -517,19 +520,18 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
 
     cx.simulate_click("forge-finish-review");
     cx.run_until_parked();
-    let Some(ducktape_view_guest::wire::Node::Editor { document, .. }) =
-        cx.find("forge-review-body")
-    else {
-        panic!("the review body is the host's multi-line editor");
-    };
-    let key = view.read(|forge| forge.review_key().unwrap());
-    assert_eq!(
-        document.document,
-        format!("forge-review-body-{key}"),
-        "a document per change, so the host never carries one change's body into another"
+    assert!(
+        matches!(
+            cx.find("forge-review-body"),
+            Some(ducktape_view_guest::wire::Node::Field {
+                multiline: true,
+                ..
+            })
+        ),
+        "the review body is the host's multi-line editor"
     );
     view.update(&mut cx, |forge, _, cx| {
-        forge.review_mut().unwrap().body = ducktape_view_guest::Editor::new("one batch, one op");
+        forge.review_mut().unwrap().body = ducktape_view_guest::TextField::new("one batch, one op");
         cx.notify();
     });
     cx.run_until_parked();
@@ -615,7 +617,7 @@ fn a_refused_review_keeps_every_draft() {
     view.read(|forge| {
         let review = forge.review().expect("the session survives a refusal");
         assert_eq!(review.comments.len(), 1);
-        assert_eq!(review.comments[0].body, "keep me");
+        assert_eq!(review.comments[0].body.text, "keep me");
     });
 }
 
@@ -689,13 +691,16 @@ fn editing_a_change_keeps_the_paragraphs_of_its_body() {
     view.update(&mut cx, |forge, _, cx| {
         forge.start_edit(cx);
         // what the host's editor holds once the paragraphs are typed
-        forge.form.as_mut().unwrap().body = ducktape_view_guest::Editor::new(body);
+        forge.form.as_mut().unwrap().body = ducktape_view_guest::TextField::new(body);
     });
     cx.run_until_parked();
     assert!(
         matches!(
             cx.find("forge-change-body"),
-            Some(wire::Node::Editor { .. })
+            Some(wire::Node::Field {
+                multiline: true,
+                ..
+            })
         ),
         "the body field is the host's multi-line editor"
     );

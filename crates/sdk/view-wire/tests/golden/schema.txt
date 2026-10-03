@@ -398,136 +398,9 @@ EdgesRefinement struct
   right: Option(Str)
   bottom: Option(Str)
   left: Option(Str)
-EditorBinding struct
-  claims: Seq(TypeName("EditorKeyClaim"))
-  on_request: U32
-  on_event: U32
-EditorCursor struct
-  position: TypeName("EditorPosition")
-  selection: Option(TypeName("EditorPosition"))
-EditorDecision enum
-  0 DefaultEditorAction: Unit
-  1 Noop: Unit
-  2 Apply struct
-    patches: Seq(TypeName("EditorPatch"))
-    cursor: TypeName("EditorCursor")
-    history: TypeName("EditorHistoryEffect")
-EditorDocumentMessage enum
-  0 Request struct
-    id: TypeName("EditorTransferId")
-    target: TypeName("EditorDocumentRef")
-  1 Transfer: NewType(TypeName("EditorTransfer"))
-  2 Acknowledged struct
-    id: TypeName("EditorTransferId")
-  3 Failed struct
-    id: TypeName("EditorTransferId")
-    reason: TypeName("EditorTransferError")
-EditorDocumentRef struct
-  document: Str
-  reset: U64
-  text_revision: U64
-  revision: U64
-  cursor: TypeName("EditorCursor")
-  byte_len: U32
-EditorEditKind enum
-  0 Insert: Unit
-  1 Backspace: Unit
-  2 Cursor: Unit
-  3 GuestPatch: Unit
-  4 Undo: Unit
-  5 Redo: Unit
-EditorFault enum
-  0 Overflow: Unit
-EditorHistoryEffect enum
-  0 Native: Unit
-  1 NewGroup: Unit
-  2 ExtendPrevious: Unit
-  3 Undo: Unit
-  4 Redo: Unit
-EditorInteraction enum
-  0 Action struct
-    tag: Str
-EditorKeyClaim struct
-  key: TypeName("Key")
-  modifiers: TypeName("Modifiers")
-  command: Bool
-EditorPatch struct
-  start_byte: U32
-  end_byte: U32
-  replacement: Str
-EditorPosition struct
-  line: U32
-  column: U32
-EditorRequest struct
-  id: TypeName("EditorTransactionId")
-  state: TypeName("EditorDocumentRef")
-  input: TypeName("EditorRequestInput")
-  input_time_ms: U64
-EditorRequestInput enum
-  0 Key struct
-    key: TypeName("KeyState")
-    repeat: Bool
-  1 Interaction struct
-    action: TypeName("EditorInteraction")
-EditorResponse struct
-  id: TypeName("EditorTransactionId")
-  decision: TypeName("EditorDecision")
-EditorTransactionEvent enum
-  0 Interaction struct
-    id: TypeName("EditorTransactionId")
-    state: TypeName("EditorDocumentRef")
-    action: TypeName("EditorInteraction")
-    input_time_ms: U64
-  1 Commit struct
-    id: TypeName("EditorTransactionId")
-    origin: Option(TypeName("EditorRequestInput"))
-    before: TypeName("EditorDocumentRef")
-    after: TypeName("EditorDocumentRef")
-    patches: Seq(TypeName("EditorPatch"))
-    kind: TypeName("EditorEditKind")
-    history: TypeName("EditorHistoryEffect")
-    input_time_ms: U64
-  2 Fault struct
-    id: TypeName("EditorTransactionId")
-    state: TypeName("EditorDocumentRef")
-    reason: TypeName("EditorFault")
-  3 Cancelled struct
-    id: TypeName("EditorTransactionId")
-    state: TypeName("EditorDocumentRef")
-EditorTransactionId struct
-  instance: U64
-  document: Str
-  reset: U64
-  sequence: U64
-  attempt: U32
-  text_revision: U64
-  revision: U64
-EditorTransfer enum
-  0 Begin struct
-    id: TypeName("EditorTransferId")
-    target: TypeName("EditorDocumentRef")
-  1 Chunk struct
-    id: TypeName("EditorTransferId")
-    index: U8
-    bytes: Seq(U8)
-  2 Complete struct
-    id: TypeName("EditorTransferId")
-  3 Abort struct
-    id: TypeName("EditorTransferId")
-EditorTransferError enum
-  0 Limit: Unit
-  1 Identity: Unit
-  2 Order: Unit
-  3 Length: Unit
-  4 Utf8: Unit
-  5 Cursor: Unit
-  6 Aborted: Unit
-EditorTransferId struct
-  instance: U64
-  document: Str
-  reset: U64
-  serial: U64
-  attempt: U32
+Edit struct
+  range: TypeName("TextRange")
+  len: U32
 ElementIdAtom enum
   0 View: NewType(U64)
   1 Integer: NewType(U64)
@@ -605,63 +478,54 @@ Event enum
   17 TooltipRequest struct
     request: U32
     character_index: Option(U32)
-  18 Input struct
+  18 Text struct
     handler: U32
-    text: Str
-  19 EditorDocument struct
-    handler: U32
-    message: TypeName("EditorDocumentMessage")
-  20 EditorRequest struct
-    handler: U32
-    request: TypeName("EditorRequest")
-  21 EditorTransaction struct
-    handler: U32
-    event: TypeName("EditorTransactionEvent")
-  22 Theme struct
+    change: TypeName("TextChange")
+  19 Theme struct
     dark: Bool
-  23 Select struct
+  20 Select struct
     handler: U32
     index: U32
-  24 RichTextHover struct
+  21 RichTextHover struct
     handler: U32
     event: TypeName("RichTextHover")
-  25 Size struct
+  22 Size struct
     handler: U32
     width: F32
     height: F32
-  26 Drag struct
+  23 Drag struct
     handler: U32
     dx: F64
     dy: F64
-  27 ScrollOffset struct
+  24 ScrollOffset struct
     handler: U32
     x: F32
     y: F32
     relative_x: F32
     relative_y: F32
-  28 UniformListRange struct
+  25 UniformListRange struct
     path: Seq(TypeName("WireRepr"))
     route: U32
     start: U32
     end: U32
-  29 UniformListState struct
+  26 UniformListState struct
     path: Seq(TypeName("WireRepr"))
     route: U32
     top_index: U32
     scrollable: Bool
     scrolled_to_end: Option(Bool)
-  30 ListRequest struct
+  27 ListRequest struct
     handler: U32
     request: TypeName("ListRequest")
-  31 ListScroll struct
+  28 ListScroll struct
     handler: U32
     event: TypeName("ListScroll")
-  32 Response struct
+  29 Response struct
     id: U64
     result: TypeName("Result")
     done: Bool
-  33 Resync: Unit
-  34 A11yAction struct
+  30 Resync: Unit
+  31 A11yAction struct
     handler: U32
     data: Option(TypeName("ActionData"))
 Fill enum
@@ -682,8 +546,6 @@ FontStyle enum
   2 Oblique: Unit
 Frame struct
   upstream_sanitization: TypeName("SanitizeReport")
-  editor_decisions: Seq(TypeName("EditorResponse"))
-  editor_documents: Seq(TypeName("EditorDocumentMessage"))
   tooltip_responses: Seq(TypeName("TooltipResponse"))
   root: Option(TypeName("Node"))
   patches: Seq(TypeName("Patch"))
@@ -797,6 +659,10 @@ Key enum
   0 Named: NewType(TypeName("Named"))
   1 Character: NewType(Str)
   2 Unidentified: Unit
+KeyClaim struct
+  key: TypeName("Key")
+  modifiers: TypeName("Modifiers")
+  command: Bool
 KeyContext struct
   entries: Seq(TypeName("KeyContextEntry"))
 KeyContextEntry struct
@@ -1053,33 +919,31 @@ Node enum
     label: Option(Str)
     style: TypeName("StyleRefinement")
     interactivity: TypeName("Interactivity")
-  11 Input struct
-    options: TypeName("InputOptions")
+  11 Field struct
     id: TypeName("WireRepr")
-    placeholder: Str
+    multiline: Bool
     value: Str
-    on_input: Option(U32)
-    on_submit: Option(U32)
-    secure: Bool
-    style: TypeName("StyleRefinement")
-  12 Editor struct
-    binding: Option(TypeName("EditorBinding"))
-    id: TypeName("WireRepr")
-    style: TypeName("StyleRefinement")
+    cursor: TypeName("TextRange")
+    generation: U64
+    revision: U64
+    tokens: Seq(TypeName("TextToken"))
+    claims: Seq(TypeName("KeyClaim"))
+    options: TypeName("InputOptions")
     placeholder: Str
-    label: Option(Str)
-    document: TypeName("EditorDocumentRef")
-    on_document: U32
-    editable: Bool
-  13 Space struct
+    secure: Bool
+    on_change: Option(U32)
+    on_key: Option(U32)
+    on_submit: Option(U32)
     style: TypeName("StyleRefinement")
-  14 Overlay struct
+  12 Space struct
+    style: TypeName("StyleRefinement")
+  13 Overlay struct
     id: TypeName("WireRepr")
     label: Option(Str)
     style: TypeName("StyleRefinement")
     on_dismiss: Option(U32)
     children: Seq(TypeName("Node"))
-  15 Canvas struct
+  14 Canvas struct
     style: TypeName("StyleRefinement")
     commands: Seq(TypeName("CanvasCommand"))
 NodeId NewTypeStruct(U64)
@@ -1418,6 +1282,14 @@ TextAlign enum
   0 Left: Unit
   1 Center: Unit
   2 Right: Unit
+TextChange struct
+  generation: U64
+  revision: U64
+  edit: Option(TypeName("Edit"))
+  text: Str
+  cursor: TypeName("TextRange")
+  preedit: Option(TypeName("TextRange"))
+  tokens: Seq(TypeName("TextToken"))
 TextNode struct
   id: Option(TypeName("WireRepr"))
   style: TypeName("StyleRefinement")
@@ -1429,6 +1301,9 @@ TextOverflow enum
 TextPosition struct
   node: TypeName("NodeId")
   characterIndex: U64
+TextRange struct
+  start: U32
+  end: U32
 TextRun struct
   len: U64
   font_family: Str
@@ -1459,6 +1334,9 @@ TextStyleRefinement struct
   text_overflow: Option(TypeName("TextOverflow"))
   text_align: Option(TypeName("TextAlign"))
   line_clamp: Option(U64)
+TextToken struct
+  range: TypeName("TextRange")
+  id: Str
 Toggled enum
   0 false: Unit
   1 true: Unit
@@ -1504,9 +1382,14 @@ WhiteSpace enum
   0 Normal: Unit
   1 Nowrap: Unit
 WidgetCommand enum
-  0 EditorAction struct
+  0 Replace struct
     target: Seq(TypeName("WireRepr"))
-    tag: Str
+    generation: U64
+    revision: U64
+    range: TypeName("TextRange")
+    text: Str
+    token: Option(Str)
+    cursor: TypeName("TextRange")
   1 FocusPrevious: Unit
   2 FocusNext: Unit
   3 Focus struct

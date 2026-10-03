@@ -31,7 +31,8 @@
 use crate::wire::{Frame, Node, TooltipResponse};
 
 /// Every text the tree shows, depth first: text nodes and the value or
-/// placeholder of an input or editor.
+/// placeholder of a field (the view's copy of it, which in a test is the
+/// host's).
 pub(crate) fn texts(root: Option<&Node>) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(root) = root {
@@ -44,7 +45,7 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
     match node {
         Node::RichText { text, .. } => out.push(text.clone()),
         Node::Text(crate::wire::TextNode { content, .. }) => out.push(content.clone()),
-        Node::Input {
+        Node::Field {
             value: text,
             placeholder,
             ..
@@ -53,16 +54,6 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
         } else {
             text.clone()
         }),
-        // Editor text belongs to its document transfer, not the display tree.
-        Node::Editor {
-            document,
-            placeholder,
-            ..
-        } => {
-            if document.byte_len == 0 {
-                out.push(placeholder.clone());
-            }
-        }
         _ => node
             .children()
             .iter()
@@ -162,10 +153,10 @@ pub(crate) fn button<'a>(root: &'a Node, name: &str) -> Option<Vec<&'a Node>> {
     })
 }
 
-/// The input whose key or placeholder is `name`.
+/// The field whose key or placeholder is `name`.
 pub(crate) fn input<'a>(root: &'a Node, name: &str) -> Option<Vec<&'a Node>> {
     chain(root, &mut |chain| match chain.last().unwrap() {
-        Node::Input {
+        Node::Field {
             id, placeholder, ..
         } => id.name() == Some(name) || placeholder == name,
         _ => false,

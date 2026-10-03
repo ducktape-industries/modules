@@ -1,8 +1,8 @@
 //! What the reader's presses do: reads again, each form's submit, and the
 //! invite. A refusal lands on the form it came from.
-use ducktape_view_guest::Context;
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::methods::ClipboardWrite;
+use ducktape_view_guest::{Context, TextField};
 
 use crate::api::{CreateInvite, InviteCreate, Session, Submit};
 use crate::state::{Form, Problem, Section, TTL};
@@ -50,7 +50,7 @@ impl Settings {
         if self.create_account.busy {
             return;
         }
-        let name = self.create_account.text.trim().to_string();
+        let name = self.create_account.text.text.trim().to_string();
         if name.is_empty() {
             self.create_account.problem = Some(Problem::Empty);
             cx.notify();
@@ -87,7 +87,7 @@ impl Settings {
             self.rename_agent.insert(
                 number,
                 Form {
-                    text: name,
+                    text: TextField::new(name),
                     ..Form::default()
                 },
             );
@@ -95,7 +95,7 @@ impl Settings {
             return;
         }
         let form = self.rename_agent.entry(number).or_default();
-        let name = form.text.trim().to_string();
+        let name = form.text.text.trim().to_string();
         if name.is_empty() {
             form.problem = Some(Problem::Empty);
             cx.notify();
@@ -125,7 +125,7 @@ impl Settings {
     }
 
     pub(crate) fn submit_create_agent(&mut self, cx: &mut Context<Self>) {
-        let name = self.create_agent.text.trim().to_string();
+        let name = self.create_agent.text.text.trim().to_string();
         if name.is_empty() {
             self.create_agent.problem = Some(Problem::Empty);
             cx.notify();
@@ -145,7 +145,7 @@ impl Settings {
                 agent.number == account && agent.standing() != identity::Standing::Revoked
             }))
         };
-        let op = abi::unhex(self.agent_key.text.trim())
+        let op = abi::unhex(self.agent_key.text.text.trim())
             .and_then(|bytes| abi::decode::<identity::Op>(&bytes).ok())
             .filter(
                 |op| matches!(op, identity::Op::AddKey { consent, .. } if mine(consent.account)),
@@ -187,12 +187,13 @@ impl Settings {
                 let form = form(view);
                 form.busy = false;
                 match result {
-                    Ok(_) => form.text.clear(),
+                    Ok(_) => form.text.reset(""),
                     Err(refusal) => form.problem = Some(Problem::Refused(refusal.message)),
                 }
                 // a rename that landed closes its field
-                view.rename_agent
-                    .retain(|_, form| form.busy || form.problem.is_some() || !form.text.is_empty());
+                view.rename_agent.retain(|_, form| {
+                    form.busy || form.problem.is_some() || !form.text.text.is_empty()
+                });
                 view.refresh_account(cx);
                 cx.notify();
             });

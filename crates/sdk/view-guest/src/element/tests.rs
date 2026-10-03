@@ -101,7 +101,7 @@ fn a_field_marked_invalid_required_and_read_only_says_so_and_why() {
             .required(true)
             .read_only(true)
     };
-    let wire::Node::Input { options, .. } = lower(email()) else {
+    let wire::Node::Field { options, .. } = lower(email()) else {
         panic!("an input")
     };
     assert_eq!(options.invalid, Some(gpui::accesskit::Invalid::True));

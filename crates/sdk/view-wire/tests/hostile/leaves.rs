@@ -52,61 +52,68 @@ pub(super) fn gen_string(rng: &mut Rng) -> String {
     s
 }
 
-pub(super) fn gen_input(rng: &mut Rng) -> Node {
-    Node::Input {
-        options: InputOptions {
+/// A field whose cursor and tokens sit on its own text: the host engine's
+/// copy to adopt, which `sanitize` keeps whole. One in four draws a cursor
+/// or a token off the text, or a claim on an engine key, which is refused.
+pub(super) fn gen_field(rng: &mut Rng) -> Node {
+    let value = gen_string(rng);
+    let boundary = |rng: &mut Rng, text: &str| {
+        let mut at = rng.next_range(text.len() + 1);
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
+        at
+    };
+    let hostile = rng.next_range(4) == 0;
+    let cursor = match hostile {
+        true => TextRange::caret(value.len() + 1),
+        false => {
+            let (a, b) = (boundary(rng, &value), boundary(rng, &value));
+            TextRange::from(a.min(b)..a.max(b))
+        }
+    };
+    let mut tokens = Vec::new();
+    if !hostile && rng.next_bool() && !value.is_empty() {
+        let end = boundary(rng, &value).max(value.chars().next().map_or(0, char::len_utf8));
+        tokens.push(TextToken {
+            range: TextRange::from(0..end),
+            id: "<@1>".into(),
+        });
+    }
+    let mut claims = Vec::new();
+    if rng.next_bool() {
+        claims.push(KeyClaim {
+            key: keyboard::Key::Named(match hostile {
+                true => keyboard::Named::Backspace,
+                false => keyboard::Named::Enter,
+            }),
+            modifiers: Default::default(),
+            command: false,
+        });
+    }
+    Node::Field {
+        id: gen_id(rng),
+        multiline: rng.next_bool(),
+        value,
+        cursor,
+        generation: rng.next_u64(),
+        revision: rng.next_u64(),
+        tokens: tokens.into(),
+        claims: claims.into(),
+        options: Box::new(InputOptions {
             label: gen_string(rng),
             description: Some(gen_string(rng)),
             disabled: rng.next_bool(),
             invalid: rng.next_bool().then_some(Invalid::True),
             required: rng.next_bool(),
             read_only: rng.next_bool(),
-        },
-        id: gen_id(rng),
+        }),
         placeholder: gen_string(rng),
-        value: gen_string(rng),
-        on_input: rng.next_bool().then(|| rng.next_u64() as u32),
-        on_submit: rng.next_bool().then(|| rng.next_u64() as u32),
         secure: rng.next_bool(),
+        on_change: rng.next_bool().then(|| rng.next_u64() as u32),
+        on_key: rng.next_bool().then(|| rng.next_u64() as u32),
+        on_submit: rng.next_bool().then(|| rng.next_u64() as u32),
         style: gpui::StyleRefinement::default(),
-    }
-}
-
-/// One logical document per identifier, so every reference the tree makes to
-/// the same document is exactly the one `validate_editor_document_refs`
-/// requires. Byte lengths stay small: a projection is charged per binding, and
-/// the fuzz is about tree shape, not the aggregate byte ceilings the focused
-/// `editor_document` tests already pin.
-pub(super) fn gen_document(rng: &mut Rng) -> editor_document::EditorDocumentRef {
-    const POOL: [&str; 5] = ["app:draft", "app:notes", "dup", "x", "app:same"];
-    let index = rng.next_range(POOL.len());
-    let byte_len = (index * 37) as u32;
-    editor_document::EditorDocumentRef {
-        document: POOL[index].to_string(),
-        reset: index as u64,
-        text_revision: 2 * index as u64,
-        revision: 3 * index as u64,
-        cursor: EditorCursor {
-            position: EditorPosition {
-                line: 0,
-                column: byte_len,
-            },
-            selection: None,
-        },
-        byte_len,
-    }
-}
-
-pub(super) fn gen_editor(rng: &mut Rng) -> Node {
-    Node::Editor {
-        document: gen_document(rng),
-        on_document: rng.next_u64() as u32,
-        editable: rng.next_bool(),
-        binding: None,
-        id: gen_id(rng),
-        style: gpui::StyleRefinement::default(),
-        placeholder: gen_string(rng),
-        label: rng.next_bool().then(|| gen_string(rng)),
     }
 }
 
@@ -184,14 +191,13 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
 /// variant except `Space` carries a string, a colour or a number worth
 /// pulling into range.
 pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
-    match rng.next_range(5) {
+    match rng.next_range(4) {
         0 => gen_text(rng),
         1 => Node::Space {
             style: gen_native_style(rng),
         },
-        2 => gen_input(rng),
-        3 => gen_svg(rng),
-        _ => gen_editor(rng),
+        2 => gen_svg(rng),
+        _ => gen_field(rng),
     }
 }
 

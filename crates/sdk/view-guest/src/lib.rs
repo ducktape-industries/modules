@@ -27,8 +27,8 @@ mod rich_text;
 mod view_element;
 pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
 pub use element::{
-    AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, UniformList,
-    UniformListScrollHandle, div, uniform_list,
+    AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, Textarea,
+    UniformList, UniformListScrollHandle, div, uniform_list,
 };
 pub use interactivity::{
     FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
@@ -53,21 +53,13 @@ pub mod prelude {
         MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ParentElement,
         PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy,
         ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-        StyledText, Theme, UniformListScrollHandle, Window, anchored, canvas, deferred, div, hsla,
-        img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
+        StyledText, TextField, Textarea, Theme, UniformListScrollHandle, Window, anchored, canvas,
+        deferred, div, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg,
+        uniform_list,
     };
 }
-mod editor;
-mod editor_binding;
-mod editor_documents;
-mod editor_element;
-pub use editor::Editor;
-pub use editor_binding::{
-    EditorBinding, EditorInteractionRequest, EditorKeyRequest, EditorStateView, EditorTransaction,
-    EditorTransactionEvent,
-};
-pub use editor_documents::EditorDocumentUpdate;
-pub use editor_element::{EditorElement, EditorElementEvent};
+mod text;
+pub use text::TextField;
 pub mod borsh_bytes;
 pub mod composer;
 pub mod design;

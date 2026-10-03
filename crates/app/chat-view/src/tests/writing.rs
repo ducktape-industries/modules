@@ -69,7 +69,7 @@ fn channel_create_preserves_busy_and_account_gates() {
         cx.notify();
     });
     cx.run_until_parked();
-    let Some(wire::Node::Input {
+    let Some(wire::Node::Field {
         options, on_submit, ..
     }) = cx.find("chat-create-name")
     else {

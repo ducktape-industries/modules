@@ -11,10 +11,11 @@
 //! `on_key_down`, ...), the index of the handler the guest registered this
 //! frame; the host sends [`Event::Click`], [`Event::MouseDown`],
 //! [`Event::KeyDown`] and the rest with that index and the guest runs its
-//! own handler. A text field carries a handler index; the host owns the text
-//! and sends [`Event::Input`] with what it now reads; a multiline editor the
-//! same, with [`Event::EditorTransaction`]. A rich text's clickable ranges
-//! answer with [`Event::Select`] and the index of the range clicked.
+//! own handler. A text field ([`Node::Field`]) is the host engine's: it
+//! sends [`Event::Text`] with the whole text it now holds, and the guest
+//! asks for an edit with [`WidgetCommand::Replace`]. A rich text's
+//! clickable ranges answer with [`Event::Select`] and the index of the
+//! range clicked.
 //!
 //! The types here are the one definition of the format: the guest serializes
 //! them and the host deserializes the same code, so a field neither side can
@@ -44,17 +45,11 @@ pub mod methods;
 mod sanitization;
 pub use sanitization::SanitizeReport;
 
-mod editor;
-pub mod editor_document;
-pub mod editor_transaction;
-pub use editor_transaction::{
-    EditorBinding, EditorDecision, EditorEditKind, EditorFault, EditorHistoryEffect,
-    EditorInteraction, EditorKeyClaim, EditorPatch, EditorPatchError, EditorRequest,
-    EditorRequestInput, EditorResponse, EditorTransactionEvent, EditorTransactionId,
-    patched_editor_text,
+pub mod text;
+pub use text::{
+    Edit, KeyClaim, MAX_FIELD_BYTES, MAX_FIELD_CLAIMS, MAX_FIELD_TOKENS, TextChange, TextRange,
+    TextToken, changed_span, rebase, validate_field,
 };
-
-pub use editor::{EditorCursor, EditorPosition, editor_lines, editor_offset, editor_position};
 
 mod image;
 pub use image::ImageData;

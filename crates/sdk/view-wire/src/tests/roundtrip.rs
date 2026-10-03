@@ -61,8 +61,7 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
         report.display_text_truncated,
         "each node fits, but the applied aggregate loses tail text"
     );
-    let (_, bytes) = text_amounts(&root).unwrap();
-    assert_eq!(bytes, MAX_TEXT_BYTES_PER_FRAME);
+    assert_eq!(text_amounts(&root), MAX_TEXT_BYTES_PER_FRAME);
     let report = apply(
         &mut root,
         vec![Patch::Remove {
@@ -167,32 +166,22 @@ fn rich_tooltip_cache_and_explicit_none_share_the_frame_budget() {
 fn a_frame_round_trips() {
     let frame = Frame {
         upstream_sanitization: Default::default(),
-        editor_decisions: Vec::new(),
-        editor_documents: Vec::new(),
         tooltip_responses: Vec::new(),
-        root: Some(column(vec![
-            text("hello"),
-            Node::Input {
-                options: Default::default(),
-                id: ElementIdWire::Name("App/i".into()),
-                placeholder: "Name".into(),
-                value: "x".into(),
-                on_input: Some(0),
-                on_submit: Some(4),
-                secure: false,
-                style: gpui::StyleRefinement::default(),
-            },
-            Node::Editor {
-                binding: None,
-                id: ElementIdWire::Name("App/e".into()),
-                style: gpui::StyleRefinement::default(),
-                placeholder: "Notes".into(),
-                label: None,
-                document: document_reference("app:draft", 9),
-                on_document: 5,
-                editable: true,
-            },
-        ])),
+        root: Some(column(vec![text("hello"), {
+            let mut input = field("App/i", "x", "Name");
+            let Node::Field {
+                tokens, on_submit, ..
+            } = &mut input
+            else {
+                unreachable!()
+            };
+            *tokens = Box::new([TextToken {
+                range: TextRange::from(0..1),
+                id: "<@1>".into(),
+            }]);
+            *on_submit = Some(4);
+            input
+        }])),
         patches: vec![Patch::Remove {
             path: vec![0, 1],
             index: 2,
@@ -209,33 +198,19 @@ fn a_frame_round_trips() {
     assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
     let events = vec![
         Event::Message(3),
-        Event::Input {
+        Event::Text {
             handler: 0,
-            text: "xy".into(),
-        },
-        Event::EditorTransaction {
-            handler: 5,
-            event: EditorTransactionEvent::Commit {
-                origin: None,
-                id: EditorTransactionId {
-                    instance: 1,
-                    document: "app:draft".into(),
-                    reset: 0,
-                    sequence: 2,
-                    attempt: 0,
-                    text_revision: 1,
-                    revision: 3,
-                },
-                before: document_reference("app:draft", 9),
-                after: document_reference("app:draft", 10),
-                patches: vec![EditorPatch {
-                    start_byte: 9,
-                    end_byte: 9,
-                    replacement: "z".into(),
-                }],
-                kind: EditorEditKind::Insert,
-                history: EditorHistoryEffect::ExtendPrevious,
-                input_time_ms: 42,
+            change: TextChange {
+                generation: 1,
+                revision: 3,
+                edit: Some(Edit {
+                    range: TextRange::from(1..2),
+                    len: 1,
+                }),
+                text: "xy".into(),
+                cursor: TextRange::caret(2),
+                preedit: Some(TextRange::from(1..2)),
+                tokens: Default::default(),
             },
         },
         Event::Select {

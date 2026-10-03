@@ -254,7 +254,7 @@ impl Chat {
 
     pub(crate) fn rename(&mut self, cx: &mut Context<Self>) {
         let Some(details) = &self.details else { return };
-        let name = details.name_draft.trim().to_owned();
+        let name = details.name_draft.text.trim().to_owned();
         if name.is_empty() {
             return;
         }
@@ -281,13 +281,13 @@ impl Chat {
         let typed = self
             .details
             .as_ref()
-            .map(|details| details.member_draft.as_str());
+            .map(|details| details.member_draft.text.as_str());
         let Some(principal) = typed.and_then(Principal::parse) else {
             self.notice = "A member is an account number".into();
             return;
         };
         if let Some(details) = &mut self.details {
-            details.member_draft.clear();
+            details.member_draft.reset("");
         }
         self.set_member(principal, true, cx);
     }
@@ -321,8 +321,8 @@ impl Chat {
                     .map(|info| info.channel.name.clone())
                     .unwrap_or_default();
                 self.details = Some(crate::Details {
-                    name_draft: name,
-                    member_draft: String::new(),
+                    name_draft: ducktape_view_guest::TextField::new(name),
+                    member_draft: Default::default(),
                 });
             }
         }
@@ -401,7 +401,7 @@ impl Chat {
         let Some(create) = self.create.as_mut().filter(|create| ready && !create.busy) else {
             return;
         };
-        let name = create.name.trim().to_string();
+        let name = create.name.text.trim().to_string();
         if name.is_empty() || name.len() > chat::MAX_NAME_BYTES || name.contains('\0') {
             create.error = format!(
                 "Enter a channel name of at most {} bytes",

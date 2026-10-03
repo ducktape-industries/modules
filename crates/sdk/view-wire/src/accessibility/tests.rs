@@ -1,6 +1,6 @@
 //! One tree that breaks each rule, and one that keeps it and every other.
 use super::*;
-use crate::{ContainerNode, ElementIdWire, InputOptions, Invalid, Live};
+use crate::{ContainerNode, ElementIdWire, InputOptions, Invalid, Live, TextRange};
 use FaultKind::*;
 use gpui::StyleRefinement;
 
@@ -60,17 +60,24 @@ fn button(key: &str, label: &str) -> Node {
 }
 
 fn input(label: &str) -> Node {
-    Node::Input {
-        options: InputOptions {
+    Node::Field {
+        id: ElementIdWire::Name("name".into()),
+        multiline: false,
+        value: String::new(),
+        cursor: TextRange::default(),
+        generation: 0,
+        revision: 0,
+        tokens: Default::default(),
+        claims: Default::default(),
+        options: Box::new(InputOptions {
             label: label.into(),
             ..Default::default()
-        },
-        id: ElementIdWire::Name("name".into()),
+        }),
         placeholder: String::new(),
-        value: String::new(),
-        on_input: Some(1),
-        on_submit: None,
         secure: false,
+        on_change: Some(1),
+        on_key: None,
+        on_submit: None,
         style: StyleRefinement::default(),
     }
 }
@@ -900,7 +907,7 @@ fn an_invalid_field_that_does_not_say_why_fails() {
     };
     fails(ErrorNoText, el("email", field, Vec::new()));
     let mut input = input("Email");
-    if let Node::Input { options, .. } = &mut input {
+    if let Node::Field { options, .. } = &mut input {
         options.invalid = Some(Invalid::True);
     }
     fails(ErrorNoText, input);
@@ -928,7 +935,7 @@ fn an_invalid_field_that_says_why_passes() {
         ..Default::default()
     }));
     let mut input = input("Email");
-    if let Node::Input { options, .. } = &mut input {
+    if let Node::Field { options, .. } = &mut input {
         options.invalid = Some(Invalid::True);
         options.description = Some("An address has an @".into());
     }

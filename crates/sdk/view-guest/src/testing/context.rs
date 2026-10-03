@@ -1,5 +1,7 @@
 use super::focus::{self, Focus};
 use super::{FakeHost, assert_frame_accessible, button, chain_to, input, keys, texts};
+use std::collections::HashMap;
+
 use crate::{
     App, Driver, Entity, View,
     host::Host,
@@ -69,6 +71,10 @@ pub struct TestAppContext {
     focus: Option<Focus>,
     globals: crate::context::Globals,
     ticks: u64,
+    /// The host engine's revision of the fields' text, one count for all,
+    /// and every edit it made, at the revision that made it.
+    text_revision: u64,
+    edits: Vec<(u64, wire::Edit)>,
 }
 
 impl TestAppContext {
@@ -203,6 +209,8 @@ impl TestAppContext {
             busy: frame.busy,
         };
         self.move_focus(&frame, dialogs.unwrap_or_default());
+        let edited = self.replace(&frame);
+        self.host.owe(edited);
         self.frame = frame;
         report
     }
@@ -297,14 +305,14 @@ impl TestAppContext {
     // Focus and keys.
 
     /// Puts the keyboard on `key`, as a person does by Tab or click: the
-    /// node must be able to hold it (`focusable`, a tracked focus handle, an
-    /// input or an editor).
+    /// node must be able to hold it (`focusable`, a tracked focus handle, a
+    /// text field).
     pub fn simulate_focus(&mut self, key: &str) {
         let chain = self.chain(key);
         assert!(
             focus::holds_focus(chain.last().unwrap()),
             "{key:?} cannot hold focus: it is not focusable, tracks no focus handle, and is \
-             no input or editor"
+             no text field"
         );
         self.focus = Some(Focus::at(&chain));
     }
@@ -606,23 +614,150 @@ impl TestAppContext {
 
     // Text, pictures and other widgets.
 
-    /// The input with key or placeholder `name` now reads `text`.
+    /// The field with key or placeholder `name` now reads `text`: the
+    /// host's engine took the typing and says so, caret at the end.
     pub fn simulate_input(&mut self, name: &str, text: &str) {
-        let Some(Node::Input { on_input, .. }) = self.input(name) else {
+        let Some(Node::Field {
+            on_change,
+            value,
+            generation,
+            ..
+        }) = self.input(name)
+        else {
             unreachable!()
         };
-        let Some(handler) = on_input else {
-            panic!("input {name:?} has no input route");
+        let Some(handler) = on_change else {
+            panic!("field {name:?} hears no change");
         };
-        let event = Event::Input {
+        let edit = wire::changed_span(value, text).map(|(range, text)| wire::Edit {
+            range,
+            len: text.len() as u32,
+        });
+        let event = Event::Text {
             handler: *handler,
-            text: text.to_string(),
+            change: self.text_change(*generation, edit, text.to_owned(), text.len(), Vec::new()),
         };
         self.run(vec![event]);
     }
-    /// The input with key or placeholder `name` is submitted (Enter).
+    /// The host's word on a field's text at its next revision, `edit` being
+    /// what changed it, logged for the asks that read an older text.
+    fn text_change(
+        &mut self,
+        generation: u64,
+        edit: Option<wire::Edit>,
+        text: String,
+        caret: usize,
+        tokens: Vec<wire::TextToken>,
+    ) -> wire::TextChange {
+        self.text_revision += 1;
+        if let Some(edit) = edit {
+            self.edits.push((self.text_revision, edit));
+        }
+        wire::TextChange {
+            generation,
+            revision: self.text_revision,
+            edit,
+            text,
+            cursor: wire::TextRange::caret(caret),
+            preedit: None,
+            tokens,
+        }
+    }
+    /// What the host's engine does with the `Replace`s a frame asks for, in
+    /// order: each is carried over the edits made since the revision it
+    /// read (`wire::rebase`, the host's own rule; an earlier ask in the same
+    /// frame is one), applied to the field's text, and comes back as the
+    /// next change. An ask on a document the field has since left (its
+    /// generation moved) edits nothing: the frame's field is the document.
+    fn replace(&mut self, frame: &Frame) -> Vec<Event> {
+        let Some(root) = self.tree.clone() else {
+            return Vec::new();
+        };
+        type Held = (u32, u64, String, Vec<wire::TextToken>);
+        let mut fields: HashMap<Vec<wire::ElementIdWire>, Held> = HashMap::new();
+        let mut events = Vec::new();
+        for request in &frame.requests {
+            if request.kind != <crate::methods::HostWidget as crate::methods::Method>::KIND {
+                continue;
+            }
+            let Ok(wire::WidgetCommand::Replace {
+                target,
+                generation,
+                revision,
+                range,
+                text,
+                token,
+                cursor,
+            }) = wire::decode::<wire::WidgetCommand>(&request.payload)
+            else {
+                continue;
+            };
+            let (handler, held, value, tokens) =
+                fields.entry(target.clone()).or_insert_with(|| {
+                    let Some(chain) = Focus::Path(target.clone()).chain(&root) else {
+                        panic!("a Replace on a field that is not in the tree: {target:?}");
+                    };
+                    let Some(Node::Field {
+                        value,
+                        tokens,
+                        generation,
+                        on_change: Some(handler),
+                        ..
+                    }) = chain.last()
+                    else {
+                        panic!("a Replace on no field that hears changes: {target:?}");
+                    };
+                    (*handler, *generation, value.clone(), tokens.to_vec())
+                });
+            if generation != *held {
+                continue;
+            }
+            let held = *held;
+            let since: Vec<wire::Edit> = self
+                .edits
+                .iter()
+                .filter(|(at, _)| *at > revision)
+                .map(|(_, edit)| *edit)
+                .collect();
+            let rebased = wire::rebase(range, text.len(), cursor, since);
+            let range = rebased.range.range();
+            let replacement = rebased.replacement(value, &text);
+            let delta = replacement.len() as i64 - range.len() as i64;
+            // the engine's spans: one an edit touches goes, one after it moves
+            tokens.retain(|token| {
+                token.range.end as usize <= range.start || token.range.start as usize >= range.end
+            });
+            for token in tokens.iter_mut() {
+                if token.range.start as usize >= range.end {
+                    token.range.start = (token.range.start as i64 + delta) as u32;
+                    token.range.end = (token.range.end as i64 + delta) as u32;
+                }
+            }
+            // one span only when the replacement is the guest's text alone
+            if let Some(id) = token.filter(|_| replacement == text) {
+                tokens.push(wire::TextToken {
+                    range: wire::TextRange::from(range.start..range.start + text.len()),
+                    id,
+                });
+                tokens.sort_by_key(|token| token.range.start);
+            }
+            value.replace_range(range.clone(), &replacement);
+            let caret = (rebased.cursor.start as usize).min(value.len());
+            let edit = wire::Edit {
+                range: range.into(),
+                len: replacement.len() as u32,
+            };
+            let change = self.text_change(held, Some(edit), value.clone(), caret, tokens.clone());
+            events.push(Event::Text {
+                handler: *handler,
+                change,
+            });
+        }
+        events
+    }
+    /// The field with key or placeholder `name` is submitted (Enter).
     pub fn simulate_submit(&mut self, name: &str) {
-        let Some(Node::Input { on_submit, .. }) = self.input(name) else {
+        let Some(Node::Field { on_submit, .. }) = self.input(name) else {
             unreachable!()
         };
         let Some(message) = on_submit else {
@@ -752,39 +887,26 @@ impl TestAppContext {
         };
         self.run(vec![Event::A11yAction { handler, data }]);
     }
-    /// The host's editor `key` sends a document message.
-    pub fn simulate_editor_document(
-        &mut self,
-        key: &str,
-        message: wire::editor_document::EditorDocumentMessage,
-    ) {
-        let Node::Editor { on_document, .. } = self.node(key) else {
-            panic!("{key:?} is no editor");
-        };
-        let handler = *on_document;
-        self.run(vec![Event::EditorDocument { handler, message }]);
-    }
-    /// The host's editor `key` asks the view's binding about a key or an
-    /// interaction.
-    pub fn simulate_editor_request(&mut self, key: &str, request: wire::EditorRequest) {
-        let handler = self.binding(key).on_request;
-        self.run(vec![Event::EditorRequest { handler, request }]);
-    }
-    /// The host's editor `key` tells the view's binding how a transaction
-    /// went.
-    pub fn simulate_editor_transaction(&mut self, key: &str, event: wire::EditorTransactionEvent) {
-        let handler = self.binding(key).on_event;
-        self.run(vec![Event::EditorTransaction { handler, event }]);
-    }
-    fn binding(&self, key: &str) -> &wire::EditorBinding {
-        let Node::Editor {
-            binding: Some(binding),
+    /// A key the field `key` claimed goes down in it: the host hands it to
+    /// the view instead of editing.
+    pub fn simulate_field_key(&mut self, key: &str, keystroke: &str) {
+        let Node::Field {
+            on_key: Some(handler),
             ..
         } = self.node(key)
         else {
-            panic!("{key:?} is no editor with a binding");
+            panic!("{key:?} is no field that hears keys");
         };
-        binding
+        let event = Event::KeyDown {
+            handler: *handler,
+            phase: wire::DispatchPhase::Bubble,
+            event: wire::interactivity::KeyDown {
+                state: (&keystroke_of(keystroke)).into(),
+                repeat: false,
+                prefer_character_input: false,
+            },
+        };
+        self.run(vec![event]);
     }
     /// The host switches the theme.
     pub fn simulate_theme(&mut self, dark: bool) {

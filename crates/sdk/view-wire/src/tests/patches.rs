@@ -224,17 +224,11 @@ fn a_frame_past_the_text_budget_keeps_its_head_and_loses_its_tail() {
 }
 
 #[test]
-fn display_truncation_shortens_a_placeholder_and_never_a_document_reference() {
+fn display_truncation_shortens_a_placeholder_and_never_a_fields_text() {
     let long = "x".repeat(2 * MAX_TEXT_BYTES_PER_FRAME);
-    let document = document_reference(
-        "app:draft",
-        editor_document::MAX_EDITOR_DOCUMENT_BYTES as u32,
-    );
+    let value = "v".repeat(MAX_FIELD_BYTES);
     let mut frame = Frame {
-        root: Some(column(vec![
-            editor("App/e", &long, document.clone()),
-            text(&long),
-        ])),
+        root: Some(column(vec![field("App/e", &value, &long), text(&long)])),
         ..Frame::default()
     };
     assert_eq!(
@@ -246,9 +240,9 @@ fn display_truncation_shortens_a_placeholder_and_never_a_document_reference() {
     let Some(Node::Container(crate::ContainerNode { children, .. })) = &frame.root else {
         panic!()
     };
-    let Node::Editor {
+    let Node::Field {
         placeholder,
-        document: kept,
+        value: kept,
         ..
     } = &children[0]
     else {
@@ -256,62 +250,48 @@ fn display_truncation_shortens_a_placeholder_and_never_a_document_reference() {
     };
     assert!(
         placeholder.len() < long.len(),
-        "an editor placeholder is display text and spends the frame budget"
+        "a field's placeholder is display text and spends the frame budget"
     );
     assert_eq!(
-        kept, &document,
-        "a 1 MiB document crosses as an exact reference, not as truncated text"
+        kept, &value,
+        "a 1 MiB value crosses whole: the engine adopts it, nothing shapes it"
     );
 }
 
 #[test]
-fn repeated_editor_bindings_must_describe_one_identical_document() {
-    let document = document_reference("app:draft", 32);
-    let mut agreeing = Frame {
-        root: Some(column(vec![
-            editor("App/one", "a", document.clone()),
-            editor("App/two", "b", document.clone()),
-        ])),
-        ..Frame::default()
-    };
-    assert_eq!(sanitize(&mut agreeing), Ok(SanitizeReport::default()));
-    // A distinct logical document is independent, even at the same state.
-    let mut independent = Frame {
-        root: Some(column(vec![
-            editor("App/one", "a", document.clone()),
-            editor("App/two", "b", document_reference("app:notes", 32)),
-        ])),
-        ..Frame::default()
-    };
-    assert_eq!(sanitize(&mut independent), Ok(SanitizeReport::default()));
-    let mut stale = document.clone();
-    stale.revision -= 1;
-    let mut conflicting = Frame {
-        root: Some(column(vec![
-            editor("App/one", "a", document),
-            editor("App/two", "b", stale),
-        ])),
-        ..Frame::default()
-    };
-    assert_eq!(
-        sanitize(&mut conflicting),
-        Err("invalid editor document references or budget")
-    );
-}
-
-#[test]
-fn a_document_projection_cannot_be_silently_removed_by_the_node_budget() {
-    let mut deep = editor("App/e", "notes", document_reference("app:draft", 8));
-    for _ in 0..MAX_DEPTH {
-        deep = column(vec![deep]);
-    }
+fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
+    let over = "x".repeat(MAX_FIELD_BYTES + 1);
     let mut frame = Frame {
-        root: Some(deep),
+        root: Some(column(vec![field("App/e", &over, "")])),
+        ..Frame::default()
+    };
+    assert_eq!(sanitize(&mut frame), Err("field text exceeds its cap"));
+    let mut node = field("App/e", "é", "");
+    let Node::Field { cursor, .. } = &mut node else {
+        unreachable!()
+    };
+    *cursor = TextRange::caret(1);
+    let mut frame = Frame {
+        root: Some(column(vec![node.clone()])),
+        ..Frame::default()
+    };
+    assert_eq!(sanitize(&mut frame), Err("field cursor is off its text"));
+    let Node::Field { claims, cursor, .. } = &mut node else {
+        unreachable!()
+    };
+    *cursor = TextRange::caret(2);
+    *claims = Box::new([KeyClaim {
+        key: keyboard::Key::Named(keyboard::Named::Backspace),
+        modifiers: Default::default(),
+        command: false,
+    }]);
+    let mut frame = Frame {
+        root: Some(column(vec![node])),
         ..Frame::default()
     };
     assert_eq!(
         sanitize(&mut frame),
-        Err("frame budget would remove an editor document projection")
+        Err("field claims a key the engine owns")
     );
 }
 
@@ -319,56 +299,41 @@ fn a_document_projection_cannot_be_silently_removed_by_the_node_budget() {
 fn every_shaped_string_spends_the_same_budget() {
     let long = "x".repeat(MAX_TEXT_BYTES_PER_FRAME);
     let children = sanitized_children(column(vec![
-        Node::Input {
-            options: Default::default(),
-            id: ElementIdWire::Name("App/i".into()),
-            placeholder: long.clone(),
-            value: long.clone(),
-            on_input: Some(0),
-            on_submit: None,
-            secure: false,
-            style: gpui::StyleRefinement::default(),
-        },
-        Node::Editor {
-            binding: None,
-            id: ElementIdWire::Name("App/e".into()),
-            style: gpui::StyleRefinement::default(),
-            placeholder: long.clone(),
-            label: Some("Details".into()),
-            document: document_reference("app:draft", 0),
-            on_document: 1,
-            editable: true,
+        {
+            let mut details = field("App/e", &long, &long);
+            let Node::Field { options, .. } = &mut details else {
+                unreachable!()
+            };
+            options.label = "Details".into();
+            details
         },
         Node::Overlay {
             id: ElementIdWire::Name("App/o".into()),
-            label: Some(long),
+            label: Some(long.clone()),
             style: gpui::StyleRefinement::default(),
             on_dismiss: None,
             children: vec![text("tail")],
         },
     ]));
-    let Node::Input {
-        placeholder, value, ..
+    let Node::Field {
+        placeholder,
+        value,
+        options,
+        ..
     } = &children[0]
     else {
         panic!()
     };
     // The placeholder took the frame's whole budget and everything
-    // shaped after it came out empty. The accessible name is not shaped,
-    // so it answers to the per-string cap alone.
+    // shaped after it came out empty. The value is not shaped, so it is
+    // whole; the accessible name is not shaped either, so it answers to
+    // the per-string cap alone.
     assert_eq!(placeholder.len(), MAX_TEXT_BYTES_PER_FRAME);
-    assert!(value.is_empty());
-    let Node::Editor {
-        placeholder, label, ..
-    } = &children[1]
-    else {
-        panic!()
-    };
-    assert!(placeholder.is_empty());
-    assert_eq!(label.as_deref(), Some(""));
+    assert_eq!(value.len(), long.len());
+    assert_eq!(options.label, "");
     let Node::Overlay {
         label, children, ..
-    } = &children[2]
+    } = &children[1]
     else {
         panic!()
     };

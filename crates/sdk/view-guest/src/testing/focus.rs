@@ -42,7 +42,7 @@ impl Focus {
 
     /// Where a widget command the view sent moves focus, if it does, by
     /// the host's rules: a `Focus` names one node by its whole path and
-    /// must be a container, an input or an editor; `FocusNext` and
+    /// must be a container or a field; `FocusNext` and
     /// `FocusPrevious` move as Tab and Shift-Tab do ([`tab`]). A focus the
     /// host refuses fails the test.
     pub(super) fn moved_by(
@@ -71,10 +71,9 @@ impl Focus {
                 assert!(
                     matches!(
                         chain.last().unwrap(),
-                        Node::Container(_) | Node::Input { .. } | Node::Editor { .. }
+                        Node::Container(_) | Node::Field { .. }
                     ),
-                    "the host refuses to focus {target:?}: it focuses a container, an input or \
-                     an editor"
+                    "the host refuses to focus {target:?}: it focuses a container or a field"
                 );
                 Some(focus)
             }
@@ -92,7 +91,7 @@ impl Focus {
 /// Whether a person can put the keyboard on `node`: by click or Tab.
 pub(super) fn holds_focus(node: &Node) -> bool {
     match node {
-        Node::Input { .. } | Node::Editor { .. } => true,
+        Node::Field { .. } => true,
         _ => node.interactivity().is_some_and(|interactivity| {
             interactivity.focusable || interactivity.focus_handle.is_some()
         }),
@@ -102,7 +101,7 @@ pub(super) fn holds_focus(node: &Node) -> bool {
 /// Whether Tab stops at `node`.
 fn tab_stop(node: &Node) -> bool {
     match node {
-        Node::Input { .. } | Node::Editor { .. } => true,
+        Node::Field { .. } => true,
         _ => node.interactivity().is_some_and(|interactivity| {
             interactivity
                 .tab_stop

@@ -1,83 +1,60 @@
-//! Guest-owned composer projection and its GPUI presentation.
+//! The composer as drawn: the mention menu, the host's text area, a note,
+//! the Restore banner and the toolbar. Every press and key goes through
+//! [`Draft::handle`], which asks the host for the edits.
 
-use super::{Draft, MentionChoice};
-use crate::context::Callback;
+use super::{Draft, MentionChoice, matching_choices};
 use crate::prelude::*;
-use crate::{
-    App, EditorDocumentUpdate, EditorElement, EditorElementEvent, EditorTransaction, View, wire,
-};
+use crate::{App, View, wire};
 use std::rc::Rc;
 
-mod editor;
-use editor::{editor, matching_choices};
-
+/// What the composer hears: the host's text moved, a key it claimed went
+/// down, or a control was pressed (`bold`, `italic`, `code`, `quote`,
+/// `send`, `restore`, `mention:<token>`).
 #[derive(Clone, Debug)]
-pub struct Change {
-    pub before: String,
-    pub after: String,
-    pub cursor: wire::EditorCursor,
-    pub tag: String,
-}
-
-pub enum Event<V> {
-    Document(EditorDocumentUpdate),
-    Transaction(EditorTransaction<V>),
-    Committed(Change),
+pub enum Event {
+    Changed(wire::TextChange),
+    Key(wire::keyboard::KeyState, bool),
     Action(String),
 }
 
-impl<V> Clone for Event<V> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Document(update) => Self::Document(update.clone()),
-            Self::Transaction(transaction) => Self::Transaction(transaction.clone()),
-            Self::Committed(change) => Self::Committed(change.clone()),
-            Self::Action(action) => Self::Action(action.clone()),
-        }
-    }
-}
-
-pub enum Outcome<V> {
+/// What the view does after the draft handled an event: nothing more, or
+/// the send the draft put in `submitted`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
     Updated,
-    Run(Callback<V>),
     Action(String),
-    Enqueue(String),
 }
 
-pub type Handle<V> = Rc<dyn Fn(&mut V, Event<V>, &mut Window, &mut Context<V>)>;
+pub type Handle<V> = Rc<dyn Fn(&mut V, Event, &mut Window, &mut Context<V>)>;
 /// A press on a composer control.
 pub type Click = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 impl Draft {
-    pub fn handle<V: 'static>(
+    /// Runs `event` on the draft under the composer `key`, asking the host
+    /// for the edits it needs through `window`.
+    pub fn handle(
         &mut self,
-        event: Event<V>,
+        event: Event,
+        key: &str,
         choices: &[MentionChoice],
-        cx: &mut App,
-    ) -> Outcome<V> {
-        match event {
-            Event::Document(update) => {
-                update.apply(&mut self.editor, cx);
-                Outcome::Updated
+        window: &mut Window,
+    ) -> Outcome {
+        let tag = match event {
+            Event::Changed(change) => {
+                self.changed(&change);
+                return Outcome::Updated;
             }
-            Event::Transaction(transaction) => transaction
-                .apply(&mut self.editor, cx)
-                .map_or(Outcome::Updated, Outcome::Run),
-            Event::Committed(change) => {
-                self.committed(
-                    &change.before,
-                    &change.after,
-                    change.cursor,
-                    &change.tag,
-                    choices,
-                );
-                match change.tag.as_str() {
-                    "send" | "paste" | "copy" | "cut" | "restore" => Outcome::Action(change.tag),
-                    _ => Outcome::Updated,
-                }
-            }
-            Event::Action(tag) => Outcome::Enqueue(tag),
+            Event::Key(key, repeat) => match self.key_tag(&key, repeat) {
+                Some(tag) => tag,
+                None => return Outcome::Updated,
+            },
+            Event::Action(tag) => tag,
+        };
+        let (edits, outcome) = self.act(&tag, &format!("{key}/editor"), choices);
+        for edit in edits {
+            window.dispatch(edit);
         }
+        outcome
     }
 }
 
@@ -226,8 +203,46 @@ fn press<V: View + 'static>(
     )))
 }
 
+/// The host's text area over the draft: what it shows, what it claims.
+fn editor<V: View + 'static>(
+    draft: &Draft,
+    key: &str,
+    label: &str,
+    placeholder: &str,
+    editable: bool,
+    handle: &Handle<V>,
+    cx: &Context<V>,
+) -> Textarea {
+    let changed = handle.clone();
+    let keyed = handle.clone();
+    let mut area = Textarea::new(ElementId::Name(key.to_owned().into()), &draft.field, label)
+        .placeholder(placeholder)
+        .read_only(!editable)
+        .on_change(
+            cx.listener(move |view, change: &wire::TextChange, window, cx| {
+                changed(view, Event::Changed(change.clone()), window, cx);
+                cx.notify();
+            }),
+        );
+    if editable {
+        area = area.claims(draft.claims()).on_key(cx.listener(
+            move |view, key: &KeyDownEvent, window, cx| {
+                let state = wire::keyboard::KeyState::from(&key.keystroke);
+                keyed(view, Event::Key(state, key.is_held), window, cx);
+                cx.notify();
+            },
+        ));
+    }
+    area.w_full()
+        .min_h(px(40.))
+        .max_h(px(200.))
+        .p(crate::design::space::MD)
+        .text_size(crate::design::text::BODY)
+        .whitespace_normal()
+}
+
 #[allow(clippy::too_many_arguments)]
-pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context<V>) + 'static>(
+pub fn view<V: View + 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'static>(
     draft: &Draft,
     key: &str,
     // what the field is, for assistive technology ("New message"); the
@@ -247,19 +262,10 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
 ) -> impl IntoElement + use<V, F> {
     let handle: Handle<V> = Rc::new(handle);
     let editor_id = super::editor_id(key);
-    let editor = editor(
-        draft,
-        &editor_id,
-        key,
-        label,
-        hint,
-        editable,
-        choices,
-        handle.clone(),
-    );
+    let editor = editor(draft, &editor_id, label, hint, editable, &handle, cx);
     let mut rows: Vec<AnyElement> = Vec::new();
 
-    if let Some((_, partial)) = draft.query(draft.editor.state_view()) {
+    if let Some((_, partial)) = draft.query() {
         let matches = matching_choices(choices, &partial);
         let selected = draft.menu_index.min(matches.len().saturating_sub(1));
         let menu = matches
@@ -347,7 +353,7 @@ pub fn view<V: View + 'static, F: Fn(&mut V, Event<V>, &mut Window, &mut Context
             on_click: press(editable, tag.into(), &editor_id, &handle, cx),
         });
     }
-    let sendable = editable && draft.can_send(draft.editor.state_view().text);
+    let sendable = editable && draft.can_send();
     toolbar = toolbar.child(div().flex_1());
     if let Some(cancel) = cancel {
         toolbar = toolbar.child(ActionButton {

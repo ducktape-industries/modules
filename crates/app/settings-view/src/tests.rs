@@ -501,7 +501,7 @@ fn create_account_disables_controls_while_busy() {
     };
     assert_eq!(interactivity.aria.disabled, Some(true));
     assert!(interactivity.on_click.is_none());
-    let Some(wire::Node::Input { options, .. }) = cx.find("settings/account/create/name") else {
+    let Some(wire::Node::Field { options, .. }) = cx.find("settings/account/create/name") else {
         panic!("settings/account/create/name input")
     };
     assert!(options.disabled);
@@ -511,7 +511,7 @@ fn create_account_disables_controls_while_busy() {
 #[test]
 fn a_field_is_named_apart_from_its_hint() {
     fn named(cx: &TestAppContext, key: &str) -> (String, String) {
-        let Some(wire::Node::Input {
+        let Some(wire::Node::Field {
             options,
             placeholder,
             ..
@@ -635,7 +635,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     assert!(cx.find("settings/agents/12/name").is_none());
     cx.simulate_click("settings/agents/12/rename");
     cx.run_until_parked();
-    let Some(wire::Node::Input { value, .. }) = cx.find("settings/agents/12/name") else {
+    let Some(wire::Node::Field { value, .. }) = cx.find("settings/agents/12/name") else {
         panic!("the rename field")
     };
     assert_eq!(value, "Scout");

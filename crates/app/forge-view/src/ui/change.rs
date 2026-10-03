@@ -4,7 +4,7 @@
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    AnchoredPositionMode, Div, Editor, EditorElement, FontWeight, MouseDownEvent, Point, Stateful,
+    AnchoredPositionMode, Div, FontWeight, MouseDownEvent, Point, Stateful, TextField, wire,
 };
 
 use crate::Forge;
@@ -641,12 +641,6 @@ fn finish_panel(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
-    // a document per change: the host keeps a document by its name, and
-    // one name across changes would carry one change's body into another's
-    let document = format!(
-        "forge-review-body-{}",
-        forge.review_key().unwrap_or_default()
-    );
     let fold = cx.listener(|forge, _: &MouseDownEvent, _, cx| forge.finishing(false, cx));
     let verdict = review.verdict.unwrap_or(Verdict::Comment);
     let submit = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.finish_review(verdict, cx));
@@ -668,7 +662,7 @@ fn finish_panel(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Finish your review"),
         )
-        .child(review_body(&review.body, document, theme))
+        .child(review_body(&review.body, cx, theme))
         .child(verdicts(forge, verdict, cx, theme))
         .child(
             div().flex().justify_end().child(
@@ -696,22 +690,26 @@ fn finish_panel(
 }
 
 /// What the review says overall, typed while finishing.
-fn review_body(body: &Editor, document: String, theme: &Theme) -> impl IntoElement + use<> {
-    EditorElement::plain(
-        id("forge-review-body"),
-        body,
-        document,
-        |forge: &mut Forge| forge.review_mut().map(|review| &mut review.body),
-        "Review body",
-    )
-    .min_h(design::size::CONTROL * 2.5)
-    .w_full()
-    .px_2()
-    .border_1()
-    .border_color(theme.border_strong)
-    .bg(theme.background)
-    .text_color(theme.foreground)
-    .placeholder("What this review says overall")
+fn review_body(
+    body: &TextField,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> impl IntoElement + use<> {
+    Textarea::new(id("forge-review-body"), body, "Review body")
+        .on_change(cx.listener(|forge, change: &wire::TextChange, _, cx| {
+            if let Some(review) = forge.review_mut() {
+                review.body.apply(change);
+            }
+            cx.notify();
+        }))
+        .min_h(design::size::CONTROL * 2.5)
+        .w_full()
+        .px_2()
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .text_color(theme.foreground)
+        .placeholder("What this review says overall")
 }
 
 /// The three verdicts as radio rows, each with what it means.

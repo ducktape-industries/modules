@@ -207,20 +207,29 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             assert!(*priority <= 16);
             check_bounds(content, depth + 1, svg_bytes, ctx);
         }
-        Node::Input {
+        Node::Field {
             id,
             options,
             placeholder,
             value,
+            cursor,
+            tokens,
+            claims,
             ..
         } => {
-            assert!(id.validate_host().is_ok(), "{ctx}: invalid input identity");
+            assert!(id.validate_host().is_ok(), "{ctx}: invalid field identity");
             check_string(placeholder, ctx, "placeholder");
-            check_string(value, ctx, "input value");
-            check_string(&options.label, ctx, "input label");
+            check_string(&options.label, ctx, "field label");
             if let Some(value) = &options.description {
-                check_string(value, ctx, "input description");
+                check_string(value, ctx, "field description");
             }
+            // The value is the engine's: sanitize keeps a valid one whole,
+            // and never spends the display budget on it.
+            assert_eq!(
+                view_wire::validate_field(value, *cursor, tokens, claims),
+                Ok(()),
+                "{ctx}: sanitize kept an invalid field"
+            );
         }
         Node::Space { style } => check_native_style(style),
         Node::Overlay {
@@ -241,39 +250,21 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
                 "{ctx}: canvas command budget"
             );
         }
-        Node::Editor {
-            placeholder,
-            label,
-            document,
-            ..
-        } => {
-            if let Some(label) = label {
-                check_string(label, ctx, "accessible label");
-            }
-            check_string(placeholder, ctx, "editor placeholder");
-            // A document is metadata: sanitize keeps a valid reference whole,
-            // and never spends the display budget on the bytes it names.
-            assert_eq!(
-                document.validate(),
-                Ok(()),
-                "{ctx}: sanitize kept an invalid editor document reference"
-            );
-        }
     }
 }
 
-/// Every editor document reference in the tree, in one fixed walk order, so
-/// the same tree before and after `sanitize` compares element for element.
-pub(super) fn document_refs(root: &Node) -> Vec<editor_document::EditorDocumentRef> {
+/// Every field's text in the tree, in one fixed walk order, so the same
+/// tree before and after `sanitize` compares element for element.
+pub(super) fn field_texts(root: &Node) -> Vec<String> {
     let mut pending = vec![root];
-    let mut references = Vec::new();
+    let mut texts = Vec::new();
     while let Some(node) = pending.pop() {
-        if let Node::Editor { document, .. } = node {
-            references.push(document.clone());
+        if let Node::Field { value, .. } = node {
+            texts.push(value.clone());
         }
         pending.extend(node.children());
     }
-    references
+    texts
 }
 
 /// Every post-condition `sanitize` promises about a whole frame: the tree's

@@ -347,13 +347,16 @@ fn a_field_is_named_apart_from_its_hint() {
         ("draft-general/editor", "New message", "Message #General"),
         ("draft-general-1/editor", "Reply", "Reply in thread"),
     ] {
-        let Some(wire::Node::Editor {
-            label, placeholder, ..
+        let Some(wire::Node::Field {
+            options,
+            placeholder,
+            multiline: true,
+            ..
         }) = cx.find(key)
         else {
             panic!("no field {key}");
         };
-        assert_eq!((label.as_deref(), placeholder.as_str()), (Some(name), hint));
+        assert_eq!((options.label.as_str(), placeholder.as_str()), (name, hint));
     }
 }
 
@@ -363,7 +366,7 @@ fn a_field_is_named_apart_from_its_hint() {
 fn a_text_field_is_named_apart_from_its_hint() {
     let (mut cx, view) = opened();
     let named = |cx: &TestAppContext, key: &str| {
-        let Some(wire::Node::Input {
+        let Some(wire::Node::Field {
             options,
             placeholder,
             ..

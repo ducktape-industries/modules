@@ -1,6 +1,6 @@
 //! State stored by the root view and its panes.
 use chat::{ChannelInfo, MemberRow, MsgRow};
-use ducktape_view_guest::Loadable;
+use ducktape_view_guest::{Loadable, TextField};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -120,7 +120,7 @@ pub struct Thread {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Search {
-    pub(crate) draft: String,
+    pub(crate) draft: TextField,
     /// the query the hits answer; "" while no search stands
     pub(crate) query: String,
     pub(crate) hits: Loadable<Hits>,
@@ -138,7 +138,7 @@ pub struct Hits {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct ChannelCreate {
-    pub(crate) name: String,
+    pub(crate) name: TextField,
     pub(crate) members_only: bool,
     pub(crate) error: String,
     #[serde(skip)]
@@ -147,8 +147,8 @@ pub struct ChannelCreate {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Details {
-    pub(crate) name_draft: String,
-    pub(crate) member_draft: String,
+    pub(crate) name_draft: TextField,
+    pub(crate) member_draft: TextField,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -328,7 +328,7 @@ impl Chat {
 /// cell the arrows are on in one of its grids (the grid's id, the cell).
 #[derive(Default, Debug)]
 pub struct Picker {
-    pub(crate) query: String,
+    pub(crate) query: TextField,
     pub(crate) tab: usize,
     pub(crate) cursor: Option<(&'static str, usize)>,
 }

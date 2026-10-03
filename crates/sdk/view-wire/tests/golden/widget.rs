@@ -33,9 +33,14 @@ fn every_atom_child() -> Vec<ElementIdWire> {
 pub fn every_widget_command() -> Vec<WidgetCommand> {
     let target = |name: &str| vec![id(name)];
     vec![
-        WidgetCommand::EditorAction {
-            target: target("editor"),
-            tag: "send".into(),
+        WidgetCommand::Replace {
+            target: target("field"),
+            generation: 2,
+            revision: 4,
+            range: TextRange { start: 0, end: 5 },
+            text: "@alice".into(),
+            token: Some("<@1>".into()),
+            cursor: TextRange { start: 6, end: 6 },
         },
         WidgetCommand::FocusPrevious,
         WidgetCommand::FocusNext,
@@ -44,20 +49,20 @@ pub fn every_widget_command() -> Vec<WidgetCommand> {
         },
         WidgetCommand::FocusHandle { handle: 7 },
         WidgetCommand::CursorFront {
-            target: target("editor"),
+            target: target("field"),
         },
         WidgetCommand::CursorEnd {
-            target: target("editor"),
+            target: target("field"),
         },
         WidgetCommand::Cursor {
-            target: target("editor"),
+            target: target("field"),
             position: 3,
         },
         WidgetCommand::SelectAll {
-            target: target("editor"),
+            target: target("field"),
         },
         WidgetCommand::Select {
-            target: target("editor"),
+            target: target("field"),
             start: 0,
             end: 3,
         },

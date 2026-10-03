@@ -67,7 +67,7 @@ impl Forge {
                 head,
                 allow_force,
                 allow_delete,
-                grant: String::new(),
+                grant: Default::default(),
             });
         }
         self.moved(cx);
@@ -201,7 +201,7 @@ impl Forge {
         self.nav.diff_path = None;
         self.nav.dock = None;
         self.closing = None;
-        self.reply.replace(Default::default());
+        self.reply.reset("");
         self.moved(cx);
     }
 

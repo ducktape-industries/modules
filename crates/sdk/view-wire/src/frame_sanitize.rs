@@ -12,8 +12,10 @@ pub const MAX_NODES: usize = 8_192;
 /// The longest string a single node may carry (text, placeholder, key).
 pub const MAX_STRING_BYTES: usize = 64 << 10;
 /// The most SHAPED text one frame may carry in total — every [`Node::Text`]
-/// content, input or editor value and placeholder, and plain button label
-/// together.
+/// content, field placeholder and label, and plain button label together.
+/// A field's `value` is the host engine's copy to adopt, bounded by
+/// [`MAX_FIELD_BYTES`](crate::MAX_FIELD_BYTES) alone, and never shaped from
+/// the frame.
 ///
 /// The per-string and per-node caps do not bound this: 128 strings of
 /// [`MAX_STRING_BYTES`] are a legal 8 MiB frame, and the host reshapes all
@@ -86,35 +88,24 @@ pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, &'static str> {
     Ok(report)
 }
 
-// Sanitization may shorten display text, but never an authoritative document.
-pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> {
+/// How much display text the tree carries: what sanitization may shorten.
+pub(crate) fn text_amounts(root: &Node) -> usize {
     let mut pending = vec![root];
-    let mut references = Vec::new();
     let mut display = 0usize;
     while let Some(node) = pending.pop() {
         let mut add = |text: &str| display = display.saturating_add(text.len());
         match node {
             Node::Text(crate::TextNode { content, .. }) => add(content),
             Node::RichText { text, .. } => add(text),
-            Node::Input {
-                value,
+            Node::Field {
                 placeholder,
                 options,
                 ..
             } => {
-                add(value);
                 add(placeholder);
                 add(&options.label);
                 if let Some(description) = &options.description {
                     add(description);
-                }
-            }
-            Node::Editor {
-                placeholder, label, ..
-            } => {
-                add(placeholder);
-                if let Some(label) = label {
-                    add(label);
                 }
             }
             Node::Image { label, .. } | Node::Svg { label, .. } | Node::Overlay { label, .. } => {
@@ -124,14 +115,9 @@ pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> 
             }
             _ => {}
         }
-        if let Node::Editor { document, .. } = node {
-            references.push(document);
-        }
         pending.extend(node.children());
     }
-    editor_document::validate_editor_document_refs(references.iter().copied())
-        .map_err(|_| "invalid editor document references or budget")?;
-    Ok((references.len(), display))
+    display
 }
 
 pub(crate) fn sanitize_tree(root: &mut Node) -> Result<SanitizeReport, &'static str> {
@@ -142,17 +128,12 @@ fn sanitize_tree_with(
     root: &mut Node,
     budgets: &mut Budgets,
 ) -> Result<SanitizeReport, &'static str> {
-    let (documents, before) = text_amounts(root)?;
+    let before = text_amounts(root);
     let mut identity_scopes = vec![std::collections::HashSet::new()];
     let mut authored_path = Vec::new();
     sanitize_node(root, 0, budgets, &mut identity_scopes, &mut authored_path)?;
-
-    let (after_documents, after) = text_amounts(root)?;
-    if after_documents != documents {
-        return Err("frame budget would remove an editor document projection");
-    }
     Ok(SanitizeReport {
-        display_text_truncated: after < before,
+        display_text_truncated: text_amounts(root) < before,
     })
 }
 

@@ -221,7 +221,7 @@ fn an_emoji_search_shows_every_match() {
             mode: Mode::Reactions,
             at: (333., 222.),
         });
-        chat.picker.query = "c".into();
+        chat.picker.query.reset("c");
         cx.notify();
     });
     cx.run_until_parked();

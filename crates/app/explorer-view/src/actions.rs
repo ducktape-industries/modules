@@ -28,14 +28,14 @@ impl Explorer {
         self.cursor = None;
         // the field holds only what is being typed: a search that lands, a
         // tab, prev/next and a row all leave it empty
-        self.search.clear();
+        self.search.reset("");
         cx.notify();
     }
 
     /// A height, a block or transaction hash, an account (`#3` or a name)
     /// or a program name.
     pub(crate) fn search(&mut self, cx: &mut Context<Self>) {
-        let query = self.search.trim().to_string();
+        let query = self.search.text.trim().to_string();
         self.note = None;
         if query.is_empty() {
             return;

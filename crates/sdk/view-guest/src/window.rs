@@ -64,7 +64,7 @@ fn target_mut(command: &mut wire::WidgetCommand) -> Option<&mut wire::WidgetTarg
     use wire::WidgetCommand as C;
     match command {
         C::FocusPrevious | C::FocusNext | C::FocusHandle { .. } => None,
-        C::EditorAction { target, .. }
+        C::Replace { target, .. }
         | C::Focus { target }
         | C::CursorFront { target }
         | C::CursorEnd { target }
@@ -157,7 +157,7 @@ mod tests {
     impl Render for WidgetView {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl crate::IntoElement {
             Input::new(ElementId::Name("App/draft".into()), "Draft")
-                .on_input(cx.listener(|_, _: &String, _, _| {}))
+                .on_change(cx.listener(|_, _: &wire::TextChange, _, _| {}))
         }
     }
 
@@ -249,11 +249,7 @@ mod tests {
     impl Render for TwoForms {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
             use crate::{InteractiveElement, ParentElement, StatefulInteractiveElement, div};
-            let form = |id: &'static str| {
-                div()
-                    .id(id)
-                    .child(Input::new("input", id).on_input(|_: &String, _, _| {}))
-            };
+            let form = |id: &'static str| div().id(id).child(Input::new("input", id));
             let press = |id: &'static str, focus: fn(&mut Window)| {
                 div()
                     .id(id)

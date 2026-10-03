@@ -75,7 +75,7 @@ pub enum FaultKind {
 /// aux click, a mouse down or a key, is `focusable`, or advertises
 /// `aria.actions` (what AT can press or focus: a hover, a move or a wheel
 /// alone is the pointer's); and
-/// every [`Node::Input`], [`Node::Editor`] and [`Node::RichText`] with a
+/// every [`Node::Field`] and [`Node::RichText`] with a
 /// clickable range. **Named**: a non-blank `aria.label`, else a container's
 /// descendant text, a picture's or overlay's `label`, a field's label; all
 /// trimmed. A role is what the host keeps of it: the sanitizer drops
@@ -260,11 +260,9 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
         Unnamed,
         || name().is_none(),
     );
-    rules.check(
-        matches!(node, Node::Input { .. } | Node::Editor { .. }),
-        UnlabeledInput,
-        || name().is_none(),
-    );
+    rules.check(matches!(node, Node::Field { .. }), UnlabeledInput, || {
+        name().is_none()
+    });
     rules.check(interactive && name().is_some(), GlyphName, || {
         let name = name().unwrap_or_default();
         !name.chars().any(char::is_alphanumeric)
@@ -359,7 +357,7 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
         });
     }
     rules.check(duplicate, DuplicateKey, || true);
-    if let Node::Input { options, .. } = node {
+    if let Node::Field { options, .. } = node {
         rules.check(options.invalid.is_some(), ErrorNoText, || {
             blank(options.description.as_deref())
         });
@@ -384,7 +382,7 @@ fn interactivity(node: &Node) -> Option<&Interactivity> {
 
 fn interactive(node: &Node) -> bool {
     match node {
-        Node::Input { .. } | Node::Editor { .. } => true,
+        Node::Field { .. } => true,
         Node::RichText {
             clickable_ranges, ..
         } => !clickable_ranges.is_empty(),
@@ -416,11 +414,10 @@ fn name_of(node: &Node) -> Option<String> {
     }
     let own = match node {
         Node::Container(_) => None,
-        Node::Image { label, .. }
-        | Node::Svg { label, .. }
-        | Node::Overlay { label, .. }
-        | Node::Editor { label, .. } => label.as_deref().and_then(trimmed),
-        Node::Input { options, .. } => trimmed(&options.label),
+        Node::Image { label, .. } | Node::Svg { label, .. } | Node::Overlay { label, .. } => {
+            label.as_deref().and_then(trimmed)
+        }
+        Node::Field { options, .. } => trimmed(&options.label),
         _ => None,
     };
     interactivity(node)

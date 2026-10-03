@@ -2,7 +2,9 @@
 
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{AnyElement, ClickEvent, Context, ParentElement, Styled, Theme, div, px};
+use ducktape_view_guest::{
+    AnyElement, ClickEvent, Context, ParentElement, Styled, Theme, div, px, wire,
+};
 
 use crate::{ChannelCreate, Chat};
 
@@ -71,9 +73,9 @@ fn name_field(
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> Input {
-    let typed = cx.listener(|chat, event: &String, _window, cx| {
+    let typed = cx.listener(|chat, change: &wire::TextChange, _window, cx| {
         if let Some(create) = &mut chat.create {
-            create.name = event.clone();
+            create.name.apply(change);
         }
         cx.notify();
     });
@@ -84,10 +86,10 @@ fn name_field(
         .border_1()
         .border_color(theme.border_strong)
         .bg(theme.surface)
-        .value(create.name.clone())
+        .value(&create.name)
         .placeholder("Channel name")
         .disabled(create.busy)
-        .on_input(typed);
+        .on_change(typed);
     match can_submit {
         true => name.on_submit(cx.listener(|chat, _: &(), _window, cx| {
             cx.notify();

@@ -3,7 +3,7 @@
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use ducktape_view_guest::{Div, FontWeight, Stateful, wire};
 
 use crate::decode::{ago, clip, date, grouped, plural, short};
 use crate::{BlockRow, Explorer, Note, Route, TxRow};
@@ -141,8 +141,8 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         ("accounts", "Accounts", Route::Accounts),
         ("programs", "Programs", Route::Programs),
     ];
-    let typed = cx.listener(|view: &mut Explorer, text: &String, _, cx| {
-        view.search = text.clone();
+    let typed = cx.listener(|view: &mut Explorer, change: &wire::TextChange, _, cx| {
+        view.search.apply(change);
         cx.notify();
     });
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
@@ -213,9 +213,9 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
                         .border_color(theme.border)
                         .bg(theme.background)
                         .text_size(design::text::SECONDARY)
-                        .value(view.search.clone())
+                        .value(&view.search)
                         .placeholder("Search by height, hash, account or program")
-                        .on_input(typed)
+                        .on_change(typed)
                         .on_submit(submit),
                 ),
         )

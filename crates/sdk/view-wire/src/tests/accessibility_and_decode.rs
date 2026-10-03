@@ -90,8 +90,6 @@ fn more_nodes_than_the_host_holds_is_refused() {
 fn bytes_a_hostile_guest_could_write_are_answered_not_survived() {
     let sound = encode(&Frame {
         upstream_sanitization: Default::default(),
-        editor_decisions: Vec::new(),
-        editor_documents: Vec::new(),
         tooltip_responses: Vec::new(),
         root: Some(column(vec![text("hello"), Node::empty()])),
         requests: vec![Request {

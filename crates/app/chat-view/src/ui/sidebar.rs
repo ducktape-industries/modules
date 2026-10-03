@@ -4,7 +4,7 @@ use ducktape_view_guest::AnyElement;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    ClickEvent, Context, ElementId, ParentElement, Role, Styled, Theme, div, px,
+    ClickEvent, Context, ElementId, ParentElement, Role, Styled, Theme, div, px, wire,
 };
 
 use chat::{ChannelInfo, Principal};
@@ -35,8 +35,8 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
 
 /// The message search field, and its clear button once it holds a search.
 fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
-    let typed = cx.listener(|chat, event: &String, _window, cx| {
-        chat.search.draft = event.clone();
+    let typed = cx.listener(|chat, change: &wire::TextChange, _window, cx| {
+        chat.search.draft.apply(change);
         cx.notify();
     });
     let submit = cx.listener(|chat, _: &(), _window, cx| {
@@ -52,11 +52,11 @@ fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         .border_color(theme.sidebar_border)
         .bg(theme.sidebar_raised)
         .text_color(theme.sidebar_foreground)
-        .value(chat.search.draft.clone())
+        .value(&chat.search.draft)
         .placeholder("Search messages…")
-        .on_input(typed)
+        .on_change(typed)
         .on_submit(submit);
-    let searching = !chat.search.query.is_empty() || !chat.search.draft.trim().is_empty();
+    let searching = !chat.search.query.is_empty() || !chat.search.draft.is_blank();
     let clear = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.search_clear();
         cx.notify();

@@ -395,8 +395,8 @@ fn tab_stays_in_an_open_dialog() {
 }
 
 /// Three buttons; the first moves the keyboard on as Tab does, and a list
-/// that asks for the keys by id is refused: the host focuses a container,
-/// an input or an editor.
+/// that asks for the keys by id is refused: the host focuses a container
+/// or a field.
 #[derive(Default, Serialize, Deserialize)]
 struct Moves;
 impl View for Moves {
@@ -437,7 +437,7 @@ fn focus_next_and_prev_move_as_tab_does() {
 }
 
 #[test]
-#[should_panic(expected = "it focuses a container, an input or an editor")]
+#[should_panic(expected = "it focuses a container or a field")]
 fn a_focus_on_a_uniform_list_is_refused() {
     let mut cx = TestAppContext::new();
     cx.open::<Moves>();

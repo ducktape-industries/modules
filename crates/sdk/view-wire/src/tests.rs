@@ -9,27 +9,23 @@ fn text(content: &str) -> Node {
     })
 }
 
-fn document_reference(document: &str, byte_len: u32) -> editor_document::EditorDocumentRef {
-    editor_document::EditorDocumentRef {
-        document: document.into(),
-        reset: 3,
-        text_revision: 5,
-        revision: 7,
-        cursor: EditorCursor::default(),
-        byte_len,
-    }
-}
-
-fn editor(key: &str, placeholder: &str, document: editor_document::EditorDocumentRef) -> Node {
-    Node::Editor {
-        binding: None,
+fn field(key: &str, value: &str, placeholder: &str) -> Node {
+    Node::Field {
         id: ElementIdWire::Name(key.into()),
-        style: gpui::StyleRefinement::default(),
+        multiline: true,
+        value: value.into(),
+        cursor: TextRange::caret(value.len()),
+        generation: 0,
+        revision: 0,
+        tokens: Default::default(),
+        claims: Default::default(),
+        options: Default::default(),
         placeholder: placeholder.into(),
-        label: None,
-        document,
-        on_document: 1,
-        editable: true,
+        secure: false,
+        on_change: Some(0),
+        on_key: None,
+        on_submit: None,
+        style: gpui::StyleRefinement::default(),
     }
 }
 

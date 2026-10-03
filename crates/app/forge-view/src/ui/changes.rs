@@ -2,7 +2,7 @@
 //! the form that opens or edits one.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, EditorElement};
+use ducktape_view_guest::{Div, wire};
 
 use crate::Forge;
 use crate::state::{ChangeForm, Filter};
@@ -52,7 +52,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             .collect(),
         _ => Vec::new(),
     };
-    let needle = forge.change_search.trim().to_lowercase();
+    let needle = forge.change_search.text.trim().to_lowercase();
     let shown: Vec<&(ChangeSummary, Option<&Judgment>)> = rows
         .iter()
         .filter(|(summary, _)| needle.is_empty() || summary.title.to_lowercase().contains(&needle))
@@ -256,8 +256,8 @@ fn verdicts(counts: &ReviewCounts, n: u64, theme: &Theme) -> AnyElement {
 /// The state as one segmented choice (Open with its count), the lists
 /// about me as quiet buttons, and the title search on the right.
 fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let typed = cx.listener(|forge, text: &String, _, cx| {
-        forge.change_search = text.clone();
+    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
+        forge.change_search.apply(change);
         cx.notify();
     });
     const STATES: [Filter; 3] = [Filter::Open, Filter::Merged, Filter::Closed];
@@ -315,9 +315,9 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .value(forge.change_search.clone())
+                .value(&forge.change_search)
                 .placeholder("Search titles")
-                .on_input(typed),
+                .on_change(typed),
         ),
     )
     .into_any_element()
@@ -388,10 +388,16 @@ pub(crate) fn form(
 
 /// The draft's title and body fields.
 fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div {
-    let title = cx.listener(|forge, text: &String, _, cx| {
+    let title = cx.listener(|forge, change: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.form {
-            form.title = text.clone();
+            form.title.apply(change);
             form.error.clear();
+        }
+        cx.notify();
+    });
+    let body = cx.listener(|forge, change: &wire::TextChange, _, cx| {
+        if let Some(form) = &mut forge.form {
+            form.body.apply(change);
         }
         cx.notify();
     });
@@ -408,26 +414,21 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .value(form.title.clone())
+                .value(&form.title)
                 .placeholder("What this change does")
-                .on_input(title),
+                .on_change(title),
         )
         .child(
-            EditorElement::plain(
-                id("forge-change-body"),
-                &form.body,
-                "forge-change-body",
-                |forge: &mut Forge| forge.form.as_mut().map(|form| &mut form.body),
-                "Change body",
-            )
-            .min_h(design::size::CONTROL * 4.)
-            .w_full()
-            .px_2()
-            .border_1()
-            .border_color(theme.border_strong)
-            .bg(theme.background)
-            .text_color(theme.foreground)
-            .placeholder("Why it changes"),
+            Textarea::new(id("forge-change-body"), &form.body, "Change body")
+                .placeholder("Why it changes")
+                .on_change(body)
+                .min_h(design::size::CONTROL * 4.)
+                .w_full()
+                .px_2()
+                .border_1()
+                .border_color(theme.border_strong)
+                .bg(theme.background)
+                .text_color(theme.foreground),
         )
 }
 

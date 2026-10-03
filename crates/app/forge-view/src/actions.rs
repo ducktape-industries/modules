@@ -6,7 +6,7 @@
 //! into the lists — the next query reconciles them.
 use ducktape_view_guest::methods::HostId;
 use ducktape_view_guest::methods::Submit;
-use ducktape_view_guest::{Context, Editor, Window};
+use ducktape_view_guest::{Context, TextField, Window};
 
 use crate::api::SubmitForge;
 use crate::state::{ChangeForm, Forge, NewRepo, Pending, Progress, change_key};
@@ -82,7 +82,7 @@ impl Forge {
         let Some(form) = &mut self.new_repo else {
             return;
         };
-        let name = form.name.trim().to_owned();
+        let name = form.name.text.trim().to_owned();
         if !valid_repo_name(&name) {
             form.error = format!(
                 "A repository name is 1–{} bytes of letters, digits, dot, dash or underscore",
@@ -139,8 +139,8 @@ impl Forge {
                 Revision::Oid(oid) => oid.clone().into_bytes(),
             },
             into: change.into.clone(),
-            title: change.title.clone(),
-            body: Editor::new(change.body.clone()),
+            title: TextField::new(change.title.clone()),
+            body: TextField::new(change.body.clone()),
             reviewers: change.reviewers.clone(),
             error: String::new(),
         });
@@ -155,7 +155,7 @@ impl Forge {
     pub(crate) fn submit_change(&mut self, cx: &mut Context<Self>) {
         let repo = self.repo_name();
         let Some(form) = &mut self.form else { return };
-        if form.title.trim().is_empty() {
+        if form.title.is_blank() {
             form.error = "A change needs a title".into();
             cx.notify();
             return;
@@ -167,8 +167,8 @@ impl Forge {
                 Op::ChangeEdit {
                     repo: repo.clone(),
                     n,
-                    title: Some(form.title.clone()),
-                    body: Some(form.body.text()),
+                    title: Some(form.title.text.clone()),
+                    body: Some(form.body.text.clone()),
                     reviewers: Some(form.reviewers),
                 },
                 "Saving the change".to_owned(),
@@ -179,11 +179,11 @@ impl Forge {
                     repo,
                     from: Revision::Ref(form.from.clone()),
                     into: form.into.clone(),
-                    title: form.title.clone(),
-                    body: form.body.text(),
+                    title: form.title.text.clone(),
+                    body: form.body.text.clone(),
                     reviewers: form.reviewers.clone(),
                 },
-                format!("Opening “{}”", form.title.trim()),
+                format!("Opening “{}”", form.title.text.trim()),
                 "changes".to_owned(),
             ),
         };
@@ -292,7 +292,7 @@ impl Forge {
         let typed = self
             .repo_settings
             .as_ref()
-            .map(|form| form.grant.trim().to_owned())
+            .map(|form| form.grant.text.trim().to_owned())
             .unwrap_or_default();
         let Some(principal) = forge::Principal::parse(&typed) else {
             self.notice = "Grant takes an account number".into();
@@ -300,7 +300,7 @@ impl Forge {
             return;
         };
         if let Some(form) = &mut self.repo_settings {
-            form.grant.clear();
+            form.grant.reset("");
         }
         self.submit(
             Op::Grant { repo, principal },
@@ -325,7 +325,7 @@ impl Forge {
     /// A reply in the change's hidden channel. Chat owns every reply; forge
     /// owns only the change's own body.
     pub(crate) fn post_reply(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.reply.state_view().text.trim().to_owned();
+        let text = self.reply.text.trim().to_owned();
         if text.is_empty() {
             return;
         }
@@ -333,7 +333,7 @@ impl Forge {
             return;
         };
         let channel = change.channel.clone();
-        self.reply.replace(Editor::default());
+        self.reply.reset("");
         cx.notify();
         cx.spawn(async move |this, cx| {
             let host = cx.host();

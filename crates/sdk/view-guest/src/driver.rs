@@ -109,18 +109,9 @@ impl<V: View> Driver<V> {
         let owed = slots::start_frame(&self.app.inner.slots);
         self.settle();
         for event in events {
-            let editor_event = matches!(
-                &event,
-                wire::Event::EditorDocument { .. }
-                    | wire::Event::EditorRequest { .. }
-                    | wire::Event::EditorTransaction { .. }
-            );
             if let Some(callback) = self.dispatch(event) {
                 self.entity.clone().update_app(&mut self.app, |v, w, cx| {
                     callback(v, w, cx);
-                    if editor_event {
-                        cx.notify();
-                    }
                 });
                 self.settle();
             }
@@ -183,34 +174,23 @@ impl<V: View> Driver<V> {
                 self.tooltip(request, character_index);
                 None
             }
-            wire::Event::Input { handler, text } => {
-                self.route_or_handle(handler, text, |text| text)
-            }
-            wire::Event::Select { handler, index } => {
-                self.route_or_handle(handler, index, |index| index)
-            }
+            wire::Event::Select { handler, index } => self.route(handler, &index),
             wire::Event::Size {
                 handler,
                 width,
                 height,
-            } => self.route_or_handle(handler, (px(width), px(height)), |_| (width, height)),
+            } => self.route(handler, &(px(width), px(height))),
             wire::Event::Drag { handler, dx, dy } => {
-                self.route_or_handle(handler, (px(dx as f32), px(dy as f32)), |_| (dx, dy))
+                self.route(handler, &(px(dx as f32), px(dy as f32)))
             }
-            wire::Event::EditorDocument { handler, message } => {
-                self.editor_document(handler, message)
-            }
-            wire::Event::EditorRequest { handler, request } => self.handle(handler, request),
-            wire::Event::EditorTransaction { handler, event } => {
-                self.editor_transaction(handler, event)
-            }
+            wire::Event::Text { handler, change } => self.route(handler, &change),
             wire::Event::ScrollOffset {
                 handler,
                 x,
                 y,
                 relative_x,
                 relative_y,
-            } => self.handle(handler, (x, y, relative_x, relative_y)),
+            } => self.route(handler, &(x, y, relative_x, relative_y)),
             wire::Event::UniformListRange {
                 path,
                 route,
@@ -267,27 +247,6 @@ impl<V: View> Driver<V> {
         }
     }
 
-    /// A route listener that takes this event, else the handler's message
-    /// with the value the handler takes (built from the routed event).
-    fn route_or_handle<R: 'static, H: 'static>(
-        &mut self,
-        handler: u32,
-        route_event: R,
-        value: impl FnOnce(R) -> H,
-    ) -> Option<Callback<V>> {
-        let slots = self.app.inner.slots.clone();
-        let mut window = self.app.window();
-        if slots::run_route(&slots, handler, &route_event, &mut window, &mut self.app) {
-            None
-        } else {
-            slots::run_handler::<H, Callback<V>>(&slots, handler, value(route_event))
-        }
-    }
-
-    fn handle<H: 'static>(&self, handler: u32, value: H) -> Option<Callback<V>> {
-        slots::run_handler::<H, Callback<V>>(&self.app.inner.slots, handler, value)
-    }
-
     fn tooltip(&mut self, request: u32, character_index: Option<u32>) {
         let slots = self.app.inner.slots.clone();
         if let Some(build) = slots::tooltip_route(&slots, request) {
@@ -309,52 +268,12 @@ impl<V: View> Driver<V> {
         }
     }
 
-    fn editor_document(
-        &self,
-        handler: u32,
-        message: wire::editor_document::EditorDocumentMessage,
-    ) -> Option<Callback<V>> {
-        use wire::editor_document::EditorDocumentMessage;
-        if matches!(
-            message,
-            EditorDocumentMessage::Acknowledged { .. } | EditorDocumentMessage::Failed { .. }
-        ) {
-            slots::finish_editor_transfer(&self.app.inner.slots, message.id());
-            return None;
-        }
-        self.handle(handler, message)
-    }
-
-    fn editor_transaction(
-        &self,
-        handler: u32,
-        event: wire::EditorTransactionEvent,
-    ) -> Option<Callback<V>> {
-        if matches!(
-            event,
-            wire::EditorTransactionEvent::Fault { .. }
-                | wire::EditorTransactionEvent::Cancelled { .. }
-        ) {
-            slots::finish_editor_transfer(&self.app.inner.slots, &event.id().into());
-        }
-        if let wire::EditorTransactionEvent::Cancelled { id, .. } = &event {
-            if !slots::editor_matches_pending(&self.app.inner.slots, id) {
-                return None;
-            }
-            slots::editor_acknowledge(&self.app.inner.slots, &event);
-        }
-        self.handle(handler, event)
-    }
-
     /// The frame after this tick's events: the tree lowered if anything
     /// changed, or if the last frame owed a picture it drew, then sent whole
     /// or as patches against the last one. A frame that owes a picture
     /// asks for the next, until every picture drawn is sent.
     fn frame(&mut self, owed: bool) -> wire::Frame {
-        let render = self.app.inner.dirty.replace(false)
-            || self.last_root.is_none()
-            || slots::editor_transferring(&self.app.inner.slots)
-            || owed;
+        let render = self.app.inner.dirty.replace(false) || self.last_root.is_none() || owed;
         let mut root = render.then(|| self.render_root());
         crate::window::send_widgets(
             &self.app.inner.slots,
@@ -379,8 +298,6 @@ impl<V: View> Driver<V> {
         if let Some(tree) = root.take().filter(|_| !unchanged) {
             root = self.keep(tree, &mut patches);
         }
-        let editor_decisions = slots::take_editor_responses(&self.app.inner.slots);
-        self.busy |= slots::editor_responses_ready(&self.app.inner.slots);
         let host = self.app.host();
         let requests = host.drain_outbox();
         let cancels = host.drain_cancels();
@@ -388,8 +305,6 @@ impl<V: View> Driver<V> {
         self.busy |= host.outbox_waiting();
         wire::Frame {
             upstream_sanitization: Default::default(),
-            editor_decisions,
-            editor_documents: slots::take_editor_documents(&self.app.inner.slots),
             tooltip_responses: slots::take_tooltip_responses(&self.app.inner.slots),
             root,
             patches,

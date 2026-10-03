@@ -1,6 +1,6 @@
 //! Writing a review: what is staged, at which anchor, and the one operation
 //! it all becomes. A refusal keeps every draft.
-use ducktape_view_guest::Context;
+use ducktape_view_guest::{Context, TextField, wire};
 
 use crate::state::{Forge, PendingComment, ReviewSession, change_key};
 use forge::{Op, ReviewDraft, Verdict};
@@ -58,20 +58,22 @@ impl Forge {
             .and_then(|review| review.staged(&path, new_side, line).cloned());
         if let Some(review) = self.reviews.get_mut(&key) {
             review.error.clear();
-            review.open = Some(staged.unwrap_or(PendingComment {
+            // a new document each time, whatever the field showed before
+            let body = TextField::new(staged.map(|staged| staged.body.text).unwrap_or_default());
+            review.open = Some(PendingComment {
                 path,
                 new_side,
                 line,
-                body: String::new(),
-            }));
+                body,
+            });
         }
         cx.notify();
     }
 
-    pub(crate) fn typed_comment(&mut self, body: String, cx: &mut Context<Self>) {
+    pub(crate) fn typed_comment(&mut self, change: &wire::TextChange, cx: &mut Context<Self>) {
         let Some(key) = self.review_key() else { return };
         if let Some(open) = self.reviews.get_mut(&key).and_then(|r| r.open.as_mut()) {
-            open.body = body;
+            open.body.apply(change);
         }
         cx.notify();
     }
@@ -84,7 +86,7 @@ impl Forge {
         let Some(open) = review.open.take() else {
             return;
         };
-        if open.body.trim().is_empty() {
+        if open.body.is_blank() {
             review.comments.retain(|staged| !staged.anchors(&open));
         } else if review.comments.len() >= forge::MAX_REVIEW_COMMENTS
             && review
@@ -136,10 +138,7 @@ impl Forge {
             return;
         };
         let comments = review.line_comments();
-        if matches!(verdict, Verdict::Comment)
-            && review.body.state_view().text.trim().is_empty()
-            && comments.is_empty()
-        {
+        if matches!(verdict, Verdict::Comment) && review.body.is_blank() && comments.is_empty() {
             if let Some(review) = self.reviews.get_mut(&key) {
                 review.error = "A comment review needs a body or a line comment".into();
             }
@@ -150,7 +149,7 @@ impl Forge {
             commit_oid: review.commit.clone(),
             base_oid: review.base.clone(),
             verdict,
-            body: review.body.text(),
+            body: review.body.text.clone(),
             comments,
         };
         if let Some(review) = self.reviews.get_mut(&key) {

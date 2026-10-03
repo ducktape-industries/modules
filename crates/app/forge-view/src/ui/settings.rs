@@ -3,7 +3,7 @@
 //! appears here.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use ducktape_view_guest::{Div, FontWeight, Stateful, wire};
 
 use crate::Forge;
 use crate::state::{Menu, SettingsForm};
@@ -236,21 +236,21 @@ fn grant_field(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let typed = cx.listener(|forge, text: &String, _, cx| {
+    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.repo_settings {
-            form.grant = text.clone();
+            form.grant.apply(change);
         }
         cx.notify();
     });
     let grant = cx.listener(|forge, _: &ClickEvent, _, cx| forge.grant(cx));
     // a typed number needs no search; a name does
-    let needle = form.grant.trim();
+    let needle = form.grant.text.trim();
     let searching = !needle.is_empty() && forge::Principal::parse(needle).is_none();
     let matches = match searching {
         true => {
             let fill = |forge: &mut Forge, person: forge::Principal| {
                 if let (Some(form), Some(number)) = (&mut forge.repo_settings, person.account()) {
-                    form.grant = number.to_string();
+                    form.grant.reset(number.to_string());
                 }
             };
             people_picker(
@@ -278,9 +278,9 @@ fn grant_field(
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .value(form.grant.clone())
+                .value(&form.grant)
                 .placeholder("Search members")
-                .on_input(typed),
+                .on_change(typed),
         )
         .child(
             button(id("forge-settings-grant"), "Grant", theme, grant)

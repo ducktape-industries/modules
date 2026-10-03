@@ -3,7 +3,7 @@
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::borsh_bytes;
 use ducktape_view_guest::methods::NodeStatus;
-use ducktape_view_guest::{Task, design};
+use ducktape_view_guest::{Task, TextField, design};
 use module_registry as registry;
 use serde::{Deserialize, Serialize};
 
@@ -120,7 +120,7 @@ pub enum Note {
 pub struct Explorer {
     pub(crate) route: Route,
     /// the search field, as typed
-    pub(crate) search: String,
+    pub(crate) search: TextField,
     pub(crate) note: Option<Note>,
     /// the session's chain id (`<label>#<salt>`), which links are minted in
     pub(crate) session_chain: String,

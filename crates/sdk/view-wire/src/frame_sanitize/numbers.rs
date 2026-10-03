@@ -1,8 +1,6 @@
 use super::*;
 
 /// Cuts `text` down to [`MAX_STRING_BYTES`] on a char boundary, in place.
-/// The host's bound on a field's inbound text too: what it sends as
-/// `Event::Input` is cut the same way a frame's strings are.
 pub fn truncate_string(text: &mut String) {
     truncate_to(text, MAX_STRING_BYTES);
 }

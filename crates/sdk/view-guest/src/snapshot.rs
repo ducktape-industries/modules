@@ -1,11 +1,9 @@
 //! State transfer into a fresh root entity without replaying construction.
 //! The bytes are the view's own serde as the wire's named MessagePack.
-use crate::{App, Driver, View, slots, wire};
+use crate::{App, Driver, View, wire};
 impl<V: View> Driver<V> {
     pub fn snapshot(&self) -> Result<Vec<u8>, String> {
-        if slots::editor_pending(&self.app.inner.slots)
-            || slots::editor_transferring(&self.app.inner.slots)
-            || self.busy
+        if self.busy
             || self.host().pending_requests()
             || !crate::executor::snapshot_ready(&self.app.inner.tasks.borrow(), &self.host())
         {

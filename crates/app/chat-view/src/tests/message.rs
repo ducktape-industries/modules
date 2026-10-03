@@ -205,7 +205,7 @@ fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
     use ducktape_view_guest::{design, px};
     let (mut cx, view) = opened();
     view.update(&mut cx, |chat, _, cx| {
-        chat.search.draft = "hello".into();
+        chat.search.draft.reset("hello");
         chat.confirmation = "Saved".into();
         chat.hovered = Some((Pane::Timeline, 1));
         cx.notify();

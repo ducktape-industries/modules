@@ -6,8 +6,8 @@
 use ducktape_view_guest::design;
 use std::rc::Rc;
 
-use ducktape_view_guest::ScrollStrategy;
 use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{ScrollStrategy, wire};
 
 use crate::Forge;
 use crate::state::ReviewSession;
@@ -327,7 +327,7 @@ fn paint_file(
                 line: line.kind,
                 draft: review
                     .and_then(|review| review.staged(&path, anchor_side, anchor_line))
-                    .map(|staged| staged.body.clone()),
+                    .map(|staged| staged.body.text.clone()),
                 published: published
                     .iter()
                     .filter(|(p, side, at, _, _, _)| {
@@ -619,7 +619,8 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
     let Some(open) = review.open.clone() else {
         return div().into_any_element();
     };
-    let typed = cx.listener(|forge, text: &String, _, cx| forge.typed_comment(text.clone(), cx));
+    let typed =
+        cx.listener(|forge, change: &wire::TextChange, _, cx| forge.typed_comment(change, cx));
     let save = cx.listener(|forge, _: &ClickEvent, _, cx| forge.stage_comment(cx));
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.discard_comment(cx));
     let mut card = div()
@@ -642,9 +643,9 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .value(open.body)
+                .value(&open.body)
                 .placeholder("What should change here?")
-                .on_input(typed),
+                .on_change(typed),
         );
     if !review.error.is_empty() {
         card = card.child(
