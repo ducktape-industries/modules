@@ -289,6 +289,17 @@ pub struct $title {
     count: Loadable<u64>,
     #[serde(skip)]
     live: Option<Task<()>>,
+    /// A child entity. The snapshot carries this root alone, so \`attach\`
+    /// builds its children on every mount.
+    #[serde(skip)]
+    heading: Option<Entity<Heading>>,
+}
+
+/// The heading, as a child entity: state and a render of its own, built
+/// with \`cx.new\` and placed in the tree by its handle; no \`View\`, no
+/// snapshot.
+struct Heading {
+    text: SharedString,
 }
 
 impl View for $title {
@@ -310,6 +321,21 @@ impl View for $title {
             }
         }));
         self.read(cx);
+        self.heading = Some(cx.new(|_| Heading {
+            text: "$title".into(),
+        }));
+    }
+}
+
+impl Render for Heading {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("$program-title")
+            .text_size(px(16.))
+            .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+            .role(ducktape_view_guest::Role::Heading)
+            .aria_level(1)
+            .child(self.text.clone())
     }
 }
 
@@ -331,15 +357,7 @@ impl Render for $title {
             .bg(theme.background)
             .text_color(theme.foreground)
             .text_size(px(13.))
-            .child(
-                div()
-                    .id("$program-title")
-                    .text_size(px(16.))
-                    .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
-                    .role(ducktape_view_guest::Role::Heading)
-                    .aria_level(1)
-                    .child("$title"),
-            )
+            .children(self.heading.clone())
             .child(div().id("$program-body").child(body))
     }
 }
