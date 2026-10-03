@@ -183,11 +183,14 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> 
                 clamp_finite(&mut number, -128., 128.);
                 *offset = px(number);
             }
-            for radius in [&mut shadow.blur_radius, &mut shadow.spread_radius] {
-                let mut number = f32::from(*radius);
-                clamp_finite(&mut number, 0., 128.);
-                *radius = px(number);
-            }
+            // a blur only widens; a spread may shrink the shadow inside its
+            // box, as gpui's own `shadow_sm`..`shadow_2xl` do (-3 px on lg)
+            let mut blur = f32::from(shadow.blur_radius);
+            clamp_finite(&mut blur, 0., 128.);
+            shadow.blur_radius = px(blur);
+            let mut spread = f32::from(shadow.spread_radius);
+            bound(&mut spread, 128., true);
+            shadow.spread_radius = px(spread);
         }
     }
     for template in [&mut style.grid_cols, &mut style.grid_rows]
@@ -358,7 +361,7 @@ mod tests {
                     color: rgb(0).into(),
                     offset: gpui::point(px(f32::NAN), px(1000.)),
                     blur_radius: px(1e9),
-                    spread_radius: px(-100.),
+                    spread_radius: px(-1e9),
                     inset: false,
                 };
                 100
@@ -370,7 +373,21 @@ mod tests {
         assert_eq!(shadows.len(), MAX_SHADOWS);
         assert_eq!(shadows[0].blur_radius, px(128.));
         assert_eq!(shadows[0].offset.x, px(-128.));
-        assert_eq!(shadows[0].spread_radius, px(0.));
+        assert_eq!(shadows[0].spread_radius, px(-128.));
+    }
+    #[test]
+    fn gpuis_own_shadows_cross_as_authored() {
+        for style in [
+            StyleRefinement::default().shadow_sm(),
+            StyleRefinement::default().shadow_md(),
+            StyleRefinement::default().shadow_lg(),
+            StyleRefinement::default().shadow_xl(),
+            StyleRefinement::default().shadow_2xl(),
+        ] {
+            let mut sanitized = style.clone();
+            sanitize(&mut sanitized).unwrap();
+            assert_eq!(sanitized.box_shadow, style.box_shadow);
+        }
     }
     #[test]
     fn caps_grid_expansion_and_font_rasterization() {

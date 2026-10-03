@@ -128,7 +128,7 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
         in_range(shadow.offset.x.into(), -128., 128.);
         in_range(shadow.offset.y.into(), -128., 128.);
         in_range(shadow.blur_radius.into(), 0., 128.);
-        in_range(shadow.spread_radius.into(), 0., 128.);
+        in_range(shadow.spread_radius.into(), -128., 128.);
     }
     for template in [style.grid_cols, style.grid_rows].into_iter().flatten() {
         assert!((1..=64).contains(&template.repeat));
