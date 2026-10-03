@@ -9,7 +9,7 @@ use ducktape_view_guest::{
     ParentElement, Pixels, Role, SharedString, Stateful, StatefulInteractiveElement, Styled, Theme,
     div, px,
 };
-use ducktape_view_guest::{Input, prelude::FluentBuilder};
+use ducktape_view_guest::{Input, prelude::FluentBuilder, wire};
 
 use crate::activity::WINDOW;
 use crate::{Group, Members, Row};
@@ -107,8 +107,8 @@ fn list_pane(
     cx: &mut Context<Members>,
     theme: &Theme,
 ) -> impl IntoElement {
-    let typed = cx.listener(|view, text: &String, _, cx| {
-        view.filter = text.clone();
+    let typed = cx.listener(|view, change: &wire::TextChange, _, cx| {
+        view.filter.apply(change);
         cx.notify();
     });
     let count = match view.rows.ready() {
@@ -157,9 +157,9 @@ fn list_pane(
                         .border_color(theme.border_strong)
                         .bg(theme.surface)
                         .text_color(theme.foreground)
-                        .value(view.filter.clone())
+                        .value(&view.filter)
                         .placeholder("Filter by name or number")
-                        .on_input(typed),
+                        .on_change(typed),
                 )
                 .child(chips(view, cx, theme)),
         )
@@ -249,7 +249,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
     let shown = view.shown();
     if shown.is_empty() {
         // the chip alone, or the filter (with or without a chip)
-        let detail = match (view.filter.trim(), view.only) {
+        let detail = match (view.filter.text.trim(), view.only) {
             ("", Some(group)) => {
                 format!("No {} on this network yet.", group.label().to_lowercase())
             }

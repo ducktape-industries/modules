@@ -7,7 +7,7 @@ use crate::{Chat, Hits, Search};
 
 impl Chat {
     pub(crate) fn search_submit(&mut self, cx: &mut Context<Self>) {
-        let query = self.search.draft.trim().to_owned();
+        let query = self.search.draft.text.trim().to_owned();
         if query.is_empty() {
             return;
         }

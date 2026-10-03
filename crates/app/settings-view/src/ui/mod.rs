@@ -4,7 +4,7 @@
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use ducktape_view_guest::{Div, FontWeight, Stateful, wire};
 
 use crate::Settings;
 use crate::queries::Seat;
@@ -314,7 +314,7 @@ fn field(
     hint: &str,
     form: &Form,
     theme: &Theme,
-    typed: impl Fn(&String, &mut Window, &mut App) + 'static,
+    typed: impl Fn(&wire::TextChange, &mut Window, &mut App) + 'static,
 ) -> Input {
     Input::new(id.to_owned(), name.to_owned())
         .h(design::size::CONTROL)
@@ -323,10 +323,10 @@ fn field(
         .border_1()
         .border_color(theme.border_strong)
         .bg(theme.background)
-        .value(form.text.clone())
+        .value(&form.text)
         .placeholder(hint.to_owned())
         .disabled(form.busy)
-        .on_input(typed)
+        .on_change(typed)
 }
 
 /// A form's button: disabled, and saying so, while its submit is in flight.

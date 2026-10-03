@@ -835,7 +835,7 @@ fn a_filter_field_is_named_apart_from_its_hint() {
         ),
         ("forge-tree-search", "Filter the file tree", "Filter files"),
     ] {
-        let Some(wire::Node::Input {
+        let Some(wire::Node::Field {
             options,
             placeholder,
             ..
@@ -1160,7 +1160,12 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
     );
     cx.simulate_click("forge-grant-pick-2");
     cx.run_until_parked();
-    let filled = view.read(|forge| forge.repo_settings.as_ref().map(|form| form.grant.clone()));
+    let filled = view.read(|forge| {
+        forge
+            .repo_settings
+            .as_ref()
+            .map(|form| form.grant.text.clone())
+    });
     assert_eq!(filled.as_deref(), Some("2"));
     assert!(
         cx.find("forge-grant-pick-2").is_none(),

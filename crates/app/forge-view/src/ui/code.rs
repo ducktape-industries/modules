@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use ducktape_view_guest::design::{self, space, text};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, KeyDownEvent, Stateful};
+use ducktape_view_guest::{Div, KeyDownEvent, Stateful, wire};
 
 use crate::Forge;
 use crate::tree::{Key, Row, Slot};
@@ -79,8 +79,8 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
 
 /// The tree's column and its filter field.
 fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
-    let typed = cx.listener(|forge, text: &String, _, cx| {
-        forge.tree_search = text.clone();
+    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
+        forge.tree_search.apply(change);
         cx.notify();
     });
     div()
@@ -100,9 +100,9 @@ fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Statefu
                     .border_color(theme.border_strong)
                     .bg(theme.surface)
                     .text_color(theme.foreground)
-                    .value(forge.tree_search.clone())
+                    .value(&forge.tree_search)
                     .placeholder("Filter files")
-                    .on_input(typed),
+                    .on_change(typed),
             ),
         )
 }

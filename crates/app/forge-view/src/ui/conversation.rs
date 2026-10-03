@@ -1,8 +1,8 @@
 //! A change's conversation: its body, its reviews, and the replies in
 //! chat's hidden channel beneath them, with a composer at the end.
-use ducktape_view_guest::EditorElement;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::wire;
 
 use crate::Forge;
 use crate::state::verdict_verb;
@@ -303,27 +303,25 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
         .border_t_1()
         .border_color(theme.border)
         .child(
-            EditorElement::plain(
-                id("forge-reply"),
-                &forge.reply,
-                "forge-reply",
-                |forge: &mut Forge| Some(&mut forge.reply),
-                "Reply",
-            )
-            .min_h(design::size::CONTROL)
-            .flex_1()
-            .px_2()
-            .py(design::space::XS)
-            .border_1()
-            .border_color(theme.border_strong)
-            .bg(theme.background)
-            .text_color(theme.foreground)
-            .placeholder("Reply in this change"),
+            Textarea::new(id("forge-reply"), &forge.reply, "Reply")
+                .on_change(cx.listener(|forge, change: &wire::TextChange, _, cx| {
+                    forge.reply.apply(change);
+                    cx.notify();
+                }))
+                .min_h(design::size::CONTROL)
+                .flex_1()
+                .px_2()
+                .py(design::space::XS)
+                .border_1()
+                .border_color(theme.border_strong)
+                .bg(theme.background)
+                .text_color(theme.foreground)
+                .placeholder("Reply in this change"),
         )
         .child(
             button(id("forge-reply-send"), "Send", theme, send)
                 .kind(design::Kind::Outline)
-                .enabled(forge.may_write() && !forge.reply.state_view().text.trim().is_empty()),
+                .enabled(forge.may_write() && !forge.reply.is_blank()),
         )
         .into_any_element()
 }

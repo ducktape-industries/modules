@@ -2,7 +2,7 @@
 //! switches between them when something is.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use ducktape_view_guest::{Div, Stateful, wire};
 
 use crate::Forge;
 use crate::queries::PAGE;
@@ -18,7 +18,7 @@ fn listed<'a>(forge: &'a Forge, reply: &'a Reply) -> Vec<&'a RepoInfo> {
     let Reply::Repos { page, .. } = reply else {
         return Vec::new();
     };
-    let needle = forge.search.trim().to_lowercase();
+    let needle = forge.search.text.trim().to_lowercase();
     page.items
         .iter()
         .filter(|info| needle.is_empty() || info.name.to_lowercase().contains(&needle))
@@ -334,12 +334,12 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
         return column
             .child(empty_state(
                 id("forge-repos-empty"),
-                if forge.search.trim().is_empty() {
+                if forge.search.is_blank() {
                     "No repositories yet"
                 } else {
                     "Nothing matches"
                 },
-                if forge.search.trim().is_empty() {
+                if forge.search.is_blank() {
                     "Create one with New repository, then push to it."
                 } else {
                     "No repository here reads like that."
@@ -525,10 +525,10 @@ fn rail_search(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Div {
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .value(forge.search.clone())
+            .value(&forge.search)
             .placeholder("Search repositories")
-            .on_input(cx.listener(|forge, text: &String, _, cx| {
-                forge.search = text.clone();
+            .on_change(cx.listener(|forge, change: &wire::TextChange, _, cx| {
+                forge.search.apply(change);
                 cx.notify();
             })),
     )
@@ -541,8 +541,8 @@ fn header(
     theme: &Theme,
     search_id: &str,
 ) -> AnyElement {
-    let typed = cx.listener(|forge, text: &String, _, cx| {
-        forge.search = text.clone();
+    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
+        forge.search.apply(change);
         cx.notify();
     });
     let new = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_repo(cx));
@@ -569,9 +569,9 @@ fn header(
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .value(forge.search.clone())
+                .value(&forge.search)
                 .placeholder("Filter by name")
-                .on_input(typed),
+                .on_change(typed),
         )
         .child(div().flex_1())
         .child(
@@ -583,9 +583,9 @@ fn header(
 }
 
 fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let typed = cx.listener(|forge, text: &String, _, cx| {
+    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.new_repo {
-            form.name = text.clone();
+            form.name.apply(change);
             form.error.clear();
         }
         cx.notify();
@@ -655,9 +655,9 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                                 .border_color(theme.border_strong)
                                 .bg(theme.background)
                                 .text_color(theme.foreground)
-                                .value(form.name.clone())
+                                .value(&form.name)
                                 .placeholder("letters, digits, dot, dash, underscore")
-                                .on_input(typed),
+                                .on_change(typed),
                         ),
                 )
                 .child(

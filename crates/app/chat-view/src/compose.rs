@@ -1,12 +1,11 @@
-//! The composer's events for one target, run through its draft: sends,
-//! edits, pastes and copies.
-use ducktape_view_guest::Context;
-use ducktape_view_guest::methods::Submit;
-
-use crate::api::{ClipboardRead, ClipboardWrite, HostId};
+//! The composer's events for one target, run through its draft: the
+//! sends it makes.
+use crate::api::HostId;
 use crate::composer::{Event, MentionChoice, Outcome, Send, Target, pending_row};
 use crate::names::mention_token;
 use crate::{Chat, Mode};
+use ducktape_view_guest::Context;
+use ducktape_view_guest::methods::Submit;
 
 impl Chat {
     /// Who the composer offers after `@`: the roster, and the room's members.
@@ -31,7 +30,7 @@ impl Chat {
     pub(crate) fn composer(
         &mut self,
         target: Target,
-        event: Event<Self>,
+        event: Event,
         window: &mut ducktape_view_guest::Window,
         cx: &mut Context<Self>,
     ) {
@@ -39,75 +38,12 @@ impl Chat {
         let choices = self.mention_choices();
         let key = target.key();
         let draft = self.drafts.entry(key.clone()).or_default();
-        match draft.handle(event, &choices, cx) {
-            Outcome::Updated => {}
-            Outcome::Run(run) => run(self, window, cx),
-            Outcome::Enqueue(tag) => crate::composer::act(window, &key, tag),
-            Outcome::Action(tag) => self.composer_action(target, &key, &tag, cx),
-        }
-    }
-
-    fn composer_action(&mut self, target: Target, key: &str, tag: &str, cx: &mut Context<Self>) {
-        match tag {
-            "send" => {
-                let draft = self.drafts.entry(key.to_owned()).or_default();
-                if let Some(send) = draft.submitted.take() {
-                    draft.in_flight.push(send.clone());
-                    self.send(key.to_owned(), send, target, cx);
-                }
-            }
-            "restore" => {
-                let choices = self.mention_choices();
-                let draft = self.drafts.entry(key.to_owned()).or_default();
-                if let Some(send) = draft.failed_send.take() {
-                    draft.seed(&send.body, &choices);
-                }
-            }
-            "paste" => {
-                let key = key.to_owned();
-                cx.spawn(async move |this, cx| {
-                    let host = cx.host();
-                    let result = host.ask::<ClipboardRead>(()).await;
-                    let _ = this.update_in(cx, |chat, window, cx| {
-                        cx.notify();
-                        match result {
-                            Ok(clipboard) => {
-                                chat.drafts.entry(key.clone()).or_default().paste =
-                                    Some(clipboard.text);
-                                crate::composer::act(window, &key, "paste-ready");
-                            }
-                            Err(refusal) => {
-                                chat.drafts.entry(key).or_default().note = refusal.message
-                            }
-                        }
-                    });
-                })
-                .detach();
-            }
-            "copy" | "cut" => {
-                let Some(text) = self
-                    .drafts
-                    .entry(key.to_owned())
-                    .or_default()
-                    .clipboard
-                    .take()
-                else {
-                    return;
-                };
-                let key = key.to_owned();
-                cx.spawn(async move |this, cx| {
-                    let host = cx.host();
-                    let result = host.ask::<ClipboardWrite>(text).await;
-                    let _ = this.update(cx, |chat, cx| {
-                        cx.notify();
-                        if let Err(refusal) = result {
-                            chat.drafts.entry(key).or_default().note = refusal.message;
-                        }
-                    });
-                })
-                .detach();
-            }
-            _ => {}
+        if let Outcome::Action(tag) = draft.handle(event, &key, &choices, window)
+            && tag == "send"
+            && let Some(send) = draft.submitted.take()
+        {
+            draft.in_flight.push(send.clone());
+            self.send(key, send, target, cx);
         }
     }
 

@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ducktape_view_guest::Loadable;
-use ducktape_view_guest::{Editor, Task, UniformListScrollHandle};
+use ducktape_view_guest::{Task, TextField, UniformListScrollHandle};
 use serde::{Deserialize, Serialize};
 
 use crate::api::Session;
@@ -16,12 +16,12 @@ pub struct Forge {
     pub(crate) session: Session,
     pub(crate) filter: Filter,
     /// the repo-list filter box
-    pub(crate) search: String,
+    pub(crate) search: TextField,
     /// the change-list search box, apart from the repo filter so a name
     /// typed to find a repository never hides that repository's changes
-    pub(crate) change_search: String,
+    pub(crate) change_search: TextField,
     /// the file-tree filter box
-    pub(crate) tree_search: String,
+    pub(crate) tree_search: TextField,
     pub(crate) reviews: BTreeMap<String, ReviewSession>,
     /// `<repo>#<n>:<path>` of every file the reader ticked off
     pub(crate) viewed: BTreeSet<String>,
@@ -29,7 +29,7 @@ pub struct Forge {
     pub(crate) form: Option<ChangeForm>,
     pub(crate) repo_settings: Option<SettingsForm>,
     /// the conversation composer of the open change, multi-line
-    pub(crate) reply: Editor,
+    pub(crate) reply: TextField,
     pub(crate) notice: String,
     /// the repository whose address was copied last, so its row says so
     #[serde(skip)]
@@ -278,7 +278,7 @@ pub(crate) struct ReviewSession {
     /// the anchor whose composer is open
     pub open: Option<PendingComment>,
     /// what the review says overall, multi-line
-    pub body: Editor,
+    pub body: TextField,
     /// the verdict picked in the finish panel; none picked is a comment
     #[serde(skip)]
     pub verdict: Option<Verdict>,
@@ -310,7 +310,7 @@ impl ReviewSession {
                 path: c.path.clone(),
                 side: if c.new_side { Side::New } else { Side::Old },
                 line: c.line,
-                body: c.body.clone(),
+                body: c.body.text.clone(),
             })
             .collect()
     }
@@ -321,7 +321,7 @@ pub(crate) struct PendingComment {
     pub path: Vec<u8>,
     pub new_side: bool,
     pub line: u64,
-    pub body: String,
+    pub body: TextField,
 }
 
 impl PendingComment {
@@ -361,16 +361,16 @@ pub(crate) struct ChangeForm {
     pub edit: Option<u64>,
     pub from: Vec<u8>,
     pub into: Vec<u8>,
-    pub title: String,
+    pub title: TextField,
     /// the multi-line body, as the host's editor holds it
-    pub body: Editor,
+    pub body: TextField,
     pub reviewers: Vec<forge::Principal>,
     pub error: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct NewRepo {
-    pub name: String,
+    pub name: TextField,
     /// SHA-256 unless SHA-1 is picked (to push an existing git project)
     pub sha1: bool,
     pub error: String,
@@ -381,7 +381,7 @@ pub(crate) struct SettingsForm {
     pub head: Vec<u8>,
     pub allow_force: bool,
     pub allow_delete: bool,
-    pub grant: String,
+    pub grant: TextField,
 }
 
 /// An operation the reader issued: shown where they issued it until the

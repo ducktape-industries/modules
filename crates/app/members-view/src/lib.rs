@@ -21,7 +21,7 @@ use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::Capability;
 use ducktape_view_guest::methods::{Changes, HostOffset, HostSession};
-use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, View, Window};
+use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, TextField, View, Window};
 use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +34,7 @@ pub struct Members {
     rows: Loadable<Vec<Row>>,
     /// what the reader typed into the filter; the rows are never refetched
     /// for it, since the program has no search
-    filter: String,
+    filter: TextField,
     /// the kind chip that is on; `None` is All. It and the filter narrow the
     /// list together and never touch `selected`.
     only: Option<Group>,
@@ -307,7 +307,7 @@ impl Members {
         let Some(rows) = self.rows.ready() else {
             return Vec::new();
         };
-        let needle = self.filter.trim().to_lowercase();
+        let needle = self.filter.text.trim().to_lowercase();
         let mut shown: Vec<&Row> = rows
             .iter()
             .filter(|row| self.only.is_none_or(|only| row.group() == only))

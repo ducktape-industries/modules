@@ -1,6 +1,6 @@
 //! The state Settings keeps: what it read, and each form as typed.
-use ducktape_view_guest::Loadable;
 use ducktape_view_guest::Task;
+use ducktape_view_guest::{Loadable, TextField};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -64,7 +64,7 @@ impl Section {
 /// what stopped it.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub(crate) struct Form {
-    pub(crate) text: String,
+    pub(crate) text: TextField,
     pub(crate) busy: bool,
     pub(crate) problem: Option<Problem>,
 }

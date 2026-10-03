@@ -3,8 +3,8 @@
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, Div, ElementId, ParentElement, Stateful, Styled, Theme, div,
-    px,
+    AnyElement, ClickEvent, Context, Div, ElementId, ParentElement, Stateful, Styled, TextField,
+    Theme, div, px, wire,
 };
 
 use super::timeline;
@@ -148,14 +148,14 @@ fn details_header(title: &'static str, cx: &mut Context<Chat>, theme: &Theme) ->
 
 /// The name field, Rename, and Archive or Unarchive.
 fn name_section(
-    draft: &str,
+    draft: &TextField,
     archived: bool,
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> Vec<AnyElement> {
-    let typed_name = cx.listener(|chat, event: &String, _window, cx| {
+    let typed_name = cx.listener(|chat, change: &wire::TextChange, _window, cx| {
         if let Some(details) = &mut chat.details {
-            details.name_draft = event.clone();
+            details.name_draft.apply(change);
         }
         cx.notify();
     });
@@ -174,7 +174,7 @@ fn name_section(
     vec![
         section("Name", theme).into_any_element(),
         field("chat-details-name-input", draft, "Channel name", theme)
-            .on_input(typed_name)
+            .on_change(typed_name)
             .into_any_element(),
         button("chat-details-rename-button", "Rename", theme, rename).into_any_element(),
         button("chat-details-archive", archive_label, theme, archive).into_any_element(),
@@ -182,10 +182,10 @@ fn name_section(
 }
 
 /// The field and button that seat a member, and how one is removed.
-fn member_adder(draft: &str, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
-    let typed_member = cx.listener(|chat, event: &String, _window, cx| {
+fn member_adder(draft: &TextField, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
+    let typed_member = cx.listener(|chat, change: &wire::TextChange, _window, cx| {
         if let Some(details) = &mut chat.details {
-            details.member_draft = event.clone();
+            details.member_draft.apply(change);
         }
         cx.notify();
     });
@@ -195,7 +195,7 @@ fn member_adder(draft: &str, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyEl
     });
     vec![
         field("chat-details-member-input", draft, "Add member", theme)
-            .on_input(typed_member)
+            .on_change(typed_member)
             .into_any_element(),
         button("chat-details-add-member", "Add member", theme, add_member).into_any_element(),
         div()
@@ -217,7 +217,7 @@ fn section(name: &'static str, theme: &Theme) -> impl IntoElement {
         .child(name)
 }
 
-fn field(id: &'static str, value: &str, label: &'static str, theme: &Theme) -> Input {
+fn field(id: &'static str, value: &TextField, label: &'static str, theme: &Theme) -> Input {
     Input::new(id, label)
         .h(design::size::CONTROL)
         .px_2()
@@ -225,7 +225,7 @@ fn field(id: &'static str, value: &str, label: &'static str, theme: &Theme) -> I
         .border_1()
         .border_color(theme.border_strong)
         .bg(theme.background)
-        .value(value.to_owned())
+        .value(value)
 }
 
 /// A row per member, each with its way out where the room has one; a word

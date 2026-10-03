@@ -153,8 +153,8 @@ fn key_row(i: usize, label: &str, key: &Key, theme: &Theme) -> Stateful<Div> {
 
 fn create_account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
     let form = &view.create_account;
-    let typed = cx.listener(|v: &mut Settings, text: &String, _, cx| {
-        v.create_account.text = text.clone();
+    let typed = cx.listener(|v: &mut Settings, change: &wire::TextChange, _, cx| {
+        v.create_account.text.apply(change);
         cx.notify();
     });
     let pressed =
@@ -222,12 +222,12 @@ fn agents(
     cx: &mut Context<Settings>,
     theme: &Theme,
 ) -> AnyElement {
-    let create_typed = cx.listener(|v: &mut Settings, text: &String, _, cx| {
-        v.create_agent.text = text.clone();
+    let create_typed = cx.listener(|v: &mut Settings, change: &wire::TextChange, _, cx| {
+        v.create_agent.text.apply(change);
         cx.notify();
     });
-    let key_typed = cx.listener(|v: &mut Settings, text: &String, _, cx| {
-        v.agent_key.text = text.clone();
+    let key_typed = cx.listener(|v: &mut Settings, change: &wire::TextChange, _, cx| {
+        v.agent_key.text.apply(change);
         cx.notify();
     });
     let create = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_agent(cx));
@@ -331,8 +331,8 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
     let editing = renaming.is_some() && !revoked;
     let name: AnyElement = match renaming.filter(|_| !revoked) {
         Some(form) => {
-            let typed = cx.listener(move |v: &mut Settings, text: &String, _, cx| {
-                v.rename_agent.entry(number).or_default().text = text.clone();
+            let typed = cx.listener(move |v: &mut Settings, change: &wire::TextChange, _, cx| {
+                v.rename_agent.entry(number).or_default().text.apply(change);
                 cx.notify();
             });
             let submitted = cx
