@@ -707,7 +707,7 @@ impl TestAppContext {
                     else {
                         panic!("a Replace on no field that hears changes: {target:?}");
                     };
-                    (*handler, *generation, value.clone(), tokens.clone())
+                    (*handler, *generation, value.clone(), tokens.to_vec())
                 });
             if generation != *held {
                 continue;

@@ -67,12 +67,12 @@ fn input(label: &str) -> Node {
         cursor: TextRange::default(),
         generation: 0,
         revision: 0,
-        tokens: Vec::new(),
-        claims: Vec::new(),
-        options: InputOptions {
+        tokens: Default::default(),
+        claims: Default::default(),
+        options: Box::new(InputOptions {
             label: label.into(),
             ..Default::default()
-        },
+        }),
         placeholder: String::new(),
         secure: false,
         on_change: Some(1),

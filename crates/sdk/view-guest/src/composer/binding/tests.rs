@@ -147,7 +147,7 @@ fn claimed(draft: &Draft) -> Vec<wire::KeyClaim> {
     let wire::Node::Field { claims, .. } = field_node(&root) else {
         unreachable!()
     };
-    claims.clone()
+    claims.to_vec()
 }
 
 fn bare(key: Named) -> wire::KeyClaim {
@@ -268,7 +268,7 @@ fn a_restored_mention_draft_is_a_new_document_with_its_mention_as_a_span() {
     };
     assert_eq!(value, "Hi @Ada");
     assert_eq!(
-        tokens,
+        &tokens[..],
         &[wire::TextToken {
             range: wire::TextRange::from(3..7),
             id: "<@1>".into(),

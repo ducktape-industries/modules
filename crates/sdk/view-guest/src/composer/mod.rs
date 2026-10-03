@@ -617,7 +617,7 @@ mod tests {
                 text: text.into(),
                 cursor: wire::TextRange::caret(text.len()),
                 preedit: None,
-                tokens: Vec::new(),
+                tokens: Default::default(),
             })
         };
         let send = |draft: &mut Draft| {
@@ -688,7 +688,7 @@ mod tests {
                 text: text.into(),
                 cursor: wire::TextRange::caret(text.len()),
                 preedit: None,
-                tokens: Vec::new(),
+                tokens: Default::default(),
             }
         };
         // "a" typed into the empty field as Restore was clicked: a word on
@@ -729,7 +729,7 @@ mod tests {
             text: String::new(),
             cursor: wire::TextRange::caret(0),
             preedit: None,
-            tokens: Vec::new(),
+            tokens: Default::default(),
         });
         draft.act("restore", "c/editor", &[]);
         assert_eq!(draft.field.text, "first\nsecond");
@@ -796,7 +796,7 @@ mod tests {
             text: "@Al".into(),
             cursor: wire::TextRange::caret(3),
             preedit: None,
-            tokens: Vec::new(),
+            tokens: Default::default(),
         });
         assert_eq!(
             dismissed.query(),

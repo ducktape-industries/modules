@@ -388,14 +388,14 @@ fn first_nodes() -> Vec<Node> {
             cursor: TextRange { start: 0, end: 1 },
             generation: 2,
             revision: 3,
-            tokens: Vec::new(),
-            claims: Vec::new(),
-            options: view_wire::InputOptions {
+            tokens: Default::default(),
+            claims: Default::default(),
+            options: Box::new(view_wire::InputOptions {
                 invalid: Some(Invalid::True),
                 required: true,
                 read_only: true,
                 ..Default::default()
-            },
+            }),
             placeholder: "Name".into(),
             secure: false,
             on_change: Some(20),
@@ -678,23 +678,23 @@ fn full_nodes() -> Vec<Node> {
             cursor: TextRange { start: 6, end: 6 },
             generation: 1,
             revision: 9,
-            tokens: vec![TextToken {
+            tokens: Box::new([TextToken {
                 range: TextRange { start: 3, end: 6 },
                 id: "<@1>".into(),
-            }],
-            claims: vec![KeyClaim {
+            }]),
+            claims: Box::new([KeyClaim {
                 key: keyboard::Key::Named(keyboard::Named::Enter),
                 modifiers: gpui::Modifiers::default(),
                 command: true,
-            }],
-            options: view_wire::InputOptions {
+            }]),
+            options: Box::new(view_wire::InputOptions {
                 label: "notes".into(),
                 description: Some("must not be empty".into()),
                 invalid: Some(Invalid::True),
                 required: true,
                 read_only: true,
                 ..Default::default()
-            },
+            }),
             placeholder: "Notes".into(),
             secure: true,
             on_change: Some(22),

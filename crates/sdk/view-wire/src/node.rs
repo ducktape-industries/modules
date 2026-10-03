@@ -206,11 +206,11 @@ pub enum Node {
         cursor: TextRange,
         generation: u64,
         revision: u64,
-        #[serde(deserialize_with = "text::decode_tokens")]
-        tokens: Vec<TextToken>,
-        #[serde(deserialize_with = "text::decode_claims")]
-        claims: Vec<KeyClaim>,
-        options: InputOptions,
+        #[serde(deserialize_with = "text::decode_token_slice")]
+        tokens: Box<[TextToken]>,
+        #[serde(deserialize_with = "text::decode_claim_slice")]
+        claims: Box<[KeyClaim]>,
+        options: Box<InputOptions>,
         placeholder: String,
         secure: bool,
         on_change: Option<u32>,

@@ -59,7 +59,7 @@ impl TextField {
         Self {
             cursor: TextRange::caret(text.len()),
             text,
-            tokens: Vec::new(),
+            tokens: Default::default(),
             preedit: None,
             generation: fresh_generation(),
             revision: 0,
@@ -164,7 +164,7 @@ mod tests {
             text: text.into(),
             cursor: TextRange::from(4..8),
             preedit: None,
-            tokens: Vec::new(),
+            tokens: Default::default(),
         };
         assert!(field.apply(&change(field.generation, 7, "say word now")));
         let wire::WidgetCommand::Replace {

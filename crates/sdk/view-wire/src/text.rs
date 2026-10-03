@@ -295,6 +295,18 @@ pub(crate) fn decode_claims<'de, D: serde::Deserializer<'de>>(
     crate::bounded_vec(d, MAX_FIELD_CLAIMS, "field claim limit")
 }
 
+pub(crate) fn decode_token_slice<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Box<[TextToken]>, D::Error> {
+    decode_tokens(d).map(Vec::into_boxed_slice)
+}
+
+pub(crate) fn decode_claim_slice<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Box<[KeyClaim]>, D::Error> {
+    decode_claims(d).map(Vec::into_boxed_slice)
+}
+
 /// What is wrong with a field as the guest sent it, if anything: text over
 /// the cap, a cursor or token off the text's character boundaries, tokens
 /// out of order or overlapping, a claim on a key the engine owns.

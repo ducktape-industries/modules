@@ -117,7 +117,7 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
             text: "stale".into(),
             cursor: wire::TextRange::caret(5),
             preedit: None,
-            tokens: Vec::new(),
+            tokens: Default::default(),
         },
     });
     first_form.read(|form| {

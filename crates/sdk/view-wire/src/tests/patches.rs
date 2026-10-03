@@ -280,11 +280,11 @@ fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
         unreachable!()
     };
     *cursor = TextRange::caret(2);
-    claims.push(KeyClaim {
+    *claims = Box::new([KeyClaim {
         key: keyboard::Key::Named(keyboard::Named::Backspace),
         modifiers: Default::default(),
         command: false,
-    });
+    }]);
     let mut frame = Frame {
         root: Some(column(vec![node])),
         ..Frame::default()

@@ -175,10 +175,10 @@ fn a_frame_round_trips() {
             else {
                 unreachable!()
             };
-            *tokens = vec![TextToken {
+            *tokens = Box::new([TextToken {
                 range: TextRange::from(0..1),
                 id: "<@1>".into(),
-            }];
+            }]);
             *on_submit = Some(4);
             input
         }])),
@@ -210,7 +210,7 @@ fn a_frame_round_trips() {
                 text: "xy".into(),
                 cursor: TextRange::caret(2),
                 preedit: Some(TextRange::from(1..2)),
-                tokens: Vec::new(),
+                tokens: Default::default(),
             },
         },
         Event::Select {
