@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn sanitize_interactivity(
     interactivity: &mut Interactivity,
 ) -> Result<(), &'static str> {
-    interactivity.aria.sanitize()?;
+    interactivity.aria.sanitize();
     interactivity.role = crate::aria::view_role(interactivity.role);
     let aria = &mut interactivity.aria;
     if interactivity.role == Some(gpui::Role::Heading)
@@ -23,21 +23,6 @@ pub(super) fn sanitize_interactivity(
     .flatten()
     {
         style_sanitize::sanitize(style)?;
-    }
-    if let Some(context) = &mut interactivity.key_context {
-        context
-            .entries
-            .truncate(crate::interactivity::MAX_KEY_CONTEXT_ENTRIES);
-        for entry in &mut context.entries {
-            let mut key = entry.key.to_string();
-            truncate_string(&mut key);
-            entry.key = key.into();
-            if let Some(value) = &mut entry.value {
-                let mut bounded = value.to_string();
-                truncate_string(&mut bounded);
-                *value = bounded.into();
-            }
-        }
     }
     for style in [&mut interactivity.hover, &mut interactivity.active]
         .into_iter()

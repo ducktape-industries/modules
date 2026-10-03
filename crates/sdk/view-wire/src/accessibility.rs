@@ -370,7 +370,7 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
         rules.check(
             aria.invalid.is_some() && is(&TEXT_INPUT),
             ErrorNoText,
-            || blank(aria.description.as_deref()) && aria.error_message.is_none(),
+            || blank(aria.description.as_deref()),
         );
     }
     rules

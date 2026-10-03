@@ -39,7 +39,6 @@ pub struct Interactivity {
     pub(crate) focus: Option<Box<StyleRefinement>>,
     pub(crate) in_focus: Option<Box<StyleRefinement>>,
     pub(crate) focus_visible: Option<Box<StyleRefinement>>,
-    pub(crate) key_context: Option<wire::KeyContext>,
     pub(crate) focus_handle: Option<FocusHandle>,
     scroll_handle: Option<ScrollHandle>,
     pub(crate) group: Option<SharedString>,
@@ -47,11 +46,6 @@ pub struct Interactivity {
     pub(crate) active: Option<Box<StyleRefinement>>,
     pub(crate) group_hover: Option<(SharedString, Box<StyleRefinement>)>,
     pub(crate) group_active: Option<(SharedString, Box<StyleRefinement>)>,
-    /// Relation targets: siblings' ids, lowered to their paths.
-    labelled_by: Vec<ElementId>,
-    described_by: Vec<ElementId>,
-    controls: Vec<ElementId>,
-    error_message: Option<ElementId>,
     a11y_actions: Vec<(gpui::accesskit::Action, A11yListener)>,
     pub(crate) on_click: Option<EventListener<ClickEvent>>,
     pub(crate) on_aux_click: Option<EventListener<ClickEvent>>,
@@ -115,17 +109,6 @@ pub trait InteractiveElement: Sized {
         self.interactivity().tab_group = true;
         if self.interactivity().tab_index.is_none() {
             self.interactivity().tab_index = Some(0);
-        }
-        self
-    }
-
-    fn key_context<C, E>(mut self, key_context: C) -> Self
-    where
-        C: TryInto<gpui::KeyContext, Error = E>,
-        E: std::fmt::Display,
-    {
-        if let Ok(key_context) = key_context.try_into() {
-            self.interactivity().key_context = Some(wire::KeyContext::from_gpui(&key_context));
         }
         self
     }
@@ -429,6 +412,22 @@ impl<E: InteractiveElement> InteractiveElement for Stateful<E> {
 
 /// Stateful interaction methods with GPUI's public names and signatures where
 /// the value can be represented by the guest wire contract.
+///
+/// A relation to another node (`aria_labelled_by`, `aria_described_by`,
+/// `aria_controls`, `aria_error_message`) has no setter: the host can name
+/// no node of the frame for one until the fork can (the app's
+/// `docs/ax.md`, AX-115), so writing one does not compile instead of doing
+/// nothing. Say it in the node's own label or description:
+///
+/// ```
+/// use view_guest::prelude::*;
+/// let _ = div().id("field").aria_description("Use your email address");
+/// ```
+///
+/// ```compile_fail
+/// use view_guest::prelude::*;
+/// let _ = div().id("field").aria_labelled_by("caption");
+/// ```
 pub trait StatefulInteractiveElement: InteractiveElement {
     fn role(mut self, role: gpui::Role) -> Self {
         self.interactivity().role = Some(role);
@@ -531,7 +530,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self.interactivity().aria.orientation = Some(value);
         self
     }
-    // `aria_live` through `aria_error_message` and `custom_action` are the
+    // `aria_live` through `aria_current` and `custom_action` are the
     // names planned for the fork, which has none of them yet; the host
     // delivers each through its aria patch until it does.
     fn aria_live(mut self, value: accesskit::Live) -> Self {
@@ -560,26 +559,6 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     }
     fn aria_current(mut self, value: accesskit::AriaCurrent) -> Self {
         self.interactivity().aria.current = Some(value);
-        self
-    }
-    /// `id` is a sibling's: an element in the same id scope as this one.
-    fn aria_labelled_by(mut self, id: impl Into<ElementId>) -> Self {
-        self.interactivity().labelled_by.push(id.into());
-        self
-    }
-    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
-    fn aria_described_by(mut self, id: impl Into<ElementId>) -> Self {
-        self.interactivity().described_by.push(id.into());
-        self
-    }
-    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
-    fn aria_controls(mut self, id: impl Into<ElementId>) -> Self {
-        self.interactivity().controls.push(id.into());
-        self
-    }
-    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
-    fn aria_error_message(mut self, id: impl Into<ElementId>) -> Self {
-        self.interactivity().error_message = Some(id.into());
         self
     }
     /// A custom action assistive technology offers by `description`. Its

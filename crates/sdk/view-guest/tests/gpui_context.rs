@@ -106,7 +106,6 @@ impl Render for TooltipSurface {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("target")
-            .key_context("Tooltip mode = help")
             .tooltip_show_delay(std::time::Duration::from_millis(250))
             .hoverable_tooltip(|_, cx| cx.new(|_| TooltipContent).into())
     }
@@ -124,10 +123,6 @@ fn tooltip_delay_is_order_independent_and_builder_runs_only_after_request() {
     let (mut cx, _) = opened::<TooltipSurface>();
     let interactivity = cx.interactivity("target");
     let tooltip = interactivity.tooltip.clone().expect("tooltip recipe");
-    let context = interactivity.key_context.as_ref().expect("key context");
-    assert_eq!(context.entries[0].key.as_ref(), "Tooltip");
-    assert_eq!(context.entries[1].key.as_ref(), "mode");
-    assert_eq!(context.entries[1].value.as_deref(), Some("help"));
     assert!(tooltip.hoverable);
     assert_eq!(tooltip.delay_ms, 250);
     cx.simulate_hover("target", true);

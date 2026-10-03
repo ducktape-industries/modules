@@ -149,12 +149,6 @@ fn full_interactivity() -> Interactivity {
             gpui::pattern_slash(gpui::blue(), 1., 2.),
             gpui::TextOverflow::TruncateStart("…".into()),
         ))),
-        key_context: Some(interactivity::KeyContext {
-            entries: vec![interactivity::KeyContextEntry {
-                key: "mode".into(),
-                value: Some("edit".into()),
-            }],
-        }),
         focus_handle: Some(42),
         occlude: true,
         block_mouse_except_scroll: true,
@@ -297,10 +291,6 @@ fn first_nodes() -> Vec<Node> {
                     invalid: Some(Invalid::True),
                     has_popup: Some(HasPopup::Listbox),
                     current: Some(AriaCurrent::False),
-                    labelled_by: vec![vec![id("root"), id("caption")]],
-                    described_by: vec![vec![id("root"), id("hint")]],
-                    controls: vec![vec![id("root"), id("panel")]],
-                    error_message: Some(vec![id("root"), id("error")]),
                     actions: vec![(Action::ScrollIntoView, 10), (Action::CustomAction, 11)],
                     custom_actions: vec![(3, "Pin".into())],
                     ..Default::default()
@@ -836,10 +826,6 @@ fn every_aria() -> Aria {
         invalid: Some(Invalid::True),
         has_popup: Some(HasPopup::Listbox),
         current: Some(AriaCurrent::False),
-        labelled_by: vec![vec![id("root"), id("caption")]],
-        described_by: vec![vec![id("root"), id("hint")]],
-        controls: vec![vec![id("root"), id("panel")]],
-        error_message: Some(vec![id("root"), id("error")]),
         actions: vec![(Action::ScrollIntoView, 10), (Action::CustomAction, 11)],
         custom_actions: vec![(3, "Pin".into())],
     }

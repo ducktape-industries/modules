@@ -59,9 +59,7 @@ pub use snapshot::MAX_SNAPSHOT_BYTES;
 
 mod aria;
 pub mod click;
-pub use aria::{
-    Aria, MAX_ARIA_ACTIONS, MAX_ARIA_CUSTOM_ACTIONS, MAX_ARIA_RELATIONS, MAX_ARIA_TEXT_BYTES,
-};
+pub use aria::{Aria, MAX_ARIA_ACTIONS, MAX_ARIA_CUSTOM_ACTIONS, MAX_ARIA_TEXT_BYTES};
 /// gpui's own accessibility vocabulary, the one `Aria` and [`Event::A11yAction`] speak.
 pub use gpui::accesskit::{Action, ActionData, AriaCurrent, HasPopup, Invalid, Live};
 mod element_id;
@@ -102,7 +100,7 @@ pub use patch::{MAX_PATCHES, Patch, apply, diff, diff_taking};
 pub mod interactivity;
 pub mod keyboard;
 pub mod mouse;
-pub use interactivity::{DispatchPhase, HoverListenerMode, KeyContext, Tooltip, TooltipResponse};
+pub use interactivity::{DispatchPhase, HoverListenerMode, Tooltip, TooltipResponse};
 
 mod protocol;
 pub use protocol::{

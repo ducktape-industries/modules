@@ -76,38 +76,6 @@ fn each_phase_two_setter_lowers_into_its_one_wire_field() {
     );
 }
 
-#[test]
-fn a_relation_names_its_sibling_by_the_path_from_the_root() {
-    let node = lower(
-        div()
-            .id("form")
-            .child(
-                div()
-                    .id("field")
-                    .aria_labelled_by("caption")
-                    .aria_labelled_by("unit")
-                    .aria_described_by("hint")
-                    .aria_controls("list")
-                    .aria_error_message("error"),
-            )
-            .child(crate::svg().aria_labelled_by("caption")),
-    );
-    let children = node.children();
-    let field = aria(&children[0]);
-    assert_eq!(
-        field.labelled_by,
-        [named(&["form", "caption"]), named(&["form", "unit"])]
-    );
-    assert_eq!(field.described_by, [named(&["form", "hint"])]);
-    assert_eq!(field.controls, [named(&["form", "list"])]);
-    assert_eq!(field.error_message, Some(named(&["form", "error"])));
-    // an element without an id is in its parent's scope already
-    assert_eq!(
-        aria(&children[1]).labelled_by,
-        [named(&["form", "caption"])]
-    );
-}
-
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Stepper {
     count: i32,

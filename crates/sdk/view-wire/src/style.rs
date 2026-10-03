@@ -24,8 +24,6 @@ pub struct Interactivity {
     pub in_focus: Option<Box<StyleRefinement>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_visible: Option<Box<StyleRefinement>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key_context: Option<crate::interactivity::KeyContext>,
     /// Guest-app-local opaque focus allocation. It is never an authored element ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_handle: Option<u64>,

@@ -12,15 +12,7 @@ impl Interactivity {
         {
             handle.track(lowering.slots(), scope);
         }
-        // an identified element lowers inside its own scope; its siblings
-        // share the one above
-        let scope = &scope[..scope.len() - usize::from(self.id.is_some())];
-        let path = |target| [scope, &[crate::element::wire_id(target)]].concat();
         let mut aria = self.aria;
-        aria.labelled_by = self.labelled_by.into_iter().map(path).collect();
-        aria.described_by = self.described_by.into_iter().map(path).collect();
-        aria.controls = self.controls.into_iter().map(path).collect();
-        aria.error_message = self.error_message.map(path);
         let offered: std::rc::Rc<[i32]> = aria.custom_actions.iter().map(|(id, _)| *id).collect();
         aria.actions = self
             .a11y_actions
@@ -72,7 +64,6 @@ impl Interactivity {
                 self.focusable
                     .then(|| Box::new(crate::design::focus_ring(lowering.theme().accent)))
             }),
-            key_context: self.key_context,
             focus_handle: self.focus_handle.map(|handle| handle.id),
             occlude: self.occlude,
             block_mouse_except_scroll: self.block_mouse_except_scroll,

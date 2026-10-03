@@ -200,44 +200,6 @@
                   "invalid": "true",
                   "has_popup": "listbox",
                   "current": "false",
-                  "labelled_by": [
-                    [
-                      {
-                        "Name": "root"
-                      },
-                      {
-                        "Name": "caption"
-                      }
-                    ]
-                  ],
-                  "described_by": [
-                    [
-                      {
-                        "Name": "root"
-                      },
-                      {
-                        "Name": "hint"
-                      }
-                    ]
-                  ],
-                  "controls": [
-                    [
-                      {
-                        "Name": "root"
-                      },
-                      {
-                        "Name": "panel"
-                      }
-                    ]
-                  ],
-                  "error_message": [
-                    {
-                      "Name": "root"
-                    },
-                    {
-                      "Name": "error"
-                    }
-                  ],
                   "actions": [
                     [
                       "scrollIntoView",
@@ -779,44 +741,6 @@
                   "invalid": "true",
                   "has_popup": "listbox",
                   "current": "false",
-                  "labelled_by": [
-                    [
-                      {
-                        "Name": "root"
-                      },
-                      {
-                        "Name": "caption"
-                      }
-                    ]
-                  ],
-                  "described_by": [
-                    [
-                      {
-                        "Name": "root"
-                      },
-                      {
-                        "Name": "hint"
-                      }
-                    ]
-                  ],
-                  "controls": [
-                    [
-                      {
-                        "Name": "root"
-                      },
-                      {
-                        "Name": "panel"
-                      }
-                    ]
-                  ],
-                  "error_message": [
-                    {
-                      "Name": "root"
-                    },
-                    {
-                      "Name": "error"
-                    }
-                  ],
                   "actions": [
                     [
                       "scrollIntoView",
@@ -1044,14 +968,6 @@
                       "TruncateStart": "…"
                     }
                   }
-                },
-                "key_context": {
-                  "entries": [
-                    {
-                      "key": "mode",
-                      "value": "edit"
-                    }
-                  ]
                 },
                 "focus_handle": 42,
                 "occlude": true,

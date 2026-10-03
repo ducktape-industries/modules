@@ -17,58 +17,11 @@ fn with_aria(aria: Aria) -> Frame {
     }
 }
 
-fn target() -> Vec<ElementIdWire> {
-    vec![ElementIdWire::Name("caption".into())]
-}
-
 /// At the bound the frame decodes; one past it, `decode` names the list.
 fn refused_past(at: impl Fn(usize) -> Aria, bound: usize, message: &str) {
     assert!(decode::<Frame>(&encode(&with_aria(at(bound)))).is_ok());
     let refused = decode::<Frame>(&encode(&with_aria(at(bound + 1)))).unwrap_err();
     assert!(refused.contains(message), "{refused}");
-}
-
-#[test]
-fn decode_refuses_more_relations_than_a_list_holds() {
-    for relation in 0..3 {
-        refused_past(
-            |len| {
-                let targets = vec![target(); len];
-                match relation {
-                    0 => Aria {
-                        labelled_by: targets,
-                        ..Default::default()
-                    },
-                    1 => Aria {
-                        described_by: targets,
-                        ..Default::default()
-                    },
-                    _ => Aria {
-                        controls: targets,
-                        ..Default::default()
-                    },
-                }
-            },
-            MAX_ARIA_RELATIONS,
-            "too many aria relations",
-        );
-    }
-    refused_past(
-        |depth| Aria {
-            labelled_by: vec![vec![ElementIdWire::Integer(1); depth]],
-            ..Default::default()
-        },
-        MAX_DEPTH,
-        "aria relation target is too deep",
-    );
-    refused_past(
-        |depth| Aria {
-            error_message: Some(vec![ElementIdWire::Integer(1); depth]),
-            ..Default::default()
-        },
-        MAX_DEPTH,
-        "aria relation target is too deep",
-    );
 }
 
 #[test]
@@ -378,51 +331,6 @@ fn live_off_is_no_live_region() {
         ..Default::default()
     });
     assert_eq!(polite.live, Some(Live::Polite));
-}
-
-#[test]
-fn relations_are_cut_to_the_bound_and_each_target_is_checked() {
-    let many = vec![target(); MAX_ARIA_RELATIONS + 4];
-    let cut = aria(Aria {
-        labelled_by: many.clone(),
-        described_by: many.clone(),
-        controls: many,
-        ..Default::default()
-    });
-    for relation in [cut.labelled_by, cut.described_by, cut.controls] {
-        assert_eq!(relation.len(), MAX_ARIA_RELATIONS);
-    }
-    let host_local = vec![ElementIdWire::FocusHandle(1)];
-    for aria in [
-        Aria {
-            labelled_by: vec![host_local.clone()],
-            ..Default::default()
-        },
-        Aria {
-            error_message: Some(host_local),
-            ..Default::default()
-        },
-    ] {
-        let refused = sanitized(Interactivity {
-            aria,
-            ..Default::default()
-        });
-        assert_eq!(
-            refused,
-            Err(Refused::Invalid("focus-handle element IDs are host-local"))
-        );
-    }
-    let deep = sanitized(Interactivity {
-        aria: Aria {
-            controls: vec![vec![ElementIdWire::Integer(1); MAX_DEPTH + 1]],
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-    assert_eq!(
-        deep,
-        Err(Refused::Invalid("aria relation target is too deep"))
-    );
 }
 
 #[test]
