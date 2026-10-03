@@ -203,6 +203,10 @@ pub fn every_event() -> Vec<Event> {
             handler: 19,
             change: TextChange {
                 revision: 4,
+                edit: Some(Edit {
+                    range: TextRange { start: 1, end: 1 },
+                    len: 1,
+                }),
                 text: "xy".into(),
                 cursor: TextRange { start: 2, end: 2 },
                 preedit: Some(TextRange { start: 1, end: 2 }),

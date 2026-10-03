@@ -398,6 +398,9 @@ EdgesRefinement struct
   right: Option(Str)
   bottom: Option(Str)
   left: Option(Str)
+Edit struct
+  range: TypeName("TextRange")
+  len: U32
 ElementIdAtom enum
   0 View: NewType(U64)
   1 Integer: NewType(U64)
@@ -1281,6 +1284,7 @@ TextAlign enum
   2 Right: Unit
 TextChange struct
   revision: U64
+  edit: Option(TypeName("Edit"))
   text: Str
   cursor: TypeName("TextRange")
   preedit: Option(TypeName("TextRange"))

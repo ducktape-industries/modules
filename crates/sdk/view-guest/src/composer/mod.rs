@@ -140,17 +140,15 @@ impl Draft {
     }
 
     /// The host's word on the field. Typing closes a dismissed menu's
-    /// dismissal and starts the next menu at its first row, and carries what
-    /// a send asked to clear to where it now lies: gone once the clear
-    /// landed, or the writer deleted it.
+    /// dismissal and starts the next menu at its first row, and the edit the
+    /// host made carries what a send asked to clear to where it now lies:
+    /// gone once the clear landed, or the writer deleted it. The host's edit,
+    /// not a diff of the two texts: "oko" cleared of "ok" reads "o", and a
+    /// diff cannot tell the typed-ahead "o" from the sent one.
     pub fn changed(&mut self, change: &wire::TextChange) {
-        if let Some((range, text)) = wire::changed_span(&self.field.text, &change.text) {
+        if let Some(edit) = change.edit {
             self.menu_index = 0;
             self.menu_dismissed = false;
-            let edit = wire::Edit {
-                range,
-                len: text.len() as u32,
-            };
             self.cleared = self
                 .cleared
                 .iter()
@@ -475,6 +473,10 @@ mod tests {
         // the host's answer: the span sits where the engine put it
         draft.changed(&wire::TextChange {
             revision: 1,
+            edit: Some(wire::Edit {
+                range: wire::TextRange::from(3..5),
+                len: 5,
+            }),
             text: "hi @Ada ".into(),
             cursor: wire::TextRange::caret(8),
             preedit: None,
@@ -518,9 +520,17 @@ mod tests {
     fn a_second_send_before_the_clear_lands_sends_only_what_was_typed_since() {
         let mut draft = Draft::from_body("hi <@7>", &roster());
         assert_eq!(draft.field.text, "hi @Ada");
-        let change = |draft: &mut Draft, revision, text: &str, tokens: Vec<wire::TextToken>| {
+        let change = |draft: &mut Draft,
+                      revision,
+                      edit: (Range<usize>, u32),
+                      text: &str,
+                      tokens: Vec<wire::TextToken>| {
             draft.changed(&wire::TextChange {
                 revision,
+                edit: Some(wire::Edit {
+                    range: edit.0.into(),
+                    len: edit.1,
+                }),
                 text: text.into(),
                 cursor: wire::TextRange::caret(text.len()),
                 preedit: None,
@@ -554,30 +564,75 @@ mod tests {
             range: range.into(),
             id: "<@7>".into(),
         };
-        change(&mut draft, 1, "hi @Ada y", vec![ada(3..7)]);
-        change(&mut draft, 2, "hi @Ada yo", vec![ada(3..7)]);
+        change(&mut draft, 1, (7..7, 1), "hi @Ada y", vec![ada(3..7)]);
+        change(&mut draft, 2, (8..8, 1), "hi @Ada yo", vec![ada(3..7)]);
         assert_eq!(draft.cleared, [wire::TextRange::from(0..7)]);
         assert_eq!(draft.body(), " yo");
         assert_eq!(send(&mut draft), (Some(0..10), Some("yo".into())));
-        // the first clear lands, then the second: nothing is spoken for
-        change(&mut draft, 3, " yo", Vec::new());
+        // the first clear lands, then the second (rebased over the first by
+        // the host): nothing is spoken for
+        change(&mut draft, 3, (0..7, 0), " yo", Vec::new());
         assert_eq!(draft.cleared, [wire::TextRange::from(0..3)]);
         assert!(!draft.can_send());
-        change(&mut draft, 4, "", Vec::new());
+        change(&mut draft, 4, (0..3, 0), "", Vec::new());
         assert!(draft.cleared.is_empty());
         // typed into the span being cleared: still the writer's, the clear
-        // lands round it
-        change(&mut draft, 5, "abc", Vec::new());
+        // lands round it as one edit that puts the kept byte back
+        change(&mut draft, 5, (0..0, 3), "abc", Vec::new());
         assert_eq!(send(&mut draft), (Some(0..3), Some("abc".into())));
-        change(&mut draft, 6, "abXc", Vec::new());
+        change(&mut draft, 6, (2..2, 1), "abXc", Vec::new());
         assert_eq!(
             draft.cleared,
             [wire::TextRange::from(0..2), wire::TextRange::from(3..4)]
         );
         assert_eq!(draft.body(), "X");
-        change(&mut draft, 7, "X", Vec::new());
+        change(&mut draft, 7, (0..4, 1), "X", Vec::new());
         assert!(draft.cleared.is_empty());
         assert_eq!(draft.body(), "X");
+    }
+
+    /// The host tells the edit it made; the draft never diffs it out. "ok"
+    /// sent, "o" typed ahead, the clear lands and the field reads "o": a
+    /// diff of "oko" and "o" takes the first "o" for the one that stayed
+    /// and speaks for the typed one, so Send rested, Enter did nothing, and
+    /// once "k" followed Enter sent "k" for "ok".
+    #[test]
+    fn type_ahead_that_repeats_the_sent_texts_start_stays_the_writers() {
+        let mut draft = Draft::from_body("ok", &[]);
+        let change = |draft: &mut Draft, revision, edit: (Range<usize>, u32), text: &str| {
+            draft.changed(&wire::TextChange {
+                revision,
+                edit: Some(wire::Edit {
+                    range: edit.0.into(),
+                    len: edit.1,
+                }),
+                text: text.into(),
+                cursor: wire::TextRange::caret(text.len()),
+                preedit: None,
+                tokens: Vec::new(),
+            })
+        };
+        let send = |draft: &mut Draft| {
+            let (_, outcome) = draft.act("send", "c/editor", &[]);
+            assert!(matches!(outcome, Outcome::Action(tag) if tag == "send"));
+            draft.submitted.take().unwrap().body
+        };
+        assert_eq!(send(&mut draft), "ok");
+        // "o" typed at the end before the clear landed
+        change(&mut draft, 1, (2..2, 1), "oko");
+        assert_eq!(draft.body(), "o");
+        // the clear lands round it: the host took 0..2, the typed "o" stands
+        change(&mut draft, 2, (0..2, 0), "o");
+        assert_eq!(
+            (
+                draft.cleared.as_slice(),
+                draft.body().as_str(),
+                draft.can_send()
+            ),
+            (&[][..], "o", true)
+        );
+        change(&mut draft, 3, (2..2, 1), "ok");
+        assert_eq!(send(&mut draft), "ok");
     }
 
     #[test]
@@ -593,6 +648,10 @@ mod tests {
         let generation = draft.field.generation;
         draft.changed(&wire::TextChange {
             revision: 9,
+            edit: Some(wire::Edit {
+                range: wire::TextRange::from(0..10),
+                len: 0,
+            }),
             text: String::new(),
             cursor: wire::TextRange::caret(0),
             preedit: None,
@@ -655,6 +714,10 @@ mod tests {
         assert_eq!(dismissed.query(), None);
         dismissed.changed(&wire::TextChange {
             revision: 1,
+            edit: Some(wire::Edit {
+                range: wire::TextRange::caret(2),
+                len: 1,
+            }),
             text: "@Al".into(),
             cursor: wire::TextRange::caret(3),
             preedit: None,

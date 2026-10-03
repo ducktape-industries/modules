@@ -47,8 +47,9 @@ impl From<Range<usize>> for TextRange {
 }
 
 /// One edit the engine made: `range` of the text before it became `len`
-/// bytes. The host's edit log is these, each at the revision it made.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// bytes. The host's edit log is these, each at the revision it made, and
+/// each [`TextChange`] carries the one that made its revision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
     pub range: TextRange,
     pub len: u32,
@@ -262,11 +263,15 @@ impl KeyClaim {
 }
 
 /// The host's word on a field's text: the whole text as the engine holds it
-/// at `revision`, its cursor, the span an IME is still composing in, and
-/// the atomic spans where they now lie.
+/// at `revision`, the edit that made that revision from the text before it
+/// (`None` when only the cursor or the preedit moved), its cursor, the span
+/// an IME is still composing in, and the atomic spans where they now lie.
+/// The edit is told, not left for the guest to diff out: two texts cannot
+/// say which of two equal bytes went.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextChange {
     pub revision: u64,
+    pub edit: Option<Edit>,
     pub text: String,
     pub cursor: TextRange,
     pub preedit: Option<TextRange>,

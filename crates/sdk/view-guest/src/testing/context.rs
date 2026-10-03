@@ -651,6 +651,7 @@ impl TestAppContext {
         }
         wire::TextChange {
             revision: self.text_revision,
+            edit,
             text,
             cursor: wire::TextRange::caret(caret),
             preedit: None,

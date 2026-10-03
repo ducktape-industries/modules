@@ -202,6 +202,10 @@ fn a_frame_round_trips() {
             handler: 0,
             change: TextChange {
                 revision: 3,
+                edit: Some(Edit {
+                    range: TextRange::from(1..2),
+                    len: 1,
+                }),
                 text: "xy".into(),
                 cursor: TextRange::caret(2),
                 preedit: Some(TextRange::from(1..2)),

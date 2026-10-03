@@ -149,6 +149,7 @@ mod tests {
         let mut field = TextField::new("say word now");
         field.apply(&TextChange {
             revision: 7,
+            edit: None,
             text: "say word now".into(),
             cursor: TextRange::from(4..8),
             preedit: None,

@@ -26,7 +26,7 @@ use view_wire::methods::{self, Method, Program};
 use view_wire::{
     Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
     CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
-    ContainerNode, DispatchPhase, ElementIdAtom, ElementIdWire, Error, Event, Frame,
+    ContainerNode, DispatchPhase, Edit, ElementIdAtom, ElementIdWire, Error, Event, Frame,
     GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
     KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
     Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource,

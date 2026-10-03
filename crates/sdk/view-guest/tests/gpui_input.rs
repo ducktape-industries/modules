@@ -100,6 +100,10 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
         handler: second_input,
         change: wire::TextChange {
             revision: 9,
+            edit: Some(wire::Edit {
+                range: wire::TextRange::caret(0),
+                len: 5,
+            }),
             text: "stale".into(),
             cursor: wire::TextRange::caret(5),
             preedit: None,
