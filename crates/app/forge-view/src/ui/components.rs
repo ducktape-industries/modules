@@ -178,7 +178,8 @@ pub(crate) fn cursor(forge: &Forge, id: &'static str) -> (usize, usize) {
 /// A list of [`row`]s as one Tab stop: ↑ ↓ walk the rows (a virtual list
 /// tracking `scroll` is scrolled to the active one before it claims), Enter
 /// presses the active one (`on_press`). The rows go in as the list's
-/// children.
+/// children: drawn whole (no `scroll`) they scroll here; a virtual list
+/// scrolls itself, and the one bar and its gutter are that list's.
 pub(crate) fn list(
     id_: &'static str,
     label: &str,
@@ -194,24 +195,29 @@ pub(crate) fn list(
     if let Some(scroll) = scroll {
         list = list.track_scroll(scroll);
     }
-    list.on_move(cx.processor(move |forge, index: usize, _, cx| {
-        forge.list_cursor = Some((id_, index, 0));
-        cx.notify();
-    }))
-    .on_press(
-        cx.processor(move |forge, index: usize, window, cx| on_press(forge, index, window, cx)),
-    )
-    .build()
-    .flex_1()
-    .min_h(px(0.))
-    .overflow_y_scroll()
-    .flex()
-    .flex_col()
+    let list = list
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.list_cursor = Some((id_, index, 0));
+            cx.notify();
+        }))
+        .on_press(
+            cx.processor(move |forge, index: usize, window, cx| on_press(forge, index, window, cx)),
+        )
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col();
+    match scroll {
+        Some(_) => list,
+        None => list.overflow_y_scroll(),
+    }
 }
 
 /// A grid of [`row`]s (each [`Row::in_grid`]) as one Tab stop: ↑ ↓ walk the rows,
 /// ← → a row's cells (its press, then each control), Enter presses the
 /// active cell (`on_press(row, cell)`). `cells` is the active row's count.
+/// The rows are drawn whole and scroll here.
 pub(crate) fn grid(
     id_: &'static str,
     label: &str,

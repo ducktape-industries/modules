@@ -1834,6 +1834,70 @@ fn the_commit_list_is_a_list_box_whose_enter_opens_the_active_commit() {
     view.read(|forge| assert_eq!(forge.nav().commit.as_deref(), Some(oid.as_str())));
 }
 
+/// The style of the list box or grid `id`, which says whether it scrolls
+/// and what room it keeps on its right.
+fn list_box<'a>(cx: &'a TestAppContext, id: &str) -> &'a ducktape_view_guest::StyleRefinement {
+    assert!(
+        matches!(cx.find(id), Some(wire::Node::Container(_))),
+        "no list {id}"
+    );
+    cx.style(id)
+}
+
+/// The commits are a virtual list, which scrolls and has the host's bar in
+/// a gutter beside it. The list box around it is no scroller: one that was
+/// would keep a second gutter for a bar that never shows, 16 px of nothing
+/// between the rows and the bar.
+#[test]
+fn the_commit_list_leaves_the_scrolling_and_the_gutter_to_its_rows() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    let list = list_box(&cx, "forge-log-list");
+    assert_eq!((list.overflow.y, list.padding.right), (None, None));
+    assert!(
+        matches!(cx.find("forge-log"), Some(wire::Node::UniformList { .. })),
+        "the commits are a virtual list"
+    );
+    let rows = cx.style("forge-log");
+    assert_eq!(rows.padding.right, None, "the gutter is the host's");
+}
+
+/// The list box does not scroll, so nothing reveals the commit an arrow
+/// moves to but the rows: the frame that answers the key asks them to
+/// scroll to it.
+#[test]
+fn an_arrow_on_the_commit_list_scrolls_its_rows_to_the_commit_moved_to() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    cx.simulate_focus("forge-log-list");
+    cx.simulate_key_down("forge-log-list", "down");
+    let Some(wire::Node::UniformList { scroll_request, .. }) = cx.find("forge-log") else {
+        panic!("the commits are a virtual list");
+    };
+    assert_eq!(scroll_request.map(|request| request.index), Some(1));
+}
+
+/// Changes and refs are drawn whole, so their list box and grid are the
+/// scrollers: the host reveals the row an arrow moves to inside them, and
+/// the SDK keeps their one gutter.
+#[test]
+fn the_change_and_ref_lists_drawn_whole_scroll_themselves() {
+    let bar = Some(ducktape_view_guest::design::size::SCROLLBAR.into());
+    let (mut cx, _) = opened("default");
+    for (tab, id) in [
+        ("forge-tab-changes", "forge-changes-list"),
+        ("forge-tab-refs", "forge-refs-list"),
+    ] {
+        cx.simulate_click(tab);
+        cx.run_until_parked();
+        let list = list_box(&cx, id);
+        assert!(list.overflow.y.is_some(), "{id} scrolls");
+        assert_eq!(list.padding.right, bar, "{id} keeps its bar's gutter");
+    }
+}
+
 #[test]
 fn the_change_list_is_a_list_box_whose_enter_opens_the_active_change() {
     let (mut cx, view) = opened("default");
