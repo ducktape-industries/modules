@@ -656,11 +656,12 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
 
 /// The Transactions list scrolls for its page, so its bar belongs where a
 /// page's is, at the pane's edge beside the rows: the page is no scroller
-/// there (no gutter of its own), the list keeps the bar's gutter and the
-/// heading the same inset, so both are as wide as under a page that
-/// scrolls. Every other page scrolls, with the gutter the SDK keeps.
+/// there (no gutter of its own) and the list reaches the edge, where the
+/// host keeps the bar's gutter beside it. The view writes no room for the
+/// bar; the heading keeps the same inset, so it ends where the rows do.
+/// Every other page scrolls, with the gutter the SDK keeps.
 #[test]
-fn the_transactions_list_keeps_the_bars_gutter_at_the_panes_edge() {
+fn the_transactions_list_reaches_the_panes_edge_and_writes_no_gutter() {
     use ducktape_view_guest::wire::Node;
     let bar = ducktape_view_guest::design::size::SCROLLBAR;
     let mut cx = TestAppContext::new();
@@ -678,7 +679,7 @@ fn the_transactions_list_keeps_the_bars_gutter_at_the_panes_edge() {
     let rows = "explorer-transactions-list-rows";
     assert!(matches!(cx.find(rows), Some(Node::UniformList { .. })));
     let right = |key: &str| cx.style(key).padding.right;
-    assert_eq!(right(rows), Some(bar.into()), "the bar's gutter");
+    assert_eq!(right(rows), None, "the gutter is the host's");
     assert_eq!(
         cx.style("explorer-transactions-heading").margin.right,
         Some(bar.into())

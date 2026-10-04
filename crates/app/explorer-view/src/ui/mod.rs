@@ -96,7 +96,7 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
     // A page scrolls, and the SDK keeps its right edge for the bar. The
     // Transactions page is a heading over a list that scrolls for it
     // ([`Rows::shown`]): the page is no scroller there, so the list reaches
-    // the pane's edge and its bar sits where the other pages' bar does.
+    // the pane's edge and the host draws its bar where the other pages' is.
     let scroller = div().id("explorer-page").flex_1().flex().flex_col();
     let scroller = match view.route {
         Route::Transactions(_) => scroller.min_h(px(0.)),
@@ -366,9 +366,9 @@ impl Rows {
     }
     /// `routes.len()` rows the host asks for by index, painted as it shows
     /// them. They scroll for their page, which is no scroller then
-    /// ([`render`]): the list reaches the pane's edge and keeps the bar's
-    /// gutter there itself, as a page that scrolls is given one, so the
-    /// host draws the bar beside the rows, not over them.
+    /// ([`render`]): the list reaches the pane's edge, where the host keeps
+    /// the bar's gutter beside the rows, as a page that scrolls is given
+    /// one.
     fn shown(
         mut self,
         routes: Vec<Route>,
@@ -441,8 +441,7 @@ impl Rows {
         )
         .track_scroll(&scroll)
         .flex_1()
-        .min_h(px(0.))
-        .pr(design::size::SCROLLBAR);
+        .min_h(px(0.));
         list.flex_1().min_h(px(0.)).flex().flex_col().child(window)
     }
 }

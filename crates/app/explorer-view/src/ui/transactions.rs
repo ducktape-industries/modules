@@ -41,7 +41,8 @@ pub(super) fn transactions(
         .min_h(px(0.))
         .flex()
         .flex_col()
-        // the heading ends where it does under a page that scrolls
+        // the heading ends where the rows do, short of the gutter the host
+        // keeps beside the list, as it does under a page that scrolls
         .child(
             heading(
                 "explorer-transactions-heading",
