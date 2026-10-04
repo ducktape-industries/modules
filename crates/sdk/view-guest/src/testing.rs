@@ -62,8 +62,9 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
 }
 
 /// The host's sanitizer, which must take the tree the host holds and the
-/// tooltips a frame answered, and [`assert_accessible`] on each: the tree
-/// and every tooltip's content, which the host renders too.
+/// tooltips a frame answered whole, cutting nothing (a clamp is no cut),
+/// and [`assert_accessible`] on each: the tree and every tooltip's
+/// content, which the host renders too.
 pub(crate) fn assert_frame_accessible(root: Option<&Node>, tooltips: &[TooltipResponse]) {
     if let Some(root) = root {
         let mut hosted = Frame {
@@ -71,8 +72,12 @@ pub(crate) fn assert_frame_accessible(root: Option<&Node>, tooltips: &[TooltipRe
             tooltip_responses: tooltips.to_vec(),
             ..Frame::default()
         };
-        if let Err(refused) = crate::wire::sanitize(&mut hosted) {
-            panic!("the host refuses this frame: {refused}");
+        match crate::wire::sanitize(&mut hosted) {
+            Err(refused) => panic!("the host refuses this frame: {refused}"),
+            Ok(cut) if !cut.is_empty() => {
+                panic!("the host would cut this frame, it is past a frame budget: {cut:?}")
+            }
+            Ok(_) => {}
         }
     }
     let tooltips = tooltips

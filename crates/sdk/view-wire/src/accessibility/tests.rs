@@ -930,10 +930,6 @@ fn an_invalid_field_that_says_why_passes() {
         description: Some("An address has an @".into()),
         ..Default::default()
     }));
-    passes(field(Aria {
-        error_message: Some(vec![ElementIdWire::Name("email-error".into())]),
-        ..Default::default()
-    }));
     let mut input = input("Email");
     if let Node::Field { options, .. } = &mut input {
         options.invalid = Some(Invalid::True);

@@ -27,7 +27,7 @@ fn action_strip_keeps_the_rows_hover_and_is_not_inside_selection_target() {
     );
     // An occluding strip took the row's group hover away as the pointer
     // reached it: it hid itself and could not be clicked. It stays under
-    // the group; its buttons claim their click from the card instead.
+    // the group; its buttons consume their press, so the card does not.
     assert!(
         !interactivity.occlude,
         "the strip must not take the row's hover from under the pointer"
@@ -254,43 +254,6 @@ fn thread_root_uses_reply_count_as_a_separator() {
     cx.run_until_parked();
     assert!(cx.find("chat-message-m1-reply-separator").is_some());
     assert!(cx.has_text("2 replies"));
-}
-
-#[test]
-fn a_control_on_a_card_keeps_its_click_from_the_card_beneath() {
-    use ducktape_view_guest::{ClickEvent, Point, px};
-    let pointer = |x: f32| {
-        let button = wire::click::ButtonEvent {
-            button: wire::click::MouseButton::Left,
-            position: Point {
-                x: px(x),
-                y: px(9.),
-            },
-            modifiers: Default::default(),
-            click_count: 1,
-        };
-        ClickEvent::from(wire::click::Click::Mouse {
-            down: button.clone(),
-            up: button,
-            first_mouse: false,
-        })
-    };
-    let mut chat = Chat::default();
-    // GPUI hands one click to the control and then to the card under it
-    chat.claim(&pointer(40.));
-    assert!(chat.was_claimed((40., 9.)), "the card stands down");
-    assert!(
-        !chat.was_claimed((40., 9.)),
-        "once: the next click is the card's"
-    );
-    chat.claim(&pointer(40.));
-    assert!(
-        !chat.was_claimed((41., 9.)),
-        "a click elsewhere is the card's"
-    );
-    // a key press reaches only the focused control, never the card
-    chat.claim(&ClickEvent::default());
-    assert!(!chat.was_claimed((0., 0.)));
 }
 
 #[test]
@@ -617,6 +580,30 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
             (Pane::Timeline, 1, Mode::Toolbar)
         );
     });
+    // every control on the card, its toolbar's too, consumes its press:
+    // the card's cell beneath never hears the same click
+    fn clickable(node: &wire::Node, found: &mut Vec<(String, bool)>) {
+        if let Some(interactivity) = node.interactivity()
+            && interactivity.on_click.is_some()
+        {
+            let key = node.key().unwrap_or_default().to_owned();
+            found.push((key, interactivity.consumes_click));
+        }
+        node.children()
+            .iter()
+            .for_each(|child| clickable(child, found));
+    }
+    let mut found = Vec::new();
+    clickable(cx.find("chat-message-m1-row").unwrap(), &mut found);
+    let (card, controls): (Vec<_>, Vec<_>) = found
+        .into_iter()
+        .partition(|(key, _)| key == "chat-message-m1");
+    assert_eq!(card, [("chat-message-m1".to_owned(), false)]);
+    assert!(controls.len() >= 6, "{controls:?}");
+    assert!(
+        controls.iter().all(|(_, consumes)| *consumes),
+        "{controls:?}"
+    );
     // a room the reader may not write in: a disabled control's cell is
     // disabled too, as the arrows skip it; the others are not
     cx.update(&view, |chat, _, cx| {

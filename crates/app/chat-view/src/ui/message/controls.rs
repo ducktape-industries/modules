@@ -50,7 +50,8 @@ pub(super) fn action_button(
             control
                 .cursor_pointer()
                 .hover(|s| s.bg(theme.surface_raised))
-                .on_click(click),
+                .on_click(click)
+                .consumes_click(),
             Role::Button,
             active,
         )
@@ -127,7 +128,8 @@ pub(super) fn reaction_button(
                         .bg(theme.surface_raised)
                         .border_color(theme.border_strong)
                 })
-                .on_click(click),
+                .on_click(click)
+                .consumes_click(),
             Role::Button,
             active,
         )
@@ -167,6 +169,7 @@ pub(super) fn replies_button(
         .active(|style| style.bg(theme.accent_soft))
         .aria_label(format!("Open thread, {replies}"))
         .on_click(click)
+        .consumes_click()
         .child(replies)
         .child(div().text_color(theme.muted).child("Open thread →"));
     design::item(button, Role::Button, active)

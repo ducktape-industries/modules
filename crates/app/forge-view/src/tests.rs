@@ -1672,6 +1672,31 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
     );
 }
 
+/// Escape in the open menu closes it once: the menu consumes it, so the
+/// overlay around it, whose layer turns Escape into its dismiss, does not
+/// close it a second time (and give the keys back twice).
+#[test]
+fn escape_in_a_menu_closes_it_once() {
+    let (mut cx, _view) = opened("default");
+    let back_to_picker = |cx: &TestAppContext| -> usize {
+        cx.host()
+            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .iter()
+            .filter(|command| {
+                matches!(command, wire::WidgetCommand::Focus { target }
+                    if target.last() == Some(&wire::ElementIdWire::Name("forge-ref-picker".into())))
+            })
+            .count()
+    };
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    let before = back_to_picker(&cx);
+    cx.simulate_key_down("forge-ref-picker-menu", "escape");
+    cx.run_until_parked();
+    assert!(cx.find("forge-ref-picker-menu").is_none());
+    assert_eq!(back_to_picker(&cx) - before, 1, "closed once");
+}
+
 /// Every element of the window keeps its path while a dropdown is open and
 /// after it closes: the host keys a list's scroll and a field's state by
 /// the ids above them, so a menu must not move the window under itself.

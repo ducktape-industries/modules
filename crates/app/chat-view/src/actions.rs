@@ -16,26 +16,6 @@ const ARCHIVED_REACTIONS: &str = "This channel is archived — reactions are clo
 impl Chat {
     // ---------- menus ----------
 
-    /// A control on a message card took `event`: the card's own select
-    /// handler, handed the same click after it, stands down.
-    /// A key press reaches only the focused control, so only a pointer's
-    /// click is claimed.
-    pub(crate) fn claim(&mut self, event: &ducktape_view_guest::ClickEvent) {
-        use ducktape_view_guest::ClickEvent;
-        self.claimed = match event {
-            ClickEvent::Keyboard(_) => None,
-            ClickEvent::Mouse(_) | ClickEvent::Touch(_) => {
-                let at = event.position();
-                Some((at.x.into(), at.y.into()))
-            }
-        };
-    }
-
-    /// Whether a control on the card already took the click at `at`.
-    pub(crate) fn was_claimed(&mut self, at: (f32, f32)) -> bool {
-        self.claimed.take() == Some(at)
-    }
-
     /// A press on a message's body: chosen, its actions stay open.
     pub(crate) fn press_message(&mut self, pane: Pane, seq: u64) {
         if seq == 0 {

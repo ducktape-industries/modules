@@ -56,7 +56,8 @@ pub const MAX_TEXT_PIXELS: f32 = 512.0;
 /// [`MAX_PICTURE_BYTES_PER_FRAME`] in total, text sizes to [`MAX_TEXT_PIXELS`],
 /// every other size, colour and spacing clamped to a finite range, and typed
 /// identity collisions refused ([`crate::identity`]). A frame from a
-/// well-behaved guest passes through unchanged.
+/// well-behaved guest passes through unchanged. It answers what it cut and
+/// where ([`SanitizeReport`]); a clamp is no cut.
 ///
 /// A frame that arrived as bytes has passed [`decode`] first, which refuses
 /// one nested deeper than this walk goes. A frame that carries `patches`
@@ -64,72 +65,36 @@ pub const MAX_TEXT_PIXELS: f32 = 512.0;
 /// tree the patches make and only the host holds it.
 pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, Refused> {
     let mut budgets = Budgets::frame();
-    let mut report = if let Some(root) = &mut frame.root {
-        sanitize_tree_with(root, &mut budgets)?
-    } else {
-        SanitizeReport::default()
-    };
+    if let Some(root) = &mut frame.root {
+        sanitize_tree_with(root, &mut budgets)?;
+    }
     frame.tooltip_responses.truncate(MAX_PATCHES);
     let mut responses = Vec::with_capacity(frame.tooltip_responses.len());
     for mut response in frame.tooltip_responses.drain(..) {
         if let Some(content) = &mut response.content {
             if budgets.nodes == 0 {
+                budgets.cut(|cuts| &mut cuts.nodes, content.count());
                 continue;
             }
-            report.merge(sanitize_tree_with(content, &mut budgets)?);
+            sanitize_tree_with(content, &mut budgets)?;
         }
         responses.push(response);
     }
     frame.tooltip_responses = responses;
-    frame.upstream_sanitization.merge(report);
     for request in &mut frame.requests {
         truncate_string(&mut request.kind);
     }
-    Ok(report)
-}
-
-/// How much display text the tree carries: what sanitization may shorten.
-pub(crate) fn text_amounts(root: &Node) -> usize {
-    let mut pending = vec![root];
-    let mut display = 0usize;
-    while let Some(node) = pending.pop() {
-        let mut add = |text: &str| display = display.saturating_add(text.len());
-        match node {
-            Node::Text(crate::TextNode { content, .. }) => add(content),
-            Node::RichText { text, .. } => add(text),
-            Node::Field {
-                placeholder,
-                options,
-                ..
-            } => {
-                add(placeholder);
-                add(&options.label);
-                if let Some(description) = &options.description {
-                    add(description);
-                }
-            }
-            Node::Image { label, .. } | Node::Svg { label, .. } | Node::Overlay { label, .. } => {
-                if let Some(label) = label {
-                    add(label);
-                }
-            }
-            _ => {}
-        }
-        pending.extend(node.children());
-    }
-    display
+    Ok(budgets.cuts)
 }
 
 pub(crate) fn sanitize_tree(root: &mut Node) -> Result<SanitizeReport, Refused> {
-    sanitize_tree_with(root, &mut Budgets::frame())
+    let mut budgets = Budgets::frame();
+    sanitize_tree_with(root, &mut budgets)?;
+    Ok(budgets.cuts)
 }
 
-fn sanitize_tree_with(root: &mut Node, budgets: &mut Budgets) -> Result<SanitizeReport, Refused> {
-    let before = text_amounts(root);
-    sanitize_node(root, 0, budgets, &mut identity::Scopes::default(), None)?;
-    Ok(SanitizeReport {
-        display_text_truncated: text_amounts(root) < before,
-    })
+fn sanitize_tree_with(root: &mut Node, budgets: &mut Budgets) -> Result<(), Refused> {
+    sanitize_node(root, 0, budgets, &mut identity::Scopes::default(), None)
 }
 
 /// Why the host refuses a frame or a patch: a bound or a shape it breaks,
@@ -172,6 +137,10 @@ pub(crate) struct Budgets {
     pub(crate) list_items: usize,
     /// A node already claimed the active descendant.
     pub(crate) active_descendant: bool,
+    /// The child indices from the root to the node being walked.
+    pub(crate) at: Vec<u32>,
+    /// What the walk has cut so far.
+    pub(crate) cuts: SanitizeReport,
 }
 
 impl Budgets {
@@ -183,6 +152,19 @@ impl Budgets {
             list_items: MAX_LIST_ITEMS,
             canvas_parts: MAX_CANVAS_PARTS,
             active_descendant: false,
+            at: Vec::new(),
+            cuts: SanitizeReport::default(),
+        }
+    }
+
+    /// Counts `count` cuts of one kind, and where the first one fell.
+    pub(crate) fn cut(&mut self, kind: fn(&mut SanitizeReport) -> &mut usize, count: usize) {
+        if count == 0 {
+            return;
+        }
+        *kind(&mut self.cuts) += count;
+        if self.cuts.first.is_none() {
+            self.cuts.first = Some(self.at.clone());
         }
     }
 }
@@ -191,8 +173,22 @@ impl Budgets {
 /// and spends what survives. Nodes are walked in tree order, so a frame past
 /// the budget keeps its head and loses its tail.
 pub(crate) fn spend_text(text: &mut String, budgets: &mut Budgets) {
+    let before = text.len();
     truncate_to(text, budgets.text.min(MAX_STRING_BYTES));
+    if text.len() < before {
+        match before > MAX_STRING_BYTES {
+            true => budgets.cut(|cuts| &mut cuts.strings, 1),
+            false => budgets.cut(|cuts| &mut cuts.text, 1),
+        }
+    }
     budgets.text -= text.len();
+}
+
+/// Cuts a node's string at [`MAX_STRING_BYTES`], and says so.
+pub(crate) fn cut_string(text: &mut String, budgets: &mut Budgets) {
+    let before = text.len();
+    truncate_string(text);
+    budgets.cut(|cuts| &mut cuts.strings, usize::from(text.len() < before));
 }
 
 /// Spends a picture's bytes from the frame's picture budget, or drops them
@@ -200,7 +196,11 @@ pub(crate) fn spend_text(text: &mut String, budgets: &mut Budgets) {
 fn spend_svg(bytes: &mut Option<Vec<u8>>, budgets: &mut Budgets) {
     match bytes {
         Some(picture) if picture.len() <= budgets.pictures => budgets.pictures -= picture.len(),
-        _ => *bytes = None,
+        Some(_) => {
+            *bytes = None;
+            budgets.cut(|cuts| &mut cuts.pictures, 1);
+        }
+        None => {}
     }
 }
 

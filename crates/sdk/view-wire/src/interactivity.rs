@@ -8,45 +8,16 @@ use crate::{click, keyboard, mouse};
 use gpui::{Pixels, Point};
 use serde::{Deserialize, Serialize};
 
-pub const MAX_KEY_CONTEXT_ENTRIES: usize = 64;
+/// The most keystrokes one node's key-down listeners consume.
+pub const MAX_CONSUMED_KEYS: usize = 16;
+/// The longest consumed keystroke: gpui's longest, `ctrl-alt-shift-cmd-fn-`
+/// and a key name, fits with room to spare.
+pub const MAX_KEYSTROKE_BYTES: usize = 64;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KeyContext {
-    pub entries: Vec<KeyContextEntry>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KeyContextEntry {
-    pub key: gpui::SharedString,
-    pub value: Option<gpui::SharedString>,
-}
-
-impl KeyContext {
-    pub fn from_gpui(context: &gpui::KeyContext) -> Self {
-        Self {
-            entries: context
-                .primary()
-                .into_iter()
-                .chain(context.secondary())
-                .map(|entry| KeyContextEntry {
-                    key: entry.key.clone(),
-                    value: entry.value.clone(),
-                })
-                .collect(),
-        }
-    }
-
-    pub fn to_gpui(&self) -> gpui::KeyContext {
-        let mut context = gpui::KeyContext::default();
-        for entry in &self.entries {
-            if let Some(value) = &entry.value {
-                context.set(entry.key.clone(), value.clone());
-            } else {
-                context.add(entry.key.clone());
-            }
-        }
-        context
-    }
+pub(crate) fn decode_consumed_keys<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<gpui::SharedString>, D::Error> {
+    crate::bounded_vec(deserializer, MAX_CONSUMED_KEYS, "too many consumed keys")
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

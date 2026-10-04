@@ -31,11 +31,6 @@ pub struct Chat {
     /// The reader's reactions, newest first: the picker's frequent row.
     #[serde(default)]
     pub(crate) recent_emoji: Vec<String>,
-    /// Where a control on a message card took the pointer's click: GPUI
-    /// hands the same click to the card beneath, which stands down instead
-    /// of selecting the row over what the control just did.
-    #[serde(skip)]
-    pub(crate) claimed: Option<(f32, f32)>,
     /// The message row under the pointer: the one that carries the action
     /// strip, beside a chosen one.
     #[serde(skip)]

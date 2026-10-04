@@ -348,7 +348,6 @@ pub fn every_event() -> Vec<Event> {
 
 pub fn every_frame() -> Frame {
     Frame {
-        upstream_sanitization: Default::default(),
         tooltip_responses: vec![TooltipResponse {
             request: 17,
             character_index: Some(3),

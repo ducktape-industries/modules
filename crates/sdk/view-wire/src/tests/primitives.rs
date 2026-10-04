@@ -189,7 +189,6 @@ fn a_text_with_no_heading_or_live_region_round_trips() {
 #[test]
 fn an_unset_aria_field_sends_no_bytes() {
     assert_eq!(encode(&Aria::default()), [0x80]);
-    let target = vec![ElementIdWire::Name("caption".into())];
     let one_each = [
         Aria {
             live: Some(Live::Polite),
@@ -217,22 +216,6 @@ fn an_unset_aria_field_sends_no_bytes() {
         },
         Aria {
             current: Some(AriaCurrent::False),
-            ..Default::default()
-        },
-        Aria {
-            labelled_by: vec![target.clone()],
-            ..Default::default()
-        },
-        Aria {
-            described_by: vec![target.clone()],
-            ..Default::default()
-        },
-        Aria {
-            controls: vec![target.clone()],
-            ..Default::default()
-        },
-        Aria {
-            error_message: Some(target),
             ..Default::default()
         },
         Aria {

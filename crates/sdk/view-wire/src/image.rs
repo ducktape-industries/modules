@@ -51,8 +51,11 @@ impl ImageData {
             return;
         }
         if let Some(value) = data {
-            if !value.valid_rgba() || value.byte_len() > budgets.pictures {
+            if !value.valid_rgba() {
                 *data = None;
+            } else if value.byte_len() > budgets.pictures {
+                *data = None;
+                budgets.cut(|cuts| &mut cuts.pictures, 1);
             } else {
                 budgets.pictures -= value.byte_len();
             }

@@ -250,9 +250,6 @@ fn decode_cancels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u64>, D:
 /// `root` empty and `unchanged` clear.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Frame {
-    /// Advisory producer report, sticky when a producer sanitizes before encoding.
-    /// Receivers must independently sanitize the received whole/applied tree.
-    pub upstream_sanitization: SanitizeReport,
     /// Tooltip subtrees built only after a native hover request.
     #[serde(deserialize_with = "decode_tooltip_responses")]
     pub tooltip_responses: Vec<TooltipResponse>,

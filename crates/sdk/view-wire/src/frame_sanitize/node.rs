@@ -16,7 +16,8 @@ pub(super) fn sanitize_node(
     // on the empty node that stands in for it.
     budgets.nodes -= 1;
     if depth >= MAX_DEPTH {
-        *node = Node::empty();
+        let cut = std::mem::replace(node, Node::empty());
+        budgets.cut(|cuts| &mut cuts.depth, usize::from(cut != Node::empty()));
         return Ok(());
     }
     let entered = scopes.enter(identity::segment(node.identity().cloned(), row))?;
@@ -69,7 +70,7 @@ fn sanitize_fields(
         Node::Container(crate::ContainerNode { style, .. })
         | Node::ResizeHandle { style, .. }
         | Node::Sensor { style, .. }
-        | Node::Space { style } => style_sanitize::sanitize(style),
+        | Node::Space { style } => style_sanitize::sanitize(style)?,
         Node::UniformList {
             id,
             path,
@@ -81,14 +82,21 @@ fn sanitize_fields(
             children,
             ..
         } => {
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             uniform_list_path(id, path, authored_path)?;
+            budgets.cut(
+                |cuts| &mut cuts.lists,
+                usize::from(*count > MAX_UNIFORM_LIST_COUNT),
+            );
             *count = (*count).min(MAX_UNIFORM_LIST_COUNT);
             *measure_index = (*measure_index).min(count.saturating_sub(1));
             if let Some(request) = scroll_request {
                 request.offset = request.offset.min(MAX_UNIFORM_LIST_COUNT);
             }
+            let rows: usize = children.iter().map(Node::count).sum();
             uniform_list_rows(*count, indices, children);
+            let kept: usize = children.iter().map(Node::count).sum();
+            budgets.cut(|cuts| &mut cuts.nodes, rows - kept);
         }
         Node::List {
             path,
@@ -106,13 +114,21 @@ fn sanitize_fields(
             for id in path.iter() {
                 id.validate_host()?;
             }
+            budgets.cut(
+                |cuts| &mut cuts.lists,
+                usize::from(*item_count > budgets.list_items),
+            );
             *item_count = (*item_count).min(budgets.list_items);
             budgets.list_items -= *item_count;
             *overdraw = bounded(*overdraw).min(4096.0);
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             list_commands(commands, *item_count);
             *range_start = (*range_start).min(*item_count);
-            children.truncate(MAX_LIST_ROWS.min(item_count.saturating_sub(*range_start)));
+            cut_children(
+                children,
+                MAX_LIST_ROWS.min(item_count.saturating_sub(*range_start)),
+                budgets,
+            );
         }
         Node::Overlay {
             label,
@@ -120,12 +136,14 @@ fn sanitize_fields(
             children,
             ..
         } => {
-            label.iter_mut().for_each(truncate_string);
-            style_sanitize::sanitize(style);
-            children.truncate(2);
+            if let Some(label) = label {
+                cut_string(label, budgets);
+            }
+            style_sanitize::sanitize(style)?;
+            cut_children(children, 2, budgets);
         }
         Node::Canvas { style, commands } => {
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             canvas::sanitize(commands, budgets);
         }
         Node::Anchored {
@@ -154,11 +172,11 @@ fn sanitize_fields(
             clickable_ranges,
             ..
         } => {
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             rich_text::sanitize(text, runs, font_family_overrides, clickable_ranges, budgets);
         }
         Node::Text(crate::TextNode { style, content, .. }) => {
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             spend_text(content, budgets);
         }
         Node::Image {
@@ -171,7 +189,7 @@ fn sanitize_fields(
             ..
         } => {
             ImageData::sanitize(data, budgets);
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
@@ -192,7 +210,7 @@ fn sanitize_fields(
         } => {
             match source {
                 SvgSource::Data { bytes, .. } => spend_svg(bytes, budgets),
-                SvgSource::Asset(path) | SvgSource::External(path) => truncate_string(path),
+                SvgSource::Asset(path) | SvgSource::External(path) => cut_string(path, budgets),
                 SvgSource::None => {}
             }
             for value in &mut transformation.scale {
@@ -202,7 +220,7 @@ fn sanitize_fields(
                 *value = signed_bounded(*value);
             }
             transformation.rotate = signed_bounded(transformation.rotate);
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
@@ -224,10 +242,17 @@ fn sanitize_fields(
             if let Some(description) = &mut options.description {
                 spend_text(description, budgets);
             }
-            style_sanitize::sanitize(style);
+            style_sanitize::sanitize(style)?;
         }
     }
     Ok(())
+}
+
+/// Keeps the first `keep` children and reports the rest as cut nodes.
+fn cut_children(children: &mut Vec<Node>, keep: usize, budgets: &mut Budgets) {
+    let dropped: usize = children.iter().skip(keep).map(Node::count).sum();
+    budgets.cut(|cuts| &mut cuts.nodes, dropped);
+    children.truncate(keep);
 }
 
 /// A uniform list names the path of ids that authored it, ending in its own,
@@ -318,10 +343,16 @@ fn sanitize_children(
             if drops {
                 break;
             }
-            node.children_mut()[child] = Node::empty();
+            let cut = std::mem::replace(&mut node.children_mut()[child], Node::empty());
+            if cut != Node::empty() {
+                budgets.at.push(child as u32);
+                budgets.cut(|cuts| &mut cuts.nodes, cut.count());
+                budgets.at.pop();
+            }
             continue;
         }
         let row = identity::row(node, child);
+        budgets.at.push(child as u32);
         sanitize_node(
             &mut node.children_mut()[child],
             depth + 1,
@@ -329,12 +360,19 @@ fn sanitize_children(
             scopes,
             row,
         )?;
+        budgets.at.pop();
         kept += 1;
     }
     if !drops {
         return Ok(());
     }
     if let Some(children) = node.child_list_mut() {
+        let dropped: usize = children[kept..].iter().map(Node::count).sum();
+        if dropped > 0 {
+            budgets.at.push(kept as u32);
+            budgets.cut(|cuts| &mut cuts.nodes, dropped);
+            budgets.at.pop();
+        }
         children.truncate(kept);
     }
     if let Node::Image {

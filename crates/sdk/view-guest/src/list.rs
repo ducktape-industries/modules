@@ -37,7 +37,6 @@ impl Default for ListState {
 
 impl ListState {
     pub fn new(item_count: usize, alignment: ListAlignment, overdraw: Pixels) -> Self {
-        let item_count = item_count.min(wire::MAX_LIST_ITEMS);
         Self(Rc::new(State {
             inner: RefCell::new(Inner {
                 item_count,
@@ -60,8 +59,7 @@ impl ListState {
             scroll_handler: RefCell::new(None),
         }))
     }
-    pub fn reset(&self, element_count: usize) {
-        let count = element_count.min(wire::MAX_LIST_ITEMS);
+    pub fn reset(&self, count: usize) {
         let mut inner = self.0.inner.borrow_mut();
         inner.item_count = count;
         inner.requested = initial_range(count, inner.alignment);
@@ -94,12 +92,10 @@ impl ListState {
     pub fn splice(&self, old_range: Range<usize>, count: usize) {
         let mut inner = self.0.inner.borrow_mut();
         let old_range = bounded_range(old_range, inner.item_count);
-        let count = count.min(wire::MAX_LIST_ITEMS);
         inner.item_count = inner
             .item_count
             .saturating_sub(old_range.len())
-            .saturating_add(count)
-            .min(wire::MAX_LIST_ITEMS);
+            .saturating_add(count);
         inner.requested = initial_range(inner.item_count, inner.alignment);
         inner.push(wire::ListCommand::Splice {
             start: old_range.start,

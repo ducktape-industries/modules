@@ -86,14 +86,14 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     #[derive(Default, Serialize, Deserialize)]
     struct Pages {
         rows: bool,
-        keyed_chrome: bool,
+        chrome: bool,
     }
     impl View for Pages {
         const NAME: &'static str = "Pages";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self {
                 rows: false,
-                keyed_chrome: true,
+                chrome: true,
             }
         }
     }
@@ -108,16 +108,17 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
                         .child("…")
                 })),
             };
-            // Keyed chrome around the page survives the switch, so the
-            // frame is the page's patches; unkeyed chrome is removed and
-            // inserted with it, and the patches carry the tree whole.
-            match self.keyed_chrome {
+            // Chrome around the page survives the switch, keyed or not
+            // (matched by position), so the frame is the page's patches; a
+            // page alone in its shell is the whole tree, so its switch
+            // carries the tree whole.
+            match self.chrome {
                 true => div()
                     .id("shell")
                     .child(div().id("title").child("title"))
                     .child(page)
-                    .child(div().id("footer").child("footer")),
-                false => div().id("shell").child("title").child(page).child("footer"),
+                    .child("footer"),
+                false => div().id("shell").child(page),
             }
         }
     }
@@ -126,7 +127,7 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     let mut whole = Driver::<Pages>::new();
     whole.tick_with(vec![], wire::Frame::clone);
     whole.entity().update(whole.app_mut(), |view, cx| {
-        view.keyed_chrome = false;
+        view.chrome = false;
         cx.notify();
     });
     whole.tick_with(vec![], wire::Frame::clone);
@@ -134,7 +135,7 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     rendered.entity().update(rendered.app_mut(), |view, cx| {
         *view = Pages {
             rows: true,
-            keyed_chrome: false,
+            chrome: false,
         };
         cx.notify();
     });

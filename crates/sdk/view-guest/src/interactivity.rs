@@ -39,7 +39,6 @@ pub struct Interactivity {
     pub(crate) focus: Option<Box<StyleRefinement>>,
     pub(crate) in_focus: Option<Box<StyleRefinement>>,
     pub(crate) focus_visible: Option<Box<StyleRefinement>>,
-    pub(crate) key_context: Option<wire::KeyContext>,
     pub(crate) focus_handle: Option<FocusHandle>,
     scroll_handle: Option<ScrollHandle>,
     pub(crate) group: Option<SharedString>,
@@ -47,14 +46,10 @@ pub struct Interactivity {
     pub(crate) active: Option<Box<StyleRefinement>>,
     pub(crate) group_hover: Option<(SharedString, Box<StyleRefinement>)>,
     pub(crate) group_active: Option<(SharedString, Box<StyleRefinement>)>,
-    /// Relation targets: siblings' ids, lowered to their paths.
-    labelled_by: Vec<ElementId>,
-    described_by: Vec<ElementId>,
-    controls: Vec<ElementId>,
-    error_message: Option<ElementId>,
     a11y_actions: Vec<(gpui::accesskit::Action, A11yListener)>,
-    pub(crate) on_click: Option<EventListener<ClickEvent>>,
-    pub(crate) on_aux_click: Option<EventListener<ClickEvent>>,
+    pub(crate) on_click: Vec<EventListener<ClickEvent>>,
+    pub(crate) on_aux_click: Vec<EventListener<ClickEvent>>,
+    consumes_click: bool,
     mouse_down: Vec<ButtonBinding<gpui::MouseDownEvent>>,
     capture_mouse_down: Vec<EventListener<gpui::MouseDownEvent>>,
     mouse_down_out: Vec<EventListener<gpui::MouseDownEvent>>,
@@ -73,6 +68,7 @@ pub struct Interactivity {
     key_up: Vec<EventListener<gpui::KeyUpEvent>>,
     capture_key_up: Vec<EventListener<gpui::KeyUpEvent>>,
     modifiers_changed: Vec<EventListener<gpui::ModifiersChangedEvent>>,
+    consumes_keys: Vec<SharedString>,
     on_hover: Option<EventListener<bool>>,
     hover_listener_mode: gpui::HoverListenerMode,
     on_file_drop_exit: Vec<EventListener<FileDropEvent>>,
@@ -115,17 +111,6 @@ pub trait InteractiveElement: Sized {
         self.interactivity().tab_group = true;
         if self.interactivity().tab_index.is_none() {
             self.interactivity().tab_index = Some(0);
-        }
-        self
-    }
-
-    fn key_context<C, E>(mut self, key_context: C) -> Self
-    where
-        C: TryInto<gpui::KeyContext, Error = E>,
-        E: std::fmt::Display,
-    {
-        if let Ok(key_context) = key_context.try_into() {
-            self.interactivity().key_context = Some(wire::KeyContext::from_gpui(&key_context));
         }
         self
     }
@@ -338,6 +323,21 @@ pub trait InteractiveElement: Sized {
         self
     }
 
+    /// The keystrokes, in gpui's words (`"escape"`, `"shift-tab"`), this
+    /// element takes, with its `on_key_down` listeners or its keyboard
+    /// click (Enter, Space): the host stops each one here once they have
+    /// heard it, so no element around it hears it too.
+    /// gpui decides that inside the listener with `cx.stop_propagation()`;
+    /// a guest listener runs after the host has dispatched the key, so it
+    /// says which keys it takes up front.
+    fn consumes_keys<'a>(mut self, keys: impl IntoIterator<Item = &'a str>) -> Self {
+        self.interactivity().consumes_keys.extend(
+            keys.into_iter()
+                .map(|key| SharedString::from(key.to_owned())),
+        );
+        self
+    }
+
     fn on_file_drop_exit(
         mut self,
         listener: impl Fn(&FileDropEvent, &mut Window, &mut App) + 'static,
@@ -429,6 +429,22 @@ impl<E: InteractiveElement> InteractiveElement for Stateful<E> {
 
 /// Stateful interaction methods with GPUI's public names and signatures where
 /// the value can be represented by the guest wire contract.
+///
+/// A relation to another node (`aria_labelled_by`, `aria_described_by`,
+/// `aria_controls`, `aria_error_message`) has no setter: the host can name
+/// no node of the frame for one until the fork can (the app's
+/// `docs/ax.md`, AX-115), so writing one does not compile instead of doing
+/// nothing. Say it in the node's own label or description:
+///
+/// ```
+/// use view_guest::prelude::*;
+/// let _ = div().id("field").aria_description("Use your email address");
+/// ```
+///
+/// ```compile_fail
+/// use view_guest::prelude::*;
+/// let _ = div().id("field").aria_labelled_by("caption");
+/// ```
 pub trait StatefulInteractiveElement: InteractiveElement {
     fn role(mut self, role: gpui::Role) -> Self {
         self.interactivity().role = Some(role);
@@ -531,7 +547,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self.interactivity().aria.orientation = Some(value);
         self
     }
-    // `aria_live` through `aria_error_message` and `custom_action` are the
+    // `aria_live` through `aria_current` and `custom_action` are the
     // names planned for the fork, which has none of them yet; the host
     // delivers each through its aria patch until it does.
     fn aria_live(mut self, value: accesskit::Live) -> Self {
@@ -560,26 +576,6 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     }
     fn aria_current(mut self, value: accesskit::AriaCurrent) -> Self {
         self.interactivity().aria.current = Some(value);
-        self
-    }
-    /// `id` is a sibling's: an element in the same id scope as this one.
-    fn aria_labelled_by(mut self, id: impl Into<ElementId>) -> Self {
-        self.interactivity().labelled_by.push(id.into());
-        self
-    }
-    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
-    fn aria_described_by(mut self, id: impl Into<ElementId>) -> Self {
-        self.interactivity().described_by.push(id.into());
-        self
-    }
-    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
-    fn aria_controls(mut self, id: impl Into<ElementId>) -> Self {
-        self.interactivity().controls.push(id.into());
-        self
-    }
-    /// `id` is a sibling's, as [`Self::aria_labelled_by`].
-    fn aria_error_message(mut self, id: impl Into<ElementId>) -> Self {
-        self.interactivity().error_message = Some(id.into());
         self
     }
     /// A custom action assistive technology offers by `description`. Its
@@ -645,15 +641,29 @@ pub trait StatefulInteractiveElement: InteractiveElement {
             Some((group.into(), Box::new(f(StyleRefinement::default()))));
         self
     }
+    /// Every listener given runs, in order, as gpui's do.
     fn on_click(mut self, listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.interactivity().on_click = Some(Box::new(listener));
+        self.interactivity().on_click.push(Box::new(listener));
         self
     }
     fn on_aux_click(
         mut self,
         listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().on_aux_click = Some(Box::new(listener));
+        self.interactivity().on_aux_click.push(Box::new(listener));
+        self
+    }
+    /// This element's click consumes its press: the host stops the
+    /// pointer's click here, so an element under it (a card's own click)
+    /// does not take the same press. gpui calls `cx.stop_propagation()` in
+    /// the listener; a guest listener runs too late for that, so it says
+    /// so up front. A focusable element whose keyboard click must not
+    /// reach a composite around it consumes Enter and Space too, with
+    /// [`InteractiveElement::consumes_keys`]. It needs an `on_click`, in
+    /// whose listener the host stops the press: without one the host
+    /// refuses the frame, and the view's test fails.
+    fn consumes_click(mut self) -> Self {
+        self.interactivity().consumes_click = true;
         self
     }
     fn on_hover(mut self, listener: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {

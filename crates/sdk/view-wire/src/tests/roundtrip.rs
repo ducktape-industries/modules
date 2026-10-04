@@ -1,32 +1,55 @@
 use super::*;
 
+/// The report says what was cut and where the first cut fell, and no
+/// more: a frame sent on after sanitizing has nothing left to cut, and a
+/// frame inside every bound reports nothing.
 #[test]
-fn actual_display_truncation_report_survives_encoding_and_resanitizing() {
+fn a_cut_string_is_reported_with_where_it_fell() {
     let mut frame = Frame {
-        root: Some(text(&"x".repeat(MAX_STRING_BYTES + 1))),
+        root: Some(column(vec![
+            text("complete"),
+            text(&"x".repeat(MAX_STRING_BYTES + 1)),
+        ])),
         ..Default::default()
     };
     let report = sanitize(&mut frame).unwrap();
-    assert!(
-        report.display_text_truncated,
-        "actual shortened text must be reported"
+    assert_eq!(
+        report,
+        SanitizeReport {
+            strings: 1,
+            first: Some(vec![1]),
+            ..Default::default()
+        }
     );
-    assert_eq!(frame.upstream_sanitization, report);
     let mut received: Frame = decode(&encode(&frame)).unwrap();
-    assert!(
-        !sanitize(&mut received).unwrap().display_text_truncated,
-        "receiver observes no additional shortening"
-    );
-    assert!(
-        received.upstream_sanitization.display_text_truncated,
-        "producer loss cannot disappear across a wire hop"
-    );
+    assert!(sanitize(&mut received).unwrap().is_empty());
     let mut small = Frame {
         root: Some(text("complete")),
         ..Default::default()
     };
-    assert_eq!(sanitize(&mut small).unwrap(), SanitizeReport::default());
-    assert_eq!(small.upstream_sanitization, SanitizeReport::default());
+    assert!(sanitize(&mut small).unwrap().is_empty());
+}
+
+/// Nodes past the node budget and subtrees past the depth bound are cuts,
+/// each at its own place; a clamped number is not.
+#[test]
+fn dropped_nodes_and_cut_depth_are_reported_but_clamps_are_not() {
+    let mut wide = column((0..MAX_NODES + 9).map(|_| text("x")).collect());
+    let report = sanitize_tree(&mut wide).unwrap();
+    assert_eq!(report.nodes, 10, "{report:?}");
+    assert_eq!(report.first, Some(vec![(MAX_NODES - 1) as u32]));
+    let mut deep = text("leaf");
+    for _ in 0..MAX_DEPTH {
+        deep = column(vec![deep]);
+    }
+    let report = sanitize_tree(&mut deep).unwrap();
+    assert_eq!((report.depth, report.nodes), (1, 0), "{report:?}");
+    assert_eq!(report.first.map(|at| at.len()), Some(MAX_DEPTH));
+    let mut clamped = Node::Container(crate::ContainerNode {
+        style: gpui::Styled::rounded_full(gpui::StyleRefinement::default()),
+        ..Default::default()
+    });
+    assert!(sanitize_tree(&mut clamped).unwrap().is_empty());
 }
 
 #[test]
@@ -57,11 +80,15 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
         }],
     )
     .unwrap();
-    assert!(
-        report.display_text_truncated,
+    assert_eq!(
+        (report.text, report.first),
+        (1, Some(vec![1])),
         "each node fits, but the applied aggregate loses tail text"
     );
-    assert_eq!(text_amounts(&root), MAX_TEXT_BYTES_PER_FRAME);
+    let Node::RichText { text, .. } = &root.children()[1] else {
+        panic!("the rich text")
+    };
+    assert_eq!(text.len(), MAX_TEXT_BYTES_PER_FRAME / 2 - 1);
     let report = apply(
         &mut root,
         vec![Patch::Remove {
@@ -71,7 +98,7 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
     )
     .unwrap();
     assert!(
-        !report.display_text_truncated,
+        report.is_empty(),
         "intentional removal precedes the measured sanitizer pass"
     );
 }
@@ -120,7 +147,6 @@ fn tooltip_responses_share_the_frame_node_budget() {
 #[test]
 fn a_frame_round_trips() {
     let frame = Frame {
-        upstream_sanitization: Default::default(),
         tooltip_responses: Vec::new(),
         root: Some(column(vec![text("hello"), {
             let mut input = field("App/i", "x", "Name");

@@ -54,6 +54,99 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
     assert!(diff(&mut new.clone(), &mut new).is_empty());
 }
 
+/// One child shown or hidden beside unkeyed siblings is one patch: the
+/// siblings before and after it match by position, so a `.when(..)`
+/// banner beside a 1,080-row body does not send the body again (it did:
+/// two removes and three inserts, 138 KB).
+#[test]
+fn an_unkeyed_child_shown_beside_its_siblings_is_one_insert() {
+    let body = || column((0..1_080).map(|row| text(&format!("row {row}"))).collect());
+    let header = || text("header");
+    let notice = || text("offline");
+    // a div beside a div: the kind alone does not say which one is new
+    let banner = || {
+        Node::Container(crate::ContainerNode {
+            id: None,
+            style: gpui::Styled::bg(gpui::StyleRefinement::default(), gpui::rgb(0xffcc00)),
+            interactivity: Default::default(),
+            children: vec![text("offline")],
+        })
+    };
+    let one = |old: Node, new: Node, want: &str| {
+        let patches = diff(&mut old.clone(), &mut new.clone());
+        let kinds: Vec<_> = patches
+            .iter()
+            .map(|patch| match patch {
+                Patch::Insert { index, .. } => format!("insert {index}"),
+                Patch::Remove { index, .. } => format!("remove {index}"),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(kinds, [want], "{want}");
+        let bytes = encode(&patches).len();
+        assert!(bytes < 1_000, "{want}: {bytes} bytes");
+        let mut applied = old;
+        apply(&mut applied, patches).unwrap();
+        assert_eq!(applied, new, "{want}");
+    };
+    for shown in [notice(), banner()] {
+        one(
+            column(vec![header(), body()]),
+            column(vec![header(), shown.clone(), body()]),
+            "insert 1",
+        );
+        one(
+            column(vec![header(), shown.clone(), body()]),
+            column(vec![header(), body()]),
+            "remove 1",
+        );
+        one(
+            column(vec![header(), body(), banner()]),
+            column(vec![header(), body(), banner(), shown]),
+            "insert 3",
+        );
+    }
+}
+
+/// The runs a list shares at the front and the back are diffed in place
+/// and the middle by key, and the patches still rebuild the new tree, as
+/// `diff_taking`'s do.
+#[test]
+fn a_list_matches_its_ends_by_position_and_its_middle_by_key() {
+    let old = column(vec![
+        text("top"),
+        keyed("a", "one"),
+        keyed("b", "two"),
+        text("loose"),
+        keyed("c", "three"),
+        text("bottom"),
+    ]);
+    let new = column(vec![
+        text("top!"),
+        keyed("c", "three"),
+        text("new"),
+        keyed("a", "one!"),
+        text("bottom!"),
+    ]);
+    let patches = diff(&mut old.clone(), &mut new.clone());
+    let mut applied = old.clone();
+    apply(&mut applied, patches.clone()).unwrap();
+    assert_eq!(applied, new);
+    // the ends were diffed in place, not sent again
+    assert!(
+        patches
+            .iter()
+            .filter(
+                |patch| matches!(patch, Patch::Props { path, .. } if path == &[0] || path == &[4])
+            )
+            .count()
+            == 2,
+        "{patches:#?}"
+    );
+    let mut hollow = new.clone();
+    assert_eq!(diff_taking(&mut old.clone(), &mut hollow), patches);
+}
+
 /// `diff_taking` emits the patches `diff` does, but the subtrees they carry
 /// are moved out of the new tree, one empty stand-in left for each.
 #[test]
@@ -234,7 +327,9 @@ fn display_truncation_shortens_a_placeholder_and_never_a_fields_text() {
     assert_eq!(
         sanitize(&mut frame),
         Ok(SanitizeReport {
-            display_text_truncated: true
+            strings: 2,
+            first: Some(vec![0]),
+            ..Default::default()
         })
     );
     let Some(Node::Container(crate::ContainerNode { children, .. })) = &frame.root else {

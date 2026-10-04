@@ -113,44 +113,48 @@ fn valid_range(text: &str, range: &Range<usize>) -> bool {
 }
 
 fn sanitize_highlight(value: &mut HighlightStyle) {
-    let mut style = gpui::StyleRefinement::default();
-    style.text.color = value.color;
-    style.text.font_weight = value.font_weight;
-    style.text.font_style = value.font_style;
-    style.text.background_color = value.background_color;
-    style.text.underline = value.underline;
-    style.text.strikethrough = value.strikethrough;
-    style_sanitize::sanitize(&mut style);
-    value.color = style.text.color;
-    value.font_weight = style.text.font_weight;
-    value.font_style = style.text.font_style;
-    value.background_color = style.text.background_color;
-    value.underline = style.text.underline;
-    value.strikethrough = style.text.strikethrough;
+    let mut style = gpui::TextStyleRefinement {
+        color: value.color,
+        font_weight: value.font_weight,
+        font_style: value.font_style,
+        background_color: value.background_color,
+        underline: value.underline,
+        strikethrough: value.strikethrough,
+        ..Default::default()
+    };
+    style_sanitize::sanitize_text(&mut style);
+    value.color = style.color;
+    value.font_weight = style.font_weight;
+    value.font_style = style.font_style;
+    value.background_color = style.background_color;
+    value.underline = style.underline;
+    value.strikethrough = style.strikethrough;
     value.fade_out = value.fade_out.map(|value| finite(value).clamp(0., 1.));
 }
 
 fn sanitize_run(value: &mut TextRun) {
-    let mut style = gpui::StyleRefinement::default();
-    style.text.font_family = Some(value.font_family.clone());
-    style.text.font_features = Some(value.font_features.clone());
-    style.text.font_fallbacks = value.font_fallbacks.clone();
-    style.text.font_weight = Some(value.font_weight);
-    style.text.font_style = Some(value.font_style);
-    style.text.color = Some(value.color);
-    style.text.background_color = value.background_color;
-    style.text.underline = value.underline;
-    style.text.strikethrough = value.strikethrough;
-    style_sanitize::sanitize(&mut style);
-    value.font_family = style.text.font_family.expect("run font family");
-    value.font_features = style.text.font_features.expect("run font features");
-    value.font_fallbacks = style.text.font_fallbacks;
-    value.font_weight = style.text.font_weight.expect("run font weight");
-    value.font_style = style.text.font_style.expect("run font style");
-    value.color = style.text.color.expect("run color");
-    value.background_color = style.text.background_color;
-    value.underline = style.text.underline;
-    value.strikethrough = style.text.strikethrough;
+    let mut style = gpui::TextStyleRefinement {
+        font_family: Some(value.font_family.clone()),
+        font_features: Some(value.font_features.clone()),
+        font_fallbacks: value.font_fallbacks.clone(),
+        font_weight: Some(value.font_weight),
+        font_style: Some(value.font_style),
+        color: Some(value.color),
+        background_color: value.background_color,
+        underline: value.underline,
+        strikethrough: value.strikethrough,
+        ..Default::default()
+    };
+    style_sanitize::sanitize_text(&mut style);
+    value.font_family = style.font_family.expect("run font family");
+    value.font_features = style.font_features.expect("run font features");
+    value.font_fallbacks = style.font_fallbacks;
+    value.font_weight = style.font_weight.expect("run font weight");
+    value.font_style = style.font_style.expect("run font style");
+    value.color = style.color.expect("run color");
+    value.background_color = style.background_color;
+    value.underline = style.underline;
+    value.strikethrough = style.strikethrough;
 }
 
 pub(super) fn sanitize(
@@ -191,10 +195,12 @@ pub(super) fn sanitize(
         let valid = valid_range(text, range) && range.start >= override_end;
         if valid {
             override_end = range.end;
-            let mut style = gpui::StyleRefinement::default();
-            style.text.font_family = Some(family.clone());
-            style_sanitize::sanitize(&mut style);
-            *family = style.text.font_family.expect("font override");
+            let mut style = gpui::TextStyleRefinement {
+                font_family: Some(family.clone()),
+                ..Default::default()
+            };
+            style_sanitize::sanitize_text(&mut style);
+            *family = style.font_family.expect("font override");
         }
         valid
     });

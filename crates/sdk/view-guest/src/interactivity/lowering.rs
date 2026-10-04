@@ -12,15 +12,7 @@ impl Interactivity {
         {
             handle.track(lowering.slots(), scope);
         }
-        // an identified element lowers inside its own scope; its siblings
-        // share the one above
-        let scope = &scope[..scope.len() - usize::from(self.id.is_some())];
-        let path = |target| [scope, &[crate::element::wire_id(target)]].concat();
         let mut aria = self.aria;
-        aria.labelled_by = self.labelled_by.into_iter().map(path).collect();
-        aria.described_by = self.described_by.into_iter().map(path).collect();
-        aria.controls = self.controls.into_iter().map(path).collect();
-        aria.error_message = self.error_message.map(path);
         let offered: std::rc::Rc<[i32]> = aria.custom_actions.iter().map(|(id, _)| *id).collect();
         aria.actions = self
             .a11y_actions
@@ -72,7 +64,6 @@ impl Interactivity {
                 self.focusable
                     .then(|| Box::new(crate::design::focus_ring(lowering.theme().accent)))
             }),
-            key_context: self.key_context,
             focus_handle: self.focus_handle.map(|handle| handle.id),
             occlude: self.occlude,
             block_mouse_except_scroll: self.block_mouse_except_scroll,
@@ -93,12 +84,9 @@ impl Interactivity {
             group_active: self
                 .group_active
                 .map(|(group, style)| wire::GroupRefinement { group, style }),
-            on_click: self
-                .on_click
-                .map(|listener| lowering.route(Kind::Click, listener)),
-            on_aux_click: self
-                .on_aux_click
-                .map(|listener| lowering.route(Kind::AuxClick, listener)),
+            on_click: route_plain(self.on_click, lowering, Kind::Click),
+            on_aux_click: route_plain(self.on_aux_click, lowering, Kind::AuxClick),
+            consumes_click: self.consumes_click,
             on_mouse_down: route_buttons(
                 self.mouse_down,
                 lowering,
@@ -144,6 +132,7 @@ impl Interactivity {
                 lowering,
                 Kind::ModifiersChanged,
             ),
+            consumes_keys: self.consumes_keys,
             on_hover: self
                 .on_hover
                 .map(|listener| lowering.route(Kind::Hover, listener)),

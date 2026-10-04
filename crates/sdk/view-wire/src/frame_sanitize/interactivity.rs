@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn sanitize_interactivity(
     interactivity: &mut Interactivity,
 ) -> Result<(), &'static str> {
-    interactivity.aria.sanitize()?;
+    interactivity.aria.sanitize();
     interactivity.role = crate::aria::view_role(interactivity.role);
     let aria = &mut interactivity.aria;
     if interactivity.role == Some(gpui::Role::Heading)
@@ -22,28 +22,29 @@ pub(super) fn sanitize_interactivity(
     .into_iter()
     .flatten()
     {
-        style_sanitize::sanitize(style);
+        style_sanitize::sanitize(style)?;
     }
-    if let Some(context) = &mut interactivity.key_context {
-        context
-            .entries
-            .truncate(crate::interactivity::MAX_KEY_CONTEXT_ENTRIES);
-        for entry in &mut context.entries {
-            let mut key = entry.key.to_string();
-            truncate_string(&mut key);
-            entry.key = key.into();
-            if let Some(value) = &mut entry.value {
-                let mut bounded = value.to_string();
-                truncate_string(&mut bounded);
-                *value = bounded.into();
-            }
-        }
+    // a key cut short, or one gpui cannot read, would cross and stop nothing
+    let keys = &interactivity.consumes_keys;
+    if keys.len() > crate::interactivity::MAX_CONSUMED_KEYS {
+        return Err("too many consumed keys");
+    }
+    if keys.iter().any(|key| {
+        key.len() > crate::interactivity::MAX_KEYSTROKE_BYTES
+            || gpui::Keystroke::parse(key).is_err()
+    }) {
+        return Err("a consumed key gpui cannot read");
+    }
+    // the host stops a consumed click in the node's click listener; a node
+    // with none would cross and stop nothing
+    if interactivity.consumes_click && interactivity.on_click.is_none() {
+        return Err("consumes a click it does not take");
     }
     for style in [&mut interactivity.hover, &mut interactivity.active]
         .into_iter()
         .flatten()
     {
-        style_sanitize::sanitize(style);
+        style_sanitize::sanitize(style)?;
     }
     for group in [
         &mut interactivity.group_hover,
@@ -52,7 +53,7 @@ pub(super) fn sanitize_interactivity(
     .into_iter()
     .flatten()
     {
-        style_sanitize::sanitize(&mut group.style);
+        style_sanitize::sanitize(&mut group.style)?;
         let mut name = group.group.to_string();
         truncate_string(&mut name);
         group.group = name.into();

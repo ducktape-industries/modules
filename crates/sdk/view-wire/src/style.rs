@@ -24,8 +24,6 @@ pub struct Interactivity {
     pub in_focus: Option<Box<StyleRefinement>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_visible: Option<Box<StyleRefinement>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key_context: Option<crate::interactivity::KeyContext>,
     /// Guest-app-local opaque focus allocation. It is never an authored element ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_handle: Option<u64>,
@@ -49,6 +47,11 @@ pub struct Interactivity {
     pub on_click: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_aux_click: Option<u32>,
+    /// The click consumes its press: the host stops the pointer's click at
+    /// this node, so nothing under it hears the same press. It needs
+    /// `on_click`, where the host stops it; without one the frame is refused.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub consumes_click: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_mouse_down: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,6 +88,14 @@ pub struct Interactivity {
     pub capture_key_up: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_modifiers_changed: Option<u32>,
+    /// Keystrokes in gpui's words (`"escape"`, `"shift-tab"`) this node
+    /// takes, with its key-down listeners or its keyboard click: the host
+    /// stops each one here once they have heard it.
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "crate::interactivity::decode_consumed_keys"
+    )]
+    pub consumes_keys: Vec<SharedString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_hover: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]

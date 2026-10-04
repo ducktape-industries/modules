@@ -63,7 +63,6 @@ pub(super) fn gen_frame_with(rng: &mut Rng, depth: usize, width: usize) -> Frame
         .collect();
     let cancels = (0..rng.next_range(4)).map(|_| rng.next_u64()).collect();
     Frame {
-        upstream_sanitization: Default::default(),
         tooltip_responses: Vec::new(),
         root: Some(root),
         requests,
