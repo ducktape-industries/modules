@@ -114,6 +114,9 @@ pub struct UniformList {
 /// under the id of its root element, else under its index, and the ids
 /// inside a row never meet another row's. Two rows named by one key are
 /// refused, naming the id and its scope.
+///
+/// The host draws the list's scroll bar in a gutter it keeps beside the
+/// list, outside the list's own box: no view makes room for it.
 pub fn uniform_list<R: IntoElement>(
     id: impl Into<ElementId>,
     count: usize,
