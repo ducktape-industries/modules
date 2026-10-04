@@ -96,7 +96,7 @@ fn decode_refuses_more_custom_actions_than_a_node_offers() {
 }
 
 /// One container carrying `interactivity`, sanitized; what survives.
-fn sanitized(interactivity: Interactivity) -> Result<Interactivity, &'static str> {
+fn sanitized(interactivity: Interactivity) -> Result<Interactivity, Refused> {
     let mut frame = Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
@@ -407,7 +407,10 @@ fn relations_are_cut_to_the_bound_and_each_target_is_checked() {
             aria,
             ..Default::default()
         });
-        assert_eq!(refused, Err("focus-handle element IDs are host-local"));
+        assert_eq!(
+            refused,
+            Err(Refused::Invalid("focus-handle element IDs are host-local"))
+        );
     }
     let deep = sanitized(Interactivity {
         aria: Aria {
@@ -416,7 +419,10 @@ fn relations_are_cut_to_the_bound_and_each_target_is_checked() {
         },
         ..Default::default()
     });
-    assert_eq!(deep, Err("aria relation target is too deep"));
+    assert_eq!(
+        deep,
+        Err(Refused::Invalid("aria relation target is too deep"))
+    );
 }
 
 #[test]
@@ -541,8 +547,11 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
             on_drag: None,
             cursor: None,
             content: Box::new(Node::List {
-                state: 1,
-                path: vec![ElementIdWire::Name("divider".into())],
+                id: ElementIdWire::Name("rows".into()),
+                path: vec![
+                    ElementIdWire::Name("divider".into()),
+                    ElementIdWire::Name("rows".into()),
+                ],
                 item_count: 0,
                 alignment: ListAlignment::Top,
                 overdraw: 0.,

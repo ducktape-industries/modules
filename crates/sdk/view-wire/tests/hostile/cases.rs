@@ -9,6 +9,10 @@ const FIELD_REFUSALS: [&str; 5] = [
     "field claims a key the engine owns",
 ];
 
+fn field_refusal(refused: &Refused) -> bool {
+    matches!(refused, Refused::Invalid(reason) if FIELD_REFUSALS.contains(reason))
+}
+
 // --------------------------------------------------------------- test 1
 
 /// Random trees, decoded and sanitized, always land inside every bound
@@ -67,7 +71,7 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
                             "{ctx}: sanitize rewrote a field's text"
                         );
                     }
-                    Err("duplicate typed element identity among siblings") => {
+                    Err(Refused::Duplicate(_)) => {
                         assert!(
                             duplicate_ids,
                             "{ctx}: identity refusal must name an actual collision"
@@ -77,7 +81,7 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
                     // an engine key: the engine adopts a value whole or not at
                     // all. Every other bound is pulled into range instead.
                     Err(refused) => assert!(
-                        FIELD_REFUSALS.contains(&refused),
+                        field_refusal(&refused),
                         "{ctx}: unexpected refusal: {refused}"
                     ),
                 }
@@ -215,14 +219,14 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                 // a hostile one is refused somewhere along it.
                 let mut candidate = staged.clone();
                 let applied = view_wire::apply(&mut candidate, vec![patch.clone()]);
-                if applied == Err("duplicate typed element identity among siblings") {
+                if matches!(applied, Err(Refused::Duplicate(_))) {
                     assert!(
                         has_duplicate_typed_siblings(&candidate),
                         "{ctx}: missing collision"
                     );
                     continue;
                 }
-                if applied.is_err_and(|refused| FIELD_REFUSALS.contains(&refused)) {
+                if applied.as_ref().is_err_and(field_refusal) {
                     continue;
                 }
                 staged = candidate;
@@ -254,7 +258,7 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
             // far; the batch sanitizes once, at the end, so a well-behaved
             // sequence can still collide in it. `apply` leaves the tree it
             // refused as the batch made it, collision included.
-            if outcome == Err("duplicate typed element identity among siblings") {
+            if matches!(outcome, Err(Refused::Duplicate(_))) {
                 assert!(
                     has_duplicate_typed_siblings(&root),
                     "{ctx}: missing collision"
@@ -262,9 +266,7 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                 return;
             }
             assert!(
-                hostile
-                    || outcome.is_ok()
-                    || outcome.is_err_and(|refused| FIELD_REFUSALS.contains(&refused)),
+                hostile || outcome.is_ok() || outcome.as_ref().is_err_and(field_refusal),
                 "{ctx}: a structurally valid sequence was refused: {outcome:?}"
             );
             match outcome {
@@ -276,15 +278,16 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                     check_frame(&checked, &ctx);
                 }
                 Err(refused) => {
-                    let named = [
-                        "a path to no node",
-                        "an index past the list",
-                        "a list edit on no list",
-                        "props of another arity",
-                        "more patches than the host applies",
-                    ]
-                    .contains(&refused)
-                        || FIELD_REFUSALS.contains(&refused);
+                    let named = matches!(
+                        refused,
+                        Refused::Invalid(
+                            "a path to no node"
+                                | "an index past the list"
+                                | "a list edit on no list"
+                                | "props of another arity"
+                                | "more patches than the host applies"
+                        )
+                    ) || field_refusal(&refused);
                     assert!(named, "{ctx}: unexpected refusal: {refused}");
                 }
             }
@@ -336,8 +339,8 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
                         let mut candidate = edited.clone();
                         match view_wire::apply(&mut candidate, vec![patch]) {
                             Ok(_) => edited = candidate,
-                            Err(refused) if FIELD_REFUSALS.contains(&refused) => {}
-                            Err("duplicate typed element identity among siblings") => {
+                            Err(refused) if field_refusal(&refused) => {}
+                            Err(Refused::Duplicate(_)) => {
                                 assert!(
                                     has_duplicate_typed_siblings(&candidate),
                                     "{ctx}: missing collision"
@@ -358,7 +361,8 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
             match view_wire::apply(&mut applied, patches) {
                 Ok(_) => assert_eq!(applied, new, "{ctx}: {count} patches"),
                 Err(refused) => assert!(
-                    count > MAX_PATCHES && refused == "more patches than the host applies",
+                    count > MAX_PATCHES
+                        && refused == Refused::Invalid("more patches than the host applies"),
                     "{ctx}: {count} patches refused: {refused}"
                 ),
             }
@@ -475,7 +479,7 @@ fn a_host_local_id_on_any_node_kind_is_refused() {
         let mut frame = on_big_stack(move || gen_frame(&mut Rng::poisoning_ids(seed), i));
         match sanitize(&mut frame) {
             Ok(_) => check_frame(&frame, &ctx),
-            Err("focus-handle element IDs are host-local") => refused += 1,
+            Err(Refused::Invalid("focus-handle element IDs are host-local")) => refused += 1,
             Err(_) => {}
         }
     }

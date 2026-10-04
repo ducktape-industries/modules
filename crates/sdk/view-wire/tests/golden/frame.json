@@ -155,13 +155,15 @@
           },
           {
             "List": {
-              "state": 9,
+              "id": {
+                "Name": "messages"
+              },
               "path": [
                 {
                   "Name": "root"
                 },
                 {
-                  "Name": "list"
+                  "Name": "messages"
                 }
               ],
               "item_count": 3,
@@ -689,13 +691,15 @@
           },
           {
             "List": {
-              "state": 9,
+              "id": {
+                "Name": "messages"
+              },
               "path": [
                 {
                   "Name": "root"
                 },
                 {
-                  "Name": "list"
+                  "Name": "messages"
                 }
               ],
               "item_count": 3,

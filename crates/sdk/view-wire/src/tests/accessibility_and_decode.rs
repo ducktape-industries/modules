@@ -30,10 +30,10 @@ fn a_sensor_round_trips_diffs_by_props_and_claims_its_key() {
         ])),
         ..Frame::default()
     };
-    assert_eq!(
-        sanitize(&mut duplicate).unwrap_err(),
-        "duplicate typed element identity among siblings"
-    );
+    assert!(matches!(
+        sanitize(&mut duplicate),
+        Err(Refused::Duplicate(_))
+    ));
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn uniform_list_path_must_match_its_typed_tree_ancestry() {
     *path = vec![ElementIdWire::Name("forged-parent".into()), list];
     assert_eq!(
         sanitize(&mut valid).unwrap_err(),
-        "uniform-list authored path is invalid"
+        Refused::Invalid("uniform-list authored path is invalid")
     );
 }
 
@@ -153,10 +153,7 @@ fn a_screen_of_one_typed_id_is_refused_in_linear_time() {
         ..Default::default()
     };
     let started = std::time::Instant::now();
-    assert_eq!(
-        sanitize(&mut frame).unwrap_err(),
-        "duplicate typed element identity among siblings"
-    );
+    assert!(matches!(sanitize(&mut frame), Err(Refused::Duplicate(_))));
     if cfg!(not(debug_assertions)) {
         assert!(started.elapsed() < std::time::Duration::from_millis(200));
     }

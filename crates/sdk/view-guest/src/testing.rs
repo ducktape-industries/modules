@@ -129,11 +129,19 @@ pub(crate) fn chain_to<'a>(root: &'a Node, key: &str) -> Option<Vec<&'a Node>> {
     chain(root, &mut |chain| chain.last().unwrap().key() == Some(key))
 }
 
-/// The ids the host files a node under: its own and its ancestors'.
+/// The ids the host files a node under: its own and its ancestors', a
+/// list row's index for a row with none ([`crate::wire::identity`]).
 pub(crate) fn authored_path(chain: &[&Node]) -> Vec<crate::wire::ElementIdWire> {
-    chain
-        .iter()
-        .filter_map(|node| node.identity().cloned())
+    let row = |at: usize| {
+        let parent = chain[at.checked_sub(1)?];
+        let index = parent
+            .children()
+            .iter()
+            .position(|child| std::ptr::eq(child, chain[at]))?;
+        crate::wire::identity::row(parent, index)
+    };
+    (0..chain.len())
+        .filter_map(|at| crate::wire::identity::segment(chain[at].identity().cloned(), row(at)))
         .collect()
 }
 

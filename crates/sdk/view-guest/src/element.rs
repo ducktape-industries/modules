@@ -31,6 +31,13 @@ pub trait Element: 'static + IntoElement {
     #[doc(hidden)]
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node;
 
+    /// Whether this element lowers to the node of an element it builds (a
+    /// view's render), rather than to a node of its own.
+    #[doc(hidden)]
+    fn defers(&self) -> bool {
+        false
+    }
+
     #[doc(hidden)]
     fn into_any(self) -> AnyElement {
         AnyElement(Box::new(self))
@@ -50,12 +57,17 @@ pub trait IntoElement: Sized {
 
 trait ElementObject {
     fn id(&self) -> Option<ElementId>;
+    fn defers(&self) -> bool;
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node;
 }
 
 impl<T: Element> ElementObject for T {
     fn id(&self) -> Option<ElementId> {
         Element::id(self)
+    }
+
+    fn defers(&self) -> bool {
+        Element::defers(self)
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
@@ -69,6 +81,10 @@ pub struct AnyElement(Box<dyn ElementObject>);
 impl Element for AnyElement {
     fn id(&self) -> Option<ElementId> {
         self.0.id()
+    }
+
+    fn defers(&self) -> bool {
+        self.0.defers()
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
@@ -90,11 +106,20 @@ impl IntoElement for AnyElement {
 
 impl gpui::prelude::FluentBuilder for AnyElement {}
 
-/// The explicit lowering context for one driver frame.
+/// The explicit lowering context for one driver frame. Every element is
+/// filed by the host's own rule ([`wire::identity`]), so the path a route,
+/// a list or a tooltip is keyed by here is the path the host files the
+/// node under. Lowering claims nothing: whether two ids meet is the host's
+/// to say, and its sanitizer says it of every frame, a test's too.
 pub struct Lowering<'a> {
     window: &'a mut Window,
     app: &'a mut App,
+    /// The path of the element being lowered: its id last, when it has one.
     authored_path: Vec<wire::ElementIdWire>,
+    /// The index of the list row whose root lowers next ([`Self::lower_row`]).
+    row: Option<usize>,
+    /// The state of each list lowered so far, beside that list's path.
+    lists: Vec<(crate::ListState, Vec<wire::ElementIdWire>)>,
 }
 
 /// An authored [`ElementId`] as the wire carries it. Every id a view can
@@ -111,6 +136,8 @@ impl<'a> Lowering<'a> {
             window,
             app,
             authored_path: Vec::new(),
+            row: None,
+            lists: Vec::new(),
         }
     }
 
@@ -122,6 +149,8 @@ impl<'a> Lowering<'a> {
             window,
             app,
             authored_path: Vec::new(),
+            row: None,
+            lists: Vec::new(),
         }
     }
 
@@ -146,18 +175,54 @@ impl<'a> Lowering<'a> {
         self.lower_element(element.into_element())
     }
 
+    /// Lowers `element` in its scope: filed under its id (or, as a list
+    /// row's root, its index), and everything it lowers under it.
     pub(crate) fn lower_element<E: Element>(&mut self, element: E) -> wire::Node {
-        let id = element.id().map(wire_id);
-        if let Some(id) = &id {
-            self.authored_path.push(id.clone());
+        // a row's root is the first element under it that lowers to a node
+        // of its own: a deferred view lowers to the one its render returns
+        let defers = element.defers();
+        let row = if defers { None } else { self.row.take() };
+        let segment = wire::identity::segment(element.id().map(wire_id), row);
+        let entered = segment.is_some();
+        if let Some(segment) = segment {
+            self.authored_path.push(segment);
             slots::enter_scope(&self.app.inner.slots);
         }
         let node = Element::lower(Box::new(element), self);
-        if id.is_some() {
+        debug_assert!(
+            defers
+                || wire::identity::segment(node.identity().cloned(), row).as_ref()
+                    == entered.then(|| self.authored_path.last()).flatten(),
+            "an element is filed as the host files the node it lowers to"
+        );
+        if entered {
             self.authored_path.pop();
             slots::leave_scope(&self.app.inner.slots);
         }
         node
+    }
+
+    /// Lowers row `index` of a list: filed under its own id, else under
+    /// its index, so the ids inside one row never meet another row's.
+    pub(crate) fn lower_row<E: Element>(&mut self, index: usize, element: E) -> wire::Node {
+        self.row = Some(index);
+        let node = self.lower_element(element);
+        debug_assert!(self.row.is_none(), "a row lowers to a node");
+        node
+    }
+
+    /// The list being lowered draws `state`. A state is one list's (its
+    /// window of rows, the commands waiting for it), so a second list
+    /// drawing it in this frame is refused, naming both.
+    pub(crate) fn draws_list(&mut self, state: &crate::ListState) {
+        if let Some((_, first)) = self.lists.iter().find(|(drawn, _)| drawn.is(state)) {
+            panic!(
+                "one ListState drawn by two lists: {first:?} and {:?}; each list takes a state \
+                 of its own",
+                self.authored_path
+            );
+        }
+        self.lists.push((state.clone(), self.authored_path.clone()));
     }
 
     pub(crate) fn current_path(&self) -> &[wire::ElementIdWire] {
@@ -517,6 +582,13 @@ pub trait ParentElement {
         self
     }
 
+    /// Adds each of `children`, as [`Self::child`] would.
+    ///
+    /// Children are not scopes of their own, as the rows of a `list` or a
+    /// `uniform_list` are under their list's id: an id inside one child
+    /// meets the same id inside the next. A row of data built here carries
+    /// its own id (its item's key), which scopes the ids inside it. Two
+    /// children named by one key are refused, naming the id and its scope.
     fn children(mut self, children: impl IntoIterator<Item = impl IntoElement>) -> Self
     where
         Self: Sized,

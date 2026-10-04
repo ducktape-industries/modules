@@ -101,14 +101,14 @@ fn a_patch_the_tree_cannot_take_is_refused() {
             path: vec![7],
             index: 0
         }),
-        "a path to no node"
+        Refused::Invalid("a path to no node")
     );
     assert_eq!(
         refused(Patch::Remove {
             path: vec![],
             index: 1
         }),
-        "an index past the list"
+        Refused::Invalid("an index past the list")
     );
     assert_eq!(
         refused(Patch::Insert {
@@ -116,7 +116,7 @@ fn a_patch_the_tree_cannot_take_is_refused() {
             index: 0,
             node: Node::empty()
         }),
-        "a list edit on no list"
+        Refused::Invalid("a list edit on no list")
     );
     assert_eq!(
         refused(Patch::Props {
@@ -126,7 +126,7 @@ fn a_patch_the_tree_cannot_take_is_refused() {
                 content: Box::new(Node::empty())
             }
         }),
-        "props of another arity"
+        Refused::Invalid("props of another arity")
     );
     let many = vec![
         Patch::Move {
@@ -138,7 +138,7 @@ fn a_patch_the_tree_cannot_take_is_refused() {
     ];
     assert_eq!(
         apply(&mut tree.clone(), many).unwrap_err(),
-        "more patches than the host applies"
+        Refused::Invalid("more patches than the host applies")
     );
 }
 
@@ -265,7 +265,10 @@ fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
         root: Some(column(vec![field("App/e", &over, "")])),
         ..Frame::default()
     };
-    assert_eq!(sanitize(&mut frame), Err("field text exceeds its cap"));
+    assert_eq!(
+        sanitize(&mut frame),
+        Err(Refused::Invalid("field text exceeds its cap"))
+    );
     let mut node = field("App/e", "é", "");
     let Node::Field { cursor, .. } = &mut node else {
         unreachable!()
@@ -275,7 +278,10 @@ fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
         root: Some(column(vec![node.clone()])),
         ..Frame::default()
     };
-    assert_eq!(sanitize(&mut frame), Err("field cursor is off its text"));
+    assert_eq!(
+        sanitize(&mut frame),
+        Err(Refused::Invalid("field cursor is off its text"))
+    );
     let Node::Field { claims, cursor, .. } = &mut node else {
         unreachable!()
     };
@@ -291,7 +297,7 @@ fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
     };
     assert_eq!(
         sanitize(&mut frame),
-        Err("field claims a key the engine owns")
+        Err(Refused::Invalid("field claims a key the engine owns"))
     );
 }
 
@@ -381,7 +387,7 @@ fn oversized_typed_identity_is_refused_whole_instead_of_truncated() {
     };
     assert_eq!(
         sanitize(&mut frame).unwrap_err(),
-        "element identity name is too long"
+        Refused::Invalid("element identity name is too long")
     );
 }
 

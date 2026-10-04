@@ -55,14 +55,14 @@ pub const MAX_TEXT_PIXELS: f32 = 512.0;
 /// [`MAX_TEXT_BYTES_PER_FRAME`] in total, picture bytes past
 /// [`MAX_PICTURE_BYTES_PER_FRAME`] in total, text sizes to [`MAX_TEXT_PIXELS`],
 /// every other size, colour and spacing clamped to a finite range, and typed
-/// identity collisions refused. A frame from a well-behaved guest passes
-/// through unchanged.
+/// identity collisions refused ([`crate::identity`]). A frame from a
+/// well-behaved guest passes through unchanged.
 ///
 /// A frame that arrived as bytes has passed [`decode`] first, which refuses
 /// one nested deeper than this walk goes. A frame that carries `patches`
 /// instead of a tree is bounded by [`apply`], since every bound is on the
 /// tree the patches make and only the host holds it.
-pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, &'static str> {
+pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, Refused> {
     let mut budgets = Budgets::frame();
     let mut report = if let Some(root) = &mut frame.root {
         sanitize_tree_with(root, &mut budgets)?
@@ -120,47 +120,48 @@ pub(crate) fn text_amounts(root: &Node) -> usize {
     display
 }
 
-pub(crate) fn sanitize_tree(root: &mut Node) -> Result<SanitizeReport, &'static str> {
+pub(crate) fn sanitize_tree(root: &mut Node) -> Result<SanitizeReport, Refused> {
     sanitize_tree_with(root, &mut Budgets::frame())
 }
 
-fn sanitize_tree_with(
-    root: &mut Node,
-    budgets: &mut Budgets,
-) -> Result<SanitizeReport, &'static str> {
+fn sanitize_tree_with(root: &mut Node, budgets: &mut Budgets) -> Result<SanitizeReport, Refused> {
     let before = text_amounts(root);
-    let mut identity_scopes = vec![std::collections::HashSet::new()];
-    let mut authored_path = Vec::new();
-    sanitize_node(root, 0, budgets, &mut identity_scopes, &mut authored_path)?;
+    sanitize_node(root, 0, budgets, &mut identity::Scopes::default(), None)?;
     Ok(SanitizeReport {
         display_text_truncated: text_amounts(root) < before,
     })
 }
 
-/// Typed IDs are unique among the children of the first containing element
-/// with an ID. An id-less wrapper is transparent to that GPUI scope; an
-/// identified node starts a fresh scope for its descendants.
-type IdentityScopes = Vec<std::collections::HashSet<ElementIdWire>>;
-
-fn claim_typed_scope(node: &Node, scopes: &mut IdentityScopes) -> Result<bool, &'static str> {
-    let Some(id) = node.identity() else {
-        return Ok(false);
-    };
-    let scope = scopes
-        .last_mut()
-        .expect("the root identity scope is always present");
-    if !scope.insert(id.clone()) {
-        return Err("duplicate typed element identity among siblings");
-    }
-    scopes.push(std::collections::HashSet::new());
-    Ok(true)
+/// Why the host refuses a frame or a patch: a bound or a shape it breaks,
+/// or one typed id claimed twice, with the site that claimed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refused {
+    Invalid(&'static str),
+    Duplicate(identity::DuplicateIdentity),
 }
 
-fn finish_typed_scope(scopes: &mut IdentityScopes, started: bool) {
-    if started {
-        scopes.pop();
+impl From<&'static str> for Refused {
+    fn from(reason: &'static str) -> Self {
+        Self::Invalid(reason)
     }
 }
+
+impl From<identity::DuplicateIdentity> for Refused {
+    fn from(duplicate: identity::DuplicateIdentity) -> Self {
+        Self::Duplicate(duplicate)
+    }
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(reason) => f.write_str(reason),
+            Self::Duplicate(duplicate) => duplicate.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for Refused {}
 
 /// What is left of a frame's per-frame budgets while its tree is walked.
 pub(crate) struct Budgets {

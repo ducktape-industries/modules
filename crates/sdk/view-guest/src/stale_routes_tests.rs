@@ -468,7 +468,7 @@ impl Render for Keyed {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let items = self.items.clone();
         let log = self.log.clone();
-        list(self.state.clone().unwrap(), move |index, _, _| {
+        list("rows", self.state.clone().unwrap(), move |index, _, _| {
             let name = items[index].clone();
             let log = log.clone();
             div()

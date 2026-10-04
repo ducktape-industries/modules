@@ -164,9 +164,14 @@ mod variable_tests {
     use crate::{Frame, Node, decode, encode, sanitize};
 
     fn node(commands: Vec<ListCommand>, children: usize) -> Node {
+        list("rows", commands, children)
+    }
+
+    fn list(id: &'static str, commands: Vec<ListCommand>, children: usize) -> Node {
+        let id = crate::ElementIdWire::Name(id.into());
         Node::List {
-            state: 7,
-            path: Vec::new(),
+            path: vec![id.clone()],
+            id,
             item_count: usize::MAX,
             alignment: ListAlignment::Bottom,
             overdraw: f32::INFINITY,
@@ -234,7 +239,7 @@ mod variable_tests {
                 id: None,
                 style: Default::default(),
                 interactivity: Default::default(),
-                children: vec![node(Vec::new(), 0), node(Vec::new(), 0)],
+                children: vec![list("first", Vec::new(), 0), list("second", Vec::new(), 0)],
             })),
             ..Default::default()
         };
@@ -265,7 +270,52 @@ mod variable_tests {
             root: Some(root),
             ..Default::default()
         };
-        assert_eq!(sanitize(&mut frame), Err("list authored path is invalid"));
+        assert_eq!(
+            sanitize(&mut frame),
+            Err(crate::Refused::Invalid("list authored path is invalid"))
+        );
+    }
+
+    /// A list is a scope of its own: the id-less rows of two lists under
+    /// one parent, each filed under its index, do not meet. Two lists
+    /// written with one id in one scope are one id twice, as any two
+    /// siblings are.
+    #[test]
+    fn sibling_lists_file_their_rows_apart() {
+        let pair = |first: &'static str, second: &'static str| Frame {
+            root: Some(Node::Container(crate::ContainerNode {
+                id: Some(crate::ElementIdWire::Name("page".into())),
+                style: Default::default(),
+                interactivity: Default::default(),
+                children: [first, second]
+                    .into_iter()
+                    .map(|id| {
+                        let mut list = list(id, Vec::new(), 2);
+                        let Node::List {
+                            path,
+                            item_count,
+                            range_start,
+                            ..
+                        } = &mut list
+                        else {
+                            unreachable!()
+                        };
+                        path.insert(0, crate::ElementIdWire::Name("page".into()));
+                        (*item_count, *range_start) = (2, 0);
+                        list
+                    })
+                    .collect(),
+            })),
+            ..Default::default()
+        };
+        assert!(sanitize(&mut pair("timeline", "thread")).is_ok());
+        let Err(crate::Refused::Duplicate(duplicate)) = sanitize(&mut pair("rows", "rows")) else {
+            panic!("one id on two lists in a scope is refused")
+        };
+        assert_eq!(
+            duplicate.to_string(),
+            "duplicate typed element identity among siblings: rows twice under page"
+        );
     }
 
     #[test]

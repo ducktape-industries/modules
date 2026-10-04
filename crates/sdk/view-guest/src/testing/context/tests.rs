@@ -154,7 +154,10 @@ impl Render for Twins {
 }
 
 #[test]
-#[should_panic(expected = "the host refuses this frame")]
+#[should_panic(
+    expected = "the host refuses this frame: duplicate typed element identity among siblings: \
+                1 twice under the root"
+)]
 fn every_frame_is_held_to_the_host_sanitizer() {
     TestAppContext::new().open::<Twins>();
 }

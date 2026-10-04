@@ -269,10 +269,10 @@ mod tests {
             })),
             ..Default::default()
         };
-        assert_eq!(
+        assert!(matches!(
             crate::sanitize(&mut duplicate),
-            Err("duplicate typed element identity among siblings")
-        );
+            Err(crate::Refused::Duplicate(_))
+        ));
 
         let parent = |name: &str| {
             Node::Container(crate::ContainerNode {

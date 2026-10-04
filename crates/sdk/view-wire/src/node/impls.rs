@@ -22,11 +22,11 @@ impl Node {
             | Self::RichText { id, .. } => id.as_ref(),
             Self::Field { id, .. }
             | Self::UniformList { id, .. }
+            | Self::List { id, .. }
             | Self::ResizeHandle { id, .. }
             | Self::Sensor { id, .. }
             | Self::Overlay { id, .. } => Some(id),
-            Self::List { .. }
-            | Self::Space { .. }
+            Self::Space { .. }
             | Self::Anchored { .. }
             | Self::Deferred { .. }
             | Self::Canvas { .. } => None,
