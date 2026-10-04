@@ -90,13 +90,14 @@ impl ListState {
         self.0.inner.borrow().item_count
     }
     /// Rows `old_range` become `count` rows. The window the host shows
-    /// follows the edit: one wholly before it shifts the window by the
-    /// rows added or removed, one inside or touching it grows the window
-    /// over the new rows, and one after it leaves the window alone. So the
-    /// rows on screen stay on screen through an arrival at the tail or a
-    /// page of history above. An edit that takes every row the window held
-    /// leaves nothing to follow: the window is the new list's first
-    /// screenful, as [`reset`](Self::reset) makes it.
+    /// follows the edit: one that ends at or before its first row shifts
+    /// the window by the rows added or removed, one inside it or at its
+    /// end grows the window over the new rows, and one after it leaves the
+    /// window alone. So the rows on screen stay on screen through an
+    /// arrival at the tail or a page of history above, a reader at the
+    /// first loaded row included. An edit that takes every row the window
+    /// held, or finds it empty, leaves nothing to follow: the window is
+    /// the new list's first screenful, as [`reset`](Self::reset) makes it.
     pub fn splice(&self, old_range: Range<usize>, count: usize) {
         let mut inner = self.0.inner.borrow_mut();
         let old_range = bounded_range(old_range, inner.item_count);
@@ -107,7 +108,7 @@ impl ListState {
         let held = inner.requested.clone();
         let delta = count as isize - old_range.len() as isize;
         let shifted = |at: usize| at.saturating_add_signed(delta);
-        let edited = if old_range.end < held.start {
+        let edited = if !held.is_empty() && old_range.end <= held.start {
             shifted(held.start)..shifted(held.end)
         } else if old_range.start > held.end {
             held
@@ -723,6 +724,48 @@ mod tests {
             320 - INITIAL_ROWS..320,
             "every row gone: a new list's first screenful"
         );
+    }
+
+    /// Chat's history page: the reader is at the top of the loaded rows
+    /// (the window starts at row 0, which is when chat pages older) and a
+    /// page as long as a frame carries lands above. The rows on screen are
+    /// rows 64..76 now and stay in the window: the page is before it, and
+    /// shifts it. A list with no window yet takes its first screenful.
+    #[test]
+    fn a_page_of_history_above_a_reader_at_the_top_keeps_the_rows_on_screen() {
+        let (mut cx, view) = opened();
+        let state = view.read(|view| view.state.clone());
+        let wire::Node::List {
+            request_handler, ..
+        } = *cx.root()
+        else {
+            panic!("expected list")
+        };
+        let window = |cx: &TestAppContext| match cx.root() {
+            wire::Node::List {
+                range_start,
+                children,
+                ..
+            } => *range_start..*range_start + children.len(),
+            other => panic!("expected list, got {other:?}"),
+        };
+        cx.tick(vec![wire::Event::ListRequest {
+            handler: request_handler,
+            request: wire::ListRequest { start: 0, end: 12 },
+        }]);
+        assert_eq!(window(&cx), 0..12);
+        state.splice(0..0, wire::MAX_LIST_ROWS);
+        cx.app_mut().notify();
+        cx.tick(vec![]);
+        assert_eq!(
+            window(&cx),
+            64..76,
+            "the rows on screen, where they are now"
+        );
+
+        let empty = ListState::new(0, ListAlignment::Bottom, px(0.));
+        empty.splice(0..0, 100);
+        assert_eq!(empty.0.inner.borrow().requested, 100 - INITIAL_ROWS..100);
     }
 
     #[test]
