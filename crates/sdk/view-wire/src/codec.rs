@@ -1,6 +1,9 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
 
+mod write;
+pub(crate) use write::SPARSE;
+
 /// What one `decode` may build before it is refused: enough that
 /// [`sanitize`]'s truncation still shapes any tree a real view sends, and
 /// few enough that a hostile one cannot make the host allocate its way
@@ -41,11 +44,7 @@ mod budget {
             if depth > MAX_DEPTH {
                 return Err("a tree deeper than the host renders");
             }
-            let nodes = NODES.get() + 1;
-            if nodes > MAX_DECODED_NODES {
-                return Err("more nodes than the host holds");
-            }
-            NODES.set(nodes);
+            spend()?;
             DEPTH.set(depth + 1);
             Ok(Self(()))
         }
@@ -57,6 +56,17 @@ mod budget {
         }
     }
 
+    /// One more thing the host will hold: a node, or an entry of the style
+    /// table, which costs what a node costs at no depth.
+    pub(super) fn spend() -> Result<(), &'static str> {
+        let nodes = NODES.get() + 1;
+        if nodes > MAX_DECODED_NODES {
+            return Err("more nodes than the host holds");
+        }
+        NODES.set(nodes);
+        Ok(())
+    }
+
     /// A fresh budget for one top-level [`decode`](super::decode). The depth
     /// unwinds itself; the node count is what one frame may spend.
     pub(super) fn reset() {
@@ -64,8 +74,12 @@ mod budget {
     }
 }
 
-/// `Node`'s derived shape (`#[serde(remote = "Self")]`), unchanged on the
-/// wire.
+/// An entry of the style table decodes on the frame's node budget.
+pub(crate) fn spend_node() -> Result<(), &'static str> {
+    budget::spend()
+}
+
+/// `Node`'s derived shape (`#[serde(remote = "Self")]`).
 impl Serialize for Node {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         Node::serialize(self, serializer)
@@ -120,51 +134,59 @@ where
     deserializer.deserialize_seq(Values(limit, message, std::marker::PhantomData))
 }
 
+/// The bytes a wire value crosses as: see [`write`] for the encoding.
 pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {
     let mut bytes = Vec::new();
-    write(value, &mut bytes).expect("wire types are plain data");
+    value
+        .serialize(write::Writer::new(&mut bytes))
+        .expect("wire types are plain data");
     bytes
 }
 
-/// [`encode`] for a value whose serde is not the wire's own — a view's
-/// state, whatever it derives or writes by hand — so a `Serialize` that
-/// refuses (an unsized sequence, a custom error) is an answer, not a panic
+/// The bytes of a value whose serde is not the wire's own: a view's state,
+/// whatever it derives or writes by hand. It is written with its field
+/// names, so the build that reads it back may have added a field, and a
+/// `Serialize` that refuses (a custom error) is an answer, not a panic
 /// inside the guest.
 pub fn try_encode<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    write(value, &mut bytes).map_err(|error| error.to_string())?;
+    value
+        .serialize(&mut rmp_serde::Serializer::new(&mut bytes).with_struct_map())
+        .map_err(|error| error.to_string())?;
     Ok(bytes)
 }
 
-// One serializer instantiation for buffers and size counting: a second writer
-// type would duplicate the entire node serialization graph.
-#[inline(never)]
-fn write<T: Serialize>(
-    value: &T,
-    writer: &mut dyn std::io::Write,
-) -> Result<(), rmp_serde::encode::Error> {
-    value.serialize(&mut rmp_serde::Serializer::new(writer).with_struct_map())
+/// Marks a derived struct as sparse: most of its fields say nothing most of
+/// the time, each with a `skip_serializing_if`, and on the wire it is the
+/// fields that say something, each keyed by its declaration index.
+///
+/// The struct derives with `#[serde(remote = "Self")]`, and this writes the
+/// two trait impls over that derived pair, as `Node`'s are written by hand
+/// above.
+macro_rules! sparse {
+    ($type:ident) => {
+        impl serde::Serialize for $type {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                struct Fields<'a>(&'a $type);
+                impl serde::Serialize for Fields<'_> {
+                    fn serialize<S: serde::Serializer>(
+                        &self,
+                        serializer: S,
+                    ) -> Result<S::Ok, S::Error> {
+                        $type::serialize(self.0, serializer)
+                    }
+                }
+                serializer.serialize_newtype_struct($crate::codec::SPARSE, &Fields(self))
+            }
+        }
+        impl<'de> serde::Deserialize<'de> for $type {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                $type::deserialize(deserializer)
+            }
+        }
+    };
 }
-
-/// Counts bytes without keeping them.
-struct Count(u64);
-
-impl std::io::Write for Count {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0 += bytes.len() as u64;
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-/// How many bytes [`encode`] would write, without writing them.
-pub fn encoded_size<T: Serialize>(value: &T) -> u64 {
-    let mut count = Count(0);
-    write(value, &mut count).expect("wire types are plain data");
-    count.0
-}
+pub(crate) use sparse;
 
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, String> {
     budget::reset();
@@ -195,5 +217,73 @@ mod tests {
             "not while a transfer is open"
         );
         assert_eq!(super::try_encode(&7u8).unwrap(), super::encode(&7u8));
+    }
+
+    /// A struct crosses as its fields in order and a variant as its index:
+    /// no name is in the bytes.
+    #[test]
+    fn a_struct_is_its_fields_and_a_variant_is_its_index() {
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+        enum Kind {
+            Plain,
+            Pair { left: u8, right: Option<bool> },
+            One(String),
+        }
+        let pair = Kind::Pair {
+            left: 7,
+            right: None,
+        };
+        // {1: [7, nil]}
+        assert_eq!(super::encode(&pair), [0x81, 0x01, 0x92, 0x07, 0xc0]);
+        assert_eq!(super::encode(&Kind::Plain), [0x00]);
+        // {2: "a"}
+        assert_eq!(
+            super::encode(&Kind::One("a".into())),
+            [0x81, 0x02, 0xa1, b'a']
+        );
+        for kind in [pair, Kind::Plain, Kind::One("a".into())] {
+            assert_eq!(super::decode::<Kind>(&super::encode(&kind)).unwrap(), kind);
+        }
+    }
+
+    /// A map or a sequence that does not say its length up front (gpui's
+    /// `FontFeatures` writes one) is counted as it is written.
+    #[test]
+    fn a_map_of_unknown_length_is_counted_as_it_is_written() {
+        let features = gpui::FontFeatures(std::sync::Arc::new(vec![
+            ("calt".into(), 1),
+            ("liga".into(), 0),
+        ]));
+        let bytes = super::encode(&features);
+        assert_eq!(bytes[..5], [0xdf, 0, 0, 0, 2]);
+        assert_eq!(
+            super::decode::<gpui::FontFeatures>(&bytes).unwrap(),
+            features
+        );
+
+        struct Unsized;
+        impl serde::Serialize for Unsized {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.collect_seq((0..3u8).filter(|_| true))
+            }
+        }
+        assert_eq!(super::encode(&Unsized), [0xdd, 0, 0, 0, 3, 0, 1, 2]);
+    }
+
+    /// A struct that leaves a field out, and never said it is sparse, would
+    /// shift every field after it: the writer refuses it.
+    #[test]
+    #[should_panic(expected = "wire types are plain data")]
+    fn a_struct_that_skips_a_field_must_be_sparse() {
+        #[derive(serde::Serialize)]
+        struct Skips {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            first: Option<u8>,
+            second: u8,
+        }
+        super::encode(&Skips {
+            first: None,
+            second: 1,
+        });
     }
 }

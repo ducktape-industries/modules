@@ -58,6 +58,7 @@ fn the_root_tracks_the_shared_theme_and_is_accessible() {
     else {
         panic!("chat root is a styled container");
     };
+    let style = &cx.styles()[*style];
     assert_eq!(
         style
             .background
@@ -179,6 +180,7 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     else {
         panic!("channel row is a native container");
     };
+    let style = &cx.styles()[*style];
     assert!(style.size.width.is_some(), "channel rows fill the sidebar");
     assert_eq!(
         interactivity.role,
@@ -307,7 +309,7 @@ fn a_block_re_reads_only_the_tables_it_wrote_to() {
     );
 }
 
-/// `CHAT_SCREEN_EXPORT=1` writes the opened room's tree for the app's
+/// `CHAT_SCREEN_EXPORT=1` writes the opened room's frame for the app's
 /// node-less renderer (`ducktape-app --render-tree`), light and dark.
 #[test]
 fn export_chat_screens() {
@@ -320,7 +322,7 @@ fn export_chat_screens() {
     let (cx, _view) = opened();
     std::fs::write(
         out.join("room-light.json"),
-        serde_json::to_vec(cx.root()).unwrap(),
+        serde_json::to_vec(&cx.whole_frame()).unwrap(),
     )
     .unwrap();
 }

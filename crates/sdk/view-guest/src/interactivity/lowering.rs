@@ -57,13 +57,15 @@ impl Interactivity {
             tab_stop: self.tab_stop.or(self.focusable.then_some(true)),
             tab_index: self.tab_index,
             tab_group: self.tab_group,
-            focus: self.focus,
-            in_focus: self.in_focus,
+            focus: self.focus.map(|style| lowering.style(&style)),
+            in_focus: self.in_focus.map(|style| lowering.style(&style)),
             // a focusable node shows the focus ring unless it draws its own
-            focus_visible: self.focus_visible.or_else(|| {
-                self.focusable
-                    .then(|| Box::new(crate::design::focus_ring(lowering.theme().accent)))
-            }),
+            focus_visible: match self.focus_visible {
+                Some(style) => Some(lowering.style(&style)),
+                None => self
+                    .focusable
+                    .then(|| lowering.style(&crate::design::focus_ring(lowering.theme().accent))),
+            },
             focus_handle: self.focus_handle.map(|handle| handle.id),
             occlude: self.occlude,
             block_mouse_except_scroll: self.block_mouse_except_scroll,
@@ -76,14 +78,20 @@ impl Interactivity {
                 }
             },
             group: self.group,
-            hover: self.hover,
-            active: self.active,
+            hover: self.hover.map(|style| lowering.style(&style)),
+            active: self.active.map(|style| lowering.style(&style)),
             group_hover: self
                 .group_hover
-                .map(|(group, style)| wire::GroupRefinement { group, style }),
+                .map(|(group, style)| wire::GroupRefinement {
+                    group,
+                    style: lowering.style(&style),
+                }),
             group_active: self
                 .group_active
-                .map(|(group, style)| wire::GroupRefinement { group, style }),
+                .map(|(group, style)| wire::GroupRefinement {
+                    group,
+                    style: lowering.style(&style),
+                }),
             on_click: route_plain(self.on_click, lowering, Kind::Click),
             on_aux_click: route_plain(self.on_aux_click, lowering, Kind::AuxClick),
             consumes_click: self.consumes_click,

@@ -85,8 +85,8 @@ fn behavior_elements_lower_typed_routes_and_children() {
     else {
         panic!("behavior sensor")
     };
-    assert_eq!(style.size.width, full.size.width);
-    assert_eq!(style.size.height, full.size.height);
+    assert_eq!(cx.styles()[*style].size.width, full.size.width);
+    assert_eq!(cx.styles()[*style].size.height, full.size.height);
     assert!(matches!(
         cx.find("behavior-resize"),
         Some(wire::Node::ResizeHandle {
@@ -120,7 +120,7 @@ fn sensor_style_is_opt_in() {
     let Some(wire::Node::Sensor { style, .. }) = cx.find("default-sensor") else {
         panic!("default sensor")
     };
-    assert_eq!(*style, crate::StyleRefinement::default());
+    assert_eq!(cx.styles()[*style], crate::StyleRefinement::default());
 }
 
 #[test]

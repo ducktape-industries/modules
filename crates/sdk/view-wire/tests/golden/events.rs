@@ -353,6 +353,7 @@ pub fn every_frame() -> Frame {
             character_index: Some(3),
             content: Some(boxed("the tip")),
         }],
+        styles: every_style().iter().map(Style::new).collect(),
         root: Some(every_node()),
         patches: vec![
             Patch::Replace {

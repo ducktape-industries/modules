@@ -87,6 +87,7 @@ impl StyledText {
 
     fn lower(
         self,
+        lowering: &Lowering<'_>,
         id: Option<wire::ElementIdWire>,
         clickable_ranges: Vec<Range<usize>>,
         on_click: Option<u32>,
@@ -105,7 +106,7 @@ impl StyledText {
         };
         wire::Node::RichText {
             id,
-            style: self.style,
+            style: lowering.style(&self.style),
             text: self.text.to_string(),
             runs,
             font_family_overrides: self.font_family_overrides,
@@ -131,8 +132,8 @@ impl IntoElement for StyledText {
 }
 
 impl Element for StyledText {
-    fn lower(self: Box<Self>, _lowering: &mut Lowering<'_>) -> wire::Node {
-        (*self).lower(None, Vec::new(), None, None, None)
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        (*self).lower(lowering, None, Vec::new(), None, None, None)
     }
 }
 
@@ -236,7 +237,7 @@ impl Element for InteractiveText {
             )
         });
         let tooltip = tooltip.map(|builder| lowering.rich_text_tooltip(builder));
-        text.lower(id, clickable_ranges, on_click, on_hover, tooltip)
+        text.lower(lowering, id, clickable_ranges, on_click, on_hover, tooltip)
     }
 }
 

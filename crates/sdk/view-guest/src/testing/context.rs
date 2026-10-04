@@ -1,5 +1,7 @@
 use super::focus::{self, Focus};
-use super::{FakeHost, assert_frame_accessible, button, chain_to, input, keys, texts};
+use super::{
+    FakeHost, assert_frame_accessible, assert_taken_whole, button, chain_to, input, keys, texts,
+};
 use std::collections::HashMap;
 
 use crate::{
@@ -67,6 +69,9 @@ pub struct TestAppContext {
     frame: Frame,
     /// The tree the host holds: the last one sent whole, patched since.
     tree: Option<Node>,
+    /// The style table of that tree, as the host holds it: a whole frame's
+    /// entries, and each one a later frame brought.
+    styles: wire::Styles,
     reports: Vec<TickReport>,
     focus: Option<Focus>,
     globals: crate::context::Globals,
@@ -108,6 +113,7 @@ impl TestAppContext {
         self.driver = Some(driver);
         self.frame = Frame::default();
         self.tree = None;
+        self.styles = wire::Styles::default();
         self.ticks = 0;
         self.run_until_parked();
     }
@@ -202,14 +208,24 @@ impl TestAppContext {
         self.ticks += 1;
         self.host.accept(&frame, &driver.host());
         let dialogs = self.tree.as_ref().map(focus::open_dialogs);
+        // the frame as the host takes it: its style entries join the table
+        // (a whole tree's replace it), and every style a node names is one
+        // the table holds
+        let mut hosted = Frame {
+            styles: frame.styles.clone(),
+            root: frame.root.clone(),
+            tooltip_responses: frame.tooltip_responses.clone(),
+            ..Frame::default()
+        };
+        assert_taken_whole(wire::sanitize(&mut hosted, &mut self.styles));
         if let Some(root) = &frame.root {
             self.tree = Some(root.clone());
         } else if !frame.patches.is_empty() {
-            wire::apply(
+            assert_taken_whole(wire::apply(
                 self.tree.as_mut().expect("patch needs previous tree"),
                 frame.patches.clone(),
-            )
-            .unwrap_or_else(|refused| panic!("the host refuses this frame: {refused}"));
+                &self.styles,
+            ));
         }
         assert_frame_accessible(self.tree.as_ref(), &frame.tooltip_responses);
         let report = TickReport {
@@ -263,6 +279,20 @@ impl TestAppContext {
     pub fn has_text(&self, text: &str) -> bool {
         self.texts().iter().any(|shown| shown == text)
     }
+    /// The style table of the tree the host holds: `cx.styles()[id]` is
+    /// the style a node, or one of its conditional styles, names.
+    pub fn styles(&self) -> &wire::Styles {
+        &self.styles
+    }
+    /// The base style of the node under `key`, which must be in the tree
+    /// and carry one.
+    pub fn style(&self, key: &str) -> &gpui::StyleRefinement {
+        let id = self
+            .node(key)
+            .style()
+            .unwrap_or_else(|| panic!("{key:?} carries no style"));
+        &self.styles[id]
+    }
     pub fn find(&self, key: &str) -> Option<&Node> {
         chain_to(self.tree.as_ref()?, key).and_then(|chain| chain.last().copied())
     }
@@ -296,15 +326,27 @@ impl TestAppContext {
     fn chain(&self, key: &str) -> Vec<&Node> {
         chain_to(self.root(), key).unwrap_or_else(|| panic!("no node {key:?} in {:?}", self.keys()))
     }
-    /// The last frame's whole tree as a host would take it on a fresh mount,
-    /// in encoded bytes: the proxy a native test has for the fuel a render
-    /// spends. (Every tick already holds the tree to the host's budgets.)
-    pub fn frame_bytes(&self) -> usize {
-        let frame = Frame {
-            root: Some(self.root().clone()),
+    /// The tree the host shows and the styles it names, as the one frame a
+    /// host takes on a fresh mount. A screen export writes it as JSON,
+    /// which `ducktape-app --render-tree` draws.
+    pub fn whole_frame(&self) -> Frame {
+        let mut root = self.root().clone();
+        // the styles the tree names, numbered from the first it names
+        let mut styles = wire::Interner::default();
+        root.for_each_mut(&mut |node| {
+            node.styles_mut(&mut |id| *id = styles.intern(&self.styles[*id]))
+        });
+        Frame {
+            styles: styles.unsent(),
+            root: Some(root),
             ..Frame::default()
-        };
-        crate::wire::encode(&frame).len()
+        }
+    }
+    /// [`whole_frame`](Self::whole_frame) in encoded bytes: the proxy a
+    /// native test has for the fuel a render spends. (Every tick already
+    /// holds the tree to the host's budgets.)
+    pub fn frame_bytes(&self) -> usize {
+        crate::wire::encode(&self.whole_frame()).len()
     }
 
     // Focus and keys.

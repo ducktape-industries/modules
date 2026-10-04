@@ -70,22 +70,28 @@ pub const MAX_PATCHES: usize = 1024;
 
 /// Applies a patch frame to the tree the host holds, then pulls the result
 /// inside every bound [`sanitize`] promises — a patch is the guest's, so an
-/// inserted subtree can push the tree past [`MAX_NODES`] or [`MAX_DEPTH`]
-/// or reuse a key the tree already has, and the bounds are on the whole.
+/// inserted subtree can push the tree past [`MAX_NODES`] or [`MAX_DEPTH`],
+/// reuse a key the tree already has or name a style `styles` does not hold,
+/// and the bounds are on the whole. `styles` is the table the frame's own
+/// entries have already joined ([`sanitize`]).
 ///
 /// `Err` names a patch the tree cannot take: a path to no node, an index
 /// past a list, a list operation on a node with no list, a [`Patch::Props`]
 /// whose arity is not the node's, or more patches than [`MAX_PATCHES`]. The
 /// tree is then part-way through the sequence and not one the guest ever
 /// sent: the host drops it and asks for a whole one with [`Event::Resync`].
-pub fn apply(root: &mut Node, patches: Vec<Patch>) -> Result<SanitizeReport, Refused> {
+pub fn apply(
+    root: &mut Node,
+    patches: Vec<Patch>,
+    styles: &Styles,
+) -> Result<SanitizeReport, Refused> {
     if patches.len() > MAX_PATCHES {
         return Err("more patches than the host applies".into());
     }
     for patch in patches {
         apply_one(root, patch)?;
     }
-    sanitize_tree(root)
+    sanitize_tree(root, styles)
 }
 
 fn apply_one(root: &mut Node, patch: Patch) -> Result<(), &'static str> {

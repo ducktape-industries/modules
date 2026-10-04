@@ -67,6 +67,13 @@ fn drawn(draft: &Draft) -> wire::Node {
     drawn_with(draft, "c", &[])
 }
 
+/// [`drawn`], and the table its nodes' styles are in.
+fn drawn_styled(draft: &Draft) -> (wire::Node, wire::Styles) {
+    let (tree, styles) = lowered_styled(draft, "c", &[]);
+    crate::testing::assert_accessible(&tree);
+    (tree, styles)
+}
+
 /// The composer's tree, held to the audit as a view's tests hold it.
 fn drawn_with(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
     let tree = lowered(draft, key, choices);
@@ -78,6 +85,14 @@ fn drawn_with(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node
 /// the open @-mention menu, whose faults are
 /// `the_mention_menu_is_not_yet_reachable`'s to name.
 fn lowered(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
+    lowered_styled(draft, key, choices).0
+}
+
+fn lowered_styled(
+    draft: &Draft,
+    key: &str,
+    choices: &[MentionChoice],
+) -> (wire::Node, wire::Styles) {
     let mut app = App::for_driver();
     let entity = Entity::reserve(&app);
     let mut window = app.window();
@@ -98,7 +113,8 @@ fn lowered(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
         |_: &mut ComposerView, _, _, _| {},
     );
     drop(cx);
-    Lowering::new(&mut window, &mut app).lower(element)
+    let tree = Lowering::new(&mut window, &mut app).lower(element);
+    (tree, app.styles())
 }
 
 fn find_field(root: &wire::Node) -> Option<&wire::Node> {
@@ -219,7 +235,7 @@ fn the_field_is_named_apart_from_the_hint_drawn_in_it() {
 
 #[test]
 fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
-    let root = drawn(&Draft::default());
+    let (root, styles) = drawn_styled(&Draft::default());
     let mut marks = Vec::new();
     let mut body_size = None;
     let mut editor_bounds = None;
@@ -229,12 +245,14 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
             interactivity,
             ..
         }) if interactivity.role == Some(Role::Button) => {
+            let style = &styles[*style];
             let side = gpui::px(design::height::CONTROL as f32);
             if style.size.width == Some(side.into()) && style.size.height == Some(side.into()) {
                 marks.push(interactivity.aria.label.clone());
             }
         }
         wire::Node::Field { style, .. } => {
+            let style = &styles[*style];
             body_size = style.text.font_size;
             editor_bounds = Some((style.min_size.height, style.max_size.height));
         }

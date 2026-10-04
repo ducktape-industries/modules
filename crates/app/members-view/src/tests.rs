@@ -20,9 +20,7 @@ fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();
     let dark = Theme::dark();
     cx.set_global(dark);
-    let Some(Node::Container(ContainerNode { style, .. })) = cx.find("members") else {
-        panic!("members root is a styled container");
-    };
+    let style = cx.style("members");
     assert_eq!(
         style
             .background
@@ -169,16 +167,22 @@ fn ready() -> (TestAppContext, StreamSender<Changes<Identity>>) {
 
 /// The colour `text` is drawn in under `key`, inherited down the tree.
 fn color_of(cx: &TestAppContext, key: &str, text: &str) -> Option<Hsla> {
-    fn walk(node: &Node, text: &str, color: Option<Hsla>) -> Option<Option<Hsla>> {
-        let color = node.style().and_then(|style| style.text.color).or(color);
+    fn walk(
+        cx: &TestAppContext,
+        node: &Node,
+        text: &str,
+        color: Option<Hsla>,
+    ) -> Option<Option<Hsla>> {
+        let own = node.style().and_then(|style| cx.styles()[style].text.color);
+        let color = own.or(color);
         if node.text() == Some(text) {
             return Some(color);
         }
         node.children()
             .iter()
-            .find_map(|child| walk(child, text, color))
+            .find_map(|child| walk(cx, child, text, color))
     }
-    walk(cx.find(key)?, text, None).flatten()
+    walk(cx, cx.find(key)?, text, None).flatten()
 }
 
 #[test]
@@ -726,10 +730,7 @@ fn the_docked_list_drags_within_its_bounds_and_leaves_the_detail_its_narrowest()
 }
 
 fn style(cx: &TestAppContext, key: &str) -> StyleRefinement {
-    let Some(Node::Container(ContainerNode { style, .. })) = cx.find(key) else {
-        panic!("{key} is a styled container");
-    };
-    (*style).clone()
+    cx.style(key).clone()
 }
 
 /// Whether the docked list is `width` wide.

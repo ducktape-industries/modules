@@ -12,7 +12,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
         keyed("c", "three"),
         Node::Container(crate::ContainerNode {
             id: Some(ElementIdWire::Name("box".into())),
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             interactivity: Default::default(),
             children: vec![keyed("inner", "deep")],
         }),
@@ -23,7 +23,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
         keyed("d", "four"),
         Node::Container(crate::ContainerNode {
             id: Some(ElementIdWire::Name("box".into())),
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             interactivity: Default::default(),
             children: vec![Node::empty()],
         }),
@@ -45,7 +45,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
         ["remove", "move", "props", "insert", "remove", "insert"],
         "{patches:#?}"
     );
-    apply(&mut applied, patches).unwrap();
+    apply(&mut applied, patches, &held()).unwrap();
     assert_eq!(applied, new);
     // Nothing changed hands: both inputs of the diff are as they were.
     let mut untouched = old.clone();
@@ -67,7 +67,7 @@ fn an_unkeyed_child_shown_beside_its_siblings_is_one_insert() {
     let banner = || {
         Node::Container(crate::ContainerNode {
             id: None,
-            style: gpui::Styled::bg(gpui::StyleRefinement::default(), gpui::rgb(0xffcc00)),
+            style: StyleId(1),
             interactivity: Default::default(),
             children: vec![text("offline")],
         })
@@ -86,7 +86,7 @@ fn an_unkeyed_child_shown_beside_its_siblings_is_one_insert() {
         let bytes = encode(&patches).len();
         assert!(bytes < 1_000, "{want}: {bytes} bytes");
         let mut applied = old;
-        apply(&mut applied, patches).unwrap();
+        apply(&mut applied, patches, &held()).unwrap();
         assert_eq!(applied, new, "{want}");
     };
     for shown in [notice(), banner()] {
@@ -130,7 +130,7 @@ fn a_list_matches_its_ends_by_position_and_its_middle_by_key() {
     ]);
     let patches = diff(&mut old.clone(), &mut new.clone());
     let mut applied = old.clone();
-    apply(&mut applied, patches.clone()).unwrap();
+    apply(&mut applied, patches.clone(), &held()).unwrap();
     assert_eq!(applied, new);
     // the ends were diffed in place, not sent again
     assert!(
@@ -188,7 +188,7 @@ fn a_taking_diff_moves_the_carried_subtrees_out() {
 #[test]
 fn a_patch_the_tree_cannot_take_is_refused() {
     let tree = column(vec![keyed("a", "one")]);
-    let refused = |patch: Patch| apply(&mut tree.clone(), vec![patch]).unwrap_err();
+    let refused = |patch: Patch| apply(&mut tree.clone(), vec![patch], &held()).unwrap_err();
     assert_eq!(
         refused(Patch::Remove {
             path: vec![7],
@@ -230,7 +230,7 @@ fn a_patch_the_tree_cannot_take_is_refused() {
         MAX_PATCHES + 1
     ];
     assert_eq!(
-        apply(&mut tree.clone(), many).unwrap_err(),
+        apply(&mut tree.clone(), many, &held()).unwrap_err(),
         Refused::Invalid("more patches than the host applies")
     );
 }
@@ -244,7 +244,7 @@ fn an_applied_patch_frame_is_a_sanitized_tree() {
             .map(|i| keyed(&i.to_string(), "x"))
             .collect(),
     );
-    sanitize_tree(&mut tree).unwrap();
+    sanitize_tree(&mut tree, &held()).unwrap();
     assert_eq!(tree.count(), MAX_NODES);
     let mut deep = keyed("0", "leaf");
     for _ in 0..MAX_DEPTH {
@@ -263,6 +263,7 @@ fn an_applied_patch_frame_is_a_sanitized_tree() {
                 node: deep,
             },
         ],
+        &held(),
     )
     .unwrap();
     assert!(tree.count() <= MAX_NODES, "{}", tree.count());
@@ -292,7 +293,7 @@ fn a_well_behaved_frame_is_untouched() {
         ..Frame::default()
     };
     let before = frame.clone();
-    sanitize(&mut frame).unwrap();
+    sanitize_plain(&mut frame).unwrap();
     assert_eq!(frame, before);
 }
 
@@ -325,7 +326,7 @@ fn display_truncation_shortens_a_placeholder_and_never_a_fields_text() {
         ..Frame::default()
     };
     assert_eq!(
-        sanitize(&mut frame),
+        sanitize_plain(&mut frame),
         Ok(SanitizeReport {
             strings: 2,
             first: Some(vec![0]),
@@ -361,7 +362,7 @@ fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
         ..Frame::default()
     };
     assert_eq!(
-        sanitize(&mut frame),
+        sanitize_plain(&mut frame),
         Err(Refused::Invalid("field text exceeds its cap"))
     );
     let mut node = field("App/e", "é", "");
@@ -374,7 +375,7 @@ fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
         ..Frame::default()
     };
     assert_eq!(
-        sanitize(&mut frame),
+        sanitize_plain(&mut frame),
         Err(Refused::Invalid("field cursor is off its text"))
     );
     let Node::Field { claims, cursor, .. } = &mut node else {
@@ -391,7 +392,7 @@ fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
         ..Frame::default()
     };
     assert_eq!(
-        sanitize(&mut frame),
+        sanitize_plain(&mut frame),
         Err(Refused::Invalid("field claims a key the engine owns"))
     );
 }
@@ -411,7 +412,7 @@ fn every_shaped_string_spends_the_same_budget() {
         Node::Overlay {
             id: ElementIdWire::Name("App/o".into()),
             label: Some(long.clone()),
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             on_dismiss: None,
             children: vec![text("tail")],
         },
@@ -452,7 +453,7 @@ fn a_hostile_frame_is_pulled_into_range() {
     let root = sanitized_root(column(vec![
         Node::Text(crate::TextNode {
             id: Some(ElementIdWire::Name("k".repeat(MAX_STRING_BYTES).into())),
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             content: "é".repeat(MAX_STRING_BYTES),
         }),
         deep,
@@ -481,7 +482,7 @@ fn oversized_typed_identity_is_refused_whole_instead_of_truncated() {
         ..Default::default()
     };
     assert_eq!(
-        sanitize(&mut frame).unwrap_err(),
+        sanitize_plain(&mut frame).unwrap_err(),
         Refused::Invalid("element identity name is too long")
     );
 }

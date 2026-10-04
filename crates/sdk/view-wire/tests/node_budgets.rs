@@ -5,10 +5,13 @@
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::*;
 
+mod common;
+use common::{PLAIN, sanitize, table};
+
 fn container(interactivity: Interactivity, children: Vec<Node>) -> Node {
     Node::Container(view_wire::ContainerNode {
         id: None,
-        style: StyleRefinement::default(),
+        style: PLAIN,
         interactivity: Box::new(interactivity),
         children,
     })
@@ -17,11 +20,9 @@ fn container(interactivity: Interactivity, children: Vec<Node>) -> Node {
 #[test]
 fn focus_refinements_are_bounded_inside_tooltip_responses() {
     let hostile = Interactivity {
-        focus: Some(Box::new(
-            StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.),
-        )),
-        in_focus: Some(Box::new(StyleRefinement::default().m(px(-1e9)))),
-        focus_visible: Some(Box::new(StyleRefinement::default().text_size(px(1e20)))),
+        focus: Some(StyleId(1)),
+        in_focus: Some(StyleId(2)),
+        focus_visible: Some(StyleId(3)),
         ..Default::default()
     };
     let root = container(
@@ -42,9 +43,15 @@ fn focus_refinements_are_bounded_inside_tooltip_responses() {
             character_index: None,
             content: Some(Box::new(container(hostile, vec![]))),
         }],
+        styles: table(&[
+            StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.),
+            StyleRefinement::default().m(px(-1e9)),
+            StyleRefinement::default().text_size(px(1e20)),
+        ]),
         ..Default::default()
     };
-    view_wire::sanitize(&mut frame).unwrap();
+    let mut styles = Styles::default();
+    view_wire::sanitize(&mut frame, &mut styles).unwrap();
     let Node::Container(view_wire::ContainerNode { interactivity, .. }) = frame.root.unwrap()
     else {
         unreachable!()
@@ -58,17 +65,15 @@ fn focus_refinements_are_bounded_inside_tooltip_responses() {
         unreachable!()
     };
     for interaction in [&interactivity, nested] {
+        let style = |id: Option<StyleId>| &styles[id.unwrap()];
+        assert_eq!(style(interaction.focus).size.width, Some(px(0.).into()));
+        assert_eq!(style(interaction.focus).opacity, Some(1.));
         assert_eq!(
-            interaction.focus.as_ref().unwrap().size.width,
-            Some(px(0.).into())
-        );
-        assert_eq!(interaction.focus.as_ref().unwrap().opacity, Some(1.));
-        assert_eq!(
-            interaction.in_focus.as_ref().unwrap().margin.left,
+            style(interaction.in_focus).margin.left,
             Some(px(-8192.).into())
         );
         assert_eq!(
-            interaction.focus_visible.as_ref().unwrap().text.font_size,
+            style(interaction.focus_visible).text.font_size,
             Some(px(512.).into())
         );
     }
@@ -99,7 +104,7 @@ fn a_tooltip_responses_content_and_the_tree_share_one_node_budget() {
         }],
         ..Default::default()
     };
-    view_wire::sanitize(&mut frame).unwrap();
+    sanitize(&mut frame).unwrap();
     let tooltip_nodes = frame.tooltip_responses[0].content.as_ref().unwrap().count();
     assert!(frame.root.unwrap().count() + tooltip_nodes <= view_wire::MAX_NODES);
 }
@@ -107,7 +112,7 @@ fn a_tooltip_responses_content_and_the_tree_share_one_node_budget() {
 fn text() -> Node {
     Node::Text(view_wire::TextNode {
         id: None,
-        style: Default::default(),
+        style: PLAIN,
         content: "row".into(),
     })
 }
@@ -134,7 +139,7 @@ fn image(label: String, state_children: Vec<Node>) -> Node {
         loading: !state_children.is_empty(),
         fallback: state_children.len() > 1,
         state_children,
-        style: Default::default(),
+        style: PLAIN,
         interactivity: Default::default(),
     }
 }
@@ -189,7 +194,7 @@ fn picture_labels_share_the_frame_text_budget() {
                     rotate: 0.,
                 },
                 label: Some("b".repeat(MAX_STRING_BYTES)),
-                style: Default::default(),
+                style: PLAIN,
                 interactivity: Default::default(),
             },
         ])),

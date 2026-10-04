@@ -332,12 +332,12 @@ fn point(value: &mut [f32; 2]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Budgets, Node, decode, encode};
+    use crate::{Budgets, Node, StyleId, decode, encode};
 
     fn node(commands: Vec<CanvasCommand>) -> Node {
         Node::Canvas {
             commands,
-            style: Default::default(),
+            style: StyleId(0),
         }
     }
     fn path(parts: usize) -> CanvasCommand {
@@ -362,7 +362,7 @@ mod tests {
             CanvasCommand::Pop,
         ];
         let original = commands.clone();
-        let mut budget = Budgets::frame();
+        let mut budget = Budgets::frame(&crate::styles::testing::held());
         sanitize(&mut commands, &mut budget);
         assert_eq!(
             commands, original,
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn sanitizer_shares_parts_budget_and_bounds_numbers() {
-        let mut budget = Budgets::frame();
+        let mut budget = Budgets::frame(&crate::styles::testing::held());
         let mut first = vec![path(MAX_CANVAS_PARTS - 2)];
         sanitize(&mut first, &mut budget);
         let mut second = vec![
@@ -446,7 +446,10 @@ mod tests {
         commands.push(path(1));
         commands.extend(vec![CanvasCommand::Pop; 40]);
         commands.push(path(1));
-        sanitize(&mut commands, &mut Budgets::frame());
+        sanitize(
+            &mut commands,
+            &mut Budgets::frame(&crate::styles::testing::held()),
+        );
         let mut depth = 0;
         let mut scale = 1.0;
         for command in &commands {
@@ -469,7 +472,10 @@ mod tests {
         assert_eq!(depth, 0);
         assert!(matches!(commands.last(), Some(CanvasCommand::Draw { .. })));
         let mut again = commands.clone();
-        sanitize(&mut again, &mut Budgets::frame());
+        sanitize(
+            &mut again,
+            &mut Budgets::frame(&crate::styles::testing::held()),
+        );
         assert_eq!(commands, again);
     }
 }

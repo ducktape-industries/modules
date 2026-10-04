@@ -12,7 +12,7 @@ fn a_cut_string_is_reported_with_where_it_fell() {
         ])),
         ..Default::default()
     };
-    let report = sanitize(&mut frame).unwrap();
+    let report = sanitize_plain(&mut frame).unwrap();
     assert_eq!(
         report,
         SanitizeReport {
@@ -22,12 +22,12 @@ fn a_cut_string_is_reported_with_where_it_fell() {
         }
     );
     let mut received: Frame = decode(&encode(&frame)).unwrap();
-    assert!(sanitize(&mut received).unwrap().is_empty());
+    assert!(sanitize_plain(&mut received).unwrap().is_empty());
     let mut small = Frame {
         root: Some(text("complete")),
         ..Default::default()
     };
-    assert!(sanitize(&mut small).unwrap().is_empty());
+    assert!(sanitize_plain(&mut small).unwrap().is_empty());
 }
 
 /// Nodes past the node budget and subtrees past the depth bound are cuts,
@@ -35,28 +35,36 @@ fn a_cut_string_is_reported_with_where_it_fell() {
 #[test]
 fn dropped_nodes_and_cut_depth_are_reported_but_clamps_are_not() {
     let mut wide = column((0..MAX_NODES + 9).map(|_| text("x")).collect());
-    let report = sanitize_tree(&mut wide).unwrap();
+    let report = sanitize_tree(&mut wide, &held()).unwrap();
     assert_eq!(report.nodes, 10, "{report:?}");
     assert_eq!(report.first, Some(vec![(MAX_NODES - 1) as u32]));
     let mut deep = text("leaf");
     for _ in 0..MAX_DEPTH {
         deep = column(vec![deep]);
     }
-    let report = sanitize_tree(&mut deep).unwrap();
+    let report = sanitize_tree(&mut deep, &held()).unwrap();
     assert_eq!((report.depth, report.nodes), (1, 0), "{report:?}");
     assert_eq!(report.first.map(|at| at.len()), Some(MAX_DEPTH));
-    let mut clamped = Node::Container(crate::ContainerNode {
-        style: gpui::Styled::rounded_full(gpui::StyleRefinement::default()),
+    let mut clamped = Frame {
+        styles: vec![Style::new(&gpui::Styled::rounded_full(
+            gpui::StyleRefinement::default(),
+        ))],
+        root: Some(column(Vec::new())),
         ..Default::default()
-    });
-    assert!(sanitize_tree(&mut clamped).unwrap().is_empty());
+    };
+    let mut styles = Styles::default();
+    assert!(sanitize(&mut clamped, &mut styles).unwrap().is_empty());
+    assert_eq!(
+        styles[StyleId(0)].corner_radii.top_left,
+        Some(gpui::px(MAX_PIXELS).into())
+    );
 }
 
 #[test]
 fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
     let rich = Node::RichText {
         id: Some(ElementIdWire::Name("rich".into())),
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         text: "y".repeat(MAX_TEXT_BYTES_PER_FRAME / 2),
         runs: RichTextRuns::default(),
         font_family_overrides: vec![],
@@ -67,7 +75,7 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
     };
     let mut root = Node::Container(crate::ContainerNode {
         id: Some(ElementIdWire::Name("root".into())),
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
         children: vec![text(&"x".repeat(MAX_TEXT_BYTES_PER_FRAME / 2 + 1))],
     });
@@ -78,6 +86,7 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
             index: 1,
             node: rich,
         }],
+        &held(),
     )
     .unwrap();
     assert_eq!(
@@ -95,6 +104,7 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
             path: vec![],
             index: 0,
         }],
+        &held(),
     )
     .unwrap();
     assert!(
@@ -103,10 +113,13 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
     );
 }
 
+/// A frame comes back as it went at every width a child list's length
+/// header takes, and no field or variant name is in its bytes.
 #[test]
-fn encoded_size_matches_named_messagepack_without_a_second_buffer() {
-    for count in [0, 1, 16, 256, 2000] {
+fn a_frame_round_trips_at_every_header_width_and_carries_no_name() {
+    for count in [0, 1, 16, 256, 2000, 70_000] {
         let frame = Frame {
+            styles: plain(),
             root: Some(column(
                 (0..count)
                     .map(|index| keyed(&index.to_string(), "한é"))
@@ -115,9 +128,13 @@ fn encoded_size_matches_named_messagepack_without_a_second_buffer() {
             ..Default::default()
         };
         let bytes = encode(&frame);
-        assert_eq!(bytes, rmp_serde::to_vec_named(&frame).unwrap());
-        assert_eq!(encoded_size(&frame), bytes.len() as u64);
         assert_eq!(decode::<Frame>(&bytes).unwrap(), frame);
+        for name in ["Container", "Text", "style", "children", "content", "Name"] {
+            assert!(
+                !bytes.windows(name.len()).any(|at| at == name.as_bytes()),
+                "{name} crossed"
+            );
+        }
     }
 }
 
@@ -134,7 +151,7 @@ fn tooltip_responses_share_the_frame_node_budget() {
         tooltip_responses: vec![response(), response()],
         ..Default::default()
     };
-    sanitize(&mut frame).unwrap();
+    sanitize_plain(&mut frame).unwrap();
     assert_eq!(frame.tooltip_responses.len(), 1);
     assert!(
         frame.tooltip_responses[0]
@@ -148,6 +165,7 @@ fn tooltip_responses_share_the_frame_node_budget() {
 fn a_frame_round_trips() {
     let frame = Frame {
         tooltip_responses: Vec::new(),
+        styles: plain(),
         root: Some(column(vec![text("hello"), {
             let mut input = field("App/i", "x", "Name");
             let Node::Field {

@@ -148,12 +148,7 @@ fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();
     let dark = ducktape_view_guest::Theme::dark();
     cx.set_global(dark);
-    let Some(ducktape_view_guest::wire::Node::Container(
-        ducktape_view_guest::wire::ContainerNode { style, .. },
-    )) = cx.find("nodes")
-    else {
-        panic!("nodes root is a styled container");
-    };
+    let style = cx.style("nodes");
     assert_eq!(
         style
             .background

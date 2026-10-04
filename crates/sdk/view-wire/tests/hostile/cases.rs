@@ -41,16 +41,19 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
             Err(message) => {
                 let root = frame.root.as_ref().expect("gen_frame always sets a root");
                 let depth_over = tree_depth(root) > MAX_DEPTH;
-                let count_over = root.count() > MAX_DECODED_NODES;
+                // an entry of the style table costs what a node costs
+                let count_over = root.count() + frame.styles.len() > MAX_DECODED_NODES;
+                let styles_over = frame.styles.len() > MAX_STYLES;
                 assert!(
-                    depth_over || count_over,
+                    depth_over || count_over || styles_over,
                     "{ctx}: decode refused a tree that was not actually over either \
                      budget (depth {}, nodes {}): {message}",
                     tree_depth(root),
                     root.count()
                 );
                 let names_the_budget = message.contains("deeper than the host renders")
-                    || message.contains("more nodes than the host holds");
+                    || message.contains("more nodes than the host holds")
+                    || message.contains("more styles than the host holds");
                 assert!(names_the_budget, "{ctx}: unexpected refusal: {message}");
             }
             Ok(mut decoded) => {
@@ -59,9 +62,9 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
                     .as_ref()
                     .is_some_and(has_duplicate_typed_siblings);
                 let before = decoded.root.as_ref().map(field_texts).unwrap_or_default();
-                match sanitize(&mut decoded) {
-                    Ok(_) => {
-                        check_frame(&decoded, &ctx);
+                match sanitized(&mut decoded) {
+                    Ok(styles) => {
+                        check_frame(&decoded, &styles, &ctx);
                         // a subtree past the node budget is dropped whole;
                         // every field left reads as it did
                         let after = decoded.root.as_ref().map(field_texts).unwrap_or_default();
@@ -171,8 +174,8 @@ fn mutated_bytes_never_panic() {
             }));
             match outcome {
                 Ok(Ok(mut decoded)) => {
-                    if sanitize(&mut decoded).is_ok() {
-                        check_frame(&decoded, &ctx);
+                    if let Ok(styles) = sanitized(&mut decoded) {
+                        check_frame(&decoded, &styles, &ctx);
                     }
                 }
                 Ok(Err(_)) => {}
@@ -202,9 +205,9 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
             let mut rng = Rng::new(seed);
             let (depth, width) = (rng.skewed(MAX_DEPTH, 3), rng.skewed(64, 2));
             let mut frame = gen_frame_with(&mut rng, depth, width);
-            if sanitize(&mut frame).is_err() {
+            let Ok(mut styles) = sanitized(&mut frame) else {
                 return;
-            }
+            };
             let mut root = frame
                 .root
                 .take()
@@ -214,11 +217,14 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
             let mut staged = root.clone();
             for _ in 0..rng.next_range(PATCHES_PER_TREE + 1) {
                 let patch = gen_patch(&mut rng, &staged, hostile);
+                // the styles its subtree names reach the table first, as
+                // the patch frame's own entries do
+                styles.extend(take_styles()).unwrap();
                 // Paths are drawn against the tree as the patches so far
                 // leave it, so a well-behaved sequence applies whole and
                 // a hostile one is refused somewhere along it.
                 let mut candidate = staged.clone();
-                let applied = view_wire::apply(&mut candidate, vec![patch.clone()]);
+                let applied = view_wire::apply(&mut candidate, vec![patch.clone()], &styles);
                 if matches!(applied, Err(Refused::Duplicate(_))) {
                     assert!(
                         has_duplicate_typed_siblings(&candidate),
@@ -253,7 +259,7 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                     return;
                 }
             };
-            let outcome = view_wire::apply(&mut root, decoded.patches);
+            let outcome = view_wire::apply(&mut root, decoded.patches, &styles);
             // Each patch was drawn against the tree `apply` had sanitized so
             // far; the batch sanitizes once, at the end, so a well-behaved
             // sequence can still collide in it. `apply` leaves the tree it
@@ -275,7 +281,7 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                         root: Some(root),
                         ..Frame::default()
                     };
-                    check_frame(&checked, &ctx);
+                    check_frame(&checked, &styles, &ctx);
                 }
                 Err(refused) => {
                     let named = matches!(
@@ -316,28 +322,33 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
         let ctx = format!("seed={seed:#x} pair={i}");
         on_big_stack(move || {
             let mut rng = Rng::new(seed);
+            // a tree, and the table it names its styles in
             let tree = |rng: &mut Rng| {
                 let (depth, width) = (rng.skewed(MAX_DEPTH / 2, 3), rng.skewed(48, 2));
                 let mut frame = gen_frame_with(rng, depth, width);
-                sanitize(&mut frame).ok()?;
-                frame.root.take()
+                let styles = sanitized(&mut frame).ok()?;
+                Some((frame.root.take()?, styles))
             };
-            let Some(mut old) = tree(&mut rng) else {
+            let Some((mut old, mut styles)) = tree(&mut rng) else {
                 return;
             };
             let mut new = match rng.next_range(8) {
                 0 => {
-                    let Some(tree) = tree(&mut rng) else {
+                    // an unrelated tree is all the result holds, so its
+                    // table is the one the result is checked against
+                    let Some((tree, table)) = tree(&mut rng) else {
                         return;
                     };
+                    styles = table;
                     tree
                 }
                 _ => {
                     let mut edited = old.clone();
                     for _ in 0..1 + rng.next_range(EDITS_PER_PAIR) {
                         let patch = gen_patch(&mut rng, &edited, false);
+                        styles.extend(take_styles()).unwrap();
                         let mut candidate = edited.clone();
-                        match view_wire::apply(&mut candidate, vec![patch]) {
+                        match view_wire::apply(&mut candidate, vec![patch], &styles) {
                             Ok(_) => edited = candidate,
                             Err(refused) if field_refusal(&refused) => {}
                             Err(Refused::Duplicate(_)) => {
@@ -358,7 +369,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
             assert_eq!(new, new_before, "{ctx}: diff moved the new tree");
             let count = patches.len();
             let mut applied = old;
-            match view_wire::apply(&mut applied, patches) {
+            match view_wire::apply(&mut applied, patches, &styles) {
                 Ok(_) => assert_eq!(applied, new, "{ctx}: {count} patches"),
                 Err(refused) => assert!(
                     count > MAX_PATCHES
@@ -379,7 +390,7 @@ fn a_length_prefix_bomb_is_refused_without_the_allocation() {
     let frame = |children| Frame {
         root: Some(Node::Container(view_wire::ContainerNode {
             id: None,
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Default::default(),
             children,
         })),
@@ -419,11 +430,17 @@ fn sanitize_is_idempotent() {
         let seed = SEED ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let ctx = format!("seed={seed:#x} tree={i}");
         let mut once = on_big_stack(move || gen_frame(&mut Rng::new(seed), i));
-        if sanitize(&mut once).is_err() {
+        let Ok(styles) = sanitized(&mut once) else {
             continue;
-        }
+        };
+        // a second pass over what the first left: the tree as it stands,
+        // with the table the host holds as the table it brings
         let mut twice = once.clone();
-        sanitize(&mut twice).unwrap();
+        twice.styles = (0..styles.len() as u32)
+            .map(|id| Style::new(&styles[StyleId(id)]))
+            .collect();
+        let again = sanitized(&mut twice).unwrap();
+        assert_eq!(styles, again, "{ctx}: sanitize is not idempotent");
         assert_eq!(once, twice, "{ctx}: sanitize is not idempotent");
     }
 }
@@ -437,16 +454,19 @@ fn resize_handle_round_trip_retains_routes_and_checks_its_child() {
         on_release: Some(2),
         on_drag: Some(u32::MAX),
         cursor: Some(mouse::Cursor::ResizingHorizontally),
-        content: Box::new(Node::Space {
-            style: gen_native_style(&mut Rng::new(99)),
-        }),
-        style: gpui::StyleRefinement::default(),
+        content: Box::new(Node::Text(TextNode {
+            id: None,
+            style: StyleId(1),
+            content: String::new(),
+        })),
+        style: PLAIN,
         interactivity: Default::default(),
     });
     assert_eq!(tree_depth(frame.root.as_ref().unwrap()), 1);
+    frame.styles = common::table(&[gen_native_style(&mut Rng::new(99))]);
     let mut decoded: Frame = decode(&encode(&frame)).unwrap();
-    sanitize(&mut decoded).unwrap();
-    check_frame(&decoded, "resize child");
+    let styles = sanitized(&mut decoded).unwrap();
+    check_frame(&decoded, &styles, "resize child");
     let Node::ResizeHandle {
         on_press,
         on_release,
@@ -477,8 +497,8 @@ fn a_host_local_id_on_any_node_kind_is_refused() {
         let seed = SEED ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let ctx = format!("seed={seed:#x} tree={i}");
         let mut frame = on_big_stack(move || gen_frame(&mut Rng::poisoning_ids(seed), i));
-        match sanitize(&mut frame) {
-            Ok(_) => check_frame(&frame, &ctx),
+        match sanitized(&mut frame) {
+            Ok(styles) => check_frame(&frame, &styles, &ctx),
             Err(Refused::Invalid("focus-handle element IDs are host-local")) => refused += 1,
             Err(_) => {}
         }
@@ -518,7 +538,7 @@ fn more_patches_than_the_host_applies_are_refused_at_decode() {
 #[test]
 fn a_frame_of_remove_patches_near_the_frame_byte_limit_is_refused_fast() {
     let bytes = encode(&Frame {
-        patches: remove_patches(381_000),
+        patches: remove_patches(1_500_000),
         ..Default::default()
     });
     assert!(
@@ -600,8 +620,10 @@ fn tooltip_content_nested_past_what_the_host_walks_is_refused() {
             let mut node = Node::empty();
             for _ in 0..levels {
                 node = Node::Container(view_wire::ContainerNode {
+                    id: None,
+                    style: PLAIN,
+                    interactivity: Default::default(),
                     children: vec![node],
-                    ..Default::default()
                 });
             }
             let bytes = encode(&Frame {

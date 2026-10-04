@@ -233,7 +233,7 @@ fn an_arrow_on_the_menu_opens_the_next_section() {
     assert!(cx.find("settings/invite/mint").is_some());
     // the primary button's ring is drawn in the ink's foreground
     let mint = cx.interactivity("settings/invite/mint");
-    let ring = mint.focus_visible.as_ref().expect("a focus ring");
+    let ring = &cx.styles()[mint.focus_visible.expect("a focus ring")];
     assert_eq!(ring.border_color, Some(Theme::light().primary_foreground));
     assert!(
         ring.box_shadow
@@ -391,10 +391,9 @@ fn export_settings_screens() {
             };
             let theme = if dark { "dark" } else { "light" };
             let name = format!("{:02}-{state}-{theme}", i + 1);
-            let node = cx.find("settings").expect("settings root");
             std::fs::write(
                 out.join(format!("{name}.json")),
-                serde_json::to_vec(node).unwrap(),
+                serde_json::to_vec(&cx.whole_frame()).unwrap(),
             )
             .unwrap();
             manifest.push(serde_json::json!({"name":name,"theme":theme,"width":820,"height":1100,"how":"TestAppContext + FakeHost"}));

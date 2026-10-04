@@ -975,9 +975,15 @@ mod tests {
     use gpui::Toggled;
 
     fn lower(element: impl IntoElement) -> wire::Node {
+        lower_styled(element).0
+    }
+
+    /// The lowered element, and the table its nodes' styles are in.
+    fn lower_styled(element: impl IntoElement) -> (wire::Node, wire::Styles) {
         let mut app = App::for_driver();
         let mut window = app.window();
-        Lowering::new(&mut window, &mut app).lower(element)
+        let node = Lowering::new(&mut window, &mut app).lower(element);
+        (node, app.styles())
     }
 
     fn interactivity(node: &wire::Node) -> &wire::Interactivity {
@@ -1009,16 +1015,14 @@ mod tests {
     #[test]
     fn an_icon_button_is_at_least_24_px_each_way() {
         let theme = Theme::light();
-        let node = lower(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
+        let (node, styles) = lower_styled(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
         let wire::Node::Container(container) = &node else {
             panic!("no container: {node:?}")
         };
         let floor = Some(px(24.).into());
+        let style = &styles[container.style];
         assert_eq!(
-            (
-                container.style.min_size.width,
-                container.style.min_size.height
-            ),
+            (style.min_size.width, style.min_size.height),
             (floor, floor)
         );
     }
@@ -1044,35 +1048,38 @@ mod tests {
     #[test]
     fn a_focusable_node_shows_the_focus_ring_unless_it_draws_its_own() {
         let theme = Theme::light();
-        let plain = lower(button("save", "Save", &theme, |_, _, _| {}));
+        // the style a node shows while it holds the keyboard
+        let shown = |element: crate::AnyElement| {
+            let (node, styles) = lower_styled(element);
+            interactivity(&node)
+                .focus_visible
+                .map(|style| styles[style].clone())
+        };
+        let plain = button("save", "Save", &theme, |_, _, _| {});
         assert_eq!(
-            interactivity(&plain).focus_visible,
-            Some(Box::new(focus_ring(theme.accent)))
+            shown(plain.into_any_element()),
+            Some(focus_ring(theme.accent))
         );
-        let ink = lower(button("send", "Send", &theme, |_, _, _| {}).kind(Kind::Primary));
+        let ink = button("send", "Send", &theme, |_, _, _| {}).kind(Kind::Primary);
         assert_eq!(
-            interactivity(&ink).focus_visible,
-            Some(Box::new(focus_ring(theme.primary_foreground)))
+            shown(ink.into_any_element()),
+            Some(focus_ring(theme.primary_foreground))
         );
-        let own = lower(
-            div()
-                .id("menu")
-                .focusable()
-                .focus_visible(|style| style.opacity(0.5)),
-        );
+        let own = div()
+            .id("menu")
+            .focusable()
+            .focus_visible(|style| style.opacity(0.5));
         assert_eq!(
-            interactivity(&own).focus_visible,
-            Some(Box::new(StyleRefinement::default().opacity(0.5)))
+            shown(own.into_any_element()),
+            Some(StyleRefinement::default().opacity(0.5))
         );
-        let still = lower(div().id("box").child("text"));
-        assert_eq!(interactivity(&still).focus_visible, None);
+        let still = div().id("box").child("text");
+        assert_eq!(shown(still.into_any_element()), None);
         // a frame that adds to the ring keeps its own shadow beside it
-        let frame = lower(focus_shown(
-            div().id("frame").focusable(),
-            &theme,
-            |style| style.shadow_lg(),
-        ));
-        let shown = interactivity(&frame).focus_visible.clone().unwrap();
+        let frame = focus_shown(div().id("frame").focusable(), &theme, |style| {
+            style.shadow_lg()
+        });
+        let shown = shown(frame.into_any_element()).unwrap();
         assert_eq!(shown.border_color, Some(theme.accent));
         let shadows = shown.box_shadow.unwrap();
         assert_eq!(shadows.len(), 3);

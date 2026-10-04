@@ -359,7 +359,7 @@ impl Element for List {
             request_handler,
             scroll_handler,
             range_start: range.start,
-            style,
+            style: lowering.style(&style),
             interactivity: Default::default(),
             children,
         }

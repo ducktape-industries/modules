@@ -1,5 +1,6 @@
 //! The wire, committed: its bytes and its shape. `frame.bin` holds a
-//! `Frame` with every `Node` variant in its tree, then every `Event`, every
+//! `Frame` with every `Node` variant in its tree and every style field in
+//! its table, then every `Event`, every
 //! `WidgetCommand`, and every unit variant those leave out
 //! (`golden/units.rs`); `methods.bin` holds at least one request and reply
 //! through every method in `methods::ALL`; each has a JSON twin beside it
@@ -29,7 +30,7 @@ use view_wire::{
     ContainerNode, DispatchPhase, Edit, ElementIdAtom, ElementIdWire, Error, Event, Frame,
     GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
     KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
-    Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, SvgSource,
+    Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
     SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
     WidgetCommand, click, interactivity, keyboard, mouse,
 };
@@ -78,8 +79,10 @@ fn id(name: &str) -> ElementIdWire {
     ElementIdWire::Name(name.into())
 }
 
-fn style() -> StyleRefinement {
-    StyleRefinement::default()
+/// The style of a sample node whose style is not what it samples: the
+/// empty one, the first entry of the frame's table (`nodes::every_style`).
+fn style() -> StyleId {
+    StyleId(0)
 }
 
 fn text(content: &str) -> Node {
@@ -144,7 +147,7 @@ mod units_fixture;
 #[path = "golden/widget.rs"]
 mod widget_fixture;
 use events_fixture::{event_variant, every_event, every_frame};
-use nodes::{every_node, node_variant};
+use nodes::{every_node, every_style, node_variant};
 use units_fixture::{Units, every_unit};
 use widget_fixture::every_widget_command;
 
@@ -166,6 +169,13 @@ fn frame_and_events_are_the_committed_bytes() {
         EVENT_VARIANTS,
         "every Event variant: {kinds:?}"
     );
+
+    // every style field survives the table: an entry reads back as the
+    // style it was written from, and `coverage.rs` holds the samples to
+    // setting every field
+    for (entry, style) in frame.styles.iter().zip(every_style()) {
+        assert_eq!(entry.read(), Ok(style));
+    }
 
     let value = (frame, events, widget_commands, units);
     let bytes = view_wire::encode(&value);

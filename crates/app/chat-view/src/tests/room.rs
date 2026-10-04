@@ -98,6 +98,7 @@ fn viewport_and_pane_dividers_keep_their_behavior_routes() {
     else {
         panic!("chat viewport sensor")
     };
+    let style = &cx.styles()[*style];
     assert_eq!(style.size.width, full.size.width);
     assert_eq!(style.size.height, full.size.height);
     cx.simulate_measure("chat-viewport", 640., 480.);
@@ -136,12 +137,14 @@ fn viewport_and_pane_dividers_keep_their_behavior_routes() {
     else {
         panic!("the side pane floats")
     };
+    let style = &cx.styles()[*style];
     assert_eq!(style.inset, StyleRefinement::default().inset_0().inset);
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
         cx.find("chat-details-pane")
     else {
         panic!("the details pane")
     };
+    let style = &cx.styles()[*style];
     assert_eq!(style.size, full.size, "the pane's own width gives way");
     cx.simulate_click("chat-details-close");
     assert!(cx.find("chat-side-over").is_none());
@@ -635,6 +638,7 @@ fn jump_to_latest_floats_over_the_list() {
     else {
         panic!("jump to latest")
     };
+    let style = &cx.styles()[*style];
     assert_eq!(
         style.position,
         ducktape_view_guest::StyleRefinement::default()

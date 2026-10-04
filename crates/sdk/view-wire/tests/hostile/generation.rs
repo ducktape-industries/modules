@@ -24,7 +24,7 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
                 on_drag: rng.next_bool().then(|| rng.next_u64() as u32),
                 cursor: Some(mouse::Cursor::ResizingHorizontally),
                 content: Box::new(node),
-                style: gpui::StyleRefinement::default(),
+                style: PLAIN,
                 interactivity: Default::default(),
             },
             3 => Node::Sensor {
@@ -32,7 +32,7 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
                 on_show: rng.next_bool().then(|| rng.next_u64() as u32),
                 on_resize: rng.next_bool().then(|| rng.next_u64() as u32),
                 child: Box::new(node),
-                style: gen_native_style(rng),
+                style: gen_style(rng),
             },
             2 => Node::Deferred {
                 priority: rng.next_range(64),
@@ -51,6 +51,7 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
 /// keeps trees small because its callers re-encode and mutate them
 /// hundreds of times each).
 pub(super) fn gen_frame_with(rng: &mut Rng, depth: usize, width: usize) -> Frame {
+    start_table();
     let root = gen_tree(rng, depth, width);
     let requests = (0..rng.next_range(4))
         .map(|_| Request {
@@ -64,6 +65,7 @@ pub(super) fn gen_frame_with(rng: &mut Rng, depth: usize, width: usize) -> Frame
     let cancels = (0..rng.next_range(4)).map(|_| rng.next_u64()).collect();
     Frame {
         tooltip_responses: Vec::new(),
+        styles: take_styles(),
         root: Some(root),
         requests,
         cancels,

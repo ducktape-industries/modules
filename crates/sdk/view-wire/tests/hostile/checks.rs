@@ -37,9 +37,16 @@ pub(super) fn check_string(text: &str, ctx: &str, field: &str) {
 /// Walks a sanitized tree asserting every post-condition `sanitize_node`
 /// promises: depth within `MAX_DEPTH`, every string within
 /// `MAX_STRING_BYTES` and on a char boundary, every key unique across the
-/// whole tree, every size/colour/border field inside its own bound, and the
-/// picture bytes the tree carries summed into `svg_bytes`.
-pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx: &str) {
+/// whole tree, every style it names in `styles` with each size, colour and
+/// border field inside its own bound, and the picture bytes the tree
+/// carries summed into `svg_bytes`.
+pub(super) fn check_bounds(
+    node: &Node,
+    styles: &Styles,
+    depth: usize,
+    svg_bytes: &mut usize,
+    ctx: &str,
+) {
     assert!(
         depth <= MAX_DEPTH,
         "{ctx}: a node sits at depth {depth}, over MAX_DEPTH"
@@ -64,28 +71,25 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             children,
             ..
         }) => {
-            check_native_style(style);
+            check_native_style(&styles[*style]);
             for conditional in [
-                interactivity.hover.as_ref(),
-                interactivity.active.as_ref(),
-                interactivity.group_hover.as_ref().map(|group| &group.style),
-                interactivity
-                    .group_active
-                    .as_ref()
-                    .map(|group| &group.style),
+                interactivity.hover,
+                interactivity.active,
+                interactivity.group_hover.as_ref().map(|group| group.style),
+                interactivity.group_active.as_ref().map(|group| group.style),
             ]
             .into_iter()
             .flatten()
             {
-                check_native_style(conditional);
+                check_native_style(&styles[conditional]);
             }
             for child in children {
-                check_bounds(child, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
             }
         }
         Node::UniformList { children, .. } => {
             for child in children {
-                check_bounds(child, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
             }
         }
         Node::List {
@@ -105,15 +109,15 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             assert!(*range_start <= *item_count);
             assert!(children.len() <= item_count.saturating_sub(*range_start));
             for child in children {
-                check_bounds(child, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
             }
         }
         Node::Sensor { style, child, .. } => {
-            check_native_style(style);
-            check_bounds(child, depth + 1, svg_bytes, ctx);
+            check_native_style(&styles[*style]);
+            check_bounds(child, styles, depth + 1, svg_bytes, ctx);
         }
         Node::ResizeHandle { content, .. } => {
-            check_bounds(content, depth + 1, svg_bytes, ctx);
+            check_bounds(content, styles, depth + 1, svg_bytes, ctx);
         }
         Node::RichText {
             text,
@@ -141,7 +145,7 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             assert!(clickable_ranges.iter().all(valid));
         }
         Node::Text(view_wire::TextNode { content, style, .. }) => {
-            check_native_style(style);
+            check_native_style(&styles[*style]);
             check_string(content, ctx, "text content");
         }
         Node::Image {
@@ -158,9 +162,9 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             if let Some(label) = label {
                 check_string(label, ctx, "image label");
             }
-            check_native_style(style);
+            check_native_style(&styles[*style]);
             for child in state_children {
-                check_bounds(child, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
             }
         }
         Node::Svg {
@@ -177,9 +181,9 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             if let Some(label) = label {
                 check_string(label, ctx, "picture label");
             }
-            check_native_style(style);
-            if let Some(hover) = &interactivity.hover {
-                check_native_style(hover);
+            check_native_style(&styles[*style]);
+            if let Some(hover) = interactivity.hover {
+                check_native_style(&styles[hover]);
             }
             for value in transformation
                 .scale
@@ -200,12 +204,12 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
                 assert!(value.is_finite() && (-MAX_PIXELS..=MAX_PIXELS).contains(value));
             }
             for child in children {
-                check_bounds(child, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
             }
         }
         Node::Deferred { priority, content } => {
             assert!(*priority <= 16);
-            check_bounds(content, depth + 1, svg_bytes, ctx);
+            check_bounds(content, styles, depth + 1, svg_bytes, ctx);
         }
         Node::Field {
             id,
@@ -231,7 +235,7 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
                 "{ctx}: sanitize kept an invalid field"
             );
         }
-        Node::Space { style } => check_native_style(style),
+        Node::Space => {}
         Node::Overlay {
             label, children, ..
         } => {
@@ -240,11 +244,11 @@ pub(super) fn check_bounds(node: &Node, depth: usize, svg_bytes: &mut usize, ctx
             }
             assert!(children.len() <= 2, "{ctx}: overlay child count");
             for child in children {
-                check_bounds(child, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
             }
         }
         Node::Canvas { style, commands } => {
-            check_native_style(style);
+            check_native_style(&styles[*style]);
             assert!(
                 commands.len() <= view_wire::MAX_CANVAS_PARTS,
                 "{ctx}: canvas command budget"
@@ -268,9 +272,9 @@ pub(super) fn field_texts(root: &Node) -> Vec<String> {
 }
 
 /// Every post-condition `sanitize` promises about a whole frame: the tree's
-/// node count and every bound `check_bounds` covers, plus every request's
-/// `kind`.
-pub(super) fn check_frame(frame: &Frame, ctx: &str) {
+/// node count and every bound `check_bounds` covers, each style a node
+/// names among the `styles` the host holds, plus every request's `kind`.
+pub(super) fn check_frame(frame: &Frame, styles: &Styles, ctx: &str) {
     if let Some(root) = &frame.root {
         assert!(
             !has_duplicate_typed_siblings(root),
@@ -285,7 +289,7 @@ pub(super) fn check_frame(frame: &Frame, ctx: &str) {
             root.count()
         );
         let mut svg_bytes = 0;
-        check_bounds(root, 0, &mut svg_bytes, ctx);
+        check_bounds(root, styles, 0, &mut svg_bytes, ctx);
         assert!(
             svg_bytes <= MAX_PICTURE_BYTES_PER_FRAME,
             "{ctx}: {svg_bytes} picture bytes, over MAX_PICTURE_BYTES_PER_FRAME"

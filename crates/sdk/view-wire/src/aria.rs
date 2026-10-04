@@ -9,8 +9,9 @@ pub const MAX_ARIA_CUSTOM_ACTIONS: usize = 8;
 /// The longest aria string: a label, a description, a custom action's words.
 pub const MAX_ARIA_TEXT_BYTES: usize = 1024;
 
+/// Sparse on the wire, as [`Interactivity`](crate::Interactivity) is.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, remote = "Self")]
 pub struct Aria {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author_id: Option<SharedString>,
@@ -88,6 +89,8 @@ pub struct Aria {
     )]
     pub custom_actions: Vec<(i32, String)>,
 }
+
+crate::codec::sparse!(Aria);
 
 fn decode_actions<'de, D: serde::Deserializer<'de>>(
     deserializer: D,

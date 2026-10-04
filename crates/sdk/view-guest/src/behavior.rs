@@ -67,7 +67,7 @@ impl Element for Sensor {
                 .on_resize
                 .map(|listener| lowering.route(crate::slots::Kind::Resize, listener)),
             child: Box::new(lowering.lower(self.child)),
-            style: self.style,
+            style: lowering.style(&self.style),
         }
     }
 }
@@ -131,7 +131,7 @@ impl Element for ResizeHandle {
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
-        let style = self.interactivity.base_style.clone();
+        let style = lowering.style(&self.interactivity.base_style);
         let (id, interactivity) = self.interactivity.into_wire(lowering);
         wire::Node::ResizeHandle {
             id: id.expect("a resize handle has an id"),
@@ -221,7 +221,7 @@ impl Element for ModalOverlay {
         wire::Node::Overlay {
             id: wire_id(self.id),
             label: Some(self.label),
-            style: self.style.bg(self.backdrop),
+            style: lowering.style(&self.style.bg(self.backdrop)),
             on_dismiss: self
                 .on_dismiss
                 .map(|listener| lowering.route(crate::slots::Kind::Dismiss, listener)),

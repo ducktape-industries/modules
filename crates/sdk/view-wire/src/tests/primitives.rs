@@ -5,7 +5,7 @@ use super::*;
 fn a_container_is_cut_at_the_node_budget() {
     let root = sanitized_root(Node::Container(crate::ContainerNode {
         id: Some(ElementIdWire::Name("App/cells".into())),
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
         children: (0..MAX_NODES + 5).map(|_| text("x")).collect(),
     }));
@@ -33,7 +33,7 @@ fn svg_and_raster_images_share_the_frame_picture_budget() {
         loading: false,
         fallback: false,
         state_children: vec![],
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
     };
     let mut frame = Frame {
@@ -43,7 +43,7 @@ fn svg_and_raster_images_share_the_frame_picture_budget() {
         ])),
         ..Frame::default()
     };
-    sanitize(&mut frame).unwrap();
+    sanitize_plain(&mut frame).unwrap();
     let children = frame.root.as_ref().unwrap().children();
     assert!(matches!(
         children[0],
@@ -73,7 +73,7 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
         loading: true,
         fallback: true,
         state_children: vec![text("loading"), text("fallback"), text("extra")],
-        style: Default::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
     };
     let svg = Node::Svg {
@@ -85,7 +85,7 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
             rotate: f32::NAN,
         },
         label: None,
-        style: Default::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
     };
     let anchored = Node::Anchored {
@@ -178,7 +178,7 @@ fn a_frame_past_the_picture_budget_drops_whole_pictures_from_its_tail() {
 fn a_text_with_no_heading_or_live_region_round_trips() {
     let text = Node::Text(crate::TextNode {
         id: Some(ElementIdWire::Name("text".into())),
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         content: "huge".into(),
     });
     assert_eq!(decode::<Node>(&encode(&text)).unwrap(), text);

@@ -161,7 +161,8 @@ pub(super) fn decode_indices<'de, D: serde::Deserializer<'de>>(
 #[cfg(test)]
 mod variable_tests {
     use super::*;
-    use crate::{Frame, Node, decode, encode, sanitize};
+    use crate::styles::testing::sanitize_plain;
+    use crate::{Frame, Node, StyleId, decode, encode};
 
     fn node(commands: Vec<ListCommand>, children: usize) -> Node {
         list("rows", commands, children)
@@ -182,13 +183,9 @@ mod variable_tests {
             request_handler: 1,
             scroll_handler: Some(2),
             range_start: 99_990,
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             interactivity: Default::default(),
-            children: (0..children)
-                .map(|_| Node::Space {
-                    style: gpui::StyleRefinement::default(),
-                })
-                .collect(),
+            children: (0..children).map(|_| Node::Space).collect(),
         }
     }
 
@@ -208,7 +205,7 @@ mod variable_tests {
             )),
             ..Frame::default()
         };
-        sanitize(&mut frame).unwrap();
+        sanitize_plain(&mut frame).unwrap();
         let Node::List {
             item_count,
             overdraw,
@@ -237,13 +234,13 @@ mod variable_tests {
         let mut frame = Frame {
             root: Some(Node::Container(crate::ContainerNode {
                 id: None,
-                style: Default::default(),
+                style: StyleId(0),
                 interactivity: Default::default(),
                 children: vec![list("first", Vec::new(), 0), list("second", Vec::new(), 0)],
             })),
             ..Default::default()
         };
-        sanitize(&mut frame).unwrap();
+        sanitize_plain(&mut frame).unwrap();
         let counts: Vec<_> = frame
             .root
             .unwrap()
@@ -271,7 +268,7 @@ mod variable_tests {
             ..Default::default()
         };
         assert_eq!(
-            sanitize(&mut frame),
+            sanitize_plain(&mut frame),
             Err(crate::Refused::Invalid("list authored path is invalid"))
         );
     }
@@ -285,7 +282,7 @@ mod variable_tests {
         let pair = |first: &'static str, second: &'static str| Frame {
             root: Some(Node::Container(crate::ContainerNode {
                 id: Some(crate::ElementIdWire::Name("page".into())),
-                style: Default::default(),
+                style: StyleId(0),
                 interactivity: Default::default(),
                 children: [first, second]
                     .into_iter()
@@ -308,8 +305,9 @@ mod variable_tests {
             })),
             ..Default::default()
         };
-        assert!(sanitize(&mut pair("timeline", "thread")).is_ok());
-        let Err(crate::Refused::Duplicate(duplicate)) = sanitize(&mut pair("rows", "rows")) else {
+        assert!(sanitize_plain(&mut pair("timeline", "thread")).is_ok());
+        let Err(crate::Refused::Duplicate(duplicate)) = sanitize_plain(&mut pair("rows", "rows"))
+        else {
             panic!("one id on two lists in a scope is refused")
         };
         assert_eq!(

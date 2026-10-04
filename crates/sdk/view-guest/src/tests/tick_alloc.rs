@@ -29,7 +29,7 @@ fn allocated_by<R>(work: impl FnOnce() -> R) -> (usize, R) {
 fn text(content: &str) -> wire::Node {
     wire::Node::Text(wire::TextNode {
         id: None,
-        style: gpui::StyleRefinement::default(),
+        style: wire::StyleId(0),
         content: content.into(),
     })
 }
@@ -46,7 +46,7 @@ fn keyed(key: &str, content: &str) -> wire::Node {
 fn column(children: Vec<wire::Node>) -> wire::Node {
     wire::Node::Container(wire::ContainerNode {
         id: None,
-        style: gpui::StyleRefinement::default(),
+        style: wire::StyleId(0),
         interactivity: Default::default(),
         children,
     })

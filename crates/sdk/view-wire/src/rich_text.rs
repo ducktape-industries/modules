@@ -216,7 +216,8 @@ pub(super) fn sanitize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ElementIdWire, Frame, Node};
+    use crate::styles::testing::sanitize_plain;
+    use crate::{ElementIdWire, Frame, Node, StyleId};
 
     #[test]
     fn hostile_utf8_ranges_and_run_lengths_never_reach_gpui() {
@@ -227,7 +228,7 @@ mod tests {
         ]);
         let mut overrides = vec![(3..99, "Mono".into()), (1..3, "Mono".into())];
         let mut clicks = vec![1..2, 1..3, 3..4, std::ops::Range { start: 4, end: 3 }];
-        let mut budgets = Budgets::frame();
+        let mut budgets = Budgets::frame(&crate::styles::testing::held());
         sanitize(
             &mut text,
             &mut runs,
@@ -248,7 +249,7 @@ mod tests {
             &mut runs,
             &mut vec![],
             &mut vec![],
-            &mut Budgets::frame(),
+            &mut Budgets::frame(&crate::styles::testing::held()),
         );
         assert_eq!(runs, Runs::Highlights(vec![]));
     }
@@ -257,7 +258,7 @@ mod tests {
     fn rich_text_uses_typed_parent_scopes() {
         let rich = || Node::RichText {
             id: Some(ElementIdWire::Integer(1)),
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             text: "text".into(),
             runs: Runs::default(),
             font_family_overrides: vec![],
@@ -269,21 +270,21 @@ mod tests {
         let mut duplicate = Frame {
             root: Some(Node::Container(crate::ContainerNode {
                 id: Some(ElementIdWire::Name("root".into())),
-                style: gpui::StyleRefinement::default(),
+                style: StyleId(0),
                 interactivity: Default::default(),
                 children: vec![rich(), rich()],
             })),
             ..Default::default()
         };
         assert!(matches!(
-            crate::sanitize(&mut duplicate),
+            sanitize_plain(&mut duplicate),
             Err(crate::Refused::Duplicate(_))
         ));
 
         let parent = |name: &str| {
             Node::Container(crate::ContainerNode {
                 id: Some(ElementIdWire::Name(name.into())),
-                style: gpui::StyleRefinement::default(),
+                style: StyleId(0),
                 interactivity: Default::default(),
                 children: vec![rich()],
             })
@@ -291,12 +292,12 @@ mod tests {
         let mut separate = Frame {
             root: Some(Node::Container(crate::ContainerNode {
                 id: Some(ElementIdWire::Name("root".into())),
-                style: gpui::StyleRefinement::default(),
+                style: StyleId(0),
                 interactivity: Default::default(),
                 children: vec![parent("left"), parent("right")],
             })),
             ..Default::default()
         };
-        assert!(crate::sanitize(&mut separate).is_ok());
+        assert!(sanitize_plain(&mut separate).is_ok());
     }
 }

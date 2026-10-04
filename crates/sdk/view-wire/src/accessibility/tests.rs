@@ -1,13 +1,12 @@
 //! One tree that breaks each rule, and one that keeps it and every other.
 use super::*;
-use crate::{ContainerNode, ElementIdWire, InputOptions, Invalid, Live, TextRange};
+use crate::{ContainerNode, ElementIdWire, InputOptions, Invalid, Live, StyleId, TextRange};
 use FaultKind::*;
-use gpui::StyleRefinement;
 
 fn text(content: &str) -> Node {
     Node::Text(TextNode {
         id: None,
-        style: StyleRefinement::default(),
+        style: StyleId(0),
         content: content.into(),
     })
 }
@@ -15,7 +14,7 @@ fn text(content: &str) -> Node {
 fn el(key: &str, interactivity: Interactivity, children: Vec<Node>) -> Node {
     Node::Container(ContainerNode {
         id: Some(ElementIdWire::Name(key.into())),
-        style: StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Box::new(interactivity),
         children,
     })
@@ -78,7 +77,7 @@ fn input(label: &str) -> Node {
         on_change: Some(1),
         on_key: None,
         on_submit: None,
-        style: StyleRefinement::default(),
+        style: StyleId(0),
     }
 }
 
@@ -86,7 +85,7 @@ fn input(label: &str) -> Node {
 fn rich(text: &str, clickable: std::ops::Range<usize>) -> Node {
     Node::RichText {
         id: None,
-        style: StyleRefinement::default(),
+        style: StyleId(0),
         text: text.into(),
         runs: Default::default(),
         font_family_overrides: Vec::new(),
@@ -100,7 +99,7 @@ fn rich(text: &str, clickable: std::ops::Range<usize>) -> Node {
 fn handle(interactivity: Interactivity) -> Node {
     Node::ResizeHandle {
         id: ElementIdWire::Name("divider".into()),
-        style: StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Box::new(interactivity),
         on_press: None,
         on_release: None,
@@ -123,7 +122,7 @@ fn image(interactivity: Interactivity, label: Option<&str>) -> Node {
         loading: false,
         fallback: false,
         state_children: Vec::new(),
-        style: StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Box::new(interactivity),
     }
 }
@@ -160,7 +159,7 @@ fn named_trees_pass_and_unlabeled_clickables_are_reported() {
             Node::Overlay {
                 id: ElementIdWire::Name("ask".into()),
                 label: Some(String::new()),
-                style: Default::default(),
+                style: StyleId(0),
                 on_dismiss: None,
                 children: vec![],
             },
@@ -246,7 +245,7 @@ fn a_roled_control_overlay_or_picture_nothing_names_fails() {
         Node::Overlay {
             id: ElementIdWire::Name("ask".into()),
             label: Some("  ".into()),
-            style: Default::default(),
+            style: StyleId(0),
             on_dismiss: None,
             children: vec![],
         },
@@ -264,7 +263,7 @@ fn a_named_control_overlay_and_picture_pass() {
     passes(Node::Overlay {
         id: ElementIdWire::Name("ask".into()),
         label: Some("Settings".into()),
-        style: Default::default(),
+        style: StyleId(0),
         on_dismiss: Some(1),
         children: vec![text("base"), text("dialog")],
     });

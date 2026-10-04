@@ -35,6 +35,7 @@ impl Render for Gallery {
 #[derive(Default)]
 struct Host {
     tree: Option<wire::Node>,
+    styles: wire::Styles,
     held: HashSet<u64>,
     drawn: HashSet<u64>,
     /// Picture bytes a frame carried that the sanitizer dropped.
@@ -55,16 +56,18 @@ impl Host {
             | wire::Patch::Props { node, .. } => count(node),
             wire::Patch::Remove { .. } | wire::Patch::Move { .. } => {}
         });
-        if let Some(root) = &frame.root {
-            let mut whole = wire::Frame {
-                root: Some(root.clone()),
-                ..Default::default()
-            };
-            wire::sanitize(&mut whole).expect("the host takes the frame");
-            self.tree = whole.root;
+        let mut taken = wire::Frame {
+            root: frame.root.clone(),
+            styles: frame.styles.clone(),
+            ..Default::default()
+        };
+        wire::sanitize(&mut taken, &mut self.styles).expect("the host takes the frame");
+        if taken.root.is_some() {
+            self.tree = taken.root;
         } else if !frame.patches.is_empty() {
             let tree = self.tree.as_mut().expect("a patch frame has a tree");
-            wire::apply(tree, frame.patches.clone()).expect("the host takes the patches");
+            wire::apply(tree, frame.patches.clone(), &self.styles)
+                .expect("the host takes the patches");
         }
         // Adopt: the bytes move into the store, the tree keeps the hash.
         let (held, drawn) = (&mut self.held, &mut self.drawn);

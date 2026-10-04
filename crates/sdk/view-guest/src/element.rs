@@ -162,6 +162,17 @@ impl<'a> Lowering<'a> {
         *self.app.global::<crate::Theme>()
     }
 
+    /// The id `style` crosses under: its entry in the frame's style table,
+    /// one for every node that carries the same style.
+    pub(crate) fn style(&self, style: &StyleRefinement) -> wire::StyleId {
+        self.app.inner.styles.borrow_mut().intern(style)
+    }
+
+    /// The id of the style that sets nothing, which a bare text carries.
+    pub(crate) fn no_style(&self) -> wire::StyleId {
+        self.app.inner.styles.borrow_mut().intern_empty()
+    }
+
     pub(crate) fn parts(&mut self) -> (&mut Window, &mut App) {
         (self.window, self.app)
     }
@@ -271,7 +282,7 @@ impl Element for Div {
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let Self {
-            interactivity,
+            mut interactivity,
             children,
         } = *self;
         let id = interactivity.id.as_ref().map(|_| {
@@ -281,10 +292,10 @@ impl Element for Div {
                 .cloned()
                 .expect("identified div must lower inside its authored scope")
         });
-        let mut style = interactivity.base_style.clone();
         if id.is_some() {
-            bar_gutter(&mut style);
+            bar_gutter(&mut interactivity.base_style);
         }
+        let style = lowering.style(&interactivity.base_style);
         let (_, wire_interactivity) = interactivity.into_wire(lowering);
         let children = children
             .into_iter()
@@ -475,7 +486,7 @@ impl Element for Input {
             on_change,
             on_key,
             on_submit,
-            style: this.style,
+            style: lowering.style(&this.style),
         }
     }
 }
@@ -605,10 +616,10 @@ impl ParentElement for Div {
 }
 
 impl Element for SharedString {
-    fn lower(self: Box<Self>, _lowering: &mut Lowering<'_>) -> wire::Node {
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         wire::Node::Text(crate::wire::TextNode {
             id: None,
-            style: StyleRefinement::default(),
+            style: lowering.no_style(),
             content: self.to_string(),
         })
     }

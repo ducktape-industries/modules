@@ -2,10 +2,12 @@
 //! replaces most of a tree allocates patches and paths, not a copy of the
 //! tree. Measured with a counting allocator, so it holds whatever the
 //! machine is doing.
-use gpui::StyleRefinement;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use view_wire::{ContainerNode, Node, TextNode};
+
+mod common;
+use common::PLAIN;
 
 struct Counting;
 static ALLOCATED: AtomicUsize = AtomicUsize::new(0);
@@ -24,7 +26,7 @@ static GLOBAL: Counting = Counting;
 fn text(content: &str) -> Node {
     Node::Text(TextNode {
         id: None,
-        style: StyleRefinement::default(),
+        style: PLAIN,
         content: content.into(),
     })
 }
@@ -32,7 +34,7 @@ fn text(content: &str) -> Node {
 fn column(children: Vec<Node>) -> Node {
     Node::Container(ContainerNode {
         id: None,
-        style: StyleRefinement::default(),
+        style: PLAIN,
         interactivity: Default::default(),
         children,
     })

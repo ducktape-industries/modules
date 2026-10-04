@@ -1,9 +1,10 @@
 use super::*;
+use crate::styles::testing::{held, plain, sanitize_plain};
 
 fn text(content: &str) -> Node {
     Node::Text(crate::TextNode {
         id: None,
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         content: content.into(),
     })
 }
@@ -24,7 +25,7 @@ fn field(key: &str, value: &str, placeholder: &str) -> Node {
         on_change: Some(0),
         on_key: None,
         on_submit: None,
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
     }
 }
 
@@ -33,7 +34,7 @@ fn sanitized_root(root: Node) -> Node {
         root: Some(root),
         ..Frame::default()
     };
-    sanitize(&mut frame).unwrap();
+    sanitize_plain(&mut frame).unwrap();
     frame.root.unwrap()
 }
 
@@ -47,7 +48,7 @@ fn sanitized_children(root: Node) -> Vec<Node> {
 fn column(children: Vec<Node>) -> Node {
     Node::Container(crate::ContainerNode {
         id: None,
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
         children,
     })
@@ -67,7 +68,7 @@ fn uniform(path: Vec<ElementIdWire>) -> Node {
         id: ElementIdWire::Name("list".into()),
         path,
         route: 1,
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
         count: 1,
         measure_index: 0,
@@ -83,7 +84,7 @@ fn uniform(path: Vec<ElementIdWire>) -> Node {
 fn sensor(key: &str, on_show: Option<u32>, content: Node) -> Node {
     Node::Sensor {
         id: ElementIdWire::Name(key.into()),
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         on_show,
         on_resize: Some(2),
         child: Box::new(content),
@@ -128,7 +129,7 @@ fn picture(bytes: Option<Vec<u8>>) -> Node {
             rotate: 0.,
         },
         label: None,
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
     }
 }

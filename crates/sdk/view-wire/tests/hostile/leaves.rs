@@ -113,7 +113,7 @@ pub(super) fn gen_field(rng: &mut Rng) -> Node {
         on_change: rng.next_bool().then(|| rng.next_u64() as u32),
         on_key: rng.next_bool().then(|| rng.next_u64() as u32),
         on_submit: rng.next_bool().then(|| rng.next_u64() as u32),
-        style: gpui::StyleRefinement::default(),
+        style: PLAIN,
     }
 }
 
@@ -121,9 +121,9 @@ pub(super) fn gen_text(rng: &mut Rng) -> Node {
     Node::Text(view_wire::TextNode {
         id: None,
         style: if rng.next_range(8) == 0 {
-            gen_native_style(rng)
+            gen_style(rng)
         } else {
-            gpui::StyleRefinement::default()
+            PLAIN
         },
         content: gen_string(rng),
     })
@@ -163,7 +163,7 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
             loading: false,
             fallback: false,
             state_children: Vec::new(),
-            style: gen_native_style(rng),
+            style: gen_style(rng),
             interactivity: Default::default(),
         };
     }
@@ -179,9 +179,9 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
             rotate: gen_f32(rng),
         },
         label: rng.next_bool().then(|| gen_string(rng)),
-        style: gen_native_style(rng),
+        style: gen_style(rng),
         interactivity: Box::new(Interactivity {
-            hover: Some(Box::new(gen_native_style(rng))),
+            hover: Some(gen_style(rng)),
             ..Default::default()
         }),
     }
@@ -193,9 +193,12 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
 pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
     match rng.next_range(4) {
         0 => gen_text(rng),
-        1 => Node::Space {
-            style: gen_native_style(rng),
-        },
+        1 => {
+            // `Space` carried a style once: the draws it took still are,
+            // so every seed's tree is the one it was
+            gen_native_style(rng);
+            Node::Space
+        }
         2 => gen_svg(rng),
         _ => gen_field(rng),
     }
@@ -206,19 +209,19 @@ pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
 /// the bounds are exercised on the node kind views style most.
 pub(super) fn gen_container(rng: &mut Rng, children: Vec<Node>) -> Node {
     let styled = rng.next_range(8) == 0;
-    let refinement = |rng: &mut Rng| styled.then(|| gen_native_style(rng));
+    let refinement = |rng: &mut Rng| styled.then(|| gen_style(rng));
     let group = |rng: &mut Rng| {
         refinement(rng).map(|style| GroupRefinement {
             group: "row".into(),
-            style: Box::new(style),
+            style,
         })
     };
     Node::Container(view_wire::ContainerNode {
         id: None,
-        style: refinement(rng).unwrap_or_default(),
+        style: refinement(rng).unwrap_or(PLAIN),
         interactivity: Box::new(Interactivity {
-            hover: refinement(rng).map(Box::new),
-            active: refinement(rng).map(Box::new),
+            hover: refinement(rng),
+            active: refinement(rng),
             group_hover: group(rng),
             group_active: group(rng),
             ..Default::default()
@@ -238,7 +241,7 @@ pub(super) fn gen_list(rng: &mut Rng, children: Vec<Node>) -> Node {
             label: rng.next_bool().then(|| gen_string(rng)),
             on_dismiss: Some(rng.next_u64() as u32),
             children,
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
         }
     } else {
         gen_container(rng, children)

@@ -641,11 +641,7 @@ fn the_root_wears_the_shared_theme_and_is_accessible() {
     let (mut cx, _) = booted("default");
     let dark = Theme::dark();
     cx.set_global(dark);
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
-        cx.find("forge")
-    else {
-        panic!("the forge root is a styled container");
-    };
+    let style = cx.style("forge");
     assert_eq!(
         style
             .background
@@ -1275,12 +1271,7 @@ fn the_narrow_window_folds_the_rail_and_the_dock_into_toggles() {
 #[test]
 fn the_repositories_keep_their_table_at_the_width_a_window_opens() {
     let (mut cx, _) = booted("default");
-    let column = |cx: &TestAppContext| {
-        control(cx, "forge-repo-project-activity-cell")
-            .style
-            .size
-            .width
-    };
+    let column = |cx: &TestAppContext| cx.style("forge-repo-project-activity-cell").size.width;
     for width in [640., 768.] {
         cx.simulate_measure("forge-viewport", width, 600.);
         cx.run_until_parked();
@@ -1454,7 +1445,7 @@ fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {
 fn the_small_press_targets_are_at_least_24_px_each_way() {
     use ducktape_view_guest::px;
     let floor = |cx: &TestAppContext, key: &str| {
-        let style = control(cx, key).style;
+        let style = cx.style(key);
         (style.min_size.width, style.min_size.height)
     };
     let (cx, _) = booted("default");
