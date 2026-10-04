@@ -1,9 +1,10 @@
 //! The open room: opening, landing, paging history, the thread beside it and
 //! what the reader has read.
-use chat::{ChannelInfo, MsgRow, Principal};
+use chat::{ChannelInfo, MsgRow, PageRequest, Principal, ask};
 use ducktape_view_guest::Context;
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::host::Error;
+use ducktape_view_guest::methods::Change;
 
 use crate::composer::Target;
 use crate::queries;
@@ -96,11 +97,24 @@ impl Chat {
         }
     }
 
-    /// Every change of the chat program: re-read the channel list and
-    /// what the open room shows.
+    /// Everything chat shows, read again: the channel list and the open
+    /// room, after this reader's own op or a session change.
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.reread_channels(cx);
-        self.refresh_room(cx);
+        self.changed(None, cx);
+    }
+
+    /// A chat block landed: the channel list and what the open room shows
+    /// are read again where the block wrote to what they read, as the
+    /// program declares it; `None`, a reopened node link, reads everything
+    /// again.
+    pub(crate) fn changed(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        let list = ask::Channels {
+            page: PageRequest::default(),
+        };
+        if change.is_none_or(|change| change.touches::<chat::Chat, _>(&list)) {
+            self.reread_channels(cx);
+        }
+        self.refresh_room(change, cx);
     }
 
     pub(crate) fn reread_channels(&mut self, cx: &mut Context<Self>) {
@@ -111,14 +125,43 @@ impl Chat {
         }));
     }
 
-    /// Re-read what the room shows, keeping the rows there until fresh land;
-    /// rows that land as they were draw nothing. Each read is held by what
-    /// it reads, so leaving the room or the thread drops it.
-    fn refresh_room(&mut self, cx: &mut Context<Self>) {
+    /// Re-read what the room shows that `change` wrote to (`None`: all of
+    /// it), keeping the rows there until fresh land; rows that land as they
+    /// were draw nothing. Each read is held by what it reads, so leaving the
+    /// room or the thread drops it.
+    fn refresh_room(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        let touched = |read: &dyn program::Reads| {
+            change.is_none_or(|change| change.touches::<chat::Chat, _>(read))
+        };
         let viewer = self.viewer();
         let Some(room) = &mut self.room else { return };
         let id = room.id.clone();
-        if !room.landed {
+        let page = PageRequest::default();
+        // the window at the tail is a page of roots; a landed one is read
+        // around its middle row
+        let window = if room.landed {
+            room.messages
+                .ready()
+                .and_then(|rows| rows.get(rows.len() / 2))
+                .map(|row| row.seq)
+                .filter(|seq| {
+                    touched(&ask::MessagesAround {
+                        channel_id: id.clone(),
+                        seq: *seq,
+                        viewer: viewer.clone(),
+                        page: page.clone(),
+                    })
+                })
+                .map(Some)
+        } else {
+            touched(&ask::Roots {
+                channel_id: id.clone(),
+                viewer: viewer.clone(),
+                page: page.clone(),
+            })
+            .then_some(None)
+        };
+        if window == Some(None) {
             let shown = room
                 .messages
                 .ready()
@@ -139,12 +182,7 @@ impl Chat {
                     Err(refusal) => cx.host().log_refused("chat", "the room", &refusal),
                 }
             }));
-        } else if let Some(seq) = room
-            .messages
-            .ready()
-            .and_then(|rows| rows.get(rows.len() / 2))
-            .map(|row| row.seq)
-        {
+        } else if let Some(Some(seq)) = window {
             // a landed window re-reads around its middle row, so reactions,
             // edits and reply counts land there too
             let rows = queries::around(cx.host(), id.clone(), seq, viewer.clone());
@@ -162,9 +200,21 @@ impl Chat {
                 }
             }));
         }
-        let roster = queries::members(cx.host(), id.clone());
-        cx.reload(&mut room.members, roster, |chat| &mut room_of(chat).members);
-        if let Some(thread) = room.thread.as_mut() {
+        if touched(&ask::Members {
+            channel_id: id.clone(),
+            page: page.clone(),
+        }) {
+            let roster = queries::members(cx.host(), id.clone());
+            cx.reload(&mut room.members, roster, |chat| &mut room_of(chat).members);
+        }
+        if let Some(thread) = room.thread.as_mut()
+            && touched(&ask::Thread {
+                channel_id: id.clone(),
+                root_seq: thread.root,
+                viewer: viewer.clone(),
+                page,
+            })
+        {
             let root = thread.root;
             let replies = queries::thread(cx.host(), id, root, viewer, None);
             thread.rereading = Some(cx.refresh(replies, move |chat, replies, cx| {

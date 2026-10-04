@@ -80,8 +80,9 @@ impl Explorer {
         cx.reload(&mut self.network, work, |view| &mut view.network);
     }
 
-    /// Reads the next page the window wants, if any: the head when the
-    /// status is past it, else older blocks until the window is full.
+    /// Reads the next page the window wants, if any: the blocks since the
+    /// top when the head is past it (one new block is one block, at most a
+    /// page), else older blocks until the window is full.
     pub(crate) fn pull(&mut self, cx: &mut Context<Self>) {
         if self.pulling {
             return;
@@ -90,19 +91,18 @@ impl Explorer {
             .status
             .ready()
             .map(|status| status.height.max(self.head));
-        let before = match (self.chain.top(), head) {
-            (None, _) => None,
-            (Some(top), Some(head)) if head > top => None,
+        let (before, limit) = match (self.chain.top(), head) {
+            (None, _) => (None, PAGE),
+            (Some(top), Some(head)) if head > top => {
+                (None, (head - top).min(u64::from(PAGE)) as u32)
+            }
             _ if !self.chain.complete && self.chain.blocks.len() < WINDOW => {
-                self.chain.blocks.last().map(|block| block.height)
+                (self.chain.blocks.last().map(|block| block.height), PAGE)
             }
             _ => return,
         };
         self.pulling = true;
-        let ask = cx.host().ask::<ChainBlocks>(BlockPage {
-            before,
-            limit: PAGE,
-        });
+        let ask = cx.host().ask::<ChainBlocks>(BlockPage { before, limit });
         cx.spawn(async move |this, cx| {
             let page = ask.await;
             // the view is gone: nothing is waiting for the page

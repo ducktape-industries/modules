@@ -26,8 +26,9 @@ impl Chat {
                     cx.notify();
                 }
             }),
-            cx.for_each(changes, |chat, head, _, cx| match head {
-                Ok(_) => chat.refresh(cx),
+            // a block re-reads what it wrote to, as the program declares it
+            cx.for_each(changes, |chat, change, _, cx| match change {
+                Ok(change) => chat.changed(change.as_ref(), cx),
                 Err(refusal) => cx.host().log_refused("chat", "chat's live heads", &refusal),
             }),
             // `duck://<chain>/chat/<channel>[/<seq>]`: a link opened into

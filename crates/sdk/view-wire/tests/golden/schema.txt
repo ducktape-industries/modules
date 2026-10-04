@@ -18,7 +18,7 @@ host.visible None () -> bool
 host.widget None TypeName("WidgetCommand") -> Unit named MessagePack
 invite.create None CreateInvite -> Invite
 link.open None String -> ()
-module.changes Some("P") () -> Option<u64>
+module.changes Some("P") () -> Option<Change>
 module.describe None (String, Vec<u8>) -> Option<Description>
 module.query Some("P") ModuleQuery -> ModuleReply
 notify.post None Notification -> Delivery
@@ -36,6 +36,7 @@ BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "
 BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1, "Id", "BlockRef__Id")] }
 BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
 BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }
+Change = Struct { fields: NamedFields([("height", "u64"), ("keys", "Vec<Vec<u8>>")]) }
 Clipboard = Struct { fields: NamedFields([("text", "String")]) }
 CreateInvite = Struct { fields: NamedFields([("ttl_days", "u64")]) }
 Delivery = Enum { tag_width: 1, variants: [(0, "Banner", "Delivery__Banner"), (1, "Logged", "Delivery__Logged"), (2, "Blocked", "Delivery__Blocked")] }
@@ -54,6 +55,7 @@ NetworkStatus = Struct { fields: NamedFields([("height", "u64"), ("members", "Ve
 NodeStatus = Struct { fields: NamedFields([("chain_id", "String"), ("time", "u64"), ("block_time_ms", "u64"), ("epoch_length", "u64"), ("height", "u64"), ("tip", "[u8; 32]"), ("root", "[u8; 32]"), ("epoch", "u64"), ("identity", "Vec<u8>"), ("contract", "u32")]) }
 Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String")]) }
 Option<Block> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Block")] }
+Option<Change> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Change")] }
 Option<Description> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Description")] }
 Option<Receipt> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Receipt")] }
 Option<Vec<u8>> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Vec<u8>")] }

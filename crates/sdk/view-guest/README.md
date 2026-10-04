@@ -64,7 +64,14 @@ refused as `unexpected_reply`, so a view has no arm for the others.
 A node program is addressed by its own type, the one that implements
 `program::Program` (`methods::Program` here) beside its `guest::Module`:
 `Query<P>`, `Submit<P>` and `Changes<P>` are its three methods, and
-`P::NAME` is the target they carry. A role a view follows without linking
+`P::NAME` is the target they carry. A `Changes<P>` item is the block's
+`Change`: its height and the keys it wrote; `change.touches::<P, _>(&query)`
+says whether a read moved, from the tables the program's `Query` declares
+with `#[reads(..)]` (`program::Reads`; another program's tables it reads are
+declared with that program named first), so a view re-reads what the block
+touched and maps no key itself (`None` is a reopened link: read everything
+again). A
+role a view follows without linking
 its program is `program::role::Identity`. Every refusal is the module SDK's `Error`
 (`code` token, `message`), one type end to end: a program's codes are
 `error::code`, the host's own are `methods::refusal`. `Loadable<T>` + `cx.load`

@@ -403,15 +403,80 @@ mod ask_tests {
         type Reply = Said;
     }
 
+    /// The program the shop asks what is owed: a question of the shop's
+    /// is answered partly from its tables.
+    pub struct Ledger;
+    impl program::Program for Ledger {
+        const NAME: &'static str = "ledger";
+        type Op = ();
+        type Query = ();
+        type Reply = ();
+    }
+
+    /// A table as a program declares one: `#[reads]` asks it `owns` alone.
+    struct Table(&'static str);
+    impl Table {
+        fn owns(&self, key: &[u8]) -> bool {
+            key.starts_with(self.0.as_bytes())
+        }
+    }
+    const PRICES: Table = Table("price/");
+    const STOCK: Table = Table("stock/");
+    const BALANCES: Table = Table("balance/");
+
     #[derive(Clone, Debug, BorshSerialize, BorshDeserialize, ::program::Ask)]
     #[ask(Shop)]
     pub enum Asked {
         #[ask(Said::Price(u64))]
+        #[reads(PRICES)]
         Price { item: String },
         #[ask(Said::Stock { count: u32, at: u64 })]
+        #[reads(STOCK, PRICES)]
         Stock(String),
         #[ask(Said::Open(bool))]
         Open,
+        /// The stock less what the ledger says is owed.
+        #[ask(Said::Free(u32))]
+        #[reads(STOCK)]
+        #[reads(Ledger: BALANCES)]
+        Free(String),
+    }
+
+    /// A block's change touches the questions that read a table it wrote
+    /// to, asked of the query or of its ask type alike, as a block of the
+    /// program the follower names: the same key from another program's
+    /// block touches nothing, and a question answered partly from that
+    /// program's tables is touched by its blocks to those. A question that
+    /// declares nothing is touched by every block.
+    #[test]
+    fn a_change_touches_the_questions_that_read_what_it_wrote() {
+        let change = crate::methods::Change {
+            height: 3,
+            keys: vec![b"stock/tea".to_vec()],
+        };
+        assert!(!change.touches::<Shop, _>(&ask::Price { item: "tea".into() }));
+        assert!(change.touches::<Shop, _>(&ask::Stock("tea".into())));
+        assert!(change.touches::<Shop, _>(&ask::Open));
+        assert!(change.touches::<Shop, _>(&Asked::Stock("tea".into())));
+        assert!(!change.touches::<Shop, _>(&Asked::Price { item: "tea".into() }));
+        assert!(change.touches::<Shop, _>(&ask::Free("tea".into())));
+        assert!(!change.touches::<Ledger, _>(&Asked::Stock("tea".into())));
+        assert!(!change.touches::<Ledger, _>(&ask::Free("tea".into())));
+        let elsewhere = crate::methods::Change {
+            height: 4,
+            keys: vec![b"shelf/1".to_vec()],
+        };
+        assert!(!elsewhere.touches::<Shop, _>(&ask::Stock("tea".into())));
+        assert!(elsewhere.touches::<Shop, _>(&Asked::Open));
+        let owed = crate::methods::Change {
+            height: 5,
+            keys: vec![b"balance/tea".to_vec()],
+        };
+        assert!(owed.touches::<Ledger, _>(&ask::Free("tea".into())));
+        assert!(owed.touches::<Ledger, _>(&Asked::Free("tea".into())));
+        assert!(!owed.touches::<Shop, _>(&ask::Free("tea".into())));
+        assert!(!owed.touches::<Ledger, _>(&ask::Stock("tea".into())));
+        assert!(owed.touches::<Ledger, _>(&ask::Open));
     }
 
     #[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
@@ -419,6 +484,7 @@ mod ask_tests {
         Price(u64),
         Stock { count: u32, at: u64 },
         Open(bool),
+        Free(u32),
     }
 
     /// Asks `ask` and answers it `said`: the bytes it sent, and what the

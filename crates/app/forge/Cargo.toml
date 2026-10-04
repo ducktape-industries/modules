@@ -22,6 +22,8 @@ guest = { workspace = true, features = ["serde"] }
 borsh = { workspace = true }
 chat = { workspace = true }
 gitcore = { workspace = true }
+# `#[derive(program::Ask)]` on `Query`: which tables each question reads
+program = { workspace = true }
 store = { workspace = true }
 
 [dev-dependencies]

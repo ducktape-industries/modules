@@ -1,15 +1,17 @@
 //! `#[derive(Ask)]` on a program's `Query`: one type per variant, asked
-//! alone, each knowing the reply that answers it (`program::Ask`).
+//! alone, each knowing the reply that answers it (`program::Ask`), and
+//! which tables each variant reads (`program::Reads`, from `#[reads(..)]`).
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
+use syn::punctuated::Punctuated;
 use syn::{
     Attribute, Data, DeriveInput, Error, Fields, Ident, Path, Token, Type, braced, parenthesized,
     parse_macro_input,
 };
 
-#[proc_macro_derive(Ask, attributes(ask))]
+#[proc_macro_derive(Ask, attributes(ask, reads))]
 pub fn derive_ask(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     asks(&input)
@@ -57,6 +59,66 @@ fn ask_attr(attrs: &[Attribute]) -> Option<&Attribute> {
     attrs.iter().find(|attr| attr.path().is_ident("ask"))
 }
 
+/// One `#[reads(..)]`: the tables a block must have written to for the
+/// answer to have moved, and whose program they are. The query's own
+/// (`#[reads(MESSAGES, REACTIONS)]`), or another program's, named first
+/// (`#[reads(chat::Chat: chat::tables::ANSWERED, chat::tables::MESSAGES)]`)
+/// for a question answered partly from its tables.
+struct Group {
+    program: Option<Path>,
+    tables: Vec<Path>,
+}
+
+impl Parse for Group {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut group = Group {
+            program: None,
+            tables: Vec::new(),
+        };
+        if input.is_empty() {
+            return Ok(group);
+        }
+        let first = Path::parse_mod_style(input)?;
+        if input.parse::<Option<Token![:]>>()?.is_some() {
+            group.program = Some(first);
+        } else {
+            group.tables.push(first);
+            if !input.is_empty() {
+                input.parse::<Token![,]>()?;
+            }
+        }
+        let rest = Punctuated::<Path, Token![,]>::parse_terminated(input)?;
+        group.tables.extend(rest);
+        Ok(group)
+    }
+}
+
+/// What the `#[reads(..)]` attributes on a variant say a block must have
+/// written to for the answer to have moved: a block of a group's program
+/// that wrote a key one of the group's tables owns, for any group. With no
+/// attribute, any block of any program (`true`); a group with no tables
+/// never.
+fn touched_by(attrs: &[Attribute], own: &Path) -> syn::Result<Tokens> {
+    let mut groups = Vec::new();
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("reads")) {
+        let group: Group = attr.parse_args()?;
+        if group.tables.is_empty() {
+            groups.push(quote!(false));
+            continue;
+        }
+        let program = group.program.as_ref().unwrap_or(own);
+        let owns = group.tables.iter().map(|table| quote!(#table.owns(key)));
+        groups.push(quote! {
+            (program == <#program as ::program::Program>::NAME
+                && keys.iter().any(|key| #(#owns)||*))
+        });
+    }
+    if groups.is_empty() {
+        return Ok(quote!(true));
+    }
+    Ok(quote!(#(#groups)||*))
+}
+
 fn docs(attrs: &[Attribute]) -> impl Iterator<Item = &Attribute> {
     attrs.iter().filter(|attr| attr.path().is_ident("doc"))
 }
@@ -79,12 +141,15 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
         .parse_args()?;
     let mut types = Vec::new();
     let mut impls = Vec::new();
+    let mut touched = Vec::new();
     for variant in &data.variants {
+        let name = &variant.ident;
+        let touched_by = touched_by(&variant.attrs, &program)?;
+        touched.push(quote!(#query::#name { .. } => #touched_by));
         let Some(attr) = ask_attr(&variant.attrs) else {
             continue;
         };
         let answer: Answer = attr.parse_args()?;
-        let name = &variant.ident;
         let variant_docs = docs(&variant.attrs);
         let (shape, unpack, pack) = match &variant.fields {
             Fields::Named(fields) => {
@@ -155,6 +220,14 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
                     }
                 }
             }
+
+            impl ::program::Reads for ask::#name {
+                // an undeclared variant answers `true` without reading either
+                #[allow(unused_variables)]
+                fn touched_by(&self, program: &str, keys: &[::std::vec::Vec<u8>]) -> bool {
+                    #touched_by
+                }
+            }
         });
     }
     let doc = format!(
@@ -162,12 +235,28 @@ fn asks(input: &DeriveInput) -> syn::Result<Tokens> {
          variant, it is that variant on the wire, and [`program::Ask`] names \
          the reply that answers it."
     );
+    // a `Query` no caller asks alone (only `#[reads]`) has no `ask` module
+    let asks = (!types.is_empty()).then(|| {
+        quote! {
+            #[doc = #doc]
+            pub mod ask {
+                #[allow(unused_imports)]
+                use super::*;
+                #(#types)*
+            }
+        }
+    });
     Ok(quote! {
-        #[doc = #doc]
-        pub mod ask {
-            #[allow(unused_imports)]
-            use super::*;
-            #(#types)*
+        #asks
+
+        impl ::program::Reads for #query {
+            // a `Query` with no `#[reads]` answers `true` without reading either
+            #[allow(unused_variables)]
+            fn touched_by(&self, program: &str, keys: &[::std::vec::Vec<u8>]) -> bool {
+                match self {
+                    #(#touched,)*
+                }
+            }
         }
 
         #(#impls)*

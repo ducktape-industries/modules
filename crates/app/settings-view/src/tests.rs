@@ -1,6 +1,6 @@
 use crate::Settings;
 use crate::api::*;
-use ducktape_view_guest::methods::{Changes, ClipboardWrite, Query};
+use ducktape_view_guest::methods::{Change, Changes, ClipboardWrite, Query};
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::{Theme, wire};
 use identity::Identity;
@@ -345,7 +345,10 @@ fn an_account_changed_elsewhere_is_read_again() {
             q => panic!("unexpected query: {q:?}"),
         })
     });
-    accounts.send(Some(43));
+    accounts.send(Some(Change {
+        height: 43,
+        keys: Vec::new(),
+    }));
     cx.run_until_parked();
     assert!(
         cx.find("settings/agents/12/resume").is_some(),
@@ -770,7 +773,10 @@ fn an_identity_head_re_reads_the_account_in_place() {
             q => panic!("unexpected query: {q:?}"),
         })
     });
-    heads.send(Some(43));
+    heads.send(Some(Change {
+        height: 43,
+        keys: Vec::new(),
+    }));
     cx.run_until_parked();
     assert!(cx.has_text("Maya R"), "{:?}", cx.texts());
     assert!(!cx.has_text("Reading your account…"));

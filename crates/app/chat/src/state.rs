@@ -11,30 +11,30 @@ use crate::{ChannelRow, MAX_MESSAGE_BYTES, MemberRow, MsgRow, Principal, tokens}
 type ChannelId = String;
 type Seq = u64;
 
-pub(crate) const CHANNELS: Map<ChannelId, ChannelRow> = Map::new("channel/");
+pub const CHANNELS: Map<ChannelId, ChannelRow> = Map::new("channel/");
 /// The newest message's seq, per channel.
-pub(crate) const HEADS: Map<ChannelId, Seq> = Map::new("head/");
-pub(crate) const MESSAGES: Map<(ChannelId, Seq), MsgRow> = Map::new("message/");
+pub const HEADS: Map<ChannelId, Seq> = Map::new("head/");
+pub const MESSAGES: Map<(ChannelId, Seq), MsgRow> = Map::new("message/");
 /// Where each message id lives: ids are unique across channels.
-pub(crate) const MESSAGE_IDS: Map<String, (ChannelId, Seq)> = Map::new("message-id/");
-pub(crate) const MEMBERS: Map<(ChannelId, Principal), MemberRow> = Map::new("member/");
+pub const MESSAGE_IDS: Map<String, (ChannelId, Seq)> = Map::new("message-id/");
+pub const MEMBERS: Map<(ChannelId, Principal), MemberRow> = Map::new("member/");
 /// Who chose which emoji: `(channel, seq, emoji, principal)`.
-pub(crate) const REACTIONS: Set<(ChannelId, Seq, String, Principal)> = Set::new("reaction/");
+pub const REACTIONS: Set<(ChannelId, Seq, String, Principal)> = Set::new("reaction/");
 
 /// Timeline roots, newest first: `(channel, newest_first(seq))`.
-pub(crate) const ROOTS: Set<(ChannelId, Seq)> = Set::new("root/");
+pub const ROOTS: Set<(ChannelId, Seq)> = Set::new("root/");
 /// Thread replies in post order: `(channel, root, reply)`.
-pub(crate) const REPLIES: Set<(ChannelId, Seq, Seq)> = Set::new("reply/");
+pub const REPLIES: Set<(ChannelId, Seq, Seq)> = Set::new("reply/");
 /// Each author's answered threads, newest answer first:
 /// `(channel, root author, newest_first(last reply))` → the root's seq.
-pub(crate) const ANSWERED: Map<(ChannelId, Principal, Seq), Seq> = Map::new("answered/");
+pub const ANSWERED: Map<(ChannelId, Principal, Seq), Seq> = Map::new("answered/");
 /// Search postings: `(word, channel, seq)`.
-pub(crate) const WORDS: Set<(String, ChannelId, Seq)> = Set::new("word/");
+pub const WORDS: Set<(String, ChannelId, Seq)> = Set::new("word/");
 /// Tag postings, newest first: `(tag, newest_first(time), channel, seq)`.
-pub(crate) const TAGS: Set<(String, u64, ChannelId, Seq)> = Set::new("tag/");
+pub const TAGS: Set<(String, u64, ChannelId, Seq)> = Set::new("tag/");
 /// Tag postings within a channel, newest first:
 /// `(channel, tag, newest_first(seq))`.
-pub(crate) const CHANNEL_TAGS: Set<(ChannelId, String, Seq)> = Set::new("channel-tag/");
+pub const CHANNEL_TAGS: Set<(ChannelId, String, Seq)> = Set::new("channel-tag/");
 
 /// A key part that scans newest first. Its own inverse.
 pub(crate) fn newest_first(n: u64) -> u64 {

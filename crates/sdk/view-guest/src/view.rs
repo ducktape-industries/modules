@@ -288,12 +288,20 @@ impl<V: 'static> Context<'_, V> {
 
 #[cfg(test)]
 mod follow_tests {
-    use crate::methods::{self, Capability, Changes, Program, Query};
+    use crate::methods::{self, Capability, Change, Changes, Program, Query};
     use crate::testing::{Probe, TestAppContext};
     use crate::wire::Event;
     use crate::{Context, IntoElement, Loadable, ParentElement, Render, Task, View, Window};
     use serde::{Deserialize, Serialize};
     use std::{cell::Cell, rc::Rc};
+
+    /// A block at `height` that wrote nothing a query declares.
+    fn block(height: u64) -> Option<Change> {
+        Some(Change {
+            height,
+            keys: Vec::new(),
+        })
+    }
 
     /// Counts the heads a program's live stream announces.
     #[derive(Default, Serialize, Deserialize)]
@@ -394,7 +402,7 @@ mod follow_tests {
         cx.open::<Count>();
         assert!(cx.has_text("5"), "{:?}", cx.texts());
         let renders = cx.renders();
-        feed.send(Some(1));
+        feed.send(block(1));
         cx.run_until_parked();
         assert_eq!(
             cx.host().requests::<Query<Counter>>().len(),
@@ -403,7 +411,7 @@ mod follow_tests {
         );
         assert_eq!(cx.renders() - renders, 0, "the same count drew nothing");
         count.set(6);
-        feed.send(Some(2));
+        feed.send(block(2));
         cx.run_until_parked();
         assert!(cx.has_text("6"), "{:?}", cx.texts());
         assert_eq!(cx.renders() - renders, 1, "a moved count draws once");
@@ -419,7 +427,7 @@ mod follow_tests {
         let view = cx.open::<Count>();
         cx.host()
             .refuse::<Query<Counter>>("stale", "the counter moved on");
-        feed.send(Some(1));
+        feed.send(block(1));
         cx.run_until_parked();
         view.read(|view| {
             let refusal = view.value.failed().expect("the refusal landed");

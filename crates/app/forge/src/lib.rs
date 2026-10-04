@@ -43,6 +43,15 @@ pub use description::describe;
 pub use ops::MODULE;
 pub use program::Forge;
 
+/// Every table forge keeps, as a block's writes name them: what a follower
+/// of `module.changes` plays back in a test to say which a block touched.
+pub mod tables {
+    pub use crate::state::{
+        ACTIVITY, AUTHORED, BOUNDS, CHANGES, INVOLVED, MESSAGES, NUMBERS, REFS, REPOS, REVIEWS,
+        WRITERS, WRITES,
+    };
+}
+
 /// Old op bytes are described with the current code (`describe`): the op
 /// enum only grows at its end. Append a new variant here; never reorder.
 /// (Grant, Revoke, ChangeOpen and ChangeEdit name principals since the stage

@@ -46,6 +46,15 @@ pub use queries::roots_below;
 pub use store::{Cursor, PageRequest, PageResponse};
 pub use text::{plain_text, tags, tokens};
 
+/// Every table chat keeps, as a block's writes name them: what a follower
+/// of `module.changes` plays back in a test to say which a block touched.
+pub mod tables {
+    pub use crate::state::{
+        ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS,
+        REPLIES, ROOTS, TAGS, WORDS,
+    };
+}
+
 /// The name this module runs under.
 pub const MODULE: &str = "chat";
 
@@ -123,25 +132,34 @@ pub enum Op {
 
 /// A read. `viewer` is the reader's principals: they decide
 /// [`Reaction::reacted_by_me`]. Every list takes a [`PageRequest`] and answers a
-/// [`PageResponse`] whose `next` resumes it.
+/// [`PageResponse`] whose `next` resumes it. Each variant names the tables
+/// it is answered from (`#[reads]`, [`program::Reads`]), so a view following
+/// `module.changes` re-reads it only for a block that wrote to one of them;
+/// a read of message rows follows `REACTIONS` too, since the viewer's own
+/// reactions are read onto the rows.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ::program::Ask)]
 #[ask(Chat)]
 pub enum Query {
     #[ask(Reply::Channels(PageResponse<ChannelInfo>))]
+    #[reads(state::CHANNELS, state::HEADS)]
     Channels { page: PageRequest },
     #[ask(Reply::Channel(Option<ChannelInfo>))]
+    #[reads(state::CHANNELS, state::HEADS)]
     Channel { channel_id: String },
     /// The message an emitted id names (forge finds its own posts so).
     #[ask(Reply::Message(Option<MsgRow>))]
+    #[reads(state::MESSAGE_IDS, state::MESSAGES, state::REACTIONS)]
     MessageById { message_id: String },
     /// The author's most recently answered thread in this channel, if any.
     #[ask(Reply::Attention(Option<MsgRow>))]
+    #[reads(state::ANSWERED, state::MESSAGES, state::REACTIONS)]
     ThreadAttention {
         channel_id: String,
         author: Principal,
     },
     /// One page of timeline roots, newest first.
     #[ask(Reply::Roots(PageResponse<MsgRow>))]
+    #[reads(state::ROOTS, state::MESSAGES, state::REACTIONS)]
     Roots {
         channel_id: String,
         viewer: Vec<Principal>,
@@ -149,6 +167,7 @@ pub enum Query {
     },
     /// `page.limit` messages centred on `seq`.
     #[ask(Reply::Messages(Vec<MsgRow>))]
+    #[reads(state::MESSAGES, state::REACTIONS)]
     MessagesAround {
         channel_id: String,
         seq: u64,
@@ -157,6 +176,7 @@ pub enum Query {
     },
     /// The root plus one page of replies, in post order.
     #[ask(Reply::Thread { root: Option<MsgRow>, replies: PageResponse<MsgRow> })]
+    #[reads(state::REPLIES, state::MESSAGES, state::REACTIONS)]
     Thread {
         channel_id: String,
         root_seq: u64,
@@ -164,12 +184,14 @@ pub enum Query {
         page: PageRequest,
     },
     #[ask(Reply::Members(PageResponse<MemberRow>))]
+    #[reads(state::MEMBERS)]
     Members {
         channel_id: String,
         page: PageRequest,
     },
     /// Every token of `text`, newest first, at most `page.limit` hits.
     #[ask(Reply::Hits(MessageHits))]
+    #[reads(state::WORDS, state::MESSAGES, state::REACTIONS)]
     Search {
         text: String,
         viewer: Vec<Principal>,
@@ -177,6 +199,7 @@ pub enum Query {
         page: PageRequest,
     },
     #[ask(Reply::TagHits(PageResponse<MsgRow>))]
+    #[reads(state::TAGS, state::CHANNEL_TAGS, state::MESSAGES, state::REACTIONS)]
     TagSearch {
         tag: String,
         viewer: Vec<Principal>,
@@ -184,7 +207,9 @@ pub enum Query {
         page: PageRequest,
     },
     /// Every account's profile, ascending by number, a page at a time:
-    /// the module asks the identity role, so a view links one module.
+    /// the module asks the identity role, so a view links one module. It
+    /// reads nothing of chat's: it moves with identity's blocks, which a
+    /// view follows apart.
     #[ask(Reply::Accounts(PageResponse<Profile>))]
     Accounts { page: PageRequest },
 }

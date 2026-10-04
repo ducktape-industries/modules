@@ -382,7 +382,7 @@ mod tests;
 EOF
     cat > "$dir/src/tests.rs" <<EOF
 use super::*;
-use ducktape_view_guest::methods::Query;
+use ducktape_view_guest::methods::{Change, Query};
 use ducktape_view_guest::testing::TestAppContext;
 
 fn ready() -> TestAppContext {
@@ -402,7 +402,10 @@ fn a_refused_re_read_says_why() {
     let bumps = cx.host().stream::<Changes<$program_snake::$title>>();
     cx.host()
         .refuse::<Query<$program_snake::$title>>("unavailable", "The count cannot be read.");
-    bumps.send(Some(2));
+    bumps.send(Some(Change {
+        height: 2,
+        keys: Vec::new(),
+    }));
     cx.run_until_parked();
     assert!(cx.has_text("The count cannot be read."), "{:?}", cx.texts());
 }

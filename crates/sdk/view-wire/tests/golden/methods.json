@@ -240,7 +240,19 @@
   {
     "kind": "module.changes",
     "request": null,
-    "reply": 9
+    "reply": {
+      "height": 9,
+      "keys": [
+        [
+          97,
+          47,
+          49
+        ],
+        [
+          98
+        ]
+      ]
+    }
   },
   {
     "kind": "module.changes",
