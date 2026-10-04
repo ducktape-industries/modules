@@ -243,6 +243,8 @@ enum Stop {
     Occludes,
     /// The button is in a dialog opened over the card's content.
     Dialog,
+    /// The button is in a toolbar that consumes a click it does not take.
+    Toolbar,
 }
 impl View for Card {
     const NAME: &'static str = "Card";
@@ -276,6 +278,11 @@ impl Render for Card {
                     crate::modal_overlay("dialog", "Delete?", crate::div(), Some(delete))
                         .into_any_element()
                 }
+                Stop::Toolbar => crate::div()
+                    .id("toolbar")
+                    .consumes_click()
+                    .child(delete)
+                    .into_any_element(),
             })
     }
 }
@@ -302,6 +309,21 @@ fn a_click_reaches_the_nodes_around_it_until_one_consumes_it() {
         cx.simulate_click("delete");
         card.read(|view| assert_eq!(view.heard, heard));
     }
+}
+
+/// A node that consumes a click with no click of its own: the host stops a
+/// click in the click's listener, so in the app the card would still hear
+/// the press. The host refuses the frame, and so the view's test fails.
+#[test]
+#[should_panic(expected = "consumes a click it does not take")]
+fn a_click_consumed_where_no_click_is_taken_fails_the_test() {
+    let mut cx = TestAppContext::new();
+    let card = cx.open::<Card>();
+    cx.update(&card, |view, _, cx| {
+        view.stop = Stop::Toolbar;
+        cx.notify();
+    });
+    cx.run_until_parked();
 }
 
 /// Twins: two siblings with one typed id, which the audit (it keys on

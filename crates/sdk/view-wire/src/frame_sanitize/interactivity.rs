@@ -35,6 +35,11 @@ pub(super) fn sanitize_interactivity(
     }) {
         return Err("a consumed key gpui cannot read");
     }
+    // the host stops a consumed click in the node's click listener; a node
+    // with none would cross and stop nothing
+    if interactivity.consumes_click && interactivity.on_click.is_none() {
+        return Err("consumes a click it does not take");
+    }
     for style in [&mut interactivity.hover, &mut interactivity.active]
         .into_iter()
         .flatten()

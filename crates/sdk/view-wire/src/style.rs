@@ -48,7 +48,8 @@ pub struct Interactivity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_aux_click: Option<u32>,
     /// The click consumes its press: the host stops the pointer's click at
-    /// this node, so nothing under it hears the same press.
+    /// this node, so nothing under it hears the same press. It needs
+    /// `on_click`, where the host stops it; without one the frame is refused.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub consumes_click: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -79,6 +79,26 @@ fn sanitize_refuses_a_consumed_key_gpui_cannot_read() {
 }
 
 #[test]
+fn sanitize_refuses_a_consumed_click_with_no_click() {
+    let frame = |on_click| Frame {
+        root: Some(Node::Container(ContainerNode {
+            interactivity: Box::new(Interactivity {
+                on_click,
+                consumes_click: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })),
+        ..Frame::default()
+    };
+    assert!(sanitize(&mut frame(Some(1))).unwrap().is_empty());
+    assert_eq!(
+        sanitize(&mut frame(None)),
+        Err(Refused::Invalid("consumes a click it does not take"))
+    );
+}
+
+#[test]
 fn decode_refuses_more_actions_than_a_node_advertises() {
     refused_past(
         |len| Aria {

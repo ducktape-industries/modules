@@ -659,7 +659,9 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     /// the listener; a guest listener runs too late for that, so it says
     /// so up front. A focusable element whose keyboard click must not
     /// reach a composite around it consumes Enter and Space too, with
-    /// [`InteractiveElement::consumes_keys`].
+    /// [`InteractiveElement::consumes_keys`]. It needs an `on_click`, in
+    /// whose listener the host stops the press: without one the host
+    /// refuses the frame, and the view's test fails.
     fn consumes_click(mut self) -> Self {
         self.interactivity().consumes_click = true;
         self
