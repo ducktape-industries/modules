@@ -42,6 +42,42 @@ fn decode_refuses_more_consumed_keys_than_a_node_takes() {
     assert!(refused.contains("too many consumed keys"), "{refused}");
 }
 
+/// A consumed key the host cannot read is refused, not dropped: it would
+/// cross and stop nothing, and the view's test would pass.
+#[test]
+fn sanitize_refuses_a_consumed_key_gpui_cannot_read() {
+    use view_wire::interactivity::{MAX_CONSUMED_KEYS, MAX_KEYSTROKE_BYTES};
+    let frame = |keys: Vec<String>| Frame {
+        root: Some(Node::Container(ContainerNode {
+            interactivity: Box::new(Interactivity {
+                consumes_keys: keys.into_iter().map(Into::into).collect(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })),
+        ..Frame::default()
+    };
+    let sanitized =
+        |keys: &[&str]| sanitize(&mut frame(keys.iter().map(|k| k.to_string()).collect()));
+    assert!(
+        sanitized(&["escape", "shift-tab", "ctrl-enter"])
+            .unwrap()
+            .is_empty()
+    );
+    let long = "a".repeat(MAX_KEYSTROKE_BYTES + 1);
+    for unread in ["esc-ape", "ctrl-a-b", long.as_str()] {
+        assert_eq!(
+            sanitized(&["escape", unread]),
+            Err(Refused::Invalid("a consumed key gpui cannot read")),
+            "{unread:?}"
+        );
+    }
+    assert_eq!(
+        sanitized(&["escape"; MAX_CONSUMED_KEYS + 1]),
+        Err(Refused::Invalid("too many consumed keys"))
+    );
+}
+
 #[test]
 fn decode_refuses_more_actions_than_a_node_advertises() {
     refused_past(

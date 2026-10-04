@@ -24,12 +24,16 @@ pub(super) fn sanitize_interactivity(
     {
         style_sanitize::sanitize(style)?;
     }
-    let keys = &mut interactivity.consumes_keys;
-    keys.truncate(crate::interactivity::MAX_CONSUMED_KEYS);
-    for key in keys {
-        let mut bounded = key.to_string();
-        truncate_to(&mut bounded, crate::interactivity::MAX_KEYSTROKE_BYTES);
-        *key = bounded.into();
+    // a key cut short, or one gpui cannot read, would cross and stop nothing
+    let keys = &interactivity.consumes_keys;
+    if keys.len() > crate::interactivity::MAX_CONSUMED_KEYS {
+        return Err("too many consumed keys");
+    }
+    if keys.iter().any(|key| {
+        key.len() > crate::interactivity::MAX_KEYSTROKE_BYTES
+            || gpui::Keystroke::parse(key).is_err()
+    }) {
+        return Err("a consumed key gpui cannot read");
     }
     for style in [&mut interactivity.hover, &mut interactivity.active]
         .into_iter()
