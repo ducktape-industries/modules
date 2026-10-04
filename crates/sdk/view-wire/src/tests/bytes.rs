@@ -55,7 +55,9 @@ fn a_request_payload_crosses_as_bin() {
         },
         &mixed(),
     );
-    // The envelope of a node method, when it crosses the tree's codec.
+    // A node method's envelope crosses as borsh (`methods::encode`), never
+    // through this codec. Its serde derive is what `schema.txt` traces, so
+    // its body is marked like any other byte field, and reads back.
     crosses_as_bin(
         methods::Call {
             target: "chat".into(),
