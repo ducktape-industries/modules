@@ -158,6 +158,9 @@ impl ListState {
     pub fn is_following_tail(&self) -> bool {
         self.0.inner.borrow().following_tail
     }
+    pub(crate) fn is(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
     /// A request next to the window grows it rather than replacing it: the
     /// host asks for the rows it is missing, not for all it shows, so
     /// replacing dropped the rows on screen and the next frame asked for those
@@ -264,6 +267,10 @@ pub struct List {
 /// that can move (history landing above it) its item's key as its id, and
 /// its listeners stay its own wherever it goes. Two rows named by one key
 /// are refused, naming the id and its scope.
+///
+/// A `state` is one list's: it holds that list's window of rows and the
+/// commands waiting for it, so two lists drawn with one state in a frame
+/// are refused, naming both. Two lists of the same items take two states.
 pub fn list(
     id: impl Into<ElementId>,
     state: ListState,
@@ -301,6 +308,7 @@ impl Element for List {
             style,
             sizing_behavior,
         } = *self;
+        lowering.draws_list(&state);
         let request_state = state.clone();
         let request_handler = lowering.route(
             crate::slots::Kind::ListRequest,
@@ -657,5 +665,42 @@ mod tests {
         }]);
         first_view.read(|view| assert_eq!(view.rendered.last().copied(), Some(8)));
         second_view.read(|view| assert_eq!(view.rendered.last().copied(), Some(1_999)));
+    }
+
+    /// One state, drawn by the lists `first` and `second` under `page`.
+    #[derive(Default, Serialize, Deserialize)]
+    struct Shared {
+        #[serde(skip)]
+        state: ListState,
+    }
+    impl View for Shared {
+        const NAME: &'static str = "Shared";
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self {
+                state: ListState::new(500, ListAlignment::Top, px(40.)),
+            }
+        }
+    }
+    impl Render for Shared {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let rows = |id: &'static str| {
+                list(id, self.state.clone(), |index, _, _| {
+                    div().child(index.to_string()).into_any_element()
+                })
+            };
+            div().id("page").child(rows("first")).child(rows("second"))
+        }
+    }
+
+    /// A state holds one list's window and the commands waiting for it:
+    /// drawn by two lists, the first took the commands and each one's
+    /// requests moved the other's rows, with nothing said.
+    #[test]
+    #[should_panic(
+        expected = "one ListState drawn by two lists: [Name(\"page\"), Name(\"first\")] \
+                    and [Name(\"page\"), Name(\"second\")]"
+    )]
+    fn one_state_drawn_by_two_lists_is_refused_naming_both() {
+        TestAppContext::new().open::<Shared>();
     }
 }

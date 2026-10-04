@@ -118,6 +118,8 @@ pub struct Lowering<'a> {
     authored_path: Vec<wire::ElementIdWire>,
     /// The index of the list row whose root lowers next ([`Self::lower_row`]).
     row: Option<usize>,
+    /// The state of each list lowered so far, beside that list's path.
+    lists: Vec<(crate::ListState, Vec<wire::ElementIdWire>)>,
 }
 
 /// An authored [`ElementId`] as the wire carries it. Every id a view can
@@ -135,6 +137,7 @@ impl<'a> Lowering<'a> {
             app,
             authored_path: Vec::new(),
             row: None,
+            lists: Vec::new(),
         }
     }
 
@@ -147,6 +150,7 @@ impl<'a> Lowering<'a> {
             app,
             authored_path: Vec::new(),
             row: None,
+            lists: Vec::new(),
         }
     }
 
@@ -205,6 +209,20 @@ impl<'a> Lowering<'a> {
         let node = self.lower_element(element);
         debug_assert!(self.row.is_none(), "a row lowers to a node");
         node
+    }
+
+    /// The list being lowered draws `state`. A state is one list's (its
+    /// window of rows, the commands waiting for it), so a second list
+    /// drawing it in this frame is refused, naming both.
+    pub(crate) fn draws_list(&mut self, state: &crate::ListState) {
+        if let Some((_, first)) = self.lists.iter().find(|(drawn, _)| drawn.is(state)) {
+            panic!(
+                "one ListState drawn by two lists: {first:?} and {:?}; each list takes a state \
+                 of its own",
+                self.authored_path
+            );
+        }
+        self.lists.push((state.clone(), self.authored_path.clone()));
     }
 
     pub(crate) fn current_path(&self) -> &[wire::ElementIdWire] {
