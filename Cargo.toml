@@ -9,7 +9,7 @@
 #                   runs a module natively), `store` (optional typed tables
 #                   and paging over guest's contexts), `ducklink` (the `duck://`
 #                   grammar), the view contract (`view-wire`,
-#                   `view-guest`, `design`), and `conformance` (the
+#                   `ducktape-view-guest`, `design`), and `conformance` (the
 #                   role suite a module proves it fills a role with)
 #   crates/system/  the boot set: module-registry, valset and identity, one
 #                   crate each in the same shape as the app programs; the
@@ -23,7 +23,7 @@
 #                   walks, diffs, the wire's server side)
 #
 # A view links its module by path and reads its types; a view is a cdylib for
-# wasm32-unknown-unknown on `view-guest`. The host that runs the programs
+# wasm32-unknown-unknown on `ducktape-view-guest`. The host that runs the programs
 # (runtime, state, blobs, host, node, consensus, the daemon) lives in ducktape,
 # and `crates/sdk/abi` is a copy of its `crates/kernel/abi`: the `[patch]`
 # below makes the host the suite links compile against the copy, so a copy
@@ -77,7 +77,7 @@ design = { path = "crates/sdk/design" }
 view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }
 conformance = { path = "crates/sdk/conformance" }
-ducktape-view-guest = { path = "crates/sdk/view-guest", package = "view-guest" }
+ducktape-view-guest = { path = "crates/sdk/view-guest" }
 gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "ec44f1bba7cae8ec040ec8180e274e0718a30281", default-features = false }
 module-registry = { path = "crates/system/module-registry" }
 valset = { path = "crates/system/valset" }

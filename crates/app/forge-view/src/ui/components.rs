@@ -1,5 +1,5 @@
 //! The repeated shapes of this view; the ones every view shares (button,
-//! empty state, heading, quiet line) come from `view_guest::design`.
+//! empty state, heading, quiet line) come from `ducktape_view_guest::design`.
 use std::ops::Range;
 use std::rc::Rc;
 

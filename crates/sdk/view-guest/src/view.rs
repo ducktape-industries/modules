@@ -40,7 +40,7 @@ pub trait View: Render + Serialize + DeserializeOwned + Default {
     ///
     /// ```
     /// # use serde::{Deserialize, Serialize};
-    /// # use view_guest::{Context, IntoElement, Render, View, Window, div};
+    /// # use ducktape_view_guest::{View, prelude::*};
     /// #[derive(Default, Serialize, Deserialize)]
     /// struct Wide;
     /// impl View for Wide {
@@ -52,7 +52,7 @@ pub trait View: Render + Serialize + DeserializeOwned + Default {
     /// #         div()
     /// #     }
     /// # }
-    /// view_guest::export_view!(Wide);
+    /// ducktape_view_guest::export_view!(Wide);
     /// # fn main() {}
     /// ```
     ///
@@ -60,7 +60,7 @@ pub trait View: Render + Serialize + DeserializeOwned + Default {
     ///
     /// ```compile_fail,E0080
     /// # use serde::{Deserialize, Serialize};
-    /// # use view_guest::{Context, IntoElement, Render, View, Window, div};
+    /// # use ducktape_view_guest::{View, prelude::*};
     /// #[derive(Default, Serialize, Deserialize)]
     /// struct Zero;
     /// impl View for Zero {
@@ -72,7 +72,7 @@ pub trait View: Render + Serialize + DeserializeOwned + Default {
     /// #         div()
     /// #     }
     /// # }
-    /// view_guest::export_view!(Zero);
+    /// ducktape_view_guest::export_view!(Zero);
     /// # fn main() {}
     /// ```
     const MIN_WINDOW_WIDTH: u32 = 480;

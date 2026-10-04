@@ -119,7 +119,7 @@ call `.detach()`; dropping it cancels the future and any owned subscription.
 Consume host streams with `while let Some(item) = stream.next().await` and update
 through `WeakEntity`. `TestAppContext` supplies typed fake handlers and feeds,
 input simulation, and tree assertions. See `examples/exported_view.rs` in
-`view-guest` for a whole view, and each app view's `src/tests.rs` (chat and
+`ducktape-view-guest` for a whole view, and each app view's `src/tests.rs` (chat and
 explorer: `src/tests/`) for its tests.
 
 Snapshot/restore transfers the root view's serde state, not entity identities.

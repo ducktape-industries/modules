@@ -5,8 +5,8 @@
 //!
 //! ```
 //! # use serde::{Deserialize, Serialize};
-//! # use view_guest::prelude::*;
-//! # use view_guest::{View, testing::TestAppContext};
+//! # use ducktape_view_guest::prelude::*;
+//! # use ducktape_view_guest::{View, testing::TestAppContext};
 //! #[derive(Default, Serialize, Deserialize)]
 //! struct Rows;
 //! impl View for Rows {

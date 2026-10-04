@@ -144,7 +144,7 @@ impl App {
     ///
     /// ```
     /// # use serde::{Deserialize, Serialize};
-    /// use view_guest::{View, prelude::*, testing::TestAppContext};
+    /// use ducktape_view_guest::{View, prelude::*, testing::TestAppContext};
     ///
     /// struct Counter {
     ///     count: usize,

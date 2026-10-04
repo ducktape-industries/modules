@@ -173,7 +173,7 @@ pub fn diff(old: &mut Node, new: &mut Node) -> Vec<Patch> {
 /// back instead of cloning it: a patch's path and index are the position of
 /// its node in `new`, since removes come first at every level and the
 /// inserts and moves before an index have already been emitted when it is
-/// reached. Plumbing for view-guest's driver, not a view's API.
+/// reached. Plumbing for ducktape-view-guest's driver, not a view's API.
 #[doc(hidden)]
 pub fn diff_taking(old: &mut Node, new: &mut Node) -> Vec<Patch> {
     let mut patches = Vec::new();
