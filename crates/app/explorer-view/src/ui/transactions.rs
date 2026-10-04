@@ -22,6 +22,7 @@ pub(super) fn transactions(
             true,
             true,
         )
+        .edge()
         .build(cx)
     });
     let title = match &program {
@@ -41,18 +42,22 @@ pub(super) fn transactions(
         .min_h(px(0.))
         .flex()
         .flex_col()
-        .child(heading(
-            "explorer-transactions-heading",
-            &title,
-            Some(caption(
-                format!(
-                    "{} in the last {window}",
-                    plural(matching as u64, "transaction", "transactions")
-                ),
+        // the heading ends where it does under a page that scrolls
+        .child(
+            heading(
+                "explorer-transactions-heading",
+                &title,
+                Some(caption(
+                    format!(
+                        "{} in the last {window}",
+                        plural(matching as u64, "transaction", "transactions")
+                    ),
+                    theme,
+                )),
                 theme,
-            )),
-            theme,
-        ))
+            )
+            .mr(design::size::SCROLLBAR),
+        )
         .children(rows)
         .children(empty)
         .into_any_element()
