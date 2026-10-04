@@ -59,14 +59,11 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyE
             false,
             true,
         )
+        .whole(view, cx, theme)
         .build(cx)
     });
     div()
         .id("explorer-block")
-        .flex_1()
-        .min_h(px(0.))
-        .flex()
-        .flex_col()
         .child(title(view, height, cx, theme))
         .child(field("Hash", mono(abi::hex(&block.id)), theme))
         .child(field("Parent", parent(&block, cx, theme), theme))

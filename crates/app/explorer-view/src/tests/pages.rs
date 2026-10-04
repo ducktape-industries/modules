@@ -689,3 +689,36 @@ fn the_transactions_list_keeps_the_bars_gutter_at_the_panes_edge() {
         "the box reaches the edge"
     );
 }
+
+/// Only the Transactions page draws its rows as a window. An account's
+/// Activity sits beside a column, a block's transactions under its fields,
+/// each in a page that scrolls whole: they are drawn whole, every row, so
+/// the page is laid out by its rows.
+#[test]
+fn an_accounts_activity_and_a_blocks_transactions_are_drawn_whole() {
+    let mut cx = TestAppContext::new();
+    heavy(&mut cx);
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    let block = format!("explorer-block-{WINDOW}");
+    cx.simulate_click(&block);
+    cx.run_until_parked();
+    assert!(cx.find("explorer-block").is_some(), "{:?}", cx.texts());
+    assert!(cx.find(&format!("explorer-tx-{WINDOW}-0")).is_some());
+    assert!(
+        cx.find("explorer-block-txs-rows").is_none(),
+        "a block's transactions are no window"
+    );
+    cx.simulate_input("explorer-search", "ada");
+    cx.simulate_submit("explorer-search");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-activity").is_some(), "{:?}", cx.texts());
+    assert!(
+        cx.find("explorer-activity-list-rows").is_none(),
+        "an account's activity is no window"
+    );
+    // Ada signed every transaction in the window: the fifty the list draws
+    let row = |index: usize| format!("explorer-tx-{}-0", WINDOW - index);
+    assert!(cx.find(&row(0)).is_some() && cx.find(&row(49)).is_some());
+    assert!(cx.find(&row(50)).is_none());
+}

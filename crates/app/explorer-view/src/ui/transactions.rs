@@ -22,7 +22,6 @@ pub(super) fn transactions(
             true,
             true,
         )
-        .edge()
         .build(cx)
     });
     let title = match &program {

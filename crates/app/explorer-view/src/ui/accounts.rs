@@ -111,6 +111,7 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
             true,
             false,
         )
+        .whole(view, cx, theme)
         .build(cx)
     });
     let empty = sent.is_empty().then(|| {
@@ -123,9 +124,6 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
     let activity = div()
         .id("explorer-activity")
         .flex_1()
-        .min_w(px(0.))
-        .flex()
-        .flex_col()
         .border_r_1()
         .border_color(theme.border)
         .child(heading(

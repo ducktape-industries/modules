@@ -95,7 +95,7 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
     }
     // A page scrolls, and the SDK keeps its right edge for the bar. The
     // Transactions page is a heading over a list that scrolls for it
-    // ([`Rows::edge`]): the page is no scroller there, so the list reaches
+    // ([`Rows::shown`]): the page is no scroller there, so the list reaches
     // the pane's edge and its bar sits where the other pages' bar does.
     let scroller = div().id("explorer-page").flex_1().flex().flex_col();
     let scroller = match view.route {
@@ -312,8 +312,9 @@ fn row(id: ElementId, label: String, route: Route, cx: Cx, theme: &Theme) -> Sta
 /// this list, else the first. Rows handed over built ([`Rows::row`]) are
 /// drawn whole, with notes (a run of empty blocks) between them unroled;
 /// rows the list paints when asked ([`Rows::shown`]) are drawn as a
-/// `uniform_list`: the screenful the host shows and a margin, scrolled to
-/// the row the arrows move to ahead of the frame that claims it.
+/// `uniform_list` that scrolls for its page: the screenful the host shows
+/// and a margin, scrolled to the row the arrows move to ahead of the frame
+/// that claims it.
 struct Rows {
     id: &'static str,
     label: &'static str,
@@ -322,7 +323,6 @@ struct Rows {
     routes: Vec<Route>,
     children: Vec<AnyElement>,
     paint: Option<Painter>,
-    edge: bool,
 }
 
 /// Paints a range of a list's rows, each a [`row`], off the view they are
@@ -342,7 +342,6 @@ fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
         routes: Vec::new(),
         children: Vec::new(),
         paint: None,
-        edge: false,
     }
 }
 
@@ -366,7 +365,10 @@ impl Rows {
         self
     }
     /// `routes.len()` rows the host asks for by index, painted as it shows
-    /// them.
+    /// them. They scroll for their page, which is no scroller then
+    /// ([`render`]): the list reaches the pane's edge and keeps the bar's
+    /// gutter there itself, as a page that scrolls is given one, so the
+    /// host draws the bar beside the rows, not over them.
     fn shown(
         mut self,
         routes: Vec<Route>,
@@ -376,17 +378,10 @@ impl Rows {
         self.paint = Some(Box::new(paint));
         self
     }
-    /// The painted rows scroll for their page, which is no scroller then
-    /// ([`render`]): the list reaches the pane's edge and keeps the bar's
-    /// gutter there itself, as a page that scrolls is given one, so the
-    /// host draws the bar beside the rows, not over them.
-    fn edge(mut self) -> Self {
-        self.edge = true;
-        self
-    }
-    /// The painted rows built now, drawn whole: for a few rows in a flow
-    /// layout (the Overview's panels), where a window buys nothing and a
-    /// list sized by its box has no height to size from.
+    /// The painted rows built now, drawn whole: for a list in a page that
+    /// scrolls (the Overview's panels, a block's transactions, an account's
+    /// activity), which is laid out by its rows; a list sized by its box
+    /// has no size of its own to give.
     fn whole(mut self, view: &Explorer, cx: Cx, theme: &Theme) -> Self {
         if let Some(paint) = self.paint.take() {
             let rows = paint(view, 0..self.routes.len(), cx, theme);
@@ -408,7 +403,6 @@ impl Rows {
             routes,
             children,
             paint,
-            edge,
         } = self;
         let count = routes.len();
         let active = active.min(count.saturating_sub(1));
@@ -448,7 +442,7 @@ impl Rows {
         .track_scroll(&scroll)
         .flex_1()
         .min_h(px(0.))
-        .when(edge, |window| window.pr(design::size::SCROLLBAR));
+        .pr(design::size::SCROLLBAR);
         list.flex_1().min_h(px(0.)).flex().flex_col().child(window)
     }
 }
