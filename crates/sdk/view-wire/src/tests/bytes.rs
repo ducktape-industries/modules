@@ -35,7 +35,7 @@ fn a_reply_crosses_as_bin() {
         result: Ok(mixed()),
         done: true,
     };
-    // {9: [1, {0: bin}, true]}: ten bytes around the payload.
+    // {31: [1, {0: bin}, true]}: ten bytes around the payload.
     assert_eq!(encode(&reply).len(), 50_010);
     crosses_as_bin(reply, &mixed());
 }
@@ -107,6 +107,51 @@ fn an_element_id_crosses_as_bin() {
     // {3: bin} of the wrong length for what it names.
     let error = decode::<ElementIdWire>(&[0x81, 0x03, 0xc4, 0x02, 9, 9]).unwrap_err();
     assert!(error.contains("invalid length 2"), "{error}");
+    // {3: bin} one byte longer than a Uuid: refused by its bound.
+    let mut long = vec![0x81, 0x03, 0xc4, 17];
+    long.extend([9; 17]);
+    let error = decode::<ElementIdWire>(&long).unwrap_err();
+    assert!(error.contains("a Uuid is 16 bytes"), "{error}");
+}
+
+/// `bin` is MessagePack's. A wire type written as JSON (a screen export,
+/// read back by the app's `--render-tree`) holds its bytes the way JSON
+/// does, and reads them back under the same bounds.
+#[test]
+fn bytes_read_back_from_json() {
+    fn json<T>(value: T)
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+    {
+        let text = serde_json::to_string(&value).unwrap();
+        assert_eq!(serde_json::from_str::<T>(&text).unwrap(), value, "{text}");
+    }
+    json(Frame {
+        root: Some(picture(Some(vec![1, 2, 200]))),
+        requests: vec![Request {
+            id: 1,
+            kind: "module.query".into(),
+            payload: vec![1, 2, 200],
+        }],
+        ..Default::default()
+    });
+    json(Event::Response {
+        id: 1,
+        result: Ok(vec![1, 2, 200]),
+        done: true,
+    });
+    json(ImageData::Encoded(vec![1, 2, 200]));
+    json(ElementIdWire::Path(b"a/b".to_vec()));
+    json(ElementIdWire::Uuid([0xc8; 16]));
+    json(ElementIdWire::NamedChild {
+        base: ElementIdAtom::OpaqueId([0xc8; 20]),
+        names: vec!["row".into()],
+    });
+    let error = serde_json::from_str::<ElementIdWire>(r#"{"Uuid":[1,2]}"#).unwrap_err();
+    assert!(error.to_string().contains("invalid length 2"), "{error}");
+    let long = format!(r#"{{"Uuid":{:?}}}"#, [1; 17]);
+    let error = serde_json::from_str::<ElementIdWire>(&long).unwrap_err();
+    assert!(error.to_string().contains("a Uuid is 16 bytes"), "{error}");
 }
 
 /// The one shape a byte field reads is `bin`: the array of integers it

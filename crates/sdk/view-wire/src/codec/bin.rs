@@ -33,6 +33,10 @@ pub(crate) fn deserialize<'de, T: Bin, D: Deserializer<'de>>(
 
 /// Reads a `bin` of at most `limit` bytes and refuses a longer one as
 /// `message`, before anything is allocated for it.
+///
+/// `bin` is MessagePack's. A format people read (the JSON a screen export
+/// writes a frame as) has no byte string: `serialize_bytes` writes its own
+/// list there, and that list is read back under the same bound.
 pub(crate) fn bounded<'de, D: Deserializer<'de>>(
     deserializer: D,
     limit: usize,
@@ -51,7 +55,10 @@ pub(crate) fn bounded<'de, D: Deserializer<'de>>(
             Ok(bytes.to_vec())
         }
     }
-    deserializer.deserialize_bytes(Bytes(limit, message))
+    match deserializer.is_human_readable() {
+        true => crate::bounded_vec(deserializer, limit, message),
+        false => deserializer.deserialize_bytes(Bytes(limit, message)),
+    }
 }
 
 /// Bounded by what holds it: a `bin` is never longer than the bytes it was
@@ -66,9 +73,9 @@ impl Bin for Vec<u8> {
 }
 
 /// Bytes of a fixed length cross as a `bin` too. A `bin` says its own
-/// length and its reader takes any, so one is read as a `Vec<u8>` by the
-/// shape the type decodes through, and [`fixed`] checks it there: an
-/// element id's `Uuid` does.
+/// length, so the shape the type decodes through reads one as a `Vec<u8>`
+/// [`bounded`] by that length (a longer one is refused before the copy),
+/// and [`fixed`] refuses a shorter one: an element id's `Uuid` does.
 pub(crate) fn serialize_fixed<const N: usize, S: Serializer>(
     bytes: &[u8; N],
     serializer: S,

@@ -4,7 +4,7 @@
 //! `NamedChild` is stored as one atom plus a bounded list of names. This keeps
 //! decoding iterative and prevents attacker-controlled recursive allocation.
 
-use crate::codec::bin::fixed;
+use crate::codec::bin::{bounded, fixed};
 use gpui::{ElementId, EntityId, FocusId, SharedString};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{path::PathBuf, sync::Arc};
@@ -67,7 +67,7 @@ impl<'de> Deserialize<'de> for ElementIdAtom {
             View(u64),
             Integer(u64),
             Name(SharedString),
-            Uuid(#[serde(with = "crate::codec::bin")] Vec<u8>),
+            Uuid(#[serde(deserialize_with = "uuid_bytes")] Vec<u8>),
             FocusHandle(u64),
             NamedInteger(SharedString, u64),
             Path(#[serde(with = "crate::codec::bin")] Vec<u8>),
@@ -76,7 +76,7 @@ impl<'de> Deserialize<'de> for ElementIdAtom {
                 line: u32,
                 column: u32,
             },
-            OpaqueId(#[serde(with = "crate::codec::bin")] Vec<u8>),
+            OpaqueId(#[serde(deserialize_with = "opaque_id_bytes")] Vec<u8>),
         }
 
         Ok(match AtomRepr::deserialize(deserializer)? {
@@ -105,7 +105,7 @@ impl<'de> Deserialize<'de> for ElementIdWire {
             View(u64),
             Integer(u64),
             Name(SharedString),
-            Uuid(#[serde(with = "crate::codec::bin")] Vec<u8>),
+            Uuid(#[serde(deserialize_with = "uuid_bytes")] Vec<u8>),
             FocusHandle(u64),
             NamedInteger(SharedString, u64),
             Path(#[serde(with = "crate::codec::bin")] Vec<u8>),
@@ -119,7 +119,7 @@ impl<'de> Deserialize<'de> for ElementIdWire {
                 #[serde(deserialize_with = "deserialize_names")]
                 names: Vec<SharedString>,
             },
-            OpaqueId(#[serde(with = "crate::codec::bin")] Vec<u8>),
+            OpaqueId(#[serde(deserialize_with = "opaque_id_bytes")] Vec<u8>),
         }
 
         Ok(match WireRepr::deserialize(deserializer)? {
@@ -137,6 +137,14 @@ impl<'de> Deserialize<'de> for ElementIdWire {
             WireRepr::OpaqueId(id) => Self::OpaqueId(fixed(id)?),
         })
     }
+}
+
+fn uuid_bytes<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+    bounded(deserializer, 16, "a Uuid is 16 bytes")
+}
+
+fn opaque_id_bytes<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+    bounded(deserializer, 20, "an OpaqueId is 20 bytes")
 }
 
 fn deserialize_names<'de, D>(deserializer: D) -> Result<Vec<SharedString>, D::Error>

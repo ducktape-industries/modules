@@ -3,7 +3,7 @@
 //! and then the bytes. Measured with a counting allocator.
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use view_wire::{Event, decode, encode};
+use view_wire::{ElementIdWire, Event, decode, encode};
 
 struct Counting;
 static ALLOCATED: AtomicUsize = AtomicUsize::new(0);
@@ -48,4 +48,14 @@ fn a_reply_is_copied_once_on_the_way_in() {
     let allocated = ALLOCATED.load(Ordering::Relaxed) - before;
     assert!(refused);
     assert!(allocated < 1024, "a refused reply allocated {allocated}");
+
+    // {3: bin32 of 4 MiB} where a 16-byte `Uuid` belongs: its bound refuses
+    // it before the copy.
+    let mut wire = vec![0x81, 0x03, 0xc6, 0x00, 0x40, 0x00, 0x00];
+    wire.resize(wire.len() + (4 << 20), 9);
+    let before = ALLOCATED.load(Ordering::Relaxed);
+    let refused = decode::<ElementIdWire>(&wire).is_err();
+    let allocated = ALLOCATED.load(Ordering::Relaxed) - before;
+    assert!(refused);
+    assert!(allocated < 1024, "a refused id allocated {allocated}");
 }
