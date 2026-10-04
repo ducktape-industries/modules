@@ -264,6 +264,7 @@ fn rows(
             let unread = (unread == Some(message.seq)).then(|| unread_marker(&theme));
             let active = (active_id.as_ref() == Some(&message.id)).then_some(cell);
             let id = message.id.clone();
+            let marked = format!("chat-message-{id}-marked");
             let set = (at + 1, messages.len());
             let (card, controls) = message::card(chat, message, pane, active, set, cx, &theme);
             if active.is_some() {
@@ -274,9 +275,14 @@ fn rows(
             if day.is_none() && unread.is_none() {
                 return card;
             }
-            // full width, as a bare card is: a row shrunk to its words
-            // took the hover and the action strip with it
+            // The markers sit outside the card, which is the grid's row,
+            // so the list's row is this wrapper: it carries the message's
+            // key, as a bare card does, and the card under it is filed by
+            // its message wherever the row moves. Full width, as a bare
+            // card is: a row shrunk to its words took the hover and the
+            // action strip with it
             div()
+                .id(marked)
                 .w_full()
                 .flex()
                 .flex_col()

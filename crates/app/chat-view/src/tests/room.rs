@@ -725,6 +725,38 @@ fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
     });
 }
 
+/// Older history landing above leaves a marked row its routes: the row
+/// under a day marker is wrapped, and the wrapper carries the message's key,
+/// so the row is filed by its message wherever it moves.
+#[test]
+fn older_history_leaves_a_marked_rows_routes_alone() {
+    let (mut cx, view) = opened();
+    cx.update(&view, |chat, _, cx| {
+        let messages = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
+        let mut dated = row(3, 7, "dated");
+        dated.time = 1_790_264_527_000;
+        messages.push(dated);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.find("chat-day-m3").is_some(), "m3 opens its day");
+    let press = cx.interactivity("chat-message-m3").on_click;
+    assert!(press.is_some());
+    cx.update(&view, |chat, _, cx| {
+        let messages = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
+        messages.insert(0, row(10, 8, "older"));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.find("chat-message-m10").is_some(), "the older row drew");
+    assert!(cx.find("chat-day-m3").is_some(), "m3 still opens its day");
+    assert_eq!(
+        cx.interactivity("chat-message-m3").on_click,
+        press,
+        "the prepend renumbered m3"
+    );
+}
+
 /// Every message row says its place in its pane's set, the one under a
 /// day marker too: the host positions only a list item's own node, and a
 /// marked message is wrapped, so the thread's root (always the first of
