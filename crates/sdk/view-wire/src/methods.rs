@@ -105,6 +105,7 @@ macro_rules! methods {
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Call {
     pub target: String,
+    #[serde(with = "crate::codec::bin")]
     pub body: Vec<u8>,
 }
 

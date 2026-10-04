@@ -194,7 +194,7 @@ ButtonEvent struct
   click_count: U64
 Call struct
   target: Str
-  body: Seq(U8)
+  body: Bytes
 CanvasCommand enum
   0 Draw struct
     shape: TypeName("CanvasShape")
@@ -322,15 +322,15 @@ ElementIdAtom enum
   0 View: NewType(U64)
   1 Integer: NewType(U64)
   2 Name: NewType(Str)
-  3 Uuid: NewType(TupleArray { content: U8, size: 16 })
+  3 Uuid: NewType(Bytes)
   4 FocusHandle: NewType(U64)
   5 NamedInteger: Tuple([Str, U64])
-  6 Path: NewType(Seq(U8))
+  6 Path: NewType(Bytes)
   7 CodeLocation struct
     file: Str
     line: U32
     column: U32
-  8 OpaqueId: NewType(TupleArray { content: U8, size: 20 })
+  8 OpaqueId: NewType(Bytes)
 Error struct
   code: Str
   message: Str
@@ -486,11 +486,11 @@ HoverListenerMode enum
   0 InputModalityAware: Unit
   1 InputModalityIndependent: Unit
 ImageData enum
-  0 Encoded: NewType(Seq(U8))
+  0 Encoded: NewType(Bytes)
   1 Rgba struct
     width: U32
     height: U32
-    pixels: Seq(U8)
+    pixels: Bytes
   2 Resource: NewType(Str)
   3 Refusal: NewType(Str)
 ImageObjectFit enum
@@ -883,9 +883,9 @@ Range struct
 Request struct
   id: U64
   kind: Str
-  payload: Seq(U8)
+  payload: Bytes
 Result enum
-  0 Ok: NewType(Seq(U8))
+  0 Ok: NewType(Bytes)
   1 Err: NewType(TypeName("Error"))
 RichTextHover struct
   index: Option(U32)
@@ -1110,7 +1110,7 @@ SvgSource enum
   0 None: Unit
   1 Data struct
     hash: U64
-    bytes: Option(Seq(U8))
+    bytes: Option(Bytes)
   2 Asset: NewType(Str)
   3 External: NewType(Str)
 SvgTransformation struct
@@ -1235,10 +1235,10 @@ WireRepr enum
   0 View: NewType(U64)
   1 Integer: NewType(U64)
   2 Name: NewType(Str)
-  3 Uuid: NewType(TupleArray { content: U8, size: 16 })
+  3 Uuid: NewType(Bytes)
   4 FocusHandle: NewType(U64)
   5 NamedInteger: Tuple([Str, U64])
-  6 Path: NewType(Seq(U8))
+  6 Path: NewType(Bytes)
   7 CodeLocation struct
     file: Str
     line: U32
@@ -1246,7 +1246,7 @@ WireRepr enum
   8 NamedChild struct
     base: TypeName("ElementIdAtom")
     names: Seq(Str)
-  9 OpaqueId: NewType(TupleArray { content: U8, size: 20 })
+  9 OpaqueId: NewType(Bytes)
 accesskit::Point struct
   x: F64
   y: F64

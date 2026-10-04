@@ -136,6 +136,7 @@ fn picture(bytes: Option<Vec<u8>>) -> Node {
 }
 
 mod accessibility_and_decode;
+mod bytes;
 mod patches;
 mod primitives;
 mod roundtrip;

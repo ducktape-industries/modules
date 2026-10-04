@@ -4,6 +4,7 @@
 //! `NamedChild` is stored as one atom plus a bounded list of names. This keeps
 //! decoding iterative and prevents attacker-controlled recursive allocation.
 
+use crate::codec::bin::fixed;
 use gpui::{ElementId, EntityId, FocusId, SharedString};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{path::PathBuf, sync::Arc};
@@ -13,21 +14,21 @@ use uuid::Uuid;
 pub const MAX_ELEMENT_ID_DEPTH: usize = 64;
 
 /// The non-recursive base of a GPUI element ID.
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize)]
 pub enum ElementIdAtom {
     View(u64),
     Integer(u64),
     Name(SharedString),
-    Uuid([u8; 16]),
+    Uuid(#[serde(serialize_with = "crate::codec::bin::serialize_fixed")] [u8; 16]),
     FocusHandle(u64),
     NamedInteger(SharedString, u64),
-    Path(Vec<u8>),
+    Path(#[serde(with = "crate::codec::bin")] Vec<u8>),
     CodeLocation {
         file: String,
         line: u32,
         column: u32,
     },
-    OpaqueId([u8; 20]),
+    OpaqueId(#[serde(serialize_with = "crate::codec::bin::serialize_fixed")] [u8; 20]),
 }
 
 /// A tagged, lossless wire form of GPUI's element identity.
@@ -36,11 +37,11 @@ pub enum ElementIdWire {
     View(u64),
     Integer(u64),
     Name(SharedString),
-    Uuid([u8; 16]),
+    Uuid(#[serde(serialize_with = "crate::codec::bin::serialize_fixed")] [u8; 16]),
     FocusHandle(u64),
     NamedInteger(SharedString, u64),
     /// UTF-8 path bytes. Non-UTF-8 paths are rejected at the GPUI boundary.
-    Path(Vec<u8>),
+    Path(#[serde(with = "crate::codec::bin")] Vec<u8>),
     CodeLocation {
         file: String,
         line: u32,
@@ -50,7 +51,48 @@ pub enum ElementIdWire {
         base: ElementIdAtom,
         names: Vec<SharedString>,
     },
-    OpaqueId([u8; 20]),
+    OpaqueId(#[serde(serialize_with = "crate::codec::bin::serialize_fixed")] [u8; 20]),
+}
+
+/// The atom as it is read: a fixed-length id is a `bin` here, and its
+/// length is checked on the bytes read.
+impl<'de> Deserialize<'de> for ElementIdAtom {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename = "ElementIdAtom")]
+        enum AtomRepr {
+            View(u64),
+            Integer(u64),
+            Name(SharedString),
+            Uuid(#[serde(with = "crate::codec::bin")] Vec<u8>),
+            FocusHandle(u64),
+            NamedInteger(SharedString, u64),
+            Path(#[serde(with = "crate::codec::bin")] Vec<u8>),
+            CodeLocation {
+                file: String,
+                line: u32,
+                column: u32,
+            },
+            OpaqueId(#[serde(with = "crate::codec::bin")] Vec<u8>),
+        }
+
+        Ok(match AtomRepr::deserialize(deserializer)? {
+            AtomRepr::View(id) => Self::View(id),
+            AtomRepr::Integer(id) => Self::Integer(id),
+            AtomRepr::Name(name) => Self::Name(name),
+            AtomRepr::Uuid(id) => Self::Uuid(fixed(id)?),
+            AtomRepr::FocusHandle(id) => Self::FocusHandle(id),
+            AtomRepr::NamedInteger(name, id) => Self::NamedInteger(name, id),
+            AtomRepr::Path(path) => Self::Path(path),
+            AtomRepr::CodeLocation { file, line, column } => {
+                Self::CodeLocation { file, line, column }
+            }
+            AtomRepr::OpaqueId(id) => Self::OpaqueId(fixed(id)?),
+        })
+    }
 }
 
 impl<'de> Deserialize<'de> for ElementIdWire {
@@ -63,10 +105,10 @@ impl<'de> Deserialize<'de> for ElementIdWire {
             View(u64),
             Integer(u64),
             Name(SharedString),
-            Uuid([u8; 16]),
+            Uuid(#[serde(with = "crate::codec::bin")] Vec<u8>),
             FocusHandle(u64),
             NamedInteger(SharedString, u64),
-            Path(Vec<u8>),
+            Path(#[serde(with = "crate::codec::bin")] Vec<u8>),
             CodeLocation {
                 file: String,
                 line: u32,
@@ -77,14 +119,14 @@ impl<'de> Deserialize<'de> for ElementIdWire {
                 #[serde(deserialize_with = "deserialize_names")]
                 names: Vec<SharedString>,
             },
-            OpaqueId([u8; 20]),
+            OpaqueId(#[serde(with = "crate::codec::bin")] Vec<u8>),
         }
 
         Ok(match WireRepr::deserialize(deserializer)? {
             WireRepr::View(id) => Self::View(id),
             WireRepr::Integer(id) => Self::Integer(id),
             WireRepr::Name(name) => Self::Name(name),
-            WireRepr::Uuid(id) => Self::Uuid(id),
+            WireRepr::Uuid(id) => Self::Uuid(fixed(id)?),
             WireRepr::FocusHandle(id) => Self::FocusHandle(id),
             WireRepr::NamedInteger(name, id) => Self::NamedInteger(name, id),
             WireRepr::Path(path) => Self::Path(path),
@@ -92,7 +134,7 @@ impl<'de> Deserialize<'de> for ElementIdWire {
                 Self::CodeLocation { file, line, column }
             }
             WireRepr::NamedChild { base, names } => Self::NamedChild { base, names },
-            WireRepr::OpaqueId(id) => Self::OpaqueId(id),
+            WireRepr::OpaqueId(id) => Self::OpaqueId(fixed(id)?),
         })
     }
 }
