@@ -41,7 +41,9 @@ pub type Page<T> = (Vec<T>, Option<Vec<u8>>);
 /// each `next` back, until the listing ends. Nothing here bounds how many
 /// pages that is: each page is a host round trip and so a tick of its own,
 /// with its own fuel, and the rows gather in the guest's memory until the
-/// last one lands. Fit for a whole list (a roster), not for a history.
+/// last one lands. Fit for a list that is whole by nature (a roster, a
+/// settings list): one a screen searches, counts or draws all of. A history
+/// is a [`Paged`](crate::Paged), which reads the pages its list shows.
 pub async fn pages<T, F: Future<Output = Result<Page<T>, Error>>>(
     mut after: Option<Vec<u8>>,
     mut ask: impl FnMut(Option<Vec<u8>>) -> F,

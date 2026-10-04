@@ -1130,16 +1130,11 @@ fn commits_follows_the_cursor_and_opens_one_commit_with_its_diff() {
         "the log follows its cursor"
     );
     view.read(|forge| {
-        let Some(Reply::Log { page, .. }) = forge.ready(&Query::Log {
-            repo: "project".into(),
-            from: forge.revision(),
-            exclude: None,
-            page: crate::queries::PAGE,
-        }) else {
-            panic!("the log landed");
-        };
-        assert_eq!(page.items.len(), 2, "both pages are one list");
-        assert!(page.next.is_none());
+        let (log, _) = forge.logs.get(&forge.log_query()).expect("the log is read");
+        log.read(|log| {
+            assert_eq!(log.rows().len(), 2, "both pages are one list");
+            assert_eq!(log.count(), 2, "and the list ends with them");
+        });
     });
     assert!(cx.has_text("Feature"), "{:?}", cx.texts());
     cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
@@ -1422,6 +1417,9 @@ mod change_tests;
 
 #[path = "screen_tests.rs"]
 mod screen_tests;
+
+#[path = "log_tests.rs"]
+mod log_tests;
 
 #[test]
 fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {

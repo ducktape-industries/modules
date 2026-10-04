@@ -73,6 +73,8 @@ mod window;
 mod snapshot;
 mod view;
 pub use view::{Loadable, Render, View};
+mod paged;
+pub use paged::Paged;
 pub use wire::methods;
 mod context;
 pub use context::{App, AppContext, AsyncApp, Callback, Context, Entity, Released, WeakEntity};

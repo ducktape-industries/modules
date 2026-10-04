@@ -271,12 +271,22 @@ pub(crate) fn rows(
     scroll: Option<&UniformListScrollHandle>,
     paint: impl Fn(usize) -> AnyElement + 'static,
 ) -> AnyElement {
-    let mut list = uniform_list(
-        id(element_id.to_owned()),
-        count,
-        move |range: Range<usize>, _, _| range.map(&paint).collect::<Vec<_>>(),
-    )
-    .with_width_from_item(widest);
+    window(element_id, count, widest, scroll, move |range, _, _| {
+        range.map(&paint).collect()
+    })
+}
+
+/// [`rows`], painted a window at a time: `paint` is handed the rows the
+/// list lowers, so a list that reads on as it is scrolled hears how far.
+pub(crate) fn window(
+    element_id: &str,
+    count: usize,
+    widest: Option<usize>,
+    scroll: Option<&UniformListScrollHandle>,
+    paint: impl Fn(Range<usize>, &mut Window, &mut App) -> Vec<AnyElement> + 'static,
+) -> AnyElement {
+    let mut list =
+        uniform_list(id(element_id.to_owned()), count, paint).with_width_from_item(widest);
     if let Some(scroll) = scroll {
         list = list.track_scroll(scroll);
     }
