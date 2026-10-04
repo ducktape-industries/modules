@@ -449,6 +449,27 @@ fn a_sparse_struct_with_one_field_is_that_field_under_its_index() {
     assert_eq!(encode(&Aria::default()), [0x80]);
 }
 
+/// A sparse struct's reader takes the fields this build has and refuses any
+/// other index, as a style entry's bitmap refuses a bit past its last field.
+/// An index it skipped would be a value of any shape read and dropped.
+#[test]
+fn a_sparse_struct_refuses_a_field_this_build_does_not_have() {
+    // `Interactivity` has 43 fields and `Aria` 32 (`schema.txt`)
+    let error = decode::<Interactivity>(&[0x81, 99, 0xc3]).unwrap_err();
+    assert!(
+        error.contains("expected field index 0 <= i < 43"),
+        "{error}"
+    );
+    let error = decode::<Aria>(&[0x81, 127, 0xc0]).unwrap_err();
+    assert!(
+        error.contains("expected field index 0 <= i < 32"),
+        "{error}"
+    );
+    // the last field each has is still read
+    assert!(decode::<Interactivity>(&[0x81, 42, 0xc0]).is_ok());
+    assert!(decode::<Aria>(&[0x81, 31, 0x90]).is_ok());
+}
+
 /// A node on the wire: the variant's index (`Text` is `Node`'s variant 8),
 /// then its fields in order, the style as its id. No field or variant name
 /// is in a frame's bytes.

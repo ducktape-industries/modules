@@ -11,7 +11,7 @@ pub const MAX_ARIA_TEXT_BYTES: usize = 1024;
 
 /// Sparse on the wire, as [`Interactivity`](crate::Interactivity) is.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default, remote = "Self")]
+#[serde(default, deny_unknown_fields, remote = "Self")]
 pub struct Aria {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author_id: Option<SharedString>,
