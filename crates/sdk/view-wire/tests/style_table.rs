@@ -124,6 +124,36 @@ fn a_whole_frame_carries_the_styles_its_tree_names_and_no_others() {
     assert_eq!(styles.intern(&style(0.)), StyleId(2));
 }
 
+/// A whole frame renumbers the styles the table issued. An id it never
+/// issued has no entry to renumber: it is left as written, still past the
+/// table's end, for the host to refuse by name.
+#[test]
+fn a_whole_frame_leaves_a_style_the_table_never_issued_as_written() {
+    let mut styles = Interner::default();
+    let issued = styles.intern(&StyleRefinement::default().w(px(1.)));
+    styles.intern(&StyleRefinement::default().w(px(2.)));
+
+    let mut tree = container(issued, Interactivity::default(), vec![text(StyleId(9_999))]);
+    styles.retain(|visit| tree.for_each_mut(&mut |node| node.styles_mut(visit)));
+    assert_eq!(styles.len(), 1);
+    assert_eq!(
+        tree,
+        container(
+            StyleId(0),
+            Interactivity::default(),
+            vec![text(StyleId(9_999))]
+        )
+    );
+
+    let mut frame = Frame {
+        root: Some(tree),
+        styles: styles.unsent(),
+        ..Default::default()
+    };
+    let refused = view_wire::sanitize(&mut frame, &mut Styles::default());
+    assert_eq!(refused, Err(REFUSED));
+}
+
 #[test]
 fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
     let absent = StyleId(1);

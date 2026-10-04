@@ -117,6 +117,31 @@ fn the_test_host_refuses_a_style_its_table_does_not_hold() {
     cx.run_until_parked();
 }
 
+/// A view whose first frame, a whole one, names a style no table holds.
+#[derive(Default, Serialize, Deserialize)]
+struct RogueFromTheStart;
+impl View for RogueFromTheStart {
+    const NAME: &'static str = "RogueFromTheStart";
+}
+impl Render for RogueFromTheStart {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().id("rogue").child(Rogue)
+    }
+}
+
+/// A whole frame gives every style its tree names a new number. A style
+/// the table never issued has none to be given: it crosses as it was
+/// written and the host refuses the frame by name, as it does a patch's.
+#[test]
+#[should_panic(
+    expected = "the host refuses this frame: a node names a style its table does not hold"
+)]
+fn the_test_host_refuses_a_whole_frame_naming_a_style_its_table_does_not_hold() {
+    let mut cx = TestAppContext::new();
+    cx.open::<RogueFromTheStart>();
+    cx.run_until_parked();
+}
+
 /// One node whose style is new every turn.
 #[derive(Default, Serialize, Deserialize)]
 struct Churn(usize);

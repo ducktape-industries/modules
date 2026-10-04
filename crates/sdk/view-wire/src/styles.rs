@@ -230,10 +230,16 @@ impl Interner {
         let mut renumbered = vec![NONE; self.len()];
         visit(&mut |id| {
             let old = id.0 as usize;
-            if renumbered[old] == NONE {
-                renumbered[old] = kept.find_or_add(self.entry(old)).0;
+            // an id this table never issued has no entry to keep: it stays
+            // as written, past the end of the table kept, and the host
+            // refuses the frame that names it
+            let Some(new) = renumbered.get_mut(old) else {
+                return;
+            };
+            if *new == NONE {
+                *new = kept.find_or_add(self.entry(old)).0;
             }
-            id.0 = renumbered[old];
+            id.0 = *new;
         });
         *self = kept;
     }
