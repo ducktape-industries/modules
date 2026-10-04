@@ -203,6 +203,39 @@ fn a_list_the_host_would_cut_fails_its_test() {
     TestAppContext::new().open::<Ledger>();
 }
 
+/// A list that opens inside the host's budget and grows past it.
+#[derive(Default, Serialize, Deserialize)]
+struct Growing {
+    #[serde(skip)]
+    rows: crate::ListState,
+}
+impl View for Growing {
+    const NAME: &'static str = "Growing";
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self {
+            rows: crate::ListState::new(1, gpui::ListAlignment::Top, px(0.)),
+        }
+    }
+}
+impl Render for Growing {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+        crate::list("ledger", self.rows.clone(), |item, _, _| {
+            crate::div().child(item.to_string()).into_any_element()
+        })
+    }
+}
+
+/// The cut is in a patch: the first frame fits, the one after it does not.
+#[test]
+#[should_panic(expected = "lists: 1")]
+fn a_patch_the_host_would_cut_fails_its_test() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<Growing>();
+    view.read(|ledger| ledger.rows.splice(0..0, crate::wire::MAX_LIST_ITEMS));
+    cx.app_mut().notify();
+    cx.tick(Vec::new());
+}
+
 /// A uniform list of one row more than the host scrolls through.
 #[derive(Default, Serialize, Deserialize)]
 struct Register;
