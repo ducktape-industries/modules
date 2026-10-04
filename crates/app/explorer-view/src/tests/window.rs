@@ -179,12 +179,12 @@ fn a_full_window_renders_inside_the_frame_budget() {
     // when measured. The host's own limits are the sanitize check inside
     // `frame_bytes`. Tighten when a page slims, raise only on purpose.
     const REGRESSION_GUARD: [(&str, usize); 6] = [
-        ("overview", 76_000),
-        ("blocks", 95_000),
-        ("transactions", 196_000),
-        ("accounts", 9_000),
-        ("programs", 13_000),
-        ("a 1 MB push", 16_000),
+        ("overview", 11_000),
+        ("blocks", 12_000),
+        ("transactions", 21_000),
+        ("accounts", 3_000),
+        ("programs", 3_700),
+        ("a 1 MB push", 4_000),
     ];
     for ((page, bytes), (_, guard)) in sizes.into_iter().zip(REGRESSION_GUARD) {
         assert!(

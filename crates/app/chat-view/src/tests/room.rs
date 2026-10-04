@@ -258,7 +258,7 @@ fn a_full_room_renders_inside_the_frame_budget() {
     // A regression guard, not a host limit: about 1.5x what a full room drew
     // when measured. The host's own limits are the sanitize check inside
     // `frame_bytes`. Tighten when the room slims, raise only on purpose.
-    const REGRESSION_GUARD: usize = 220_000;
+    const REGRESSION_GUARD: usize = 47_000;
     assert!(
         bytes < REGRESSION_GUARD,
         "a {WINDOW}-row room drew {bytes} bytes, over its guard {REGRESSION_GUARD}"
