@@ -106,6 +106,18 @@ pub(crate) fn wire_id(id: ElementId) -> wire::ElementIdWire {
 
 impl<'a> Lowering<'a> {
     pub(crate) fn new(window: &'a mut Window, app: &'a mut App) -> Self {
+        slots::begin_lowering(&app.inner.slots, None);
+        Self {
+            window,
+            app,
+            authored_path: Vec::new(),
+        }
+    }
+
+    /// A lowering of the content the tooltip route `request` builds: its
+    /// listeners are keyed inside that tooltip and live as long as it does.
+    pub(crate) fn within_tooltip(window: &'a mut Window, app: &'a mut App, request: u32) -> Self {
+        slots::begin_lowering(&app.inner.slots, Some(request));
         Self {
             window,
             app,
@@ -138,10 +150,12 @@ impl<'a> Lowering<'a> {
         let id = element.id().map(wire_id);
         if let Some(id) = &id {
             self.authored_path.push(id.clone());
+            slots::enter_scope(&self.app.inner.slots);
         }
         let node = Element::lower(Box::new(element), self);
         if id.is_some() {
             self.authored_path.pop();
+            slots::leave_scope(&self.app.inner.slots);
         }
         node
     }
@@ -150,30 +164,13 @@ impl<'a> Lowering<'a> {
         &self.authored_path
     }
 
-    pub(crate) fn click(&self, listener: EventListener<gpui::ClickEvent>) -> u32 {
-        slots::click(&self.app.inner.slots, listener)
-    }
-
+    /// A route for a listener of `kind` on the element being lowered.
     pub(crate) fn route<A: 'static>(
         &self,
+        kind: slots::Kind,
         listener: impl Fn(&A, &mut Window, &mut App) + 'static,
     ) -> u32 {
-        slots::route(&self.app.inner.slots, listener)
-    }
-
-    pub(crate) fn enter_row(&self, key: u64) -> Option<slots::Row> {
-        slots::enter_row(&self.app.inner.slots, key)
-    }
-
-    pub(crate) fn leave_row(&self, outer: Option<slots::Row>) {
-        slots::leave_row(&self.app.inner.slots, outer)
-    }
-
-    pub(crate) fn message_route(
-        &self,
-        listener: impl Fn(&(), &mut Window, &mut App) + 'static,
-    ) -> u32 {
-        slots::message_route(&self.app.inner.slots, listener)
+        slots::route(&self.app.inner.slots, &self.authored_path, kind, listener)
     }
 
     pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
@@ -181,11 +178,11 @@ impl<'a> Lowering<'a> {
     }
 
     pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
-        slots::tooltip(&self.app.inner.slots, build)
+        slots::tooltip(&self.app.inner.slots, &self.authored_path, build)
     }
 
     pub(crate) fn rich_text_tooltip(&self, build: slots::RichTextTooltipBuilder) -> u32 {
-        slots::rich_text_tooltip(&self.app.inner.slots, build)
+        slots::rich_text_tooltip(&self.app.inner.slots, &self.authored_path, build)
     }
 }
 
@@ -375,16 +372,24 @@ impl Styled for Input {
 }
 
 impl Element for Input {
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let this = *self;
         let id = wire_id(this.id);
         let field = this.field.unwrap_or_default();
         crate::text::lowered_generation(field.generation);
-        let on_change = this.on_change.map(|listener| lowering.route(listener));
-        let on_key = this.on_key.map(|listener| lowering.route(listener));
+        let on_change = this
+            .on_change
+            .map(|listener| lowering.route(slots::Kind::Change, listener));
+        let on_key = this
+            .on_key
+            .map(|listener| lowering.route(slots::Kind::Key, listener));
         let on_submit = this
             .on_submit
-            .map(|listener| lowering.message_route(listener));
+            .map(|listener| lowering.route(slots::Kind::Submit, listener));
         let claims = this.claims;
         debug_assert!(
             !claims.iter().any(wire::KeyClaim::engine_owned),
@@ -481,6 +486,10 @@ impl Styled for Textarea {
 }
 
 impl Element for Textarea {
+    fn id(&self) -> Option<ElementId> {
+        Element::id(&self.0)
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         Element::lower(Box::new(self.0), lowering)
     }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::slots::Kind;
 
 impl Interactivity {
     pub(crate) fn into_wire(
@@ -29,6 +30,7 @@ impl Interactivity {
                 let listener = std::cell::RefCell::new(listener);
                 let offered = offered.clone();
                 let route = lowering.route(
+                    Kind::Action(action),
                     move |data: &Option<wire::ActionData>, window: &mut Window, app: &mut App| {
                         // a custom action the node does not offer is not its to answer
                         if let Some(wire::ActionData::CustomAction(id)) = data
@@ -47,7 +49,6 @@ impl Interactivity {
             let request = lowering.tooltip(tooltip.build);
             wire::Tooltip {
                 request,
-                content: None,
                 hoverable: tooltip.hoverable,
                 delay_ms: self
                     .tooltip_show_delay
@@ -92,34 +93,61 @@ impl Interactivity {
             group_active: self
                 .group_active
                 .map(|(group, style)| wire::GroupRefinement { group, style }),
-            on_click: self.on_click.map(|listener| lowering.click(listener)),
-            on_aux_click: self.on_aux_click.map(|listener| lowering.click(listener)),
-            on_mouse_down: route_buttons(self.mouse_down, lowering, |e: &gpui::MouseDownEvent| {
-                e.button
-            }),
-            capture_mouse_down: route_plain(self.capture_mouse_down, lowering),
-            on_mouse_down_out: route_plain(self.mouse_down_out, lowering),
-            on_mouse_up: route_buttons(self.mouse_up, lowering, |e: &gpui::MouseUpEvent| e.button),
-            capture_mouse_up: route_plain(self.capture_mouse_up, lowering),
+            on_click: self
+                .on_click
+                .map(|listener| lowering.route(Kind::Click, listener)),
+            on_aux_click: self
+                .on_aux_click
+                .map(|listener| lowering.route(Kind::AuxClick, listener)),
+            on_mouse_down: route_buttons(
+                self.mouse_down,
+                lowering,
+                Kind::MouseDown,
+                |e: &gpui::MouseDownEvent| e.button,
+            ),
+            capture_mouse_down: route_plain(
+                self.capture_mouse_down,
+                lowering,
+                Kind::CaptureMouseDown,
+            ),
+            on_mouse_down_out: route_plain(self.mouse_down_out, lowering, Kind::MouseDownOut),
+            on_mouse_up: route_buttons(
+                self.mouse_up,
+                lowering,
+                Kind::MouseUp,
+                |e: &gpui::MouseUpEvent| e.button,
+            ),
+            capture_mouse_up: route_plain(self.capture_mouse_up, lowering, Kind::CaptureMouseUp),
             on_mouse_up_out: route_buttons(
                 self.mouse_up_out,
                 lowering,
+                Kind::MouseUpOut,
                 |e: &gpui::MouseUpEvent| e.button,
             ),
-            on_mouse_pressure: route_plain(self.mouse_pressure, lowering),
-            capture_mouse_pressure: route_plain(self.capture_mouse_pressure, lowering),
-            on_mouse_move: route_plain(self.mouse_move, lowering),
-            on_mouse_exit: route_plain(self.mouse_exit, lowering),
-            on_scroll_wheel: route_plain(self.scroll_wheel, lowering),
-            on_pinch: route_plain(self.pinch, lowering),
-            capture_pinch: route_plain(self.capture_pinch, lowering),
-            on_key_down: route_plain(self.key_down, lowering),
-            capture_key_down: route_plain(self.capture_key_down, lowering),
-            on_key_up: route_plain(self.key_up, lowering),
-            capture_key_up: route_plain(self.capture_key_up, lowering),
-            on_modifiers_changed: route_plain(self.modifiers_changed, lowering),
-            on_hover: self.on_hover.map(|listener| lowering.route(listener)),
-            on_file_drop_exit: route_plain(self.on_file_drop_exit, lowering),
+            on_mouse_pressure: route_plain(self.mouse_pressure, lowering, Kind::MousePressure),
+            capture_mouse_pressure: route_plain(
+                self.capture_mouse_pressure,
+                lowering,
+                Kind::CaptureMousePressure,
+            ),
+            on_mouse_move: route_plain(self.mouse_move, lowering, Kind::MouseMove),
+            on_mouse_exit: route_plain(self.mouse_exit, lowering, Kind::MouseExit),
+            on_scroll_wheel: route_plain(self.scroll_wheel, lowering, Kind::ScrollWheel),
+            on_pinch: route_plain(self.pinch, lowering, Kind::Pinch),
+            capture_pinch: route_plain(self.capture_pinch, lowering, Kind::CapturePinch),
+            on_key_down: route_plain(self.key_down, lowering, Kind::KeyDown),
+            capture_key_down: route_plain(self.capture_key_down, lowering, Kind::CaptureKeyDown),
+            on_key_up: route_plain(self.key_up, lowering, Kind::KeyUp),
+            capture_key_up: route_plain(self.capture_key_up, lowering, Kind::CaptureKeyUp),
+            on_modifiers_changed: route_plain(
+                self.modifiers_changed,
+                lowering,
+                Kind::ModifiersChanged,
+            ),
+            on_hover: self
+                .on_hover
+                .map(|listener| lowering.route(Kind::Hover, listener)),
+            on_file_drop_exit: route_plain(self.on_file_drop_exit, lowering, Kind::FileDropExit),
             tooltip,
         });
         (id, wire)
@@ -129,9 +157,10 @@ impl Interactivity {
 fn route_plain<E: 'static>(
     listeners: Vec<EventListener<E>>,
     lowering: &Lowering<'_>,
+    kind: Kind,
 ) -> Option<u32> {
     (!listeners.is_empty()).then(|| {
-        lowering.route(move |event: &E, window, app| {
+        lowering.route(kind, move |event: &E, window, app| {
             for listener in &listeners {
                 listener(event, window, app);
             }
@@ -144,10 +173,11 @@ fn route_plain<E: 'static>(
 fn route_buttons<E: 'static>(
     listeners: Vec<ButtonBinding<E>>,
     lowering: &Lowering<'_>,
+    kind: Kind,
     button: fn(&E) -> MouseButton,
 ) -> Option<u32> {
     (!listeners.is_empty()).then(|| {
-        lowering.route(move |event: &E, window, app| {
+        lowering.route(kind, move |event: &E, window, app| {
             for binding in &listeners {
                 if binding.button.is_none_or(|wanted| wanted == button(event)) {
                     (binding.listener)(event, window, app);

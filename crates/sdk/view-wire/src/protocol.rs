@@ -10,19 +10,27 @@ pub struct RichTextHover {
 }
 
 /// Something the host tells the guest.
+///
+/// A `handler` (a `request` for a tooltip) is a route: the number the guest
+/// gave a listener in the tree it sent. A route is the listener's authored
+/// identity, not its position in the frame: the guest hands a number out
+/// the first time it lowers that listener (the path of the element carrying
+/// it, what the listener is for, and which of that kind under that path) and
+/// keeps it while the element is lowered with it, so an event the host took
+/// from the frame it last painted runs the same listener in the frame after
+/// a structural change. A frame lowered without the listener frees its
+/// route, and a freed route names nothing again.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Event {
-    /// The user activated the widget the guest gave this message index to
-    /// (a button press, an input submit). Indices are per frame: they name
-    /// entries in the table the guest filled while building the tree it
-    /// last sent.
+    /// The user activated the widget the guest gave this message route to
+    /// (a button press, an input submit).
     Message(u32),
     /// A GPUI click, kept distinct from message routes and carrying its input data.
     Click {
         handler: u32,
         event: click::Click,
     },
-    /// GPUI element listener payloads. These routes are allocated per frame.
+    /// GPUI element listener payloads.
     MouseDown {
         handler: u32,
         phase: interactivity::DispatchPhase,

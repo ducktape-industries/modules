@@ -813,9 +813,9 @@ impl TestAppContext {
             })
             .into_iter()
             .collect();
-        if let (Some(tooltip), Some(index)) = (tooltip, index) {
+        if let (Some(request), Some(index)) = (tooltip, index) {
             events.push(Event::TooltipRequest {
-                request: tooltip.request,
+                request: *request,
                 character_index: Some(index),
             });
         }

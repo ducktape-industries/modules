@@ -843,7 +843,7 @@ Node enum
     clickable_ranges: Seq(TypeName("Range"))
     on_click: Option(U32)
     on_hover: Option(U32)
-    tooltip: Option(TypeName("TooltipResponse"))
+    tooltip: Option(U32)
   1 Anchored struct
     anchor: TypeName("Anchor")
     fit: TypeName("AnchoredFitMode")
@@ -1343,7 +1343,6 @@ Toggled enum
   2 mixed: Unit
 Tooltip struct
   request: U32
-  content: Option(TypeName("Node"))
   hoverable: Bool
   delay_ms: U64
 TooltipResponse struct

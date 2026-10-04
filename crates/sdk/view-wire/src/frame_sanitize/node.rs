@@ -2,8 +2,8 @@ use super::*;
 
 /// One node and, within what is left of the budgets, everything under it.
 /// The walk per node: its typed id claimed in its scope and checked, its
-/// interactivity (and a tooltip's content) bounded, its own fields bounded
-/// by [`sanitize_fields`], then its children.
+/// interactivity bounded, its own fields bounded by [`sanitize_fields`],
+/// then its children.
 pub(super) fn sanitize_node(
     node: &mut Node,
     depth: usize,
@@ -42,14 +42,13 @@ pub(super) fn sanitize_node(
         }
         if let Some(tooltip) = &mut interactivity.tooltip {
             tooltip.delay_ms = tooltip.delay_ms.min(60_000);
-            sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;
         }
     }
     // Every variant that carries an id (`Node::identity`) has it checked.
     if let Some(id) = &typed_id {
         id.validate_host()?;
     }
-    sanitize_fields(node, depth, budgets, authored_path)?;
+    sanitize_fields(node, budgets, authored_path)?;
     let takes_focus = node
         .interactivity()
         .is_some_and(|i| (i.focusable || i.focus_handle.is_some()) && i.role.is_some());
@@ -66,31 +65,9 @@ pub(super) fn sanitize_node(
     Ok(())
 }
 
-/// A tooltip's content is a tree of its own, in a fresh identity scope, on
-/// the frame's node budget; with none left it is dropped.
-fn sanitize_tooltip_content(
-    content: &mut Option<Box<Node>>,
-    depth: usize,
-    budgets: &mut Budgets,
-) -> Result<(), &'static str> {
-    if budgets.nodes == 0 {
-        *content = None;
-    } else if let Some(content) = content {
-        sanitize_node(
-            content,
-            depth + 1,
-            budgets,
-            &mut vec![std::collections::HashSet::new()],
-            &mut Vec::new(),
-        )?;
-    }
-    Ok(())
-}
-
 /// A node's own fields, one arm per kind; its id is already checked.
 fn sanitize_fields(
     node: &mut Node,
-    depth: usize,
     budgets: &mut Budgets,
     authored_path: &[ElementIdWire],
 ) -> Result<(), &'static str> {
@@ -181,14 +158,10 @@ fn sanitize_fields(
             runs,
             font_family_overrides,
             clickable_ranges,
-            tooltip,
             ..
         } => {
             style_sanitize::sanitize(style);
             rich_text::sanitize(text, runs, font_family_overrides, clickable_ranges, budgets);
-            if let Some(tooltip) = tooltip {
-                sanitize_tooltip_content(&mut tooltip.content, depth, budgets)?;
-            }
         }
         Node::Text(crate::TextNode { style, content, .. }) => {
             style_sanitize::sanitize(style);

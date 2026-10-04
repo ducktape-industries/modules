@@ -60,8 +60,12 @@ impl Element for Sensor {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         wire::Node::Sensor {
             id: wire_id(self.id),
-            on_show: self.on_show.map(|listener| lowering.route(listener)),
-            on_resize: self.on_resize.map(|listener| lowering.route(listener)),
+            on_show: self
+                .on_show
+                .map(|listener| lowering.route(crate::slots::Kind::Show, listener)),
+            on_resize: self
+                .on_resize
+                .map(|listener| lowering.route(crate::slots::Kind::Resize, listener)),
             child: Box::new(lowering.lower(self.child)),
             style: self.style,
         }
@@ -133,7 +137,9 @@ impl Element for ResizeHandle {
             id: id.expect("a resize handle has an id"),
             on_press: None,
             on_release: None,
-            on_drag: self.on_drag.map(|listener| lowering.route(listener)),
+            on_drag: self
+                .on_drag
+                .map(|listener| lowering.route(crate::slots::Kind::Drag, listener)),
             cursor: self.cursor.map(wire_cursor),
             content: Box::new(lowering.lower(self.child)),
             style,
@@ -218,7 +224,7 @@ impl Element for ModalOverlay {
             style: self.style.bg(self.backdrop),
             on_dismiss: self
                 .on_dismiss
-                .map(|listener| lowering.message_route(listener)),
+                .map(|listener| lowering.route(crate::slots::Kind::Dismiss, listener)),
             children: vec![lowering.lower(self.base), lowering.lower(modal)],
         }
     }

@@ -1,7 +1,7 @@
-//! Every node kind shares the frame's one node and text budget: tooltip
-//! content, anchored children, image state children and picture labels
-//! cannot buy more than the tree they sit in, and a tooltip's content is
-//! bounded like the tree.
+//! Every node kind shares the frame's one node and text budget: a tooltip
+//! response's content, anchored children, image state children and picture
+//! labels cannot buy more than the tree they come with, and a tooltip's
+//! content is bounded like the tree.
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::*;
 
@@ -15,7 +15,7 @@ fn container(interactivity: Interactivity, children: Vec<Node>) -> Node {
 }
 
 #[test]
-fn focus_refinements_are_bounded_inside_tooltips() {
+fn focus_refinements_are_bounded_inside_tooltip_responses() {
     let hostile = Interactivity {
         focus: Some(Box::new(
             StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.),
@@ -28,16 +28,20 @@ fn focus_refinements_are_bounded_inside_tooltips() {
         Interactivity {
             tooltip: Some(Tooltip {
                 request: 1,
-                content: Some(Box::new(container(hostile.clone(), vec![]))),
                 hoverable: true,
                 delay_ms: u64::MAX,
             }),
-            ..hostile
+            ..hostile.clone()
         },
         vec![],
     );
     let mut frame = Frame {
         root: Some(root),
+        tooltip_responses: vec![TooltipResponse {
+            request: 1,
+            character_index: None,
+            content: Some(Box::new(container(hostile, vec![]))),
+        }],
         ..Default::default()
     };
     view_wire::sanitize(&mut frame).unwrap();
@@ -45,12 +49,11 @@ fn focus_refinements_are_bounded_inside_tooltips() {
     else {
         unreachable!()
     };
-    let tooltip = interactivity.tooltip.as_ref().unwrap();
-    assert_eq!(tooltip.delay_ms, 60_000);
+    assert_eq!(interactivity.tooltip.as_ref().unwrap().delay_ms, 60_000);
     let Node::Container(view_wire::ContainerNode {
         interactivity: nested,
         ..
-    }) = tooltip.content.as_deref().unwrap()
+    }) = frame.tooltip_responses[0].content.as_deref().unwrap()
     else {
         unreachable!()
     };
@@ -72,15 +75,11 @@ fn focus_refinements_are_bounded_inside_tooltips() {
 }
 
 #[test]
-fn tooltip_content_and_regular_children_share_one_node_budget() {
+fn a_tooltip_responses_content_and_the_tree_share_one_node_budget() {
     let root = container(
         Interactivity {
             tooltip: Some(Tooltip {
                 request: 1,
-                content: Some(Box::new(container(
-                    Interactivity::default(),
-                    (0..view_wire::MAX_NODES).map(|_| Node::empty()).collect(),
-                ))),
                 hoverable: false,
                 delay_ms: 0,
             }),
@@ -90,22 +89,19 @@ fn tooltip_content_and_regular_children_share_one_node_budget() {
     );
     let mut frame = Frame {
         root: Some(root),
+        tooltip_responses: vec![TooltipResponse {
+            request: 1,
+            character_index: None,
+            content: Some(Box::new(container(
+                Interactivity::default(),
+                (0..view_wire::MAX_NODES).map(|_| Node::empty()).collect(),
+            ))),
+        }],
         ..Default::default()
     };
     view_wire::sanitize(&mut frame).unwrap();
-    let root = frame.root.unwrap();
-    let Node::Container(view_wire::ContainerNode { interactivity, .. }) = &root else {
-        unreachable!()
-    };
-    let tooltip_nodes = interactivity
-        .tooltip
-        .as_ref()
-        .unwrap()
-        .content
-        .as_ref()
-        .unwrap()
-        .count();
-    assert!(root.count() + tooltip_nodes <= view_wire::MAX_NODES);
+    let tooltip_nodes = frame.tooltip_responses[0].content.as_ref().unwrap().count();
+    assert!(frame.root.unwrap().count() + tooltip_nodes <= view_wire::MAX_NODES);
 }
 
 fn text() -> Node {

@@ -23,7 +23,8 @@ Ours, defined in this crate:
   `resize_handle`, `modal_overlay` (`src/element.rs`, `src/list.rs`,
   `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
-  crossed as per-frame indices. `list` is gpui's: styled, with nothing to
+  crossed as routes: a listener's number, kept while its element is lowered
+  (`view_wire::Event`). `list` is gpui's: styled, with nothing to
   press, name or hover (a `div` around it carries those); `canvas` is drawn
   by calls (`rect`, `circle`, `line`), since gpui's paint closures cannot
   cross.
