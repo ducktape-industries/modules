@@ -94,8 +94,9 @@ fn rows_of_a_list_may_author_the_same_id_inside_them() {
     assert_eq!(*log.borrow(), [0, 1, 2]);
 }
 
-/// Two lists under one identified parent, their rows with no id at all:
-/// the second's rows log ten past their index.
+/// Two lists under one identified parent, their rows with no id at all,
+/// beside a sibling named by the integer a first row is filed under: the
+/// second list's rows log ten past their index.
 #[derive(Default, Serialize, Deserialize)]
 struct TwoLists {
     #[serde(skip)]
@@ -120,13 +121,18 @@ impl Render for TwoLists {
             let log = self.log.clone();
             list(state, move |index, _, _| row(at * 10 + index, &log))
         });
-        div().id("page").size_full().children(lists)
+        div()
+            .id("page")
+            .size_full()
+            .children(lists)
+            .child(div().id(0usize))
     }
 }
 
 /// A list is a scope of its own: the rows of two lists under one parent,
-/// each filed under its index, never meet. Every row keeps its own route
-/// from frame to frame, and a list that grows leaves the other's alone.
+/// each filed under its index, meet neither each other nor a sibling of
+/// the lists named by that integer. Every row keeps its own route from
+/// frame to frame, and a list that grows leaves the other's alone.
 #[test]
 fn two_lists_under_one_parent_each_file_their_own_rows() {
     let mut cx = TestAppContext::new();
