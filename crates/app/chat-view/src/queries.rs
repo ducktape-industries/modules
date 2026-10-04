@@ -3,7 +3,7 @@
 use chat::view::Names;
 use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, pages};
+use ducktape_view_guest::host::{Error, all_pages};
 
 use crate::{PAGE, WINDOW};
 
@@ -16,7 +16,7 @@ fn page(after: Option<Vec<u8>>, limit: usize) -> PageRequest {
 
 /// Every room.
 pub(crate) async fn channels(host: Host) -> Result<Vec<ChannelInfo>, Error> {
-    pages(None, |after| {
+    all_pages(None, |after| {
         let ask = host.query(ask::Channels {
             page: page(after, PAGE),
         });
@@ -71,7 +71,7 @@ pub(crate) fn sorted(mut rows: Vec<MsgRow>) -> Vec<MsgRow> {
 
 /// Every member of a room, in account order.
 pub(crate) async fn members(host: Host, channel_id: String) -> Result<Vec<MemberRow>, Error> {
-    pages(None, |after| {
+    all_pages(None, |after| {
         let ask = host.query(ask::Members {
             channel_id: channel_id.clone(),
             page: page(after, WINDOW),

@@ -156,7 +156,7 @@ its program is `program::role::Identity`. Every refusal is the module SDK's `Err
 and `cx.reload` (`src/view.rs`) hold an ask's states and snapshot `Loading`
 as `Idle`.
 
-A cursored listing is read one of two ways. `host::pages` follows it to its
+A cursored listing is read one of two ways. `host::all_pages` follows it to its
 end: for a list that is whole by nature (a roster, a settings list), which a
 screen searches, counts or draws all of. `Paged<T>` (`src/paged.rs`) holds it
 a page at a time: for a history. It is an entity built from the same

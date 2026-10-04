@@ -44,7 +44,7 @@ pub type Page<T> = (Vec<T>, Option<Vec<u8>>);
 /// last one lands. Fit for a list that is whole by nature (a roster, a
 /// settings list): one a screen searches, counts or draws all of. A history
 /// is a [`Paged`](crate::Paged), which reads the pages its list shows.
-pub async fn pages<T, F: Future<Output = Result<Page<T>, Error>>>(
+pub async fn all_pages<T, F: Future<Output = Result<Page<T>, Error>>>(
     mut after: Option<Vec<u8>>,
     mut ask: impl FnMut(Option<Vec<u8>>) -> F,
 ) -> Result<Vec<T>, Error> {
@@ -371,8 +371,8 @@ impl Host {
 }
 
 #[cfg(test)]
-mod pages_tests {
-    use super::{Page, pages};
+mod all_pages_tests {
+    use super::{Page, all_pages};
 
     /// A listing of 0..10 served three rows a page.
     fn listing(after: Option<Vec<u8>>) -> std::future::Ready<Result<Page<u8>, super::Error>> {
@@ -383,10 +383,10 @@ mod pages_tests {
     }
 
     #[test]
-    fn pages_follow_the_cursor_to_the_end() {
-        let all = futures::executor::block_on(pages(None, listing)).unwrap();
+    fn all_pages_follows_the_cursor_to_the_end() {
+        let all = futures::executor::block_on(all_pages(None, listing)).unwrap();
         assert_eq!(all, (0..10).collect::<Vec<_>>());
-        let resumed = futures::executor::block_on(pages(Some(vec![6]), listing)).unwrap();
+        let resumed = futures::executor::block_on(all_pages(Some(vec![6]), listing)).unwrap();
         assert_eq!(resumed, (6..10).collect::<Vec<_>>());
     }
 }

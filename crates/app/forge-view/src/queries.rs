@@ -5,7 +5,7 @@
 //! read a page at a time ([`log_page`]): a history is as long as the
 //! repository is old, and its list shows a screenful.
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, Page, malformed, pages};
+use ducktape_view_guest::host::{Error, Page, all_pages, malformed};
 
 use crate::api::Ask as Forge;
 use forge::{CommitInfo, PageRequest, PageResponse, Query, Reply};
@@ -19,7 +19,7 @@ const PER_PAGE: u64 = 64;
 /// it.
 pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
     let mut reply = host.ask::<Forge>(query.clone()).await?;
-    let more = pages(next_cursor(&reply).cloned(), |after| {
+    let more = all_pages(next_cursor(&reply).cloned(), |after| {
         let ask = after
             .and_then(|after| with_cursor(&query, after))
             .map(|query| host.ask::<Forge>(query));

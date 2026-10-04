@@ -15,7 +15,7 @@ type Ask<T> = Rc<dyn Fn(Option<Vec<u8>>) -> LocalBoxFuture<'static, Result<Page<
 /// cursor of the page after them. The list that draws it says which rows it
 /// shows ([`show`](Self::show)), and a page is asked for when they reach
 /// past the rows held, so a long history costs the pages someone scrolled
-/// to. [`host::pages`](crate::host::pages) is the other shape: every page
+/// to. [`host::all_pages`](crate::host::all_pages) is the other shape: every page
 /// at once, for a list that is whole by nature.
 ///
 /// It is an entity (`cx.new(|cx| Paged::new(ask, cx))`): it reads into
@@ -151,7 +151,7 @@ impl<T> Paged<T> {
 
 impl<T: PartialEq + 'static> Paged<T> {
     /// A listing `ask` reads a page of: the page after a cursor (`None`,
-    /// the first), as [`host::pages`](crate::host::pages) asks it. The
+    /// the first), as [`host::all_pages`](crate::host::all_pages) asks it. The
     /// first page is asked for now.
     pub fn new<F>(ask: impl Fn(Option<Vec<u8>>) -> F + 'static, cx: &mut Context<Self>) -> Self
     where
