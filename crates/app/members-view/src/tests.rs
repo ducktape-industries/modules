@@ -438,7 +438,7 @@ fn an_activity_read_anew_that_lands_the_same_draws_nothing() {
     cx.run_until_parked();
     assert!(cx.has_text("block 12"), "{:?}", cx.texts());
     let (asked, renders) = (cx.host().requests::<ChainBlocks>().len(), cx.renders());
-    view.update(&mut cx, |members, _, cx| members.read_activity(cx));
+    cx.update(&view, |members, _, cx| members.read_activity(cx));
     cx.run_until_parked();
     assert!(
         cx.host().requests::<ChainBlocks>().len() > asked,

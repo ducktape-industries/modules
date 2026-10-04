@@ -843,7 +843,7 @@ const STEP: f32 = 8.;
 /// The line between two panes, dragged to move it: `drag` takes the
 /// horizontal delta (and clamps the layout it moves). `label` names it
 /// ("Resize the room list"); focused, left and right move it by [`STEP`].
-pub fn divider<V: crate::View>(
+pub fn divider<V: 'static>(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     theme: &Theme,
@@ -1333,7 +1333,7 @@ mod tests {
     ) -> (crate::testing::TestAppContext, crate::Entity<Picker>) {
         let mut cx = crate::testing::TestAppContext::new();
         let picker = cx.open::<Picker>();
-        picker.update(&mut cx, |view, _, cx| {
+        cx.update(&picker, |view, _, cx| {
             set(view);
             cx.notify();
         });

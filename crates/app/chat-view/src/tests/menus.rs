@@ -55,7 +55,7 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
         mode: Mode::More,
         at: (611., 455.),
     };
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.menu = Some(menu_on(1));
         chat.session.account = None;
         cx.notify();
@@ -72,7 +72,7 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     assert!(cx.find("chat-menu-copy-link").is_some());
 
     // someone else's message in a channel the reader owns: delete, no edit
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.menu = Some(menu_on(2));
         chat.session.account = Some(7);
         cx.notify();
@@ -81,13 +81,13 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     assert!(cx.find("chat-menu-edit").is_none(), "only the author edits");
     assert!(cx.find("chat-menu-delete").is_some(), "the owner deletes");
 
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.menu = Some(menu_on(1));
         cx.notify();
     });
     cx.run_until_parked();
     assert!(cx.has_text("😀") && cx.has_text("✎") && cx.has_text("🗑"));
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.session.account = Some(7);
         cx.notify();
     });
@@ -124,7 +124,7 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
 #[test]
 fn delete_confirmation_opens_with_the_keys_on_its_first_button() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.menu = Some(Menu {
             pane: Pane::Timeline,
             seq: 1,
@@ -167,7 +167,7 @@ fn delete_confirmation_opens_with_the_keys_on_its_first_button() {
 #[test]
 fn reaction_picker_keeps_labels_and_its_stable_action_id() {
     let (mut cx, view) = opened();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.menu = Some(Menu {
             pane: Pane::Timeline,
             seq: 1,
@@ -213,7 +213,7 @@ fn an_emoji_search_shows_every_match() {
         found.len() > crate::emoji::PER_TAB,
         "a query that overflows a tab"
     );
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.menu = Some(Menu {
             pane: Pane::Timeline,
             seq: 1,
@@ -240,7 +240,7 @@ fn an_emoji_search_shows_every_match() {
 fn the_edit_field_saves() {
     let (mut cx, view) = opened();
     assert!(cx.has_text("Send") && !cx.has_text("Save"));
-    view.update(&mut cx, |chat, window, cx| {
+    cx.update(&view, |chat, window, cx| {
         cx.notify();
         chat.open_menu(Pane::Timeline, 1, 0, Mode::Editing, window, cx);
     });

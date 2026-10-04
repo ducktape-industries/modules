@@ -39,7 +39,7 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     assert_eq!(pictures, 1);
     assert_eq!(driver.last_root.as_ref(), Some(&mounted));
     assert!(driver.tick_with(vec![], wire::Frame::clone).unchanged);
-    driver.entity().update_app(driver.app_mut(), |view, _, cx| {
+    driver.entity().update(driver.app_mut(), |view, cx| {
         view.0 = 1;
         cx.notify();
     });
@@ -125,26 +125,24 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     // sent: the host gets the tree the view rendered, without a stand-in.
     let mut whole = Driver::<Pages>::new();
     whole.tick_with(vec![], wire::Frame::clone);
-    whole.entity().update_app(whole.app_mut(), |view, _, cx| {
+    whole.entity().update(whole.app_mut(), |view, cx| {
         view.keyed_chrome = false;
         cx.notify();
     });
     whole.tick_with(vec![], wire::Frame::clone);
     let mut rendered = Driver::<Pages>::new();
-    rendered
-        .entity()
-        .update_app(rendered.app_mut(), |view, _, cx| {
-            *view = Pages {
-                rows: true,
-                keyed_chrome: false,
-            };
-            cx.notify();
-        });
+    rendered.entity().update(rendered.app_mut(), |view, cx| {
+        *view = Pages {
+            rows: true,
+            keyed_chrome: false,
+        };
+        cx.notify();
+    });
     let rendered = rendered
         .tick_with(vec![], wire::Frame::clone)
         .root
         .expect("the rows tree");
-    whole.entity().update_app(whole.app_mut(), |view, _, cx| {
+    whole.entity().update(whole.app_mut(), |view, cx| {
         view.rows = true;
         cx.notify();
     });
@@ -154,7 +152,7 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     assert_eq!(whole.last_root.as_ref(), Some(&rendered));
 
     let show = |driver: &mut Driver<Pages>, rows: bool| {
-        driver.entity().update_app(driver.app_mut(), |view, _, cx| {
+        driver.entity().update(driver.app_mut(), |view, cx| {
             view.rows = rows;
             cx.notify();
         });

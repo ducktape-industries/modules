@@ -21,7 +21,7 @@ fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         cx.notify();
         chat.channels_landed(
             vec![channel("general", "General", 3), channel("dm-7-8", "dm", 2)],
@@ -38,7 +38,7 @@ fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
     assert_eq!(posts[0].link, "duck://testnet-0a1b2c3d/chat/dm-7-8/2");
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&1));
     assert!(cx.host().requests::<NotifySeen>().is_empty());
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         cx.notify();
         chat.choose("dm-7-8".into(), cx)
     });
@@ -68,7 +68,7 @@ fn the_badge_is_counted_again_from_the_read_cursors() {
     });
     let rooms = || vec![channel("general", "General", 3), channel("dm-7-8", "dm", 2)];
     let posted = cx.host().requests::<NotifyPost>().len();
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         cx.notify();
         // as a reload leaves it: the rooms and the cursors, no count
         chat.channels = Loadable::Ready(rooms());

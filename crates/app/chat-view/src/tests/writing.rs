@@ -9,13 +9,13 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
         blocks: vec![chat::Block::paragraph("on its way")],
         ..MsgRow::by(Principal::Account(7))
     };
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room.as_mut().unwrap().pending.push(pending.clone());
         cx.notify();
     });
     cx.run_until_parked();
     assert!(cx.has_text("on its way") && cx.has_text("sending…"));
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let room = chat.room.as_mut().unwrap();
         room.messages
             .ready_mut()
@@ -64,7 +64,7 @@ fn channel_create_preserves_busy_and_account_gates() {
 
     let (mut cx, view) = opened();
     cx.simulate_click("chat-sidebar-new-channel");
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.create.as_mut().unwrap().busy = true;
         cx.notify();
     });
@@ -85,7 +85,7 @@ fn channel_create_preserves_busy_and_account_gates() {
         assert!(disabled(&cx, id), "{id} must stay inert while busy");
     }
 
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         let create = chat.create.as_mut().unwrap();
         create.busy = false;
         chat.session.account = None;
@@ -96,14 +96,14 @@ fn channel_create_preserves_busy_and_account_gates() {
     assert!(cx.has_text("Create an account to create a channel"));
     assert!(!disabled(&cx, "chat-create-cancel"));
     let submitted = cx.host().requests::<Submit<::chat::Chat>>().len();
-    view.update(&mut cx, |chat, _, cx| chat.create_channel(cx));
+    cx.update(&view, |chat, _, cx| chat.create_channel(cx));
     cx.run_until_parked();
     assert_eq!(
         cx.host().requests::<Submit<::chat::Chat>>().len(),
         submitted
     );
 
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.session.account = Some(7);
         chat.session.connected = false;
         cx.notify();
@@ -118,7 +118,7 @@ fn channel_create_preserves_busy_and_account_gates() {
 fn a_members_only_room_takes_its_owner_and_its_members() {
     let (mut cx, view) = opened();
     let gate = |cx: &mut TestAppContext, owner: u64, seated: bool| {
-        view.update(cx, |chat, _, cx| {
+        cx.update(&view, |chat, _, cx| {
             let general = chat
                 .channels
                 .ready_mut()

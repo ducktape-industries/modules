@@ -726,7 +726,7 @@ fn a_repository_opens_on_code_with_its_header_ref_picker_and_tabs() {
     assert!(cx.find("forge-ref-refs/heads/clean").is_some());
     assert!(cx.find("forge-ref-refs/heads/conflict").is_some());
     assert!(cx.has_text("Branches"), "{:?}", cx.texts());
-    view.update(&mut cx, |forge, _, cx| forge.open_menu(None, cx));
+    cx.update(&view, |forge, _, cx| forge.open_menu(None, cx));
     cx.run_until_parked();
     assert!(cx.find("forge-ref-picker-menu").is_none());
 }
@@ -854,7 +854,7 @@ fn a_relative_link_opens_its_file_in_the_code_tab() {
     cx.simulate_click("forge-ref-refs/heads/clean");
     cx.run_until_parked();
     let follow = |cx: &mut TestAppContext, dir: &[u8], dest: &str| {
-        view.update(cx, |forge, _, cx| forge.follow_link(dir, dest, cx));
+        cx.update(&view, |forge, _, cx| forge.follow_link(dir, dest, cx));
         cx.run_until_parked();
     };
     // a folder unfolds, from a document one folder down
@@ -872,7 +872,7 @@ fn a_relative_link_opens_its_file_in_the_code_tab() {
             .path
     });
     // a file inside it opens by its path alone, once its folder is read
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.nav_close_blob(cx);
         forge.open_tab(RepoTab::Readme, cx);
         forge.nav.expanded.clear();
@@ -981,7 +981,7 @@ fn the_tree_walks_by_keyboard() {
     cx.simulate_click("forge-tab-code");
     cx.run_until_parked();
     let press = |cx: &mut TestAppContext, key| {
-        view.update(cx, |forge, _, cx| forge.tree_key(key, cx));
+        cx.update(&view, |forge, _, cx| forge.tree_key(key, cx));
         cx.run_until_parked();
     };
     let cursor = |cx: &mut TestAppContext| {
@@ -1023,7 +1023,7 @@ fn an_oversize_blob_is_a_header_not_a_body() {
     cx.simulate_click("forge-ref-refs/heads/clean");
     cx.simulate_click("forge-tab-code");
     cx.run_until_parked();
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.open_file(
             b"large.txt".to_vec(),
             "b90a09e55e43808905fe881245853c1b35b3fb82".into(),
@@ -1033,7 +1033,7 @@ fn an_oversize_blob_is_a_header_not_a_body() {
     cx.run_until_parked();
     assert!(cx.has_text("Too large to show"), "{:?}", cx.texts());
     assert!(cx.find("forge-blob-lines").is_none());
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.open_file(
             b"image.bin".to_vec(),
             "95d586e774a04676a07a142f0e2f97a4f32562cb".into(),
@@ -1260,7 +1260,7 @@ fn the_rail_is_a_list_box_whose_enter_opens_the_active_repository() {
     cx.simulate_key_down("forge-rail-list", "end");
     let last = rows.last().expect("a repository");
     assert!(cx.interactivity(last).aria.active_descendant);
-    view.update(&mut cx, |forge, _, cx| forge.open_repos(cx));
+    cx.update(&view, |forge, _, cx| forge.open_repos(cx));
     cx.run_until_parked();
     assert!(
         cx.find("forge-rail-list").is_none(),
@@ -1283,7 +1283,7 @@ fn a_snapshot_restores_the_same_screen_without_replaying_events() {
     cx.run_until_parked();
     cx.simulate_click("forge-change-1");
     cx.run_until_parked();
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.open_change_tab(ChangeTab::Files, cx);
         forge.toggle_viewed(b"src/lib.rs", cx);
     });

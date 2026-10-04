@@ -108,6 +108,12 @@ renders (`view-guest/README.md`, "When a view renders").
 Unnotified frames retain their tree and event routes; native debug builds catch
 serialized state changes without notification.
 
+A view composes from child entities as a gpui view does: `cx.new` builds
+one from any state, `entity.update(cx, ..)` changes it from a listener or a
+task, and `cx.emit`/`cx.subscribe`/`cx.observe` connect it to its parent. The
+snapshot carries the root alone, so `attach` builds the children
+(`view-guest/README.md`, "Child entities").
+
 `cx.host()` is the typed host method. Keep the `Task` returned by `cx.spawn`, or
 call `.detach()`; dropping it cancels the future and any owned subscription.
 Consume host streams with `while let Some(item) = stream.next().await` and update

@@ -5,14 +5,14 @@ pub use gpui::{AccessibleAction, accesskit};
 extern crate self as ducktape_view_guest;
 
 pub use gpui::{
-    Anchor, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId, FileDropEvent,
-    FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode, Hsla,
-    KeyDownEvent, KeyUpEvent, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
+    Anchor, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId, EventEmitter,
+    FileDropEvent, FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode,
+    Hsla, KeyDownEvent, KeyUpEvent, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
     ListScrollEvent, ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent,
     MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent,
     Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
-    StrikethroughStyle, StyleRefinement, Styled, TextRun, TextStyle, Toggled, UnderlineStyle, hsla,
-    px, rems, rgb,
+    StrikethroughStyle, StyleRefinement, Styled, Subscription, TextRun, TextStyle, Toggled,
+    UnderlineStyle, hsla, px, rems, rgb,
 };
 pub use view_guest_derive::IntoElement;
 pub use view_wire as wire;
@@ -45,17 +45,17 @@ pub use view_element::{AnyView, ViewElement};
 /// Traits and primitives used to compose guest GPUI elements.
 pub mod prelude {
     pub use crate::{
-        AnyElement, AnyView, App, ClickEvent, Context, Element, ElementId, FileDropEvent,
-        FluentBuilder, FocusHandle, FollowMode, Global, HoverListenerMode, Hsla, Input,
-        InteractiveElement, InteractiveText, IntoElement, KeyDownEvent, KeyUpEvent, List,
+        AnyElement, AnyView, App, ClickEvent, Context, Element, ElementId, Entity, EventEmitter,
+        FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, HoverListenerMode, Hsla,
+        Input, InteractiveElement, InteractiveText, IntoElement, KeyDownEvent, KeyUpEvent, List,
         ListAlignment, ListHorizontalSizingBehavior, ListOffset, ListScrollEvent,
         ListSizingBehavior, ListState, ModifiersChangedEvent, MouseButton, MouseDownEvent,
         MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ParentElement,
         PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy,
         ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-        StyledText, TextField, Textarea, Theme, UniformListScrollHandle, Window, anchored, canvas,
-        deferred, div, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg,
-        uniform_list,
+        StyledText, Subscription, TextField, Textarea, Theme, UniformListScrollHandle, Window,
+        anchored, canvas, deferred, div, hsla, img, list, modal_overlay, px, rems, resize_handle,
+        rgb, sensor, svg, uniform_list,
     };
 }
 mod text;
@@ -73,7 +73,7 @@ mod view;
 pub use view::{Loadable, Render, View};
 pub use wire::methods;
 mod context;
-pub use context::{App, AsyncApp, Callback, Context, Entity, Released, WeakEntity};
+pub use context::{App, AppContext, AsyncApp, Callback, Context, Entity, Released, WeakEntity};
 mod executor;
 pub use executor::Task;
 pub use host::Host;

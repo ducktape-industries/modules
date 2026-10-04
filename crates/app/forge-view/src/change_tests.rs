@@ -266,7 +266,7 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
         "the reply is the host's multi-line editor"
     );
     // what the host's editor holds once the reply is typed
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.reply = ducktape_view_guest::TextField::new("looks right to me");
         cx.notify();
     });
@@ -505,7 +505,7 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
         (b"src/lib.rs".as_slice(), true, 3, "second thought"),
         (b"src/lib.rs".as_slice(), false, 1, "the old side too"),
     ] {
-        view.update(&mut cx, |forge, _, cx| {
+        cx.update(&view, |forge, _, cx| {
             forge.open_comment(path.to_vec(), new_side, line, cx)
         });
         cx.run_until_parked();
@@ -530,7 +530,7 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
         ),
         "the review body is the host's multi-line editor"
     );
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.review_mut().unwrap().body = ducktape_view_guest::TextField::new("one batch, one op");
         cx.notify();
     });
@@ -594,7 +594,7 @@ fn a_refused_review_keeps_every_draft() {
     let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
     cx.simulate_click("forge-start-review");
     cx.run_until_parked();
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.open_comment(b"src/lib.rs".to_vec(), true, 3, cx)
     });
     cx.run_until_parked();
@@ -670,7 +670,7 @@ fn the_details_sidebar_holds_reviews_merge_status_and_line_comments() {
     });
     // the Files tab keeps its width for the diff
     assert!(cx.find("forge-dock").is_none());
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.open_change_tab(ChangeTab::Conversation, cx);
         forge.measured(720., 760., cx);
     });
@@ -688,7 +688,7 @@ fn the_details_sidebar_holds_reviews_merge_status_and_line_comments() {
 fn editing_a_change_keeps_the_paragraphs_of_its_body() {
     let (mut cx, view) = change_screen("default", ChangeTab::Conversation);
     let body = "What: a body.\n\nWhy: it reads.\n\nTest: this one.";
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.start_edit(cx);
         // what the host's editor holds once the paragraphs are typed
         forge.form.as_mut().unwrap().body = ducktape_view_guest::TextField::new(body);
@@ -794,7 +794,7 @@ fn the_finish_form_takes_the_keys_and_escape_folds_it() {
 #[test]
 fn a_reader_without_write_picks_no_verdict() {
     let (mut cx, view) = change_screen("default", ChangeTab::Files);
-    view.update(&mut cx, |forge, _, cx| {
+    cx.update(&view, |forge, _, cx| {
         forge.start_review(cx);
         forge.finishing(true, cx);
         forge.session.connected = false;

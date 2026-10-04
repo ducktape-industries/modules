@@ -3,13 +3,13 @@ use crate::wire;
 
 type ViewRenderer = Box<dyn FnOnce(&mut crate::Window, &mut crate::App) -> AnyElement>;
 
-/// Type-erased entity-backed view, matching native GPUI's `AnyView` shape.
-/// Guest views remain `View` entities because the wasm driver owns no native entity arena.
+/// Any entity that renders, type-erased, as native GPUI's `AnyView`: a
+/// child entity in its parent's tree, or a tooltip's content.
 pub struct AnyView {
     render: ViewRenderer,
 }
 
-impl<V: crate::View> From<crate::Entity<V>> for AnyView {
+impl<V: crate::Render> From<crate::Entity<V>> for AnyView {
     fn from(entity: crate::Entity<V>) -> Self {
         Self {
             render: Box::new(move |window, app| {
@@ -18,6 +18,15 @@ impl<V: crate::View> From<crate::Entity<V>> for AnyView {
                 })
             }),
         }
+    }
+}
+
+/// A child entity is a child element: `.child(self.sidebar.clone())`.
+impl<V: crate::Render> IntoElement for crate::Entity<V> {
+    type Element = ViewElement<AnyView>;
+
+    fn into_element(self) -> Self::Element {
+        AnyView::from(self).into_element()
     }
 }
 

@@ -263,7 +263,7 @@ fn a_painted_route_crossing_an_insert_runs_the_pressed_nodes_listener() {
     let mut driver = Driver::<Shifting>::new();
     tick(&mut driver, vec![]);
     let b_painted = routes(&root(&driver), "b");
-    driver.entity().update_app(driver.app_mut(), |v, _, cx| {
+    driver.entity().update(driver.app_mut(), |v, cx| {
         v.before = Before::Button;
         cx.notify();
     });
@@ -288,7 +288,7 @@ fn a_painted_route_crossing_a_one_route_insert_runs_the_pressed_nodes_listener()
     let mut driver = Driver::<Shifting>::new();
     tick(&mut driver, vec![]);
     let b_painted = routes(&root(&driver), "b");
-    driver.entity().update_app(driver.app_mut(), |v, _, cx| {
+    driver.entity().update(driver.app_mut(), |v, cx| {
         v.before = Before::HoverOnly;
         cx.notify();
     });
@@ -312,7 +312,7 @@ fn a_painted_route_crossing_a_removal_runs_the_pressed_node_or_nothing() {
     let a_painted = routes(&painted, "a");
     let b_painted = routes(&painted, "b");
     let after_painted = routes(&painted, "after");
-    driver.entity().update_app(driver.app_mut(), |v, _, cx| {
+    driver.entity().update(driver.app_mut(), |v, cx| {
         v.gone_a = true;
         cx.notify();
     });
@@ -340,7 +340,7 @@ fn a_node_that_comes_back_takes_a_fresh_route() {
     tick(&mut driver, vec![]);
     let a_painted = routes(&root(&driver), "a");
     for gone in [true, false] {
-        driver.entity().update_app(driver.app_mut(), |v, _, cx| {
+        driver.entity().update(driver.app_mut(), |v, cx| {
             v.gone_a = gone;
             cx.notify();
         });
@@ -407,7 +407,7 @@ fn a_field_inserted_above_leaves_the_fields_below_their_routes() {
     let mut driver = Driver::<Form>::new();
     tick(&mut driver, vec![]);
     let (change, submit) = field_routes(&root(&driver), "second");
-    driver.entity().update_app(driver.app_mut(), |v, _, cx| {
+    driver.entity().update(driver.app_mut(), |v, cx| {
         v.extra = true;
         cx.notify();
     });
@@ -489,7 +489,7 @@ fn a_row_prepended_to_a_list_leaves_the_rows_below_their_routes() {
     let mut driver = Driver::<Keyed>::new();
     tick(&mut driver, vec![]);
     let m9 = click_route(&root(&driver), "m9");
-    driver.entity().update_app(driver.app_mut(), |v, _, cx| {
+    driver.entity().update(driver.app_mut(), |v, cx| {
         v.items.insert(0, "older".into());
         v.state.as_ref().unwrap().splice(0..0, 1);
         cx.notify();
@@ -652,7 +652,7 @@ impl Render for Column {
 fn a_row_landing_at_the_top_of_a_plain_column_sends_one_insert() {
     let mut driver = Driver::<Column>::new();
     let first = sent(&mut driver, vec![]);
-    driver.entity().update_app(driver.app_mut(), |v, _, cx| {
+    driver.entity().update(driver.app_mut(), |v, cx| {
         v.rows.insert(0, 0);
         cx.notify();
     });

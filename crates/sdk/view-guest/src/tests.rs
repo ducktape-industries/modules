@@ -83,7 +83,7 @@ fn held_streams_remain_open_and_dropping_tasks_cancels_them() {
         cx.snapshot().is_ok(),
         "held streams can be restored independently"
     );
-    probe.update(&mut cx, |view, _, cx| {
+    cx.update(&probe, |view, _, cx| {
         view.streams.clear();
         view.watch(cx, "replacement");
     });
@@ -131,7 +131,7 @@ fn stream_updates_follow_response_order_instead_of_spawn_order() {
     let (mut cx, probe) = opened::<Probe>();
     let requests = cx.last_frame().requests.clone();
     for order in [["data", "visible"], ["visible", "data"]] {
-        probe.update(&mut cx, |view, _, cx| {
+        cx.update(&probe, |view, _, cx| {
             view.received.clear();
             cx.notify();
         });
@@ -296,7 +296,7 @@ fn uniform_list_lowers_only_initial_and_requested_ranges() {
 #[test]
 fn spawning_from_an_entity_update_settles_without_borrowing_the_view() {
     let (mut cx, probe) = opened::<Probe>();
-    probe.update(&mut cx, |_, _, cx| {
+    cx.update(&probe, |_, _, cx| {
         cx.spawn(async move |this, cx| {
             this.update(cx, |view, cx| {
                 view.received.push("first".into());
@@ -365,7 +365,7 @@ fn a_self_waking_future_is_budgeted_and_keeps_the_frame_busy() {
 #[should_panic(expected = "state changed without cx.notify()")]
 fn update_guard_detects_missing_notify() {
     let (mut cx, probe) = opened::<Probe>();
-    probe.update(&mut cx, |view, _, _| view.received.push("forgot".into()));
+    cx.update(&probe, |view, _, _| view.received.push("forgot".into()));
 }
 
 #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
@@ -423,7 +423,7 @@ fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
         .detach();
     }
     let (mut cx, probe) = opened::<Probe>();
-    probe.update(&mut cx, |_, _, cx| enqueue(cx, 40));
+    cx.update(&probe, |_, _, cx| enqueue(cx, 40));
     assert!(cx.tick(vec![]).busy);
     probe.read(|view| assert!(view.received.len() < 40));
     let mut busy = true;
