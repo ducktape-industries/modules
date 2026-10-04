@@ -11,11 +11,16 @@ use std::collections::HashSet;
 
 use view_wire::*;
 
+mod common;
+use common::{PLAIN, plain, sanitize};
+
 mod hostile {
     use super::*;
 
     mod rng;
     use rng::*;
+    mod table;
+    use table::*;
     mod leaves;
     use leaves::*;
     mod generation;

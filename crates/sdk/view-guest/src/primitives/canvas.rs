@@ -83,10 +83,10 @@ impl Styled for Canvas {
 }
 
 impl Element for Canvas {
-    fn lower(self: Box<Self>, _lowering: &mut Lowering<'_>) -> wire::Node {
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let this = *self;
         wire::Node::Canvas {
-            style: this.style,
+            style: lowering.style(&this.style),
             commands: this.commands,
         }
     }

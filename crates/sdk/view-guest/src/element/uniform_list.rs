@@ -232,7 +232,7 @@ impl Element for UniformList {
         if let Some(handle) = &self.scroll {
             handle.0.borrow_mut().y_flipped = self.y_flipped;
         }
-        let style = self.interactivity.base_style.clone();
+        let style = lowering.style(&self.interactivity.base_style);
         let (_, interactivity) = self.interactivity.into_wire(lowering);
         wire::Node::UniformList {
             id,

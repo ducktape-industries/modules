@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn sanitize_interactivity(
     interactivity: &mut Interactivity,
+    budgets: &Budgets,
 ) -> Result<(), &'static str> {
     interactivity.aria.sanitize();
     interactivity.role = crate::aria::view_role(interactivity.role);
@@ -14,15 +15,8 @@ pub(super) fn sanitize_interactivity(
     // gpui panics (debug) on an active descendant that is the focused
     // node, and a tracked focus handle makes a node focusable there.
     aria.active_descendant &= !interactivity.focusable && interactivity.focus_handle.is_none();
-    for style in [
-        &mut interactivity.focus,
-        &mut interactivity.in_focus,
-        &mut interactivity.focus_visible,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        style_sanitize::sanitize(style)?;
+    for style in interactivity.styles() {
+        budgets.style(style)?;
     }
     // a key cut short, or one gpui cannot read, would cross and stop nothing
     let keys = &interactivity.consumes_keys;
@@ -40,12 +34,6 @@ pub(super) fn sanitize_interactivity(
     if interactivity.consumes_click && interactivity.on_click.is_none() {
         return Err("consumes a click it does not take");
     }
-    for style in [&mut interactivity.hover, &mut interactivity.active]
-        .into_iter()
-        .flatten()
-    {
-        style_sanitize::sanitize(style)?;
-    }
     for group in [
         &mut interactivity.group_hover,
         &mut interactivity.group_active,
@@ -53,7 +41,6 @@ pub(super) fn sanitize_interactivity(
     .into_iter()
     .flatten()
     {
-        style_sanitize::sanitize(&mut group.style)?;
         let mut name = group.group.to_string();
         truncate_string(&mut name);
         group.group = name.into();

@@ -27,6 +27,8 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     }
     let mut driver = Driver::<Picture>::new();
     let first = driver.tick_with(vec![], wire::Frame::clone);
+    let mut styles = wire::Styles::default();
+    styles.extend(first.styles).unwrap();
     let mut mounted = first.root.unwrap();
     let mut pictures = 0;
     mounted.for_each_mut(&mut |node| {
@@ -46,7 +48,8 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     let frame = driver.tick_with(vec![], wire::Frame::clone);
     assert!(!frame.unchanged);
     assert!(!frame.patches.is_empty());
-    wire::apply(&mut mounted, frame.patches).unwrap();
+    styles.extend(frame.styles).unwrap();
+    wire::apply(&mut mounted, frame.patches, &styles).unwrap();
     // The host stores picture data separately after applying a patch.
     mounted.for_each_mut(&mut |node| {
         if let wire::Node::Image { data, .. } = node {
@@ -159,19 +162,21 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
         });
     };
     let mut driver = Driver::<Pages>::new();
-    let mut held = driver
-        .tick_with(vec![], wire::Frame::clone)
-        .root
-        .expect("a first tree");
+    let first = driver.tick_with(vec![], wire::Frame::clone);
+    let mut styles = wire::Styles::default();
+    styles.extend(first.styles).unwrap();
+    let mut held = first.root.expect("a first tree");
     let overview = held.clone();
     // The rows page as a copying diff sees it: against a driver of its own.
     let mut reference = Driver::<Pages>::new();
     reference.tick_with(vec![], wire::Frame::clone);
     show(&mut reference, true);
-    reference.tick_with(vec![], wire::Frame::clone);
+    // the styles the rows bring cross with the patches that name them
+    let brought = reference.tick_with(vec![], wire::Frame::clone).styles;
     let rows = reference.last_root.clone().expect("the rows tree");
     let expected = wire::Frame {
         patches: wire::diff(&mut overview.clone(), &mut rows.clone()),
+        styles: brought,
         ..wire::Frame::default()
     };
     assert!(
@@ -186,7 +191,8 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     show(&mut driver, true);
     let sent = driver.tick_with(vec![], wire::encode);
     assert_eq!(sent, wire::encode(&expected), "the bytes the host gets");
-    wire::apply(&mut held, expected.patches).unwrap();
+    styles.extend(expected.styles).unwrap();
+    wire::apply(&mut held, expected.patches, &styles).unwrap();
     assert_eq!(held, rows);
     assert_eq!(
         driver.last_root.as_ref(),
@@ -198,7 +204,8 @@ fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole()
     show(&mut driver, false);
     let back = driver.tick_with(vec![], wire::Frame::clone);
     assert!(!back.unchanged && !back.patches.is_empty());
-    wire::apply(&mut held, back.patches).unwrap();
+    styles.extend(back.styles).unwrap();
+    wire::apply(&mut held, back.patches, &styles).unwrap();
     assert_eq!(
         held, overview,
         "the frame after a switch still patches to the rendered tree"

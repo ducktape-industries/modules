@@ -48,7 +48,7 @@ impl Element for PathProbe {
             id: self
                 .id
                 .map(|id| wire::ElementIdWire::from_gpui(id).unwrap()),
-            style: StyleRefinement::default(),
+            style: lowering.no_style(),
             content: "probe".into(),
         })
     }

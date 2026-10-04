@@ -73,7 +73,7 @@ pub enum Node {
     /// One native GPUI paragraph with optional interactive byte ranges.
     RichText {
         id: Option<ElementIdWire>,
-        style: gpui::StyleRefinement,
+        style: StyleId,
         text: String,
         runs: RichTextRuns,
         font_family_overrides: Vec<(std::ops::Range<usize>, gpui::SharedString)>,
@@ -99,8 +99,7 @@ pub enum Node {
         id: ElementIdWire,
         path: Vec<ElementIdWire>,
         route: u32,
-        style: gpui::StyleRefinement,
-        #[serde(default, skip_serializing_if = "crate::is_default")]
+        style: StyleId,
         interactivity: Box<Interactivity>,
         count: usize,
         measure_index: usize,
@@ -131,8 +130,7 @@ pub enum Node {
         request_handler: u32,
         scroll_handler: Option<u32>,
         range_start: usize,
-        style: gpui::StyleRefinement,
-        #[serde(default, skip_serializing_if = "crate::is_default")]
+        style: StyleId,
         interactivity: Box<Interactivity>,
         children: Vec<Node>,
     },
@@ -140,8 +138,7 @@ pub enum Node {
     /// A grabbed divider: local movement deltas and native cursor; one child.
     ResizeHandle {
         id: ElementIdWire,
-        style: gpui::StyleRefinement,
-        #[serde(default, skip_serializing_if = "crate::is_default")]
+        style: StyleId,
         interactivity: Box<Interactivity>,
         on_press: Option<u32>,
         on_release: Option<u32>,
@@ -159,7 +156,7 @@ pub enum Node {
     /// [`Event::Size`].
     Sensor {
         id: ElementIdWire,
-        style: gpui::StyleRefinement,
+        style: StyleId,
         on_show: Option<u32>,
         on_resize: Option<u32>,
         child: Box<Node>,
@@ -175,8 +172,7 @@ pub enum Node {
         loading: bool,
         fallback: bool,
         state_children: Vec<Node>,
-        style: gpui::StyleRefinement,
-        #[serde(default, skip_serializing_if = "crate::is_default")]
+        style: StyleId,
         interactivity: Box<Interactivity>,
     },
     /// A vector picture. Its bytes cross ONCE: the frame that first shows a
@@ -189,8 +185,7 @@ pub enum Node {
         source: SvgSource,
         transformation: SvgTransformation,
         label: Option<String>,
-        style: gpui::StyleRefinement,
-        #[serde(default, skip_serializing_if = "crate::is_default")]
+        style: StyleId,
         interactivity: Box<Interactivity>,
     },
     /// A text field, one line or many, whose text the host's editing engine
@@ -220,23 +215,23 @@ pub enum Node {
         on_change: Option<u32>,
         on_key: Option<u32>,
         on_submit: Option<u32>,
-        style: gpui::StyleRefinement,
+        style: StyleId,
     },
-    Space {
-        style: gpui::StyleRefinement,
-    },
+    /// Nothing: what an empty view renders as, and what stands in for a
+    /// subtree the host cut.
+    Space,
     /// A base plus an optional modal layer. Closing removes the second child.
     Overlay {
         id: ElementIdWire,
         /// The accessible name of the dialog; the variant is its role.
         label: Option<String>,
-        style: gpui::StyleRefinement,
+        style: StyleId,
         on_dismiss: Option<u32>,
         children: Vec<Node>,
     },
     /// Bounded geometry painted by the host, in widget-local coordinates.
     Canvas {
-        style: gpui::StyleRefinement,
+        style: StyleId,
         #[serde(deserialize_with = "canvas::decode_parts")]
         commands: Vec<CanvasCommand>,
     },

@@ -15,7 +15,7 @@ host.offset None () -> i32
 host.route None () -> String
 host.session None () -> Session
 host.visible None () -> bool
-host.widget None TypeName("WidgetCommand") -> Unit named MessagePack
+host.widget None TypeName("WidgetCommand") -> Unit tree
 invite.create None CreateInvite -> Invite
 link.open None String -> ()
 module.changes Some("P") () -> Option<Change>
@@ -96,7 +96,7 @@ u32 = Primitive(4)
 u64 = Primitive(8)
 u8 = Primitive(1)
 
-# tree: named MessagePack, every container by name
+# tree: MessagePack by position (a struct its fields in this order, a variant its index), every container by name
 Action enum
   0 click: Unit
   1 focus: Unit
@@ -129,24 +129,6 @@ ActionData enum
   5 scrollToPoint: NewType(TypeName("accesskit::Point"))
   6 setScrollOffset: NewType(TypeName("accesskit::Point"))
   7 setTextSelection: NewType(TypeName("TextSelection"))
-AlignContent enum
-  0 Start: Unit
-  1 End: Unit
-  2 FlexStart: Unit
-  3 FlexEnd: Unit
-  4 Center: Unit
-  5 Stretch: Unit
-  6 SpaceBetween: Unit
-  7 SpaceEvenly: Unit
-  8 SpaceAround: Unit
-AlignItems enum
-  0 Start: Unit
-  1 End: Unit
-  2 FlexStart: Unit
-  3 FlexEnd: Unit
-  4 Center: Unit
-  5 Baseline: Unit
-  6 Stretch: Unit
 Anchor enum
   0 TopLeft: Unit
   1 TopRight: Unit
@@ -204,30 +186,9 @@ AriaCurrent enum
   4 location: Unit
   5 date: Unit
   6 time: Unit
-Background struct
-  tag: TypeName("BackgroundTag")
-  color_space: TypeName("ColorSpace")
-  solid: Str
-  gradient_angle_or_pattern_height: F32
-  colors: TupleArray { content: TypeName("LinearColorStop"), size: 2 }
-  pad: U32
-BackgroundTag enum
-  0 Solid: Unit
-  1 LinearGradient: Unit
-  2 PatternSlash: Unit
-  3 Checkerboard: Unit
-BorderStyle enum
-  0 Solid: Unit
-  1 Dashed: Unit
 Bounds struct
   origin: TypeName("Point")
   size: TypeName("Size")
-BoxShadow struct
-  color: Str
-  offset: TypeName("Point")
-  blur_radius: TypeName("Pixels")
-  spread_radius: TypeName("Pixels")
-  inset: Bool
 ButtonEvent struct
   button: TypeName("MouseButton")
   position: TypeName("Point")
@@ -320,19 +281,11 @@ Click enum
     position: TypeName("Point")
     tap_count: U64
     long_press: Bool
-ColorSpace enum
-  0 Srgb: Unit
-  1 Oklab: Unit
 ContainerNode struct
   id: Option(TypeName("WireRepr"))
-  style: TypeName("StyleRefinement")
+  style: U32
   interactivity: TypeName("Interactivity")
   children: Seq(TypeName("Node"))
-CornersRefinement struct
-  top_left: Option(Str)
-  top_right: Option(Str)
-  bottom_right: Option(Str)
-  bottom_left: Option(Str)
 Cursor enum
   0 None: Unit
   1 Hidden: Unit
@@ -361,41 +314,9 @@ Cursor enum
   24 AllScroll: Unit
   25 ZoomIn: Unit
   26 ZoomOut: Unit
-CursorStyle enum
-  0 Arrow: Unit
-  1 IBeam: Unit
-  2 Crosshair: Unit
-  3 ClosedHand: Unit
-  4 OpenHand: Unit
-  5 PointingHand: Unit
-  6 ResizeLeft: Unit
-  7 ResizeRight: Unit
-  8 ResizeLeftRight: Unit
-  9 ResizeUp: Unit
-  10 ResizeDown: Unit
-  11 ResizeUpDown: Unit
-  12 ResizeUpLeftDownRight: Unit
-  13 ResizeUpRightDownLeft: Unit
-  14 ResizeColumn: Unit
-  15 ResizeRow: Unit
-  16 IBeamCursorForVerticalLayout: Unit
-  17 OperationNotAllowed: Unit
-  18 DragLink: Unit
-  19 DragCopy: Unit
-  20 ContextualMenu: Unit
 DispatchPhase enum
   0 Capture: Unit
   1 Bubble: Unit
-Display enum
-  0 Block: Unit
-  1 Flex: Unit
-  2 Grid: Unit
-  3 None: Unit
-EdgesRefinement struct
-  top: Option(Str)
-  right: Option(Str)
-  bottom: Option(Str)
-  left: Option(Str)
 Edit struct
   range: TypeName("TextRange")
   len: U32
@@ -526,17 +447,6 @@ Event enum
   31 A11yAction struct
     handler: U32
     data: Option(TypeName("ActionData"))
-Fill enum
-  0 Color: NewType(TypeName("Background"))
-FlexDirection enum
-  0 Row: Unit
-  1 Column: Unit
-  2 RowReverse: Unit
-  3 ColumnReverse: Unit
-FlexWrap enum
-  0 NoWrap: Unit
-  1 Wrap: Unit
-  2 WrapReverse: Unit
 FontFallbacks NewTypeStruct(Seq(Str))
 FontStyle enum
   0 Normal: Unit
@@ -544,26 +454,16 @@ FontStyle enum
   2 Oblique: Unit
 Frame struct
   tooltip_responses: Seq(TypeName("TooltipResponse"))
+  styles: Seq(Bytes)
   root: Option(TypeName("Node"))
   patches: Seq(TypeName("Patch"))
   requests: Seq(TypeName("Request"))
   cancels: Seq(U64)
   unchanged: Bool
   busy: Bool
-GridPlacement enum
-  0 Line: NewType(I16)
-  1 Span: NewType(U16)
-  2 Auto: Unit
-GridTemplate struct
-  repeat: U16
-  min_size: TypeName("GridTemplateMinSize")
-GridTemplateMinSize enum
-  0 Zero: Unit
-  1 MinContent: Unit
-  2 MaxContent: Unit
 GroupRefinement struct
   group: Str
-  style: TypeName("StyleRefinement")
+  style: U32
 HasPopup enum
   0 menu: Unit
   1 listbox: Unit
@@ -612,16 +512,16 @@ Interactivity struct
   tab_stop: Option(Bool)
   tab_index: Option(I32)
   tab_group: Bool
-  focus: Option(TypeName("StyleRefinement"))
-  in_focus: Option(TypeName("StyleRefinement"))
-  focus_visible: Option(TypeName("StyleRefinement"))
+  focus: Option(U32)
+  in_focus: Option(U32)
+  focus_visible: Option(U32)
   focus_handle: Option(U64)
   occlude: Bool
   block_mouse_except_scroll: Bool
   hover_listener_mode: TypeName("HoverListenerMode")
   group: Option(Str)
-  hover: Option(TypeName("StyleRefinement"))
-  active: Option(TypeName("StyleRefinement"))
+  hover: Option(U32)
+  active: Option(U32)
   group_hover: Option(TypeName("GroupRefinement"))
   group_active: Option(TypeName("GroupRefinement"))
   on_click: Option(U32)
@@ -676,9 +576,6 @@ KeyUp struct
 KeyboardButton enum
   0 Enter: Unit
   1 Space: Unit
-LinearColorStop struct
-  color: Str
-  percentage: F32
 ListAlignment enum
   0 Top: Unit
   1 Bottom: Unit
@@ -829,7 +726,7 @@ NativeCode enum
 Node enum
   0 RichText struct
     id: Option(TypeName("WireRepr"))
-    style: TypeName("StyleRefinement")
+    style: U32
     text: Str
     runs: TypeName("Runs")
     font_family_overrides: Seq(Tuple([TypeName("Range"), Str]))
@@ -848,7 +745,7 @@ Node enum
     id: TypeName("WireRepr")
     path: Seq(TypeName("WireRepr"))
     route: U32
-    style: TypeName("StyleRefinement")
+    style: U32
     interactivity: TypeName("Interactivity")
     count: U64
     measure_index: U64
@@ -871,13 +768,13 @@ Node enum
     request_handler: U32
     scroll_handler: Option(U32)
     range_start: U64
-    style: TypeName("StyleRefinement")
+    style: U32
     interactivity: TypeName("Interactivity")
     children: Seq(TypeName("Node"))
   4 Container: NewType(TypeName("ContainerNode"))
   5 ResizeHandle struct
     id: TypeName("WireRepr")
-    style: TypeName("StyleRefinement")
+    style: U32
     interactivity: TypeName("Interactivity")
     on_press: Option(U32)
     on_release: Option(U32)
@@ -889,7 +786,7 @@ Node enum
     content: TypeName("Node")
   7 Sensor struct
     id: TypeName("WireRepr")
-    style: TypeName("StyleRefinement")
+    style: U32
     on_show: Option(U32)
     on_resize: Option(U32)
     child: TypeName("Node")
@@ -903,14 +800,14 @@ Node enum
     loading: Bool
     fallback: Bool
     state_children: Seq(TypeName("Node"))
-    style: TypeName("StyleRefinement")
+    style: U32
     interactivity: TypeName("Interactivity")
   10 Svg struct
     id: Option(TypeName("WireRepr"))
     source: TypeName("SvgSource")
     transformation: TypeName("SvgTransformation")
     label: Option(Str)
-    style: TypeName("StyleRefinement")
+    style: U32
     interactivity: TypeName("Interactivity")
   11 Field struct
     id: TypeName("WireRepr")
@@ -927,27 +824,21 @@ Node enum
     on_change: Option(U32)
     on_key: Option(U32)
     on_submit: Option(U32)
-    style: TypeName("StyleRefinement")
-  12 Space struct
-    style: TypeName("StyleRefinement")
+    style: U32
+  12 Space: Unit
   13 Overlay struct
     id: TypeName("WireRepr")
     label: Option(Str)
-    style: TypeName("StyleRefinement")
+    style: U32
     on_dismiss: Option(U32)
     children: Seq(TypeName("Node"))
   14 Canvas struct
-    style: TypeName("StyleRefinement")
+    style: U32
     commands: Seq(TypeName("CanvasCommand"))
 NodeId NewTypeStruct(U64)
 Orientation enum
   0 horizontal: Unit
   1 vertical: Unit
-Overflow enum
-  0 Visible: Unit
-  1 Clip: Unit
-  2 Hidden: Unit
-  3 Scroll: Unit
 Patch enum
   0 Replace struct
     path: Seq(U32)
@@ -977,12 +868,6 @@ Pixels NewTypeStruct(F32)
 Point struct
   x: TypeName("Pixels")
   y: TypeName("Pixels")
-PointRefinement struct
-  x: Option(TypeName("Overflow"))
-  y: Option(TypeName("Overflow"))
-Position enum
-  0 Relative: Unit
-  1 Absolute: Unit
 PressureStage enum
   0 Zero: Unit
   1 Normal: Unit
@@ -1213,51 +1098,9 @@ ScrollWheel struct
 Size struct
   width: TypeName("Pixels")
   height: TypeName("Pixels")
-SizeRefinement struct
-  width: Option(Str)
-  height: Option(Str)
 StrikethroughStyle struct
   thickness: TypeName("Pixels")
   color: Option(Str)
-StyleRefinement struct
-  display: Option(TypeName("Display"))
-  visibility: Option(TypeName("Visibility"))
-  overflow: TypeName("PointRefinement")
-  scrollbar_width: Option(Str)
-  allow_concurrent_scroll: Option(Bool)
-  restrict_scroll_to_axis: Option(Bool)
-  position: Option(TypeName("Position"))
-  inset: TypeName("EdgesRefinement")
-  size: TypeName("SizeRefinement")
-  min_size: TypeName("SizeRefinement")
-  max_size: TypeName("SizeRefinement")
-  aspect_ratio: Option(F32)
-  margin: TypeName("EdgesRefinement")
-  padding: TypeName("EdgesRefinement")
-  border_widths: TypeName("EdgesRefinement")
-  align_items: Option(TypeName("AlignItems"))
-  align_self: Option(TypeName("AlignItems"))
-  align_content: Option(TypeName("AlignContent"))
-  justify_content: Option(TypeName("AlignContent"))
-  gap: TypeName("SizeRefinement")
-  flex_direction: Option(TypeName("FlexDirection"))
-  flex_wrap: Option(TypeName("FlexWrap"))
-  flex_basis: Option(Str)
-  flex_grow: Option(F32)
-  flex_shrink: Option(F32)
-  background: Option(TypeName("Fill"))
-  border_color: Option(Str)
-  border_style: Option(TypeName("BorderStyle"))
-  corner_radii: TypeName("CornersRefinement")
-  box_shadow: Option(Seq(TypeName("BoxShadow")))
-  text: TypeName("TextStyleRefinement")
-  mouse_cursor: Option(TypeName("CursorStyle"))
-  opacity: Option(F32)
-  grid_cols: Option(TypeName("GridTemplate"))
-  grid_rows: Option(TypeName("GridTemplate"))
-  grid_location: Option(TypeName("GridLocation"))
-  debug: Option(Bool)
-  debug_below: Option(Bool)
 SvgSource enum
   0 None: Unit
   1 Data struct
@@ -1269,10 +1112,6 @@ SvgTransformation struct
   scale: TupleArray { content: F32, size: 2 }
   translate: TupleArray { content: F32, size: 2 }
   rotate: F32
-TextAlign enum
-  0 Left: Unit
-  1 Center: Unit
-  2 Right: Unit
 TextChange struct
   generation: U64
   revision: U64
@@ -1283,12 +1122,8 @@ TextChange struct
   tokens: Seq(TypeName("TextToken"))
 TextNode struct
   id: Option(TypeName("WireRepr"))
-  style: TypeName("StyleRefinement")
+  style: U32
   content: Str
-TextOverflow enum
-  0 Truncate: NewType(Str)
-  1 TruncateStart: NewType(Str)
-  2 TruncateMiddle: NewType(Str)
 TextPosition struct
   node: TypeName("NodeId")
   characterIndex: U64
@@ -1309,22 +1144,6 @@ TextRun struct
 TextSelection struct
   anchor: TypeName("TextPosition")
   focus: TypeName("TextPosition")
-TextStyleRefinement struct
-  color: Option(Str)
-  font_family: Option(Str)
-  font_features: Option(Map { key: Str, value: U32 })
-  font_fallbacks: Option(TypeName("FontFallbacks"))
-  font_size: Option(Str)
-  line_height: Option(Str)
-  font_weight: Option(F32)
-  font_style: Option(TypeName("FontStyle"))
-  background_color: Option(Str)
-  underline: Option(TypeName("UnderlineStyle"))
-  strikethrough: Option(TypeName("StrikethroughStyle"))
-  white_space: Option(TypeName("WhiteSpace"))
-  text_overflow: Option(TypeName("TextOverflow"))
-  text_align: Option(TypeName("TextAlign"))
-  line_clamp: Option(U64)
 TextToken struct
   range: TypeName("TextRange")
   id: Str
@@ -1365,12 +1184,6 @@ UniformListScrollStrategy enum
 UniformListSizing enum
   0 Infer: Unit
   1 Auto: Unit
-Visibility enum
-  0 Visible: Unit
-  1 Hidden: Unit
-WhiteSpace enum
-  0 Normal: Unit
-  1 Nowrap: Unit
 WidgetCommand enum
   0 Replace struct
     target: Seq(TypeName("WireRepr"))
@@ -1433,13 +1246,198 @@ accesskit::Point struct
   x: F64
   y: F64
 
-# tree: gpui's GridLocation, whose Range is not the tree's
+# style: what a table entry holds, a bitmap of each refinement's fields in this order and then the ones set
+AlignContent enum
+  0 Start: Unit
+  1 End: Unit
+  2 FlexStart: Unit
+  3 FlexEnd: Unit
+  4 Center: Unit
+  5 Stretch: Unit
+  6 SpaceBetween: Unit
+  7 SpaceEvenly: Unit
+  8 SpaceAround: Unit
+AlignItems enum
+  0 Start: Unit
+  1 End: Unit
+  2 FlexStart: Unit
+  3 FlexEnd: Unit
+  4 Center: Unit
+  5 Baseline: Unit
+  6 Stretch: Unit
+Background struct
+  tag: TypeName("BackgroundTag")
+  color_space: TypeName("ColorSpace")
+  solid: Str
+  gradient_angle_or_pattern_height: F32
+  colors: TupleArray { content: TypeName("LinearColorStop"), size: 2 }
+  pad: U32
+BackgroundTag enum
+  0 Solid: Unit
+  1 LinearGradient: Unit
+  2 PatternSlash: Unit
+  3 Checkerboard: Unit
+BorderStyle enum
+  0 Solid: Unit
+  1 Dashed: Unit
+BoxShadow struct
+  color: Str
+  offset: TypeName("Point")
+  blur_radius: TypeName("Pixels")
+  spread_radius: TypeName("Pixels")
+  inset: Bool
+ColorSpace enum
+  0 Srgb: Unit
+  1 Oklab: Unit
+CornersRefinement struct
+  top_left: Option(Str)
+  top_right: Option(Str)
+  bottom_right: Option(Str)
+  bottom_left: Option(Str)
+CursorStyle enum
+  0 Arrow: Unit
+  1 IBeam: Unit
+  2 Crosshair: Unit
+  3 ClosedHand: Unit
+  4 OpenHand: Unit
+  5 PointingHand: Unit
+  6 ResizeLeft: Unit
+  7 ResizeRight: Unit
+  8 ResizeLeftRight: Unit
+  9 ResizeUp: Unit
+  10 ResizeDown: Unit
+  11 ResizeUpDown: Unit
+  12 ResizeUpLeftDownRight: Unit
+  13 ResizeUpRightDownLeft: Unit
+  14 ResizeColumn: Unit
+  15 ResizeRow: Unit
+  16 IBeamCursorForVerticalLayout: Unit
+  17 OperationNotAllowed: Unit
+  18 DragLink: Unit
+  19 DragCopy: Unit
+  20 ContextualMenu: Unit
+Display enum
+  0 Block: Unit
+  1 Flex: Unit
+  2 Grid: Unit
+  3 None: Unit
+EdgesRefinement struct
+  top: Option(Str)
+  right: Option(Str)
+  bottom: Option(Str)
+  left: Option(Str)
+Fill enum
+  0 Color: NewType(TypeName("Background"))
+FlexDirection enum
+  0 Row: Unit
+  1 Column: Unit
+  2 RowReverse: Unit
+  3 ColumnReverse: Unit
+FlexWrap enum
+  0 NoWrap: Unit
+  1 Wrap: Unit
+  2 WrapReverse: Unit
 GridLocation struct
   row: TypeName("Range")
   column: TypeName("Range")
+GridPlacement enum
+  0 Line: NewType(I16)
+  1 Span: NewType(U16)
+  2 Auto: Unit
+GridTemplate struct
+  repeat: U16
+  min_size: TypeName("GridTemplateMinSize")
+GridTemplateMinSize enum
+  0 Zero: Unit
+  1 MinContent: Unit
+  2 MaxContent: Unit
+LinearColorStop struct
+  color: Str
+  percentage: F32
+Overflow enum
+  0 Visible: Unit
+  1 Clip: Unit
+  2 Hidden: Unit
+  3 Scroll: Unit
+PointRefinement struct
+  x: Option(TypeName("Overflow"))
+  y: Option(TypeName("Overflow"))
+Position enum
+  0 Relative: Unit
+  1 Absolute: Unit
 Range struct
   start: TypeName("GridPlacement")
   end: TypeName("GridPlacement")
+SizeRefinement struct
+  width: Option(Str)
+  height: Option(Str)
+StyleRefinement struct
+  display: Option(TypeName("Display"))
+  visibility: Option(TypeName("Visibility"))
+  overflow: TypeName("PointRefinement")
+  scrollbar_width: Option(Str)
+  allow_concurrent_scroll: Option(Bool)
+  restrict_scroll_to_axis: Option(Bool)
+  position: Option(TypeName("Position"))
+  inset: TypeName("EdgesRefinement")
+  size: TypeName("SizeRefinement")
+  min_size: TypeName("SizeRefinement")
+  max_size: TypeName("SizeRefinement")
+  aspect_ratio: Option(F32)
+  margin: TypeName("EdgesRefinement")
+  padding: TypeName("EdgesRefinement")
+  border_widths: TypeName("EdgesRefinement")
+  align_items: Option(TypeName("AlignItems"))
+  align_self: Option(TypeName("AlignItems"))
+  align_content: Option(TypeName("AlignContent"))
+  justify_content: Option(TypeName("AlignContent"))
+  gap: TypeName("SizeRefinement")
+  flex_direction: Option(TypeName("FlexDirection"))
+  flex_wrap: Option(TypeName("FlexWrap"))
+  flex_basis: Option(Str)
+  flex_grow: Option(F32)
+  flex_shrink: Option(F32)
+  background: Option(TypeName("Fill"))
+  border_color: Option(Str)
+  border_style: Option(TypeName("BorderStyle"))
+  corner_radii: TypeName("CornersRefinement")
+  box_shadow: Option(Seq(TypeName("BoxShadow")))
+  text: TypeName("TextStyleRefinement")
+  mouse_cursor: Option(TypeName("CursorStyle"))
+  opacity: Option(F32)
+  grid_cols: Option(TypeName("GridTemplate"))
+  grid_rows: Option(TypeName("GridTemplate"))
+  grid_location: Option(TypeName("GridLocation"))
+TextAlign enum
+  0 Left: Unit
+  1 Center: Unit
+  2 Right: Unit
+TextOverflow enum
+  0 Truncate: NewType(Str)
+  1 TruncateStart: NewType(Str)
+  2 TruncateMiddle: NewType(Str)
+TextStyleRefinement struct
+  color: Option(Str)
+  font_family: Option(Str)
+  font_features: Option(Map { key: Str, value: U32 })
+  font_fallbacks: Option(TypeName("FontFallbacks"))
+  font_size: Option(Str)
+  line_height: Option(Str)
+  font_weight: Option(F32)
+  font_style: Option(TypeName("FontStyle"))
+  background_color: Option(Str)
+  underline: Option(TypeName("UnderlineStyle"))
+  strikethrough: Option(TypeName("StrikethroughStyle"))
+  white_space: Option(TypeName("WhiteSpace"))
+  text_overflow: Option(TypeName("TextOverflow"))
+  text_align: Option(TypeName("TextAlign"))
+  line_clamp: Option(U64)
+Visibility enum
+  0 Visible: Unit
+  1 Hidden: Unit
+WhiteSpace enum
+  0 Normal: Unit
+  1 Nowrap: Unit
 
 # manifest: one line each, in order
 ducktape.view.manifest

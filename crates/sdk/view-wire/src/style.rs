@@ -1,10 +1,12 @@
 //! The style refinements and listener routes an element lowers to native GPUI.
-use gpui::{SharedString, StyleRefinement};
+use crate::StyleId;
+use gpui::SharedString;
 use serde::{Deserialize, Serialize};
 
 /// Declarative interactivity lowered into native GPUI's `Interactivity`.
+/// Sparse on the wire: a node sets a few of these and leaves the rest out.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields, remote = "Self")]
 pub struct Interactivity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<gpui::Role>,
@@ -19,11 +21,11 @@ pub struct Interactivity {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub tab_group: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub focus: Option<Box<StyleRefinement>>,
+    pub focus: Option<StyleId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub in_focus: Option<Box<StyleRefinement>>,
+    pub in_focus: Option<StyleId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub focus_visible: Option<Box<StyleRefinement>>,
+    pub focus_visible: Option<StyleId>,
     /// Guest-app-local opaque focus allocation. It is never an authored element ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_handle: Option<u64>,
@@ -36,9 +38,9 @@ pub struct Interactivity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<SharedString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hover: Option<Box<StyleRefinement>>,
+    pub hover: Option<StyleId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active: Option<Box<StyleRefinement>>,
+    pub active: Option<StyleId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_hover: Option<GroupRefinement>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,8 +106,36 @@ pub struct Interactivity {
     pub tooltip: Option<crate::Tooltip>,
 }
 
+crate::codec::sparse!(Interactivity);
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GroupRefinement {
     pub group: SharedString,
-    pub style: Box<StyleRefinement>,
+    pub style: StyleId,
+}
+
+impl Interactivity {
+    /// The seven conditional styles, each where it is set: every style
+    /// besides its own that a node names.
+    pub(crate) fn style_slots(&mut self) -> impl Iterator<Item = &mut StyleId> {
+        [
+            &mut self.focus,
+            &mut self.in_focus,
+            &mut self.focus_visible,
+            &mut self.hover,
+            &mut self.active,
+        ]
+        .into_iter()
+        .flatten()
+        .chain(
+            [&mut self.group_hover, &mut self.group_active]
+                .into_iter()
+                .flatten()
+                .map(|group| &mut group.style),
+        )
+    }
+
+    pub(crate) fn styles(&mut self) -> impl Iterator<Item = StyleId> {
+        self.style_slots().map(|style| *style)
+    }
 }

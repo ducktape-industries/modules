@@ -6,7 +6,7 @@ fn with_aria(aria: Aria) -> Frame {
     Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 aria,
                 ..Default::default()
@@ -29,11 +29,13 @@ fn decode_refuses_more_consumed_keys_than_a_node_takes() {
     use view_wire::interactivity::MAX_CONSUMED_KEYS;
     let frame = |keys: usize| Frame {
         root: Some(Node::Container(ContainerNode {
+            id: None,
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 consumes_keys: vec!["escape".into(); keys],
                 ..Default::default()
             }),
-            ..Default::default()
+            children: Vec::new(),
         })),
         ..Frame::default()
     };
@@ -49,11 +51,13 @@ fn sanitize_refuses_a_consumed_key_gpui_cannot_read() {
     use view_wire::interactivity::{MAX_CONSUMED_KEYS, MAX_KEYSTROKE_BYTES};
     let frame = |keys: Vec<String>| Frame {
         root: Some(Node::Container(ContainerNode {
+            id: None,
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 consumes_keys: keys.into_iter().map(Into::into).collect(),
                 ..Default::default()
             }),
-            ..Default::default()
+            children: Vec::new(),
         })),
         ..Frame::default()
     };
@@ -82,12 +86,14 @@ fn sanitize_refuses_a_consumed_key_gpui_cannot_read() {
 fn sanitize_refuses_a_consumed_click_with_no_click() {
     let frame = |on_click| Frame {
         root: Some(Node::Container(ContainerNode {
+            id: None,
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 on_click,
                 consumes_click: true,
                 ..Default::default()
             }),
-            ..Default::default()
+            children: Vec::new(),
         })),
         ..Frame::default()
     };
@@ -127,7 +133,7 @@ fn sanitized(interactivity: Interactivity) -> Result<Interactivity, Refused> {
     let mut frame = Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(interactivity),
             children: Vec::new(),
         })),
@@ -233,7 +239,7 @@ fn only_the_first_active_descendant_in_a_frame_is_kept() {
     let option = |key: &str| {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
@@ -248,7 +254,7 @@ fn only_the_first_active_descendant_in_a_frame_is_kept() {
     let mut frame = Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Default::default(),
             children: vec![option("first"), option("second")],
         })),
@@ -274,7 +280,7 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
     let option = |key: &str| {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
@@ -289,7 +295,7 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
     let list = |key: &str, rows: Vec<Node>| {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBox),
                 focusable: true,
@@ -301,7 +307,7 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
     let mut frame = Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Default::default(),
             children: vec![
                 list("rooms", vec![option("general"), option("random")]),
@@ -342,7 +348,7 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
     let option = |key: &str| {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
@@ -357,7 +363,7 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
     let box_ = |key: &str, row: Node| {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 focusable: true,
                 ..Default::default()
@@ -368,7 +374,7 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
     let mut frame = Frame {
         root: Some(Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name("pane".into())),
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(Interactivity {
                 role: Some(gpui::Role::Group),
                 focusable: true,
@@ -516,13 +522,14 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
             live: Some(Live::Off),
             ..Default::default()
         },
-        focus: Some(Box::new(gen_native_style(&mut Rng::new(5)))),
+        focus: Some(StyleId(1)),
         ..Default::default()
     };
     let mut frame = Frame {
+        styles: common::table(&[gen_native_style(&mut Rng::new(5))]),
         root: Some(Node::ResizeHandle {
             id: ElementIdWire::Name("divider".into()),
-            style: gpui::StyleRefinement::default(),
+            style: PLAIN,
             interactivity: Box::new(hostile()),
             on_press: None,
             on_release: None,
@@ -544,14 +551,14 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
                 request_handler: 1,
                 scroll_handler: None,
                 range_start: 0,
-                style: gpui::StyleRefinement::default(),
+                style: PLAIN,
                 interactivity: Box::new(hostile()),
                 children: Vec::new(),
             }),
         }),
         ..Frame::default()
     };
-    sanitize(&mut frame).unwrap();
+    let styles = table::sanitized(&mut frame).unwrap();
     let Some(Node::ResizeHandle {
         interactivity: handle,
         content,
@@ -570,6 +577,6 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
     for interactivity in [handle, list] {
         assert_eq!(interactivity.role, None);
         assert_eq!(interactivity.aria.live, None);
-        check_native_style(interactivity.focus.as_ref().unwrap());
+        check_native_style(&styles[interactivity.focus.unwrap()]);
     }
 }

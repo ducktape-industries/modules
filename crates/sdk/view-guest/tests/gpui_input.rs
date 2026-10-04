@@ -67,7 +67,7 @@ fn input(cx: &TestAppContext) -> Lowered<'_> {
         id,
         *on_change,
         *on_submit,
-        style,
+        &cx.styles()[*style],
         &options.label,
         *generation,
     )

@@ -258,20 +258,18 @@ fn panic_message(f: impl FnOnce()) -> String {
         .unwrap_or_default()
 }
 
-/// What a view's test fails with when the host's sanitizer refuses `root`,
-/// sent whole.
-fn refusal(root: wire::Node) -> String {
-    let mut frame = wire::Frame {
-        root: Some(root),
-        ..Default::default()
-    };
-    let refused = wire::sanitize(&mut frame).expect_err("the host refuses it");
+/// What a view's test fails with when the host's sanitizer refuses
+/// `frame`, a whole one with the styles its tree names.
+fn refusal(mut frame: wire::Frame) -> String {
+    let refused =
+        wire::sanitize(&mut frame, &mut wire::Styles::default()).expect_err("the host refuses it");
     format!("the host refuses this frame: {refused}")
 }
 
-/// `name` wherever an id names it is `to`.
-fn rename(node: &mut wire::Node, name: &str, to: &str) {
-    node.for_each_mut(&mut |node| {
+/// `name` wherever an id in the frame's tree names it is `to`.
+fn rename(frame: &mut wire::Frame, name: &str, to: &str) {
+    let root = frame.root.as_mut().expect("a whole frame");
+    root.for_each_mut(&mut |node| {
         if let wire::Node::Container(wire::ContainerNode { id: Some(id), .. }) = node
             && id.name() == Some(name)
         {
@@ -288,7 +286,7 @@ fn rename(node: &mut wire::Node, name: &str, to: &str) {
 fn a_views_test_fails_a_duplicate_with_the_hosts_refusal() {
     let mut cx = TestAppContext::new();
     let view = cx.open::<Twice>();
-    let mut sent = cx.root().clone();
+    let mut sent = cx.whole_frame();
     rename(&mut sent, "y", "x");
     let guest = panic_message(|| write_twice(&mut cx, &view));
     assert_eq!(guest, refusal(sent));
@@ -332,7 +330,7 @@ impl Render for Keyed {
 fn rows_named_by_one_key_fail_a_views_test_with_the_hosts_refusal() {
     let mut cx = TestAppContext::new();
     let view = cx.open::<Keyed>();
-    let mut sent = cx.root().clone();
+    let mut sent = cx.whole_frame();
     rename(&mut sent, "n", "m");
     let guest = panic_message(|| {
         cx.update(&view, |view, _, cx| {

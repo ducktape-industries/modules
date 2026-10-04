@@ -147,7 +147,7 @@ first mount (`Default::default()` unless the view says otherwise), and
 snapshot, and starts what the view follows and reads. Subscribe in `attach`,
 never in `new`: a restored view is not built again, and only what `attach`
 starts follows the host after a redeploy. The snapshot is the view's own serde
-as the wire's named MessagePack (`src/snapshot.rs`), refused while work is
+as named MessagePack (`src/snapshot.rs`), refused while work is
 pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
 `view-wire/src/snapshot.rs`). Derive `Default`/`Serialize`/`Deserialize`
 and keep `Task`s out of the state (`Loadable` does). A module's type that
@@ -251,6 +251,7 @@ the targets leave out with `methods::refusal::UNDECLARED_TARGET`, the codes
 the app refuses them with.
 Screen export: a test gated on `*_SCREEN_EXPORT=1` (`FORGE_SCREEN_EXPORT`,
 `crates/app/forge-view/src/screen_tests.rs`; `CHAT_SCREEN_EXPORT`,
-`crates/app/chat-view/src/tests/mod.rs`) writes each screen's tree as JSON under
+`crates/app/chat-view/src/tests/mod.rs`) writes each screen's whole frame (its
+tree and the styles it names, `TestAppContext::whole_frame`) as JSON under
 `target/`; the app renders those with `dev/screens/chat-screens.sh
 FIXTURES_DIR OUTPUT_DIR` (`ducktape-app --render-tree`, debug builds).

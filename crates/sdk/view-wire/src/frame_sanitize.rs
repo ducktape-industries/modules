@@ -59,12 +59,40 @@ pub const MAX_TEXT_PIXELS: f32 = 512.0;
 /// well-behaved guest passes through unchanged. It answers what it cut and
 /// where ([`SanitizeReport`]); a clamp is no cut.
 ///
+/// The frame's style entries go into `styles`, the table the host holds
+/// beside the tree: each is read and bounded once, here, and the frame is
+/// left without them. A whole tree's entries replace the table. A node that
+/// names a style the table does not hold refuses the frame, and a refused
+/// frame leaves the table as it was: it is still the table of the tree the
+/// host holds.
+///
 /// A frame that arrived as bytes has passed [`decode`] first, which refuses
 /// one nested deeper than this walk goes. A frame that carries `patches`
 /// instead of a tree is bounded by [`apply`], since every bound is on the
 /// tree the patches make and only the host holds it.
-pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, Refused> {
-    let mut budgets = Budgets::frame();
+pub fn sanitize(frame: &mut Frame, styles: &mut Styles) -> Result<SanitizeReport, Refused> {
+    let entries = std::mem::take(&mut frame.styles);
+    if frame.root.is_some() {
+        let mut table = Styles::default();
+        table.extend(entries)?;
+        let report = sanitize_against(frame, &table)?;
+        *styles = table;
+        return Ok(report);
+    }
+    let held = styles.len();
+    let taken = styles
+        .extend(entries)
+        .map_err(Refused::from)
+        .and_then(|()| sanitize_against(frame, styles));
+    if taken.is_err() {
+        styles.truncate(held);
+    }
+    taken
+}
+
+/// [`sanitize`] of a frame whose style entries `styles` already holds.
+fn sanitize_against(frame: &mut Frame, styles: &Styles) -> Result<SanitizeReport, Refused> {
+    let mut budgets = Budgets::frame(styles);
     if let Some(root) = &mut frame.root {
         sanitize_tree_with(root, &mut budgets)?;
     }
@@ -87,8 +115,8 @@ pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, Refused> {
     Ok(budgets.cuts)
 }
 
-pub(crate) fn sanitize_tree(root: &mut Node) -> Result<SanitizeReport, Refused> {
-    let mut budgets = Budgets::frame();
+pub(crate) fn sanitize_tree(root: &mut Node, styles: &Styles) -> Result<SanitizeReport, Refused> {
+    let mut budgets = Budgets::frame(styles);
     sanitize_tree_with(root, &mut budgets)?;
     Ok(budgets.cuts)
 }
@@ -135,6 +163,8 @@ pub(crate) struct Budgets {
     pub(crate) text: usize,
     pub(crate) pictures: usize,
     pub(crate) list_items: usize,
+    /// How many styles the tree's table holds: the ids a node may name.
+    styles: usize,
     /// A node already claimed the active descendant.
     pub(crate) active_descendant: bool,
     /// The child indices from the root to the node being walked.
@@ -144,8 +174,9 @@ pub(crate) struct Budgets {
 }
 
 impl Budgets {
-    pub(crate) fn frame() -> Self {
+    pub(crate) fn frame(styles: &Styles) -> Self {
         Self {
+            styles: styles.len(),
             nodes: MAX_NODES,
             text: MAX_TEXT_BYTES_PER_FRAME,
             pictures: MAX_PICTURE_BYTES_PER_FRAME,
@@ -154,6 +185,16 @@ impl Budgets {
             active_descendant: false,
             at: Vec::new(),
             cuts: SanitizeReport::default(),
+        }
+    }
+
+    /// A style a node names is one the table holds, or the frame is
+    /// refused: there is no style to draw it with, and a default one is a
+    /// look the view never wrote.
+    pub(crate) fn style(&self, id: StyleId) -> Result<(), &'static str> {
+        match (id.0 as usize) < self.styles {
+            true => Ok(()),
+            false => Err("a node names a style its table does not hold"),
         }
     }
 

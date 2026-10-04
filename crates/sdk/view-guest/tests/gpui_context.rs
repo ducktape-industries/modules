@@ -314,7 +314,8 @@ impl Render for ThemeReader {
 #[test]
 fn host_theme_events_update_the_global_and_emit_style_patches() {
     let (mut cx, _) = opened::<ThemeReader>();
-    let background = |cx: &TestAppContext| cx.root().style().unwrap().background.clone();
+    let background =
+        |cx: &TestAppContext| cx.styles()[cx.root().style().unwrap()].background.clone();
     cx.simulate_theme(true);
     assert!(matches!(
         cx.last_frame().patches.as_slice(),

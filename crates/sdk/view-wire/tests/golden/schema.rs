@@ -8,15 +8,27 @@
 //!
 //! The tree half is serde's, traced from the `Deserialize` side as the host
 //! reads it: `Frame`, `Event`, `WidgetCommand` and the `Call` envelope, and
-//! every container they reach. The method half is borsh's own schema of
-//! each method's request and reply. What neither half holds: the encode
-//! functions (`Call` wrapping a node method's body, `op.submit`'s raw reply,
-//! `module.changes` sending the program's name) are `methods.bin`'s alone,
-//! and a type written as a string (a gpui `Length`, a colour) is `STR`
-//! whatever its grammar.
+//! every container they reach. No name of it crosses: a struct is its
+//! fields in the order listed here, a variant its index, and a sparse
+//! struct (`Interactivity`, `Aria`) the fields it sets, each under its
+//! index. So the shape is all that says which field a byte is, and a field
+//! added or moved moves `WIRE_ID` through this file.
+//!
+//! A style crosses as a table entry, bytes to the tree (`Frame.styles`).
+//! The style half is what an entry holds: gpui's `StyleRefinement` and
+//! every container under it, traced the same way. An entry's bitmaps count
+//! each refinement's fields in the order listed here (a test below holds
+//! the entry codec to it), and an enum under it crosses as its index here.
+//!
+//! The method half is borsh's own schema of each method's request and
+//! reply. What no half holds: the encode functions (`Call` wrapping a node
+//! method's body, `op.submit`'s raw reply, `module.changes` sending the
+//! program's name) are `methods.bin`'s alone, an entry's own value grammar
+//! (a length, a colour: `styles/entry.rs`) is `frame.bin`'s, and a type the
+//! tree writes as a string (a colour in a text run) is `STR` whatever its
+//! grammar.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
-use std::ops::Range;
 use std::sync::Arc;
 
 use borsh::schema::{Declaration, Definition};
@@ -63,13 +75,13 @@ fn trace<T: DeserializeOwned>(tracer: &mut Tracer) -> Format {
 
 type Trace = fn(&mut Tracer) -> Format;
 
-/// Every container [`GPUI`] and `traces` reach, by name, each one whole:
-/// every format known, and every enum at its declared variants, which a
-/// trace reaches only for an enum traced on its own (a pass revisits a
-/// nested enum at its first variant). One partial fails here by name.
+/// Every container `traces` reach, by name, each one whole: every format
+/// known, and every enum at its declared variants, which a trace reaches
+/// only for an enum traced on its own (a pass revisits a nested enum at its
+/// first variant). One partial fails here by name.
 fn registry(traces: &[Trace]) -> Registry {
     let mut tracer = tracer();
-    for trace in GPUI.iter().chain(traces) {
+    for trace in traces {
         trace(&mut tracer);
     }
     let mut registry = tracer.registry_unchecked();
@@ -184,12 +196,9 @@ fn backgrounds(tracer: &mut Tracer) -> Format {
     trace::<gpui::Background>(tracer)
 }
 
-/// What the tree's trace starts from: the stand-ins that go first (see
-/// [`tree`]), what crosses, and every enum of view-wire's and accesskit's
-/// under it.
+/// What the tree's trace starts from: what crosses, and every enum of
+/// view-wire's, accesskit's and gpui's under it.
 const TREE: &[Trace] = &[
-    trace::<Range<usize>>,
-    trace::<Grid>,
     trace::<Frame>,
     trace::<Event>,
     trace::<WidgetCommand>,
@@ -239,10 +248,12 @@ const TREE: &[Trace] = &[
     trace::<accesskit::Orientation>,
     trace::<accesskit::Role>,
     trace::<accesskit::Toggled>,
+    trace::<gpui::FontStyle>,
 ];
 
-/// gpui's enums under the tree and the style, after its backgrounds.
-const GPUI: &[Trace] = &[
+/// What the style's trace starts from: gpui's backgrounds, its enums under
+/// a style, and the style.
+const STYLE: &[Trace] = &[
     backgrounds,
     trace::<gpui::AlignContent>,
     trace::<gpui::AlignItems>,
@@ -262,48 +273,69 @@ const GPUI: &[Trace] = &[
     trace::<gpui::TextOverflow>,
     trace::<gpui::Visibility>,
     trace::<gpui::WhiteSpace>,
+    trace::<StyleRefinement>,
 ];
 
-/// gpui's grid placement, as the tree's trace takes it: see [`tree`].
-#[derive(serde::Deserialize)]
-#[serde(rename = "GridLocation")]
-#[allow(dead_code)]
-struct Grid {
-    row: Range<usize>,
-    column: Range<usize>,
-}
-
-/// Every container the tree reaches, and gpui's `GridLocation` apart. A
-/// trace names a container by its serde name alone, and the tree's text
-/// ranges are `Range<usize>` where a style's grid placement is a
-/// `Range<GridPlacement>`: so the tree takes `Range` first, with a stand-in
-/// `GridLocation` of it that cuts the style's own on the next pass, and a
-/// trace of `StyleRefinement` alone answers for the style's.
+/// Every container the tree reaches, and every one a style entry holds
+/// that the tree does not hold too. They are traced apart: a trace names a
+/// container by its serde name alone, and the tree's text ranges are
+/// `Range<usize>` where a style's grid placement is a
+/// `Range<GridPlacement>`.
 pub(super) fn tree() -> (Registry, Registry) {
-    let mut tree = registry(TREE);
-    let text = ContainerFormat::Struct(vec![
-        Named {
-            name: "start".into(),
-            value: Format::U64,
-        },
-        Named {
-            name: "end".into(),
-            value: Format::U64,
-        },
-    ]);
-    assert_eq!(tree["Range"], text, "the tree's Range is the text range");
-    tree.remove("GridLocation");
-    let mut grid = registry(&[trace::<StyleRefinement>]);
-    grid.retain(|name, container| tree.get(name) != Some(container));
-    (tree, grid)
+    let tree = registry(TREE);
+    let mut style = registry(STYLE);
+    // gpui's debug outlines are fields of its debug build alone, and no
+    // entry carries them: the shape is the same in either build
+    let Some(ContainerFormat::Struct(fields)) = style.get_mut("StyleRefinement") else {
+        unreachable!("StyleRefinement is a struct")
+    };
+    fields.retain(|field| !["debug", "debug_below"].contains(&field.name.as_str()));
+    style.retain(|name, container| tree.get(name) != Some(container));
+    (tree, style)
 }
 
-/// The wire's registry whole: [`tree`]'s, with the `GridLocation` it holds
-/// apart merged back, gpui's `Range<GridPlacement>` as `grid::Range`.
+/// The backgrounds an entry does not carry: gpui gives a pattern's payload
+/// no public read, so one crosses as its kind alone and the host refuses
+/// the entry (`style_sanitize`'s own rule, held by its test).
+const PATTERNS: [&str; 2] = ["PatternSlash", "Checkerboard"];
+
+/// What the samples must show: [`tree`]'s two halves as one registry, the
+/// style's `Range<GridPlacement>` as `style::Range`. A table entry stands
+/// as the style it holds, which is what its JSON twin shows, less the
+/// [`PATTERNS`] no entry carries.
 pub(super) fn wire() -> Registry {
-    let (mut registry, grid) = tree();
-    merge(&mut registry, grid, "grid");
+    let (mut registry, style) = tree();
+    merge(&mut registry, style, "style");
+    let Some(ContainerFormat::Struct(frame)) = registry.get_mut("Frame") else {
+        unreachable!("Frame is a struct")
+    };
+    let styles = frame
+        .iter_mut()
+        .find(|field| field.name == "styles")
+        .expect("Frame.styles");
+    assert_eq!(styles.value, Format::Seq(Box::new(Format::Bytes)));
+    styles.value = Format::Seq(Box::new(Format::TypeName("StyleRefinement".into())));
+    let Some(ContainerFormat::Enum(tags)) = registry.get_mut("BackgroundTag") else {
+        unreachable!("BackgroundTag is an enum")
+    };
+    let before = tags.len();
+    tags.retain(|_, tag| !PATTERNS.contains(&tag.name.as_str()));
+    assert_eq!(tags.len() + PATTERNS.len(), before);
     registry
+}
+
+/// The entry codec's bitmaps count each refinement's fields in the order
+/// `schema.txt` lists them, so the shape names every bit.
+#[test]
+fn a_style_entry_counts_its_fields_as_the_shape_lists_them() {
+    let (_, style) = tree();
+    for (name, fields) in view_wire::entry_fields() {
+        let ContainerFormat::Struct(listed) = &style[name] else {
+            panic!("{name} is a struct")
+        };
+        let listed: Vec<&str> = listed.iter().map(|field| field.name.as_str()).collect();
+        assert_eq!(listed, fields, "{name}");
+    }
 }
 
 /// The program a node method addresses, as [`Program`] declares it: each of
@@ -326,7 +358,7 @@ struct ModuleReply;
 pub(super) type Definitions = BTreeMap<Declaration, Definition>;
 
 /// A method's line: its target, its request and reply, and whether borsh
-/// carries them (else named MessagePack, serde's trace).
+/// carries them (else the tree's codec, serde's trace).
 pub(super) struct Shape {
     pub(super) target: Option<&'static str>,
     pub(super) request: String,
@@ -413,14 +445,10 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
 /// tree's containers.
 fn schema() -> String {
     let (shapes, definitions) = shapes();
-    let (tree, grid) = tree();
+    let (tree, style) = tree();
     let mut text = String::from("# methods: kind, target, request -> reply; borsh unless named\n");
     for (kind, shape) in &shapes {
-        let codec = if shape.borsh {
-            ""
-        } else {
-            " named MessagePack"
-        };
+        let codec = if shape.borsh { "" } else { " tree" };
         writeln!(
             text,
             "{kind} {:?} {} -> {}{codec}",
@@ -432,10 +460,16 @@ fn schema() -> String {
     for (declaration, definition) in &definitions {
         writeln!(text, "{declaration} = {definition:?}").unwrap();
     }
-    text.push_str("\n# tree: named MessagePack, every container by name\n");
+    text.push_str(
+        "\n# tree: MessagePack by position (a struct its fields in this order, \
+         a variant its index), every container by name\n",
+    );
     render(&mut text, &tree);
-    text.push_str("\n# tree: gpui's GridLocation, whose Range is not the tree's\n");
-    render(&mut text, &grid);
+    text.push_str(
+        "\n# style: what a table entry holds, a bitmap of each refinement's fields \
+         in this order and then the ones set\n",
+    );
+    render(&mut text, &style);
     text.push_str("\n# manifest: one line each, in order\n");
     for line in view_wire::manifest::LINES {
         writeln!(text, "{line}").unwrap();
@@ -507,8 +541,8 @@ const HASHED: [&str; 3] = ["frame.bin", "methods.bin", "schema.txt"];
 /// The gap the schema closes, held generally: every name the wire has — a
 /// container, a field, a variant, a method kind — is in what `WIRE_ID`
 /// hashes, so none comes or goes without moving it. The bytes alone fail
-/// this even with every variant and field sampled (`coverage.rs`): borsh
-/// writes no name at all, and named MessagePack no container's.
+/// this even with every variant and field sampled (`coverage.rs`): neither
+/// borsh nor the tree's codec writes a name at all.
 #[test]
 fn wire_id_hashes_every_name_on_the_wire() {
     let hashed: Vec<u8> = HASHED
@@ -525,9 +559,9 @@ fn wire_id_hashes_every_name_on_the_wire() {
     );
 
     let hashed = String::from_utf8_lossy(&hashed);
-    let (tree, grid) = tree();
+    let (tree, style) = tree();
     let mut names: BTreeSet<&str> = methods::ALL.iter().copied().collect();
-    for (name, container) in tree.iter().chain(&grid) {
+    for (name, container) in tree.iter().chain(&style) {
         names.insert(name);
         match container {
             ContainerFormat::Struct(fields) => names.extend(fields.iter().map(|f| f.name.as_str())),

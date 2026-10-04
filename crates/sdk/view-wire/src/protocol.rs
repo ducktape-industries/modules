@@ -253,6 +253,12 @@ pub struct Frame {
     /// Tooltip subtrees built only after a native hover request.
     #[serde(deserialize_with = "decode_tooltip_responses")]
     pub tooltip_responses: Vec<TooltipResponse>,
+    /// The style table's entries this frame brings: all of them beside a
+    /// `root`, which replaces the host's table with its tree, and otherwise
+    /// the ones the host does not hold yet, in id order after the ones it
+    /// does.
+    #[serde(deserialize_with = "crate::styles::decode_table")]
+    pub styles: Vec<Style>,
     /// The tree to show. `None` with `unchanged` set means "what you have";
     /// `None` otherwise means "what you have, with `patches` applied".
     pub root: Option<Node>,
@@ -284,10 +290,7 @@ pub struct InputOptions {
     pub description: Option<String>,
     pub disabled: bool,
     /// The value is wrong; `description` says why (AX-108).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub invalid: Option<Invalid>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub required: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub read_only: bool,
 }

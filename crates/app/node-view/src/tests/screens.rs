@@ -244,28 +244,36 @@ const WIDTHS: [u32; 8] = [480, 560, 680, 768, 960, 1000, 1064, 1280];
 /// at the least, a narrower window scrolls it sideways.
 const APP_MIN_WIDTH: f32 = 480.;
 
-fn in_app_frame(root: &ducktape_view_guest::wire::Node) -> ducktape_view_guest::wire::Node {
-    use ducktape_view_guest::wire::{ContainerNode, ElementIdWire, Node};
-    use ducktape_view_guest::{Styled, px};
-    let inner = ContainerNode {
-        children: vec![root.clone()],
-        ..Default::default()
-    }
-    .size_full()
-    .min_w(px(APP_MIN_WIDTH));
-    let mut frame = ContainerNode {
-        id: Some(ElementIdWire::Name("app-frame".into())),
-        children: vec![Node::Container(inner)],
-        ..Default::default()
-    }
-    .size_full()
-    .overflow_hidden();
+fn in_app_frame(mut frame: ducktape_view_guest::wire::Frame) -> ducktape_view_guest::wire::Frame {
+    use ducktape_view_guest::wire::{ContainerNode, ElementIdWire, Node, Style, StyleId};
+    use ducktape_view_guest::{StyleRefinement, Styled, px};
+    let inner = StyleRefinement::default()
+        .size_full()
+        .min_w(px(APP_MIN_WIDTH));
+    let mut outer = StyleRefinement::default().size_full().overflow_hidden();
     // `overflow_x_scroll`, which the SDK keeps to interactive elements
-    frame.style.overflow.x = serde_json::from_value(serde_json::json!("Scroll")).unwrap();
-    Node::Container(frame)
+    outer.overflow.x = serde_json::from_value(serde_json::json!("Scroll")).unwrap();
+    // the two boxes' styles go after the view's own in the frame's table
+    let first = frame.styles.len() as u32;
+    frame
+        .styles
+        .extend([Style::new(&inner), Style::new(&outer)]);
+    let inner = ContainerNode {
+        id: None,
+        style: StyleId(first),
+        interactivity: Default::default(),
+        children: frame.root.take().into_iter().collect(),
+    };
+    frame.root = Some(Node::Container(ContainerNode {
+        id: Some(ElementIdWire::Name("app-frame".into())),
+        style: StyleId(first + 1),
+        interactivity: Default::default(),
+        children: vec![Node::Container(inner)],
+    }));
+    frame
 }
 
-/// `NODE_SCREEN_EXPORT=1` writes each state's tree, light and dark, and a
+/// `NODE_SCREEN_EXPORT=1` writes each state's frame, light and dark, and a
 /// manifest for the app's `dev/screens` capture.
 #[test]
 fn export_node_screens() {
@@ -299,8 +307,8 @@ fn export_node_screens() {
             let theme = if dark { "dark" } else { "light" };
             let name = format!("{name}-{theme}");
             let tree = match framed {
-                true => in_app_frame(cx.root()),
-                false => cx.root().clone(),
+                true => in_app_frame(cx.whole_frame()),
+                false => cx.whole_frame(),
             };
             std::fs::write(
                 out.join(format!("{name}.json")),

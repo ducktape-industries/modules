@@ -17,12 +17,13 @@ fn action_strip_keeps_the_rows_hover_and_is_not_inside_selection_target() {
     else {
         panic!("action strip")
     };
+    let style = &cx.styles()[*style];
     assert_eq!(
         style.visibility,
         StyleRefinement::default().invisible().visibility
     );
     assert_eq!(
-        interactivity.group_hover.as_ref().unwrap().style.visibility,
+        cx.styles()[interactivity.group_hover.as_ref().unwrap().style].visibility,
         StyleRefinement::default().visible().visibility
     );
     // An occluding strip took the row's group hover away as the pointer
@@ -65,6 +66,7 @@ fn copy_range_keeps_its_distinct_message_plate() {
     else {
         panic!("message card")
     };
+    let style = &cx.styles()[*style];
     assert_eq!(
         style
             .background
@@ -171,10 +173,7 @@ fn the_small_press_targets_are_at_least_24_px_each_way() {
         cx.notify();
     });
     cx.run_until_parked();
-    let style = |key: &str| match cx.find(key) {
-        Some(wire::Node::Container(node)) => node.style.clone(),
-        other => panic!("{key} is no container: {other:?}"),
-    };
+    let style = |key: &str| cx.style(key).clone();
     for key in ["chat-message-m1-height", "chat-sidebar-new-channel"] {
         let style = style(key);
         assert_eq!(
@@ -211,10 +210,7 @@ fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
         cx.notify();
     });
     cx.run_until_parked();
-    let style = |key: &str| match cx.find(key) {
-        Some(wire::Node::Container(node)) => node.style.clone(),
-        other => panic!("{key} is no container: {other:?}"),
-    };
+    let style = |key: &str| cx.style(key).clone();
     // a strip button is 24 tall and as wide as a kit row, over 24
     assert!(design::size::ROW >= px(24.));
     for key in ["thread", "thumbs-up", "react", "more"] {
@@ -276,6 +272,7 @@ fn replies_read_as_a_button() {
     else {
         panic!("replies button")
     };
+    let style = &cx.styles()[*style];
     assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Button));
     // a cell of the timeline grid, not a stop of its own
     assert!(!interactivity.focusable && interactivity.hover.is_some());
@@ -541,6 +538,7 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
         else {
             panic!("{pane}: the message's cell")
         };
+        let style = &cx.styles()[*style];
         assert_eq!(
             style.position,
             StyleRefinement::default().absolute().position,

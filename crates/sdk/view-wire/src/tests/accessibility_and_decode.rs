@@ -19,7 +19,7 @@ fn a_sensor_round_trips_diffs_by_props_and_claims_its_key() {
         matches!(patches.as_slice(), [Patch::Props { path, .. }] if path.is_empty()),
         "{patches:?}"
     );
-    apply(&mut old, patches).unwrap();
+    apply(&mut old, patches, &held()).unwrap();
     assert_eq!(old, new);
 
     // Typed duplicates are rejected rather than renamed into a different target.
@@ -31,7 +31,7 @@ fn a_sensor_round_trips_diffs_by_props_and_claims_its_key() {
         ..Frame::default()
     };
     assert!(matches!(
-        sanitize(&mut duplicate),
+        sanitize_plain(&mut duplicate),
         Err(Refused::Duplicate(_))
     ));
 }
@@ -90,6 +90,7 @@ fn more_nodes_than_the_host_holds_is_refused() {
 fn bytes_a_hostile_guest_could_write_are_answered_not_survived() {
     let sound = encode(&Frame {
         tooltip_responses: Vec::new(),
+        styles: plain(),
         root: Some(column(vec![text("hello"), Node::empty()])),
         requests: vec![Request {
             id: 7,
@@ -120,13 +121,13 @@ fn uniform_list_path_must_match_its_typed_tree_ancestry() {
     let mut valid = Frame {
         root: Some(Node::Container(crate::ContainerNode {
             id: Some(parent.clone()),
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             interactivity: Default::default(),
             children: vec![uniform(vec![parent.clone(), list.clone()])],
         })),
         ..Default::default()
     };
-    sanitize(&mut valid).unwrap();
+    sanitize_plain(&mut valid).unwrap();
 
     let Node::Container(crate::ContainerNode { children, .. }) = valid.root.as_mut().unwrap()
     else {
@@ -137,7 +138,7 @@ fn uniform_list_path_must_match_its_typed_tree_ancestry() {
     };
     *path = vec![ElementIdWire::Name("forged-parent".into()), list];
     assert_eq!(
-        sanitize(&mut valid).unwrap_err(),
+        sanitize_plain(&mut valid).unwrap_err(),
         Refused::Invalid("uniform-list authored path is invalid")
     );
 }
@@ -152,7 +153,10 @@ fn a_screen_of_one_typed_id_is_refused_in_linear_time() {
         ..Default::default()
     };
     let started = std::time::Instant::now();
-    assert!(matches!(sanitize(&mut frame), Err(Refused::Duplicate(_))));
+    assert!(matches!(
+        sanitize_plain(&mut frame),
+        Err(Refused::Duplicate(_))
+    ));
     if cfg!(not(debug_assertions)) {
         assert!(started.elapsed() < std::time::Duration::from_millis(200));
     }

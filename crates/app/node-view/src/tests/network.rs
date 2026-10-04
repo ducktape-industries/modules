@@ -104,12 +104,7 @@ fn a_node_that_is_not_voting_says_so() {
 
 /// The table's least width, as the wire carries it.
 fn table_min_width(cx: &TestAppContext) -> serde_json::Value {
-    match cx.find("nodes-table") {
-        Some(ducktape_view_guest::wire::Node::Container(table)) => {
-            serde_json::to_value(table.style.min_size.width).unwrap()
-        }
-        _ => panic!("no table"),
-    }
+    serde_json::to_value(cx.style("nodes-table").min_size.width).unwrap()
 }
 
 /// Where row `row`'s strip sits and its marks' gap: `true` where it is on
@@ -131,7 +126,8 @@ fn strip_of(cx: &TestAppContext, row: &str) -> (bool, serde_json::Value) {
     let below = matches!(line.children.as_slice(), [_, under] if marks(under).is_some());
     let strip =
         (line.children.iter().find_map(marks)).unwrap_or_else(|| panic!("no strip in {row}"));
-    (below, serde_json::to_value(strip.style.gap.width).unwrap())
+    let gap = cx.styles()[strip.style].gap.width;
+    (below, serde_json::to_value(gap).unwrap())
 }
 
 /// As the sheet narrows, the strip's gaps close a pixel at a time; where
@@ -257,16 +253,20 @@ fn a_node_without_the_network_says_so_and_logs_once() {
 }
 
 /// Every status badge's text colour, in row order.
-fn badge_inks(node: &ducktape_view_guest::wire::Node, inks: &mut Vec<ducktape_view_guest::Hsla>) {
+fn badge_inks(
+    cx: &TestAppContext,
+    node: &ducktape_view_guest::wire::Node,
+    inks: &mut Vec<ducktape_view_guest::Hsla>,
+) {
     use ducktape_view_guest::wire::{ElementIdWire, Node};
     if let Node::Container(container) = node {
         if let Some(ElementIdWire::NamedInteger(name, _)) = &container.id
             && name == "nodes-status-word"
         {
-            inks.extend(container.style.text.color);
+            inks.extend(cx.styles()[container.style].text.color);
         }
         for child in &container.children {
-            badge_inks(child, inks);
+            badge_inks(cx, child, inks);
         }
     }
 }
@@ -290,7 +290,7 @@ fn a_silent_node_reads_not_answering() {
     let theme = ducktape_view_guest::Theme::light();
     let inks = |cx: &TestAppContext| {
         let mut inks = Vec::new();
-        badge_inks(cx.find("nodes-table").expect("the table"), &mut inks);
+        badge_inks(cx, cx.find("nodes-table").expect("the table"), &mut inks);
         inks
     };
     assert_eq!(inks(&cx), [theme.success, theme.success, theme.warning]);

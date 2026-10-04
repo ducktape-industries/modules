@@ -127,7 +127,7 @@ impl Element for Svg {
             source,
             transformation,
         } = *self;
-        let style = interactivity.base_style.clone();
+        let style = lowering.style(&interactivity.base_style);
         let label = interactivity.aria.label.as_ref().map(ToString::to_string);
         let (id, interactivity) = interactivity.into_wire(lowering);
         let source = match source {

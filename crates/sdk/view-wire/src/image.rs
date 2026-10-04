@@ -108,7 +108,7 @@ mod tests {
     }
     #[test]
     fn invalid_rgba_is_dropped_without_spending_valid_picture_budget() {
-        let mut budget = crate::Budgets::frame();
+        let mut budget = crate::Budgets::frame(&crate::styles::testing::held());
         budget.pictures = 4;
         let mut invalid = Some(ImageData::Rgba {
             width: u32::MAX,

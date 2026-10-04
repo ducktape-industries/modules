@@ -1,7 +1,9 @@
 //! A list's rows diff by item index: moving the window a row is a row's
 //! worth of patches, and every window move still patches to the new tree.
-use gpui::StyleRefinement;
 use view_wire::{ListAlignment, ListSizingBehavior, Node, Patch, TextNode};
+
+mod common;
+use common::{PLAIN, held};
 
 fn list(start: usize, len: usize, edited: Option<usize>) -> Node {
     Node::List {
@@ -17,13 +19,13 @@ fn list(start: usize, len: usize, edited: Option<usize>) -> Node {
         request_handler: 1,
         scroll_handler: None,
         range_start: start,
-        style: StyleRefinement::default(),
+        style: PLAIN,
         interactivity: Default::default(),
         children: (start..start + len)
             .map(|item| {
                 Node::Text(TextNode {
                     id: None,
-                    style: StyleRefinement::default(),
+                    style: PLAIN,
                     content: match edited == Some(item) {
                         true => format!("row {item} edited"),
                         false => format!("row {item}"),
@@ -65,7 +67,7 @@ fn every_window_move_patches_to_the_new_list() {
                 let mut old = list(a, n, None);
                 let mut new = list(b, m, edited);
                 let patches = view_wire::diff(&mut old, &mut new);
-                view_wire::apply(&mut old, patches).unwrap();
+                view_wire::apply(&mut old, patches, &held()).unwrap();
                 assert_eq!(old, new, "{a}+{n} -> {b}+{m}, edited {edited:?}");
             }
         }

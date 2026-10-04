@@ -1,10 +1,15 @@
 //! The wire between a host and a view running in wasm.
 //!
 //! The guest ships a WIDGET TREE, not a picture: every tick it returns the
-//! [`Node`] its view built, with every value inlined — text, colours, sizes —
+//! [`Node`] its view built, with every value in it (text, colours, sizes),
 //! and the host's own toolkit does layout, render, fonts, IME, clipboard and
 //! scroll. The guest never learns where anything landed, which is the point:
 //! there is nothing in it to draw with.
+//!
+//! A style crosses once. A node names its style by [`StyleId`], an entry of
+//! the table its tree crosses with ([`Frame::styles`]): the guest's
+//! [`Interner`] numbers each distinct style, and the host's [`Styles`] is
+//! the table of the tree it holds, which it reads at render.
 //!
 //! Interaction goes back as MEANING, not input. An element's
 //! [`Interactivity`] carries, per listener (`on_click`, `on_mouse_down`,
@@ -19,17 +24,20 @@
 //!
 //! The types here are the one definition of the format: the guest serializes
 //! them and the host deserializes the same code, so a field neither side can
-//! drop silently. A host that reads a frame from an untrusted module runs
-//! [`sanitize`] first.
+//! drop silently. No name crosses: a struct is its fields in order, a
+//! variant its index, and a struct that mostly says nothing the fields it
+//! sets (`codec/write.rs`). A host that reads a frame from an untrusted
+//! module runs [`sanitize`] first.
 
 /// The wire this build speaks, computed by `build.rs` from the committed
 /// golden files: the bytes of what the fixtures sample (`frame.bin`,
 /// `methods.bin`) and the shape of every type that crosses (`schema.txt`:
 /// each field and variant the tree reaches, each method's kind, target,
 /// request and reply). No one bumps it by hand: a shape change fails the
-/// golden until it is regenerated, and regenerating moves it. A string's
-/// grammar (a colour, a length) and a method's encode function count only
-/// as far as the fixtures' bytes sample them. A view's manifest carries the
+/// golden until it is regenerated, and regenerating moves it. A value's
+/// grammar (a colour in a text run, a length in a style entry) and a
+/// method's encode function count only as far as the fixtures' bytes sample
+/// them. A view's manifest carries the
 /// id it was built with, and a host refuses any other.
 pub const WIRE_ID: &str = include!(concat!(env!("OUT_DIR"), "/wire_id.rs"));
 
@@ -67,6 +75,8 @@ pub use element_id::{ElementIdAtom, ElementIdWire, MAX_ELEMENT_ID_DEPTH};
 mod style;
 mod style_sanitize;
 pub use style::{GroupRefinement, Interactivity};
+mod styles;
+pub use styles::{Interner, MAX_STYLES, Style, StyleId, Styles, entry_fields};
 
 mod qr;
 pub use qr::{Qr, QrCorrection, QrSize, QrVersion};
@@ -118,7 +128,7 @@ pub use frame_sanitize::{
 
 mod codec;
 pub(crate) use codec::bounded_vec;
-pub use codec::{MAX_DECODED_NODES, decode, encode, encoded_size, try_encode};
+pub use codec::{MAX_DECODED_NODES, decode, encode, try_encode};
 
 #[cfg(test)]
 mod tests;

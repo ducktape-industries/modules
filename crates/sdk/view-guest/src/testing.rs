@@ -28,7 +28,7 @@
 //! assert_eq!(cx.texts().len(), 10);
 //! ```
 
-use crate::wire::{Frame, Node, TooltipResponse};
+use crate::wire::{Node, TooltipResponse};
 
 /// Every text the tree shows, depth first: text nodes and the value or
 /// placeholder of a field (the view's copy of it, which in a test is the
@@ -61,25 +61,21 @@ fn collect_texts(node: &Node, out: &mut Vec<String>) {
     }
 }
 
-/// The host's sanitizer, which must take the tree the host holds and the
-/// tooltips a frame answered whole, cutting nothing (a clamp is no cut),
-/// and [`assert_accessible`] on each: the tree and every tooltip's
-/// content, which the host renders too.
-pub(crate) fn assert_frame_accessible(root: Option<&Node>, tooltips: &[TooltipResponse]) {
-    if let Some(root) = root {
-        let mut hosted = Frame {
-            root: Some(root.clone()),
-            tooltip_responses: tooltips.to_vec(),
-            ..Frame::default()
-        };
-        match crate::wire::sanitize(&mut hosted) {
-            Err(refused) => panic!("the host refuses this frame: {refused}"),
-            Ok(cut) if !cut.is_empty() => {
-                panic!("the host would cut this frame, it is past a frame budget: {cut:?}")
-            }
-            Ok(_) => {}
+/// What the host's sanitizer answered for a frame, which it must take
+/// whole: no refusal, and nothing cut (a clamp is no cut).
+pub(crate) fn assert_taken_whole(taken: Result<crate::wire::SanitizeReport, crate::wire::Refused>) {
+    match taken {
+        Err(refused) => panic!("the host refuses this frame: {refused}"),
+        Ok(cut) if !cut.is_empty() => {
+            panic!("the host would cut this frame, it is past a frame budget: {cut:?}")
         }
+        Ok(_) => {}
     }
+}
+
+/// [`assert_accessible`] on the tree the host holds and on the content of
+/// every tooltip a frame answered, which the host renders too.
+pub(crate) fn assert_frame_accessible(root: Option<&Node>, tooltips: &[TooltipResponse]) {
     let tooltips = tooltips
         .iter()
         .filter_map(|response| response.content.as_deref());

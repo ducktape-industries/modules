@@ -8,7 +8,7 @@ use ducktape_view_guest::Theme;
 use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::testing::TestAppContext;
 
-/// `FORGE_SCREEN_EXPORT=1` writes each screen's tree for the app's
+/// `FORGE_SCREEN_EXPORT=1` writes each screen's frame for the app's
 /// node-less renderer (`ducktape-app --render-tree <json>`), light and dark.
 #[test]
 fn export_forge_screens() {
@@ -29,7 +29,7 @@ fn export_forge_screens() {
             let name = format!("{:02}-{state}-{theme}", index + 1);
             std::fs::write(
                 out.join(format!("{name}.json")),
-                serde_json::to_vec(cx.root()).unwrap(),
+                serde_json::to_vec(&cx.whole_frame()).unwrap(),
             )
             .unwrap();
             manifest.push(serde_json::json!({

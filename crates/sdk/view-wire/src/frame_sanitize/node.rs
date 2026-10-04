@@ -28,7 +28,7 @@ pub(super) fn sanitize_node(
     | Node::Image { interactivity, .. }
     | Node::Svg { interactivity, .. } = node
     {
-        sanitize_interactivity(interactivity)?;
+        sanitize_interactivity(interactivity, budgets)?;
         // gpui panics (debug) on a second claim under one focused node;
         // the first in tree order keeps it. The budget restarts under
         // every node with a role that takes focus (`sanitize_children`),
@@ -69,8 +69,8 @@ fn sanitize_fields(
     match node {
         Node::Container(crate::ContainerNode { style, .. })
         | Node::ResizeHandle { style, .. }
-        | Node::Sensor { style, .. }
-        | Node::Space { style } => style_sanitize::sanitize(style)?,
+        | Node::Sensor { style, .. } => budgets.style(*style)?,
+        Node::Space => {}
         Node::UniformList {
             id,
             path,
@@ -82,7 +82,7 @@ fn sanitize_fields(
             children,
             ..
         } => {
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
             uniform_list_path(id, path, authored_path)?;
             budgets.cut(
                 |cuts| &mut cuts.lists,
@@ -121,7 +121,7 @@ fn sanitize_fields(
             *item_count = (*item_count).min(budgets.list_items);
             budgets.list_items -= *item_count;
             *overdraw = bounded(*overdraw).min(4096.0);
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
             list_commands(commands, *item_count);
             *range_start = (*range_start).min(*item_count);
             cut_children(
@@ -139,11 +139,11 @@ fn sanitize_fields(
             if let Some(label) = label {
                 cut_string(label, budgets);
             }
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
             cut_children(children, 2, budgets);
         }
         Node::Canvas { style, commands } => {
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
             canvas::sanitize(commands, budgets);
         }
         Node::Anchored {
@@ -172,11 +172,11 @@ fn sanitize_fields(
             clickable_ranges,
             ..
         } => {
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
             rich_text::sanitize(text, runs, font_family_overrides, clickable_ranges, budgets);
         }
         Node::Text(crate::TextNode { style, content, .. }) => {
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
             spend_text(content, budgets);
         }
         Node::Image {
@@ -189,7 +189,7 @@ fn sanitize_fields(
             ..
         } => {
             ImageData::sanitize(data, budgets);
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
@@ -220,7 +220,7 @@ fn sanitize_fields(
                 *value = signed_bounded(*value);
             }
             transformation.rotate = signed_bounded(transformation.rotate);
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
             if let Some(label) = label {
                 spend_text(label, budgets);
             }
@@ -242,7 +242,7 @@ fn sanitize_fields(
             if let Some(description) = &mut options.description {
                 spend_text(description, budgets);
             }
-            style_sanitize::sanitize(style)?;
+            budgets.style(*style)?;
         }
     }
     Ok(())

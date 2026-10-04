@@ -29,6 +29,9 @@ pub struct App {
 pub(crate) struct AppState {
     pub host: Host,
     pub slots: slots::Context,
+    /// Every distinct style the view's trees name, by the id a node
+    /// carries: the guest's half of the frame's style table.
+    pub styles: RefCell<crate::wire::Interner>,
     pub tasks: RefCell<Vec<executor::Running>>,
     pub generation: Cell<u64>,
     pub next_focus_id: Cell<u64>,
@@ -42,6 +45,17 @@ pub(crate) struct AppState {
     pub root: Cell<Option<Root>>,
 }
 impl App {
+    /// The style table a host holds after the trees lowered so far, for a
+    /// test that lowers by hand and reads what a node's style id names.
+    #[cfg(test)]
+    pub(crate) fn styles(&self) -> crate::wire::Styles {
+        let mut styles = crate::wire::Styles::default();
+        styles
+            .extend(self.inner.styles.borrow_mut().unsent())
+            .expect("the host takes the styles");
+        styles
+    }
+
     pub(crate) fn for_driver() -> Self {
         let host = Host::default();
         let slots = slots::Context::with_host(host.clone());
@@ -56,6 +70,7 @@ impl App {
             inner: Rc::new(AppState {
                 host,
                 slots,
+                styles: RefCell::default(),
                 tasks: RefCell::default(),
                 generation: Cell::new(0),
                 next_focus_id: Cell::new(0),

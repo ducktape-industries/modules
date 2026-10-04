@@ -252,14 +252,11 @@ fn an_arrow_and_enter_on_the_accounts_opens_the_second_account() {
 #[test]
 fn the_overview_links_are_at_least_24_px_each_way() {
     use ducktape_view_guest::px;
-    use ducktape_view_guest::wire::Node;
     let (cx, _) = ready();
     for key in ["explorer-all-blocks", "explorer-all-txs"] {
-        let Some(Node::Container(link)) = cx.find(key) else {
-            panic!("no {key}");
-        };
+        let link = cx.style(key);
         assert_eq!(
-            (link.style.min_size.width, link.style.min_size.height),
+            (link.min_size.width, link.min_size.height),
             (Some(px(24.).into()), Some(px(24.).into())),
             "{key}"
         );
@@ -484,16 +481,10 @@ fn the_scheduled_changes_survive_a_snapshot() {
 /// narrowest; narrower, their titles went to nothing.
 #[test]
 fn the_latest_panels_stack_where_the_transactions_would_squeeze() {
-    use ducktape_view_guest::wire::{ContainerNode, Node};
     use ducktape_view_guest::{StyleRefinement, Styled as _, design, px};
     let (mut cx, _) = ready();
-    let style = |cx: &TestAppContext, id: &str| -> StyleRefinement {
-        match cx.find(id) {
-            Some(Node::Container(node)) => node.style.clone(),
-            _ => panic!("no {id}"),
-        }
-    };
-    let column = ContainerNode::default().flex_col().style.flex_direction;
+    let style = |cx: &TestAppContext, id: &str| -> StyleRefinement { cx.style(id).clone() };
+    let column = StyleRefinement::default().flex_col().flex_direction;
     let alone = px(<Explorer as View>::MIN_WINDOW_WIDTH as f32) - design::size::SCROLLBAR;
     let breakpoint = f32::from(px(320.) + alone + design::size::SCROLLBAR);
     assert_eq!(breakpoint, 960.);
@@ -558,12 +549,7 @@ fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();
     let dark = ducktape_view_guest::Theme::dark();
     cx.set_global(dark);
-    let Some(ducktape_view_guest::wire::Node::Container(
-        ducktape_view_guest::wire::ContainerNode { style, .. },
-    )) = cx.find("explorer")
-    else {
-        panic!("explorer root is a styled container");
-    };
+    let style = cx.style("explorer");
     assert_eq!(
         style
             .background

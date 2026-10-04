@@ -3,9 +3,7 @@ use super::*;
 impl Node {
     /// The node an empty view renders as.
     pub fn empty() -> Self {
-        Self::Space {
-            style: gpui::StyleRefinement::default(),
-        }
+        Self::Space
     }
 
     pub fn key(&self) -> Option<&str> {
@@ -26,10 +24,9 @@ impl Node {
             | Self::ResizeHandle { id, .. }
             | Self::Sensor { id, .. }
             | Self::Overlay { id, .. } => Some(id),
-            Self::Space { .. }
-            | Self::Anchored { .. }
-            | Self::Deferred { .. }
-            | Self::Canvas { .. } => None,
+            Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
+                None
+            }
         }
     }
 
@@ -47,9 +44,9 @@ impl Node {
         }
     }
 
-    /// The style the node was authored with; `Anchored` and `Deferred`
-    /// carry none.
-    pub fn style(&self) -> Option<&gpui::StyleRefinement> {
+    /// The style the node was authored with, by its id in the tree's
+    /// table; `Anchored`, `Deferred` and `Space` carry none.
+    pub fn style(&self) -> Option<StyleId> {
         match self {
             Self::Container(crate::ContainerNode { style, .. })
             | Self::Text(crate::TextNode { style, .. })
@@ -61,10 +58,39 @@ impl Node {
             | Self::Image { style, .. }
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
-            | Self::Space { style }
             | Self::Overlay { style, .. }
-            | Self::Canvas { style, .. } => Some(style),
-            Self::Anchored { .. } | Self::Deferred { .. } => None,
+            | Self::Canvas { style, .. } => Some(*style),
+            Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
+        }
+    }
+
+    /// Hands `visit` every style id the node itself names, its own and its
+    /// conditional ones, to read or to renumber
+    /// ([`Interner::retain`](crate::Interner::retain)).
+    pub fn styles_mut(&mut self, visit: &mut dyn FnMut(&mut StyleId)) {
+        match self {
+            Self::Container(crate::ContainerNode { style, .. })
+            | Self::Text(crate::TextNode { style, .. })
+            | Self::RichText { style, .. }
+            | Self::UniformList { style, .. }
+            | Self::List { style, .. }
+            | Self::ResizeHandle { style, .. }
+            | Self::Sensor { style, .. }
+            | Self::Image { style, .. }
+            | Self::Svg { style, .. }
+            | Self::Field { style, .. }
+            | Self::Overlay { style, .. }
+            | Self::Canvas { style, .. } => visit(style),
+            Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
+        }
+        if let Self::Container(crate::ContainerNode { interactivity, .. })
+        | Self::UniformList { interactivity, .. }
+        | Self::List { interactivity, .. }
+        | Self::ResizeHandle { interactivity, .. }
+        | Self::Image { interactivity, .. }
+        | Self::Svg { interactivity, .. } = self
+        {
+            interactivity.style_slots().for_each(visit);
         }
     }
 
@@ -100,7 +126,7 @@ impl Node {
             | Self::Text(crate::TextNode { .. })
             | Self::Svg { .. }
             | Self::Field { .. }
-            | Self::Space { .. }
+            | Self::Space
             | Self::Canvas { .. } => &[],
         }
     }
@@ -130,7 +156,7 @@ impl Node {
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Field { .. }
-            | Self::Space { .. }
+            | Self::Space
             | Self::Svg { .. }
             | Self::Canvas { .. } => &mut [],
         }
@@ -156,7 +182,7 @@ impl Node {
             | Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Field { .. }
-            | Self::Space { .. }
+            | Self::Space
             | Self::Svg { .. }
             | Self::Canvas { .. } => None,
         }

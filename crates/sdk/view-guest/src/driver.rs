@@ -275,8 +275,16 @@ impl<V: View> Driver<V> {
     /// or as patches against the last one. A frame that owes a picture
     /// asks for the next, until every picture drawn is sent.
     fn frame(&mut self, owed: bool) -> wire::Frame {
-        let render = self.app.inner.dirty.replace(false) || self.last_root.is_none() || owed;
+        let render = self.app.inner.dirty.replace(false)
+            || self.last_root.is_none()
+            || owed
+            || self.styles_outgrown();
         let mut root = render.then(|| self.render_root());
+        // a table past what the host holds starts over, which a tree sent
+        // whole does: there is no last tree to patch
+        if self.styles_outgrown() {
+            self.last_root = None;
+        }
         crate::window::send_widgets(
             &self.app.inner.slots,
             root.as_ref().or(self.last_root.as_ref()),
@@ -305,8 +313,10 @@ impl<V: View> Driver<V> {
         let cancels = host.drain_cancels();
         // what one frame cannot carry goes in the next
         self.busy |= host.outbox_waiting();
+        let mut tooltip_responses = slots::take_tooltip_responses(&self.app.inner.slots);
         wire::Frame {
-            tooltip_responses: slots::take_tooltip_responses(&self.app.inner.slots),
+            styles: self.styles(root.as_mut(), &mut tooltip_responses),
+            tooltip_responses,
             root,
             patches,
             requests,
@@ -314,6 +324,34 @@ impl<V: View> Driver<V> {
             unchanged,
             busy: self.busy,
         }
+    }
+
+    /// Whether the style table holds more entries than the host takes.
+    fn styles_outgrown(&self) -> bool {
+        self.app.inner.styles.borrow().len() > wire::MAX_STYLES
+    }
+
+    /// The style entries a frame carries. A tree sent whole starts the
+    /// table over with the styles it and the frame's tooltips name, and
+    /// carries them all; any other frame carries the entries the host does
+    /// not hold yet.
+    fn styles(
+        &mut self,
+        whole: Option<&mut wire::Node>,
+        tooltips: &mut [wire::TooltipResponse],
+    ) -> Vec<wire::Style> {
+        let mut styles = self.app.inner.styles.borrow_mut();
+        if let Some(root) = whole {
+            styles.retain(|visit| {
+                let contents = tooltips
+                    .iter_mut()
+                    .filter_map(|response| response.content.as_deref_mut());
+                for tree in std::iter::once(root).chain(contents) {
+                    tree.for_each_mut(&mut |node| node.styles_mut(visit));
+                }
+            });
+        }
+        styles.unsent()
     }
 
     fn render_root(&mut self) -> wire::Node {
@@ -422,10 +460,10 @@ impl<V: View> Driver<V> {
 }
 
 /// The root's snapshot bytes, for the debug check that a change to them
-/// notified.
+/// notified. A view whose serde refuses has none, before and after.
 #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
 fn encode_root<V: View>(view: &dyn std::any::Any) -> Vec<u8> {
-    wire::encode(view.downcast_ref::<V>().expect("the root view"))
+    wire::try_encode(view.downcast_ref::<V>().expect("the root view")).unwrap_or_default()
 }
 
 /// Puts the subtrees `patches` carry back into the tree `wire::diff_taking`

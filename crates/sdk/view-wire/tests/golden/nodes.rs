@@ -1,11 +1,9 @@
 //! Every `Node` variant at least once, in one tree.
 use super::*;
 
-/// Every `StyleRefinement`/`TextStyleRefinement` field set once, so a
-/// `#[serde(skip_serializing_if)]` or a rename on a style property shows up
-/// in `frame.bin` and not only in `schema.txt`. `debug`/`debug_below` exist
-/// only in a `debug_assertions` build, the same build this golden runs
-/// under, so they are set behind the same `cfg`.
+/// Every `StyleRefinement`/`TextStyleRefinement` field set once, so each
+/// field's bytes in a table entry are in `frame.bin` and its place in
+/// `schema.txt`. gpui's `debug`/`debug_below` do not cross and are not set.
 // One field at a time is far more readable here than one `StyleRefinement`
 // literal with ~50 named fields, several nested (`overflow.x`, `text.color`).
 #[allow(clippy::field_reassign_with_default)]
@@ -81,11 +79,6 @@ fn full_style() -> gpui::StyleRefinement {
         row: gpui::GridPlacement::Line(1)..gpui::GridPlacement::Span(2),
         column: gpui::GridPlacement::Auto..gpui::GridPlacement::Auto,
     });
-    #[cfg(debug_assertions)]
-    {
-        style.debug = Some(true);
-        style.debug_below = Some(true);
-    }
     style.text.color = Some(gpui::red());
     style.text.font_family = Some("Mono".into());
     style.text.font_features = Some(gpui::FontFeatures::default());
@@ -111,8 +104,8 @@ fn full_style() -> gpui::StyleRefinement {
     style
 }
 
-/// A style of one background alone: the tags [`full_style`]'s solid one
-/// leaves out, which only gpui's constructors can name.
+/// A style of one background alone: the gradient [`full_style`]'s solid
+/// one leaves out.
 fn backdrop(background: gpui::Background) -> StyleRefinement {
     StyleRefinement {
         background: Some(gpui::Fill::Color(background)),
@@ -128,11 +121,31 @@ fn truncating(background: gpui::Background, overflow: gpui::TextOverflow) -> Sty
     style
 }
 
-/// A non-default `Interactivity`: every field present, [`full_style`] once
-/// and every other refinement small. Reused wherever a node's own
+/// The frame's style table. Its first entry is the empty style, which
+/// every sample node names ([`style`]); the rest are the ones
+/// [`full_interactivity`] names, [`full_style`] once and every other one
+/// small.
+pub fn every_style() -> Vec<StyleRefinement> {
+    let stop = gpui::linear_color_stop(gpui::red(), 0.);
+    vec![
+        StyleRefinement::default(),
+        full_style(),
+        truncating(
+            gpui::linear_gradient(90., stop, stop),
+            gpui::TextOverflow::Truncate("…".into()),
+        ),
+        truncating(
+            gpui::linear_gradient(180., stop, stop).color_space(gpui::ColorSpace::Oklab),
+            gpui::TextOverflow::TruncateStart("…".into()),
+        ),
+        backdrop(gpui::solid_background(gpui::black())),
+    ]
+}
+
+/// A non-default `Interactivity`: every field present, each conditional
+/// style an entry of [`every_style`]. Reused wherever a node's own
 /// `interactivity` only needs to be non-default, not this specific one.
 fn full_interactivity() -> Interactivity {
-    let stop = gpui::linear_color_stop(gpui::red(), 0.);
     Interactivity {
         role: Some(gpui::Role::ListBox),
         aria: every_aria(),
@@ -140,29 +153,23 @@ fn full_interactivity() -> Interactivity {
         tab_stop: Some(true),
         tab_index: Some(1),
         tab_group: true,
-        focus: Some(Box::new(full_style())),
-        in_focus: Some(Box::new(truncating(
-            gpui::linear_gradient(90., stop, stop),
-            gpui::TextOverflow::Truncate("…".into()),
-        ))),
-        focus_visible: Some(Box::new(truncating(
-            gpui::pattern_slash(gpui::blue(), 1., 2.),
-            gpui::TextOverflow::TruncateStart("…".into()),
-        ))),
+        focus: Some(StyleId(1)),
+        in_focus: Some(StyleId(2)),
+        focus_visible: Some(StyleId(3)),
         focus_handle: Some(42),
         occlude: true,
         block_mouse_except_scroll: true,
         hover_listener_mode: interactivity::HoverListenerMode::InputModalityIndependent,
         group: Some("card".into()),
-        hover: Some(Box::new(backdrop(gpui::checkerboard(gpui::black(), 4.)))),
-        active: Some(Default::default()),
+        hover: Some(StyleId(4)),
+        active: Some(style()),
         group_hover: Some(GroupRefinement {
             group: "card".into(),
-            style: Default::default(),
+            style: style(),
         }),
         group_active: Some(GroupRefinement {
             group: "card".into(),
-            style: Default::default(),
+            style: style(),
         }),
         on_click: Some(60),
         on_aux_click: Some(61),
@@ -394,7 +401,7 @@ fn first_nodes() -> Vec<Node> {
             on_submit: Some(21),
             style: style(),
         },
-        Node::Space { style: style() },
+        Node::Space,
         Node::Overlay {
             id: id("overlay"),
             label: Some("dialog".into()),
@@ -847,7 +854,7 @@ pub fn node_variant(node: &Node) -> &'static str {
         Node::Image { .. } => "Image",
         Node::Svg { .. } => "Svg",
         Node::Field { .. } => "Field",
-        Node::Space { .. } => "Space",
+        Node::Space => "Space",
         Node::Overlay { .. } => "Overlay",
         Node::Canvas { .. } => "Canvas",
     }
