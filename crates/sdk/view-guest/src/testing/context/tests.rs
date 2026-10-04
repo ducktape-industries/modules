@@ -5,6 +5,7 @@ use crate::{
     Role, StatefulInteractiveElement, Task, Window, methods::Changes, testing::Probe,
 };
 use futures::StreamExt;
+use gpui::px;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -158,6 +159,71 @@ impl Render for Spreadsheet {
 #[should_panic(expected = "the host would cut this frame")]
 fn a_frame_the_host_would_cut_fails_its_test() {
     TestAppContext::new().open::<Spreadsheet>();
+}
+
+/// A chart of one rectangle more than the host draws.
+#[derive(Default, Serialize, Deserialize)]
+struct Chart;
+impl View for Chart {
+    const NAME: &'static str = "Chart";
+}
+impl Render for Chart {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+        let bar = gpui::Bounds::new(gpui::point(px(0.), px(0.)), gpui::size(px(1.), px(1.)));
+        (0..=crate::wire::MAX_CANVAS_PARTS)
+            .fold(crate::canvas(), |chart, _| chart.rect(bar, gpui::red()))
+    }
+}
+
+#[test]
+#[should_panic(expected = "canvases: 1")]
+fn a_canvas_the_host_would_cut_fails_its_test() {
+    TestAppContext::new().open::<Chart>();
+}
+
+/// A list of one item more than the host scrolls through.
+#[derive(Default, Serialize, Deserialize)]
+struct Ledger;
+impl View for Ledger {
+    const NAME: &'static str = "Ledger";
+}
+impl Render for Ledger {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+        let items = crate::wire::MAX_LIST_ITEMS + 1;
+        let state = crate::ListState::new(items, gpui::ListAlignment::Top, px(0.));
+        crate::list("ledger", state, |item, _, _| {
+            crate::div().child(item.to_string()).into_any_element()
+        })
+    }
+}
+
+#[test]
+#[should_panic(expected = "lists: 1")]
+fn a_list_the_host_would_cut_fails_its_test() {
+    TestAppContext::new().open::<Ledger>();
+}
+
+/// A uniform list of one row more than the host scrolls through.
+#[derive(Default, Serialize, Deserialize)]
+struct Register;
+impl View for Register {
+    const NAME: &'static str = "Register";
+}
+impl Render for Register {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+        let count = crate::wire::MAX_UNIFORM_LIST_COUNT + 1;
+        crate::uniform_list("rows", count, |range, _, _| {
+            range
+                .map(|row| crate::div().id(row).child(format!("row {row}")))
+                .collect::<Vec<_>>()
+        })
+    }
+}
+
+#[test]
+#[should_panic(expected = "lists: 1")]
+fn a_uniform_list_the_host_would_cut_fails_its_test() {
+    TestAppContext::new().open::<Register>();
 }
 
 /// A card a click selects, with a button on it that deletes; what stands

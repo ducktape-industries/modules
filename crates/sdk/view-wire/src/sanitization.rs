@@ -19,6 +19,14 @@ pub struct SanitizeReport {
     /// Pictures dropped by the frame's picture budget
     /// ([`crate::MAX_PICTURE_BYTES_PER_FRAME`]).
     pub pictures: usize,
+    /// Canvases that lost drawing: past the frame's canvas budget
+    /// ([`crate::MAX_CANVAS_PARTS`] commands, path segments and dashes),
+    /// a dash past 256, or drawn inside a group past 32 deep.
+    pub canvases: usize,
+    /// Lists cut short of the items they have: a list past what is left of
+    /// the frame's [`crate::MAX_LIST_ITEMS`], a uniform list past
+    /// [`crate::MAX_UNIFORM_LIST_COUNT`].
+    pub lists: usize,
     /// Where the first cut fell: the child indices from the root, or from
     /// a tooltip's content when the cut fell inside one.
     pub first: Option<Vec<u32>>,
@@ -35,6 +43,8 @@ impl SanitizeReport {
         self.strings += other.strings;
         self.text += other.text;
         self.pictures += other.pictures;
+        self.canvases += other.canvases;
+        self.lists += other.lists;
         if self.first.is_none() {
             self.first = other.first;
         }

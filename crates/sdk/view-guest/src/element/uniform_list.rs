@@ -191,7 +191,7 @@ impl Element for UniformList {
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
-        let count = self.count.min(wire::MAX_UNIFORM_LIST_COUNT);
+        let count = self.count;
         let path = lowering.current_path().to_vec();
         let id = path
             .last()

@@ -84,6 +84,10 @@ fn sanitize_fields(
         } => {
             style_sanitize::sanitize(style)?;
             uniform_list_path(id, path, authored_path)?;
+            budgets.cut(
+                |cuts| &mut cuts.lists,
+                usize::from(*count > MAX_UNIFORM_LIST_COUNT),
+            );
             *count = (*count).min(MAX_UNIFORM_LIST_COUNT);
             *measure_index = (*measure_index).min(count.saturating_sub(1));
             if let Some(request) = scroll_request {
@@ -110,6 +114,10 @@ fn sanitize_fields(
             for id in path.iter() {
                 id.validate_host()?;
             }
+            budgets.cut(
+                |cuts| &mut cuts.lists,
+                usize::from(*item_count > budgets.list_items),
+            );
             *item_count = (*item_count).min(budgets.list_items);
             budgets.list_items -= *item_count;
             *overdraw = bounded(*overdraw).min(4096.0);

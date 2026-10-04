@@ -144,7 +144,11 @@ pub(super) fn decode_parts<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>
     deserializer.deserialize_seq(Parts(std::marker::PhantomData))
 }
 
+/// Bounds a canvas's numbers and spends its parts from the frame's canvas
+/// budget. What does not fit, and what is drawn inside a group past 32
+/// deep, is not drawn: the canvas reports one cut.
 pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets) {
+    let mut cut = commands.len() > budgets.canvas_parts;
     commands.truncate(budgets.canvas_parts.min(MAX_CANVAS_PARTS));
     let mut scales = vec![1.0_f32];
     let mut skipped = 0usize;
@@ -153,11 +157,12 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
             match command {
                 CanvasCommand::Push { .. } => skipped += 1,
                 CanvasCommand::Pop => skipped -= 1,
-                _ => {}
+                CanvasCommand::Draw { .. } => cut = true,
             }
             return false;
         }
         if budgets.canvas_parts == 0 {
+            cut = true;
             return false;
         }
         budgets.canvas_parts -= 1;
@@ -209,7 +214,9 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 if let Some(stroke) = stroke {
                     sanitize_hsla(&mut stroke.color);
                     size(&mut stroke.width);
-                    stroke.dash.truncate(budgets.canvas_parts.min(256));
+                    let dashes = budgets.canvas_parts.min(256);
+                    cut |= stroke.dash.len() > dashes;
+                    stroke.dash.truncate(dashes);
                     budgets.canvas_parts -= stroke.dash.len();
                     for value in &mut stroke.dash {
                         *value = finite_or_zero(*value).clamp(0.01, MAX_PIXELS);
@@ -237,6 +244,7 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                         point(to);
                     }
                     CanvasShape::Path(segments) => {
+                        cut |= segments.len() > budgets.canvas_parts;
                         segments.truncate(budgets.canvas_parts);
                         budgets.canvas_parts -= segments.len();
                         for segment in segments {
@@ -302,6 +310,7 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
         }
         true
     });
+    budgets.cut(|cuts| &mut cuts.canvases, usize::from(cut));
 }
 fn finite_or_zero(value: f32) -> f32 {
     if value.is_finite() { value } else { 0.0 }
@@ -404,6 +413,7 @@ mod tests {
         ];
         sanitize(&mut second, &mut budget);
         assert_eq!(budget.canvas_parts, 0);
+        assert_eq!(budget.cuts.canvases, 1, "the second canvas lost its path");
         assert_eq!(
             second,
             vec![CanvasCommand::Draw {
