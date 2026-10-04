@@ -1,9 +1,9 @@
 //! A list row is filed under its own id, else under its index, and the ids
 //! inside it under the row (`wire::identity`): two rows that author the
 //! same id inside them both draw, each pressing its own listener. A
-//! duplicate an author wrote by hand among siblings fails where it was
-//! lowered, naming the id and its scope, with the very message the host's
-//! sanitizer refuses the frame with.
+//! duplicate an author wrote by hand among siblings fails the view's test,
+//! naming the id and its scope: the test host runs the host's sanitizer on
+//! every frame, and the words are its.
 use super::*;
 use crate::testing::TestAppContext;
 use serde::{Deserialize, Serialize};
@@ -169,7 +169,8 @@ fn write_twice(cx: &mut TestAppContext, view: &Entity<Twice>) {
 
 #[test]
 #[should_panic(
-    expected = "duplicate typed element identity among siblings: x twice under page > rows"
+    expected = "the host refuses this frame: duplicate typed element identity \
+                           among siblings: x twice under page > rows"
 )]
 fn a_duplicate_written_among_siblings_fails_naming_its_site() {
     let mut cx = TestAppContext::new();
@@ -180,7 +181,7 @@ fn a_duplicate_written_among_siblings_fails_naming_its_site() {
 /// The panic `f` ends in, as text.
 fn panic_message(f: impl FnOnce()) -> String {
     let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
-        .expect_err("a duplicate does not lower");
+        .expect_err("the test host refuses a duplicate");
     payload
         .downcast_ref::<String>()
         .cloned()
@@ -188,15 +189,15 @@ fn panic_message(f: impl FnOnce()) -> String {
         .unwrap_or_default()
 }
 
-/// What the host's sanitizer says of `root`, sent whole.
+/// What a view's test fails with when the host's sanitizer refuses `root`,
+/// sent whole.
 fn refusal(root: wire::Node) -> String {
     let mut frame = wire::Frame {
         root: Some(root),
         ..Default::default()
     };
-    wire::sanitize(&mut frame)
-        .expect_err("the host refuses it")
-        .to_string()
+    let refused = wire::sanitize(&mut frame).expect_err("the host refuses it");
+    format!("the host refuses this frame: {refused}")
 }
 
 /// `name` wherever an id names it is `to`.
@@ -210,11 +211,12 @@ fn rename(node: &mut wire::Node, name: &str, to: &str) {
     });
 }
 
-/// The guest's check and the host's refusal are one rule: the tree the
-/// guest lowers with `y`, renamed `x` on the wire, is refused by the
-/// sanitizer with the very message the guest's lowering of `x` panics with.
+/// A view's test and the host refuse a duplicate in one place, the
+/// sanitizer: the tree the guest lowers with `y`, renamed `x` on the wire,
+/// is refused by it in the words the test of the view that writes `x`
+/// fails with.
 #[test]
-fn the_guest_fails_a_duplicate_with_the_hosts_refusal() {
+fn a_views_test_fails_a_duplicate_with_the_hosts_refusal() {
     let mut cx = TestAppContext::new();
     let view = cx.open::<Twice>();
     let mut sent = cx.root().clone();
@@ -224,8 +226,8 @@ fn the_guest_fails_a_duplicate_with_the_hosts_refusal() {
 }
 
 /// The same for rows: two rows of a list each filed under its own id `m`
-/// (a key the data repeated) are one id twice in one scope, refused by the
-/// guest and the host alike, with the same words.
+/// (a key the data repeated) are one id twice in one scope, refused in
+/// the view's test as the host refuses them.
 #[derive(Default, Serialize, Deserialize)]
 struct Keyed {
     keys: Vec<String>,
@@ -257,7 +259,7 @@ impl Render for Keyed {
 }
 
 #[test]
-fn rows_named_by_one_key_fail_alike_in_the_guest_and_the_host() {
+fn rows_named_by_one_key_fail_a_views_test_with_the_hosts_refusal() {
     let mut cx = TestAppContext::new();
     let view = cx.open::<Keyed>();
     let mut sent = cx.root().clone();

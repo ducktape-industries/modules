@@ -1,8 +1,12 @@
 //! Typed identity: the path a node is filed under, and when two collide.
 //!
-//! One rule, run by everything that walks a tree: the host's sanitizer and
-//! renderer, and the guest's lowering, so a duplicate the host would refuse
-//! fails in the guest first, naming the site that built it.
+//! One rule, run by everything that walks a tree. The guest's lowering,
+//! the host's renderer and its walks file every node by it ([`segment`],
+//! [`row`]), so a path means one node on both sides. Whether two nodes
+//! meet is the host's to say, since the guest is not trusted: its
+//! sanitizer claims every id ([`Scopes`]) and refuses a frame that claims
+//! one twice, naming the id and its scope. A view's tests run that same
+//! sanitizer on every frame, so a duplicate fails its test in those words.
 //!
 //! - An id is unique among the identified nodes under its nearest
 //!   identified ancestor, as gpui's `GlobalElementId` is: an id-less
@@ -83,9 +87,9 @@ impl fmt::Display for Shown<'_> {
     }
 }
 
-/// The scopes open while a tree is walked and the path of the node being
-/// walked. One set holds every id claimed in the walk, beside the number of
-/// the scope it was claimed in.
+/// The sanitizer's walk: the scopes open while a tree is walked and the
+/// path of the node being walked. One set holds every id claimed in the
+/// walk, beside the number of the scope it was claimed in.
 #[derive(Default)]
 pub struct Scopes {
     claimed: HashSet<(usize, ElementIdWire)>,

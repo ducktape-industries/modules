@@ -135,27 +135,31 @@ fn every_frame_a_view_sends_is_audited() {
     TestAppContext::new().open::<Nameless>();
 }
 
-/// An id longer than any the host files, which lowering and the audit
-/// pass and the host refuses.
+/// Twins: two siblings with one typed id, which the audit (it keys on
+/// names) passes and the host refuses.
 #[derive(Default, Serialize, Deserialize)]
-struct Overlong;
-impl View for Overlong {
-    const NAME: &'static str = "Overlong";
+struct Twins;
+impl View for Twins {
+    const NAME: &'static str = "Twins";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }
 }
-impl Render for Overlong {
+impl Render for Twins {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
-        let name = "x".repeat(crate::wire::MAX_STRING_BYTES + 1);
-        crate::div().child(crate::div().id(crate::SharedString::from(name)))
+        crate::div()
+            .child(crate::div().id(1usize))
+            .child(crate::div().id(1usize))
     }
 }
 
 #[test]
-#[should_panic(expected = "the host refuses this frame: element identity name is too long")]
+#[should_panic(
+    expected = "the host refuses this frame: duplicate typed element identity among siblings: \
+                1 twice under the root"
+)]
 fn every_frame_is_held_to_the_host_sanitizer() {
-    TestAppContext::new().open::<Overlong>();
+    TestAppContext::new().open::<Twins>();
 }
 
 /// A target whose tooltip is the nameless button.

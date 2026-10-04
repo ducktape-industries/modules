@@ -209,7 +209,7 @@ impl TestAppContext {
                 self.tree.as_mut().expect("patch needs previous tree"),
                 frame.patches.clone(),
             )
-            .unwrap_or_else(|refused| panic!("valid view patches: {refused}"));
+            .unwrap_or_else(|refused| panic!("the host refuses this frame: {refused}"));
         }
         assert_frame_accessible(self.tree.as_ref(), &frame.tooltip_responses);
         let report = TickReport {
