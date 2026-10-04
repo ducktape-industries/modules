@@ -23,6 +23,12 @@ type Ask<T> = Rc<dyn Fn(Option<Vec<u8>>) -> LocalBoxFuture<'static, Result<Page<
 /// cancels the read on its way. One read is out at a time; a newer one
 /// supersedes it.
 ///
+/// A program that rewrites its listing refuses a cursor it handed out
+/// before the write as `stale` (`error::code::STALE`). The listing is then
+/// read from its first page again, through the page the list reached, and
+/// the rows on screen stay until it lands. Any other refusal lands in place
+/// of the rows ([`failed`](Self::failed)).
+///
 /// ```
 /// # use serde::{Deserialize, Serialize};
 /// # use std::ops::Range;
@@ -55,6 +61,12 @@ type Ask<T> = Rc<dyn Fn(Option<Vec<u8>>) -> LocalBoxFuture<'static, Result<Page<
 /// impl Render for History {
 ///     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
 ///         let rows = self.rows.clone().expect("attach built it");
+///         if let Some(refusal) = rows.read(|rows| rows.failed().cloned()) {
+///             return div().child(refusal.message).into_any_element();
+///         }
+///         if rows.read(Paged::is_loading) {
+///             return div().child("Reading…").into_any_element();
+///         }
 ///         // the rows held, and a row more while the listing goes on
 ///         let count = rows.read(Paged::count);
 ///         uniform_list("history", count, move |range: Range<usize>, _, cx| {
@@ -69,6 +81,7 @@ type Ask<T> = Rc<dyn Fn(Option<Vec<u8>>) -> LocalBoxFuture<'static, Result<Page<
 ///             })
 ///         })
 ///         .size_full()
+///         .into_any_element()
 ///     }
 /// }
 ///
@@ -84,6 +97,12 @@ type Ask<T> = Rc<dyn Fn(Option<Vec<u8>>) -> LocalBoxFuture<'static, Result<Page<
 /// cx.simulate_range("history", 40..50);
 /// assert!(cx.has_text("row 50"), "the list reached the end of the page: the next is read");
 /// assert_eq!(cx.host().requests::<Query<Numbers>>().len(), 2);
+///
+/// // a listing the program refuses draws its refusal
+/// let mut cx = TestAppContext::new();
+/// cx.host().refuse::<Query<Numbers>>("not_found", "no such listing");
+/// cx.open::<History>();
+/// assert!(cx.has_text("no such listing"));
 /// ```
 pub struct Paged<T> {
     ask: Ask<T>,
@@ -152,7 +171,10 @@ impl<T: PartialEq + 'static> Paged<T> {
 
     /// The list shows `rows` (the range a `uniform_list` hands its
     /// processor): when they reach past the rows held and the listing goes
-    /// on, its next page is read, once.
+    /// on, its next page is read, once. The processor is also handed the
+    /// row the list measures its width from, on screen or not: a list
+    /// measured from its last row (`with_width_from_item`) reads every
+    /// page as it opens.
     pub fn show(&mut self, rows: Range<usize>, cx: &mut Context<Self>) {
         if rows.end <= self.rows.len() {
             return;
@@ -180,23 +202,12 @@ impl<T: PartialEq + 'static> Paged<T> {
         self.read(self.pages.max(reading).max(1), None, cx);
     }
 
-    /// Reads until `pages` are held: the page after `after` alone, or with
-    /// no cursor the listing from its start. Supersedes the read that was
-    /// out.
+    /// Reads until `pages` are held ([`walk`]). Supersedes the read that
+    /// was out.
     fn read(&mut self, pages: usize, after: Option<Vec<u8>>, cx: &mut Context<Self>) {
         let ask = self.ask.clone();
         let task = cx.spawn(async move |this, cx| {
-            let landed = match after {
-                Some(after) => match ask(Some(after)).await {
-                    // the listing was rewritten since the cursor was
-                    // handed out: its program says to start it over
-                    Err(refusal) if refusal.code == ::error::code::STALE => {
-                        again(&ask, pages).await
-                    }
-                    page => page.map(Landed::Next),
-                },
-                None => again(&ask, pages).await,
-            };
+            let landed = walk(&ask, pages, after).await;
             // the listing is gone: nothing is waiting for the read
             let _ = this.update(cx, |paged, cx| paged.land(landed, cx));
         });
@@ -231,17 +242,36 @@ impl<T: PartialEq + 'static> Paged<T> {
     }
 }
 
-/// The listing from its start: `pages` pages, or as many as it has.
-async fn again<T>(ask: &Ask<T>, pages: usize) -> Result<Landed<T>, Error> {
-    let (mut rows, mut next) = ask(None).await?;
-    let mut read = 1;
-    while read < pages && next.is_some() {
-        let (more, after) = ask(next).await?;
-        rows.extend(more);
-        next = after;
-        read += 1;
+/// The page after `after` alone, or with no cursor the listing from its
+/// start: `pages` pages, or as many as it has. A cursor refused `stale` was
+/// handed out before the listing was rewritten, whichever page it asks for:
+/// its program says to start the listing over, so the walk does, from the
+/// first page, which carries no cursor to refuse.
+async fn walk<T>(
+    ask: &Ask<T>,
+    pages: usize,
+    mut after: Option<Vec<u8>>,
+) -> Result<Landed<T>, Error> {
+    let mut alone = after.is_some();
+    let (mut rows, mut read) = (Vec::new(), 0);
+    loop {
+        let cursored = after.is_some();
+        match ask(after).await {
+            Err(refusal) if cursored && refusal.code == ::error::code::STALE => {
+                (rows, read, after, alone) = (Vec::new(), 0, None, false);
+            }
+            Err(refusal) => return Err(refusal),
+            Ok(page) if alone => return Ok(Landed::Next(page)),
+            Ok((more, next)) => {
+                rows.extend(more);
+                read += 1;
+                if read >= pages || next.is_none() {
+                    return Ok(Landed::Again((rows, next), read));
+                }
+                after = next;
+            }
+        }
     }
-    Ok(Landed::Again((rows, next), read))
 }
 
 #[cfg(test)]
@@ -313,11 +343,15 @@ mod tests {
     /// The listing the fake node serves: `0..len`, 64 rows a page, each
     /// cursor the offset of its page and the listing's `version`, as a
     /// program pins a cursor to the state that answered it. A cursor of
-    /// another version is refused `stale`.
+    /// another version is refused `stale`. `write_after_first_page` is a
+    /// write that lands right after the next first page is answered: the
+    /// cursor that page hands out is behind the listing by the time it is
+    /// asked.
     #[derive(Clone)]
     struct Listing {
         len: Rc<Cell<u64>>,
         version: Rc<Cell<u8>>,
+        write_after_first_page: Rc<Cell<bool>>,
     }
     const PER_PAGE: u64 = 64;
 
@@ -325,6 +359,7 @@ mod tests {
         let listing = Listing {
             len: Rc::new(Cell::new(len)),
             version: Rc::default(),
+            write_after_first_page: Rc::default(),
         };
         let served = listing.clone();
         cx.host()
@@ -352,6 +387,9 @@ mod tests {
                 cursor.extend(end.to_be_bytes());
                 cursor
             });
+            if after.is_none() && self.write_after_first_page.take() {
+                self.version.set(self.version.get() + 1);
+            }
             Ok(((start..end).collect(), next))
         }
     }
@@ -434,6 +472,42 @@ mod tests {
             assert!(rows.failed().is_none());
         });
         assert!(cx.has_text("row 64"), "{:?}", cx.texts());
+    }
+
+    /// A write that lands between two pages of a walk from the listing's
+    /// start (a re-read, or the start over a `stale` next page asked for)
+    /// makes the walk's own cursor `stale`: the walk starts over, the rows
+    /// on screen stay, and the refusal is never shown.
+    #[test]
+    fn a_write_between_two_pages_of_a_walk_starts_the_walk_over() {
+        let mut cx = TestAppContext::new();
+        let listing = serve(&cx, 500);
+        let view = cx.open::<History>();
+        cx.simulate_range("history", 50..64);
+        assert_eq!(asked(&cx), [None, Some(64)]);
+        let renders = cx.renders();
+        listing.write_after_first_page.set(true);
+        cx.update(&rows(&view), |rows, _, cx| rows.reread(cx));
+        cx.run_until_parked();
+        rows(&view).read(|rows| {
+            assert_eq!(rows.failed(), None);
+            assert_eq!((rows.rows().len(), rows.count()), (128, 129));
+        });
+        assert_eq!(cx.renders(), renders, "the rows on screen never left");
+        let reread = [None, Some(64), None, Some(64), None, Some(64)];
+        assert_eq!(asked(&cx), reread, "the re-read, started over once");
+        // the reader scrolls on with a cursor a write has passed, and one
+        // more write lands under the start over
+        listing.version.set(listing.version.get() + 1);
+        listing.write_after_first_page.set(true);
+        cx.simulate_range("history", 114..128);
+        let start_over = [Some(128), None, Some(64), None, Some(64), Some(128)];
+        assert_eq!(asked(&cx)[reread.len()..], start_over);
+        rows(&view).read(|rows| {
+            assert_eq!((rows.rows().len(), rows.count()), (192, 193));
+            assert_eq!(rows.failed(), None);
+        });
+        assert!(cx.has_text("row 128"), "{:?}", cx.texts());
     }
 
     /// A refused read lands in place of the rows, and a re-read that is
