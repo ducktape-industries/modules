@@ -262,7 +262,7 @@ fn a_refused_frame_leaves_the_table_the_host_holds() {
     let mut held = Styles::default();
     let mut frame = Frame {
         root: Some(text(StyleId(1))),
-        styles: table(&[wide.clone()]),
+        styles: table(std::slice::from_ref(&wide)),
         ..Default::default()
     };
     view_wire::sanitize(&mut frame, &mut held).unwrap();
@@ -272,7 +272,7 @@ fn a_refused_frame_leaves_the_table_the_host_holds() {
     // a whole frame the sanitizer refuses, by its tree and by an entry
     for (root, styles) in [
         (text(StyleId(7)), plain()),
-        (text(PLAIN), table(&[pattern.clone()])),
+        (text(PLAIN), table(std::slice::from_ref(&pattern))),
     ] {
         let mut frame = Frame {
             root: Some(root),

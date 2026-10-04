@@ -147,7 +147,7 @@ first mount (`Default::default()` unless the view says otherwise), and
 snapshot, and starts what the view follows and reads. Subscribe in `attach`,
 never in `new`: a restored view is not built again, and only what `attach`
 starts follows the host after a redeploy. The snapshot is the view's own serde
-as the wire's named MessagePack (`src/snapshot.rs`), refused while work is
+as named MessagePack (`src/snapshot.rs`), refused while work is
 pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
 `view-wire/src/snapshot.rs`). Derive `Default`/`Serialize`/`Deserialize`
 and keep `Task`s out of the state (`Loadable` does). A module's type that

@@ -8,7 +8,7 @@
 //! THE CODEC RULE. Two layers cross the guest boundary and they want
 //! opposite things. The tree a view draws (`Frame`, [`WidgetCommand`]) must
 //! tolerate a hundred optional fields and is decoded under a budget — that
-//! is named MessagePack, in `codec`. Everything a method carries is DATA: the
+//! is MessagePack, in `codec`. Everything a method carries is DATA: the
 //! bytes a program signs, stores or answers with, where the same value must
 //! be the same bytes and an unknown field is a fault. That is borsh, the
 //! codec the program abi is written in, so a program's own request rides a
@@ -375,7 +375,7 @@ pub struct Session {
 }
 /// `host.widget`: a command on the mounted tree. The one method on the TREE
 /// side of the codec rule — a [`WidgetCommand`] names typed element ids the
-/// tree is drawn with — so it is the one method in named MessagePack.
+/// tree is drawn with — so it is the one method in the tree's MessagePack.
 pub struct HostWidget;
 impl sealed::Sealed for HostWidget {}
 impl Method for HostWidget {

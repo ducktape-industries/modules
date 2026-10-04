@@ -1,5 +1,5 @@
 //! Every `WidgetCommand` variant once: the payload of `host.widget`, but
-//! also its own tree-side (named MessagePack) type, sampled here the same
+//! also its own tree-side (MessagePack) type, sampled here the same
 //! way `nodes.rs` samples `Node` so its bytes are pinned too.
 use super::*;
 

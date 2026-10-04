@@ -290,7 +290,7 @@ fn a_silent_node_reads_not_answering() {
     let theme = ducktape_view_guest::Theme::light();
     let inks = |cx: &TestAppContext| {
         let mut inks = Vec::new();
-        badge_inks(&cx, cx.find("nodes-table").expect("the table"), &mut inks);
+        badge_inks(cx, cx.find("nodes-table").expect("the table"), &mut inks);
         inks
     };
     assert_eq!(inks(&cx), [theme.success, theme.success, theme.warning]);
