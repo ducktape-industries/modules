@@ -304,8 +304,16 @@ fn diff_list(
     while prefix < shared && matches(&old[prefix], &new[prefix]) {
         prefix += 1;
     }
+    // Two lists of one length that match all the way have no back to match
+    // and no run to place: each child is diffed in place, where the front
+    // found it. That is every list of a tree whose shape did not change,
+    // so it is not walked a second and a third time to learn nothing.
+    let whole = prefix == old.len() && prefix == new.len();
     let mut suffix = 0;
-    while suffix < shared && matches(&old[old.len() - 1 - suffix], &new[new.len() - 1 - suffix]) {
+    while !whole
+        && suffix < shared
+        && matches(&old[old.len() - 1 - suffix], &new[new.len() - 1 - suffix])
+    {
         suffix += 1;
     }
     if prefix + suffix > shared {
