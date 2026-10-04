@@ -539,25 +539,29 @@ pub(crate) fn staged<'a>(
 ) -> Result<&'a Reply, AnyElement> {
     match forge.stage(query) {
         crate::Stage::Ready(reply) => Ok(reply),
-        crate::Stage::Loading => Err(components::loading(
-            id(format!("{element_id}-loading")),
-            loading_text,
-            theme,
-        )),
-        crate::Stage::Failed(refusal) => {
-            let query = query.clone();
-            let retry =
-                cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
-            Err(ducktape_view_guest::design::refused(
-                element_id,
-                refusal.message.clone(),
-                theme,
-                retry,
-            )
-            .m_2()
-            .into_any_element())
-        }
+        crate::Stage::Loading => Err(reading(element_id, loading_text, theme)),
+        crate::Stage::Failed(refusal) => Err(refused(query, element_id, refusal, cx, theme)),
     }
+}
+
+/// The line a read shows until it lands.
+pub(crate) fn reading(element_id: &str, text: &str, theme: &Theme) -> AnyElement {
+    components::loading(id(format!("{element_id}-loading")), text, theme)
+}
+
+/// A refused read: the program's sentence, and a Retry that asks again.
+pub(crate) fn refused(
+    query: &forge::Query,
+    element_id: &str,
+    refusal: &ducktape_view_guest::host::Error,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> AnyElement {
+    let query = query.clone();
+    let retry = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
+    ducktape_view_guest::design::refused(element_id, refusal.message.clone(), theme, retry)
+        .m_2()
+        .into_any_element()
 }
 
 /// A scrolling content column, the shape every screen body uses.

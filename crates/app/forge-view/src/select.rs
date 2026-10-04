@@ -7,7 +7,8 @@ use crate::queries::PAGE;
 use crate::state::{self, ChangeTab, Forge, Nav, change_key};
 use forge::Principal;
 use forge::{
-    Bounds, Change, Comparison, PageResponse, Query, RefInfo, Reply, RepoInfo, Review, Revision,
+    Bounds, Change, CommitInfo, Comparison, PageRequest, PageResponse, Query, RefInfo, Reply,
+    RepoInfo, Review, Revision,
 };
 
 /// The open change, as its screens read it: the record, its two current
@@ -168,22 +169,47 @@ impl Forge {
             .map(|entry| (entry.name.clone(), entry.oid.clone()))
     }
 
-    pub(crate) fn commit_parent(&self, oid: &str) -> Option<String> {
-        let log = self.ready(&Query::Log {
+    /// The log of the ref the reader browses.
+    pub(crate) fn log_query(&self) -> Query {
+        Query::Log {
             repo: self.repo_name(),
             from: self.revision(),
             exclude: None,
             page: PAGE,
-        })?;
-        let Reply::Log { page, .. } = log else {
-            return None;
-        };
-        page.items
+        }
+    }
+
+    /// The commit `oid` by itself: the first row of the history from it.
+    pub(crate) fn commit_query(&self, oid: &str) -> Query {
+        Query::Log {
+            repo: self.repo_name(),
+            from: Revision::Oid(oid.to_owned()),
+            exclude: None,
+            page: PageRequest::first(1),
+        }
+    }
+
+    /// The commit `oid`, once a log on screen holds it: the one the reader
+    /// browses, else the commit's own row.
+    pub(crate) fn commit(&self, oid: &str) -> Option<CommitInfo> {
+        [self.log_query(), self.commit_query(oid)]
             .iter()
-            .find(|commit| commit.oid == oid)?
-            .parents
-            .first()
-            .cloned()
+            .filter_map(|query| self.logs.get(query))
+            .find_map(|(log, _)| {
+                log.read(|log| log.rows().iter().find(|commit| commit.oid == oid).cloned())
+            })
+    }
+
+    /// The open commit's diff against its first parent (the empty tree for
+    /// a root commit), once the commit is known.
+    pub(crate) fn commit_diff_query(&self, oid: &str) -> Option<Query> {
+        Some(Query::Diff {
+            repo: self.repo_name(),
+            base: self.commit(oid)?.parents.first().cloned(),
+            head: oid.to_owned(),
+            path: None,
+            page: PAGE,
+        })
     }
 
     /// How many changes are open here, once the Changes tab has read them

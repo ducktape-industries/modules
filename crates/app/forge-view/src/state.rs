@@ -4,11 +4,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ducktape_view_guest::Loadable;
+use ducktape_view_guest::{Entity, Paged, Subscription};
 use ducktape_view_guest::{Task, TextField, UniformListScrollHandle};
 use serde::{Deserialize, Serialize};
 
 use crate::api::Session;
-use forge::{LineComment, Query, Reply, Revision, Side, Verdict};
+use forge::{CommitInfo, LineComment, Query, Reply, Revision, Side, Verdict};
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Forge {
@@ -38,6 +39,10 @@ pub struct Forge {
     #[serde(skip)]
     /// every read on screen, keyed by the query that asked it
     pub(crate) data: BTreeMap<Query, Loadable<Reply>>,
+    /// every log on screen, keyed like `data`: read a page at a time, as
+    /// far as its list is scrolled. Beside each, the view hearing it land.
+    #[serde(skip)]
+    pub(crate) logs: BTreeMap<Query, (Entity<Paged<CommitInfo>>, Subscription)>,
     #[serde(skip)]
     pub(crate) names: Loadable<chat::view::Names>,
     #[serde(skip)]

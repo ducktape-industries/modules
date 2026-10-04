@@ -1,12 +1,14 @@
 //! Typed reads. Every forge list is cursored, so one read follows `next`
 //! until the program stops offering one and hands the screen a single
 //! reply. A typed refusal becomes an `Error`, so
-//! the four states of a `Loadable` slot stay honest.
+//! the four states of a `Loadable` slot stay honest. A log is the one list
+//! read a page at a time ([`log_page`]): a history is as long as the
+//! repository is old, and its list shows a screenful.
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, pages};
+use ducktape_view_guest::host::{Error, Page, all_pages, malformed};
 
 use crate::api::Ask as Forge;
-use forge::{PageRequest, PageResponse, Query, Reply};
+use forge::{CommitInfo, PageRequest, PageResponse, Query, Reply};
 
 /// What one page asks for: 64 rows, from the start. A limit above the
 /// program's `Bounds.page_size` is clamped to it.
@@ -14,13 +16,15 @@ pub(crate) const PAGE: PageRequest = PageRequest::first(PER_PAGE);
 const PER_PAGE: u64 = 64;
 
 /// One read of forge, `next` followed: the pages after the first fold into
-/// it.
+/// it. A cursor refused `stale` (an op landed between two pages) starts the
+/// read over from its first page ([`all_pages`]).
 pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
-    let mut reply = host.ask::<Forge>(query.clone()).await?;
-    let more = pages(next_cursor(&reply).cloned(), |after| {
-        let ask = after
-            .and_then(|after| with_cursor(&query, after))
-            .map(|query| host.ask::<Forge>(query));
+    let pages = all_pages(|after| {
+        let ask = match after {
+            None => Some(query.clone()),
+            Some(after) => with_cursor(&query, after),
+        }
+        .map(|query| host.ask::<Forge>(query));
         async move {
             let Some(ask) = ask else {
                 return Ok((Vec::new(), None));
@@ -31,10 +35,30 @@ pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
         }
     })
     .await?;
-    for page in more {
-        extend(&mut reply, page);
+    pages
+        .into_iter()
+        .reduce(|mut reply, page| {
+            extend(&mut reply, page);
+            reply
+        })
+        .ok_or_else(|| malformed("forge answered no page".into()))
+}
+
+/// One page of the log `query` asks, as a
+/// [`Paged`](ducktape_view_guest::Paged) reads it: the page after `after`,
+/// its commits and the cursor of the one after.
+pub(crate) async fn log_page(
+    host: Host,
+    mut query: Query,
+    after: Option<Vec<u8>>,
+) -> Result<Page<CommitInfo>, Error> {
+    if let Some(page) = query.page_mut() {
+        page.after = after;
     }
-    Ok(reply)
+    match host.ask::<Forge>(query).await? {
+        Reply::Log { page, .. } => Ok((page.items, page.next)),
+        other => Err(malformed(format!("a log answered {other:?}"))),
+    }
 }
 
 fn next_cursor(reply: &Reply) -> Option<&Vec<u8>> {
@@ -42,13 +66,15 @@ fn next_cursor(reply: &Reply) -> Option<&Vec<u8>> {
         Reply::Repos { page, .. } => page.next.as_ref(),
         Reply::Repo { writers, .. } => writers.next.as_ref(),
         Reply::Refs { page, .. } => page.next.as_ref(),
-        Reply::Log { page, .. } => page.next.as_ref(),
         Reply::Tree { page, .. } => page.next.as_ref(),
         Reply::Diff { page, .. } => page.next.as_ref(),
         Reply::Changes { page, .. } => page.next.as_ref(),
         Reply::Change { reviews, .. } => reviews.next.as_ref(),
         Reply::Judgment { page, .. } => page.next.as_ref(),
-        Reply::Compare { .. } | Reply::Blob { .. } | Reply::Activity { .. } => None,
+        // a log is never read whole: `log_page`
+        Reply::Log { .. } | Reply::Compare { .. } | Reply::Blob { .. } | Reply::Activity { .. } => {
+            None
+        }
     }
 }
 
@@ -69,7 +95,6 @@ fn extend(into: &mut Reply, more: Reply) {
         (Reply::Repos { page, .. }, Reply::Repos { page: more, .. }) => absorb(page, more),
         (Reply::Refs { page, .. }, Reply::Refs { page: more, .. }) => absorb(page, more),
         (Reply::Repo { writers, .. }, Reply::Repo { writers: more, .. }) => absorb(writers, more),
-        (Reply::Log { page, .. }, Reply::Log { page: more, .. }) => absorb(page, more),
         (Reply::Tree { page, .. }, Reply::Tree { page: more, .. }) => absorb(page, more),
         (Reply::Diff { page, .. }, Reply::Diff { page: more, .. }) => absorb(page, more),
         (Reply::Changes { page, .. }, Reply::Changes { page: more, .. }) => absorb(page, more),

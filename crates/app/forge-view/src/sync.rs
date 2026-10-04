@@ -1,10 +1,12 @@
 //! Which reads the screen on display needs, and keeping them fresh. Every
 //! read is cached under the `Query` that asked it; `sync` issues what the
-//! screen lacks and drops what it no longer shows.
+//! screen lacks and drops what it no longer shows. A log is held a page at
+//! a time (`logs`), every other read whole (`data`).
 use std::collections::BTreeSet;
 
 use ducktape_view_guest::Context;
 use ducktape_view_guest::Loadable;
+use ducktape_view_guest::Paged;
 use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::Change;
 
@@ -28,15 +30,25 @@ impl Forge {
         if reader_changed {
             self.names = cx.load(queries::roster(cx.host()), |forge| &mut forge.names);
             self.data.clear();
+            self.logs.clear();
             self.rereading.clear();
         }
         cx.notify();
         self.sync(cx);
     }
 
-    /// One read, once. Landing it advances whatever depends on it.
+    /// One read, once. Landing it advances whatever depends on it. A log
+    /// reads its first page, and on from there as its list is scrolled.
     pub(crate) fn read(&mut self, query: Query, cx: &mut Context<Self>) {
-        if self.data.contains_key(&query) {
+        if self.data.contains_key(&query) || self.logs.contains_key(&query) {
+            return;
+        }
+        if matches!(query, Query::Log { .. }) {
+            let (host, asked) = (cx.host(), query.clone());
+            let page = move |after| queries::log_page(host.clone(), asked.clone(), after);
+            let log = cx.new(|cx| Paged::new(page, cx));
+            let landed = cx.observe(&log, |forge, _, cx| forge.sync(cx));
+            self.logs.insert(query, (log, landed));
             return;
         }
         let landing = query.clone();
@@ -93,8 +105,14 @@ impl Forge {
     /// the next block asks it again. A refusal is asked again with every
     /// forge or chat block, whatever it wrote: forge refuses a listing
     /// `stale` when any op moved its count, and the answer replaces the
-    /// refusal.
+    /// refusal. A log reads the pages it holds again, not its whole history.
     fn reread(&mut self, touched: impl Fn(&Query) -> bool, cx: &mut Context<Self>) {
+        for (query, (log, _)) in &self.logs {
+            let (out, refused) = log.read(|log| (log.is_loading(), log.failed().is_some()));
+            if !out && (refused || touched(query)) {
+                log.update(cx, |log, cx| log.reread(cx));
+            }
+        }
         for (query, slot) in self.data.iter_mut() {
             let landing = query.clone();
             match slot {
@@ -167,6 +185,7 @@ impl Forge {
     pub(crate) fn retry(&mut self, query: Query, cx: &mut Context<Self>) {
         self.rereading.remove(&query);
         self.data.remove(&query);
+        self.logs.remove(&query);
         self.read(query, cx);
         cx.notify();
     }
@@ -177,6 +196,7 @@ impl Forge {
         let needed = self.needed();
         let keys: BTreeSet<&Query> = needed.iter().collect();
         self.data.retain(|query, _| keys.contains(query));
+        self.logs.retain(|query, _| keys.contains(query));
         self.rereading.retain(|query, _| keys.contains(query));
         for query in needed {
             self.read(query, cx);
@@ -234,20 +254,10 @@ impl Forge {
                 self.tree_queries().into_iter().chain(open).collect()
             }
             RepoTab::Commits => {
-                let log = Query::Log {
-                    repo: repo.clone(),
-                    from: self.revision(),
-                    exclude: None,
-                    page: PAGE,
-                };
-                let diff = self.nav.commit.clone().map(|commit| Query::Diff {
-                    repo: repo.clone(),
-                    base: self.commit_parent(&commit),
-                    head: commit,
-                    path: None,
-                    page: PAGE,
-                });
-                std::iter::once(log).chain(diff).collect()
+                let open = self.nav.commit.as_deref();
+                std::iter::once(self.log_query())
+                    .chain(open.into_iter().flat_map(|oid| self.commit_reads(oid)))
+                    .collect()
             }
             RepoTab::Changes => self.changes_query(&repo).into_iter().collect(),
             RepoTab::Refs => {
@@ -265,6 +275,22 @@ impl Forge {
             }
             RepoTab::Settings => Vec::new(),
         }
+    }
+
+    /// The reads the open commit's page needs beside the log: its own row
+    /// when the log on screen does not hold it (a restored view holds the
+    /// first page again), and its diff once the commit, and so its parent,
+    /// is known.
+    fn commit_reads(&self, oid: &str) -> Vec<Query> {
+        let mut wanted = Vec::new();
+        let held = self.logs.get(&self.log_query()).is_none_or(|(log, _)| {
+            log.read(|log| log.is_loading() || log.rows().iter().any(|commit| commit.oid == oid))
+        });
+        if !held {
+            wanted.push(self.commit_query(oid));
+        }
+        wanted.extend(self.commit_diff_query(oid));
+        wanted
     }
 
     /// The reads one open change needs: its record, how it compares with its

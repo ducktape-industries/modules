@@ -156,6 +156,21 @@ its program is `program::role::Identity`. Every refusal is the module SDK's `Err
 and `cx.reload` (`src/view.rs`) hold an ask's states and snapshot `Loading`
 as `Idle`.
 
+A cursored listing is read one of two ways. `host::all_pages` follows it to
+its end: for a list that is whole by nature (a roster, a settings list), which
+a screen searches, counts or draws all of. `Paged<T>` (`src/paged.rs`) holds it
+a page at a time: for a history. It is an entity built from the same
+page-asking closure; the `uniform_list` that draws it hands it the rows it
+lowers (`show`), and the next page is asked for when they reach past the rows
+held, one read out at a time. The list has `count()` rows: the rows held and,
+while the listing goes on, one more that the view draws as loading. When a
+`Change` touches the listing, `reread` reads the pages held again from the
+first (cursors do not outlive a write), not the whole listing. Dropping the
+entity cancels the read on its way. Both follow one rule for a cursor the
+program refuses `stale` (it was handed out before a write): the read starts
+over from the first page, and the refusal is never shown. Any other refusal
+is the answer.
+
 `Session` (`methods.rs`, `subscribe::<HostSession>`) is what every view is handed:
 `connected`, `chain_id`, `signer` (the seated key, hex), `account` (its
 account number, `None` until the host resolves one), `endpoint`; an item per
@@ -182,6 +197,8 @@ for something only the view can judge.
   `land`, which notifies if it moved anything. Keep the task it returns
   beside what it reads: a newer one stored in its place cancels the older.
 - A list the host scrolls renders when it needs rows it does not hold.
+- A `Paged` notifies when a page lands, and when a re-read lands rows that
+  differ from the ones held or a refusal.
 
 Native tests catch the one-way mistake: a change to the view's serialized
 state without `cx.notify()` panics (debug builds). They cannot see a

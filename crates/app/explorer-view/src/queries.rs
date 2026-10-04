@@ -2,14 +2,14 @@
 //! (valset) and programs (module-registry). The window's blocks are the
 //! host's (`load.rs`).
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, pages};
+use ducktape_view_guest::host::{Error, all_pages};
 use module_registry as registry;
 
 use crate::state::{Accounts, Network};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
-    let list = pages(None, |after| {
+    let list = all_pages(|after| {
         let ask = host.query(identity::ask::List {
             page: identity::PageRequest { after, limit: None },
         });
@@ -34,7 +34,7 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
     let programs = host.query(registry::ask::At(0)).await?;
     let views = host.query(registry::ask::Views(0)).await?;
-    let changes = pages(None, |after| {
+    let changes = all_pages(|after| {
         let ask = host.query(registry::ask::Scheduled {
             page: registry::PageRequest { after, limit: None },
         });
