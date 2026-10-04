@@ -13,7 +13,7 @@ fn unsupported(cx: &TestAppContext) {
 /// The sheet over node `this`, serving `chain.network` with `network`.
 fn voting(this: [u8; 2], network: NetworkStatus) -> (TestAppContext, StreamSender<ClockTicks>) {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     let ticks = cx.host().stream::<ClockTicks>();
     cx.host().handle::<ChainStatus>(move |()| {
         Ok(NodeStatus {
@@ -141,7 +141,7 @@ fn a_narrow_sheet_moves_the_strip_under_its_row() {
     let (mut cx, _) = voting(THIS, seen(4200));
     let label = "Proposed · last 64 blocks · 4,137 → 4,200";
     let at = |cx: &mut TestAppContext, width: f32| {
-        cx.simulate_measure("nodes-viewport", width, 680.);
+        cx.simulate_resize(width, 680.);
         cx.run_until_parked();
         strip_of(cx, "nodes-row-0")
     };
@@ -219,7 +219,7 @@ fn a_refusal_after_an_answer_keeps_the_votes() {
 #[test]
 fn a_node_without_the_network_says_so_and_logs_once() {
     let mut cx = TestAppContext::new();
-    node(&cx);
+    node(&mut cx);
     let ticks = cx.host().stream::<ClockTicks>();
     unsupported(&cx);
     respond(&mut cx);

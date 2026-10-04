@@ -58,7 +58,10 @@ impl View for Explorer {
 }
 
 impl Render for Explorer {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // the pane's width, as the host lays the frame out: the Overview
+        // lays its panels out to it in the frame that shows them
+        self.width = window.viewport_size().width.into();
         ui::render(self, cx)
     }
 }

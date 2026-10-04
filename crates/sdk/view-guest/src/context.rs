@@ -43,6 +43,9 @@ pub(crate) struct AppState {
     pub uniform_lists: crate::element::UniformLists,
     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     pub root: Cell<Option<Root>>,
+    /// The size the view is laid out in, as the host last said
+    /// (`Event::Viewport`): what [`Window::viewport_size`] reads.
+    pub viewport: Cell<gpui::Size<gpui::Pixels>>,
 }
 impl App {
     /// The style table a host holds after the trees lowered so far, for a
@@ -82,6 +85,7 @@ impl App {
                 uniform_lists: Default::default(),
                 #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
                 root: Cell::new(None),
+                viewport: Cell::default(),
             }),
         }
     }
@@ -97,7 +101,7 @@ impl App {
         task
     }
     pub(crate) fn window(&self) -> Window {
-        Window::new(self.inner.slots.clone())
+        Window::new(self.inner.clone())
     }
     pub(crate) fn notify(&self) {
         self.inner.dirty.set(true);

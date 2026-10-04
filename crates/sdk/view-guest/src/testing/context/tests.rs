@@ -203,6 +203,39 @@ fn a_list_the_host_would_cut_fails_its_test() {
     TestAppContext::new().open::<Ledger>();
 }
 
+/// A list that opens inside the host's budget and grows past it.
+#[derive(Default, Serialize, Deserialize)]
+struct Growing {
+    #[serde(skip)]
+    rows: crate::ListState,
+}
+impl View for Growing {
+    const NAME: &'static str = "Growing";
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self {
+            rows: crate::ListState::new(1, gpui::ListAlignment::Top, px(0.)),
+        }
+    }
+}
+impl Render for Growing {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
+        crate::list("ledger", self.rows.clone(), |item, _, _| {
+            crate::div().child(item.to_string()).into_any_element()
+        })
+    }
+}
+
+/// The cut is in a patch: the first frame fits, the one after it does not.
+#[test]
+#[should_panic(expected = "lists: 1")]
+fn a_patch_the_host_would_cut_fails_its_test() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<Growing>();
+    view.read(|ledger| ledger.rows.splice(0..0, crate::wire::MAX_LIST_ITEMS));
+    cx.app_mut().notify();
+    cx.tick(Vec::new());
+}
+
 /// A uniform list of one row more than the host scrolls through.
 #[derive(Default, Serialize, Deserialize)]
 struct Register;
@@ -399,17 +432,24 @@ fn rows(rows: impl Iterator<Item = usize>) -> Vec<String> {
     rows.map(|row| format!("row {row}")).collect()
 }
 
-/// A test sees the rows the host shows: the one it measures on the first
-/// frame, then the ones a viewport holds, then the ones scrolled to.
+/// A test sees the rows the host shows: on the first frame the rows that
+/// fill the viewport the host opened the view in (and a margin past
+/// them), then the ones scrolled to with the measurement row.
 #[test]
 fn a_uniform_list_shows_the_rows_its_viewport_shows() {
     let mut cx = TestAppContext::new();
     cx.open::<Rows>();
-    assert_eq!(cx.texts(), rows(0..1));
+    let row = f32::from(crate::design::size::ROW);
+    let screen = (super::VIEWPORT.1 / row).ceil() as usize + crate::list::MARGIN_ROWS;
+    assert_eq!(cx.texts(), rows(0..screen));
     cx.simulate_viewport(10);
-    assert_eq!(cx.texts(), rows(0..10));
+    assert_eq!(cx.texts(), rows(0..screen), "rows the window holds already");
     cx.simulate_range("rows", 40..50);
-    assert_eq!(cx.texts(), rows(std::iter::once(0).chain(40..50)));
+    let margin = crate::list::MARGIN_ROWS;
+    assert_eq!(
+        cx.texts(),
+        rows(std::iter::once(0).chain(40 - margin..50 + margin))
+    );
 }
 
 /// A pane that hears every key on its way down and back up, around a list

@@ -83,6 +83,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         "forge-changes-list",
         "Changes",
         numbers.len(),
+        None,
         forge,
         cx,
         move |forge, index, _, cx| forge.open_change(Some(numbers[index]), cx),

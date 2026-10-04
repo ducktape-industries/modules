@@ -94,7 +94,8 @@ pub enum Node {
         children: Vec<Node>,
     },
     /// A GPUI uniform-height list. The host owns the native viewport; the
-    /// guest carries only the row indices the host has requested.
+    /// guest carries the rows of the window it lowered: a viewport-sized
+    /// window around the rows the host shows, and the measurement row.
     UniformList {
         id: ElementIdWire,
         path: Vec<ElementIdWire>,
@@ -106,7 +107,10 @@ pub enum Node {
         sizing: crate::list::UniformListSizing,
         horizontal_sizing: crate::list::UniformListHorizontalSizing,
         y_flipped: bool,
+        /// A scroll the view asked for, once: the host applies it when
+        /// `revision` moves, never again for the frames that carry it on.
         scroll_request: Option<crate::list::UniformListScrollRequest>,
+        revision: u64,
         #[serde(deserialize_with = "list::decode_indices")]
         indices: Vec<u32>,
         children: Vec<Node>,

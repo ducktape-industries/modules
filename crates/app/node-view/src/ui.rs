@@ -13,7 +13,7 @@ use crate::{Nodes, table};
 
 pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let sheet = div()
+    div()
         .id("nodes")
         .flex()
         .flex_col()
@@ -32,17 +32,7 @@ pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement 
                 .min_h(px(0.))
                 .overflow_scroll()
                 .child(body(view, cx, &theme)),
-        );
-    ducktape_view_guest::sensor("nodes-viewport", sheet)
-        .size_full()
-        .on_show(cx.listener(measured))
-        .on_resize(cx.listener(measured))
-}
-
-/// The sheet's width, as the viewport measures it: the table fits to it.
-fn measured(view: &mut Nodes, size: &(Pixels, Pixels), _: &mut Window, cx: &mut Context<Nodes>) {
-    view.width = Some(size.0.into());
-    cx.notify();
+        )
 }
 
 /// The network's name, and whether this node answers, with its key; the

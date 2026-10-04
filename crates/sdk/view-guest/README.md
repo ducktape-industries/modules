@@ -185,8 +185,7 @@ for something only the view can judge.
 
 Native tests catch the one-way mistake: a change to the view's serialized
 state without `cx.notify()` panics (debug builds). They cannot see a
-`#[serde(skip)]` field, a child entity's state or state outside the view
-(`design::set_utc_offset`): notify for those yourself.
+`#[serde(skip)]` field or a child entity's state: notify for those yourself.
 `TestAppContext::renders()` and `ticks()` count what the view did since it
 opened, so a test can pin that an event draws nothing.
 
@@ -299,9 +298,13 @@ down its focus path to the capture listeners and back up it; a key at a
 node off that path fails the test. A click goes out from the node pressed
 through every node around it with a click, as gpui passes it, until one
 consumes it (`consumes_click`), hides what is behind it (`occlude`), or the
-press leaves a dialog's layer. A list shows the rows the host shows:
-its one measured row at first, then `simulate_viewport(rows)` or
-`simulate_range(key, range)`. A frame carries at most
+press leaves a dialog's layer. The view opens in a pane the size the
+app gives a new window (`testing::VIEWPORT`; `simulate_resize` moves it,
+before or after the open), reads it as `Window::viewport_size()`, and a
+list's first frame holds the rows that fill it; `simulate_viewport(rows)`
+or `simulate_range(key, range)` then show it the rows the host shows.
+The reader's offset is UTC until `simulate_offset(minutes)`. A frame
+carries at most
 `view_wire::MAX_REQUESTS` requests; the rest go in the next.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.

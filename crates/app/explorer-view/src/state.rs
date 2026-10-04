@@ -3,7 +3,7 @@
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::borsh_bytes;
 use ducktape_view_guest::methods::NodeStatus;
-use ducktape_view_guest::{Task, TextField, design};
+use ducktape_view_guest::{Task, TextField, UniformListScrollHandle, design};
 use module_registry as registry;
 use serde::{Deserialize, Serialize};
 
@@ -144,12 +144,16 @@ pub struct Explorer {
     /// What the view follows (`watch.rs`); dropping them unsubscribes.
     #[serde(skip)]
     pub(crate) followers: Vec<Task<()>>,
-    /// the view's measured width; `None` until the first measure
+    /// the pane's width, read from the window each render
     #[serde(skip)]
-    pub(crate) width: Option<f32>,
+    pub(crate) width: f32,
     /// the list the arrows are in, and the row they are on
     #[serde(skip)]
     pub(crate) cursor: Option<(&'static str, usize)>,
+    /// the scroll of the list drawn as a window (`ui::Rows::shown`): one
+    /// list at a time, as `cursor`; a page opens at its top (`go`)
+    #[serde(skip)]
+    pub(crate) scroll: UniformListScrollHandle,
     /// the page each tab showed last, which an arrow onto the tab opens
     /// again (→ then ← comes back to the block it left); `None`, the tab's
     /// own list. Kept with `route`, so a restored view comes back the same.

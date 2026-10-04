@@ -34,12 +34,10 @@ pub(crate) const NO_NETWORK: &str =
     "This node doesn't report its validators' votes. Update the node.";
 
 /// The width beside the columns every width keeps, in the sheet's width
-/// less its inset and the scroller's gutter; before the first measure, room
-/// for every column.
+/// less its inset and the scroller's gutter.
 fn spare(view: &Nodes) -> f32 {
     let gutter = f32::from(design::size::SCROLLBAR);
-    view.width
-        .map_or(f32::INFINITY, |width| width - 2. * INSET - gutter - WORDS_W)
+    view.width - 2. * INSET - gutter - WORDS_W
 }
 
 /// Whether the Address column fits: from 672 px. The app lays a view out at

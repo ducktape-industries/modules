@@ -489,7 +489,7 @@ fn the_latest_panels_stack_where_the_transactions_would_squeeze() {
     let breakpoint = f32::from(px(320.) + alone + design::size::SCROLLBAR);
     assert_eq!(breakpoint, 960.);
     for width in [640., 900., breakpoint - 1.] {
-        cx.simulate_measure("explorer-viewport", width, 760.);
+        cx.simulate_resize(width, 760.);
         cx.run_until_parked();
         assert_eq!(
             style(&cx, "explorer-latest").flex_direction,
@@ -511,7 +511,7 @@ fn the_latest_panels_stack_where_the_transactions_would_squeeze() {
         }
     }
     for width in [breakpoint, 1200.] {
-        cx.simulate_measure("explorer-viewport", width, 760.);
+        cx.simulate_resize(width, 760.);
         cx.run_until_parked();
         let row = style(&cx, "explorer-latest");
         assert_eq!(
@@ -582,4 +582,144 @@ fn accounts_say_what_each_is_as_members_does() {
         "{:?}",
         cx.texts()
     );
+}
+
+/// The Transactions list lowers the rows the host shows and a margin, not
+/// all fifty: the first frame is a screenful from the top, a scroll brings
+/// the rows it reaches and lets the ones far above go, ↓ scrolls the list
+/// to the row it moves to ahead of the frame that claims it, and the page
+/// opens at its top again.
+#[test]
+fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
+    use ducktape_view_guest::wire::Node;
+    use ducktape_view_guest::wire::list::UniformListScrollStrategy as Strategy;
+    let mut cx = TestAppContext::new();
+    heavy(&mut cx);
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-transactions");
+    cx.run_until_parked();
+    // row `index` is the transaction of block `WINDOW - index`
+    let row = |index: usize| format!("explorer-tx-{}-0", WINDOW - index);
+    let list = |cx: &TestAppContext| match cx.find("explorer-transactions-list-rows") {
+        Some(Node::UniformList {
+            count,
+            children,
+            scroll_request,
+            ..
+        }) => (*count, children.len(), *scroll_request),
+        other => panic!("no list of rows: {other:?}"),
+    };
+    let (count, lowered, _) = list(&cx);
+    assert_eq!(count, 50, "the fifty the page draws");
+    assert!(
+        (14..count).contains(&lowered),
+        "a screenful and a margin, not every row: {lowered}"
+    );
+    assert!(cx.find(&row(0)).is_some() && cx.find(&row(49)).is_none());
+    let first = cx.interactivity(&row(0));
+    assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert!(first.aria.active_descendant && !first.focusable);
+
+    // the host scrolled to rows 30..44: they come with a margin, the rows
+    // far above go, the measured row stays
+    cx.simulate_range("explorer-transactions-list", 30..44);
+    assert!(cx.find(&row(40)).is_some() && cx.find(&row(49)).is_some());
+    assert!(cx.find(&row(5)).is_none(), "{:?}", list(&cx));
+    assert!(cx.find(&row(0)).is_some(), "the row the host measures");
+
+    // ↓ on the list: the second row is active, and the frame that claims
+    // it carries the scroll to it (the request crosses once)
+    cx.simulate_focus("explorer-transactions-list");
+    cx.simulate_key_down("explorer-transactions-list", "down");
+    let (_, _, request) = list(&cx);
+    assert_eq!(
+        request.map(|request| (request.index, request.strategy)),
+        Some((1, Strategy::Nearest))
+    );
+    assert!(cx.interactivity(&row(1)).aria.active_descendant);
+    // the host scrolled there: the rows it left go with the next frame
+    cx.simulate_range("explorer-transactions-list", 1..15);
+    cx.simulate_key_down("explorer-transactions-list", "down");
+    assert!(cx.interactivity(&row(2)).aria.active_descendant);
+    assert!(cx.find(&row(40)).is_none(), "{:?}", list(&cx));
+
+    // another page, and back: the list opens at its top, the first row
+    // active, the rows the scroll reached let go
+    cx.simulate_click("explorer-tab-blocks");
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-transactions");
+    cx.run_until_parked();
+    assert!(cx.interactivity(&row(0)).aria.active_descendant);
+    assert!(cx.find(&row(40)).is_none(), "{:?}", list(&cx));
+}
+
+/// The Transactions list scrolls for its page, so its bar belongs where a
+/// page's is, at the pane's edge beside the rows: the page is no scroller
+/// there (no gutter of its own) and the list reaches the edge, where the
+/// host keeps the bar's gutter beside it. The view writes no room for the
+/// bar; the heading keeps the same inset, so it ends where the rows do.
+/// Every other page scrolls, with the gutter the SDK keeps.
+#[test]
+fn the_transactions_list_reaches_the_panes_edge_and_writes_no_gutter() {
+    use ducktape_view_guest::wire::Node;
+    let bar = ducktape_view_guest::design::size::SCROLLBAR;
+    let mut cx = TestAppContext::new();
+    heavy(&mut cx);
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    let page = |cx: &TestAppContext| {
+        let page = cx.style("explorer-page");
+        (page.overflow.y.is_some(), page.padding.right)
+    };
+    assert_eq!(page(&cx), (true, Some(bar.into())), "a page scrolls");
+    cx.simulate_click("explorer-tab-transactions");
+    cx.run_until_parked();
+    assert_eq!(page(&cx), (false, None), "the list scrolls, not the page");
+    let rows = "explorer-transactions-list-rows";
+    assert!(matches!(cx.find(rows), Some(Node::UniformList { .. })));
+    let right = |key: &str| cx.style(key).padding.right;
+    assert_eq!(right(rows), None, "the gutter is the host's");
+    assert_eq!(
+        cx.style("explorer-transactions-heading").margin.right,
+        Some(bar.into())
+    );
+    assert_eq!(
+        right("explorer-transactions-list"),
+        None,
+        "the box reaches the edge"
+    );
+}
+
+/// Only the Transactions page draws its rows as a window. An account's
+/// Activity sits beside a column, a block's transactions under its fields,
+/// each in a page that scrolls whole: they are drawn whole, every row, so
+/// the page is laid out by its rows.
+#[test]
+fn an_accounts_activity_and_a_blocks_transactions_are_drawn_whole() {
+    let mut cx = TestAppContext::new();
+    heavy(&mut cx);
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    let block = format!("explorer-block-{WINDOW}");
+    cx.simulate_click(&block);
+    cx.run_until_parked();
+    assert!(cx.find("explorer-block").is_some(), "{:?}", cx.texts());
+    assert!(cx.find(&format!("explorer-tx-{WINDOW}-0")).is_some());
+    assert!(
+        cx.find("explorer-block-txs-rows").is_none(),
+        "a block's transactions are no window"
+    );
+    cx.simulate_input("explorer-search", "ada");
+    cx.simulate_submit("explorer-search");
+    cx.run_until_parked();
+    assert!(cx.find("explorer-activity").is_some(), "{:?}", cx.texts());
+    assert!(
+        cx.find("explorer-activity-list-rows").is_none(),
+        "an account's activity is no window"
+    );
+    // Ada signed every transaction in the window: the fifty the list draws
+    let row = |index: usize| format!("explorer-tx-{}-0", WINDOW - index);
+    assert!(cx.find(&row(0)).is_some() && cx.find(&row(49)).is_some());
+    assert!(cx.find(&row(50)).is_none());
 }

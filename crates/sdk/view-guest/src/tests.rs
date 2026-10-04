@@ -3,6 +3,7 @@ use futures::StreamExt;
 use gpui::{Image, ImageFormat};
 use serde::{Deserialize, Serialize};
 use std::cell::{Cell, RefCell};
+use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -264,33 +265,259 @@ fn uniform_rows(cx: &TestAppContext) -> (usize, Vec<u32>, usize) {
     }
 }
 
+/// A uniform list's first frame holds a screenful: the rows that fill the
+/// viewport the host sent ahead of the tick, at the design system's row
+/// height until the host has measured one, and a margin past them. The
+/// host's first range, inside that window, changes nothing; a range past
+/// it moves the window there, margin and all; a request the window holds
+/// draws nothing new.
 #[test]
-fn uniform_list_lowers_only_initial_and_requested_ranges() {
+fn uniform_list_lowers_a_screenful_before_the_host_asks_and_grows_to_what_it_shows() {
     let (mut cx, _) = opened::<UniformProbe>();
-    let (count, indices, _) = uniform_rows(&cx);
+    let (count, indices, children) = uniform_rows(&cx);
     assert_eq!(count, 2_000);
-    assert_eq!(indices, [0]);
+    let row = f32::from(crate::design::size::ROW);
+    let rows = (crate::testing::VIEWPORT.1 / row).ceil() as usize;
+    let first: Vec<u32> = (0..rows as u32 + 12).collect();
+    assert_eq!(indices, first, "the viewport's rows and a margin past them");
+    assert_eq!(children, indices.len());
+    let renders = cx.renders();
+    cx.simulate_range("rows", 0..rows);
+    assert!(cx.last_frame().unchanged, "the rows shown are held already");
+    assert_eq!(cx.renders(), renders);
 
     cx.simulate_range("rows", 1_000..1_020);
     let (_, indices, children) = uniform_rows(&cx);
-    assert_eq!(indices.len(), 21);
     assert_eq!(children, indices.len());
-    assert_eq!(indices.first(), Some(&0));
+    assert_eq!(
+        indices.first(),
+        Some(&0),
+        "the measurement row is always sent"
+    );
     assert_eq!(
         &indices[1..],
-        (1_000..1_020).map(|index| index as u32).collect::<Vec<_>>()
+        (988..1_032).map(|index| index as u32).collect::<Vec<_>>(),
+        "the rows shown with a margin past each edge"
     );
     assert!(cx.reports()[0].patches <= wire::MAX_PATCHES);
 
-    cx.simulate_range("rows", 1_000..1_020);
+    cx.simulate_range("rows", 1_005..1_025);
     assert!(
         cx.last_frame().unchanged,
-        "duplicate range requests do not rerender"
+        "a range inside the window does not rerender"
     );
 
     cx.simulate_range("rows", 0..u32::MAX as usize);
     let (_, indices, _) = uniform_rows(&cx);
     assert_eq!(indices.len(), wire::MAX_UNIFORM_LIST_ROWS);
+    assert_eq!(
+        indices.last().copied(),
+        Some(wire::MAX_UNIFORM_LIST_ROWS as u32 - 1),
+        "the window's last row is sent, the measurement row inside it"
+    );
+}
+
+/// A filter leaves one row and is cleared: the rows that came back are in
+/// the frame that shows them, a screenful of them, with no host ask
+/// between.
+#[test]
+fn a_uniform_list_whose_rows_come_back_holds_a_screenful_again() {
+    #[derive(Default, Serialize, Deserialize)]
+    struct Filtered {
+        count: usize,
+    }
+    impl View for Filtered {
+        const NAME: &'static str = "Filtered";
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self { count: 300 }
+        }
+    }
+    impl Render for Filtered {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            uniform_list("rows", self.count, |range, _, _| {
+                range
+                    .map(|index| {
+                        div()
+                            .id(format!("row-{index}"))
+                            .child(format!("row {index}"))
+                    })
+                    .collect::<Vec<_>>()
+            })
+        }
+    }
+    let (mut cx, view) = opened::<Filtered>();
+    let (_, before, _) = uniform_rows(&cx);
+    assert!(before.len() > 20);
+    cx.update(&view, |view, _, cx| {
+        view.count = 1;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert_eq!(uniform_rows(&cx).1, [0]);
+    cx.update(&view, |view, _, cx| {
+        view.count = 300;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert_eq!(uniform_rows(&cx).1, before);
+}
+
+/// A list of 2,000 rows that tracks its scroll.
+#[derive(Default, Serialize, Deserialize)]
+struct Scrolled {
+    #[serde(skip)]
+    scroll: UniformListScrollHandle,
+}
+
+impl View for Scrolled {
+    const NAME: &'static str = "Scrolled";
+}
+
+impl Render for Scrolled {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        uniform_list("rows", 2_000, |range, _, _| {
+            range
+                .map(|index| {
+                    div()
+                        .id(format!("row-{index}"))
+                        .child(format!("row {index}"))
+                })
+                .collect::<Vec<_>>()
+        })
+        .track_scroll(&self.scroll)
+    }
+}
+
+/// The view scrolls its list to `index`, and the frame that carries the
+/// scroll is lowered: the rows in it.
+fn scrolled_to(
+    cx: &mut TestAppContext,
+    view: &Entity<Scrolled>,
+    index: usize,
+    strategy: gpui::ScrollStrategy,
+) -> Vec<u32> {
+    cx.update(view, |view, _, cx| {
+        view.scroll.scroll_to_item(index, strategy);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    uniform_rows(cx).1
+}
+
+/// The rows of `shown` the frame does not hold.
+fn missing(rows: &[u32], shown: Range<u32>) -> Vec<u32> {
+    shown.filter(|row| !rows.contains(row)).collect()
+}
+
+/// A row the view scrolls to is in the frame that carries the scroll: the
+/// window is anchored on it, so a composite's active row claims in the
+/// frame that answers the key, with no claimless frame between.
+#[test]
+fn a_uniform_list_lowers_the_row_it_is_scrolled_to_in_the_same_frame() {
+    let (mut cx, view) = opened::<Scrolled>();
+    let (_, before, _) = uniform_rows(&cx);
+    assert!(!before.contains(&1_500));
+    let indices = scrolled_to(&mut cx, &view, 1_500, gpui::ScrollStrategy::Nearest);
+    assert!(indices.contains(&1_500), "{indices:?}");
+    let wire::Node::UniformList {
+        scroll_request,
+        revision,
+        ..
+    } = cx.root()
+    else {
+        unreachable!()
+    };
+    assert_eq!(scroll_request.map(|request| request.index), Some(1_500));
+    assert_eq!(*revision, 1);
+    // the request crosses once: the next frame carries none, under the
+    // same revision, so a host that applied it does not again; the list
+    // stays where the scroll left it
+    cx.update(&view, |_, _, cx| cx.notify());
+    cx.run_until_parked();
+    let wire::Node::UniformList {
+        scroll_request,
+        revision,
+        ..
+    } = cx.root()
+    else {
+        unreachable!()
+    };
+    assert_eq!((scroll_request.is_none(), *revision), (true, 1));
+    assert_eq!(uniform_rows(&cx).1, indices, "the window keeps its place");
+}
+
+/// The host shows rows 100..120 and the view scrolls to a row among them
+/// (`Nearest`, a composite's every arrow): the host does not move for a row
+/// on screen, its range stays, and it never asks again, so every row on
+/// screen stays in the frame. A row above the shown lands at their top and
+/// one below at their bottom, as gpui's own `Nearest` puts them, and the
+/// rows on screen until the host has scrolled stay with them.
+#[test]
+fn a_scroll_to_a_row_on_screen_keeps_the_rows_on_screen() {
+    use gpui::ScrollStrategy::{Nearest, Top};
+    let (mut cx, view) = opened::<Scrolled>();
+    cx.simulate_range("rows", 100..120);
+    let (_, held, _) = uniform_rows(&cx);
+    for at in [119, 110, 107, 100] {
+        let rows = scrolled_to(&mut cx, &view, at, Nearest);
+        assert_eq!(rows, held, "nearest {at}: the list does not move");
+    }
+    let rows = scrolled_to(&mut cx, &view, 110, Top);
+    assert_eq!(rows, held, "a row on screen is left where it is");
+
+    // a row above the rows shown lands at their top: the window grows to
+    // it with a margin, and keeps the rows on screen until the host moves
+    let rows = scrolled_to(&mut cx, &view, 85, Nearest);
+    assert_eq!(rows[1..], (73..132).collect::<Vec<u32>>());
+    cx.simulate_range("rows", 85..105);
+    // a row below them lands at their bottom
+    let rows = scrolled_to(&mut cx, &view, 125, Nearest);
+    assert_eq!(missing(&rows, 85..126), [0u32; 0], "{rows:?}");
+    assert_eq!(rows.last(), Some(&(126 + 12 - 1)), "a margin below it");
+
+    // a row far from the rows shown is a jump: the window goes with it
+    let rows = scrolled_to(&mut cx, &view, 1_500, Nearest);
+    assert_eq!(missing(&rows, 1_481..1_501), [0u32; 0], "{rows:?}");
+    assert!(!rows.contains(&125), "the rows left behind are let go");
+}
+
+/// The window grows by a scroll beside it and is trimmed by the host's
+/// word: once the host shows the rows scrolled to, rows more than a margin
+/// off screen leave with the next frame, and the range itself, inside the
+/// window, draws nothing. A window grown past what one frame carries keeps
+/// the side scrolled to.
+#[test]
+fn a_uniform_window_grown_by_a_scroll_is_trimmed_by_the_hosts_range() {
+    use gpui::ScrollStrategy::Nearest;
+    let (mut cx, view) = opened::<Scrolled>();
+    cx.simulate_range("rows", 100..120);
+    let rows = scrolled_to(&mut cx, &view, 80, Nearest);
+    assert_eq!((rows[1], rows.last()), (68, Some(&131)), "grown, not moved");
+    cx.simulate_range("rows", 80..100);
+    assert!(cx.last_frame().unchanged, "rows it holds: nothing to draw");
+    cx.update(&view, |_, _, cx| cx.notify());
+    cx.run_until_parked();
+    let (_, rows, _) = uniform_rows(&cx);
+    assert_eq!((rows[1], rows.last()), (68, Some(&111)), "{rows:?}");
+
+    // a pane of 240 rows holds more than a frame carries with a margin
+    cx.simulate_range("rows", 400..640);
+    let rows = scrolled_to(&mut cx, &view, 399, Nearest);
+    assert_eq!(rows.len(), wire::MAX_UNIFORM_LIST_ROWS);
+    assert_eq!(rows[1], 399 - 12, "the side scrolled to is kept: {rows:?}");
+}
+
+/// A pane resized taller while its list is scrolled shows more rows below
+/// the ones it showed: they are in the frame that answers the resize,
+/// counted from the rows the host shows, not from the window's first row.
+#[test]
+fn a_pane_resized_taller_lowers_the_rows_it_now_shows() {
+    let (mut cx, _) = opened::<Scrolled>();
+    cx.simulate_range("rows", 100..120);
+    let row = f32::from(crate::design::size::ROW);
+    cx.simulate_resize(766., 501. + 16. * row);
+    let (_, rows, _) = uniform_rows(&cx);
+    assert_eq!(missing(&rows, 100..136), [0u32; 0], "{rows:?}");
 }
 
 #[test]

@@ -175,19 +175,27 @@ pub(crate) fn cursor(forge: &Forge, id: &'static str) -> (usize, usize) {
     }
 }
 
-/// A list of [`row`]s as one Tab stop: ↑ ↓ walk the rows, Enter presses
-/// the active one (`on_press`). The rows go in as the list's children.
+/// A list of [`row`]s as one Tab stop: ↑ ↓ walk the rows (a virtual list
+/// tracking `scroll` is scrolled to the active one before it claims), Enter
+/// presses the active one (`on_press`). The rows go in as the list's
+/// children: drawn whole (no `scroll`) they scroll here; a virtual list
+/// scrolls itself, and the one bar and its gutter are that list's.
 pub(crate) fn list(
     id_: &'static str,
     label: &str,
     count: usize,
+    scroll: Option<&UniformListScrollHandle>,
     forge: &Forge,
     cx: &mut Context<Forge>,
     on_press: impl Fn(&mut Forge, usize, &mut Window, &mut Context<Forge>) + 'static,
 ) -> Stateful<Div> {
     let (at, _) = cursor(forge, id_);
-    design::composite(id(id_), Role::ListBox, label.to_owned())
-        .active(at.min(count.saturating_sub(1)), count)
+    let mut list = design::composite(id(id_), Role::ListBox, label.to_owned())
+        .active(at.min(count.saturating_sub(1)), count);
+    if let Some(scroll) = scroll {
+        list = list.track_scroll(scroll);
+    }
+    let list = list
         .on_move(cx.processor(move |forge, index: usize, _, cx| {
             forge.list_cursor = Some((id_, index, 0));
             cx.notify();
@@ -198,14 +206,18 @@ pub(crate) fn list(
         .build()
         .flex_1()
         .min_h(px(0.))
-        .overflow_y_scroll()
         .flex()
-        .flex_col()
+        .flex_col();
+    match scroll {
+        Some(_) => list,
+        None => list.overflow_y_scroll(),
+    }
 }
 
 /// A grid of [`row`]s (each [`Row::in_grid`]) as one Tab stop: ↑ ↓ walk the rows,
 /// ← → a row's cells (its press, then each control), Enter presses the
 /// active cell (`on_press(row, cell)`). `cells` is the active row's count.
+/// The rows are drawn whole and scroll here.
 pub(crate) fn grid(
     id_: &'static str,
     label: &str,
@@ -251,16 +263,7 @@ pub(crate) fn loading(id: impl Into<ElementId>, text: &str, theme: &Theme) -> An
         .into_any_element()
 }
 
-/// Under this many rows a list is drawn whole: a few hundred rows lay out
-/// in well under a frame, so virtualizing them buys nothing, and a list
-/// drawn whole needs no visible range from the renderer before its first
-/// frame shows every row.
-pub(crate) const VIRTUALIZE_ABOVE: usize = 200;
-
-/// A scrolling list of `count` rows. Over [`VIRTUALIZE_ABOVE`] it is virtual;
-/// at or under it the rows are drawn whole (see [`VIRTUALIZE_ABOVE`]): a
-/// virtual list's first frame, before the renderer names a visible range,
-/// holds only the one row it measured.
+/// A scrolling virtual list of `count` rows.
 pub(crate) fn rows(
     element_id: &str,
     count: usize,
@@ -268,19 +271,6 @@ pub(crate) fn rows(
     scroll: Option<&UniformListScrollHandle>,
     paint: impl Fn(usize) -> AnyElement + 'static,
 ) -> AnyElement {
-    if count <= VIRTUALIZE_ABOVE {
-        let mut column = div()
-            .id(id(element_id.to_owned()))
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .overflow_y_scroll();
-        for index in 0..count {
-            column = column.child(paint(index));
-        }
-        return column.into_any_element();
-    }
     let mut list = uniform_list(
         id(element_id.to_owned()),
         count,

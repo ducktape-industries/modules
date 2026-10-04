@@ -116,6 +116,23 @@ pub enum Event {
     Theme {
         dark: bool,
     },
+    /// The view's viewport: the body its root is laid out in, in logical
+    /// pixels, as the host knows it before the frame is drawn. Delivered
+    /// ahead of the first tick, on every change ahead of the draw that
+    /// shows it, and to a replacement before its first tree. The guest
+    /// reads it as `Window::viewport_size()`; a list sizes its first
+    /// window from it.
+    Viewport {
+        width: f32,
+        height: f32,
+    },
+    /// The reader's UTC offset in minutes (`540` in Seoul, `-300` in New
+    /// York in winter): ahead of the first tick and on every change, so
+    /// every time a view writes is in the reader's own zone from its first
+    /// frame.
+    Offset {
+        minutes: i32,
+    },
     /// A rich text's clickable range at `index`.
     Select {
         handler: u32,
@@ -158,13 +175,17 @@ pub enum Event {
         relative_x: f32,
         relative_y: f32,
     },
-    /// The native uniform-list viewport needs these rows on the next guest
-    /// frame. The route fences a stale request from an older list instance.
+    /// The native uniform-list viewport shows rows `start..end` and needs
+    /// them on the next guest frame. The route fences a stale request from
+    /// an older list instance. `item_height` is the row height the host
+    /// measured, in logical pixels: the guest sizes the list's window
+    /// from it and its viewport.
     UniformListRange {
         path: Vec<ElementIdWire>,
         route: u32,
         start: u32,
         end: u32,
+        item_height: f32,
     },
     UniformListState {
         path: Vec<ElementIdWire>,

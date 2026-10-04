@@ -299,7 +299,7 @@ fn export_node_screens() {
         for dark in [false, true] {
             let mut cx = screen(state);
             let laid_out = (width as f32).max(APP_MIN_WIDTH);
-            cx.simulate_measure("nodes-viewport", laid_out, height as f32);
+            cx.simulate_resize(laid_out, height as f32);
             cx.run_until_parked();
             if dark {
                 cx.set_global(Theme::dark());

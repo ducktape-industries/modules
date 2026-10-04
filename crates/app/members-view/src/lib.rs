@@ -16,11 +16,10 @@ mod activity;
 mod ui;
 
 use ducktape_view_guest::Loadable;
-use ducktape_view_guest::design;
 use ducktape_view_guest::export_view;
 use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::methods::{Changes, HostOffset, HostSession};
+use ducktape_view_guest::methods::{Changes, HostSession};
 use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, TextField, View, Window};
 use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
@@ -62,9 +61,9 @@ pub struct Members {
     rereading_rows: Option<Task<()>>,
     #[serde(skip)]
     watches: Vec<Task<()>>,
-    /// the pane's measured width; `None` until the first measure
+    /// the pane's width, read from the window each render
     #[serde(skip)]
-    width: Option<f32>,
+    width: f32,
     /// the list's dragged width; `None` until the first drag
     #[serde(skip)]
     list: Option<f32>,
@@ -182,23 +181,16 @@ impl View for Members {
                     }
                 }
             }));
-        // the reader's zone, for the day a key was added
-        let offset = cx.host().subscribe::<HostOffset>(());
-        self.watches
-            .push(cx.for_each(offset, |_, offset, _, cx| match offset {
-                Ok(minutes) => {
-                    design::set_utc_offset(minutes);
-                    cx.notify();
-                }
-                Err(refusal) => cx.host().log_refused("members", "the UTC offset", &refusal),
-            }));
         self.read(cx);
         self.read_activity(cx);
     }
 }
 
 impl Render for Members {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // the pane's width, as the host lays the frame out: the detail
+        // docks or floats by it in the frame that shows it
+        self.width = window.viewport_size().width.into();
         ui::render(self, cx)
     }
 }

@@ -213,7 +213,6 @@ fn an_offset_landing_late_moves_the_day_dividers() {
     // 24 Sep 2026, 13:00 and 16:00 UTC: one UTC day, two in Seoul
     let afternoon = 1_790_254_800_000;
     let evening = afternoon + 3 * 3_600_000;
-    let offset = cx.host().stream::<api::HostOffset>();
     cx.update(&view, |chat, _, cx| {
         let messages = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
         for (seq, time) in [(3, afternoon), (4, evening)] {
@@ -227,8 +226,7 @@ fn an_offset_landing_late_moves_the_day_dividers() {
     cx.run_until_parked();
     assert!(cx.find("chat-day-m3").is_some());
     assert!(cx.find("chat-day-m4").is_none(), "one UTC day");
-    offset.send(540);
-    cx.run_until_parked();
+    cx.simulate_offset(540);
     assert!(
         cx.find("chat-day-m4").is_some(),
         "Seoul's midnight falls between"

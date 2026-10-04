@@ -11,7 +11,6 @@ clock.ticks None i64 -> ()
 host.badge None i64 -> ()
 host.id None String -> String
 host.log None String -> ()
-host.offset None () -> i32
 host.route None () -> String
 host.session None () -> Session
 host.visible None () -> bool
@@ -89,7 +88,6 @@ Vec<Vec<u8>> = Sequence { length_width: 4, length_range: 0..=4294967295, element
 Vec<u8> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
 [u8; 32] = Sequence { length_width: 0, length_range: 32..=32, elements: "u8" }
 bool = Primitive(1)
-i32 = Primitive(4)
 i64 = Primitive(8)
 u128 = Primitive(16)
 u32 = Primitive(4)
@@ -402,49 +400,55 @@ Event enum
     change: TypeName("TextChange")
   19 Theme struct
     dark: Bool
-  20 Select struct
+  20 Viewport struct
+    width: F32
+    height: F32
+  21 Offset struct
+    minutes: I32
+  22 Select struct
     handler: U32
     index: U32
-  21 RichTextHover struct
+  23 RichTextHover struct
     handler: U32
     event: TypeName("RichTextHover")
-  22 Size struct
+  24 Size struct
     handler: U32
     width: F32
     height: F32
-  23 Drag struct
+  25 Drag struct
     handler: U32
     dx: F64
     dy: F64
-  24 ScrollOffset struct
+  26 ScrollOffset struct
     handler: U32
     x: F32
     y: F32
     relative_x: F32
     relative_y: F32
-  25 UniformListRange struct
+  27 UniformListRange struct
     path: Seq(TypeName("WireRepr"))
     route: U32
     start: U32
     end: U32
-  26 UniformListState struct
+    item_height: F32
+  28 UniformListState struct
     path: Seq(TypeName("WireRepr"))
     route: U32
     top_index: U32
     scrollable: Bool
     scrolled_to_end: Option(Bool)
-  27 ListRequest struct
+  29 ListRequest struct
     handler: U32
     request: TypeName("ListRequest")
-  28 ListScroll struct
+  30 ListScroll struct
     handler: U32
     event: TypeName("ListScroll")
-  29 Response struct
+  31 Response struct
     id: U64
     result: TypeName("Result")
     done: Bool
-  30 Resync: Unit
-  31 A11yAction struct
+  32 Resync: Unit
+  33 A11yAction struct
     handler: U32
     data: Option(TypeName("ActionData"))
 FontFallbacks NewTypeStruct(Seq(Str))
@@ -753,6 +757,7 @@ Node enum
     horizontal_sizing: TypeName("UniformListHorizontalSizing")
     y_flipped: Bool
     scroll_request: Option(TypeName("UniformListScrollRequest"))
+    revision: U64
     indices: Seq(U32)
     children: Seq(TypeName("Node"))
   3 List struct

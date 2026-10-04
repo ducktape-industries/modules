@@ -685,12 +685,12 @@ fn a_kind_with_no_one_in_it_says_so_without_quoting_an_empty_filter() {
 #[test]
 fn a_narrow_pane_covers_the_whole_screen_with_the_detail_and_its_close() {
     let (mut cx, _) = ready();
-    cx.simulate_measure("members-viewport", 1000., 640.);
+    cx.simulate_resize(1000., 640.);
     cx.simulate_click("members-row-7");
     assert!(cx.find("members-detail-over").is_none());
     assert!(cx.find("members-detail-close").is_none());
 
-    cx.simulate_measure("members-viewport", 720., 640.);
+    cx.simulate_resize(720., 640.);
     assert!(cx.find("members-list-resize").is_none(), "nothing to drag");
     let full = StyleRefinement::default().inset_0();
     assert_eq!(style(&cx, "members-detail-over").inset, full.inset);
@@ -706,7 +706,7 @@ fn a_narrow_pane_covers_the_whole_screen_with_the_detail_and_its_close() {
 #[test]
 fn the_docked_list_drags_within_its_bounds_and_leaves_the_detail_its_narrowest() {
     let (mut cx, _) = ready();
-    cx.simulate_measure("members-viewport", 1000., 640.);
+    cx.simulate_resize(1000., 640.);
     assert!(matches!(
         cx.find("members-list-resize"),
         Some(Node::ResizeHandle {
@@ -724,7 +724,7 @@ fn the_docked_list_drags_within_its_bounds_and_leaves_the_detail_its_narrowest()
     assert!(list_is(&cx, 320.));
     // the window shrinks: the list gives way before the detail floats
     cx.simulate_drag("members-list-resize", 200., 0.);
-    cx.simulate_measure("members-viewport", 800., 640.);
+    cx.simulate_resize(800., 640.);
     assert!(cx.find("members-list-resize").is_some());
     assert!(list_is(&cx, 360.));
 }

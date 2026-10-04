@@ -10,12 +10,13 @@ pub use ::design::*;
 
 pub mod explorer;
 mod format;
-pub use format::{ago, clock, date, day, grouped, initial, local, plural, set_utc_offset};
+pub(crate) use format::set_utc_offset;
+pub use format::{ago, clock, date, day, grouped, initial, local, plural};
 
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
-use gpui::BoxShadow;
 pub use gpui::Orientation;
+use gpui::{BoxShadow, ScrollStrategy};
 
 /// [`type_scale`] as sizes an element takes.
 pub mod text {
@@ -453,6 +454,7 @@ pub fn composite(
         active: 0,
         count: 0,
         wrap: false,
+        scroll: None,
         on_move: None,
         on_move_cell: None,
         on_press: None,
@@ -473,6 +475,9 @@ pub struct Composite {
     active: usize,
     count: usize,
     wrap: bool,
+    /// The uniform list the items are rows of: a move scrolls it to the
+    /// row moved to, ahead of the render that claims it.
+    scroll: Option<crate::UniformListScrollHandle>,
     on_move: Option<Picked>,
     on_move_cell: Option<Picked>,
     on_press: Option<Picked>,
@@ -524,6 +529,14 @@ impl Composite {
         self.on_move = Some(Box::new(f));
         self
     }
+    /// The items are the rows of a `uniform_list` tracking `handle`: a move
+    /// scrolls the list to the row moved to (`Nearest`) before the view
+    /// hears of it, so the frame that answers the key lowers that row and
+    /// its claim, and a row off screen is scrolled to, not skipped.
+    pub fn track_scroll(mut self, handle: &crate::UniformListScrollHandle) -> Self {
+        self.scroll = Some(handle.clone());
+        self
+    }
     /// Enter or Space on the active item.
     pub fn on_press(mut self, f: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_press = Some(Box::new(f));
@@ -551,10 +564,20 @@ impl Composite {
             active,
             count,
             wrap,
+            scroll,
             on_move,
             on_move_cell,
             on_press,
         } = self;
+        let on_move = on_move.map(|moved| -> Picked {
+            match scroll {
+                Some(scroll) => Box::new(move |index, window, app| {
+                    scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+                    moved(index, window, app)
+                }),
+                None => moved,
+            }
+        });
         // the active item and cell as of the last key, ahead of the render
         // that shows the move
         let at = std::cell::Cell::new(active);

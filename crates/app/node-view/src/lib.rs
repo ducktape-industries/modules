@@ -49,9 +49,9 @@ pub struct Nodes {
     pub(crate) answered: u64,
     #[serde(skip)]
     pub(crate) moved: u64,
-    /// the sheet's measured width; `None` until the first measure
+    /// the pane's width, read from the window each render
     #[serde(skip)]
-    pub(crate) width: Option<f32>,
+    pub(crate) width: f32,
     /// the asks in flight: the clock asks again only once one lands
     #[serde(skip)]
     pub(crate) asking: Asking,
@@ -112,7 +112,10 @@ impl View for Nodes {
 }
 
 impl Render for Nodes {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // the pane's width, as the host lays the frame out: the table fits
+        // to it in the frame that shows it
+        self.width = window.viewport_size().width.into();
         ui::render(self, cx)
     }
 }

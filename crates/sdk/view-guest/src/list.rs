@@ -89,6 +89,15 @@ impl ListState {
     pub fn item_count(&self) -> usize {
         self.0.inner.borrow().item_count
     }
+    /// Rows `old_range` become `count` rows. The window the host shows
+    /// follows the edit: one that ends at or before its first row shifts
+    /// the window by the rows added or removed, one inside it or at its
+    /// end grows the window over the new rows, and one after it leaves the
+    /// window alone. So the rows on screen stay on screen through an
+    /// arrival at the tail or a page of history above, a reader at the
+    /// first loaded row included. An edit that takes every row the window
+    /// held, or finds it empty, leaves nothing to follow: the window is
+    /// the new list's first screenful, as [`reset`](Self::reset) makes it.
     pub fn splice(&self, old_range: Range<usize>, count: usize) {
         let mut inner = self.0.inner.borrow_mut();
         let old_range = bounded_range(old_range, inner.item_count);
@@ -96,7 +105,19 @@ impl ListState {
             .item_count
             .saturating_sub(old_range.len())
             .saturating_add(count);
-        inner.requested = initial_range(inner.item_count, inner.alignment);
+        let held = inner.requested.clone();
+        let delta = count as isize - old_range.len() as isize;
+        let shifted = |at: usize| at.saturating_add_signed(delta);
+        let edited = if !held.is_empty() && old_range.end <= held.start {
+            shifted(held.start)..shifted(held.end)
+        } else if old_range.start > held.end {
+            held
+        } else if old_range.start <= held.start && held.end <= old_range.end {
+            initial_range(inner.item_count, inner.alignment)
+        } else {
+            held.start.min(old_range.start)..shifted(held.end.max(old_range.end))
+        };
+        inner.requested = bounded_window(edited.start, edited.end, inner.item_count);
         inner.push(wire::ListCommand::Splice {
             start: old_range.start,
             end: old_range.end,
@@ -129,10 +150,19 @@ impl ListState {
         };
         inner.push(wire::ListCommand::ScrollToEnd);
     }
+    /// Scrolls row `ix` into view. The window grows to hold it, so the
+    /// frame that carries the scroll carries the row and keeps the rows
+    /// on screen; a row far outside it takes the window's end nearest it.
     pub fn scroll_to_reveal_item(&self, ix: usize) {
         let mut inner = self.0.inner.borrow_mut();
         let ix = ix.min(inner.item_count.saturating_sub(1));
-        inner.requested = bounded_window(ix, ix.saturating_add(1), inner.item_count);
+        let held = inner.requested.clone();
+        let (start, end) = (held.start.min(ix), held.end.max(ix.saturating_add(1)));
+        inner.requested = match end - start <= wire::MAX_LIST_ROWS {
+            true => start..end,
+            false if ix < held.start => bounded_window(start, end, inner.item_count),
+            false => end - wire::MAX_LIST_ROWS..end,
+        };
         inner.push(wire::ListCommand::ScrollToRevealItem(ix));
     }
     pub fn set_follow_mode(&self, mode: FollowMode) {
@@ -377,8 +407,9 @@ impl gpui::prelude::FluentBuilder for List {}
 /// short rows. The host asks for more as they come into view — each row the
 /// guest renders is paid for on every tick.
 const INITIAL_ROWS: usize = 24;
-/// Rows kept past each edge of what the host shows.
-const MARGIN_ROWS: usize = 12;
+/// Rows kept past each edge of what the host shows, in both lists: a
+/// scroll of fewer rows than this changes no row the guest lowers.
+pub(crate) const MARGIN_ROWS: usize = 12;
 
 fn initial_range(count: usize, alignment: ListAlignment) -> Range<usize> {
     match alignment {
@@ -603,6 +634,138 @@ mod tests {
             assert_eq!(view.state.logical_scroll_top().item_ix, 1_990);
             assert!(!view.state.is_following_tail());
         });
+    }
+
+    /// A row revealed beside the window joins it: the rows on screen stay
+    /// in the frame that carries the scroll (↑ from the first row shown, ↓
+    /// past the last). A row far away takes the window's end nearest it.
+    #[test]
+    fn revealing_a_row_grows_the_window_and_keeps_the_rows_on_screen() {
+        let (mut cx, view) = opened();
+        let state = view.read(|view| view.state.clone());
+        let window = |cx: &TestAppContext| match cx.root() {
+            wire::Node::List {
+                range_start,
+                children,
+                ..
+            } => *range_start..*range_start + children.len(),
+            other => panic!("expected list, got {other:?}"),
+        };
+        assert_eq!(window(&cx), 2_000 - INITIAL_ROWS..2_000);
+        state.scroll_to_reveal_item(2_000 - INITIAL_ROWS - 1);
+        cx.app_mut().notify();
+        cx.tick(vec![]);
+        assert_eq!(window(&cx), 2_000 - INITIAL_ROWS - 1..2_000);
+        state.scroll_to_reveal_item(100);
+        cx.app_mut().notify();
+        cx.tick(vec![]);
+        assert_eq!(window(&cx), 100..100 + wire::MAX_LIST_ROWS);
+    }
+
+    /// The window follows the rows it holds through an edit: history
+    /// loading above shifts it, an arrival at its end grows it over the
+    /// new row, an edit past it leaves it alone; an edit that takes every
+    /// row it held starts it over at the list's first screenful.
+    #[test]
+    fn a_splice_shifts_or_grows_the_window_and_never_blanks_the_rows_on_screen() {
+        let (mut cx, view) = opened();
+        let state = view.read(|view| view.state.clone());
+        let wire::Node::List {
+            request_handler, ..
+        } = *cx.root()
+        else {
+            panic!("expected list")
+        };
+        let window = |cx: &TestAppContext| match cx.root() {
+            wire::Node::List {
+                range_start,
+                children,
+                ..
+            } => *range_start..*range_start + children.len(),
+            other => panic!("expected list, got {other:?}"),
+        };
+        // the reader scrolled up to rows 1_900..1_912
+        cx.tick(vec![wire::Event::ListRequest {
+            handler: request_handler,
+            request: wire::ListRequest {
+                start: 1_900,
+                end: 1_912,
+            },
+        }]);
+        assert_eq!(window(&cx), 1_900..1_912);
+        let edited = |cx: &mut TestAppContext, old: Range<usize>, count: usize| {
+            state.splice(old, count);
+            cx.app_mut().notify();
+            cx.tick(vec![]);
+            window(cx)
+        };
+        assert_eq!(
+            edited(&mut cx, 0..0, 50),
+            1_950..1_962,
+            "history above shifts"
+        );
+        assert_eq!(
+            edited(&mut cx, 1_962..1_962, 3),
+            1_950..1_965,
+            "an arrival grows"
+        );
+        assert_eq!(
+            edited(&mut cx, 2_053..2_053, 5),
+            1_950..1_965,
+            "past it, nothing"
+        );
+        assert_eq!(
+            edited(&mut cx, 1_960..1_970, 2),
+            1_950..1_962,
+            "rows at its end edited: kept to the edit's end"
+        );
+        assert_eq!(
+            edited(&mut cx, 0..2_030, 300),
+            320 - INITIAL_ROWS..320,
+            "every row gone: a new list's first screenful"
+        );
+    }
+
+    /// Chat's history page: the reader is at the top of the loaded rows
+    /// (the window starts at row 0, which is when chat pages older) and a
+    /// page as long as a frame carries lands above. The rows on screen are
+    /// rows 64..76 now and stay in the window: the page is before it, and
+    /// shifts it. A list with no window yet takes its first screenful.
+    #[test]
+    fn a_page_of_history_above_a_reader_at_the_top_keeps_the_rows_on_screen() {
+        let (mut cx, view) = opened();
+        let state = view.read(|view| view.state.clone());
+        let wire::Node::List {
+            request_handler, ..
+        } = *cx.root()
+        else {
+            panic!("expected list")
+        };
+        let window = |cx: &TestAppContext| match cx.root() {
+            wire::Node::List {
+                range_start,
+                children,
+                ..
+            } => *range_start..*range_start + children.len(),
+            other => panic!("expected list, got {other:?}"),
+        };
+        cx.tick(vec![wire::Event::ListRequest {
+            handler: request_handler,
+            request: wire::ListRequest { start: 0, end: 12 },
+        }]);
+        assert_eq!(window(&cx), 0..12);
+        state.splice(0..0, wire::MAX_LIST_ROWS);
+        cx.app_mut().notify();
+        cx.tick(vec![]);
+        assert_eq!(
+            window(&cx),
+            64..76,
+            "the rows on screen, where they are now"
+        );
+
+        let empty = ListState::new(0, ListAlignment::Bottom, px(0.));
+        empty.splice(0..0, 100);
+        assert_eq!(empty.0.inner.borrow().requested, 100 - INITIAL_ROWS..100);
     }
 
     #[test]

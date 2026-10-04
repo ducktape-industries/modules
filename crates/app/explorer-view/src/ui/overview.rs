@@ -11,12 +11,10 @@ const PANEL_MIN_W: Pixels = px(320.);
 const TXS_MIN_W: Pixels = px(624.);
 
 /// Whether the latest transactions fit beside the latest blocks, in the
-/// view's width less the page's scroll bar: from a 960 px view. Before the
-/// first measure, side by side.
+/// view's width less the page's scroll bar: from a 960 px view.
 fn side_by_side(view: &Explorer) -> bool {
     let gutter = f32::from(design::size::SCROLLBAR);
-    view.width
-        .is_none_or(|width| width - gutter >= f32::from(PANEL_MIN_W + TXS_MIN_W))
+    view.width - gutter >= f32::from(PANEL_MIN_W + TXS_MIN_W)
 }
 
 pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
@@ -199,13 +197,12 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
     let txs = (!view.chain.txs.is_empty()).then(|| {
         tx_rows(
             list,
-            view.chain.txs.iter().take(LATEST),
             view,
+            |view| view.chain.txs.iter().take(LATEST).collect(),
             false,
             true,
-            cx,
-            theme,
         )
+        .whole(view, cx, theme)
         .build(cx)
     });
     let none = view.chain.txs.is_empty().then(|| {
