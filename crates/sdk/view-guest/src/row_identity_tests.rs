@@ -1,9 +1,9 @@
 //! A list row is filed under its own id, else under its index, and the ids
 //! inside it under the row (`wire::identity`): two rows that author the
-//! same id inside them both draw, each pressing its own listener. A
-//! duplicate an author wrote by hand among siblings fails the view's test,
-//! naming the id and its scope: the test host runs the host's sanitizer on
-//! every frame, and the words are its.
+//! same id inside them both draw, each pressing its own listener, and a
+//! list is a scope of its own. A duplicate an author wrote by hand among
+//! siblings fails the view's test, naming the id and its scope: the test
+//! host runs the host's sanitizer on every frame, and the words are its.
 use super::*;
 use crate::testing::TestAppContext;
 use serde::{Deserialize, Serialize};
@@ -92,6 +92,66 @@ fn rows_of_a_list_may_author_the_same_id_inside_them() {
     press_each(&mut cx);
     let log = view.read(|view| view.log.clone());
     assert_eq!(*log.borrow(), [0, 1, 2]);
+}
+
+/// Two lists under one identified parent, their rows with no id at all:
+/// the second's rows log ten past their index.
+#[derive(Default, Serialize, Deserialize)]
+struct TwoLists {
+    #[serde(skip)]
+    states: Vec<ListState>,
+    #[serde(skip)]
+    log: Log,
+}
+impl View for TwoLists {
+    const NAME: &'static str = "TwoLists";
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self {
+            states: (0..2)
+                .map(|_| ListState::new(3, ListAlignment::Top, px(40.)))
+                .collect(),
+            log: Log::default(),
+        }
+    }
+}
+impl Render for TwoLists {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let lists = self.states.iter().cloned().enumerate().map(|(at, state)| {
+            let log = self.log.clone();
+            list(state, move |index, _, _| row(at * 10 + index, &log))
+        });
+        div().id("page").size_full().children(lists)
+    }
+}
+
+/// A list is a scope of its own: the rows of two lists under one parent,
+/// each filed under its index, never meet. Every row keeps its own route
+/// from frame to frame, and a list that grows leaves the other's alone.
+#[test]
+fn two_lists_under_one_parent_each_file_their_own_rows() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<TwoLists>();
+    let mut routes = Vec::new();
+    opens(cx.root(), &mut routes);
+    assert_eq!(routes.len(), 6, "both lists drew their rows");
+    cx.update(&view, |view, _, cx| {
+        view.states[0].splice(3..3, 1);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let mut after = Vec::new();
+    opens(cx.root(), &mut after);
+    assert_eq!(after.len(), 7, "the first list grew a row");
+    assert_eq!(after[..3], routes[..3], "the first list's rows moved");
+    assert_eq!(after[4..], routes[3..], "the second list's rows moved");
+    for handler in routes {
+        cx.tick(vec![wire::Event::Click {
+            handler,
+            event: (&gpui::ClickEvent::default()).into(),
+        }]);
+    }
+    let log = view.read(|view| view.log.clone());
+    assert_eq!(*log.borrow(), [0, 1, 2, 10, 11, 12]);
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -226,8 +286,8 @@ fn a_views_test_fails_a_duplicate_with_the_hosts_refusal() {
 }
 
 /// The same for rows: two rows of a list each filed under its own id `m`
-/// (a key the data repeated) are one id twice in one scope, refused in
-/// the view's test as the host refuses them.
+/// (a key the data repeated) are one id twice in one scope, the list's,
+/// refused in the view's test as the host refuses them.
 #[derive(Default, Serialize, Deserialize)]
 struct Keyed {
     keys: Vec<String>,

@@ -5,8 +5,8 @@ use view_wire::{ListAlignment, ListSizingBehavior, Node, Patch, TextNode};
 
 fn list(start: usize, len: usize, edited: Option<usize>) -> Node {
     Node::List {
-        state: 1,
-        path: Vec::new(),
+        id: view_wire::ElementIdWire::ListState(1),
+        path: vec![view_wire::ElementIdWire::ListState(1)],
         item_count: 100,
         alignment: ListAlignment::Bottom,
         overdraw: 0.,

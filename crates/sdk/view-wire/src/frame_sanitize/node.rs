@@ -19,6 +19,12 @@ pub(super) fn sanitize_node(
         *node = Node::empty();
         return Ok(());
     }
+    // A list's id is its state's, and only a list's: no author writes one.
+    if let Some(id) = node.identity()
+        && matches!(id, ElementIdWire::ListState(_)) != matches!(node, Node::List { .. })
+    {
+        return Err("a list state's identity belongs to a list alone".into());
+    }
     let entered = scopes.enter(identity::segment(node.identity().cloned(), row))?;
     if let Node::Container(crate::ContainerNode { interactivity, .. })
     | Node::UniformList { interactivity, .. }

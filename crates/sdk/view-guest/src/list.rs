@@ -251,6 +251,15 @@ pub struct List {
     style: StyleRefinement,
     sizing_behavior: ListSizingBehavior,
 }
+/// A variable-height list of `state`'s items, each row built by
+/// `render_item`.
+///
+/// The list and each of its rows are scopes of their own: a row is filed
+/// under the id of its root element, else under its index, and the ids
+/// inside a row never meet another row's or another list's. Give a row
+/// that can move (history landing above it) its item's key as its id, and
+/// its listeners stay its own wherever it goes. Two rows named by one key
+/// are refused, naming the id and its scope.
 pub fn list(
     state: ListState,
     render_item: impl FnMut(usize, &mut Window, &mut App) -> AnyElement + 'static,
@@ -274,6 +283,10 @@ impl Styled for List {
     }
 }
 impl Element for List {
+    fn identity(&self) -> Option<wire::ElementIdWire> {
+        Some(wire::ElementIdWire::ListState(self.state.0.id))
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let Self {
             state,
@@ -318,7 +331,7 @@ impl Element for List {
             children.push(lowering.lower_row(index, row));
         }
         wire::Node::List {
-            state: state.0.id,
+            id: wire::ElementIdWire::ListState(state.0.id),
             path: lowering.current_path().to_vec(),
             item_count,
             alignment: wire_alignment(alignment),
@@ -621,14 +634,14 @@ mod tests {
         let (second, second_view) = opened();
         let (first_state, first_handler) = match first.root() {
             wire::Node::List {
-                state,
+                id,
                 request_handler,
                 ..
-            } => (*state, *request_handler),
+            } => (id.clone(), *request_handler),
             _ => unreachable!(),
         };
         let second_state = match second.root() {
-            wire::Node::List { state, .. } => *state,
+            wire::Node::List { id, .. } => id.clone(),
             _ => unreachable!(),
         };
         assert_ne!(first_state, second_state);

@@ -11,6 +11,10 @@
 //! - An id is unique among the identified nodes under its nearest
 //!   identified ancestor, as gpui's `GlobalElementId` is: an id-less
 //!   wrapper is transparent, an identified node starts a fresh scope.
+//! - A list is a scope of its own. A uniform list has the id its author
+//!   gave it; a variable list ([`Node::List`]) is filed under its state
+//!   ([`ElementIdWire::ListState`]), which no author can write, so it
+//!   meets no id beside it and no row of a list around it.
 //! - A row of a list ([`Node::List`], [`Node::UniformList`]) is filed under
 //!   its own id, or else under its index ([`row`]): the id `.id(index)`
 //!   would give it. Its ids are scoped under the row, so two rows that

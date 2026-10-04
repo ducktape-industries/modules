@@ -97,6 +97,13 @@ pub struct UniformList {
     y_flipped: bool,
 }
 
+/// A uniform-height list of `count` rows, built a range at a time by
+/// `processor`.
+///
+/// Each row is a scope of its own, under the list's `id`: a row is filed
+/// under the id of its root element, else under its index, and the ids
+/// inside a row never meet another row's. Two rows named by one key are
+/// refused, naming the id and its scope.
 pub fn uniform_list<R: IntoElement>(
     id: impl Into<ElementId>,
     count: usize,

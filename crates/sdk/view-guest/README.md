@@ -31,12 +31,14 @@ Ours, defined in this crate:
   by calls (`rect`, `circle`, `line`), since gpui's paint closures cannot
   cross.
 - An id is unique among the ids under its nearest identified ancestor, as
-  gpui's are (`view_wire::identity`). A row of a `list` or `uniform_list` is
-  filed under its own id, else its index, and the ids inside it under the
-  row: rows need no index formatted into their ids. One id written twice in
-  a scope is refused by the host, naming the id and its scope; a view's test
-  fails in the same words, since `TestAppContext` holds every frame to the
-  host's sanitizer.
+  gpui's are (`view_wire::identity`). A `list`, a `uniform_list` and each of
+  their rows are scopes of their own: a row is filed under its own id, else
+  its index, and the ids inside it under the row, so rows need no index
+  formatted into their ids. Children are not: a row of data built with
+  `children(..)` carries its own id (its item's key). Two rows named by one
+  key, or one id written twice in a scope, are refused by the host, naming
+  the id and its scope; a view's test fails in the same words, since
+  `TestAppContext` holds every frame to the host's sanitizer.
 - A control is named from birth: `Input::new(id, label)`,
   `Textarea::new(id, &field, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words

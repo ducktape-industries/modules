@@ -868,7 +868,7 @@ Node enum
     indices: Seq(U32)
     children: Seq(TypeName("Node"))
   3 List struct
-    state: U64
+    id: TypeName("WireRepr")
     path: Seq(TypeName("WireRepr"))
     item_count: U64
     alignment: TypeName("ListAlignment")
@@ -1440,6 +1440,7 @@ WireRepr enum
     base: TypeName("ElementIdAtom")
     names: Seq(Str)
   9 OpaqueId: NewType(TupleArray { content: U8, size: 20 })
+  10 ListState: NewType(U64)
 accesskit::Point struct
   x: F64
   y: F64

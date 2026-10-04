@@ -155,13 +155,15 @@
           },
           {
             "List": {
-              "state": 9,
+              "id": {
+                "ListState": 9
+              },
               "path": [
                 {
                   "Name": "root"
                 },
                 {
-                  "Name": "list"
+                  "ListState": 9
                 }
               ],
               "item_count": 3,
@@ -689,13 +691,15 @@
           },
           {
             "List": {
-              "state": 9,
+              "id": {
+                "ListState": 9
+              },
               "path": [
                 {
                   "Name": "root"
                 },
                 {
-                  "Name": "list"
+                  "ListState": 9
                 }
               ],
               "item_count": 3,

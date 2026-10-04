@@ -547,8 +547,11 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
             on_drag: None,
             cursor: None,
             content: Box::new(Node::List {
-                state: 1,
-                path: vec![ElementIdWire::Name("divider".into())],
+                id: ElementIdWire::ListState(1),
+                path: vec![
+                    ElementIdWire::Name("divider".into()),
+                    ElementIdWire::ListState(1),
+                ],
                 item_count: 0,
                 alignment: ListAlignment::Top,
                 overdraw: 0.,

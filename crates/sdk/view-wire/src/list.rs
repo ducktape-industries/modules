@@ -164,9 +164,14 @@ mod variable_tests {
     use crate::{Frame, Node, decode, encode, sanitize};
 
     fn node(commands: Vec<ListCommand>, children: usize) -> Node {
+        list(7, commands, children)
+    }
+
+    fn list(state: u64, commands: Vec<ListCommand>, children: usize) -> Node {
+        let id = crate::ElementIdWire::ListState(state);
         Node::List {
-            state: 7,
-            path: Vec::new(),
+            path: vec![id.clone()],
+            id,
             item_count: usize::MAX,
             alignment: ListAlignment::Bottom,
             overdraw: f32::INFINITY,
@@ -234,7 +239,7 @@ mod variable_tests {
                 id: None,
                 style: Default::default(),
                 interactivity: Default::default(),
-                children: vec![node(Vec::new(), 0), node(Vec::new(), 0)],
+                children: vec![list(7, Vec::new(), 0), list(8, Vec::new(), 0)],
             })),
             ..Default::default()
         };
@@ -269,6 +274,81 @@ mod variable_tests {
             sanitize(&mut frame),
             Err(crate::Refused::Invalid("list authored path is invalid"))
         );
+    }
+
+    /// A list is a scope of its own: the id-less rows of two lists under
+    /// one parent, each filed under its index, do not meet. One list drawn
+    /// twice in a scope is one id twice.
+    #[test]
+    fn sibling_lists_file_their_rows_apart() {
+        let pair = |first: u64, second: u64| Frame {
+            root: Some(Node::Container(crate::ContainerNode {
+                id: Some(crate::ElementIdWire::Name("page".into())),
+                style: Default::default(),
+                interactivity: Default::default(),
+                children: [first, second]
+                    .into_iter()
+                    .map(|state| {
+                        let mut list = list(state, Vec::new(), 2);
+                        let Node::List {
+                            path,
+                            item_count,
+                            range_start,
+                            ..
+                        } = &mut list
+                        else {
+                            unreachable!()
+                        };
+                        path.insert(0, crate::ElementIdWire::Name("page".into()));
+                        (*item_count, *range_start) = (2, 0);
+                        list
+                    })
+                    .collect(),
+            })),
+            ..Default::default()
+        };
+        assert!(sanitize(&mut pair(7, 8)).is_ok());
+        let Err(crate::Refused::Duplicate(duplicate)) = sanitize(&mut pair(7, 7)) else {
+            panic!("one list twice in a scope is refused")
+        };
+        assert_eq!(
+            duplicate.to_string(),
+            "duplicate typed element identity among siblings: ListState(7) twice under page"
+        );
+    }
+
+    /// No author writes a list's id: no gpui id lowers to it or from it, a
+    /// node that is no list cannot carry one, and a list carries no other.
+    /// A path may pass through it.
+    #[test]
+    fn a_list_states_identity_belongs_to_a_list_alone() {
+        let id = crate::ElementIdWire::ListState(7);
+        assert!(id.to_gpui().is_err());
+        assert!(id.validate_host().is_ok());
+        let refused = Err(crate::Refused::Invalid(
+            "a list state's identity belongs to a list alone",
+        ));
+        let mut frame = Frame {
+            root: Some(Node::Container(crate::ContainerNode {
+                id: Some(crate::ElementIdWire::ListState(7)),
+                style: Default::default(),
+                interactivity: Default::default(),
+                children: Vec::new(),
+            })),
+            ..Default::default()
+        };
+        assert_eq!(sanitize(&mut frame), refused);
+        let mut root = node(Vec::new(), 0);
+        let Node::List { id, path, .. } = &mut root else {
+            unreachable!()
+        };
+        *id = crate::ElementIdWire::Name("rows".into());
+        *path = vec![id.clone()];
+        let mut frame = Frame {
+            root: Some(root),
+            ..Default::default()
+        };
+        assert_eq!(sanitize(&mut frame), refused);
     }
 
     #[test]

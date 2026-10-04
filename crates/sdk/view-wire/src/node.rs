@@ -114,7 +114,9 @@ pub enum Node {
     },
     /// A native variable-height GPUI list with a bounded frame-owned row window.
     List {
-        state: u64,
+        /// An [`ElementIdWire::ListState`]: the list is a scope of its own.
+        id: ElementIdWire,
+        /// The path the list is filed under, ending in `id`.
         #[serde(deserialize_with = "list::decode_path")]
         path: Vec<ElementIdWire>,
         item_count: usize,

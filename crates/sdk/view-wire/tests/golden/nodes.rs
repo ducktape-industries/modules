@@ -267,8 +267,8 @@ fn first_nodes() -> Vec<Node> {
             children: vec![text("row 0"), text("row 1")],
         },
         Node::List {
-            state: 9,
-            path: vec![id("root"), id("list")],
+            id: ElementIdWire::ListState(9),
+            path: vec![id("root"), ElementIdWire::ListState(9)],
             item_count: 3,
             alignment: ListAlignment::Bottom,
             overdraw: 200.0,
@@ -527,8 +527,8 @@ fn full_nodes() -> Vec<Node> {
             children: vec![text("row 0"), text("row 1")],
         },
         Node::List {
-            state: 9,
-            path: vec![id("root"), id("list")],
+            id: ElementIdWire::ListState(9),
+            path: vec![id("root"), ElementIdWire::ListState(9)],
             item_count: 3,
             alignment: ListAlignment::Bottom,
             overdraw: 200.0,
