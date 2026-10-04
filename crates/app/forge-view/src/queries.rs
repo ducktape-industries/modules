@@ -16,13 +16,15 @@ pub(crate) const PAGE: PageRequest = PageRequest::first(PER_PAGE);
 const PER_PAGE: u64 = 64;
 
 /// One read of forge, `next` followed: the pages after the first fold into
-/// it.
+/// it. A cursor refused `stale` (an op landed between two pages) starts the
+/// read over from its first page ([`all_pages`]).
 pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
-    let mut reply = host.ask::<Forge>(query.clone()).await?;
-    let more = all_pages(next_cursor(&reply).cloned(), |after| {
-        let ask = after
-            .and_then(|after| with_cursor(&query, after))
-            .map(|query| host.ask::<Forge>(query));
+    let pages = all_pages(|after| {
+        let ask = match after {
+            None => Some(query.clone()),
+            Some(after) => with_cursor(&query, after),
+        }
+        .map(|query| host.ask::<Forge>(query));
         async move {
             let Some(ask) = ask else {
                 return Ok((Vec::new(), None));
@@ -33,10 +35,13 @@ pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
         }
     })
     .await?;
-    for page in more {
-        extend(&mut reply, page);
-    }
-    Ok(reply)
+    pages
+        .into_iter()
+        .reduce(|mut reply, page| {
+            extend(&mut reply, page);
+            reply
+        })
+        .ok_or_else(|| malformed("forge answered no page".into()))
 }
 
 /// One page of the log `query` asks, as a

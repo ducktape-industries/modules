@@ -1,13 +1,15 @@
 //! The Change screens: the list, the detail header, the conversation, the
 //! reviewer's Files tab, and the one operation a review becomes.
-use super::{booted, change_screen, change_screen_as, opened};
-use crate::api::SubmitForge;
+use super::{answer, booted, change_screen, change_screen_as, opened, refusal};
+use crate::api::{Ask, SubmitForge};
 use crate::state::ChangeTab;
 use ducktape_view_guest::methods::Submit;
 use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire;
 use ducktape_view_guest::wire::Node;
-use forge::{LineComment, Op, Side, Verdict};
+use forge::{LineComment, Op, PageRequest, Query, Side, Verdict};
+use std::cell::Cell;
+use std::rc::Rc;
 
 /// The change tabs read a log or a whole diff on open, so → only moves and
 /// Enter opens; the state filter is a radio group and checks on the arrow.
@@ -283,6 +285,43 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
             ))
     );
     view.read(|forge| assert!(forge.reply.text.is_empty()));
+}
+
+/// A forge op accepted between two pages of a read makes the cursor its
+/// first page handed out `stale`. The read starts over from its first page:
+/// the change lands whole and the reader never sees "the listing changed;
+/// restart it", which stood in the change's place until the next block.
+#[test]
+fn a_write_between_two_pages_of_a_change_starts_the_read_over() {
+    let (mut cx, view) = opened("reviewed");
+    let crossed = Rc::new(Cell::new(false));
+    cx.host().handle::<Ask>(move |query| match query {
+        Query::Change {
+            page: PageRequest { after: Some(_), .. },
+            ..
+        } if !crossed.replace(true) => Err(refusal("refused-stale")),
+        query => Ok(answer(&query, "reviewed")),
+    });
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    let sentence = refusal("refused-stale").message;
+    assert!(!cx.has_text(&sentence), "{:?}", cx.texts());
+    view.read(|forge| {
+        let (_, _, _, reviews) = forge.change().expect("the change landed");
+        assert_eq!(reviews.items.len(), 3, "both pages, read again");
+    });
+    let cursored: Vec<bool> = cx
+        .host()
+        .requests::<Ask>()
+        .iter()
+        .filter_map(|query| match query {
+            Query::Change { page, .. } => Some(page.after.is_some()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(cursored, [false, true, false, true], "started over once");
 }
 
 #[test]

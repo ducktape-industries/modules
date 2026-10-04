@@ -9,7 +9,7 @@ use crate::state::{Accounts, Network};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
-    let list = all_pages(None, |after| {
+    let list = all_pages(|after| {
         let ask = host.query(identity::ask::List {
             page: identity::PageRequest { after, limit: None },
         });
@@ -34,7 +34,7 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
     let programs = host.query(registry::ask::At(0)).await?;
     let views = host.query(registry::ask::Views(0)).await?;
-    let changes = all_pages(None, |after| {
+    let changes = all_pages(|after| {
         let ask = host.query(registry::ask::Scheduled {
             page: registry::PageRequest { after, limit: None },
         });

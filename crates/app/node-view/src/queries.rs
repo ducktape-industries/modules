@@ -54,7 +54,7 @@ pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
 /// membership behind them.
 pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
     let validators = host.query(ask::Validators).await?;
-    let members = all_pages(None, |after| {
+    let members = all_pages(|after| {
         let ask = host.query(ask::Memberships {
             page: PageRequest { after, limit: None },
         });

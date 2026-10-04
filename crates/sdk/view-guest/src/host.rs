@@ -37,24 +37,63 @@ fn wrong_reply() -> Error {
 /// One page of a cursored listing: its rows and the cursor of the page after.
 pub type Page<T> = (Vec<T>, Option<Vec<u8>>);
 
-/// Follows a cursored listing from `after`: asks page after page, feeding
-/// each `next` back, until the listing ends. Nothing here bounds how many
-/// pages that is: each page is a host round trip and so a tick of its own,
-/// with its own fuel, and the rows gather in the guest's memory until the
-/// last one lands. Fit for a list that is whole by nature (a roster, a
-/// settings list): one a screen searches, counts or draws all of. A history
-/// is a [`Paged`](crate::Paged), which reads the pages its list shows.
+/// Reads a cursored listing whole: asks page after page from the first
+/// (`ask(None)`), feeding each `next` back, until the listing ends. Nothing
+/// here bounds how many pages that is: each page is a host round trip and
+/// so a tick of its own, with its own fuel, and the rows gather in the
+/// guest's memory until the last one lands. Fit for a list that is whole by
+/// nature (a roster, a settings list): one a screen searches, counts or
+/// draws all of. A history is a [`Paged`](crate::Paged), which reads the
+/// pages its list shows.
+///
+/// A program that rewrites its listing refuses a cursor it handed out
+/// before the write as `stale` (`error::code::STALE`). The listing is then
+/// read from its first page again, as a [`Paged`](crate::Paged) does; any
+/// other refusal is the answer.
 pub async fn all_pages<T, F: Future<Output = Result<Page<T>, Error>>>(
-    mut after: Option<Vec<u8>>,
-    mut ask: impl FnMut(Option<Vec<u8>>) -> F,
+    ask: impl FnMut(Option<Vec<u8>>) -> F,
 ) -> Result<Vec<T>, Error> {
-    let mut all = Vec::new();
+    let (Landed::Next((rows, _)) | Landed::Again((rows, _), _)) =
+        walk(ask, usize::MAX, None).await?;
+    Ok(rows)
+}
+
+/// What a read of a cursored listing brings: the page after a cursor, or
+/// the listing from its start and how many pages that was.
+pub(crate) enum Landed<T> {
+    Next(Page<T>),
+    Again(Page<T>, usize),
+}
+
+/// The one read of a cursored listing: the page after `after` alone, or
+/// with no cursor the listing from its start, `pages` pages or as many as
+/// it has. A cursor refused `stale` was handed out before the listing was
+/// rewritten, whichever page it asks for: its program says to start the
+/// listing over, so the walk does, from the first page, which carries no
+/// cursor to refuse.
+pub(crate) async fn walk<T, F: Future<Output = Result<Page<T>, Error>>>(
+    mut ask: impl FnMut(Option<Vec<u8>>) -> F,
+    pages: usize,
+    mut after: Option<Vec<u8>>,
+) -> Result<Landed<T>, Error> {
+    let mut alone = after.is_some();
+    let (mut rows, mut read) = (Vec::new(), 0);
     loop {
-        let (rows, next) = ask(after).await?;
-        all.extend(rows);
-        after = next;
-        if after.is_none() {
-            return Ok(all);
+        let cursored = after.is_some();
+        match ask(after).await {
+            Err(refusal) if cursored && refusal.code == ::error::code::STALE => {
+                (rows, read, after, alone) = (Vec::new(), 0, None, false);
+            }
+            Err(refusal) => return Err(refusal),
+            Ok(page) if alone => return Ok(Landed::Next(page)),
+            Ok((more, next)) => {
+                rows.extend(more);
+                read += 1;
+                if read >= pages || next.is_none() {
+                    return Ok(Landed::Again((rows, next), read));
+                }
+                after = next;
+            }
         }
     }
 }
@@ -372,22 +411,49 @@ impl Host {
 
 #[cfg(test)]
 mod all_pages_tests {
-    use super::{Page, all_pages};
+    use super::{Error, Page, all_pages};
+    use std::cell::{Cell, RefCell};
+    use std::future::ready;
 
     /// A listing of 0..10 served three rows a page.
-    fn listing(after: Option<Vec<u8>>) -> std::future::Ready<Result<Page<u8>, super::Error>> {
+    fn listing(after: Option<Vec<u8>>) -> Result<Page<u8>, Error> {
         let start = after.map_or(0, |cursor| cursor[0]);
         let end = (start + 3).min(10);
         let next = (end < 10).then(|| vec![end]);
-        std::future::ready(Ok(((start..end).collect(), next)))
+        Ok(((start..end).collect(), next))
     }
 
     #[test]
     fn all_pages_follows_the_cursor_to_the_end() {
-        let all = futures::executor::block_on(all_pages(None, listing)).unwrap();
+        let all = futures::executor::block_on(all_pages(|after| ready(listing(after)))).unwrap();
         assert_eq!(all, (0..10).collect::<Vec<_>>());
-        let resumed = futures::executor::block_on(all_pages(Some(vec![6]), listing)).unwrap();
-        assert_eq!(resumed, (6..10).collect::<Vec<_>>());
+    }
+
+    /// A write that lands between two pages makes the cursor the first page
+    /// handed out `stale`: the read starts over from the first page, and the
+    /// refusal is never the answer.
+    #[test]
+    fn a_write_between_two_pages_starts_the_read_over() {
+        let asked = RefCell::new(Vec::new());
+        let written = Cell::new(false);
+        let all = futures::executor::block_on(all_pages(|after| {
+            asked
+                .borrow_mut()
+                .push(after.as_ref().map(|cursor| cursor[0]));
+            // the write lands once, after the first page is answered
+            let crossed = after.is_some() && !written.replace(true);
+            ready(if crossed {
+                Err(Error::new(
+                    ::error::code::STALE,
+                    "the listing changed; restart it",
+                ))
+            } else {
+                listing(after)
+            })
+        }));
+        assert_eq!(all, Ok((0..10).collect::<Vec<_>>()));
+        let started_over = [None, Some(3), None, Some(3), Some(6), Some(9)];
+        assert_eq!(*asked.borrow(), started_over);
     }
 }
 

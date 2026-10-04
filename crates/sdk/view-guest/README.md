@@ -156,9 +156,9 @@ its program is `program::role::Identity`. Every refusal is the module SDK's `Err
 and `cx.reload` (`src/view.rs`) hold an ask's states and snapshot `Loading`
 as `Idle`.
 
-A cursored listing is read one of two ways. `host::all_pages` follows it to its
-end: for a list that is whole by nature (a roster, a settings list), which a
-screen searches, counts or draws all of. `Paged<T>` (`src/paged.rs`) holds it
+A cursored listing is read one of two ways. `host::all_pages` follows it to
+its end: for a list that is whole by nature (a roster, a settings list), which
+a screen searches, counts or draws all of. `Paged<T>` (`src/paged.rs`) holds it
 a page at a time: for a history. It is an entity built from the same
 page-asking closure; the `uniform_list` that draws it hands it the rows it
 lowers (`show`), and the next page is asked for when they reach past the rows
@@ -166,7 +166,10 @@ held, one read out at a time. The list has `count()` rows: the rows held and,
 while the listing goes on, one more that the view draws as loading. When a
 `Change` touches the listing, `reread` reads the pages held again from the
 first (cursors do not outlive a write), not the whole listing. Dropping the
-entity cancels the read on its way.
+entity cancels the read on its way. Both follow one rule for a cursor the
+program refuses `stale` (it was handed out before a write): the read starts
+over from the first page, and the refusal is never shown. Any other refusal
+is the answer.
 
 `Session` (`methods.rs`, `subscribe::<HostSession>`) is what every view is handed:
 `connected`, `chain_id`, `signer` (the seated key, hex), `account` (its

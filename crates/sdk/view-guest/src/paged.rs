@@ -6,7 +6,7 @@ use std::rc::Rc;
 use futures::FutureExt;
 use futures::future::LocalBoxFuture;
 
-use crate::host::{Error, Page};
+use crate::host::{Error, Landed, Page, walk};
 use crate::{Context, Task};
 
 type Ask<T> = Rc<dyn Fn(Option<Vec<u8>>) -> LocalBoxFuture<'static, Result<Page<T>, Error>>>;
@@ -15,8 +15,8 @@ type Ask<T> = Rc<dyn Fn(Option<Vec<u8>>) -> LocalBoxFuture<'static, Result<Page<
 /// cursor of the page after them. The list that draws it says which rows it
 /// shows ([`show`](Self::show)), and a page is asked for when they reach
 /// past the rows held, so a long history costs the pages someone scrolled
-/// to. [`host::all_pages`](crate::host::all_pages) is the other shape: every page
-/// at once, for a list that is whole by nature.
+/// to. [`host::all_pages`](crate::host::all_pages) is the other shape:
+/// every page at once, for a list that is whole by nature.
 ///
 /// It is an entity (`cx.new(|cx| Paged::new(ask, cx))`): it reads into
 /// itself, notifies when its rows change, and dropping its last handle
@@ -117,13 +117,6 @@ pub struct Paged<T> {
     failed: Option<Error>,
 }
 
-/// What a read brings: the page after the rows held, or the listing again
-/// from its start and how many pages that was.
-enum Landed<T> {
-    Next(Page<T>),
-    Again(Page<T>, usize),
-}
-
 impl<T> Paged<T> {
     /// The rows read so far. A list of them has [`count`](Self::count)
     /// rows: the one past these is the page on its way.
@@ -151,8 +144,8 @@ impl<T> Paged<T> {
 
 impl<T: PartialEq + 'static> Paged<T> {
     /// A listing `ask` reads a page of: the page after a cursor (`None`,
-    /// the first), as [`host::all_pages`](crate::host::all_pages) asks it. The
-    /// first page is asked for now.
+    /// the first), as [`host::all_pages`](crate::host::all_pages) asks it.
+    /// The first page is asked for now.
     pub fn new<F>(ask: impl Fn(Option<Vec<u8>>) -> F + 'static, cx: &mut Context<Self>) -> Self
     where
         F: Future<Output = Result<Page<T>, Error>> + 'static,
@@ -207,7 +200,7 @@ impl<T: PartialEq + 'static> Paged<T> {
     fn read(&mut self, pages: usize, after: Option<Vec<u8>>, cx: &mut Context<Self>) {
         let ask = self.ask.clone();
         let task = cx.spawn(async move |this, cx| {
-            let landed = walk(&ask, pages, after).await;
+            let landed = walk(|after| ask(after), pages, after).await;
             // the listing is gone: nothing is waiting for the read
             let _ = this.update(cx, |paged, cx| paged.land(landed, cx));
         });
@@ -237,38 +230,6 @@ impl<T: PartialEq + 'static> Paged<T> {
                 }
                 (self.rows, self.next, self.pages) = (Vec::new(), None, 0);
                 self.failed = Some(refusal);
-            }
-        }
-    }
-}
-
-/// The page after `after` alone, or with no cursor the listing from its
-/// start: `pages` pages, or as many as it has. A cursor refused `stale` was
-/// handed out before the listing was rewritten, whichever page it asks for:
-/// its program says to start the listing over, so the walk does, from the
-/// first page, which carries no cursor to refuse.
-async fn walk<T>(
-    ask: &Ask<T>,
-    pages: usize,
-    mut after: Option<Vec<u8>>,
-) -> Result<Landed<T>, Error> {
-    let mut alone = after.is_some();
-    let (mut rows, mut read) = (Vec::new(), 0);
-    loop {
-        let cursored = after.is_some();
-        match ask(after).await {
-            Err(refusal) if cursored && refusal.code == ::error::code::STALE => {
-                (rows, read, after, alone) = (Vec::new(), 0, None, false);
-            }
-            Err(refusal) => return Err(refusal),
-            Ok(page) if alone => return Ok(Landed::Next(page)),
-            Ok((more, next)) => {
-                rows.extend(more);
-                read += 1;
-                if read >= pages || next.is_none() {
-                    return Ok(Landed::Again((rows, next), read));
-                }
-                after = next;
             }
         }
     }
