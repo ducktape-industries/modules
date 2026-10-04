@@ -30,8 +30,7 @@ pub enum ElementIdAtom {
     OpaqueId([u8; 20]),
 }
 
-/// A tagged, lossless wire form of GPUI's element identity, and one id
-/// gpui has no form for: [`Self::ListState`].
+/// A tagged, lossless wire form of GPUI's element identity.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize)]
 pub enum ElementIdWire {
     View(u64),
@@ -52,11 +51,6 @@ pub enum ElementIdWire {
         names: Vec<SharedString>,
     },
     OpaqueId([u8; 20]),
-    /// The id of a variable list ([`crate::Node::List`]): its `ListState`'s.
-    /// gpui's `list(state, ..)` takes no id, so the list is filed under its
-    /// state, which no author can write: no `ElementId` lowers to this, and
-    /// the sanitizer refuses it on any node but a list.
-    ListState(u64),
 }
 
 impl<'de> Deserialize<'de> for ElementIdWire {
@@ -84,7 +78,6 @@ impl<'de> Deserialize<'de> for ElementIdWire {
                 names: Vec<SharedString>,
             },
             OpaqueId([u8; 20]),
-            ListState(u64),
         }
 
         Ok(match WireRepr::deserialize(deserializer)? {
@@ -100,7 +93,6 @@ impl<'de> Deserialize<'de> for ElementIdWire {
             }
             WireRepr::NamedChild { base, names } => Self::NamedChild { base, names },
             WireRepr::OpaqueId(id) => Self::OpaqueId(id),
-            WireRepr::ListState(id) => Self::ListState(id),
         })
     }
 }
@@ -154,7 +146,6 @@ impl ElementIdWire {
                 }
                 Ok(id)
             }
-            Self::ListState(_) => Err("a list's identity is the host's to draw"),
             _ => self.atom().expect("an atom").to_gpui(),
         }
     }
@@ -174,12 +165,11 @@ impl ElementIdWire {
                 }
                 base.validate_host()
             }
-            Self::ListState(_) => Ok(()),
             _ => self.atom().expect("an atom").validate_host(),
         }
     }
 
-    /// The inverse of [`Self::from_atom`]: every variant gpui has an atom for.
+    /// The inverse of [`Self::from_atom`]: every variant but `NamedChild`.
     fn atom(&self) -> Option<ElementIdAtom> {
         Some(match self {
             Self::View(id) => ElementIdAtom::View(*id),
@@ -195,7 +185,7 @@ impl ElementIdWire {
                 column: *column,
             },
             Self::OpaqueId(id) => ElementIdAtom::OpaqueId(*id),
-            Self::NamedChild { .. } | Self::ListState(_) => return None,
+            Self::NamedChild { .. } => return None,
         })
     }
 

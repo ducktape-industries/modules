@@ -1,13 +1,15 @@
 //! A list row is filed under its own id, else under its index, and the ids
 //! inside it under the row (`wire::identity`): two rows that author the
 //! same id inside them both draw, each pressing its own listener, and a
-//! list is a scope of its own. A duplicate an author wrote by hand among
-//! siblings fails the view's test, naming the id and its scope: the test
-//! host runs the host's sanitizer on every frame, and the words are its.
+//! list is a scope of its own, under the id its author gave it. A
+//! duplicate an author wrote by hand among siblings fails the view's test,
+//! naming the id and its scope: the test host runs the host's sanitizer on
+//! every frame, and the words are its.
 use super::*;
+use crate::methods::{Capability, HostWidget};
 use crate::testing::TestAppContext;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 type Log = Rc<RefCell<Vec<usize>>>;
@@ -74,12 +76,11 @@ impl View for Rows {
 impl Render for Rows {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let log = self.log.clone();
-        div()
-            .id("rows")
-            .size_full()
-            .child(list(self.state.clone().unwrap(), move |index, _, _| {
-                row(index, &log)
-            }))
+        div().id("rows").size_full().child(list(
+            "list",
+            self.state.clone().unwrap(),
+            move |index, _, _| row(index, &log),
+        ))
     }
 }
 
@@ -94,9 +95,9 @@ fn rows_of_a_list_may_author_the_same_id_inside_them() {
     assert_eq!(*log.borrow(), [0, 1, 2]);
 }
 
-/// Two lists under one identified parent, their rows with no id at all,
-/// beside a sibling named by the integer a first row is filed under: the
-/// second list's rows log ten past their index.
+/// Two lists under one identified parent, told apart by their ids, their
+/// rows with no id at all, beside a sibling named by the integer a first
+/// row is filed under: the second list's rows log ten past their index.
 #[derive(Default, Serialize, Deserialize)]
 struct TwoLists {
     #[serde(skip)]
@@ -119,7 +120,9 @@ impl Render for TwoLists {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let lists = self.states.iter().cloned().enumerate().map(|(at, state)| {
             let log = self.log.clone();
-            list(state, move |index, _, _| row(at * 10 + index, &log))
+            list(["first", "second"][at], state, move |index, _, _| {
+                row(at * 10 + index, &log)
+            })
         });
         div()
             .id("page")
@@ -312,15 +315,16 @@ impl View for Keyed {
 impl Render for Keyed {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let keys = self.keys.clone();
-        div()
-            .id("rows")
-            .size_full()
-            .child(list(self.state.clone().unwrap(), move |index, _, _| {
+        div().id("rows").size_full().child(list(
+            "list",
+            self.state.clone().unwrap(),
+            move |index, _, _| {
                 div()
                     .id(SharedString::from(keys[index].clone()))
                     .child(keys[index].clone())
                     .into_any_element()
-            }))
+            },
+        ))
     }
 }
 
@@ -338,4 +342,115 @@ fn rows_named_by_one_key_fail_a_views_test_with_the_hosts_refusal() {
         cx.run_until_parked();
     });
     assert_eq!(guest, refusal(sent));
+}
+
+thread_local! {
+    /// Whether the next `Panes` makes its thread's list state first.
+    static THREAD_FIRST: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Chat's shape: one message `m`, with a field `edit` in it, drawn in two
+/// panes, each a list `rows`, and a button per way of naming a field.
+#[derive(Default, Serialize, Deserialize)]
+struct Panes {
+    #[serde(skip)]
+    states: Vec<ListState>,
+}
+impl View for Panes {
+    const NAME: &'static str = "Panes";
+    const CAPABILITIES: &'static [Capability] = &[Capability::Host];
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        let mut states: Vec<ListState> = (0..2)
+            .map(|_| ListState::new(1, ListAlignment::Top, px(40.)))
+            .collect();
+        if THREAD_FIRST.get() {
+            states.reverse();
+        }
+        Self { states }
+    }
+}
+impl Render for Panes {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let pane = |id: &'static str, state: ListState| {
+            div().id(id).child(list("rows", state, move |_, _, _| {
+                div()
+                    .id("m")
+                    .child(Input::new("edit", id))
+                    .into_any_element()
+            }))
+        };
+        let focus = |id: &'static str, focus: fn(&mut Window)| {
+            div()
+                .id(id)
+                .role(Role::Button)
+                .focusable()
+                .on_click(move |_, window, _| focus(window))
+                .child(id)
+        };
+        div()
+            .id("page")
+            .size_full()
+            .child(pane("timeline", self.states[0].clone()))
+            .child(pane("thread", self.states[1].clone()))
+            .child(focus("focus-timeline", |window| {
+                window.focus_path(["timeline", "rows", "m", "edit"])
+            }))
+            .child(focus("focus-thread", |window| {
+                window.focus_path(["thread", "rows", "m", "edit"])
+            }))
+            .child(focus("focus-row", |window| {
+                window.focus_path(["rows", "m", "edit"])
+            }))
+    }
+}
+
+/// The path of `pane`'s field: every segment one its author wrote.
+fn edit(pane: &'static str) -> Vec<wire::ElementIdWire> {
+    ["page", pane, "rows", "m", "edit"]
+        .map(|id| wire::ElementIdWire::Name(id.into()))
+        .to_vec()
+}
+
+/// A widget target names a list by its id like any other segment: the
+/// same message's field is focused in either pane by the path through
+/// that pane's list. The row alone names both, so the host is asked for
+/// neither.
+#[test]
+fn a_field_in_a_list_row_is_focused_by_a_path_through_its_list() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Panes>();
+    for pane in ["thread", "timeline"] {
+        cx.simulate_click(&format!("focus-{pane}"));
+        assert_eq!(
+            cx.host().requests::<HostWidget>().last(),
+            Some(&wire::WidgetCommand::Focus { target: edit(pane) })
+        );
+        assert!(matches!(cx.focused(), Some(wire::Node::Field { .. })));
+    }
+    let refused = panic_message(|| cx.simulate_click("focus-row"));
+    assert!(refused.contains("2 end with it"), "{refused}");
+}
+
+/// A new instance of a view files its list rows under the paths the last
+/// one did, whatever order it makes its list states in: what the host
+/// holds for a field in a row (its text, its selection, focus) is kept by
+/// that path, and finds the field again.
+#[test]
+fn a_new_instance_files_its_list_rows_under_the_same_paths() {
+    let fields = || {
+        let mut cx = TestAppContext::new();
+        cx.open::<Panes>();
+        let mut paths = Vec::new();
+        crate::testing::chain(cx.root(), &mut |chain| {
+            if matches!(chain.last().unwrap(), wire::Node::Field { .. }) {
+                paths.push(crate::testing::authored_path(chain));
+            }
+            false
+        });
+        paths
+    };
+    let first = fields();
+    THREAD_FIRST.set(true);
+    assert_eq!(first, [edit("timeline"), edit("thread")]);
+    assert_eq!(fields(), first);
 }

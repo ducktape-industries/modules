@@ -38,13 +38,6 @@ pub trait Element: 'static + IntoElement {
         false
     }
 
-    /// The id of the node this element lowers to (`wire::Node::identity`):
-    /// the one its author gave it, or a `list`'s, which no author writes.
-    #[doc(hidden)]
-    fn identity(&self) -> Option<wire::ElementIdWire> {
-        self.id().map(wire_id)
-    }
-
     #[doc(hidden)]
     fn into_any(self) -> AnyElement {
         AnyElement(Box::new(self))
@@ -65,7 +58,6 @@ pub trait IntoElement: Sized {
 trait ElementObject {
     fn id(&self) -> Option<ElementId>;
     fn defers(&self) -> bool;
-    fn identity(&self) -> Option<wire::ElementIdWire>;
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node;
 }
 
@@ -76,10 +68,6 @@ impl<T: Element> ElementObject for T {
 
     fn defers(&self) -> bool {
         Element::defers(self)
-    }
-
-    fn identity(&self) -> Option<wire::ElementIdWire> {
-        Element::identity(self)
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
@@ -97,10 +85,6 @@ impl Element for AnyElement {
 
     fn defers(&self) -> bool {
         self.0.defers()
-    }
-
-    fn identity(&self) -> Option<wire::ElementIdWire> {
-        self.0.identity()
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
@@ -194,7 +178,7 @@ impl<'a> Lowering<'a> {
         // of its own: a deferred view lowers to the one its render returns
         let defers = element.defers();
         let row = if defers { None } else { self.row.take() };
-        let segment = wire::identity::segment(element.identity(), row);
+        let segment = wire::identity::segment(element.id().map(wire_id), row);
         let entered = segment.is_some();
         if let Some(segment) = segment {
             self.authored_path.push(segment);
@@ -583,10 +567,10 @@ pub trait ParentElement {
     /// Adds each of `children`, as [`Self::child`] would.
     ///
     /// Children are not scopes of their own, as the rows of a `list` or a
-    /// `uniform_list` are: an id inside one child meets the same id inside
-    /// the next. A row of data built here carries its own id (its item's
-    /// key), which scopes the ids inside it. Two children named by one key
-    /// are refused, naming the id and its scope.
+    /// `uniform_list` are under their list's id: an id inside one child
+    /// meets the same id inside the next. A row of data built here carries
+    /// its own id (its item's key), which scopes the ids inside it. Two
+    /// children named by one key are refused, naming the id and its scope.
     fn children(mut self, children: impl IntoIterator<Item = impl IntoElement>) -> Self
     where
         Self: Sized,

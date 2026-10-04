@@ -26,19 +26,27 @@ Ours, defined in this crate:
   `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
   crossed as routes: a listener's number, kept while its element is lowered
-  (`view_wire::Event`). `list` is gpui's: styled, with nothing to
-  press, name or hover (a `div` around it carries those); `canvas` is drawn
-  by calls (`rect`, `circle`, `line`), since gpui's paint closures cannot
-  cross.
+  (`view_wire::Event`). `list` is gpui's but for its first argument:
+  styled, with nothing to press or hover (a `div` around it carries those),
+  and `list(id, state, ..)` takes an id where gpui's `list(state, ..)` takes
+  none, since the host files a list's state and its rows by path (below);
+  `canvas` is drawn by calls (`rect`, `circle`, `line`), since gpui's paint
+  closures cannot cross.
 - An id is unique among the ids under its nearest identified ancestor, as
   gpui's are (`view_wire::identity`). A `list`, a `uniform_list` and each of
-  their rows are scopes of their own: a row is filed under its own id, else
-  its index, and the ids inside it under the row, so rows need no index
-  formatted into their ids. Children are not: a row of data built with
-  `children(..)` carries its own id (its item's key). Two rows named by one
-  key, or one id written twice in a scope, are refused by the host, naming
-  the id and its scope; a view's test fails in the same words, since
-  `TestAppContext` holds every frame to the host's sanitizer.
+  their rows are scopes of their own: a list is filed under the id its
+  author gives it (`list(id, state, ..)`, `uniform_list(id, ..)`), a row
+  under its own id, else its index, and the ids inside it under the row, so
+  rows need no index formatted into their ids. The host keeps what it holds
+  for a view by that path (a list's scroll, a field's text and selection,
+  focus), so a list's id is what brings the state in its rows back when the
+  view is instantiated again, and what a widget target is named through
+  (`focus_path(["thread", "rows", key, "edit"])`). Children are not scopes:
+  a row of data built with `children(..)` carries its own id (its item's
+  key). Two rows named by one key, two lists given one id, or any id written
+  twice in a scope are refused by the host, naming the id and its scope; a
+  view's test fails in the same words, since `TestAppContext` holds every
+  frame to the host's sanitizer.
 - A control is named from birth: `Input::new(id, label)`,
   `Textarea::new(id, &field, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words

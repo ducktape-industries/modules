@@ -402,10 +402,6 @@ impl<E: Element> Element for Stateful<E> {
         self.element.defers()
     }
 
-    fn identity(&self) -> Option<wire::ElementIdWire> {
-        self.element.identity()
-    }
-
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         Element::lower(Box::new(self.element), lowering)
     }

@@ -1,11 +1,6 @@
 use crate::{AnyElement, App, Element, IntoElement, Lowering, Window, wire};
-use gpui::{Pixels, StyleRefinement, Styled, px};
-use std::{
-    cell::RefCell,
-    ops::Range,
-    rc::Rc,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use gpui::{ElementId, Pixels, StyleRefinement, Styled, px};
+use std::{cell::RefCell, ops::Range, rc::Rc};
 
 use gpui::{FollowMode, ListAlignment, ListOffset, ListScrollEvent, ListSizingBehavior};
 type ScrollHandler = dyn FnMut(&ListScrollEvent, &mut Window, &mut App) + 'static;
@@ -14,7 +9,6 @@ type ItemRenderer = Box<dyn FnMut(usize, &mut Window, &mut App) -> AnyElement>;
 #[derive(Clone)]
 pub struct ListState(Rc<State>);
 struct State {
-    id: u64,
     inner: RefCell<Inner>,
     scroll_handler: RefCell<Option<Box<ScrollHandler>>>,
 }
@@ -29,7 +23,6 @@ struct Inner {
     revision: u64,
     commands: Vec<wire::ListCommand>,
 }
-static NEXT_LIST_STATE: AtomicU64 = AtomicU64::new(1);
 
 impl std::fmt::Debug for ListState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -46,7 +39,6 @@ impl ListState {
     pub fn new(item_count: usize, alignment: ListAlignment, overdraw: Pixels) -> Self {
         let item_count = item_count.min(wire::MAX_LIST_ITEMS);
         Self(Rc::new(State {
-            id: NEXT_LIST_STATE.fetch_add(1, Ordering::Relaxed),
             inner: RefCell::new(Inner {
                 item_count,
                 alignment,
@@ -227,25 +219,27 @@ impl Inner {
     }
 }
 
-/// gpui's list: an element with a style and nothing to press, focus or
-/// name, so `.id()`, `.hover()` and `.on_click()` are no methods of it.
-/// What a list's rows share goes on a box around it.
+/// gpui's list, but for the id it is born with ([`list`]): an element with
+/// a style and nothing to press or focus, so `.id()`, `.hover()` and
+/// `.on_click()` are no methods of it. What a list's rows share goes on a
+/// box around it.
 ///
 /// ```
 /// # use view_guest::prelude::*;
-/// let rows = list(ListState::default(), |_, _, _| div().into_any_element()).flex_1();
-/// ```
-///
-/// ```compile_fail,E0599
-/// # use view_guest::prelude::*;
-/// let rows = list(ListState::default(), |_, _, _| div().into_any_element()).id("rows");
+/// let rows = list("rows", ListState::default(), |_, _, _| div().into_any_element()).flex_1();
 /// ```
 ///
 /// ```compile_fail,E0599
 /// # use view_guest::prelude::*;
-/// let rows = list(ListState::default(), |_, _, _| div().into_any_element()).hover(|s| s);
+/// let rows = list("rows", ListState::default(), |_, _, _| div().into_any_element()).id("other");
+/// ```
+///
+/// ```compile_fail,E0599
+/// # use view_guest::prelude::*;
+/// let rows = list("rows", ListState::default(), |_, _, _| div().into_any_element()).hover(|s| s);
 /// ```
 pub struct List {
+    id: ElementId,
     state: ListState,
     render_item: ItemRenderer,
     style: StyleRefinement,
@@ -254,6 +248,16 @@ pub struct List {
 /// A variable-height list of `state`'s items, each row built by
 /// `render_item`.
 ///
+/// It takes an `id` where gpui's `list(state, ..)` takes none, as
+/// [`uniform_list`](crate::uniform_list) does: the host files a list's
+/// state (its scroll, its measured rows) and everything in its rows (a
+/// field's text and selection, focus) by path, so a list is one segment of
+/// that path, and its author names it. A new instance of the view then
+/// files the same paths, and `Window::focus_path` names a row's field
+/// through its list (`["thread", "rows", key, "edit"]`). Two lists under
+/// one parent are told apart by their ids; one id on two of them is
+/// refused, as any id written twice in a scope is.
+///
 /// The list and each of its rows are scopes of their own: a row is filed
 /// under the id of its root element, else under its index, and the ids
 /// inside a row never meet another row's or another list's. Give a row
@@ -261,10 +265,12 @@ pub struct List {
 /// its listeners stay its own wherever it goes. Two rows named by one key
 /// are refused, naming the id and its scope.
 pub fn list(
+    id: impl Into<ElementId>,
     state: ListState,
     render_item: impl FnMut(usize, &mut Window, &mut App) -> AnyElement + 'static,
 ) -> List {
     List {
+        id: id.into(),
         state,
         render_item: Box::new(render_item),
         style: StyleRefinement::default(),
@@ -283,12 +289,13 @@ impl Styled for List {
     }
 }
 impl Element for List {
-    fn identity(&self) -> Option<wire::ElementIdWire> {
-        Some(wire::ElementIdWire::ListState(self.state.0.id))
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let Self {
+            id: _,
             state,
             mut render_item,
             style,
@@ -330,9 +337,14 @@ impl Element for List {
             let row = render_item(index, window, app);
             children.push(lowering.lower_row(index, row));
         }
+        let path = lowering.current_path().to_vec();
+        let id = path
+            .last()
+            .cloned()
+            .expect("a list lowers inside its authored scope");
         wire::Node::List {
-            id: wire::ElementIdWire::ListState(state.0.id),
-            path: lowering.current_path().to_vec(),
+            id,
+            path,
             item_count,
             alignment: wire_alignment(alignment),
             overdraw: f32::from(overdraw),
@@ -443,6 +455,7 @@ mod tests {
                 cx.notify();
             }));
             list(
+                "rows",
                 self.state.clone(),
                 cx.processor(|view, index, _, _| {
                     view.rendered.push(index);
@@ -631,20 +644,13 @@ mod tests {
     #[test]
     fn list_handles_and_requested_windows_are_driver_isolated() {
         let (mut first, first_view) = opened();
-        let (second, second_view) = opened();
-        let (first_state, first_handler) = match first.root() {
+        let (_second, second_view) = opened();
+        let first_handler = match first.root() {
             wire::Node::List {
-                id,
-                request_handler,
-                ..
-            } => (id.clone(), *request_handler),
+                request_handler, ..
+            } => *request_handler,
             _ => unreachable!(),
         };
-        let second_state = match second.root() {
-            wire::Node::List { id, .. } => id.clone(),
-            _ => unreachable!(),
-        };
-        assert_ne!(first_state, second_state);
         first.tick(vec![wire::Event::ListRequest {
             handler: first_handler,
             request: wire::ListRequest { start: 7, end: 9 },

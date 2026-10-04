@@ -246,6 +246,10 @@ fn rows(
     }))
     .build();
     let list = gpui_list(
+        match pane {
+            Pane::Timeline => "chat-message-rows",
+            Pane::Thread => "chat-thread-rows",
+        },
         state,
         cx.processor(move |chat, index: usize, _window, cx| {
             if lead && index == 0 {

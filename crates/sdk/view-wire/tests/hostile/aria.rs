@@ -547,10 +547,10 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
             on_drag: None,
             cursor: None,
             content: Box::new(Node::List {
-                id: ElementIdWire::ListState(1),
+                id: ElementIdWire::Name("rows".into()),
                 path: vec![
                     ElementIdWire::Name("divider".into()),
-                    ElementIdWire::ListState(1),
+                    ElementIdWire::Name("rows".into()),
                 ],
                 item_count: 0,
                 alignment: ListAlignment::Top,
