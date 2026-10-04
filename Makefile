@@ -31,7 +31,7 @@ VIEWS := chat-view members-view node-view explorer-view settings-view forge-view
 # read their contracts: module-registry's signing deps are dev-only, and `-e
 # normal` below is what says so. Every program crate is linked with `module`
 # off, which is what a plain `-p` build below checks.
-VIEW_LINKABLE := ducklink program view-wire view-guest design store module-registry valset identity settings-view chat forge
+VIEW_LINKABLE := ducklink program view-wire ducktape-view-guest design store module-registry valset identity settings-view chat forge
 VIEW_FORBIDDEN := blst commonware-cryptography wasm-bindgen js-sys web-sys
 
 # Cargo uses this directory for both workspaces.
@@ -171,13 +171,13 @@ wasm-views:
 	@$(foreach v,$(VIEWS),$(WASM_BUILD) --target-dir $(BUILD_TARGET) -p $(v) && tools/view-gate.sh $(v) $(RELEASE)/$(subst -,_,$(v)).wasm || exit 1;)
 
 ## builds every VIEW_LINKABLE crate for wasm32-unknown-unknown, plus the
-## exported view probe of view-guest, then fails if the normal wasm32 dependency
+## exported view probe of ducktape-view-guest, then fails if the normal wasm32 dependency
 ## tree of any of them names a VIEW_FORBIDDEN crate.
 view-wasm-check:
 	@for crate in $(VIEW_LINKABLE); do \
 	  $(CARGO) build --target wasm32-unknown-unknown -p $$crate || exit 1; \
 	done; \
-	$(CARGO) build --target wasm32-unknown-unknown -p view-guest --example exported_view || exit 1; \
+	$(CARGO) build --target wasm32-unknown-unknown -p ducktape-view-guest --example exported_view || exit 1; \
 	reached=""; \
 	for crate in $(VIEW_LINKABLE); do \
 	  tree=$$($(CARGO) tree --target wasm32-unknown-unknown -e normal -p $$crate --prefix none) || exit 1; \

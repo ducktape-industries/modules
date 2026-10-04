@@ -1,8 +1,69 @@
 # Writing a view
 
-A view is a wasm32 cdylib on `view-guest`. It builds a widget tree the host
+A view is a wasm32 cdylib on `ducktape-view-guest`. It builds a widget tree the host
 lays out and draws, hears meaning-level events back, and asks the host for
 data through a fixed table of methods. This page is the whole surface.
+
+## Depending on it
+
+A view crate outside this repository, with this repository checked out
+beside it as `modules`, has this `Cargo.toml`:
+
+```toml
+[package]
+name = "hello-view"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ducktape-view-guest = { path = "../modules/crates/sdk/view-guest" }
+serde = { version = "1", features = ["derive"] }
+
+[patch.crates-io]
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "ec44f1bba7cae8ec040ec8180e274e0718a30281" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "ec44f1bba7cae8ec040ec8180e274e0718a30281" }
+gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "ec44f1bba7cae8ec040ec8180e274e0718a30281" }
+```
+
+The `[patch.crates-io]` lines are this workspace's own, at the rev its
+`Cargo.toml` pins: the SDK builds against the gpui fork's copies of those
+three crates (crates.io's `rmp-serde` has no `typed` feature, and without
+the fork's scheduler a view does not build for wasm32), and cargo reads
+`[patch]` only from the manifest being built, so a crate outside the
+workspace repeats them. A view inside the workspace
+writes `ducktape-view-guest.workspace = true` and no patch.
+
+The smallest view, `src/lib.rs`:
+
+```rust
+use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{View, export_view};
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Serialize, Deserialize)]
+struct Hello;
+
+impl View for Hello {
+    const NAME: &'static str = "hello";
+}
+
+impl Render for Hello {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().child("hello")
+    }
+}
+
+export_view!(Hello);
+```
+
+`prelude` holds what a render body names (`Render`, `Window`, `Context`,
+`IntoElement`, `div`, ...); `View` and `export_view!` are imported beside
+it. `View` asks for `Default`, `Serialize` and `Deserialize`, which is why
+`serde` is a dependency. It builds with
+`cargo build --target wasm32-unknown-unknown`.
 
 ## What is gpui and what is ours
 

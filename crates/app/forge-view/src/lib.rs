@@ -1,5 +1,5 @@
 //! Forge: repositories, code, commits, refs and the Changes a reviewer
-//! lives in, on the view-guest `View` shape.
+//! lives in, on the ducktape-view-guest `View` shape.
 //!
 //! The forge program answers everything this screen shows, in borsh, through
 //! one method (`module.query`); conversation is chat's, through the method

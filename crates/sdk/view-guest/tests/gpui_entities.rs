@@ -2,9 +2,11 @@
 //! with `cx.new`, updated from a listener, heard through `emit`/`subscribe`
 //! and `observe`, a tooltip with no `View` type, and children a restored
 //! snapshot builds again.
+use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{
+    Entity, EventEmitter, Subscription, View, testing::TestAppContext, wire,
+};
 use serde::{Deserialize, Serialize};
-use view_guest::prelude::*;
-use view_guest::{Entity, EventEmitter, Subscription, View, testing::TestAppContext, wire};
 
 /// Three rows, one of them selected: a plain struct, no `View`, no serde.
 struct Sidebar {

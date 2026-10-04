@@ -224,17 +224,17 @@ impl Inner {
 /// box around it.
 ///
 /// ```
-/// # use view_guest::prelude::*;
+/// # use ducktape_view_guest::prelude::*;
 /// let rows = list("rows", ListState::default(), |_, _, _| div().into_any_element()).flex_1();
 /// ```
 ///
 /// ```compile_fail,E0599
-/// # use view_guest::prelude::*;
+/// # use ducktape_view_guest::prelude::*;
 /// let rows = list("rows", ListState::default(), |_, _, _| div().into_any_element()).id("other");
 /// ```
 ///
 /// ```compile_fail,E0599
-/// # use view_guest::prelude::*;
+/// # use ducktape_view_guest::prelude::*;
 /// let rows = list("rows", ListState::default(), |_, _, _| div().into_any_element()).hover(|s| s);
 /// ```
 pub struct List {

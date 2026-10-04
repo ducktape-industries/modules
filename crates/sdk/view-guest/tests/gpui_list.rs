@@ -1,8 +1,8 @@
-use std::ops::Range;
-use view_guest::{
+use ducktape_view_guest::{
     AnyElement, App, FollowMode, IntoElement, List, ListAlignment, ListOffset, ListScrollEvent,
     ListSizingBehavior, ListState, Pixels, Styled, Window, div, list, px,
 };
+use std::ops::Range;
 
 fn renderer(_: usize, _: &mut Window, _: &mut App) -> AnyElement {
     div().into_any_element()

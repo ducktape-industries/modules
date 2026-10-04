@@ -674,11 +674,11 @@ dependencies = [
  "abi",
  "chat",
  "ducklink",
+ "ducktape-view-guest",
  "futures",
  "program",
  "serde",
  "serde_json",
- "view-guest",
 ]
 
 [[package]]
@@ -1742,6 +1742,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ducktape-view-guest"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "design",
+ "error",
+ "futures",
+ "gpui-pre",
+ "program",
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+ "view-guest-derive",
+ "view-wire",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2001,12 +2018,12 @@ dependencies = [
  "borsh",
  "chat",
  "ducklink",
+ "ducktape-view-guest",
  "forge",
  "identity",
  "module-registry",
  "serde",
  "valset",
- "view-guest",
 ]
 
 [[package]]
@@ -2236,13 +2253,13 @@ dependencies = [
  "borsh",
  "chat",
  "ducklink",
+ "ducktape-view-guest",
  "forge",
  "futures",
  "program",
  "pulldown-cmark",
  "serde",
  "serde_json",
- "view-guest",
 ]
 
 [[package]]
@@ -3604,12 +3621,12 @@ dependencies = [
  "abi",
  "chat",
  "ducklink",
+ "ducktape-view-guest",
  "futures",
  "identity",
  "module-registry",
  "serde",
  "valset",
- "view-guest",
 ]
 
 [[package]]
@@ -3774,11 +3791,11 @@ name = "node-view"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "ducktape-view-guest",
  "futures",
  "serde",
  "serde_json",
  "valset",
- "view-guest",
 ]
 
 [[package]]
@@ -5300,11 +5317,11 @@ name = "settings-view"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "ducktape-view-guest",
  "identity",
  "serde",
  "serde_json",
  "valset",
- "view-guest",
 ]
 
 [[package]]
@@ -6439,23 +6456,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "view-guest"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "design",
- "error",
- "futures",
- "gpui-pre",
- "program",
- "serde",
- "serde_json",
- "unicode-segmentation",
- "view-guest-derive",
- "view-wire",
-]
 
 [[package]]
 name = "view-guest-derive"

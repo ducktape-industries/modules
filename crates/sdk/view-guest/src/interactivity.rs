@@ -437,12 +437,12 @@ impl<E: InteractiveElement> InteractiveElement for Stateful<E> {
 /// nothing. Say it in the node's own label or description:
 ///
 /// ```
-/// use view_guest::prelude::*;
+/// use ducktape_view_guest::prelude::*;
 /// let _ = div().id("field").aria_description("Use your email address");
 /// ```
 ///
 /// ```compile_fail
-/// use view_guest::prelude::*;
+/// use ducktape_view_guest::prelude::*;
 /// let _ = div().id("field").aria_labelled_by("caption");
 /// ```
 pub trait StatefulInteractiveElement: InteractiveElement {

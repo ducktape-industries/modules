@@ -1,6 +1,6 @@
 # The wire between the gpui host and a ducktape view running in wasm: a widget
 # tree out, meaning-level events in, requests and responses beside. The guest
-# half is here (`view-guest` and the views under `crates/app/*-view`); the host
+# half is here (`ducktape-view-guest` and the views under `crates/app/*-view`); the host
 # half is the app repo, which pins this crate by git rev. The format is ours,
 # and `tests/golden.rs` holds it: the bytes of what its fixtures sample, and the
 # shape of every type that crosses (`schema.txt`). A change to either trips the

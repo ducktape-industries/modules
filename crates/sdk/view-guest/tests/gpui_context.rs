@@ -1,6 +1,6 @@
+use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{View, testing::TestAppContext, wire};
 use serde::{Deserialize, Serialize};
-use view_guest::prelude::*;
-use view_guest::{View, testing::TestAppContext, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Counter {
@@ -25,7 +25,7 @@ impl Render for Counter {
             .child("Click")
     }
 }
-fn opened<V: View>() -> (TestAppContext, view_guest::Entity<V>) {
+fn opened<V: View>() -> (TestAppContext, ducktape_view_guest::Entity<V>) {
     let mut cx = TestAppContext::new();
     let view = cx.open::<V>();
     (cx, view)
@@ -135,7 +135,8 @@ fn tooltip_delay_is_order_independent_and_builder_runs_only_after_request() {
     let Some(content) = response.content.as_deref() else {
         panic!("ordinary tooltip has content")
     };
-    let wire::Node::Container(view_guest::wire::ContainerNode { id, children, .. }) = content
+    let wire::Node::Container(ducktape_view_guest::wire::ContainerNode { id, children, .. }) =
+        content
     else {
         panic!("tooltip content is a lowered container")
     };
@@ -185,7 +186,10 @@ impl View for FocusSurface {
     }
 }
 /// A button named `key` holding `handle`.
-fn focused(key: &'static str, handle: &FocusHandle) -> view_guest::Stateful<view_guest::Div> {
+fn focused(
+    key: &'static str,
+    handle: &FocusHandle,
+) -> ducktape_view_guest::Stateful<ducktape_view_guest::Div> {
     div()
         .id(key)
         .role(Role::Button)

@@ -2,6 +2,8 @@
 //! to `view_wire::Node`, and the host methods a wasm view asks through.
 pub use gpui::prelude::FluentBuilder;
 pub use gpui::{AccessibleAction, accesskit};
+// `#[derive(IntoElement)]` names this crate by its absolute path; this lets
+// that path resolve inside the crate too, so its own components derive.
 extern crate self as ducktape_view_guest;
 
 pub use gpui::{

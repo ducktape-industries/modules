@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::testing::TestAppContext;
+use ducktape_view_guest::{ElementId, Input, TextField, View, Window, wire};
 use serde::{Deserialize, Serialize};
-use view_guest::prelude::*;
-use view_guest::testing::TestAppContext;
-use view_guest::{ElementId, Input, TextField, View, Window, wire};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Form {
@@ -48,7 +48,9 @@ type Lowered<'a> = (
 );
 
 fn input(cx: &TestAppContext) -> Lowered<'_> {
-    let wire::Node::Container(view_guest::wire::ContainerNode { children, .. }) = cx.root() else {
+    let wire::Node::Container(ducktape_view_guest::wire::ContainerNode { children, .. }) =
+        cx.root()
+    else {
         panic!("root container")
     };
     let wire::Node::Field {
