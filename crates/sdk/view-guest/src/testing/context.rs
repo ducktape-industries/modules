@@ -428,20 +428,27 @@ impl TestAppContext {
     // Pointer.
 
     /// A press of the button whose key, label or accessible name is `name`:
-    /// its click, after the press put the keyboard on it or on the
-    /// innermost node around it that can hold it.
+    /// its click and, as gpui passes a click out, the click of every node
+    /// around it up to where the host stops it ([`click_stops_at`]), after
+    /// the press put the keyboard on it or on the innermost node around it
+    /// that can hold it.
     pub fn simulate_click(&mut self, name: &str) {
         let Some(chain) = button(self.root(), name) else {
             panic!("no button {name:?} in {:?}", self.texts());
         };
-        let interactivity = chain.last().unwrap().interactivity().unwrap();
-        let event = Event::Click {
-            handler: interactivity.on_click.expect("click route"),
-            event: (&gpui::ClickEvent::default()).into(),
-        };
+        let events = along(
+            &chain,
+            click_stops_at(&chain),
+            |_| None,
+            |i| i.on_click,
+            |handler, _| Event::Click {
+                handler,
+                event: (&gpui::ClickEvent::default()).into(),
+            },
+        );
         let pressed = focus::pressed(&chain);
         self.press(pressed);
-        self.run(vec![event]);
+        self.run(events);
     }
     /// A press of a mouse button other than the primary on `key`.
     pub fn simulate_aux_click(&mut self, key: &str) {
@@ -1048,6 +1055,32 @@ fn consumed_at(chain: &[&Node], keystroke: &gpui::Keystroke) -> Option<(usize, O
         }
     }
     None
+}
+
+/// Where a pointer's click on the last node of `chain` stops going out, as
+/// the host stops it: at the deepest node that consumes it
+/// (`consumes_click`) or occludes what is behind it, or at the top of an
+/// open overlay's layer, whose content keeps the press from what is under
+/// the overlay. Answers the first node of the chain that still hears it.
+fn click_stops_at(chain: &[&Node]) -> usize {
+    for (at, node) in chain.iter().enumerate().rev() {
+        if let Node::Overlay { children, .. } = node
+            && chain.get(at + 1).is_some_and(|inside| {
+                children
+                    .get(1)
+                    .is_some_and(|layer| std::ptr::eq(layer, *inside))
+            })
+        {
+            return at + 1;
+        }
+        if node
+            .interactivity()
+            .is_some_and(|i| i.consumes_click || i.occlude)
+        {
+            return at;
+        }
+    }
+    0
 }
 
 /// The `pick` route of every node in `root` off `chain`: what hears a press

@@ -1,8 +1,8 @@
 use super::*;
 use crate::methods::Capability;
 use crate::{
-    ClickEvent, Context, InteractiveElement, KeyDownEvent, ParentElement, Render, Role,
-    StatefulInteractiveElement, Task, Window, methods::Changes, testing::Probe,
+    ClickEvent, Context, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render,
+    Role, StatefulInteractiveElement, Task, Window, methods::Changes, testing::Probe,
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -158,6 +158,84 @@ impl Render for Spreadsheet {
 #[should_panic(expected = "the host would cut this frame")]
 fn a_frame_the_host_would_cut_fails_its_test() {
     TestAppContext::new().open::<Spreadsheet>();
+}
+
+/// A card a click selects, with a button on it that deletes; what stands
+/// between them is `stop`.
+#[derive(Default, Serialize, Deserialize)]
+struct Card {
+    stop: Stop,
+    heard: Vec<String>,
+}
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+enum Stop {
+    #[default]
+    Nothing,
+    /// The button consumes its click.
+    Consumes,
+    /// The button hides what is behind it from the pointer.
+    Occludes,
+    /// The button is in a dialog opened over the card's content.
+    Dialog,
+}
+impl View for Card {
+    const NAME: &'static str = "Card";
+}
+impl Render for Card {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl crate::IntoElement {
+        let delete = crate::div()
+            .id("delete")
+            .role(Role::Button)
+            .focusable()
+            .on_click(cx.listener(|card: &mut Self, _: &ClickEvent, _, cx| {
+                card.heard.push("delete".into());
+                cx.notify();
+            }))
+            .child("Delete");
+        crate::div()
+            .id("card")
+            .role(Role::Group)
+            .aria_label("Card")
+            .focusable()
+            .on_click(cx.listener(|card: &mut Self, _: &ClickEvent, _, cx| {
+                card.heard.push("card".into());
+                cx.notify();
+            }))
+            .child("Card")
+            .child(match self.stop {
+                Stop::Nothing => delete.into_any_element(),
+                Stop::Consumes => delete.consumes_click().into_any_element(),
+                Stop::Occludes => delete.occlude().into_any_element(),
+                Stop::Dialog => {
+                    crate::modal_overlay("dialog", "Delete?", crate::div(), Some(delete))
+                        .into_any_element()
+                }
+            })
+    }
+}
+
+/// A click goes out from the node pressed through every node around it
+/// that listens, as gpui passes it, until a node consumes it, a node hides
+/// what is behind it, or it leaves a dialog's layer.
+#[test]
+fn a_click_reaches_the_nodes_around_it_until_one_consumes_it() {
+    let mut cx = TestAppContext::new();
+    let card = cx.open::<Card>();
+    for (stop, heard) in [
+        (Stop::Nothing, &["delete", "card"][..]),
+        (Stop::Consumes, &["delete"]),
+        (Stop::Occludes, &["delete"]),
+        (Stop::Dialog, &["delete"]),
+    ] {
+        cx.update(&card, |view, _, cx| {
+            view.stop = stop;
+            view.heard.clear();
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.simulate_click("delete");
+        card.read(|view| assert_eq!(view.heard, heard));
+    }
 }
 
 /// Twins: two siblings with one typed id, which the audit (it keys on

@@ -235,7 +235,10 @@ notifies too (`HostLog`, `LinkOpen`, `HostWidget`). Then
 Keys go where the host sends them: `simulate_focus` (or a click, or the
 view's own `Window::focus`) puts the keyboard on a node, and a key goes
 down its focus path to the capture listeners and back up it; a key at a
-node off that path fails the test. A list shows the rows the host shows:
+node off that path fails the test. A click goes out from the node pressed
+through every node around it with a click, as gpui passes it, until one
+consumes it (`consumes_click`), hides what is behind it (`occlude`), or the
+press leaves a dialog's layer. A list shows the rows the host shows:
 its one measured row at first, then `simulate_viewport(rows)` or
 `simulate_range(key, range)`. A frame carries at most
 `view_wire::MAX_REQUESTS` requests; the rest go in the next.
