@@ -1452,3 +1452,4 @@ capabilities
 min_width
 wire_id
 targets
+icon

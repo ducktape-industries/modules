@@ -100,7 +100,7 @@ pub use styled_nodes::{ContainerNode, TextNode};
 mod node;
 pub use node::{
     Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Node, SvgSource,
-    SvgTransformation,
+    SvgTransformation, safe_asset_path,
 };
 mod accessibility;
 pub use accessibility::{Fault, FaultKind, audit};

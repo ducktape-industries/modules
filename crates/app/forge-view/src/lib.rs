@@ -34,6 +34,7 @@ impl View for Forge {
     const NAME: &'static str = "Forge";
     const DESCRIPTION: &'static str =
         "Repositories, code, commits and the changes waiting on your judgment.";
+    const ICON: &'static str = "icons/hammer.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Module,
         Capability::Op,

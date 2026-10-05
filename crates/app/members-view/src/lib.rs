@@ -130,6 +130,7 @@ impl View for Members {
     const NAME: &'static str = "Members";
     const DESCRIPTION: &'static str =
         "Every account of this network: who it is, what it runs and what it signed lately.";
+    const ICON: &'static str = "icons/users.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
         Capability::Module,

@@ -702,6 +702,7 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
     impl View for App {
         const NAME: &'static str = "App";
         const DESCRIPTION: &'static str = "Words";
+        const ICON: &'static str = "icons/hammer.svg";
         const CAPABILITIES: &'static [Capability] = &[Capability::Clock, Capability::Module];
         const TARGETS: &'static [&'static str] = &["chat", "identity"];
         const MIN_WINDOW_WIDTH: u32 = 560;
@@ -718,7 +719,7 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
     assert_eq!(
         std::str::from_utf8(&bytes).unwrap(),
         format!(
-            "ducktape.view.manifest\nApp\nWords\nclock,module,\n560\n{}\nchat,identity,",
+            "ducktape.view.manifest\nApp\nWords\nclock,module,\n560\n{}\nchat,identity,\nicons/hammer.svg",
             wire::WIRE_ID
         )
     );
@@ -727,14 +728,18 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
     assert_eq!(manifest.wire_id, wire::WIRE_ID);
     assert_eq!(manifest.capabilities, App::CAPABILITIES);
     assert_eq!(manifest.targets, App::TARGETS);
+    assert_eq!(manifest.icon, App::ICON);
     assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
-    // a view that declares nothing is laid out from 480 and reaches no method
+    // a view that declares nothing is laid out from 480, reaches no method
+    // and has no icon
     assert_eq!(<UniformProbe as View>::MIN_WINDOW_WIDTH, 480);
     assert_eq!(<UniformProbe as View>::DESCRIPTION, "");
+    assert_eq!(<UniformProbe as View>::ICON, "");
     assert!(<UniformProbe as View>::CAPABILITIES.is_empty());
     let bytes: [u8; manifest_len::<UniformProbe>()] =
         manifest_bytes::<UniformProbe, { manifest_len::<UniformProbe>() }>();
     let manifest = wire::manifest::Manifest::parse(std::str::from_utf8(&bytes).unwrap()).unwrap();
     assert_eq!(manifest.min_width, 480);
     assert_eq!(manifest.name, "UniformProbe");
+    assert_eq!(manifest.icon, "");
 }

@@ -120,18 +120,19 @@ pub const fn manifest_len<V: View>() -> usize {
         len += V::TARGETS[i].len() + 1;
         i += 1;
     }
-    len
+    len + 1 + V::ICON.len()
 }
 
 // the lines written below, in this order: a line added to the manifest
 // is added here and to `Manifest::parse` together
-const _: () = assert!(wire::manifest::LINES.len() == 7);
+const _: () = assert!(wire::manifest::LINES.len() == 8);
 
 /// The manifest text (`view_wire::manifest`: header, [`View::NAME`],
 /// [`View::DESCRIPTION`], [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`],
-/// [`wire::WIRE_ID`], [`View::TARGETS`]), at compile time: a width outside
-/// `1..=8192`, a target that is not a program name, or no target where
-/// the capabilities could address a program, fails the build.
+/// [`wire::WIRE_ID`], [`View::TARGETS`], [`View::ICON`]), at compile time: a
+/// width outside `1..=8192`, a target that is not a program name, no target
+/// where the capabilities could address a program, or an icon that is not
+/// an asset path ([`wire::manifest::is_icon`]), fails the build.
 pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
     assert!(
         V::MIN_WINDOW_WIDTH >= 1 && V::MIN_WINDOW_WIDTH <= wire::MAX_PIXELS as u32,
@@ -149,6 +150,10 @@ pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
         );
         i += 1;
     }
+    assert!(
+        wire::manifest::is_icon(V::ICON),
+        "ICON is empty or the path of an asset the app bundles (icons/hammer.svg), at most 64 bytes"
+    );
     let mut out = [0u8; N];
     let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
     at = put(&mut out, at, V::NAME.as_bytes());
@@ -172,6 +177,8 @@ pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
         at = put(&mut out, at, b",");
         i += 1;
     }
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, V::ICON.as_bytes());
     assert!(at == N);
     out
 }

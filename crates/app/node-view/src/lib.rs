@@ -66,6 +66,7 @@ pub(crate) const SILENT_TICKS: u64 = 3;
 impl View for Nodes {
     const NAME: &'static str = "Nodes";
     const DESCRIPTION: &'static str = "The network this app talks to: its height and epoch, and every member, with how far each validator's signature is from the tip.";
+    const ICON: &'static str = "icons/server.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
         Capability::Module,
