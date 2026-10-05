@@ -540,9 +540,10 @@ fn a_mark_pressed_asks_the_host_for_the_edit_and_hands_the_keys_back() {
     });
 }
 
-/// A view that makes a draft only once something is typed into it and
-/// until then draws a temporary one: the mistake chat made for a room
-/// nobody wrote in yet.
+/// A view that draws its composer from a draft that is not in its state:
+/// it keeps a draft only once something is typed, and until then lowers a
+/// temporary one made in `render`. The mistake chat made for a room nobody
+/// wrote in yet; no view may make it.
 #[derive(Default, Serialize, Deserialize)]
 struct LazyDraft {
     draft: Option<Draft>,
@@ -576,18 +577,18 @@ impl Render for LazyDraft {
     }
 }
 
-/// The composer's own listener still decides for a draft: the binding
-/// lands each change in the field the editor was drawn from, here the
-/// temporary one, which is dropped with its frame, and the draft the view
-/// makes in its listener takes a change by `Draft::changed`, on its own
-/// document. So the change that made the draft is not a word on it (the
-/// temporary was another document, as it was before the field was bound),
-/// and every change from the next frame on is. To the writer the first
-/// thing typed is gone: the next frame shows the new draft's document,
-/// empty, and the host takes its text from it. The `"hi"` below is the
-/// whole field typed again, not an `i` after the `h`.
+/// A change is the host's word on the document the frame lowered, and no
+/// other document takes it: the SDK keeps that, since a document the view
+/// reset must not take a word on the one it left. So what is typed into a
+/// field that is not in the view's state is lost. The binding lands the
+/// change in the temporary draft the editor was drawn from, which went with
+/// its frame; the draft the view makes in its listener is another document
+/// and refuses it. The next frame shows that draft's document, empty, and
+/// the host takes its text from it: to the writer the first thing typed is
+/// gone. Every change from that frame on is the draft's. (The `"hi"` below
+/// is the whole field typed again, not an `i` after the `h`.)
 #[test]
-fn a_change_to_a_temporary_draft_is_the_views_draft_to_take() {
+fn what_is_typed_into_a_draft_made_in_render_is_lost() {
     let mut cx = TestAppContext::new();
     let view = cx.open::<LazyDraft>();
     view.read(|view| assert!(view.draft.is_none()));
