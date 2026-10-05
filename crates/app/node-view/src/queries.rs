@@ -1,6 +1,5 @@
 //! Typed reads of valset, folded into one row per key.
-use ducktape_view_guest::Host;
-use ducktape_view_guest::host::Error;
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use valset::{Membership, PageRequest, Role, ask};
 

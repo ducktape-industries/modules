@@ -1,6 +1,6 @@
 //! The programs this view speaks to, by the methods in `view_wire::methods`:
 //! forge (its own) and chat (the discussion threads).
-use ducktape_view_guest::methods::{Query, Submit};
+use ducktape_view_guest::prelude::*;
 
 pub use ducktape_view_guest::methods::{HostSession, Session};
 

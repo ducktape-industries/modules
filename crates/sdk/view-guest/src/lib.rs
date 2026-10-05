@@ -44,20 +44,30 @@ pub use primitives::{
 pub use rich_text::{InteractiveText, StyledText};
 pub use view_element::{AnyView, ViewElement};
 
-/// Traits and primitives used to compose guest GPUI elements.
+/// Every SDK name a view file writes, in one import:
+/// `use ducktape_view_guest::prelude::*;`. gpui's names (elements, styles,
+/// `Render`, `Context`, `Window`), the view's own ([`View`], [`Loadable`],
+/// [`Task`], [`Host`], [`Error`](crate::host::Error), `export_view!`), the
+/// [`design`](crate::design) module, and the [`methods`](crate::methods)
+/// module whole: the method markers (`HostSession`, `Changes`, `Submit`)
+/// and the request and reply types beside them. A program's types come
+/// from the program's crate; an explicit import of a name wins over this
+/// glob (`use forge::Query;`).
 pub mod prelude {
+    pub use crate::host::Error;
+    pub use crate::methods::*;
     pub use crate::{
         AnyElement, AnyView, App, ClickEvent, Context, Element, ElementId, Entity, EventEmitter,
-        FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, HoverListenerMode, Hsla,
-        Input, InteractiveElement, InteractiveText, IntoElement, KeyDownEvent, KeyUpEvent, List,
-        ListAlignment, ListHorizontalSizingBehavior, ListOffset, ListScrollEvent,
-        ListSizingBehavior, ListState, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-        MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ParentElement,
-        PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy,
+        FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, Host, HoverListenerMode,
+        Hsla, Input, InteractiveElement, InteractiveText, IntoElement, KeyDownEvent, KeyUpEvent,
+        List, ListAlignment, ListHorizontalSizingBehavior, ListOffset, ListScrollEvent,
+        ListSizingBehavior, ListState, Loadable, ModifiersChangedEvent, MouseButton,
+        MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent,
+        ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy,
         ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-        StyledText, Subscription, TextField, Textarea, Theme, UniformListScrollHandle, Window,
-        anchored, canvas, deferred, div, hsla, img, list, modal_overlay, px, rems, resize_handle,
-        rgb, sensor, svg, uniform_list,
+        StyledText, Subscription, Task, TextField, Textarea, Theme, UniformListScrollHandle, View,
+        Window, anchored, canvas, deferred, design, div, export_view, hsla, img, list,
+        modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
     };
 }
 mod text;

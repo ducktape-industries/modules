@@ -3,7 +3,6 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
     Div, FontStyle, FontWeight, HighlightStyle, Stateful, StrikethroughStyle, UnderlineStyle,

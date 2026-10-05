@@ -1,10 +1,6 @@
 //! The small controls on a message card: the action strip's buttons, a
 //! reaction, and the way into a thread.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    ClickEvent, ElementId, ParentElement, Role, Styled, Theme, Window, div, px,
-};
 
 /// An action strip button's height, the smallest box a pointer presses
 /// (the door's AX-017): the strip, borders and all, is 26. Its width is

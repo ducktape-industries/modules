@@ -3,9 +3,6 @@
 //! (`table.rs`) in one of its four states. `render` reads the state and
 //! changes nothing.
 use abi::hex;
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::design;
-use ducktape_view_guest::methods::NodeStatus;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight};
 

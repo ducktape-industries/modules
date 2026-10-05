@@ -4,11 +4,8 @@
 //! a time (`logs`), every other read whole (`data`).
 use std::collections::BTreeSet;
 
-use ducktape_view_guest::Context;
-use ducktape_view_guest::Loadable;
 use ducktape_view_guest::Paged;
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::Change;
+use ducktape_view_guest::prelude::*;
 
 use crate::api::Session;
 use crate::queries::{self, PAGE};

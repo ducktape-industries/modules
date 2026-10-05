@@ -418,7 +418,9 @@ fn an_empty_thread_says_so_and_its_field_takes_focus() {
 fn a_link_to_a_forge_room_lands_in_it() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
-    let routes = cx.host().stream::<api::HostRoute>();
+    let routes = cx
+        .host()
+        .stream::<ducktape_view_guest::methods::HostRoute>();
     let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Chat>();
     props.send(Session {

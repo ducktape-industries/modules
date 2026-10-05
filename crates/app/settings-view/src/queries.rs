@@ -1,8 +1,8 @@
 //! Typed reads: who the seated key is (identity), and whether each of its
 //! keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
-use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, malformed};
+use ducktape_view_guest::host::malformed;
+use ducktape_view_guest::prelude::*;
 use identity::{Control, Kind, PageRequest, Reference, Standing};
 use serde::{Deserialize, Serialize};
 

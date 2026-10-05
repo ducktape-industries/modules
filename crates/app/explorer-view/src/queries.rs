@@ -1,8 +1,7 @@
 //! Typed reads of the system programs: accounts (identity), validators
 //! (valset) and programs (module-registry). The window's blocks are the
 //! host's (`load.rs`).
-use ducktape_view_guest::Host;
-use ducktape_view_guest::host::Error;
+use ducktape_view_guest::prelude::*;
 use module_registry as registry;
 
 use crate::state::{Accounts, Network};

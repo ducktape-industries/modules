@@ -7,9 +7,9 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::rc::Rc;
 
-use ducktape_view_guest::design::{self, space, text};
+use ducktape_view_guest::design::{space, text};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, KeyDownEvent, Stateful};
+use ducktape_view_guest::{Div, Stateful};
 
 use crate::Forge;
 use crate::tree::{Key, Row, Slot};

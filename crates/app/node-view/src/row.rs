@@ -1,8 +1,7 @@
 //! What one member's row says in its Height, Behind and Status cells, from
 //! what the view holds. Pure, so every state is a unit test. A resident's
 //! cells say nothing: its sync state is not reported.
-use ducktape_view_guest::design;
-use ducktape_view_guest::methods::NetworkStatus;
+use ducktape_view_guest::prelude::*;
 
 use crate::queries::Node;
 

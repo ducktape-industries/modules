@@ -3,9 +3,8 @@
 //! navigation and drafts, never wire records.
 use std::collections::{BTreeMap, BTreeSet};
 
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::{Entity, Paged, Subscription};
-use ducktape_view_guest::{Task, TextField, UniformListScrollHandle};
+use ducktape_view_guest::Paged;
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::api::Session;

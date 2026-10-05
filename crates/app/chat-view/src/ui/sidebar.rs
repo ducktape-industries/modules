@@ -1,11 +1,6 @@
 //! The channel and direct-message pane, authored as native GPUI elements.
 
-use ducktape_view_guest::AnyElement;
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    ClickEvent, Context, ElementId, ParentElement, Role, Styled, Theme, div, px,
-};
 
 use chat::{ChannelInfo, Principal};
 

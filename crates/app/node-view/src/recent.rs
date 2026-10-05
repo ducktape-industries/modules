@@ -2,7 +2,7 @@
 //! page at a time from `chain.blocks` and kept by height, so a new head, a
 //! gap after a reconnect and the first fill are one rule: ask for the
 //! highest height of the span not held yet.
-use ducktape_view_guest::methods::{Block, BlockPage};
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops::RangeInclusive;

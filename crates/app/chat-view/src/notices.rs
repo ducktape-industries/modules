@@ -5,8 +5,7 @@
 use std::collections::BTreeMap;
 
 use chat::{Block, ChannelInfo, Mark, MsgRow, Principal};
-use ducktape_view_guest::Context;
-use ducktape_view_guest::methods::{HostBadge, Notification, NotifyPost, NotifySeen};
+use ducktape_view_guest::prelude::*;
 
 use crate::message::message_body;
 use crate::names::dm_peer_of;

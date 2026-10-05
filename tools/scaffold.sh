@@ -275,11 +275,10 @@ EOF
     cat > "$dir/src/lib.rs" <<EOF
 //! $title: the count the \`$program\` module keeps, re-read on every live
 //! bump of the module.
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::{Capability, Changes};
-// gpui's names: elements, styles, \`Render\`, \`Context\`, \`Window\`
+// every SDK name this file writes: gpui's (elements, styles, \`Render\`,
+// \`Context\`, \`Window\`), the view's (\`View\`, \`Loadable\`, \`Host\`,
+// \`Error\`, \`export_view!\`) and the methods' (\`Capability\`, \`Changes\`)
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Host, Loadable, View, export_view};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default)]

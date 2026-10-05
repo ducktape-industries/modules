@@ -2,9 +2,8 @@
 //! with the blocks it led of the strip and its Height, Behind and Status
 //! cells (`row.rs`), then a line on where those come from.
 use abi::hex;
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Loadable, Stateful};
+use ducktape_view_guest::{Div, Stateful};
 
 use crate::queries::Node;
 use crate::recent::{Recent, WINDOW};

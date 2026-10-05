@@ -3,11 +3,8 @@
 //! line here, because it arrives as one.
 //!
 //! Every row is virtual, and a line's gutter number is its comment button.
-use ducktape_view_guest::design;
-use std::rc::Rc;
-
-use ducktape_view_guest::ScrollStrategy;
 use ducktape_view_guest::prelude::*;
+use std::rc::Rc;
 
 use crate::Forge;
 use crate::state::ReviewSession;

@@ -1,15 +1,8 @@
 //! Native GPUI message lists. The room and thread use native variable-height lists;
 //! callbacks still call the root view's existing message operations.
 
-use ducktape_view_guest::design;
+use ducktape_view_guest::list as gpui_list;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    ClickEvent, Context, FollowMode, ListAlignment, ListSizingBehavior, ListState, ParentElement,
-    Role, Styled, Theme, div, list as gpui_list, px,
-};
-
-use ducktape_view_guest::AnyElement;
-use ducktape_view_guest::Loadable;
 
 use crate::message::{ChatMessage, new_day, unread_seq};
 use crate::ui::room::selection_bar;

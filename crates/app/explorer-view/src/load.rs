@@ -3,9 +3,7 @@
 //! says it does (`module.describe`). A list is read with `cx.reload`,
 //! which keeps what is on screen while it reads again and draws only what
 //! changed.
-use ducktape_view_guest::Context;
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::methods::{BlockPage, ChainBlocks, ChainStatus, Head, ModuleDescribe};
+use ducktape_view_guest::prelude::*;
 
 use crate::chain::{BlockRow, TxRow};
 use crate::{Explorer, PAGE, WINDOW, decode, queries};

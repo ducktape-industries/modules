@@ -4,9 +4,7 @@
 //! straight away, keeps saying so while the block that carries it is on its
 //! way, and a refusal replaces it with the reason inline. Nothing is guessed
 //! into the lists — the next query reconciles them.
-use ducktape_view_guest::methods::HostId;
-use ducktape_view_guest::methods::Submit;
-use ducktape_view_guest::{Context, TextField, Window};
+use ducktape_view_guest::prelude::*;
 
 use crate::api::SubmitForge;
 use crate::state::{ChangeForm, Forge, NewRepo, Pending, Progress, change_key};

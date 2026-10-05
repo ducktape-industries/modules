@@ -1,7 +1,7 @@
 //! The Code tab's file tree: a directory's children open inline beneath
 //! it. Each expanded directory is its own lazy `Query::Tree`; the rows on
 //! screen are a walk of whatever of those has landed.
-use ducktape_view_guest::{Context, ScrollStrategy};
+use ducktape_view_guest::prelude::*;
 
 use crate::queries::PAGE;
 use crate::state::Forge;

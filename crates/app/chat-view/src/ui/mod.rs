@@ -9,12 +9,8 @@ pub mod side;
 pub mod sidebar;
 mod timeline;
 
-use ducktape_view_guest::design;
 pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, quiet};
-use ducktape_view_guest::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Theme, div, hsla,
-    modal_overlay,
-};
+use ducktape_view_guest::prelude::*;
 
 use crate::Chat;
 

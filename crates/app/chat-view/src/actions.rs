@@ -1,10 +1,8 @@
 //! What a press does: the message menus, the writes (reactions, deletes,
 //! the channel's details, new channels), copying and links.
 use chat::{MsgRow, Op, PostPolicy, Principal};
-use ducktape_view_guest::Context;
-use ducktape_view_guest::host::Error;
+use ducktape_view_guest::prelude::*;
 
-use crate::api::{ClipboardWrite, HostId, Submit};
 use crate::composer::Target;
 use crate::message::{ChatMessage, chat_message, mark_message_groups};
 use crate::{Chat, Control, Menu, Mode, Pane, links};

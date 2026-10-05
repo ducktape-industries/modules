@@ -1,11 +1,9 @@
 //! Who reads: the session the host hands over (the seated key and the
 //! account it holds), and what that lets them do in the open room.
 use chat::Principal;
-use ducktape_view_guest::Context;
-use ducktape_view_guest::Loadable;
+use ducktape_view_guest::prelude::*;
 
 use crate::Chat;
-use crate::api::Session;
 use crate::queries::{channels, roster};
 
 /// Why the reader may not write in the open room.

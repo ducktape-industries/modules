@@ -1,6 +1,6 @@
 //! Writing a review: what is staged, at which anchor, and the one operation
 //! it all becomes. A refusal keeps every draft.
-use ducktape_view_guest::{Context, TextField};
+use ducktape_view_guest::prelude::*;
 
 use crate::state::{Forge, PendingComment, ReviewSession, change_key};
 use forge::{Op, ReviewDraft, Verdict};

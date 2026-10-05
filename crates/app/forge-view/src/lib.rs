@@ -24,9 +24,7 @@ mod navigate;
 mod review;
 mod ui;
 
-use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::methods::{Changes, HostRoute, HostVisible};
-use ducktape_view_guest::{Context, IntoElement, Render, View, Window, export_view};
+use ducktape_view_guest::prelude::*;
 
 use api::HostSession;
 use program::role::Identity;

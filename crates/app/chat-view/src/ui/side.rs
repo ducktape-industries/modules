@@ -1,11 +1,7 @@
 //! Thread and channel-details panes.
 
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, Div, ElementId, ParentElement, Stateful, Styled, TextField,
-    Theme, div, px,
-};
+use ducktape_view_guest::{Div, Stateful};
 
 use super::timeline;
 use crate::Chat;

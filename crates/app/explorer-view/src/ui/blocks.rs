@@ -1,6 +1,5 @@
 //! The Blocks tab and one block.
 use super::*;
-use ducktape_view_guest::design;
 
 pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let now = view.chain.now();

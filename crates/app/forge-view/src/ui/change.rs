@@ -1,18 +1,14 @@
 //! One Change: its header, the three tabs a reviewer lives in, and its
 //! details beside them. Conversation is chat's hidden channel; Files is
 //! the reviewer's home.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnchoredPositionMode, Div, FontWeight, MouseDownEvent, Point, Stateful, TextField,
-};
+use ducktape_view_guest::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
 
 use crate::Forge;
 use crate::state::{ChangeTab, verdict_label};
 use crate::ui::changes::{revision_name, state_chip};
 use crate::ui::components::{badge, button, heading, id, path_text, quiet, ref_label, short_hex};
 use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, scroller, staged};
-use ducktape_view_guest::Anchor;
 use forge::{Change, ChangeState, FileDiff, Query, Reply, Verdict};
 
 /// The Files tab's file list.

@@ -1,10 +1,7 @@
 //! The open room: opening, landing, paging history, the thread beside it and
 //! what the reader has read.
 use chat::{ChannelInfo, MsgRow, PageRequest, Principal, ask};
-use ducktape_view_guest::Context;
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::Change;
+use ducktape_view_guest::prelude::*;
 
 use crate::composer::Target;
 use crate::queries;

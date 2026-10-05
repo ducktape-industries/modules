@@ -1,11 +1,10 @@
 //! State stored by the root view and its panes.
 use chat::{ChannelInfo, MemberRow, MsgRow};
-use ducktape_view_guest::{Loadable, TextField};
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use crate::api::Session;
 use crate::composer::Draft;
 use chat::view::Names;
 

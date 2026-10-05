@@ -2,8 +2,7 @@
 //! `PageResponse`; `next` is the cursor of the page after it.
 use chat::view::Names;
 use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
-use ducktape_view_guest::Host;
-use ducktape_view_guest::host::Error;
+use ducktape_view_guest::prelude::*;
 
 use crate::{PAGE, WINDOW};
 

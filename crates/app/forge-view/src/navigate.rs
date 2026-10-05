@@ -1,6 +1,6 @@
 //! Where the reader is: every event that moves between screens, tabs,
 //! files and panels. A move clears the notice and re-syncs the reads.
-use ducktape_view_guest::{ClickEvent, Context, Window};
+use ducktape_view_guest::prelude::*;
 
 use crate::Stage;
 use crate::state::{ChangeTab, Dock, Filter, Forge, RepoTab, SettingsForm, change_key};

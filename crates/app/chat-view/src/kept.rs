@@ -4,7 +4,7 @@
 //! reader by the key.
 use std::collections::BTreeMap;
 
-use ducktape_view_guest::Context;
+use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::store;
 
 use crate::Chat;

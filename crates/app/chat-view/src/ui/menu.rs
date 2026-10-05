@@ -2,12 +2,8 @@
 use crate::composer::Target;
 use crate::emoji;
 use crate::{Chat, Menu, Mode, Pane};
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    Anchor, AnchoredPositionMode, AnyElement, App, ClickEvent, Context, Edges, ElementId,
-    ParentElement, Point, RenderOnce, Role, Theme, Window,
-};
+use ducktape_view_guest::{Anchor, AnchoredPositionMode, Edges, Point};
 
 // A popup's size is fixed from these, so it never jumps under the pointer.
 const ROW: f32 = design::height::CONTROL as f32;

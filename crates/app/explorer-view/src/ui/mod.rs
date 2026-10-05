@@ -2,15 +2,12 @@
 //! hashes and numbers in the data face.
 use std::ops::Range;
 
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::decode::{ago, clip, date, grouped, plural, short};
 use crate::{BlockRow, Explorer, Note, Route, TxRow};
 use design::{empty_state, mono};
-use ducktape_view_guest::methods::{Outcome, Receipt};
 
 /// The most rows one list draws; the rest is reached by search.
 const LIST_ROWS: usize = 50;

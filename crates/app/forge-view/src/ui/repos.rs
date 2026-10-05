@@ -1,6 +1,5 @@
 //! The repositories: the full list when nothing is open, the rail that
 //! switches between them when something is.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, Stateful, wire};
 

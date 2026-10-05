@@ -15,12 +15,7 @@
 mod activity;
 mod ui;
 
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::export_view;
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::methods::{Changes, HostSession};
-use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, TextField, View, Window};
+use ducktape_view_guest::prelude::*;
 use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
 

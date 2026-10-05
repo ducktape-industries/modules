@@ -1,9 +1,8 @@
 //! What chat follows while it is open: the session, routes opened into
 //! it, whether it is on screen, and the live heads of chat and identity.
 //! Every follower says what a refusal means to it; none ends on one.
-use ducktape_view_guest::Context;
+use ducktape_view_guest::prelude::*;
 
-use crate::api::{Changes, HostRoute, HostSession, HostVisible};
 use crate::{Chat, links};
 use program::role::Identity;
 

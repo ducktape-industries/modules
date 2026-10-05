@@ -1,9 +1,8 @@
 //! The state Settings keeps: what it read, and each form as typed.
-use ducktape_view_guest::{Loadable, TextField};
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::api::{Invite, Session};
 use crate::queries::Seat;
 
 /// The invite lifetimes offered, in days.

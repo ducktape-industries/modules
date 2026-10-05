@@ -1,6 +1,5 @@
 //! A change's conversation: its body, its reviews, and the replies in
 //! chat's hidden channel beneath them, with a composer at the end.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 
 use crate::Forge;
@@ -9,7 +8,6 @@ use crate::ui::components::{
     badge, button, empty_state, id, path_text, quiet, ref_label, short_hex,
 };
 use crate::ui::scroller;
-use ducktape_view_guest::Loadable;
 use forge::ChangeState;
 
 /// A review's body and comments start under its author's name, past the

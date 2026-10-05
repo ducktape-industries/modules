@@ -1,8 +1,7 @@
 //! What Explorer follows while it is open: the chain's heads, the session,
 //! links opened into it, and the live heads of the programs whose lists it
 //! shows. Every follower says what a refusal means to it; none ends on one.
-use ducktape_view_guest::Context;
-use ducktape_view_guest::methods::{ChainHeads, Changes, HostRoute, HostSession};
+use ducktape_view_guest::prelude::*;
 use identity::Identity;
 use module_registry::Modules;
 use valset::Valset;

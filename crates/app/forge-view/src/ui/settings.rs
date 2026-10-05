@@ -1,7 +1,6 @@
 //! Repository settings: the default head, the force/delete flags and who
 //! may write, as setting rows. Nothing the contract does not expose
 //! appears here.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 

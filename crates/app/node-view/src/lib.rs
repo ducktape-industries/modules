@@ -12,12 +12,8 @@
 //! The members are valset's (`queries.rs`), re-read on its live heads; the
 //! status, the network and the strip's blocks (`recent.rs`) follow the
 //! clock, one ask of each in flight at a time.
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::methods::{
-    self, ChainBlocks, ChainNetwork, ChainStatus, Changes, ClockTicks, NetworkStatus, NodeStatus,
-};
-use ducktape_view_guest::{Context, IntoElement, Loadable, Render, View, Window, export_view};
+use ducktape_view_guest::methods;
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use valset::Valset;
 

@@ -1,8 +1,6 @@
 //! The channel creation dialog.
 
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{AnyElement, ClickEvent, Context, ParentElement, Styled, Theme, div, px};
 
 use crate::{ChannelCreate, Chat};
 

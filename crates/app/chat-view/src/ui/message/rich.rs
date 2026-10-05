@@ -1,5 +1,4 @@
 use super::*;
-use ducktape_view_guest::design;
 
 pub(super) fn plain_line(id: ElementId, text: &str, mono: bool) -> InteractiveText {
     let styled = StyledText::new(text.to_owned());

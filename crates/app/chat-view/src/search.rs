@@ -1,6 +1,6 @@
 //! Message search: `#tag` pages through the tag index, anything else is a
 //! full-text search the program caps.
-use ducktape_view_guest::{Context, Loadable};
+use ducktape_view_guest::prelude::*;
 
 use crate::queries::search_hits;
 use crate::{Chat, Hits, Search};
