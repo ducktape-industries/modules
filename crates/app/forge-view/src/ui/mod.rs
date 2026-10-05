@@ -264,7 +264,7 @@ fn title(forge: &Forge, name: &str, cx: &mut Context<Forge>, theme: &Theme) -> A
                     "owner {owner} · {} · active",
                     design::plural(info.repo.refs_count, "ref", "refs")
                 ))
-                .child(design::block_link(
+                .child(block_link(
                     id("forge-repo-activity"),
                     info.repo.last_activity,
                     theme,
@@ -300,6 +300,19 @@ fn title(forge: &Forge, name: &str, cx: &mut Context<Forge>, theme: &Theme) -> A
 pub(crate) fn repo_link(forge: &Forge, name: &str) -> String {
     ducklink::mint(&forge.session.chain_id, forge::MODULE, &[name])
         .unwrap_or_else(|| format!("duck://<network>/forge/{name}"))
+}
+
+/// `duck://explorer/block/<height>`: the host's short link to a view on
+/// this connection, Explorer at that block.
+pub(crate) fn block_href(height: u64) -> String {
+    format!("duck://explorer/block/{height}")
+}
+
+/// `block 1,024`, opening Explorer at that block.
+pub(crate) fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> Stateful<Div> {
+    let label = format!("block {}", design::grouped(height));
+    design::link(id, label.clone(), block_href(height), theme)
+        .aria_label(format!("Open {label} in Explorer"))
 }
 
 /// The picked ref as a dropdown at the head of the tab bar: branches, the

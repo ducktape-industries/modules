@@ -247,6 +247,15 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
             .requests::<ducktape_view_guest::methods::LinkOpen>(),
         vec!["duck://explorer/account/7".to_owned()]
     );
+    // an activity row's block opens Explorer at that block
+    cx.simulate_click("members-block-0");
+    assert_eq!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::LinkOpen>()
+            .last()
+            .map(String::as_str),
+        Some("duck://explorer/block/12")
+    );
     // a managed agent is chosen in place
     cx.simulate_click("members-manages-9");
     cx.run_until_parked();

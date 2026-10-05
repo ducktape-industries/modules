@@ -291,7 +291,7 @@ fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: 
                 .justify_end()
                 .role(Role::GridCell)
                 .child(design::item(
-                    design::block_link(
+                    crate::ui::block_link(
                         id(format!("forge-repo-{}-activity", info.name)),
                         info.repo.last_activity,
                         theme,
@@ -382,9 +382,7 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                     cx.notify();
                 }
                 _ => {
-                    let link =
-                        design::explorer::link(&design::explorer::block_path(heights[index]));
-                    cx.host().open_link(&link);
+                    cx.host().open_link(&crate::ui::block_href(heights[index]));
                 }
             }
         }))
