@@ -133,6 +133,28 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# A view's redraw is fuel per instruction, and a view redraws on every
+# event: the views and the SDK crates only they link are built for speed.
+# Programs link none of these, so their bytes are the size profile's.
+[profile.release.package.chat-view]
+opt-level = 3
+[profile.release.package.forge-view]
+opt-level = 3
+[profile.release.package.members-view]
+opt-level = 3
+[profile.release.package.node-view]
+opt-level = 3
+[profile.release.package.explorer-view]
+opt-level = 3
+[profile.release.package.settings-view]
+opt-level = 3
+[profile.release.package.ducktape-view-guest]
+opt-level = 3
+[profile.release.package.view-wire]
+opt-level = 3
+[profile.release.package.gpui-pre]
+opt-level = 3
+
 # `make wasm-why`: the release bytes with their names, so twiggy can say
 # whose they are. Its own output dir; nothing ships from it.
 [profile.why]
