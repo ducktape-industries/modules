@@ -1,5 +1,4 @@
 //! Message menus at the pointer and the edit composer under its stream.
-use crate::composer::Target;
 use crate::emoji;
 use crate::{Chat, Menu, Mode, Pane};
 use ducktape_view_guest::prelude::*;
@@ -148,15 +147,10 @@ fn popup_geometry(menu: &Menu, items: usize) -> Option<(Pair, Option<Pair>)> {
 }
 
 pub fn editing(chat: &Chat, pane: Pane, cx: &mut Context<Chat>) -> Option<AnyElement> {
-    let menu = chat.menu.as_ref()?;
-    if menu.mode != Mode::Editing || menu.pane != pane {
+    let target = chat.editing()?;
+    if chat.menu.as_ref()?.pane != pane {
         return None;
     }
-    let target = Target::Edit {
-        channel: chat.room_id(),
-        seq: menu.seq,
-        base_rev: menu.rev,
-    };
     // laid out as the composer under the stream: Cancel beside Save
     Some(
         div()

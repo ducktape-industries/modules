@@ -1,6 +1,6 @@
 //! The composer's events for one target, run through its draft: the
-//! sends it makes.
-use crate::composer::{Event, MentionChoice, Outcome, Send, Target, pending_row};
+//! sends it makes, and which drafts are kept.
+use crate::composer::{Draft, Event, MentionChoice, Outcome, Send, Target, pending_row};
 use crate::names::mention_token;
 use crate::{Chat, Mode};
 use ducktape_view_guest::prelude::*;
@@ -35,7 +35,11 @@ impl Chat {
         cx.notify();
         let choices = self.mention_choices();
         let key = target.key();
-        let draft = self.drafts.entry(key.clone()).or_default();
+        // the draft the frame drew; none is an event that came in the tick
+        // its composer left the screen
+        let Some(draft) = self.drafts.get_mut(&key) else {
+            return;
+        };
         if let Outcome::Action(tag) = draft.handle(event, &key, &choices, window)
             && tag == "send"
             && let Some(send) = draft.submitted.take()
@@ -43,6 +47,41 @@ impl Chat {
             draft.in_flight.push(send.clone());
             self.send(key, send, target, cx);
         }
+    }
+
+    /// Makes the drafts agree with the screen, wherever the room or the
+    /// thread on it changes: every composer the next frame draws has its
+    /// draft, so the draft a frame lowers is the one that hears what is
+    /// typed into it, and render makes none. (An edit's is seeded where its
+    /// menu opens.) A draft whose composer is off screen stays while it
+    /// holds something: the map is saved whole, and must not grow with
+    /// every room ever opened.
+    pub(crate) fn seat_drafts(&mut self) {
+        let mut shown = Vec::new();
+        if let Some(room) = &self.room {
+            let post = |thread| {
+                let channel = room.id.clone();
+                Target::Post { channel, thread }.key()
+            };
+            shown.push(post(None));
+            shown.extend(room.thread.as_ref().map(|thread| post(Some(thread.root))));
+        }
+        shown.extend(self.editing().map(|target| target.key()));
+        self.drafts
+            .retain(|key, draft| shown.contains(key) || !blank(draft));
+        for key in shown {
+            self.drafts.entry(key).or_default();
+        }
+    }
+
+    /// The message the open menu edits, as its composer's target.
+    pub(crate) fn editing(&self) -> Option<Target> {
+        let menu = self.menu.as_ref().filter(|m| m.mode == Mode::Editing)?;
+        Some(Target::Edit {
+            channel: self.room_id(),
+            seq: menu.seq,
+            base_rev: menu.rev,
+        })
     }
 
     fn send(&mut self, key: String, send: Send, target: Target, cx: &mut Context<Self>) {
@@ -62,6 +101,8 @@ impl Chat {
             .await;
             let _ = this.update(cx, |chat, cx| {
                 cx.notify();
+                // kept since the send, in flight; were it gone, a refused
+                // send still needs a draft to wait in
                 let draft = chat.drafts.entry(key).or_default();
                 draft.complete_send(&send);
                 match result {
@@ -114,4 +155,13 @@ impl Chat {
             name,
         })
     }
+}
+
+/// Nothing a reader would miss: the draft shows what a new one would.
+fn blank(draft: &Draft) -> bool {
+    draft.field.text().is_empty()
+        && draft.note.is_empty()
+        && draft.failed_send.is_none()
+        && draft.submitted.is_none()
+        && draft.in_flight.is_empty()
 }

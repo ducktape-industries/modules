@@ -246,6 +246,7 @@ fn thread_root_uses_reply_count_as_a_separator() {
             replies: Loadable::Ready(Vec::new()),
             ..Thread::default()
         });
+        chat.seat_drafts();
         cx.notify();
     });
     cx.run_until_parked();
@@ -497,6 +498,7 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
             }]),
             ..Thread::default()
         });
+        chat.seat_drafts();
         cx.notify();
     });
     cx.run_until_parked();
