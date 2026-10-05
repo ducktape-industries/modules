@@ -133,10 +133,11 @@ pub struct Lowering<'a> {
     boundaries: Vec<(usize, u64)>,
     /// Every child entity placed so far: whether cached, and where. One
     /// entity has one kept subtree, so a cached placement is its only one.
-    placed: HashMap<u64, (bool, Vec<wire::ElementIdWire>)>,
+    pub(crate) placed: HashMap<u64, (bool, Vec<wire::ElementIdWire>)>,
     /// How many nodes this lowering produced (`TickReport::lowered`).
     pub(crate) lowered: usize,
-    /// The content of a tooltip: nothing in it is kept.
+    /// The content of a tooltip: nothing in it is kept, and nothing it
+    /// renders is recorded ([`Self::records`]).
     tooltip: bool,
     /// The debug check's re-lowering of a kept entity: every table answers
     /// what it holds and writes nothing.
@@ -273,19 +274,13 @@ impl<'a> Lowering<'a> {
     /// so its notify reaches the root.
     pub(crate) fn lower_child(&mut self, child: &Child) -> wire::Node {
         self.place(child, false);
-        if !self.scratch {
+        if self.records() {
             self.app
                 .inner
                 .parents
                 .borrow_mut()
                 .insert(child.id, self.owner());
-            *self
-                .app
-                .inner
-                .lowered
-                .borrow_mut()
-                .entry(child.id)
-                .or_default() += 1;
+            self.app.count_lowered(child.id);
             // a notify raised before this render is answered by it
             self.app
                 .inner
@@ -296,6 +291,14 @@ impl<'a> Lowering<'a> {
         }
         let element = (child.render)(self.window, self.app);
         self.lower_element(element)
+    }
+
+    /// Whether this lowering is the frame's: the one that writes the
+    /// tables. A tooltip's content and the debug check's re-lowering read
+    /// them and record nothing, so neither takes a notify the frame owes
+    /// nor files an entity under a parent it does not sit under.
+    fn records(&self) -> bool {
+        !self.scratch && !self.tooltip
     }
 
     /// A child entity placed cached (`entity.cached(style)`): its subtree
@@ -320,12 +323,13 @@ impl<'a> Lowering<'a> {
         let style = self.style(style);
         let content = self.lower_kept(child, |this, child| {
             let kept = this.app.inner.kept.borrow();
-            let same_path = kept
-                .get(&child.id)
-                .is_some_and(|entry| entry.path == this.authored_path);
+            // kept here: at the same path, under the owner that placed it
+            let same_place = kept.get(&child.id).is_some_and(|entry| {
+                entry.path == this.authored_path && entry.parent == this.owner()
+            });
             // notified before the frame, or during it before this point (a
             // fact its parent pushed from its render): rendered now
-            same_path
+            same_place
                 && !this.app.inner.rendering.borrow().holds(child.id)
                 && !this.app.inner.pending.borrow().holds(child.id)
         });
@@ -360,13 +364,7 @@ impl<'a> Lowering<'a> {
             false => {
                 if !self.scratch {
                     self.app.inner.parents.borrow_mut().insert(child.id, parent);
-                    *self
-                        .app
-                        .inner
-                        .lowered
-                        .borrow_mut()
-                        .entry(child.id)
-                        .or_default() += 1;
+                    self.app.count_lowered(child.id);
                     // a notify raised before this render is answered by it
                     self.app
                         .inner

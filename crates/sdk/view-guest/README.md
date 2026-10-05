@@ -296,12 +296,17 @@ again. A parent pushes a fact down from its own render,
 `child.update(cx, |child, cx| child.show(fact, cx))`, where `show` compares
 and notifies only when the fact moved: notified before its box is reached,
 the child renders in that frame; notified after (a subscription heard once
-the render is done), it renders next tick. A cached reader of another
-entity goes stale unless it observes
-(`cx.observe(&other, |this, _, cx| cx.notify())`), as in gpui. A child
-that mutates without `cx.notify()` is named by a debug panic in the view's
-tests: `Sidebar changed without cx.notify(): its render differs from what
-the host shows`. One entity is one element: a second `cached` placement of
+the render is done, a sibling placed later), it renders next tick. A kept
+child is not rendered again when its box resizes: the host lays the kept
+tree out every frame, so there is nothing to redo (gpui re-renders a cached
+view on a bounds change). A cached reader of another entity goes stale
+unless it observes (`cx.observe(&other, |this, _, cx| cx.notify())`), as in
+gpui. A child that mutates without `cx.notify()` is named by a debug panic
+in the view's tests: `Sidebar changed without cx.notify(): its render
+differs from what the host shows`; so is a cached render that reads a
+scroll handle's value (`is_scrolled_to_end()`, `logical_scroll_top_index()`),
+which moves without a notify: that read belongs in an entity that renders
+every frame. One entity is one element: a second `cached` placement of
 it in a frame, or a plain one beside a cached one, panics naming both
 paths, and a cached entity cannot be a list row's root.
 

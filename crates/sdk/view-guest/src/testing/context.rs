@@ -40,13 +40,13 @@ impl<V: View> TestDriver for Driver<V> {
         self.lowered
     }
     fn lowered_of(&self, entity: u64) -> u64 {
-        self.app
-            .inner
-            .lowered
-            .borrow()
-            .get(&entity)
-            .copied()
-            .unwrap_or(0)
+        #[cfg(target_arch = "wasm32")]
+        let _ = entity;
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(count) = self.app.inner.lowered.borrow().get(&entity) {
+            return *count;
+        }
+        0
     }
 }
 

@@ -377,3 +377,91 @@ fn a_hover_crosses_the_panes() {
         [before[0], before[1] + 2, before[2] + 1]
     );
 }
+
+/// The per-tick scenario's steps (`ticks/chat-keystroke-ticks.json`) on the
+/// fixture, with what each lowered: a keystroke, with nothing, the reaction
+/// picker, the channel details or a thread open, renders the root alone;
+/// a landing row and a hover render the pane's rows too. The counts are
+/// printed for the report (`--nocapture`); the fixture's `#general` has two
+/// rows where the stage has a window of them.
+#[test]
+fn the_scenarios_steps_lowered_nodes() {
+    let keystroke = |cx: &mut TestAppContext, view: &Entity<Chat>, step: &str| {
+        let (rooms, timeline, thread) = panes(view);
+        let before = (
+            cx.lowered(&rooms),
+            cx.lowered(&timeline),
+            cx.lowered(&thread),
+        );
+        cx.simulate_input("draft-general/editor", "a");
+        let report = cx.reports()[0];
+        eprintln!("{step}: lowered {} nodes {}", report.lowered, report.nodes);
+        assert!(report.rendered, "{step}: {report:?}");
+        assert_eq!(
+            (
+                cx.lowered(&rooms),
+                cx.lowered(&timeline),
+                cx.lowered(&thread)
+            ),
+            before,
+            "{step}: the cached panes stand in"
+        );
+    };
+    let (mut cx, view) = opened();
+    keystroke(&mut cx, &view, "keystroke in #general");
+    let (mut cx, view) = opened();
+    super::message::hover(&mut cx, &view, 1);
+    cx.simulate_click("chat-message-m1-react");
+    eprintln!(
+        "open the reaction picker: lowered {}",
+        cx.reports()[0].lowered
+    );
+    keystroke(&mut cx, &view, "keystroke with the picker open");
+    let (mut cx, view) = opened();
+    cx.simulate_click("chat-room-details");
+    eprintln!(
+        "open the channel details: lowered {}",
+        cx.reports()[0].lowered
+    );
+    keystroke(&mut cx, &view, "keystroke with the details open");
+    let (mut cx, view) = opened();
+    cx.update(&view, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        room.messages.ready_mut().unwrap()[0].reply_count = 1;
+        room.thread = Some(Thread {
+            root: 1,
+            replies: Loadable::Ready(vec![MsgRow {
+                thread: Some(1),
+                ..row(3, 8, "a reply")
+            }]),
+            ..Thread::default()
+        });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    eprintln!("open a thread: lowered {}", cx.reports()[0].lowered);
+    keystroke(&mut cx, &view, "keystroke with a thread open");
+    let (mut cx, view) = opened();
+    let (rooms, timeline, _) = panes(&view);
+    let before = (cx.lowered(&rooms), cx.lowered(&timeline));
+    cx.update(&view, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        room.messages
+            .ready_mut()
+            .unwrap()
+            .push(row(3, 8, "a new one"));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    eprintln!("a row lands: lowered {}", cx.reports()[0].lowered);
+    assert_eq!(
+        (cx.lowered(&rooms), cx.lowered(&timeline)),
+        (before.0, before.1 + 1)
+    );
+    cx.simulate_hover("chat-message-m2-row", true);
+    eprintln!("hover a row: lowered {}", cx.reports()[0].lowered);
+    assert_eq!(
+        (cx.lowered(&rooms), cx.lowered(&timeline)),
+        (before.0, before.1 + 2)
+    );
+}

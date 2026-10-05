@@ -8,7 +8,7 @@
 //! [`fill`] moves each kept subtree out of the base into its stand-in before
 //! anything reads the new tree; the base is then hollow exactly there, and
 //! the differ emits nothing for it.
-use crate::wire::{self, ElementIdWire, Node};
+use crate::wire::{ElementIdWire, Node};
 use crate::{AnyElement, App, Window};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -21,8 +21,8 @@ pub(crate) type ChildRenderer = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 pub(crate) struct Kept {
     /// The cached entity (or the root) whose render placed it.
     pub parent: u64,
-    /// The authored path its box sits at; it is reused there and nowhere
-    /// else.
+    /// The authored path its box sits at; it is reused there, under
+    /// `parent`, and nowhere else.
     pub path: Vec<ElementIdWire>,
     /// The cached boundaries open around it when it was lowered, outermost
     /// first: each owner, and how many segments of `path` were in before
@@ -155,7 +155,7 @@ pub(crate) fn same_shown(shown: &Node, held: &Node) -> bool {
     let own = |node: &Node| {
         let mut own = node.clone();
         for child in own.children_mut() {
-            *child = wire::Node::empty();
+            *child = Node::empty();
         }
         match &mut own {
             Node::UniformList { scroll_request, .. } => *scroll_request = None,

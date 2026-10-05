@@ -146,6 +146,8 @@ enum Layout {
     TwicePlain,
     /// `a` cached as a uniform list's row root.
     RowRoot,
+    /// `b` cached alone: `a` is not placed.
+    OnlyB,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -237,6 +239,7 @@ impl Render for Shell {
             Layout::RowRoot => root.child(uniform_list("rows", 1, move |_, _, _| {
                 vec![a.clone().cached(boxed(200.))]
             })),
+            Layout::OnlyB => root.child(b.cached(boxed(200.))),
         }
     }
 }
@@ -1040,4 +1043,259 @@ fn a_resync_after_kept_children_sends_a_whole_frame() {
     assert!(cx.has_text("a text") && cx.has_text("b text") && cx.has_text("root only"));
     assert_eq!(counts(&cx, &root, &a, &b), before.map(|n| n + 1));
     let _: TickReport = cx.tick(vec![]);
+}
+
+/// A cached parent holding a cached leaf and, after it, a plain child whose
+/// render pushes a fact into the leaf: the leaf is notified after its box
+/// was lowered, while its parent lowers.
+struct Mid {
+    leaf: Entity<Leaf>,
+    pusher: Entity<Pusher>,
+}
+struct Pusher {
+    leaf: Entity<Leaf>,
+    fact: Option<String>,
+}
+impl Render for Pusher {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(fact) = &self.fact {
+            self.leaf.update(cx, |leaf, cx| {
+                if leaf.text != *fact {
+                    leaf.text = fact.clone();
+                    cx.notify();
+                }
+            });
+        }
+        div().id("pusher").child("pusher")
+    }
+}
+impl Render for Mid {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("mid")
+            .size_full()
+            .child(self.leaf.clone().cached(boxed(100.)))
+            .child(self.pusher.clone())
+    }
+}
+#[derive(Default, Serialize, Deserialize)]
+struct Deep {
+    text: String,
+    #[serde(skip)]
+    mid: Option<Entity<Mid>>,
+}
+impl View for Deep {
+    const NAME: &'static str = "Deep";
+    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let leaf = cx.new(|_| Leaf::new("leaf"));
+        let pusher = cx.new(|_| Pusher {
+            leaf: leaf.clone(),
+            fact: None,
+        });
+        self.mid = Some(cx.new(|_| Mid { leaf, pusher }));
+    }
+}
+impl Render for Deep {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let mid = self.mid.clone().expect("attach built it");
+        div()
+            .id("deep")
+            .size_full()
+            .child(self.text.clone())
+            .child(mid.cached(boxed(300.)))
+    }
+}
+
+/// A `Deep` after a root-only frame: `Mid` is kept and stands in.
+fn opened_deep() -> (
+    TestAppContext,
+    Entity<Deep>,
+    Entity<Mid>,
+    Entity<Leaf>,
+    Entity<Pusher>,
+) {
+    let (mut cx, root) = opened::<Deep>();
+    let mid = root.read(|deep| deep.mid.clone().unwrap());
+    let (leaf, pusher) = mid.read(|mid| (mid.leaf.clone(), mid.pusher.clone()));
+    cx.update(&root, |deep, _, cx| {
+        deep.text = "root only".into();
+        cx.notify();
+    });
+    cx.tick(vec![]);
+    (cx, root, mid, leaf, pusher)
+}
+
+/// A notify raised during a cached parent's lowering after the child's box
+/// was passed (a plain sibling lowered later pushed a fact into it) is not
+/// answered by that frame: it reaches the root once the lowering ends, and
+/// the child renders next tick. The debug check stays silent: the child
+/// said `cx.notify()`.
+#[test]
+fn a_notify_raised_after_the_childs_box_in_its_parents_lowering_renders_it_next_tick() {
+    let (mut cx, _root, _mid, leaf, pusher) = opened_deep();
+    let before = cx.lowered(&leaf);
+    cx.update(&pusher, |pusher, _, cx| {
+        pusher.fact = Some("late".into());
+        cx.notify();
+    });
+    let first = cx.tick(vec![]);
+    assert!(first.rendered && first.busy, "{first:?}");
+    assert_eq!(
+        cx.lowered(&leaf),
+        before,
+        "not reached in the frame that passed its box"
+    );
+    let second = cx.tick(vec![]);
+    assert!(second.rendered, "{second:?}");
+    assert_eq!(cx.lowered(&leaf), before + 1);
+    assert!(cx.has_text("late"), "{:?}", cx.texts());
+    let third = cx.tick(vec![]);
+    assert!(!third.rendered && !third.busy, "{third:?}");
+}
+
+/// A kept subtree is reused under the owner that placed it, at the same
+/// path, and nowhere else: a plain parent holding a cached child becomes
+/// cached at the same authored path, and after a root-only frame the
+/// child's button still runs and its notify still reaches it.
+#[test]
+fn a_kept_child_whose_parent_becomes_cached_is_lowered_fresh() {
+    let mut cx = TestAppContext::new();
+    let root = cx.open::<Shell>();
+    cx.update(&root, |shell, _, cx| {
+        shell.layout = Layout::PlainA;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let a = root.read(|shell| shell.a.clone().unwrap());
+    let g = cx.update(&a, |a, _, cx| {
+        let g = cx.new(|_| Leaf::new("g"));
+        a.inner = Some(g.clone());
+        cx.notify();
+        g
+    });
+    cx.run_until_parked();
+    cx.simulate_click("g-press");
+    assert_eq!(g.read(|g| g.presses), 1);
+    let g_before = cx.lowered(&g);
+    cx.update(&root, |shell, _, cx| {
+        shell.layout = Layout::Flat;
+        cx.notify();
+    });
+    cx.tick(vec![]);
+    assert_eq!(
+        cx.lowered(&g),
+        g_before + 1,
+        "lowered fresh under its new owner"
+    );
+    cx.update(&root, |shell, _, cx| {
+        shell.text = "root only".into();
+        cx.notify();
+    });
+    cx.tick(vec![]);
+    cx.simulate_click("g-press");
+    assert_eq!(
+        g.read(|g| g.presses),
+        2,
+        "the kept grandchild's button is dead"
+    );
+    cx.update(&g, |g, _, cx| {
+        g.text = "g moved".into();
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("g moved"), "{:?}", cx.texts());
+}
+
+/// A view whose tooltip shows an entity the tree also holds cached.
+#[derive(Default, Serialize, Deserialize)]
+struct Tipped {
+    #[serde(skip)]
+    leaf: Option<Entity<Leaf>>,
+}
+struct Tip(Entity<Leaf>);
+impl Render for Tip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().id("tip").child(self.0.clone().cached(boxed(50.)))
+    }
+}
+impl View for Tipped {
+    const NAME: &'static str = "Tipped";
+    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.leaf = Some(cx.new(|_| Leaf::new("leaf")));
+    }
+}
+impl Render for Tipped {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let leaf = self.leaf.clone().expect("attach built it");
+        let tipped = leaf.clone();
+        div()
+            .id("target")
+            .size_full()
+            .child("Target")
+            .child(leaf.cached(boxed(100.)))
+            .tooltip(move |_, cx| {
+                let leaf = tipped.clone();
+                cx.new(|_| Tip(leaf)).into()
+            })
+    }
+}
+
+/// A tooltip's lowering keeps nothing and records nothing: no `View`
+/// crosses in it, it takes no entity's pending notify (the tooltip is
+/// asked in the tick before the frame renders), and a tooltip built per
+/// hover leaves no parent entry behind.
+#[test]
+fn a_tooltip_lowering_records_nothing() {
+    let mut cx = TestAppContext::new();
+    let root = cx.open::<Tipped>();
+    let leaf = root.read(|tipped| tipped.leaf.clone().unwrap());
+    let parents_before = cx.app_mut().inner.parents.borrow().len();
+    cx.update(&leaf, |leaf, _, cx| {
+        leaf.text = "leaf moved".into();
+        cx.notify();
+    });
+    cx.simulate_hover("target", true);
+    let frame = cx.last_frame();
+    let [response] = frame.tooltip_responses.as_slice() else {
+        panic!("one tooltip response: {:?}", frame.tooltip_responses)
+    };
+    let mut views = 0;
+    let mut content = response.content.clone().expect("content");
+    content.for_each_mut(&mut |node| views += usize::from(matches!(node, wire::Node::View { .. })));
+    assert_eq!(views, 0, "a tooltip keeps nothing");
+    assert!(cx.has_text("leaf moved"), "{:?}", cx.texts());
+    for _ in 0..5 {
+        cx.simulate_hover("target", true);
+    }
+    assert_eq!(cx.app_mut().inner.parents.borrow().len(), parents_before);
+}
+
+/// A child's parent entry lives while the child is placed or stands under
+/// a kept entity, as the kept table does: a plain child its parent did not
+/// place is gone; a plain child under a stand-in stays, so its notify
+/// still reaches the root through the stand-in.
+#[test]
+fn a_childs_parent_entry_lives_as_the_kept_table_does() {
+    let mut cx = TestAppContext::new();
+    let root = cx.open::<Shell>();
+    let a = root.read(|shell| shell.a.clone().unwrap());
+    let parents = |cx: &mut TestAppContext| cx.app_mut().inner.parents.borrow().clone();
+    for (layout, placed) in [
+        (Layout::PlainA, true),
+        (Layout::OnlyB, false),
+        (Layout::Flat, true),
+    ] {
+        cx.update(&root, |shell, _, cx| {
+            shell.layout = layout;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert_eq!(parents(&mut cx).contains_key(&a.id), placed, "{layout:?}");
+    }
+    let (mut cx, _root, mid, _leaf, pusher) = opened_deep();
+    assert_eq!(
+        parents(&mut cx).get(&pusher.id),
+        Some(&mid.id),
+        "under a stand-in"
+    );
 }

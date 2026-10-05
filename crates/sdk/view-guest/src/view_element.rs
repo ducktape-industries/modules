@@ -43,7 +43,10 @@ impl<V: crate::Render> crate::Entity<V> {
     /// laid out from `style` alone, never from its content, which is laid
     /// out as a root inside it: a content root that is to fill the box says
     /// `size_full()`. The style's paint half (`bg`, border, padding) is
-    /// drawn on the box.
+    /// drawn on the box. A resize of the box renders nothing again (the
+    /// host lays the kept tree out every frame), and a render that reads a
+    /// scroll handle's value, which moves without a notify, is named by the
+    /// debug check: that read belongs in an entity that renders every frame.
     ///
     /// ```
     /// # use serde::{Deserialize, Serialize};

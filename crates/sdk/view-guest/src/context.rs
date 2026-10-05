@@ -68,11 +68,13 @@ pub(crate) struct AppState {
     pub root_entity: Cell<u64>,
     /// Each child entity's parent: the cached entity (or the root) it last
     /// rendered inside, so a child's notify reaches the root through every
-    /// boundary on the way.
+    /// boundary on the way. An entry lives as a kept entry does: while the
+    /// frame placed the child, or it stands under a kept entity.
     pub parents: RefCell<HashMap<u64, u64>>,
     /// The cached entities whose subtrees the last frame holds.
     pub kept: RefCell<HashMap<u64, crate::kept::Kept>>,
     /// How many ticks lowered each entity (`TestAppContext::lowered`).
+    #[cfg(not(target_arch = "wasm32"))]
     pub lowered: RefCell<HashMap<u64, u64>>,
     pub alive: Cell<bool>,
     pub globals: RefCell<Rc<Globals>>,
@@ -122,6 +124,7 @@ impl App {
                 root_entity: Cell::new(0),
                 parents: RefCell::default(),
                 kept: RefCell::default(),
+                #[cfg(not(target_arch = "wasm32"))]
                 lowered: RefCell::default(),
                 alive: Cell::new(true),
                 globals: RefCell::new(globals),
@@ -154,25 +157,36 @@ impl App {
     /// `entity` renders, and so does every cached entity it last rendered
     /// inside, up to the root: a clean parent would otherwise stand in for
     /// the child, since a child is reached only through its parent's
-    /// render. Stops at one already marked, and at one whose render is
-    /// lowering now, which reaches the child in this very frame: a parent
-    /// that pushes a fact into a child from its own render renders the
-    /// child in that frame, as gpui paints a view notified before its
-    /// cached element is reached (`mark_view_dirty`). Raised after the
-    /// child was lowered, the mark stands, and the child renders next tick.
+    /// render. Stops at an ancestor already marked, and at one whose render
+    /// is lowering now: that render reaches the child in this very frame
+    /// when the child's box is still ahead of it (a parent that pushes a
+    /// fact into a child from its own render renders the child in that
+    /// frame, as gpui paints a view notified before its cached element is
+    /// reached, `mark_view_dirty`), and a mark the lowering did not answer
+    /// (raised after the child's box was passed) is walked to the root once
+    /// it ends (`Driver::render_root`), so the child renders next tick.
     pub(crate) fn notify_entity(&self, entity: u64) {
         self.dirty();
         let parents = self.inner.parents.borrow();
         let lowering = self.inner.lowering.borrow();
         let mut pending = self.inner.pending.borrow_mut();
+        pending.entities.insert(entity);
         let mut at = entity;
-        while pending.entities.insert(at) {
-            match parents.get(&at) {
-                Some(parent) if !lowering.contains(parent) => at = *parent,
-                _ => break,
+        while let Some(parent) = parents.get(&at) {
+            if lowering.contains(parent) || !pending.entities.insert(*parent) {
+                break;
             }
+            at = *parent;
         }
     }
+    /// Counts a tick that lowered `entity` (`TestAppContext::lowered`):
+    /// test bookkeeping, not built for the wasm guest.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn count_lowered(&self, entity: u64) {
+        *self.inner.lowered.borrow_mut().entry(entity).or_default() += 1;
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn count_lowered(&self, _: u64) {}
     fn dirty(&self) {
         self.inner.dirty.set(true);
         self.inner

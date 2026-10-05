@@ -1,4 +1,6 @@
-use crate::context::{Callback, Notified};
+use crate::context::Callback;
+#[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+use crate::context::Notified;
 use crate::{
     App, Context, Entity, Host, IntoElement, Lowering, Theme, View, executor, kept, px, slots, wire,
 };
@@ -484,19 +486,13 @@ impl<V: View> Driver<V> {
 
     fn render_root(&mut self) -> wire::Node {
         self.renders += 1;
-        *self
-            .app
-            .inner
-            .lowered
-            .borrow_mut()
-            .entry(self.entity.id)
-            .or_default() += 1;
+        self.app.count_lowered(self.entity.id);
         slots::begin_frame(&self.app.inner.slots);
         self.app.inner.uniform_lists.begin_frame();
         kept::begin_frame(&mut self.app.inner.kept.borrow_mut());
         let entity = &self.entity;
         self.app.inner.lowering.borrow_mut().push(entity.id);
-        let (root, lowered) = self.app.update(|app| {
+        let (root, lowered, placed) = self.app.update(|app| {
             let mut window = app.window();
             let element = {
                 let mut cx = Context {
@@ -511,15 +507,33 @@ impl<V: View> Driver<V> {
             };
             let mut lowering = Lowering::new(&mut window, app);
             let root = lowering.lower_element(element);
-            (root, lowering.lowered)
+            (root, lowering.lowered, lowering.placed)
         });
         self.app.inner.lowering.borrow_mut().pop();
         self.lowered = lowered;
+        // a mark the lowering did not answer (an entity notified after its
+        // box was passed, by a sibling lowered later) reaches the root now
+        // that nothing is lowering: the entity renders next tick
+        let unanswered: Vec<u64> = self
+            .app
+            .inner
+            .pending
+            .borrow()
+            .entities
+            .iter()
+            .copied()
+            .collect();
+        for entity in unanswered {
+            self.app.notify_entity(entity);
+        }
         // what the frame did not meet is gone, unless it stands under a
         // kept entity; every registry frees by the same owners
         let owners = kept::end_frame(&mut self.app.inner.kept.borrow_mut(), self.entity.id);
         slots::end_frame(&self.app.inner.slots, &owners);
         self.app.inner.uniform_lists.end_frame(&owners);
+        self.app.inner.parents.borrow_mut().retain(|child, parent| {
+            placed.contains_key(child) || owners.get(parent) == Some(&false)
+        });
         root
     }
 
