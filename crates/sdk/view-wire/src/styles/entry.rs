@@ -46,19 +46,22 @@ trait Value: Sized {
     fn get(input: &mut Reader) -> Result<Self, &'static str>;
 }
 
-/// A field of a refinement: `put` writes it when it says something and
-/// answers whether it did; `get` reads one that was written.
+/// A field of a refinement: `says` answers whether it says something,
+/// `put` writes one that does, and `get` reads one that was written.
 trait Field: Sized {
-    fn put(&self, out: &mut Vec<u8>) -> bool;
+    fn says(&self) -> bool;
+    fn put(&self, out: &mut Vec<u8>);
     fn get(input: &mut Reader) -> Result<Self, &'static str>;
 }
 
 impl<T: Value> Field for Option<T> {
-    fn put(&self, out: &mut Vec<u8>) -> bool {
+    fn says(&self) -> bool {
+        self.is_some()
+    }
+    fn put(&self, out: &mut Vec<u8>) {
         if let Some(value) = self {
             value.put(out);
         }
-        self.is_some()
     }
     fn get(input: &mut Reader) -> Result<Self, &'static str> {
         T::get(input).map(Some)
@@ -69,8 +72,10 @@ impl<T: Value> Field for Option<T> {
 /// first, then those fields.
 trait Refinement: Default {
     const FIELDS: &'static [&'static str];
-    /// Writes the bitmap and the fields, and answers whether any was set.
-    fn write(&self, out: &mut Vec<u8>) -> bool;
+    /// The bitmap: a bit for each field that says something.
+    fn present(&self) -> u64;
+    /// Writes the bitmap, then the fields it names and no other.
+    fn write(&self, out: &mut Vec<u8>);
     fn read(input: &mut Reader) -> Result<Self, &'static str>;
 }
 
@@ -79,19 +84,30 @@ macro_rules! refinement {
         impl<$($bound: Value + Clone + Default + std::fmt::Debug + PartialEq)?> Refinement for $type {
             const FIELDS: &'static [&'static str] = &[$(stringify!($field)),+];
 
-            fn write(&self, out: &mut Vec<u8>) -> bool {
+            fn present(&self) -> u64 {
                 let Self { $($field,)+ $($unsent)* } = self;
-                let start = out.len();
-                let width = Self::FIELDS.len().div_ceil(8);
-                out.resize(start + width, 0);
                 let (mut present, mut bit) = (0u64, 0);
                 $(
-                    present |= u64::from(Field::put($field, out)) << bit;
+                    present |= u64::from(Field::says($field)) << bit;
                     bit += 1;
                 )+
                 let _ = bit;
-                out[start..start + width].copy_from_slice(&present.to_le_bytes()[..width]);
-                present != 0
+                present
+            }
+
+            fn write(&self, out: &mut Vec<u8>) {
+                let Self { $($field,)+ $($unsent)* } = self;
+                let present = self.present();
+                let width = Self::FIELDS.len().div_ceil(8);
+                out.extend_from_slice(&present.to_le_bytes()[..width]);
+                let mut bit = 0;
+                $(
+                    if present >> bit & 1 == 1 {
+                        Field::put($field, out);
+                    }
+                    bit += 1;
+                )+
+                let _ = bit;
             }
 
             fn read(input: &mut Reader) -> Result<Self, &'static str> {
@@ -117,13 +133,11 @@ macro_rules! refinement {
 
         /// As a field, a refinement that sets nothing is absent.
         impl<$($bound: Value + Clone + Default + std::fmt::Debug + PartialEq)?> Field for $type {
-            fn put(&self, out: &mut Vec<u8>) -> bool {
-                let start = out.len();
-                let any = self.write(out);
-                if !any {
-                    out.truncate(start);
-                }
-                any
+            fn says(&self) -> bool {
+                self.present() != 0
+            }
+            fn put(&self, out: &mut Vec<u8>) {
+                self.write(out);
             }
             fn get(input: &mut Reader) -> Result<Self, &'static str> {
                 Self::read(input)
