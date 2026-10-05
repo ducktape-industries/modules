@@ -1,6 +1,6 @@
-use crate::context::Callback;
+use crate::context::{Callback, Notified};
 use crate::{
-    App, Context, Entity, Host, IntoElement, Lowering, Theme, View, executor, px, slots, wire,
+    App, Context, Entity, Host, IntoElement, Lowering, Theme, View, executor, kept, px, slots, wire,
 };
 
 const MAX_ROUNDS: usize = 8;
@@ -15,6 +15,8 @@ pub(crate) struct Driver<V: View> {
     /// How many times the root rendered: what `TestAppContext::renders`
     /// reads.
     pub(crate) renders: u64,
+    /// How many nodes the last tick lowered (`TickReport::lowered`).
+    pub(crate) lowered: usize,
 }
 impl<V: View> Drop for Driver<V> {
     fn drop(&mut self) {
@@ -33,6 +35,7 @@ impl<V: View> Driver<V> {
     }
     pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Self {
         let entity = Entity::reserve(&app);
+        app.inner.root_entity.set(entity.id);
         #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         app.inner.root.set(Some((entity.id, encode_root::<V>)));
         app.update(|app| {
@@ -54,6 +57,7 @@ impl<V: View> Driver<V> {
             last_root: None,
             busy: false,
             renders: 0,
+            lowered: 0,
         }
     }
     pub fn entity(&self) -> Entity<V> {
@@ -78,7 +82,85 @@ impl<V: View> Driver<V> {
         let frame = self.tick_wire(events);
         let sent = send(&frame);
         self.put_back(frame);
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        self.check_kept();
         sent
+    }
+
+    /// The debug check that a cached entity which changed said so: every
+    /// kept entity whose notify is not pending is lowered again, writing
+    /// nothing, and compared with the subtree the host shows for it. A
+    /// difference is a render that moved without `cx.notify()`, and it
+    /// panics naming the type. Runs every tick, rendered or not.
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+    fn check_kept(&mut self) {
+        let pending = self.app.inner.pending.borrow();
+        if pending.all {
+            return;
+        }
+        let Some(base) = self.last_root.as_ref() else {
+            return;
+        };
+        let checked: Vec<(u64, kept::Kept)> = self
+            .app
+            .inner
+            .kept
+            .borrow()
+            .iter()
+            .filter(|(id, _)| !pending.entities.contains(id))
+            .map(|(id, entry)| {
+                (
+                    *id,
+                    kept::Kept {
+                        parent: entry.parent,
+                        path: entry.path.clone(),
+                        boundaries: entry.boundaries.clone(),
+                        render: entry.render.clone(),
+                        type_name: entry.type_name,
+                        seen: entry.seen,
+                        lowered: entry.lowered,
+                    },
+                )
+            })
+            .collect();
+        drop(pending);
+        if checked.is_empty() {
+            return;
+        }
+        // a nested kept entity that is clean stands in, as in a real frame
+        *self.app.inner.rendering.borrow_mut() = Notified {
+            entities: self.app.inner.pending.borrow().entities.clone(),
+            all: false,
+        };
+        for (id, entry) in checked {
+            let Some(wire::Node::View {
+                content: Some(held),
+                ..
+            }) = kept::find(base, id)
+            else {
+                panic!(
+                    "{} is kept but the host shows no subtree for it",
+                    entry.type_name
+                );
+            };
+            let child = crate::view_element::Child {
+                id,
+                type_name: entry.type_name,
+                render: entry.render.clone(),
+            };
+            let shown = self.app.update(|app| {
+                let mut window = app.window();
+                let mut lowering = Lowering::for_check(&mut window, app);
+                lowering.replay(&entry);
+                lowering.lower_kept(&child, |_, _| false)
+            });
+            let shown = shown.expect("a scratch lowering renders");
+            assert!(
+                kept::same_shown(&shown, held),
+                "{} changed without cx.notify(): its render differs from what the host shows\nSHOWN {shown:#?}\nHELD {held:#?}",
+                entry.type_name
+            );
+        }
     }
 
     fn put_back(&mut self, frame: wire::Frame) {
@@ -110,7 +192,10 @@ impl<V: View> Driver<V> {
 
     fn tick_wire(&mut self, events: Vec<wire::Event>) -> wire::Frame {
         self.busy = false;
-        let owed = slots::start_frame(&self.app.inner.slots);
+        // a picture a frame could not carry: its owner draws again
+        for owner in slots::start_frame(&self.app.inner.slots) {
+            self.app.notify_entity(owner);
+        }
         self.settle();
         for event in events {
             if let Some(callback) = self.dispatch(event) {
@@ -123,7 +208,7 @@ impl<V: View> Driver<V> {
             }
         }
         self.settle();
-        self.frame(owed)
+        self.frame()
     }
 
     /// Runs one event: its route or its handler. A handler's message comes
@@ -196,14 +281,14 @@ impl<V: View> Driver<V> {
                 end,
                 item_height,
             } => {
-                if self.app.inner.uniform_lists.request_range(
+                if let Some(owner) = self.app.inner.uniform_lists.request_range(
                     path,
                     route,
                     start as usize,
                     end as usize,
                     item_height,
                 ) {
-                    self.app.notify();
+                    self.app.notify_entity(owner);
                 }
                 None
             }
@@ -226,7 +311,7 @@ impl<V: View> Driver<V> {
             wire::Event::Theme { dark } => {
                 self.app
                     .set_global(if dark { Theme::dark() } else { Theme::light() });
-                self.app.notify();
+                self.app.notify_all();
                 None
             }
             wire::Event::Viewport { width, height } => {
@@ -239,13 +324,13 @@ impl<V: View> Driver<V> {
                 };
                 let viewport = gpui::size(side(width), side(height));
                 if self.app.inner.viewport.replace(viewport) != viewport {
-                    self.app.notify();
+                    self.app.notify_all();
                 }
                 None
             }
             wire::Event::Offset { minutes } => {
                 crate::design::set_utc_offset(minutes);
-                self.app.notify();
+                self.app.notify_all();
                 None
             }
             wire::Event::Response { id, result, done } => {
@@ -255,11 +340,13 @@ impl<V: View> Driver<V> {
                 self.settle();
                 None
             }
-            // The host dropped the tree the patches build on.
+            // The host dropped the tree the patches build on, and with it
+            // every kept subtree.
             wire::Event::Resync => {
                 self.last_root = None;
+                self.app.inner.kept.borrow_mut().clear();
                 slots::clear_pictures(&self.app.inner.slots);
-                self.app.notify();
+                self.app.notify_all();
                 None
             }
             wire::Event::A11yAction { handler, data } => self.route(handler, &data),
@@ -295,12 +382,26 @@ impl<V: View> Driver<V> {
     /// changed, or if the last frame owed a picture it drew, then sent whole
     /// or as patches against the last one. A frame that owes a picture
     /// asks for the next, until every picture drawn is sent.
-    fn frame(&mut self, owed: bool) -> wire::Frame {
+    fn frame(&mut self) -> wire::Frame {
         let render = self.app.inner.dirty.replace(false)
             || self.last_root.is_none()
-            || owed
             || self.styles_outgrown();
+        // who was notified goes with `dirty`: a notify raised during the
+        // render lands in the fresh set, answered by this frame when its
+        // entity is lowered after it, else rendered next tick
+        *self.app.inner.rendering.borrow_mut() =
+            std::mem::take(&mut *self.app.inner.pending.borrow_mut());
+        self.lowered = 0;
         let mut root = render.then(|| self.render_root());
+        // every stand-in takes its kept subtree from the base before
+        // anything reads the tree; the base is hollow exactly there
+        if let Some(root) = &mut root {
+            kept::fill(root, self.last_root.as_mut());
+            let pending = self.app.inner.pending.borrow();
+            if !pending.all && pending.entities.is_empty() {
+                self.app.inner.dirty.set(false);
+            }
+        }
         // a table past what the host holds starts over, which a tree sent
         // whole does: there is no last tree to patch
         if self.styles_outgrown() {
@@ -326,8 +427,14 @@ impl<V: View> Driver<V> {
             }
             (Some(_), None) => false,
         };
-        if let Some(tree) = root.take().filter(|_| !unchanged) {
-            root = self.keep(tree, &mut patches);
+        // Whenever a render ran, the rendered tree is the next base: the
+        // old one is hollow where this one took its kept subtrees, and an
+        // unchanged render is the same tree (`apply(old, diff(old, new))`
+        // leaves `old == new`).
+        match root.take() {
+            Some(tree) if unchanged => self.last_root = Some(tree),
+            Some(tree) => root = self.keep(tree, &mut patches),
+            None => {}
         }
         let host = self.app.host();
         let requests = host.drain_outbox();
@@ -377,10 +484,19 @@ impl<V: View> Driver<V> {
 
     fn render_root(&mut self) -> wire::Node {
         self.renders += 1;
+        *self
+            .app
+            .inner
+            .lowered
+            .borrow_mut()
+            .entry(self.entity.id)
+            .or_default() += 1;
         slots::begin_frame(&self.app.inner.slots);
         self.app.inner.uniform_lists.begin_frame();
+        kept::begin_frame(&mut self.app.inner.kept.borrow_mut());
         let entity = &self.entity;
-        let root = self.app.update(|app| {
+        self.app.inner.lowering.borrow_mut().push(entity.id);
+        let (root, lowered) = self.app.update(|app| {
             let mut window = app.window();
             let element = {
                 let mut cx = Context {
@@ -393,10 +509,17 @@ impl<V: View> Driver<V> {
                     .render(&mut window, &mut cx)
                     .into_element()
             };
-            Lowering::new(&mut window, app).lower_element(element)
+            let mut lowering = Lowering::new(&mut window, app);
+            let root = lowering.lower_element(element);
+            (root, lowering.lowered)
         });
-        slots::end_frame(&self.app.inner.slots);
-        self.app.inner.uniform_lists.end_frame();
+        self.app.inner.lowering.borrow_mut().pop();
+        self.lowered = lowered;
+        // what the frame did not meet is gone, unless it stands under a
+        // kept entity; every registry frees by the same owners
+        let owners = kept::end_frame(&mut self.app.inner.kept.borrow_mut(), self.entity.id);
+        slots::end_frame(&self.app.inner.slots, &owners);
+        self.app.inner.uniform_lists.end_frame(&owners);
         root
     }
 

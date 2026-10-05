@@ -173,6 +173,29 @@ impl Interner {
         self.find_or_add(&entry::EMPTY)
     }
 
+    /// The id `style` already has, or `StyleId(u32::MAX)` for one no entry
+    /// holds: [`Self::intern`] without the add, for a lowering that may
+    /// read the table and not grow it.
+    pub fn lookup(&mut self, style: &StyleRefinement) -> StyleId {
+        let mut scratch = std::mem::take(&mut self.scratch);
+        scratch.clear();
+        entry::write(style, &mut scratch);
+        let id = self.find(&scratch).map_or(StyleId(u32::MAX), StyleId);
+        self.scratch = scratch;
+        id
+    }
+
+    fn find(&self, entry: &[u8]) -> Option<u32> {
+        let mut id = self.latest.get(&hash(entry)).copied().unwrap_or(NONE);
+        while id != NONE {
+            if self.entry(id as usize) == entry {
+                return Some(id);
+            }
+            id = self.before[id as usize];
+        }
+        None
+    }
+
     fn entry(&self, id: usize) -> &[u8] {
         let start = match id {
             0 => 0,
@@ -182,15 +205,11 @@ impl Interner {
     }
 
     fn find_or_add(&mut self, entry: &[u8]) -> StyleId {
+        if let Some(id) = self.find(entry) {
+            return StyleId(id);
+        }
         let hash = hash(entry);
         let latest = self.latest.get(&hash).copied().unwrap_or(NONE);
-        let mut id = latest;
-        while id != NONE {
-            if self.entry(id as usize) == entry {
-                return StyleId(id);
-            }
-            id = self.before[id as usize];
-        }
         let id = self.ends.len() as u32;
         self.bytes.extend_from_slice(entry);
         self.ends.push(self.bytes.len() as u32);

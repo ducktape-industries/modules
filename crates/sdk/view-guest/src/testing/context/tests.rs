@@ -232,7 +232,7 @@ fn a_patch_the_host_would_cut_fails_its_test() {
     let mut cx = TestAppContext::new();
     let view = cx.open::<Growing>();
     view.read(|ledger| ledger.rows.splice(0..0, crate::wire::MAX_LIST_ITEMS));
-    cx.app_mut().notify();
+    cx.app_mut().notify_all();
     cx.tick(Vec::new());
 }
 

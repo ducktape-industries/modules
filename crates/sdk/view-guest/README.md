@@ -277,6 +277,34 @@ impl View for Shell {
 
 `tests/gpui_entities.rs` is the whole of it, `Sidebar` included.
 
+`.child(entity)` renders and lowers the child whenever its parent does.
+`entity.cached(style)` is gpui's opt-in: the box is a layout leaf sized
+from `style` alone, never from its contents; the subtree is laid out as a
+root inside the box and reused until the entity is notified.
+
+```rust
+div().child(self.sidebar.clone().cached(StyleRefinement::default().w(px(w)).h_full()))
+```
+
+The content root fills the box with `size_full()`. A style that names no
+height gives a zero-tall box with the content painted past it, in gpui and
+here alike; a `bg`, border or padding on the style is drawn on the box. A
+`cached` child that was not notified is not rendered, not lowered and not
+diffed; its parent and the uncached children render as before, and
+`cx.notify()` in the child, or in any entity rendered inside it, renders it
+again. A parent pushes a fact down from its own render,
+`child.update(cx, |child, cx| child.show(fact, cx))`, where `show` compares
+and notifies only when the fact moved: notified before its box is reached,
+the child renders in that frame; notified after (a subscription heard once
+the render is done), it renders next tick. A cached reader of another
+entity goes stale unless it observes
+(`cx.observe(&other, |this, _, cx| cx.notify())`), as in gpui. A child
+that mutates without `cx.notify()` is named by a debug panic in the view's
+tests: `Sidebar changed without cx.notify(): its render differs from what
+the host shows`. One entity is one element: a second `cached` placement of
+it in a frame, or a plain one beside a cached one, panics naming both
+paths, and a cached entity cannot be a list row's root.
+
 ## Exporting
 
 `export_view!(View)` (`src/lib.rs`) writes the five wasm exports and the

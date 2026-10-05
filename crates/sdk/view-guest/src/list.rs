@@ -336,11 +336,13 @@ impl Element for List {
         } = *self;
         lowering.draws_list(&state);
         let request_state = state.clone();
+        // the rows the host asks for are the list's owner's to lower
+        let owner = lowering.owner();
         let request_handler = lowering.route(
             crate::slots::Kind::ListRequest,
             move |request: &wire::ListRequest, _, app| {
                 if request_state.request(request) {
-                    app.notify();
+                    app.notify_entity(owner);
                 }
             },
         );
@@ -355,13 +357,18 @@ impl Element for List {
         });
         let (item_count, alignment, overdraw, following_tail, revision, commands, range) = {
             let mut inner = state.0.inner.borrow_mut();
+            // a scratch lowering peeks: the commands still ride the frame
+            let commands = match lowering.scratch() {
+                true => inner.commands.clone(),
+                false => std::mem::take(&mut inner.commands),
+            };
             (
                 inner.item_count,
                 inner.alignment,
                 inner.overdraw,
                 inner.tail_mode,
                 inner.revision,
-                std::mem::take(&mut inner.commands),
+                commands,
                 inner.requested.clone(),
             )
         };
@@ -653,11 +660,11 @@ mod tests {
         };
         assert_eq!(window(&cx), 2_000 - INITIAL_ROWS..2_000);
         state.scroll_to_reveal_item(2_000 - INITIAL_ROWS - 1);
-        cx.app_mut().notify();
+        cx.app_mut().notify_all();
         cx.tick(vec![]);
         assert_eq!(window(&cx), 2_000 - INITIAL_ROWS - 1..2_000);
         state.scroll_to_reveal_item(100);
-        cx.app_mut().notify();
+        cx.app_mut().notify_all();
         cx.tick(vec![]);
         assert_eq!(window(&cx), 100..100 + wire::MAX_LIST_ROWS);
     }
@@ -695,7 +702,7 @@ mod tests {
         assert_eq!(window(&cx), 1_900..1_912);
         let edited = |cx: &mut TestAppContext, old: Range<usize>, count: usize| {
             state.splice(old, count);
-            cx.app_mut().notify();
+            cx.app_mut().notify_all();
             cx.tick(vec![]);
             window(cx)
         };
@@ -755,7 +762,7 @@ mod tests {
         }]);
         assert_eq!(window(&cx), 0..12);
         state.splice(0..0, wire::MAX_LIST_ROWS);
-        cx.app_mut().notify();
+        cx.app_mut().notify_all();
         cx.tick(vec![]);
         assert_eq!(
             window(&cx),
@@ -775,7 +782,7 @@ mod tests {
         state.splice(0..0, 20);
         state.remeasure_items(100..102);
         state.scroll_to_reveal_item(1_999);
-        cx.app_mut().notify();
+        cx.app_mut().notify_all();
         cx.tick(vec![]);
         match cx.root() {
             wire::Node::List {
@@ -794,7 +801,7 @@ mod tests {
             item_ix: 1_999,
             offset_in_item: px(3.),
         });
-        cx.app_mut().notify();
+        cx.app_mut().notify_all();
         cx.tick(vec![]);
         assert!(
             cx.last_frame()
@@ -803,7 +810,7 @@ mod tests {
                 .any(|patch| matches!(patch, wire::Patch::Props { .. })),
             "same-shape state operations update by props patches"
         );
-        cx.app_mut().notify();
+        cx.app_mut().notify_all();
         cx.tick(vec![]);
         assert!(matches!(cx.root(), wire::Node::List { commands, .. } if commands.is_empty()));
     }

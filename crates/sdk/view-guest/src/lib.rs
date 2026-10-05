@@ -85,6 +85,7 @@ pub use window::Window;
 mod slots;
 
 mod driver;
+mod kept;
 pub(crate) use driver::Driver;
 
 const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";

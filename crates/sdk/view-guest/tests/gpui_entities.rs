@@ -4,7 +4,7 @@
 //! snapshot builds again.
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    Entity, EventEmitter, Subscription, View, testing::TestAppContext, wire,
+    Entity, EventEmitter, StyleRefinement, Subscription, View, testing::TestAppContext, wire,
 };
 use serde::{Deserialize, Serialize};
 
@@ -185,6 +185,73 @@ fn a_restored_snapshot_builds_the_children_again() {
     assert!(
         cx.has_text("picked 0"),
         "the rebuilt child's events reach the restored root: {:?}",
+        cx.texts()
+    );
+}
+
+/// The sidebar cached in a box of its own: a root-only change leaves it
+/// unrendered, its rows still shown and its buttons live; its own change
+/// renders it, and the root with it.
+#[derive(Default, Serialize, Deserialize)]
+struct CachedShell {
+    picked: Option<usize>,
+    #[serde(skip)]
+    sidebar: Option<Entity<Sidebar>>,
+    #[serde(skip)]
+    subscriptions: Vec<Subscription>,
+}
+
+impl View for CachedShell {
+    const NAME: &'static str = "CachedShell";
+    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let sidebar = cx.new(|cx| Sidebar::new(None, cx));
+        self.subscriptions =
+            vec![
+                cx.subscribe(&sidebar, |shell, _, Selected(row): &Selected, cx| {
+                    shell.picked = Some(*row);
+                    cx.notify();
+                }),
+            ];
+        self.sidebar = Some(sidebar);
+    }
+}
+
+impl Render for CachedShell {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let sidebar = self.sidebar.clone().expect("attach built it");
+        let picked = match self.picked {
+            Some(row) => format!("picked {row}"),
+            None => "picked none".into(),
+        };
+        div()
+            .id("shell")
+            .child(div().id("picked").child(picked))
+            .child(sidebar.cached(StyleRefinement::default().w(px(240.)).h_full()))
+    }
+}
+
+#[test]
+fn a_cached_child_renders_only_when_notified() {
+    let mut cx = TestAppContext::new();
+    let shell = cx.open::<CachedShell>();
+    let sidebar = shell.read(|shell| shell.sidebar.clone().unwrap());
+    let before = cx.lowered(&sidebar);
+    cx.update(&shell, |shell, _, cx| {
+        shell.picked = Some(7);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert_eq!(cx.lowered(&sidebar), before, "a root-only change");
+    assert!(
+        cx.has_text("picked 7") && cx.has_text("row 1"),
+        "{:?}",
+        cx.texts()
+    );
+    cx.simulate_click("row-1");
+    assert_eq!(cx.lowered(&sidebar), before + 1, "its own change");
+    assert!(
+        cx.has_text("row 1 (selected)") && cx.has_text("picked 1"),
+        "{:?}",
         cx.texts()
     );
 }

@@ -143,8 +143,8 @@ fn take_payload(node: &mut wire::Node) -> Option<usize> {
 
 /// Ticks the way the host does — again while the frame says busy — and
 /// answers how many frames it took to park.
-fn frames_to_park(
-    driver: &mut Driver<Gallery>,
+fn frames_to_park<V: View>(
+    driver: &mut Driver<V>,
     host: &mut Host,
     events: Vec<wire::Event>,
 ) -> usize {
@@ -238,5 +238,71 @@ fn a_picture_past_the_frame_budget_is_never_sent_and_never_owed() {
         (host.drawn.len(), host.held.len()),
         (2, 1),
         "the small picture is held, the oversized one is not"
+    );
+}
+
+/// A picture inside a kept grandchild that the frame had no budget for is
+/// owed by its owner: the root's picture, lowered first, takes the budget;
+/// the next frame renders the grandchild (and the cached parents above it,
+/// not its sibling), and the bytes go.
+#[test]
+fn an_owed_picture_inside_a_kept_child_is_sent() {
+    use super::cached::{Leaf, Shell};
+    let mut driver = Driver::<Shell>::new();
+    let mut host = Host::default();
+    frames_to_park(&mut driver, &mut host, vec![]);
+    let (a, b) = driver.entity().update(driver.app_mut(), |shell, _| {
+        (shell.a.clone().unwrap(), shell.b.clone().unwrap())
+    });
+    let g = a.update(driver.app_mut(), |a, cx| {
+        let g = cx.new(|_| Leaf::new("g"));
+        a.inner = Some(g.clone());
+        cx.notify();
+        g
+    });
+    frames_to_park(&mut driver, &mut host, vec![]);
+    let lowered = |driver: &mut Driver<Shell>, id: u64| {
+        driver
+            .app_mut()
+            .inner
+            .lowered
+            .borrow()
+            .get(&id)
+            .copied()
+            .unwrap_or(0)
+    };
+    let before = [a.id, b.id, g.id].map(|id| lowered(&mut driver, id));
+    g.update(driver.app_mut(), |g, cx| {
+        g.picture = Some(vec![1; 768 * KIB]);
+        cx.notify();
+    });
+    driver.entity().update(driver.app_mut(), |shell, cx| {
+        shell.picture = Some(vec![2; 768 * KIB]);
+        cx.notify();
+    });
+    let busy = driver.tick_with(vec![], |frame| host.take(frame));
+    assert!(busy, "a picture is owed");
+    assert_eq!(host.drawn.len(), 2);
+    assert_eq!(
+        host.missing(),
+        1,
+        "the root's picture went, the grandchild's is owed"
+    );
+    assert_eq!(host.dropped, 0);
+    let after = [a.id, b.id, g.id].map(|id| lowered(&mut driver, id));
+    assert_eq!(
+        after,
+        [before[0] + 1, before[1], before[2] + 1],
+        "g's notify reached a and the root"
+    );
+    let busy = driver.tick_with(vec![], |frame| host.take(frame));
+    assert!(!busy, "every picture drawn is held");
+    assert_eq!(host.missing(), 0);
+    assert_eq!(host.dropped, 0);
+    let owed = [a.id, b.id, g.id].map(|id| lowered(&mut driver, id));
+    assert_eq!(
+        owed,
+        [after[0] + 1, after[1], after[2] + 1],
+        "the owner and its parents, not the sibling"
     );
 }

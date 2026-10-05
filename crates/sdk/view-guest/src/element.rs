@@ -7,6 +7,8 @@
 //! data once per frame.
 
 use crate::interactivity::{EventListener, Interactivity};
+use crate::kept::Kept;
+use crate::view_element::Child;
 use crate::{App, Window, slots, wire};
 use gpui::{
     ElementId, ListHorizontalSizingBehavior, ListSizingBehavior, Overflow, ScrollStrategy,
@@ -14,6 +16,7 @@ use gpui::{
 };
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -122,8 +125,22 @@ pub struct Lowering<'a> {
     authored_path: Vec<wire::ElementIdWire>,
     /// The index of the list row whose root lowers next ([`Self::lower_row`]).
     row: Option<usize>,
-    /// The state of each list lowered so far, beside that list's path.
-    lists: Vec<(crate::ListState, Vec<wire::ElementIdWire>)>,
+    /// The cached entities whose renders are lowering, the root first: the
+    /// innermost owns what is lowered now.
+    owners: Vec<u64>,
+    /// The cached boundaries open, outermost first: each owner, and how
+    /// many segments of `authored_path` were in before it.
+    boundaries: Vec<(usize, u64)>,
+    /// Every child entity placed so far: whether cached, and where. One
+    /// entity has one kept subtree, so a cached placement is its only one.
+    placed: HashMap<u64, (bool, Vec<wire::ElementIdWire>)>,
+    /// How many nodes this lowering produced (`TickReport::lowered`).
+    pub(crate) lowered: usize,
+    /// The content of a tooltip: nothing in it is kept.
+    tooltip: bool,
+    /// The debug check's re-lowering of a kept entity: every table answers
+    /// what it holds and writes nothing.
+    scratch: bool,
 }
 
 /// An authored [`ElementId`] as the wire carries it. Every id a view can
@@ -135,26 +152,35 @@ pub(crate) fn wire_id(id: ElementId) -> wire::ElementIdWire {
 
 impl<'a> Lowering<'a> {
     pub(crate) fn new(window: &'a mut Window, app: &'a mut App) -> Self {
-        slots::begin_lowering(&app.inner.slots, None);
-        Self {
-            window,
-            app,
-            authored_path: Vec::new(),
-            row: None,
-            lists: Vec::new(),
-        }
+        Self::begin(window, app, None, false)
     }
 
     /// A lowering of the content the tooltip route `request` builds: its
     /// listeners are keyed inside that tooltip and live as long as it does.
     pub(crate) fn within_tooltip(window: &'a mut Window, app: &'a mut App, request: u32) -> Self {
-        slots::begin_lowering(&app.inner.slots, Some(request));
+        Self::begin(window, app, Some(request), false)
+    }
+
+    /// The debug check's lowering: it reads every table and writes none.
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+    pub(crate) fn for_check(window: &'a mut Window, app: &'a mut App) -> Self {
+        Self::begin(window, app, None, true)
+    }
+
+    fn begin(window: &'a mut Window, app: &'a mut App, within: Option<u32>, scratch: bool) -> Self {
+        let root = app.inner.root_entity.get();
+        slots::begin_lowering(&app.inner.slots, within, root, scratch);
         Self {
             window,
             app,
             authored_path: Vec::new(),
             row: None,
-            lists: Vec::new(),
+            owners: vec![root],
+            boundaries: Vec::new(),
+            placed: HashMap::new(),
+            lowered: 0,
+            tooltip: within.is_some(),
+            scratch,
         }
     }
 
@@ -169,7 +195,11 @@ impl<'a> Lowering<'a> {
     /// The id `style` crosses under: its entry in the frame's style table,
     /// one for every node that carries the same style.
     pub(crate) fn style(&self, style: &StyleRefinement) -> wire::StyleId {
-        self.app.inner.styles.borrow_mut().intern(style)
+        let mut styles = self.app.inner.styles.borrow_mut();
+        match self.scratch {
+            true => styles.lookup(style),
+            false => styles.intern(style),
+        }
     }
 
     /// The id of the style that sets nothing, which a bare text carries.
@@ -179,6 +209,16 @@ impl<'a> Lowering<'a> {
 
     pub(crate) fn parts(&mut self) -> (&mut Window, &mut App) {
         (self.window, self.app)
+    }
+
+    /// The cached entity (or the root) whose render is lowering.
+    pub(crate) fn owner(&self) -> u64 {
+        *self.owners.last().expect("the root owns the lowering")
+    }
+
+    /// Whether this is the debug check's lowering, which takes nothing.
+    pub(crate) fn scratch(&self) -> bool {
+        self.scratch
     }
 
     pub(crate) fn render_once(&mut self, component: impl RenderOnce) -> wire::Node {
@@ -203,6 +243,7 @@ impl<'a> Lowering<'a> {
             slots::enter_scope(&self.app.inner.slots, segment.clone());
             self.authored_path.push(segment);
         }
+        self.lowered += usize::from(!defers);
         // the box an `AnyElement` already is, or the one box an element gets
         let node = element.into_any().0.lower(self);
         debug_assert!(
@@ -227,18 +268,180 @@ impl<'a> Lowering<'a> {
         node
     }
 
+    /// A child entity placed plain (`.child(entity)`): rendered and lowered
+    /// in place, every frame its parent lowers, with its parent recorded
+    /// so its notify reaches the root.
+    pub(crate) fn lower_child(&mut self, child: &Child) -> wire::Node {
+        self.place(child, false);
+        if !self.scratch {
+            self.app
+                .inner
+                .parents
+                .borrow_mut()
+                .insert(child.id, self.owner());
+            *self
+                .app
+                .inner
+                .lowered
+                .borrow_mut()
+                .entry(child.id)
+                .or_default() += 1;
+            // a notify raised before this render is answered by it
+            self.app
+                .inner
+                .pending
+                .borrow_mut()
+                .entities
+                .remove(&child.id);
+        }
+        let element = (child.render)(self.window, self.app);
+        self.lower_element(element)
+    }
+
+    /// A child entity placed cached (`entity.cached(style)`): its subtree
+    /// is kept across frames in a box styled `style`, and rendered again
+    /// only when it, or an entity rendered inside it, was notified
+    /// ([`crate::kept`]). Inside a tooltip's content nothing is kept: the
+    /// child lowers plain.
+    pub(crate) fn lower_cached(&mut self, child: &Child, style: &StyleRefinement) -> wire::Node {
+        if self.tooltip {
+            return self.lower_child(child);
+        }
+        assert!(
+            self.row.is_none(),
+            "{} is cached as a list row's root at {:?}: a cached entity carries no row identity; \
+             cache it inside the row, or give the row an id of its own",
+            child.type_name,
+            self.authored_path
+        );
+        self.place(child, true);
+        // the box is the parent's node: lowered whenever the parent is
+        self.lowered += 1;
+        let style = self.style(style);
+        let content = self.lower_kept(child, |this, child| {
+            let kept = this.app.inner.kept.borrow();
+            let same_path = kept
+                .get(&child.id)
+                .is_some_and(|entry| entry.path == this.authored_path);
+            // notified before the frame, or during it before this point (a
+            // fact its parent pushed from its render): rendered now
+            same_path
+                && !this.app.inner.rendering.borrow().holds(child.id)
+                && !this.app.inner.pending.borrow().holds(child.id)
+        });
+        wire::Node::View {
+            view: child.id,
+            style,
+            content,
+        }
+    }
+
+    /// Lowers `child` inside its own boundary: a stand-in when `clean`
+    /// says its kept subtree stands, else its render, recorded as kept.
+    pub(crate) fn lower_kept(
+        &mut self,
+        child: &Child,
+        clean: impl FnOnce(&Self, &Child) -> bool,
+    ) -> Option<Box<wire::Node>> {
+        let parent = self.owner();
+        let clean = clean(self, child);
+        slots::enter_boundary(&self.app.inner.slots, child.id);
+        self.owners.push(child.id);
+        self.boundaries.push((self.authored_path.len(), child.id));
+        let content = match clean {
+            true => {
+                if !self.scratch
+                    && let Some(entry) = self.app.inner.kept.borrow_mut().get_mut(&child.id)
+                {
+                    entry.seen = true;
+                }
+                None
+            }
+            false => {
+                if !self.scratch {
+                    self.app.inner.parents.borrow_mut().insert(child.id, parent);
+                    *self
+                        .app
+                        .inner
+                        .lowered
+                        .borrow_mut()
+                        .entry(child.id)
+                        .or_default() += 1;
+                    // a notify raised before this render is answered by it
+                    self.app
+                        .inner
+                        .pending
+                        .borrow_mut()
+                        .entities
+                        .remove(&child.id);
+                }
+                self.app.inner.lowering.borrow_mut().push(child.id);
+                let element = (child.render)(self.window, self.app);
+                let node = self.lower_element(element);
+                self.app.inner.lowering.borrow_mut().pop();
+                if !self.scratch {
+                    let boundaries = self.boundaries[..self.boundaries.len() - 1].to_vec();
+                    self.app.inner.kept.borrow_mut().insert(
+                        child.id,
+                        Kept {
+                            parent,
+                            path: self.authored_path.clone(),
+                            boundaries,
+                            render: child.render.clone(),
+                            type_name: child.type_name,
+                            seen: true,
+                            lowered: true,
+                        },
+                    );
+                }
+                Some(Box::new(node))
+            }
+        };
+        self.boundaries.pop();
+        self.owners.pop();
+        slots::leave_boundary(&self.app.inner.slots);
+        content
+    }
+
+    /// Re-enters the scopes a kept entity was lowered inside, so a scratch
+    /// lowering of it numbers its scopes and ordinals as the real one did.
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+    pub(crate) fn replay(&mut self, kept: &Kept) {
+        for at in 0..=kept.path.len() {
+            for (_, owner) in kept.boundaries.iter().filter(|(before, _)| *before == at) {
+                slots::enter_boundary(&self.app.inner.slots, *owner);
+                self.owners.push(*owner);
+                self.boundaries.push((at, *owner));
+            }
+            if let Some(segment) = kept.path.get(at) {
+                slots::enter_scope(&self.app.inner.slots, segment.clone());
+                self.authored_path.push(segment.clone());
+            }
+        }
+    }
+
+    /// Records a child entity's placement; a second placement of an entity
+    /// with a cached one, or a cached placement of one already placed, is
+    /// refused naming both, since one entity has one kept subtree.
+    fn place(&mut self, child: &Child, cached: bool) {
+        match self.placed.get(&child.id) {
+            Some((first_cached, first)) if cached || *first_cached => panic!(
+                "{} is one element: it is a child twice (under {first:?} and {:?})",
+                child.type_name, self.authored_path
+            ),
+            _ => {
+                self.placed
+                    .insert(child.id, (cached, self.authored_path.clone()));
+            }
+        }
+    }
+
     /// The list being lowered draws `state`. A state is one list's (its
     /// window of rows, the commands waiting for it), so a second list
     /// drawing it in this frame is refused, naming both.
     pub(crate) fn draws_list(&mut self, state: &crate::ListState) {
-        if let Some((_, first)) = self.lists.iter().find(|(drawn, _)| drawn.is(state)) {
-            panic!(
-                "one ListState drawn by two lists: {first:?} and {:?}; each list takes a state \
-                 of its own",
-                self.authored_path
-            );
-        }
-        self.lists.push((state.clone(), self.authored_path.clone()));
+        let owner = self.owner();
+        slots::draws_list(&self.app.inner.slots, state, &self.authored_path, owner);
     }
 
     pub(crate) fn current_path(&self) -> &[wire::ElementIdWire] {
@@ -264,7 +467,7 @@ impl<'a> Lowering<'a> {
     }
 
     pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
-        slots::picture(&self.app.inner.slots, bytes, cost)
+        slots::picture(&self.app.inner.slots, self.owner(), bytes, cost)
     }
 
     pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
@@ -635,7 +838,7 @@ impl Element for SharedString {
 
 impl Element for &'static str {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
-        lowering.lower((*self).to_owned())
+        Element::lower(Box::new(SharedString::from(*self)), lowering)
     }
 }
 

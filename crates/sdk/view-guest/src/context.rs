@@ -6,6 +6,7 @@ use crate::{FocusHandle, Host, Task, Window, executor, slots};
 use gpui::{EventEmitter, Subscription};
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
@@ -22,6 +23,22 @@ pub(crate) type Globals = std::collections::HashMap<TypeId, Rc<dyn Any>>;
 #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
 pub(crate) type Root = (u64, fn(&dyn Any) -> Vec<u8>);
 
+/// The entities notified since a frame: each `cx.notify()`'s entity and
+/// the cached entities it rendered inside, or every entity at once (a
+/// whole-view fact: the theme, the viewport, a resync). A cached entity not
+/// in it is clean, and its kept subtree stands in for a render.
+#[derive(Default)]
+pub(crate) struct Notified {
+    pub entities: HashSet<u64>,
+    pub all: bool,
+}
+
+impl Notified {
+    pub(crate) fn holds(&self, entity: u64) -> bool {
+        self.all || self.entities.contains(&entity)
+    }
+}
+
 pub struct App {
     pub(crate) inner: Rc<AppState>,
     globals: Rc<Globals>,
@@ -37,7 +54,26 @@ pub(crate) struct AppState {
     pub next_focus_id: Cell<u64>,
     pub next_entity_id: Cell<u64>,
     pub events: events::Events,
+    /// A frame renders this tick.
     pub dirty: Cell<bool>,
+    /// Who was notified since the last frame; the frame takes it as it
+    /// takes `dirty`, into `rendering`, which the lowering reads.
+    pub pending: RefCell<Notified>,
+    pub rendering: RefCell<Notified>,
+    /// The entities whose renders are lowering now, the root first: a
+    /// child notified while one of them lowers is reached by that render.
+    pub lowering: RefCell<Vec<u64>>,
+    /// The root entity's id: the owner of everything lowered outside a
+    /// cached entity's boundary.
+    pub root_entity: Cell<u64>,
+    /// Each child entity's parent: the cached entity (or the root) it last
+    /// rendered inside, so a child's notify reaches the root through every
+    /// boundary on the way.
+    pub parents: RefCell<HashMap<u64, u64>>,
+    /// The cached entities whose subtrees the last frame holds.
+    pub kept: RefCell<HashMap<u64, crate::kept::Kept>>,
+    /// How many ticks lowered each entity (`TestAppContext::lowered`).
+    pub lowered: RefCell<HashMap<u64, u64>>,
     pub alive: Cell<bool>,
     pub globals: RefCell<Rc<Globals>>,
     pub uniform_lists: crate::element::UniformLists,
@@ -80,6 +116,13 @@ impl App {
                 next_entity_id: Cell::new(0),
                 events: Default::default(),
                 dirty: Cell::new(true),
+                pending: RefCell::default(),
+                rendering: RefCell::default(),
+                lowering: RefCell::default(),
+                root_entity: Cell::new(0),
+                parents: RefCell::default(),
+                kept: RefCell::default(),
+                lowered: RefCell::default(),
                 alive: Cell::new(true),
                 globals: RefCell::new(globals),
                 uniform_lists: Default::default(),
@@ -103,7 +146,34 @@ impl App {
     pub(crate) fn window(&self) -> Window {
         Window::new(self.inner.clone())
     }
-    pub(crate) fn notify(&self) {
+    /// Every entity renders next tick: a fact every render reads moved.
+    pub(crate) fn notify_all(&self) {
+        self.dirty();
+        self.inner.pending.borrow_mut().all = true;
+    }
+    /// `entity` renders, and so does every cached entity it last rendered
+    /// inside, up to the root: a clean parent would otherwise stand in for
+    /// the child, since a child is reached only through its parent's
+    /// render. Stops at one already marked, and at one whose render is
+    /// lowering now, which reaches the child in this very frame: a parent
+    /// that pushes a fact into a child from its own render renders the
+    /// child in that frame, as gpui paints a view notified before its
+    /// cached element is reached (`mark_view_dirty`). Raised after the
+    /// child was lowered, the mark stands, and the child renders next tick.
+    pub(crate) fn notify_entity(&self, entity: u64) {
+        self.dirty();
+        let parents = self.inner.parents.borrow();
+        let lowering = self.inner.lowering.borrow();
+        let mut pending = self.inner.pending.borrow_mut();
+        let mut at = entity;
+        while pending.entities.insert(at) {
+            match parents.get(&at) {
+                Some(parent) if !lowering.contains(parent) => at = *parent,
+                _ => break,
+            }
+        }
+    }
+    fn dirty(&self) {
         self.inner.dirty.set(true);
         self.inner
             .generation
@@ -406,10 +476,11 @@ impl<V> Context<'_, V> {
     }
 }
 impl<V: 'static> Context<'_, V> {
-    /// The view renders on the next tick, whichever entity notified; and
-    /// what [`observe`](Self::observe)s this entity hears it.
+    /// This entity renders on the next tick, with every cached entity it
+    /// is inside and the root; and what [`observe`](Self::observe)s this
+    /// entity hears it.
     pub fn notify(&mut self) {
-        self.app.notify();
+        self.app.notify_entity(self.entity.id);
         self.app
             .inner
             .events

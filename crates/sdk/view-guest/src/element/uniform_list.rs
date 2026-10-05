@@ -211,24 +211,36 @@ impl Element for UniformList {
         let measure_index = self.measure_index.min(count.saturating_sub(1));
         // the scroll the view asked for since the last frame anchors the
         // window this frame lowers; it crosses once, under a new revision
+        // (a scratch lowering peeks: the ask is still there for the frame)
+        let scratch = lowering.scratch();
         let (scroll_request, revision) = match &self.scroll {
             Some(handle) => {
                 let mut state = handle.0.borrow_mut();
-                state.y_flipped = self.y_flipped;
-                (state.request.take(), state.revision)
+                let request = match scratch {
+                    true => state.request,
+                    false => {
+                        state.y_flipped = self.y_flipped;
+                        state.request.take()
+                    }
+                };
+                (request, state.revision)
             }
             None => (None, 0),
         };
         let scroll = self.scroll.as_ref().map(|handle| &handle.0);
         let viewport = lowering.window.viewport_size().height;
-        let (route, ranges) = lowering.app.inner.uniform_lists.route(
-            &path,
-            count,
-            measure_index,
-            scroll,
-            viewport,
-            scroll_request.as_ref(),
-        );
+        let owner = lowering.owner();
+        let (route, ranges) = match scratch {
+            true => lowering.app.inner.uniform_lists.held(&path),
+            false => lowering.app.inner.uniform_lists.route(
+                (&path, owner),
+                count,
+                measure_index,
+                scroll,
+                viewport,
+                scroll_request.as_ref(),
+            ),
+        };
         let mut indices = Vec::new();
         let mut children = Vec::new();
         for range in ranges {
@@ -278,6 +290,8 @@ impl gpui::prelude::FluentBuilder for UniformList {}
 
 struct UniformListRoute {
     route: u32,
+    /// The cached entity (or the root) whose render lowers the list.
+    owner: u64,
     count: usize,
     measure_index: usize,
     /// The rows lowered: a window around what the host shows, with
@@ -288,6 +302,11 @@ struct UniformListRoute {
     /// (`Event::UniformListRange`), moved by a scroll the view asked for
     /// since. None until either: the list is at its top.
     shown: Option<Range<usize>>,
+    /// The rows the host last said it shows inside the window: what the
+    /// window holds more than a margin past them leaves at the next
+    /// lowering (S8's trim, which rides the next frame instead of moving
+    /// the window under the base the host holds).
+    trim: Option<Range<usize>>,
     /// The row height the host measured, once it has
     /// (`Event::UniformListRange`). Before that the design system's row.
     item_height: Option<f32>,
@@ -299,7 +318,8 @@ struct UniformListRoute {
 /// The uniform lists the frame being lowered holds, by authored path: each
 /// keeps the route id the host answers with, the window of rows it lowers,
 /// the row height the host measured and the scroll handle it reports into.
-/// A list the frame did not lower is forgotten with it ([`end_frame`]).
+/// A list the frame did not lower is forgotten with it, unless a cached
+/// entity the frame kept whole owns it ([`end_frame`]).
 ///
 /// [`end_frame`]: Self::end_frame
 pub(crate) struct UniformLists {
@@ -326,10 +346,32 @@ impl UniformLists {
     }
 
     /// The frame is lowered: a list it did not hold is forgotten, its
-    /// window and route with it.
-    pub(crate) fn end_frame(&self) {
+    /// window and route with it, unless its owner is a cached entity the
+    /// frame kept whole (`owners`: each live owner, and whether its render
+    /// ran).
+    pub(crate) fn end_frame(&self, owners: &crate::slots::Owners) {
         let frame = self.frame.get();
-        self.lists.borrow_mut().retain(|_, list| list.seen == frame);
+        self.lists.borrow_mut().retain(|_, list| {
+            owners
+                .get(&list.owner)
+                .is_some_and(|lowered| list.seen == frame || !lowered)
+        });
+    }
+
+    /// What the list at `path` lowered last: its route and the ranges its
+    /// window holds, written nowhere (the debug check's lowering).
+    pub(crate) fn held(&self, path: &[wire::ElementIdWire]) -> (u32, Vec<Range<usize>>) {
+        let lists = self.lists.borrow();
+        let Some(state) = lists.get(path) else {
+            return (0, Vec::new());
+        };
+        let measurement =
+            state.measure_index..state.measure_index.saturating_add(1).min(state.count);
+        let mut ranges = vec![measurement];
+        if !state.window.is_empty() {
+            ranges.push(state.window.clone());
+        }
+        (state.route, ranges)
     }
 
     /// The route and row ranges to lower for the list at `path`,
@@ -342,36 +384,49 @@ impl UniformLists {
     /// that came back after a filter are in the frame that shows them.
     /// `request`, the scroll the view asked for this frame, moves them as
     /// the host will ([`anchored`]), so the row it moves to is in the frame
-    /// that carries the move.
+    /// that carries the move. `at` is the list's path and the owner whose
+    /// render draws it.
     fn route(
         &self,
-        path: &[wire::ElementIdWire],
+        at: (&[wire::ElementIdWire], u64),
         count: usize,
         measure_index: usize,
         scroll: Option<&Rc<RefCell<UniformListScrollState>>>,
         viewport: Pixels,
         request: Option<&wire::list::UniformListScrollRequest>,
     ) -> (u32, Vec<Range<usize>>) {
+        let (path, owner) = at;
         let mut lists = self.lists.borrow_mut();
         let state = lists.entry(path.to_vec()).or_insert_with(|| {
             let route = self.next_route.get();
             self.next_route.set(route.wrapping_add(1).max(1));
             UniformListRoute {
                 route,
+                owner,
                 count,
                 measure_index,
                 window: 0..0,
                 shown: None,
+                trim: None,
                 item_height: None,
                 scroll: None,
                 seen: 0,
             }
         });
         state.seen = self.frame.get();
+        state.owner = owner;
         state.count = count;
         state.measure_index = measure_index;
         state.scroll = scroll.map(Rc::downgrade);
-        let held = clamped(state.window.clone(), count);
+        let mut held = clamped(state.window.clone(), count);
+        if let Some(shown) = state.trim.take()
+            && !held.is_empty()
+            && held.start <= shown.start
+            && shown.end <= held.end
+        {
+            held = held.start.max(shown.start.saturating_sub(MARGIN_ROWS))
+                ..held.end.min(shown.end.saturating_add(MARGIN_ROWS));
+        }
         let rows = rows_shown(viewport, state.item_height);
         // a list scrolled past its last screenful is put back there, as the
         // host puts it
@@ -395,11 +450,14 @@ impl UniformLists {
     }
 
     /// The host shows rows `start..end` of the list at `path`, whose rows
-    /// it measured `item_height` tall: whether a frame is owed for it. The
-    /// host's word places the window: rows past it move the window to
-    /// them, with the margin past each edge, and that is a frame; rows it
-    /// holds draw nothing, and what it holds more than a margin off screen
-    /// (a scroll grew it) leaves with the next frame.
+    /// it measured `item_height` tall: the owner a frame is owed by, if
+    /// one is. The host's word places the window: rows past it move the
+    /// window to them, with the margin past each edge, and that is a frame
+    /// of the list's owner; rows it holds draw nothing, and what it holds
+    /// more than a margin off screen (a scroll grew it) leaves with the
+    /// next frame ([`UniformLists::route`] trims at the owner's next
+    /// lowering, so the window here is always the one the last lowering
+    /// produced, which is what the base the host holds has).
     pub(crate) fn request_range(
         &self,
         path: Vec<wire::ElementIdWire>,
@@ -407,32 +465,29 @@ impl UniformLists {
         start: usize,
         end: usize,
         item_height: f32,
-    ) -> bool {
+    ) -> Option<u64> {
         let mut lists = self.lists.borrow_mut();
-        let Some(state) = lists.get_mut(&path) else {
-            return false;
-        };
+        let state = lists.get_mut(&path)?;
         if state.route != route {
-            return false;
+            return None;
         }
         if item_height.is_finite() && item_height > 0. {
             state.item_height = Some(item_height.min(wire::MAX_PIXELS));
         }
         let shown = clamped(start..end, state.count);
         if shown.is_empty() {
-            return false;
+            return None;
         }
         state.shown = Some(shown.clone());
         let held = clamped(state.window.clone(), state.count);
         let holds = !held.is_empty() && held.start <= shown.start && shown.end <= held.end;
-        state.window = match holds {
-            true => {
-                held.start.max(shown.start.saturating_sub(MARGIN_ROWS))
-                    ..held.end.min(shown.end.saturating_add(MARGIN_ROWS))
-            }
-            false => window(&(0..0), shown, state.count, state.measure_index),
-        };
-        !holds
+        if holds {
+            state.trim = Some(shown);
+            return None;
+        }
+        state.trim = None;
+        state.window = window(&(0..0), shown, state.count, state.measure_index);
+        Some(state.owner)
     }
 
     /// What the host reports about the list at `path`, written into the
@@ -499,9 +554,9 @@ fn anchored(
 /// The window once the list shows `target`: `held` when it holds every row
 /// of it, else `target` with [`MARGIN_ROWS`] past each edge, joined to
 /// `held` where the two touch (a scroll beside the rows on screen keeps
-/// them until the host says where it is; [`UniformLists::request_range`]
-/// trims) and in its place where they do not (a jump). Within `count` and
-/// the rows one frame carries, counted from the target's side.
+/// them until the host says where it is; [`UniformLists::route`] trims at
+/// the next lowering) and in its place where they do not (a jump). Within
+/// `count` and the rows one frame carries, counted from the target's side.
 fn window(
     held: &Range<usize>,
     target: Range<usize>,

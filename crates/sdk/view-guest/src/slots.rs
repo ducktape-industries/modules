@@ -30,8 +30,11 @@ struct Tables {
     /// Picture bytes this frame carries so far, against the host's
     /// [`crate::wire::MAX_PICTURE_BYTES_PER_FRAME`].
     picture_bytes: usize,
-    /// A picture this frame drew went out by hash alone for want of budget.
-    pictures_owed: bool,
+    /// The owners whose renders drew a picture that went out by hash alone
+    /// for want of budget this frame.
+    pictures_owed: HashSet<u64>,
+    /// The lists the live frames draw, by their state.
+    lists: Vec<DrawnList>,
     /// Widget commands asked this tick, sent with its frame
     /// ([`crate::window::send_widgets`]).
     widgets: Vec<crate::wire::WidgetCommand>,
@@ -95,10 +98,11 @@ struct Key {
 }
 
 /// A scope: an identified element, named by its segment under the scope
-/// around it. Its number stands for its whole path, since the scope around
-/// it is a number that stands for the path so far; [`ROOT`] is around the
-/// outermost. A scope is looked up by these three, exactly: two paths
-/// never share a number.
+/// around it, or a cached entity's boundary, named by its entity
+/// ([`ElementIdWire::View`]). Its number stands for its whole path, since
+/// the scope around it is a number that stands for the path so far;
+/// [`ROOT`] is around the outermost. A scope is looked up by these three,
+/// exactly: two paths never share a number.
 #[derive(PartialEq, Eq, Hash)]
 struct ScopeKey {
     within: Option<u32>,
@@ -109,11 +113,15 @@ struct ScopeKey {
 /// The scope of a lowering itself, around every identified element in it.
 const ROOT: u32 = 0;
 
-/// A scope being lowered: its segment until a listener in it or under it
-/// asks for a route, then its number. A scope no listener asks in is never
-/// looked up.
+/// What a scratch lowering answers for a key or a scope it does not hold:
+/// a listener the kept tree has no route for, which is a change.
+const UNHELD: u32 = u32::MAX;
+
+/// A scope being lowered: its segment, and the owner whose render entered
+/// it, until a listener in it or under it asks for a route, then its
+/// number. A scope no listener asks in is never looked up.
 enum Open {
-    Unasked(ElementIdWire),
+    Unasked(ElementIdWire, Option<u64>),
     Numbered(u32),
 }
 
@@ -121,14 +129,31 @@ struct Slot {
     id: u32,
     /// The frame that last lowered the key.
     seen: u64,
+    /// The cached entity (or the root) whose render lowered it; `None`
+    /// inside a tooltip's content, which lives by its tooltip's route.
+    owner: Option<u64>,
+}
+
+/// The cached entities (and the root) a frame left live, each with whether
+/// its render ran this frame: what every registry an owner's render wrote
+/// into frees by ([`Routes::end_frame`]). An owner not here is gone.
+pub(crate) type Owners = HashMap<u64, bool>;
+
+/// Whether a slot an owner's render wrote lives on: its owner lives, and
+/// either this frame lowered the slot or did not lower the owner at all.
+fn kept_by(owners: &Owners, owner: u64, seen: u64, frame: u64) -> bool {
+    owners
+        .get(&owner)
+        .is_some_and(|lowered| seen == frame || !lowered)
 }
 
 /// The route table: what the host's `handler` numbers mean. An id is
 /// handed out the first time its key is seen and kept while the key is
 /// lowered, so a route the host took from the frame it painted names the
 /// same listener in the next frame, whatever changed around it. A frame
-/// lowered without the key frees the id, and no id is handed out twice, so
-/// a freed route names nothing for the rest of the driver's life.
+/// lowered without the key frees the id, unless its owner is a cached
+/// entity the frame kept whole; no id is handed out twice, so a freed
+/// route names nothing for the rest of the driver's life.
 ///
 /// A scope's number is kept the same way: handed out the first time a
 /// listener is lowered in it or under it, kept while one is, freed by a
@@ -151,6 +176,11 @@ struct Routes {
     /// `marks` says where each scope's counters start.
     counters: Vec<(Kind, u32)>,
     marks: Vec<usize>,
+    /// The cached entities whose renders are lowering, the root first.
+    owners: Vec<u64>,
+    /// A scratch lowering (the debug check): nothing is written, and a key
+    /// or scope not held answers [`UNHELD`].
+    scratch: bool,
 }
 
 impl Routes {
@@ -167,7 +197,8 @@ impl Routes {
             _ => ROOT,
         };
         for at in numbered.map_or(0, |at| at + 1)..self.open.len() {
-            let Open::Unasked(segment) = std::mem::replace(&mut self.open[at], Open::Numbered(0))
+            let Open::Unasked(segment, owner) =
+                std::mem::replace(&mut self.open[at], Open::Numbered(0))
             else {
                 unreachable!("every scope past the last numbered one is unasked")
             };
@@ -178,9 +209,12 @@ impl Routes {
             };
             parent = match self.scopes.entry(key) {
                 Entry::Occupied(mut slot) => {
-                    slot.get_mut().seen = self.frame;
+                    if !self.scratch {
+                        slot.get_mut().seen = self.frame;
+                    }
                     slot.get().id
                 }
+                Entry::Vacant(_) if self.scratch => UNHELD,
                 Entry::Vacant(slot) => {
                     self.last_scope = self
                         .last_scope
@@ -189,6 +223,7 @@ impl Routes {
                     slot.insert(Slot {
                         id: self.last_scope,
                         seen: self.frame,
+                        owner,
                     });
                     self.last_scope
                 }
@@ -196,6 +231,15 @@ impl Routes {
             self.open[at] = Open::Numbered(parent);
         }
         parent
+    }
+
+    /// The owner a slot taken now is filed under: the innermost cached
+    /// entity lowering, or none inside a tooltip's content.
+    fn owner(&self) -> Option<u64> {
+        match self.within {
+            Some(_) => None,
+            None => self.owners.last().copied(),
+        }
     }
 
     fn take(&mut self, kind: Kind, route: Rc<dyn Any>) -> u32 {
@@ -219,6 +263,10 @@ impl Routes {
             kind,
             ordinal,
         };
+        if self.scratch {
+            return self.ids.get(&key).map_or(UNHELD, |slot| slot.id);
+        }
+        let owner = self.owner();
         let id = match self.ids.entry(key) {
             Entry::Occupied(mut slot) => {
                 slot.get_mut().seen = self.frame;
@@ -230,6 +278,7 @@ impl Routes {
                 slot.insert(Slot {
                     id,
                     seen: self.frame,
+                    owner,
                 });
                 id
             }
@@ -242,15 +291,19 @@ impl Routes {
         self.live.get(&id).cloned()
     }
 
-    fn begin_lowering(&mut self, within: Option<u32>) {
+    fn begin_lowering(&mut self, within: Option<u32>, root: u64, scratch: bool) {
         self.within = within;
+        self.scratch = scratch;
         self.open.clear();
         self.counters.clear();
         self.marks.clear();
+        self.owners.clear();
+        self.owners.push(root);
     }
 
     fn enter_scope(&mut self, segment: ElementIdWire) {
-        self.open.push(Open::Unasked(segment));
+        let owner = self.owner();
+        self.open.push(Open::Unasked(segment, owner));
         self.marks.push(self.counters.len());
     }
 
@@ -261,31 +314,86 @@ impl Routes {
         }
     }
 
-    /// Frees every key and every scope the frame did not lower. A route
-    /// authored inside a tooltip's content is lowered once, when the host
-    /// asks for that tooltip, and lives as long as the tooltip's own route
-    /// does; so does the scope it was authored in.
-    fn end_frame(&mut self) {
+    /// A cached entity's render starts lowering: a scope of its own, named
+    /// by the entity, so its listeners' ordinals start at zero and never
+    /// shift its parent's, and every slot in it, the scope itself first,
+    /// is filed under it.
+    fn enter_boundary(&mut self, owner: u64) {
+        self.owners.push(owner);
+        self.enter_scope(ElementIdWire::View(owner));
+    }
+
+    fn leave_boundary(&mut self) {
+        self.leave_scope();
+        self.owners.pop();
+    }
+
+    /// Frees every key and every scope the frame did not lower, unless its
+    /// owner is a cached entity the frame kept whole (`owners`: each live
+    /// owner, and whether its render ran), or, for a scope, unless a key or
+    /// a scope that lives sits under it: a number stands for its whole
+    /// path, so a scope outlives everything numbered under it, asked or
+    /// not. A route authored inside a tooltip's content is lowered once,
+    /// when the host asks for that tooltip, and lives as long as the
+    /// tooltip's own route does; so does the scope it was authored in.
+    fn end_frame(&mut self, owners: &Owners) {
         let frame = self.frame;
         let kept: HashSet<u32> = self
             .ids
-            .values()
-            .filter(|slot| slot.seen == frame)
-            .map(|slot| slot.id)
+            .iter()
+            .filter(|(key, slot)| {
+                key.within.is_none()
+                    && slot
+                        .owner
+                        .is_some_and(|owner| kept_by(owners, owner, slot.seen, frame))
+            })
+            .map(|(_, slot)| slot.id)
             .collect();
-        let alive = |seen: u64, within: Option<u32>| {
-            seen == frame || within.is_some_and(|owner| kept.contains(&owner))
+        let alive = |slot: &Slot, within: Option<u32>| match (within, slot.owner) {
+            (None, Some(owner)) => kept_by(owners, owner, slot.seen, frame),
+            (within, _) => slot.seen == frame || within.is_some_and(|owner| kept.contains(&owner)),
         };
         let live = &mut self.live;
         self.ids.retain(|key, slot| {
-            let alive = alive(slot.seen, key.within);
+            let alive = alive(slot, key.within);
             if !alive {
                 live.remove(&slot.id);
             }
             alive
         });
-        self.scopes.retain(|key, slot| alive(slot.seen, key.within));
+        let mut scopes: HashSet<u32> = self.ids.keys().map(|key| key.scope).collect();
+        scopes.extend(
+            self.scopes
+                .iter()
+                .filter(|(key, slot)| alive(slot, key.within))
+                .map(|(_, slot)| slot.id),
+        );
+        let parents: HashMap<u32, u32> = self
+            .scopes
+            .iter()
+            .map(|(key, slot)| (slot.id, key.parent))
+            .collect();
+        let mut above: Vec<u32> = scopes.iter().copied().collect();
+        while let Some(scope) = above.pop() {
+            if let Some(parent) = parents.get(&scope)
+                && *parent != ROOT
+                && scopes.insert(*parent)
+            {
+                above.push(*parent);
+            }
+        }
+        self.scopes.retain(|_, slot| scopes.contains(&slot.id));
     }
+}
+
+/// A list drawn by a frame: the state it draws, where, and whose render
+/// drew it. A state is one list's, so two live records of one state are
+/// refused at the frame's end, naming both lists.
+struct DrawnList {
+    state: crate::ListState,
+    path: Vec<ElementIdWire>,
+    owner: u64,
+    seen: u64,
 }
 
 #[derive(Clone, Default)]
@@ -306,7 +414,12 @@ impl Context {
 /// hash alone, is not marked sent, and is owed: [`start_frame`] says so,
 /// and the driver draws again until every picture is held. `cost` is what
 /// the host counts for it, which for raw pixels is not their header.
-pub fn picture(context: &Context, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
+pub fn picture(
+    context: &Context,
+    owner: u64,
+    bytes: impl AsRef<[u8]>,
+    cost: usize,
+) -> (u64, Option<Vec<u8>>) {
     use crate::wire::MAX_PICTURE_BYTES_PER_FRAME;
     use std::hash::{Hash, Hasher};
     let bytes = bytes.as_ref();
@@ -314,7 +427,8 @@ pub fn picture(context: &Context, bytes: impl AsRef<[u8]>, cost: usize) -> (u64,
     bytes.hash(&mut hasher);
     let hash = hasher.finish();
     let tables = &mut *context.0.borrow_mut();
-    if tables.pictures.contains(&hash) {
+    // a scratch lowering sends nothing and owes nothing
+    if tables.pictures.contains(&hash) || tables.routes.scratch {
         return (hash, None);
     }
     // No frame can carry it: the host drops it whole, so it is neither
@@ -323,7 +437,7 @@ pub fn picture(context: &Context, bytes: impl AsRef<[u8]>, cost: usize) -> (u64,
         return (hash, None);
     }
     if cost > MAX_PICTURE_BYTES_PER_FRAME - tables.picture_bytes {
-        tables.pictures_owed = true;
+        tables.pictures_owed.insert(owner);
         return (hash, None);
     }
     if tables.pictures.len() >= 4_096 {
@@ -334,9 +448,9 @@ pub fn picture(context: &Context, bytes: impl AsRef<[u8]>, cost: usize) -> (u64,
     (hash, Some(bytes.to_vec()))
 }
 
-/// Starts a frame's picture budget, and answers whether the last frame
-/// owed a picture it drew.
-pub(crate) fn start_frame(context: &Context) -> bool {
+/// Starts a frame's picture budget, and answers the owners whose renders
+/// drew a picture the last frame owed: each renders again.
+pub(crate) fn start_frame(context: &Context) -> HashSet<u64> {
     let tables = &mut *context.0.borrow_mut();
     tables.picture_bytes = 0;
     std::mem::take(&mut tables.pictures_owed)
@@ -344,7 +458,7 @@ pub(crate) fn start_frame(context: &Context) -> bool {
 
 /// Whether this frame drew a picture it had no budget left to send.
 pub(crate) fn pictures_owed(context: &Context) -> bool {
-    context.0.borrow().pictures_owed
+    !context.0.borrow().pictures_owed.is_empty()
 }
 
 pub(crate) fn clear_pictures(context: &Context) {
@@ -352,9 +466,54 @@ pub(crate) fn clear_pictures(context: &Context) {
 }
 
 /// A lowering begins: its routes are keyed in the tree, or inside the
-/// tooltip whose content it lowers.
-pub(crate) fn begin_lowering(context: &Context, within: Option<u32>) {
-    context.0.borrow_mut().routes.begin_lowering(within);
+/// tooltip whose content it lowers, and filed under `root` until a cached
+/// entity's boundary is entered. A `scratch` lowering writes nothing.
+pub(crate) fn begin_lowering(context: &Context, within: Option<u32>, root: u64, scratch: bool) {
+    context
+        .0
+        .borrow_mut()
+        .routes
+        .begin_lowering(within, root, scratch);
+}
+
+/// A cached entity's render starts lowering ([`Routes::enter_boundary`]).
+pub(crate) fn enter_boundary(context: &Context, owner: u64) {
+    context.0.borrow_mut().routes.enter_boundary(owner);
+}
+
+pub(crate) fn leave_boundary(context: &Context) {
+    context.0.borrow_mut().routes.leave_boundary();
+}
+
+/// The list being lowered at `path`, under `owner`, draws `state`.
+pub(crate) fn draws_list(
+    context: &Context,
+    state: &crate::ListState,
+    path: &[ElementIdWire],
+    owner: u64,
+) {
+    let tables = &mut *context.0.borrow_mut();
+    if tables.routes.scratch {
+        return;
+    }
+    let frame = tables.routes.frame;
+    match tables.lists.iter_mut().find(|drawn| drawn.state.is(state)) {
+        Some(drawn) if drawn.seen != frame => {
+            drawn.path = path.to_vec();
+            drawn.owner = owner;
+            drawn.seen = frame;
+        }
+        Some(drawn) => panic!(
+            "one ListState drawn by two lists: {:?} and {path:?}; each list takes a state of its own",
+            drawn.path
+        ),
+        None => tables.lists.push(DrawnList {
+            state: state.clone(),
+            path: path.to_vec(),
+            owner,
+            seen: frame,
+        }),
+    }
 }
 
 /// An identified element starts lowering, filed under `segment` in the
@@ -372,9 +531,15 @@ pub(crate) fn begin_frame(context: &Context) {
     context.0.borrow_mut().routes.frame += 1;
 }
 
-/// The frame is lowered: every route it did not take is freed.
-pub(crate) fn end_frame(context: &Context) {
-    context.0.borrow_mut().routes.end_frame();
+/// The frame is lowered: every route, scope and list record it did not
+/// take is freed, unless a cached entity the frame kept whole owns it.
+pub(crate) fn end_frame(context: &Context, owners: &Owners) {
+    let tables = &mut *context.0.borrow_mut();
+    tables.routes.end_frame(owners);
+    let frame = tables.routes.frame;
+    tables
+        .lists
+        .retain(|drawn| kept_by(owners, drawn.owner, drawn.seen, frame));
 }
 
 pub(crate) fn tooltip(context: &Context, build: TooltipBuilder) -> u32 {
@@ -459,7 +624,7 @@ mod tests {
     fn nested_contexts_keep_their_own_routes_and_picture_history() {
         let first = Context::default();
         let first_route = route::<String>(&first, Kind::Change, |_, _, _| {});
-        assert!(picture(&first, b"svg", 3).1.is_some());
+        assert!(picture(&first, 0, b"svg", 3).1.is_some());
         {
             let second = Context::default();
             let route = route::<String>(&second, Kind::Change, |_, _, _| {});
@@ -469,12 +634,12 @@ mod tests {
                 "each driver starts its own route table"
             );
             assert!(
-                picture(&second, b"svg", 3).1.is_some(),
+                picture(&second, 0, b"svg", 3).1.is_some(),
                 "a new host needs its own picture bytes"
             );
         }
         assert!(
-            picture(&first, b"svg", 3).1.is_none(),
+            picture(&first, 0, b"svg", 3).1.is_none(),
             "returning to the first driver preserves its picture history"
         );
     }
@@ -483,7 +648,7 @@ mod tests {
     /// answers the scope number each was keyed under.
     fn frame(routes: &mut Routes, paths: &[&[&'static str]]) -> Vec<u32> {
         routes.frame += 1;
-        routes.begin_lowering(None);
+        routes.begin_lowering(None, 0, false);
         let scopes = paths
             .iter()
             .map(|path| {
@@ -496,7 +661,7 @@ mod tests {
                 scope
             })
             .collect();
-        routes.end_frame();
+        routes.end_frame(&HashMap::from([(0, true)]));
         scopes
     }
 
@@ -529,7 +694,7 @@ mod tests {
     fn a_scope_without_a_listener_is_not_numbered() {
         let mut routes = Routes::default();
         routes.frame += 1;
-        routes.begin_lowering(None);
+        routes.begin_lowering(None, 0, false);
         routes.enter_scope(ElementIdWire::Name("page".into()));
         routes.enter_scope(ElementIdWire::Name("plain".into()));
         routes.leave_scope();
@@ -549,11 +714,11 @@ mod tests {
     #[test]
     fn clearing_picture_history_resends_content() {
         let context = Context::default();
-        assert!(picture(&context, b"image", 5).1.is_some());
-        assert!(picture(&context, b"image", 5).1.is_none());
+        assert!(picture(&context, 0, b"image", 5).1.is_some());
+        assert!(picture(&context, 0, b"image", 5).1.is_none());
         clear_pictures(&context);
         assert_eq!(
-            picture(&context, b"image", 5).1.as_deref(),
+            picture(&context, 0, b"image", 5).1.as_deref(),
             Some(b"image".as_slice())
         );
     }

@@ -664,6 +664,7 @@ fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
     probe.read(|view| assert_eq!(view.received.len(), 40));
 }
 
+mod cached;
 mod lifecycle;
 mod picture_budget;
 mod primitive_tests;

@@ -1,18 +1,22 @@
-use crate::element::{AnyElement, Element, IntoElement, Lowering, RenderOnce};
+use crate::element::{Element, IntoElement, Lowering, RenderOnce};
+use crate::kept::ChildRenderer;
 use crate::wire;
-
-type ViewRenderer = Box<dyn FnOnce(&mut crate::Window, &mut crate::App) -> AnyElement>;
+use gpui::StyleRefinement;
 
 /// Any entity that renders, type-erased, as native GPUI's `AnyView`: a
 /// child entity in its parent's tree, or a tooltip's content.
 pub struct AnyView {
-    render: ViewRenderer,
+    render: ChildRenderer,
+    id: u64,
+    type_name: &'static str,
 }
 
 impl<V: crate::Render> From<crate::Entity<V>> for AnyView {
     fn from(entity: crate::Entity<V>) -> Self {
         Self {
-            render: Box::new(move |window, app| {
+            id: entity.id,
+            type_name: std::any::type_name::<V>(),
+            render: std::rc::Rc::new(move |window, app| {
                 entity.update_in_window(app, window, |view, window, cx| {
                     view.render(window, cx).into_any_element()
                 })
@@ -21,12 +25,61 @@ impl<V: crate::Render> From<crate::Entity<V>> for AnyView {
     }
 }
 
-/// A child entity is a child element: `.child(self.sidebar.clone())`.
+/// A child entity is a child element: `.child(self.sidebar.clone())`. It
+/// renders and lowers whenever its parent does.
 impl<V: crate::Render> IntoElement for crate::Entity<V> {
     type Element = ViewElement<AnyView>;
 
     fn into_element(self) -> Self::Element {
         AnyView::from(self).into_element()
+    }
+}
+
+impl<V: crate::Render> crate::Entity<V> {
+    /// This entity's subtree, kept across frames in a box styled `style`
+    /// (gpui's `Entity::cached`): the entity is rendered, lowered and
+    /// diffed only on a tick after it, or an entity rendered inside it,
+    /// called `cx.notify()`; otherwise the last subtree stands. The box is
+    /// laid out from `style` alone, never from its content, which is laid
+    /// out as a root inside it: a content root that is to fill the box says
+    /// `size_full()`. The style's paint half (`bg`, border, padding) is
+    /// drawn on the box.
+    ///
+    /// ```
+    /// # use serde::{Deserialize, Serialize};
+    /// # use ducktape_view_guest::{View, prelude::*, StyleRefinement};
+    /// # struct Sidebar;
+    /// # impl Render for Sidebar {
+    /// #     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    /// #         div().size_full()
+    /// #     }
+    /// # }
+    /// # #[derive(Default, Serialize, Deserialize)]
+    /// # struct Shell { #[serde(skip)] sidebar: Option<Entity<Sidebar>> }
+    /// # impl View for Shell {
+    /// #     const NAME: &'static str = "Shell";
+    /// #     fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    /// #         self.sidebar = Some(cx.new(|_| Sidebar));
+    /// #     }
+    /// # }
+    /// # impl Render for Shell {
+    /// #     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    /// let sidebar = self.sidebar.clone().expect("attach built it");
+    /// div().child(sidebar.cached(StyleRefinement::default().w(px(240.)).h_full()))
+    /// #     }
+    /// # }
+    /// ```
+    pub fn cached(self, style: StyleRefinement) -> ViewElement<AnyView> {
+        AnyView::from(self).cached(style)
+    }
+}
+
+impl AnyView {
+    /// [`Entity::cached`](crate::Entity::cached) on an erased entity.
+    pub fn cached(self, style: StyleRefinement) -> ViewElement<AnyView> {
+        let mut element = self.into_element();
+        element.cached = Some(style);
+        element
     }
 }
 
@@ -40,8 +93,25 @@ impl IntoElement for AnyView {
     type Element = ViewElement<Self>;
 
     fn into_element(self) -> Self::Element {
-        ViewElement::new(self)
+        let entity = Child {
+            id: self.id,
+            type_name: self.type_name,
+            render: self.render.clone(),
+        };
+        ViewElement {
+            view: self,
+            entity: Some(entity),
+            cached: None,
+        }
     }
+}
+
+/// The entity behind a [`ViewElement`] built from one: what the lowering
+/// records a child by, and runs to render it.
+pub(crate) struct Child {
+    pub id: u64,
+    pub type_name: &'static str,
+    pub render: ChildRenderer,
 }
 
 /// The guest counterpart of GPUI's `ViewElement`: it defers a `RenderOnce`
@@ -49,12 +119,24 @@ impl IntoElement for AnyView {
 #[doc(hidden)]
 pub struct ViewElement<V: RenderOnce> {
     view: V,
+    /// The entity, when the component is one: a plain child records its
+    /// parent; a cached one keeps its subtree.
+    entity: Option<Child>,
+    /// The box a cached entity's subtree is kept in: set only through
+    /// [`Entity::cached`](crate::Entity::cached) and [`AnyView::cached`],
+    /// since keeping is sound only for an entity, whose `cx.notify()` is
+    /// the contract.
+    cached: Option<StyleRefinement>,
 }
 
 impl<V: RenderOnce> ViewElement<V> {
     #[track_caller]
     pub fn new(view: V) -> Self {
-        Self { view }
+        Self {
+            view,
+            entity: None,
+            cached: None,
+        }
     }
 }
 
@@ -64,7 +146,12 @@ impl<V: RenderOnce> Element for ViewElement<V> {
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
-        lowering.render_once(self.view)
+        let this = *self;
+        match (this.entity, this.cached) {
+            (None, _) => lowering.render_once(this.view),
+            (Some(child), None) => lowering.lower_child(&child),
+            (Some(child), Some(style)) => lowering.lower_cached(&child, &style),
+        }
     }
 }
 

@@ -16,6 +16,8 @@ trait TestDriver {
     fn host(&self) -> Host;
     fn snapshot(&self) -> Result<Vec<u8>, String>;
     fn renders(&self) -> u64;
+    fn lowered(&self) -> usize;
+    fn lowered_of(&self, entity: u64) -> u64;
 }
 impl<V: View> TestDriver for Driver<V> {
     /// The frame the host gets, and its size on the wire.
@@ -34,6 +36,18 @@ impl<V: View> TestDriver for Driver<V> {
     fn renders(&self) -> u64 {
         self.renders
     }
+    fn lowered(&self) -> usize {
+        self.lowered
+    }
+    fn lowered_of(&self, entity: u64) -> u64 {
+        self.app
+            .inner
+            .lowered
+            .borrow()
+            .get(&entity)
+            .copied()
+            .unwrap_or(0)
+    }
 }
 
 /// What one tick cost: what the view did and what crossed to the host.
@@ -41,6 +55,9 @@ impl<V: View> TestDriver for Driver<V> {
 pub struct TickReport {
     /// The view rendered: it called `cx.notify()`, or the host had no tree.
     pub rendered: bool,
+    /// Nodes the tick lowered: the root's own and every child it rendered;
+    /// a cached child that stood in counts none.
+    pub lowered: usize,
     /// Nodes in the tree the host shows after the tick.
     pub nodes: usize,
     /// Patches the frame carried; none when it sent the tree whole or
@@ -145,6 +162,16 @@ impl TestAppContext {
     pub fn ticks(&self) -> u64 {
         self.ticks
     }
+    /// How many ticks rendered and lowered `entity` (the open view, or a
+    /// child it built) since the view was opened: read it before and after
+    /// an event to pin what the event costs. A cached child that stood in
+    /// for a tick is not counted for it.
+    pub fn lowered<T>(&self, entity: &Entity<T>) -> u64 {
+        self.driver
+            .as_ref()
+            .expect("open a view first")
+            .lowered_of(entity.id)
+    }
     /// The ticks the last `simulate_*`, `run_until_parked` or `tick` ran,
     /// in order.
     pub fn reports(&self) -> &[TickReport] {
@@ -180,7 +207,7 @@ impl TestAppContext {
         if let Some(driver) = &mut self.driver {
             let app = driver.app_mut();
             app.set_shared_global(kind, global);
-            app.notify();
+            app.notify_all();
             self.run_until_parked();
         }
     }
@@ -246,6 +273,7 @@ impl TestAppContext {
         assert_frame_accessible(self.tree.as_ref(), &frame.tooltip_responses);
         let report = TickReport {
             rendered,
+            lowered: driver.lowered(),
             nodes: self.tree.as_ref().map_or(0, Node::count),
             patches: frame.patches.len(),
             bytes,
