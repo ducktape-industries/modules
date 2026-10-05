@@ -375,7 +375,11 @@ down its focus path to the capture listeners and back up it; a key at a
 node off that path fails the test. A click goes out from the node pressed
 through every node around it with a click, as gpui passes it, until one
 consumes it (`consumes_click`), hides what is behind it (`occlude`), or the
-press leaves a dialog's layer. The view opens in a pane the size the
+press leaves a dialog's layer. A field's text is the host's: it takes a
+frame's text when the field is new or its generation moved, telling the
+view what it took, and `simulate_input` types into the text it holds; a
+field drawn from a `TextField` made in `render` is a new generation every
+frame, and loses what is typed. The view opens in a pane the size the
 app gives a new window (`testing::VIEWPORT`; `simulate_resize` moves it,
 before or after the open), reads it as `Window::viewport_size()`, and a
 list's first frame holds the rows that fill it; `simulate_viewport(rows)`

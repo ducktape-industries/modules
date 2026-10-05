@@ -76,6 +76,9 @@ pub struct TestAppContext {
     focus: Option<Focus>,
     globals: crate::context::Globals,
     ticks: u64,
+    /// The text of every field in the tree, as the host's engine holds it,
+    /// by the ids the field is filed under.
+    fields: HashMap<Vec<wire::ElementIdWire>, HostField>,
     /// The host engine's revision of the fields' text, one count for all,
     /// and every edit it made, at the revision that made it.
     text_revision: u64,
@@ -85,6 +88,15 @@ pub struct TestAppContext {
     ///
     /// [`simulate_resize`]: Self::simulate_resize
     viewport: Option<(f32, f32)>,
+}
+
+/// One field's text in the host's engine: the engine owns it, and the view's
+/// copy in a frame only follows. `generation` is the view's document the
+/// engine took its text from.
+struct HostField {
+    generation: u64,
+    text: String,
+    tokens: Vec<wire::TextToken>,
 }
 
 /// The window a test host opens a view in, until a test resizes it: a
@@ -125,6 +137,7 @@ impl TestAppContext {
         self.driver = Some(driver);
         self.frame = Frame::default();
         self.tree = None;
+        self.fields.clear();
         self.styles = wire::Styles::default();
         self.ticks = 0;
         let (width, height) = self.viewport.unwrap_or(VIEWPORT);
@@ -253,10 +266,60 @@ impl TestAppContext {
             busy: frame.busy,
         };
         self.move_focus(&frame, dialogs.unwrap_or_default());
-        let edited = self.replace(&frame);
-        self.host.owe(edited);
+        let mut told = self.adopt();
+        told.extend(self.replace(&frame));
+        self.host.owe(told);
         self.frame = frame;
         report
+    }
+    /// What the host's engine does with the fields of the tree it now
+    /// holds. A field new to the tree starts with the frame's text. A field
+    /// whose generation moved is a new document: the engine's text becomes
+    /// the frame's, whatever was typed into the old one, and the view is
+    /// told when that changed it, with no edit, since it edits nothing. A
+    /// field at the generation the engine holds keeps the engine's text: the
+    /// frame's is the view's copy of it. One that left the tree is forgotten.
+    fn adopt(&mut self) -> Vec<Event> {
+        let mut shown = Vec::new();
+        if let Some(root) = &self.tree {
+            super::chain(root, &mut |chain| {
+                if let Node::Field {
+                    generation,
+                    value,
+                    cursor,
+                    tokens,
+                    on_change,
+                    ..
+                } = chain.last().unwrap()
+                {
+                    let frame = HostField {
+                        generation: *generation,
+                        text: value.clone(),
+                        tokens: tokens.to_vec(),
+                    };
+                    shown.push((super::authored_path(chain), frame, *cursor, *on_change));
+                }
+                false
+            });
+        }
+        let mut held = std::mem::take(&mut self.fields);
+        let mut told = Vec::new();
+        for (path, frame, cursor, on_change) in shown {
+            let field = match held.remove(&path) {
+                Some(held) if held.generation == frame.generation => held,
+                Some(held) => {
+                    if let Some(handler) = on_change.filter(|_| held.text != frame.text) {
+                        let (text, tokens) = (frame.text.clone(), frame.tokens.clone());
+                        let change = self.text_change(frame.generation, None, text, cursor, tokens);
+                        told.push(Event::Text { handler, change });
+                    }
+                    frame
+                }
+                None => frame,
+            };
+            self.fields.insert(path, field);
+        }
+        told
     }
     /// The view's own focus moves, then a dialog that opened this frame
     /// takes the keyboard; focus on a node that left the tree is gone.
@@ -704,27 +767,32 @@ impl TestAppContext {
     // Text, pictures and other widgets.
 
     /// The field with key or placeholder `name` now reads `text`: the
-    /// host's engine took the typing and says so, caret at the end.
+    /// host's engine took the typing into the text it holds and says so,
+    /// caret at the end.
     pub fn simulate_input(&mut self, name: &str, text: &str) {
-        let Some(Node::Field {
-            on_change,
-            value,
-            generation,
-            ..
-        }) = self.input(name)
-        else {
+        let Some(chain) = input(self.root(), name) else {
+            panic!("no input {name:?} in {:?}", self.texts());
+        };
+        let Some(Node::Field { on_change, .. }) = chain.last() else {
             unreachable!()
         };
-        let Some(handler) = on_change else {
+        let Some(handler) = *on_change else {
             panic!("field {name:?} hears no change");
         };
-        let edit = wire::changed_span(value, text).map(|(range, text)| wire::Edit {
+        let held = self
+            .fields
+            .get_mut(&super::authored_path(&chain))
+            .expect("the host holds every field of its tree");
+        let edit = wire::changed_span(&held.text, text).map(|(range, text)| wire::Edit {
             range,
             len: text.len() as u32,
         });
+        held.text = text.to_owned();
+        held.tokens.clear();
+        let (generation, caret) = (held.generation, wire::TextRange::caret(text.len()));
         let event = Event::Text {
-            handler: *handler,
-            change: self.text_change(*generation, edit, text.to_owned(), text.len(), Vec::new()),
+            handler,
+            change: self.text_change(generation, edit, text.to_owned(), caret, Vec::new()),
         };
         self.run(vec![event]);
     }
@@ -735,7 +803,7 @@ impl TestAppContext {
         generation: u64,
         edit: Option<wire::Edit>,
         text: String,
-        caret: usize,
+        cursor: wire::TextRange,
         tokens: Vec<wire::TextToken>,
     ) -> wire::TextChange {
         self.text_revision += 1;
@@ -747,7 +815,7 @@ impl TestAppContext {
             revision: self.text_revision,
             edit,
             text,
-            cursor: wire::TextRange::caret(caret),
+            cursor,
             preedit: None,
             tokens,
         }
@@ -755,15 +823,14 @@ impl TestAppContext {
     /// What the host's engine does with the `Replace`s a frame asks for, in
     /// order: each is carried over the edits made since the revision it
     /// read (`wire::rebase`, the host's own rule; an earlier ask in the same
-    /// frame is one), applied to the field's text, and comes back as the
-    /// next change. An ask on a document the field has since left (its
-    /// generation moved) edits nothing: the frame's field is the document.
+    /// frame is one), applied to the text the engine holds, and comes back
+    /// as the next change. An ask on a document the field has since left
+    /// (its generation moved) edits nothing: the frame's field is the
+    /// document.
     fn replace(&mut self, frame: &Frame) -> Vec<Event> {
         let Some(root) = self.tree.clone() else {
             return Vec::new();
         };
-        type Held = (u32, u64, String, Vec<wire::TextToken>);
-        let mut fields: HashMap<Vec<wire::ElementIdWire>, Held> = HashMap::new();
         let mut events = Vec::new();
         for request in &frame.requests {
             if request.kind != <crate::methods::HostWidget as crate::methods::Method>::KIND {
@@ -781,27 +848,24 @@ impl TestAppContext {
             else {
                 continue;
             };
-            let (handler, held, value, tokens) =
-                fields.entry(target.clone()).or_insert_with(|| {
-                    let Some(chain) = Focus::Path(target.clone()).chain(&root) else {
-                        panic!("a Replace on a field that is not in the tree: {target:?}");
-                    };
-                    let Some(Node::Field {
-                        value,
-                        tokens,
-                        generation,
-                        on_change: Some(handler),
-                        ..
-                    }) = chain.last()
-                    else {
-                        panic!("a Replace on no field that hears changes: {target:?}");
-                    };
-                    (*handler, *generation, value.clone(), tokens.to_vec())
-                });
-            if generation != *held {
+            let Some(chain) = Focus::Path(target.clone()).chain(&root) else {
+                panic!("a Replace on a field that is not in the tree: {target:?}");
+            };
+            let Some(Node::Field {
+                on_change: Some(handler),
+                ..
+            }) = chain.last()
+            else {
+                panic!("a Replace on no field that hears changes: {target:?}");
+            };
+            let held = self
+                .fields
+                .get_mut(&target)
+                .expect("the host holds every field of its tree");
+            if generation != held.generation {
                 continue;
             }
-            let held = *held;
+            let (value, tokens) = (&mut held.text, &mut held.tokens);
             let since: Vec<wire::Edit> = self
                 .edits
                 .iter()
@@ -831,12 +895,13 @@ impl TestAppContext {
                 tokens.sort_by_key(|token| token.range.start);
             }
             value.replace_range(range.clone(), &replacement);
-            let caret = (rebased.cursor.start as usize).min(value.len());
+            let caret = wire::TextRange::caret((rebased.cursor.start as usize).min(value.len()));
             let edit = wire::Edit {
                 range: range.into(),
                 len: replacement.len() as u32,
             };
-            let change = self.text_change(held, Some(edit), value.clone(), caret, tokens.clone());
+            let (value, tokens) = (value.clone(), tokens.clone());
+            let change = self.text_change(generation, Some(edit), value, caret, tokens);
             events.push(Event::Text {
                 handler: *handler,
                 change,

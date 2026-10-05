@@ -540,9 +540,9 @@ fn a_mark_pressed_asks_the_host_for_the_edit_and_hands_the_keys_back() {
     });
 }
 
-/// A view that makes a draft only once something is typed into it, as chat
-/// does for a room nobody wrote in yet: until then it draws a temporary
-/// draft.
+/// A view that makes a draft only once something is typed into it and
+/// until then draws a temporary one: the mistake chat made for a room
+/// nobody wrote in yet.
 #[derive(Default, Serialize, Deserialize)]
 struct LazyDraft {
     draft: Option<Draft>,
@@ -582,7 +582,10 @@ impl Render for LazyDraft {
 /// makes in its listener takes a change by `Draft::changed`, on its own
 /// document. So the change that made the draft is not a word on it (the
 /// temporary was another document, as it was before the field was bound),
-/// and every change from the next frame on is.
+/// and every change from the next frame on is. To the writer the first
+/// thing typed is gone: the next frame shows the new draft's document,
+/// empty, and the host takes its text from it. The `"hi"` below is the
+/// whole field typed again, not an `i` after the `h`.
 #[test]
 fn a_change_to_a_temporary_draft_is_the_views_draft_to_take() {
     let mut cx = TestAppContext::new();
@@ -593,6 +596,10 @@ fn a_change_to_a_temporary_draft_is_the_views_draft_to_take() {
         let draft = view.draft.as_ref().expect("the listener made the draft");
         assert_eq!(draft.field.text(), "", "a word on the temporary's document");
     });
+    let wire::Node::Field { value, .. } = field_node(cx.root()) else {
+        panic!("the editor")
+    };
+    assert_eq!(value, "", "and the host's text is the new draft's");
     cx.simulate_input("c/editor", "hi");
     view.read(|view| assert_eq!(view.draft.as_ref().unwrap().field.text(), "hi"));
     let wire::Node::Field { value, .. } = field_node(cx.root()) else {
