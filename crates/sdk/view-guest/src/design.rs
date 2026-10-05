@@ -1277,6 +1277,8 @@ mod tests {
 
     impl crate::View for Picker {
         const NAME: &'static str = "Picker";
+        const CAPABILITIES: &'static [crate::methods::Capability] =
+            &[crate::methods::Capability::Link];
         fn new(_: &mut Window, _: &mut crate::Context<Self>) -> Self {
             Self {
                 role: Some(Role::ListBox),
@@ -1422,6 +1424,12 @@ mod tests {
         cx.simulate_key_down("inside", "space");
         cx.simulate_key_down("inside", "enter");
         picker.read(|view| assert_eq!(view.pressed, Vec::<usize>::new()));
+        // a press opens the href it was given
+        cx.simulate_click("inside");
+        assert_eq!(
+            cx.host().requests::<crate::methods::LinkOpen>(),
+            ["duck://a/b"]
+        );
         // the composite's own Enter still presses
         cx.simulate_focus("picker");
         cx.simulate_key_down("picker", "enter");
