@@ -23,7 +23,7 @@ fn container(style: StyleId, interactivity: Interactivity, children: Vec<Node>) 
     Node::Container(ContainerNode {
         id: None,
         style,
-        interactivity: Box::new(interactivity),
+        interactivity: Some(Box::new(interactivity)),
         children,
     })
 }
@@ -477,6 +477,32 @@ fn a_sparse_struct_with_one_field_is_that_field_under_its_index() {
     // one that says nothing is an empty map
     assert_eq!(encode(&Interactivity::default()), [0x80]);
     assert_eq!(encode(&Aria::default()), [0x80]);
+}
+
+/// A node that declares no interactivity holds none, and on the wire that
+/// is the sparse struct with no field in it: the byte a node that set no
+/// field always wrote. The reader hands back `None` for it, and a struct
+/// for one that sets a field.
+#[test]
+fn a_node_without_interactivity_writes_the_empty_sparse_struct() {
+    let node = |interactivity| {
+        Node::Container(ContainerNode {
+            id: None,
+            style: PLAIN,
+            interactivity,
+            children: Vec::new(),
+        })
+    };
+    let none = encode(&node(None));
+    assert_eq!(none, encode(&node(Some(Default::default()))));
+    assert_eq!(none.iter().filter(|byte| **byte == 0x80).count(), 1);
+    assert_eq!(decode::<Node>(&none).unwrap(), node(None));
+
+    let clicks = node(Some(Box::new(Interactivity {
+        on_click: Some(7),
+        ..Default::default()
+    })));
+    assert_eq!(decode::<Node>(&encode(&clicks)).unwrap(), clicks);
 }
 
 /// A sparse struct's reader takes the fields this build has and refuses any

@@ -39,7 +39,7 @@ impl Node {
             | Self::List { interactivity, .. }
             | Self::ResizeHandle { interactivity, .. }
             | Self::Image { interactivity, .. }
-            | Self::Svg { interactivity, .. } => Some(interactivity),
+            | Self::Svg { interactivity, .. } => interactivity.as_deref(),
             _ => None,
         }
     }
@@ -83,12 +83,30 @@ impl Node {
             | Self::Canvas { style, .. } => visit(style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
         }
-        if let Self::Container(crate::ContainerNode { interactivity, .. })
-        | Self::UniformList { interactivity, .. }
-        | Self::List { interactivity, .. }
-        | Self::ResizeHandle { interactivity, .. }
-        | Self::Image { interactivity, .. }
-        | Self::Svg { interactivity, .. } = self
+        if let Self::Container(crate::ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        })
+        | Self::UniformList {
+            interactivity: Some(interactivity),
+            ..
+        }
+        | Self::List {
+            interactivity: Some(interactivity),
+            ..
+        }
+        | Self::ResizeHandle {
+            interactivity: Some(interactivity),
+            ..
+        }
+        | Self::Image {
+            interactivity: Some(interactivity),
+            ..
+        }
+        | Self::Svg {
+            interactivity: Some(interactivity),
+            ..
+        } = self
         {
             interactivity.style_slots().for_each(visit);
         }

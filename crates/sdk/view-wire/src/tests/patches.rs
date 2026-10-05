@@ -54,6 +54,41 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
     assert!(diff(&mut new.clone(), &mut new).is_empty());
 }
 
+/// A node that gains its first interaction, or loses its last, is the
+/// same node with other fields: one `Props` that carries the interactivity
+/// it has now (or none), and its children stay where they are.
+#[test]
+fn a_node_that_gains_or_loses_its_interactivity_is_one_props_patch() {
+    let boxed = |interactivity| {
+        column(vec![Node::Container(crate::ContainerNode {
+            id: Some(ElementIdWire::Name("box".into())),
+            style: StyleId(0),
+            interactivity,
+            children: vec![keyed("inner", "deep")],
+        })])
+    };
+    let plain = || boxed(None);
+    let clicks = || {
+        boxed(Some(Box::new(Interactivity {
+            on_click: Some(7),
+            ..Default::default()
+        })))
+    };
+    for (old, new, carried) in [(plain(), clicks(), Some(7)), (clicks(), plain(), None)] {
+        let mut applied = old.clone();
+        let patches = diff(&mut old.clone(), &mut new.clone());
+        let [Patch::Props { path, node }] = &patches[..] else {
+            panic!("{patches:#?}")
+        };
+        assert_eq!(path, &[0]);
+        assert_eq!(node.interactivity().and_then(|i| i.on_click), carried);
+        assert!(node.children().is_empty());
+        apply(&mut applied, patches, &held()).unwrap();
+        assert_eq!(applied, new);
+    }
+    assert!(diff(&mut plain(), &mut plain()).is_empty());
+}
+
 /// One child shown or hidden beside unkeyed siblings is one patch: the
 /// siblings before and after it match by position, so a `.when(..)`
 /// banner beside a 1,080-row body does not send the body again (it did:

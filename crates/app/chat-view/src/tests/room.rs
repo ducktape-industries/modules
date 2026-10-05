@@ -488,7 +488,8 @@ fn a_link_to_a_forge_room_lands_in_it() {
 fn a_dm_row_is_named_by_its_peer_not_the_avatar() {
     let (cx, _) = opened();
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
-        interactivity, ..
+        interactivity: Some(interactivity),
+        ..
     })) = cx.find("chat-sidebar-dm-8")
     else {
         panic!("the dm row")
@@ -645,7 +646,7 @@ fn jump_to_latest_floats_over_the_list() {
             .absolute()
             .position
     );
-    assert!(!interactivity.occlude);
+    assert!(interactivity.as_ref().is_none_or(|i| !i.occlude));
     assert!(cx.find("chat-jump-latest-button").is_some());
 }
 

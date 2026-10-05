@@ -330,8 +330,9 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
         rules.check(true, BareHandle, || {
             role != Some(Role::Splitter)
                 || name().is_none()
-                || !interactivity.focusable
-                || interactivity.on_key_down.is_none()
+                || !interactivity
+                    .as_deref()
+                    .is_some_and(|i| i.focusable && i.on_key_down.is_some())
         });
     }
     if let Some(aria) = interactivity.map(|i| &i.aria) {

@@ -72,14 +72,17 @@ pub(super) fn check_bounds(
             ..
         }) => {
             check_native_style(&styles[*style]);
-            for conditional in [
-                interactivity.hover,
-                interactivity.active,
-                interactivity.group_hover.as_ref().map(|group| group.style),
-                interactivity.group_active.as_ref().map(|group| group.style),
-            ]
-            .into_iter()
-            .flatten()
+            for conditional in interactivity
+                .iter()
+                .flat_map(|interactivity| {
+                    [
+                        interactivity.hover,
+                        interactivity.active,
+                        interactivity.group_hover.as_ref().map(|group| group.style),
+                        interactivity.group_active.as_ref().map(|group| group.style),
+                    ]
+                })
+                .flatten()
             {
                 check_native_style(&styles[conditional]);
             }
@@ -182,7 +185,7 @@ pub(super) fn check_bounds(
                 check_string(label, ctx, "picture label");
             }
             check_native_style(&styles[*style]);
-            if let Some(hover) = interactivity.hover {
+            if let Some(hover) = interactivity.as_ref().and_then(|i| i.hover) {
                 check_native_style(&styles[hover]);
             }
             for value in transformation

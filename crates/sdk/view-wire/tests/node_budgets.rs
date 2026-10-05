@@ -12,7 +12,7 @@ fn container(interactivity: Interactivity, children: Vec<Node>) -> Node {
     Node::Container(view_wire::ContainerNode {
         id: None,
         style: PLAIN,
-        interactivity: Box::new(interactivity),
+        interactivity: Some(Box::new(interactivity)),
         children,
     })
 }
@@ -52,13 +52,16 @@ fn focus_refinements_are_bounded_inside_tooltip_responses() {
     };
     let mut styles = Styles::default();
     view_wire::sanitize(&mut frame, &mut styles).unwrap();
-    let Node::Container(view_wire::ContainerNode { interactivity, .. }) = frame.root.unwrap()
+    let Node::Container(view_wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    }) = frame.root.unwrap()
     else {
         unreachable!()
     };
     assert_eq!(interactivity.tooltip.as_ref().unwrap().delay_ms, 60_000);
     let Node::Container(view_wire::ContainerNode {
-        interactivity: nested,
+        interactivity: Some(nested),
         ..
     }) = frame.tooltip_responses[0].content.as_deref().unwrap()
     else {

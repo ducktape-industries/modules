@@ -17,7 +17,7 @@ fn menus_and_dialogs_are_modal_overlays_with_dismiss_routes() {
     ));
     // a Menu of MenuItems, named
     let role = |cx: &TestAppContext, key: &str| match cx.find(key) {
-        Some(wire::Node::Container(node)) => node.interactivity.role,
+        Some(wire::Node::Container(node)) => node.interactivity.as_ref().unwrap().role,
         _ => panic!("{key} is a container"),
     };
     assert_eq!(
@@ -100,7 +100,8 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     // to `Mode::Toolbar` before `delete_armed` reads it, so the delete is
     // silently dropped (no submit, no error).
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
-        interactivity, ..
+        interactivity: Some(interactivity),
+        ..
     })) = cx.find("chat-room-message-delete-frame")
     else {
         panic!("delete confirmation frame")
@@ -179,7 +180,8 @@ fn reaction_picker_keeps_labels_and_its_stable_action_id() {
     });
     cx.run_until_parked();
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
-        interactivity, ..
+        interactivity: Some(interactivity),
+        ..
     })) = cx.find("chat-reaction-🔥")
     else {
         panic!("reaction is a native cell");

@@ -174,7 +174,7 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
         style,
-        interactivity,
+        interactivity: Some(interactivity),
         ..
     })) = cx.find("chat-sidebar-channel-general")
     else {

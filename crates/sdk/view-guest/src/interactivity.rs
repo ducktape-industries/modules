@@ -27,9 +27,29 @@ struct TooltipBuilder {
 /// An assistive-technology action's listener, as gpui takes it.
 type A11yListener = Box<dyn FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App)>;
 
-/// The explicit state carried by guest interactivity until frame lowering.
+/// What a guest element declares besides its children: its style, its id
+/// and, from the first one it declares, its interactions. gpui's has the
+/// same name and holds the same things; here the interactions sit behind a
+/// pointer of their own, so an element that declares none carries none.
 #[derive(Default)]
 pub struct Interactivity {
+    pub(crate) base_style: StyleRefinement,
+    pub(crate) id: Option<ElementId>,
+    pub(crate) interactions: Option<Box<Interactions>>,
+}
+
+impl Interactivity {
+    /// The element's interactions, there from the first one it declares.
+    pub(crate) fn interactions(&mut self) -> &mut Interactions {
+        self.interactions.get_or_insert_default()
+    }
+}
+
+/// What an element answers to and how it presents itself: its role and
+/// aria, focus, conditional styles, listeners and tooltip. The node it
+/// lowers to carries these as its [`wire::Interactivity`].
+#[derive(Default)]
+pub(crate) struct Interactions {
     pub(crate) role: Option<gpui::Role>,
     pub(crate) aria: wire::Aria,
     pub(crate) focusable: bool,
@@ -76,8 +96,6 @@ pub struct Interactivity {
     tooltip_show_delay: Option<Duration>,
     occlude: bool,
     block_mouse_except_scroll: bool,
-    pub(crate) base_style: StyleRefinement,
-    pub(crate) id: Option<ElementId>,
 }
 
 /// Add GPUI's stateless and stateful interactivity declarations to an element.
@@ -90,38 +108,38 @@ pub trait InteractiveElement: Sized {
     }
 
     fn track_focus(mut self, focus_handle: &FocusHandle) -> Self {
-        self.interactivity().focusable = true;
-        self.interactivity().focus_handle = Some(focus_handle.clone());
+        self.interactivity().interactions().focusable = true;
+        self.interactivity().interactions().focus_handle = Some(focus_handle.clone());
         self
     }
 
     fn tab_stop(mut self, tab_stop: bool) -> Self {
-        self.interactivity().tab_stop = Some(tab_stop);
+        self.interactivity().interactions().tab_stop = Some(tab_stop);
         self
     }
 
     fn tab_index(mut self, index: isize) -> Self {
-        self.interactivity().focusable = true;
-        self.interactivity().tab_index = i32::try_from(index).ok();
-        self.interactivity().tab_stop = Some(true);
+        self.interactivity().interactions().focusable = true;
+        self.interactivity().interactions().tab_index = i32::try_from(index).ok();
+        self.interactivity().interactions().tab_stop = Some(true);
         self
     }
 
     fn tab_group(mut self) -> Self {
-        self.interactivity().tab_group = true;
-        if self.interactivity().tab_index.is_none() {
-            self.interactivity().tab_index = Some(0);
+        self.interactivity().interactions().tab_group = true;
+        if self.interactivity().interactions().tab_index.is_none() {
+            self.interactivity().interactions().tab_index = Some(0);
         }
         self
     }
 
     fn group(mut self, group: impl Into<SharedString>) -> Self {
-        self.interactivity().group = Some(group.into());
+        self.interactivity().interactions().group = Some(group.into());
         self
     }
 
     fn hover(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().hover = Some(Box::new(f(StyleRefinement::default())));
+        self.interactivity().interactions().hover = Some(Box::new(f(StyleRefinement::default())));
         self
     }
 
@@ -130,7 +148,7 @@ pub trait InteractiveElement: Sized {
         group: impl Into<SharedString>,
         f: impl FnOnce(StyleRefinement) -> StyleRefinement,
     ) -> Self {
-        self.interactivity().group_hover =
+        self.interactivity().interactions().group_hover =
             Some((group.into(), Box::new(f(StyleRefinement::default()))));
         self
     }
@@ -140,10 +158,13 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_down.push(ButtonBinding {
-            button: Some(button),
-            listener: Box::new(listener),
-        });
+        self.interactivity()
+            .interactions()
+            .mouse_down
+            .push(ButtonBinding {
+                button: Some(button),
+                listener: Box::new(listener),
+            });
         self
     }
 
@@ -152,6 +173,7 @@ pub trait InteractiveElement: Sized {
         listener: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity()
+            .interactions()
             .capture_mouse_down
             .push(Box::new(listener));
         self
@@ -161,10 +183,13 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_down.push(ButtonBinding {
-            button: None,
-            listener: Box::new(listener),
-        });
+        self.interactivity()
+            .interactions()
+            .mouse_down
+            .push(ButtonBinding {
+                button: None,
+                listener: Box::new(listener),
+            });
         self
     }
 
@@ -172,7 +197,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_down_out.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .mouse_down_out
+            .push(Box::new(listener));
         self
     }
 
@@ -181,10 +209,13 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up.push(ButtonBinding {
-            button: Some(button),
-            listener: Box::new(listener),
-        });
+        self.interactivity()
+            .interactions()
+            .mouse_up
+            .push(ButtonBinding {
+                button: Some(button),
+                listener: Box::new(listener),
+            });
         self
     }
 
@@ -193,6 +224,7 @@ pub trait InteractiveElement: Sized {
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity()
+            .interactions()
             .capture_mouse_up
             .push(Box::new(listener));
         self
@@ -202,10 +234,13 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up.push(ButtonBinding {
-            button: None,
-            listener: Box::new(listener),
-        });
+        self.interactivity()
+            .interactions()
+            .mouse_up
+            .push(ButtonBinding {
+                button: None,
+                listener: Box::new(listener),
+            });
         self
     }
 
@@ -214,10 +249,13 @@ pub trait InteractiveElement: Sized {
         button: MouseButton,
         listener: impl Fn(&gpui::MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_up_out.push(ButtonBinding {
-            button: Some(button),
-            listener: Box::new(listener),
-        });
+        self.interactivity()
+            .interactions()
+            .mouse_up_out
+            .push(ButtonBinding {
+                button: Some(button),
+                listener: Box::new(listener),
+            });
         self
     }
 
@@ -225,7 +263,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MousePressureEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_pressure.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .mouse_pressure
+            .push(Box::new(listener));
         self
     }
 
@@ -234,6 +275,7 @@ pub trait InteractiveElement: Sized {
         listener: impl Fn(&gpui::MousePressureEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity()
+            .interactions()
             .capture_mouse_pressure
             .push(Box::new(listener));
         self
@@ -243,7 +285,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseMoveEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_move.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .mouse_move
+            .push(Box::new(listener));
         self
     }
 
@@ -251,7 +296,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::MouseExitEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().mouse_exit.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .mouse_exit
+            .push(Box::new(listener));
         self
     }
 
@@ -259,7 +307,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::ScrollWheelEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().scroll_wheel.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .scroll_wheel
+            .push(Box::new(listener));
         self
     }
 
@@ -267,7 +318,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::PinchEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().pinch.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .pinch
+            .push(Box::new(listener));
         self
     }
 
@@ -275,7 +329,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::PinchEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().capture_pinch.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .capture_pinch
+            .push(Box::new(listener));
         self
     }
 
@@ -283,7 +340,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::KeyDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().key_down.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .key_down
+            .push(Box::new(listener));
         self
     }
 
@@ -292,6 +352,7 @@ pub trait InteractiveElement: Sized {
         listener: impl Fn(&gpui::KeyDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity()
+            .interactions()
             .capture_key_down
             .push(Box::new(listener));
         self
@@ -301,7 +362,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::KeyUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().key_up.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .key_up
+            .push(Box::new(listener));
         self
     }
 
@@ -309,7 +373,10 @@ pub trait InteractiveElement: Sized {
         mut self,
         listener: impl Fn(&gpui::KeyUpEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().capture_key_up.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .capture_key_up
+            .push(Box::new(listener));
         self
     }
 
@@ -318,6 +385,7 @@ pub trait InteractiveElement: Sized {
         listener: impl Fn(&gpui::ModifiersChangedEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity()
+            .interactions()
             .modifiers_changed
             .push(Box::new(listener));
         self
@@ -331,7 +399,7 @@ pub trait InteractiveElement: Sized {
     /// a guest listener runs after the host has dispatched the key, so it
     /// says which keys it takes up front.
     fn consumes_keys<'a>(mut self, keys: impl IntoIterator<Item = &'a str>) -> Self {
-        self.interactivity().consumes_keys.extend(
+        self.interactivity().interactions().consumes_keys.extend(
             keys.into_iter()
                 .map(|key| SharedString::from(key.to_owned())),
         );
@@ -343,33 +411,38 @@ pub trait InteractiveElement: Sized {
         listener: impl Fn(&FileDropEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity()
+            .interactions()
             .on_file_drop_exit
             .push(Box::new(listener));
         self
     }
 
     fn occlude(mut self) -> Self {
-        self.interactivity().occlude = true;
+        self.interactivity().interactions().occlude = true;
         self
     }
 
     fn block_mouse_except_scroll(mut self) -> Self {
-        self.interactivity().block_mouse_except_scroll = true;
+        self.interactivity()
+            .interactions()
+            .block_mouse_except_scroll = true;
         self
     }
 
     fn focus(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().focus = Some(Box::new(f(StyleRefinement::default())));
+        self.interactivity().interactions().focus = Some(Box::new(f(StyleRefinement::default())));
         self
     }
 
     fn in_focus(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().in_focus = Some(Box::new(f(StyleRefinement::default())));
+        self.interactivity().interactions().in_focus =
+            Some(Box::new(f(StyleRefinement::default())));
         self
     }
 
     fn focus_visible(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().focus_visible = Some(Box::new(f(StyleRefinement::default())));
+        self.interactivity().interactions().focus_visible =
+            Some(Box::new(f(StyleRefinement::default())));
         self
     }
 }
@@ -447,135 +520,135 @@ impl<E: InteractiveElement> InteractiveElement for Stateful<E> {
 /// ```
 pub trait StatefulInteractiveElement: InteractiveElement {
     fn role(mut self, role: gpui::Role) -> Self {
-        self.interactivity().role = Some(role);
+        self.interactivity().interactions().role = Some(role);
         self
     }
     /// Takes focus, and sits in the Tab order unless `tab_stop(false)`.
     fn focusable(mut self) -> Self {
-        self.interactivity().focusable = true;
+        self.interactivity().interactions().focusable = true;
         self
     }
     fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
-        self.interactivity().aria.author_id = Some(id.into());
+        self.interactivity().interactions().aria.author_id = Some(id.into());
         self
     }
     fn aria_label(mut self, value: impl Into<SharedString>) -> Self {
-        self.interactivity().aria.label = Some(value.into());
+        self.interactivity().interactions().aria.label = Some(value.into());
         self
     }
     fn aria_description(mut self, value: impl Into<SharedString>) -> Self {
-        self.interactivity().aria.description = Some(value.into());
+        self.interactivity().interactions().aria.description = Some(value.into());
         self
     }
     fn aria_keyshortcuts(mut self, value: impl Into<SharedString>) -> Self {
-        self.interactivity().aria.keyshortcuts = Some(value.into());
+        self.interactivity().interactions().aria.keyshortcuts = Some(value.into());
         self
     }
     fn aria_active_descendant(mut self) -> Self {
-        self.interactivity().aria.active_descendant = true;
+        self.interactivity().interactions().aria.active_descendant = true;
         self
     }
     fn aria_value(mut self, value: impl Into<SharedString>) -> Self {
-        self.interactivity().aria.value = Some(value.into());
+        self.interactivity().interactions().aria.value = Some(value.into());
         self
     }
     fn aria_placeholder(mut self, value: impl Into<SharedString>) -> Self {
-        self.interactivity().aria.placeholder = Some(value.into());
+        self.interactivity().interactions().aria.placeholder = Some(value.into());
         self
     }
     fn aria_selected(mut self, value: bool) -> Self {
-        self.interactivity().aria.selected = Some(value);
+        self.interactivity().interactions().aria.selected = Some(value);
         self
     }
     fn aria_expanded(mut self, value: bool) -> Self {
-        self.interactivity().aria.expanded = Some(value);
+        self.interactivity().interactions().aria.expanded = Some(value);
         self
     }
     fn aria_disabled(mut self, value: bool) -> Self {
-        self.interactivity().aria.disabled = Some(value);
+        self.interactivity().interactions().aria.disabled = Some(value);
         self
     }
     fn aria_numeric_value(mut self, value: f64) -> Self {
-        self.interactivity().aria.numeric_value = Some(value);
+        self.interactivity().interactions().aria.numeric_value = Some(value);
         self
     }
     fn aria_numeric_value_step(mut self, value: f64) -> Self {
-        self.interactivity().aria.numeric_value_step = Some(value);
+        self.interactivity().interactions().aria.numeric_value_step = Some(value);
         self
     }
     fn aria_min_numeric_value(mut self, value: f64) -> Self {
-        self.interactivity().aria.min_numeric_value = Some(value);
+        self.interactivity().interactions().aria.min_numeric_value = Some(value);
         self
     }
     fn aria_max_numeric_value(mut self, value: f64) -> Self {
-        self.interactivity().aria.max_numeric_value = Some(value);
+        self.interactivity().interactions().aria.max_numeric_value = Some(value);
         self
     }
     fn aria_level(mut self, value: usize) -> Self {
-        self.interactivity().aria.level = Some(value);
+        self.interactivity().interactions().aria.level = Some(value);
         self
     }
     fn aria_position_in_set(mut self, value: usize) -> Self {
-        self.interactivity().aria.position_in_set = Some(value);
+        self.interactivity().interactions().aria.position_in_set = Some(value);
         self
     }
     fn aria_size_of_set(mut self, value: usize) -> Self {
-        self.interactivity().aria.size_of_set = Some(value);
+        self.interactivity().interactions().aria.size_of_set = Some(value);
         self
     }
     fn aria_row_index(mut self, value: usize) -> Self {
-        self.interactivity().aria.row_index = Some(value);
+        self.interactivity().interactions().aria.row_index = Some(value);
         self
     }
     fn aria_column_index(mut self, value: usize) -> Self {
-        self.interactivity().aria.column_index = Some(value);
+        self.interactivity().interactions().aria.column_index = Some(value);
         self
     }
     fn aria_row_count(mut self, value: usize) -> Self {
-        self.interactivity().aria.row_count = Some(value);
+        self.interactivity().interactions().aria.row_count = Some(value);
         self
     }
     fn aria_column_count(mut self, value: usize) -> Self {
-        self.interactivity().aria.column_count = Some(value);
+        self.interactivity().interactions().aria.column_count = Some(value);
         self
     }
     fn aria_toggled(mut self, value: gpui::Toggled) -> Self {
-        self.interactivity().aria.toggled = Some(value);
+        self.interactivity().interactions().aria.toggled = Some(value);
         self
     }
     fn aria_orientation(mut self, value: gpui::Orientation) -> Self {
-        self.interactivity().aria.orientation = Some(value);
+        self.interactivity().interactions().aria.orientation = Some(value);
         self
     }
     // `aria_live` through `aria_current` and `custom_action` are the
     // names planned for the fork, which has none of them yet; the host
     // delivers each through its aria patch until it does.
     fn aria_live(mut self, value: accesskit::Live) -> Self {
-        self.interactivity().aria.live = Some(value);
+        self.interactivity().interactions().aria.live = Some(value);
         self
     }
     fn aria_busy(mut self, value: bool) -> Self {
-        self.interactivity().aria.busy = value;
+        self.interactivity().interactions().aria.busy = value;
         self
     }
     fn aria_required(mut self, value: bool) -> Self {
-        self.interactivity().aria.required = value;
+        self.interactivity().interactions().aria.required = value;
         self
     }
     fn aria_invalid(mut self, value: accesskit::Invalid) -> Self {
-        self.interactivity().aria.invalid = Some(value);
+        self.interactivity().interactions().aria.invalid = Some(value);
         self
     }
     fn aria_read_only(mut self, value: bool) -> Self {
-        self.interactivity().aria.read_only = value;
+        self.interactivity().interactions().aria.read_only = value;
         self
     }
     fn aria_has_popup(mut self, value: accesskit::HasPopup) -> Self {
-        self.interactivity().aria.has_popup = Some(value);
+        self.interactivity().interactions().aria.has_popup = Some(value);
         self
     }
     fn aria_current(mut self, value: accesskit::AriaCurrent) -> Self {
-        self.interactivity().aria.current = Some(value);
+        self.interactivity().interactions().aria.current = Some(value);
         self
     }
     /// A custom action assistive technology offers by `description`. Its
@@ -584,6 +657,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     /// handler answers every custom action a node has.
     fn custom_action(mut self, id: i32, description: impl Into<String>) -> Self {
         self.interactivity()
+            .interactions()
             .aria
             .custom_actions
             .push((id, description.into()));
@@ -600,6 +674,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         listener: impl FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity()
+            .interactions()
             .a11y_actions
             .push((action, Box::new(listener)));
         self
@@ -624,12 +699,12 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     /// The div `handle` moves: it scrolls (`overflow_y_scroll`) and has
     /// an id, as gpui's does.
     fn track_scroll(mut self, handle: &ScrollHandle) -> Self {
-        self.interactivity().scroll_handle = Some(handle.clone());
+        self.interactivity().interactions().scroll_handle = Some(handle.clone());
         self
     }
 
     fn active(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
-        self.interactivity().active = Some(Box::new(f(StyleRefinement::default())));
+        self.interactivity().interactions().active = Some(Box::new(f(StyleRefinement::default())));
         self
     }
     fn group_active(
@@ -637,20 +712,26 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         group: impl Into<SharedString>,
         f: impl FnOnce(StyleRefinement) -> StyleRefinement,
     ) -> Self {
-        self.interactivity().group_active =
+        self.interactivity().interactions().group_active =
             Some((group.into(), Box::new(f(StyleRefinement::default()))));
         self
     }
     /// Every listener given runs, in order, as gpui's do.
     fn on_click(mut self, listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        self.interactivity().on_click.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .on_click
+            .push(Box::new(listener));
         self
     }
     fn on_aux_click(
         mut self,
         listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.interactivity().on_aux_click.push(Box::new(listener));
+        self.interactivity()
+            .interactions()
+            .on_aux_click
+            .push(Box::new(listener));
         self
     }
     /// This element's click consumes its press: the host stops the
@@ -663,22 +744,22 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     /// whose listener the host stops the press: without one the host
     /// refuses the frame, and the view's test fails.
     fn consumes_click(mut self) -> Self {
-        self.interactivity().consumes_click = true;
+        self.interactivity().interactions().consumes_click = true;
         self
     }
     fn on_hover(mut self, listener: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
-        self.interactivity().on_hover = Some(Box::new(listener));
+        self.interactivity().interactions().on_hover = Some(Box::new(listener));
         self
     }
     fn hover_listener_mode(mut self, mode: gpui::HoverListenerMode) -> Self {
-        self.interactivity().hover_listener_mode = mode;
+        self.interactivity().interactions().hover_listener_mode = mode;
         self
     }
     fn tooltip(
         mut self,
         build_tooltip: impl Fn(&mut Window, &mut App) -> AnyView + 'static,
     ) -> Self {
-        self.interactivity().tooltip = Some(TooltipBuilder {
+        self.interactivity().interactions().tooltip = Some(TooltipBuilder {
             build: Box::new(build_tooltip),
             hoverable: false,
         });
@@ -688,14 +769,14 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         mut self,
         build_tooltip: impl Fn(&mut Window, &mut App) -> AnyView + 'static,
     ) -> Self {
-        self.interactivity().tooltip = Some(TooltipBuilder {
+        self.interactivity().interactions().tooltip = Some(TooltipBuilder {
             build: Box::new(build_tooltip),
             hoverable: true,
         });
         self
     }
     fn tooltip_show_delay(mut self, delay: Duration) -> Self {
-        self.interactivity().tooltip_show_delay = Some(delay);
+        self.interactivity().interactions().tooltip_show_delay = Some(delay);
         self
     }
 }

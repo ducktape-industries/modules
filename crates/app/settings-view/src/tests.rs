@@ -496,8 +496,10 @@ fn create_account_disables_controls_while_busy() {
     cx.simulate_click("settings/account/create/submit");
     cx.run_until_parked();
     assert!(cx.has_text("Creating…"));
-    let Some(wire::Node::Container(wire::ContainerNode { interactivity, .. })) =
-        cx.find("settings/account/create/submit")
+    let Some(wire::Node::Container(wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })) = cx.find("settings/account/create/submit")
     else {
         panic!("settings/account/create/submit button")
     };

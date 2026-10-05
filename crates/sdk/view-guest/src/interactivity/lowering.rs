@@ -2,41 +2,64 @@ use super::*;
 use crate::slots::Kind;
 
 impl Interactivity {
+    /// The element's id as the wire carries it, and the interactivity of
+    /// the node it lowers to: none when it declared none.
     pub(crate) fn into_wire(
         self: Box<Self>,
         lowering: &Lowering<'_>,
-    ) -> (Option<wire::ElementIdWire>, Box<wire::Interactivity>) {
-        let scope = lowering.current_path();
+    ) -> (
+        Option<wire::ElementIdWire>,
+        Option<Box<wire::Interactivity>>,
+    ) {
+        let identified = self.id.is_some();
+        let id = self.id.map(crate::element::wire_id);
+        let interactions = self
+            .interactions
+            .map(|interactions| interactions.into_wire(identified, lowering));
+        (id, interactions)
+    }
+}
+
+impl Interactions {
+    fn into_wire(
+        self: Box<Self>,
+        identified: bool,
+        lowering: &Lowering<'_>,
+    ) -> Box<wire::Interactivity> {
         if let Some(handle) = &self.scroll_handle
-            && self.id.is_some()
+            && identified
         {
-            handle.track(lowering.slots(), scope);
+            handle.track(lowering.slots(), lowering.current_path());
         }
         let mut aria = self.aria;
-        let offered: std::rc::Rc<[i32]> = aria.custom_actions.iter().map(|(id, _)| *id).collect();
-        aria.actions = self
-            .a11y_actions
-            .into_iter()
-            .map(|(action, listener)| {
-                // gpui's listener is FnMut; a route is called through `&`
-                let listener = std::cell::RefCell::new(listener);
-                let offered = offered.clone();
-                let route = lowering.route(
-                    Kind::Action(action),
-                    move |data: &Option<wire::ActionData>, window: &mut Window, app: &mut App| {
-                        // a custom action the node does not offer is not its to answer
-                        if let Some(wire::ActionData::CustomAction(id)) = data
-                            && !offered.contains(id)
-                        {
-                            return;
-                        }
-                        (listener.borrow_mut())(data.as_ref(), window, app)
-                    },
-                );
-                (action, route)
-            })
-            .collect();
-        let id = self.id.map(crate::element::wire_id);
+        if !self.a11y_actions.is_empty() {
+            let offered: std::rc::Rc<[i32]> =
+                aria.custom_actions.iter().map(|(id, _)| *id).collect();
+            aria.actions = self
+                .a11y_actions
+                .into_iter()
+                .map(|(action, listener)| {
+                    // gpui's listener is FnMut; a route is called through `&`
+                    let listener = std::cell::RefCell::new(listener);
+                    let offered = offered.clone();
+                    let route = lowering.route(
+                        Kind::Action(action),
+                        move |data: &Option<wire::ActionData>,
+                              window: &mut Window,
+                              app: &mut App| {
+                            // a custom action the node does not offer is not its to answer
+                            if let Some(wire::ActionData::CustomAction(id)) = data
+                                && !offered.contains(id)
+                            {
+                                return;
+                            }
+                            (listener.borrow_mut())(data.as_ref(), window, app)
+                        },
+                    );
+                    (action, route)
+                })
+                .collect();
+        }
         let tooltip = self.tooltip.map(|tooltip| {
             let request = lowering.tooltip(tooltip.build);
             wire::Tooltip {
@@ -49,7 +72,7 @@ impl Interactivity {
                     .min(u64::MAX as u128) as u64,
             }
         });
-        let wire = Box::new(wire::Interactivity {
+        Box::new(wire::Interactivity {
             role: self.role,
             aria,
             focusable: self.focusable,
@@ -146,8 +169,7 @@ impl Interactivity {
                 .map(|listener| lowering.route(Kind::Hover, listener)),
             on_file_drop_exit: route_plain(self.on_file_drop_exit, lowering, Kind::FileDropExit),
             tooltip,
-        });
-        (id, wire)
+        })
     }
 }
 

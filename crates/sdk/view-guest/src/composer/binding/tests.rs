@@ -136,8 +136,10 @@ fn node<'a>(root: &'a wire::Node, key: &str) -> Option<&'a wire::Node> {
 }
 
 fn clickable(root: &wire::Node, key: &str) -> Option<u32> {
-    let Some(wire::Node::Container(crate::wire::ContainerNode { interactivity, .. })) =
-        node(root, key)
+    let Some(wire::Node::Container(crate::wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })) = node(root, key)
     else {
         return None;
     };
@@ -242,7 +244,7 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
     walk(&root, &mut |node| match node {
         wire::Node::Container(crate::wire::ContainerNode {
             style,
-            interactivity,
+            interactivity: Some(interactivity),
             ..
         }) if interactivity.role == Some(Role::Button) => {
             let style = &styles[*style];
@@ -316,8 +318,10 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
         ("c/quote", "Quote"),
         ("c/restore", "Restore"),
     ] {
-        let Some(wire::Node::Container(crate::wire::ContainerNode { interactivity, .. })) =
-            node(&root, key)
+        let Some(wire::Node::Container(crate::wire::ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        })) = node(&root, key)
         else {
             panic!("missing composer action {key}");
         };
@@ -325,8 +329,10 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
         assert!(interactivity.focusable, "{key} takes no focus");
         assert_eq!(interactivity.aria.label.as_deref(), Some(label));
     }
-    let Some(wire::Node::Container(crate::wire::ContainerNode { interactivity, .. })) =
-        node(&root, "c/mention/<@1>")
+    let Some(wire::Node::Container(crate::wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })) = node(&root, "c/mention/<@1>")
     else {
         panic!("missing mention action");
     };

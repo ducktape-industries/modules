@@ -105,7 +105,11 @@ impl Element for Img {
             image_style,
         } = *self;
         let style = lowering.style(&interactivity.base_style);
-        let label = interactivity.aria.label.as_ref().map(ToString::to_string);
+        let label = interactivity
+            .interactions
+            .as_ref()
+            .and_then(|interactions| interactions.aria.label.as_ref())
+            .map(ToString::to_string);
         let (id, interactivity) = interactivity.into_wire(lowering);
         let (hash, data) = image_data(source, lowering);
         let loading = image_style.loading.is_some();

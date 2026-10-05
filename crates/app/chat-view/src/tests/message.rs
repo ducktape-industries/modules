@@ -11,7 +11,7 @@ fn action_strip_keeps_the_rows_hover_and_is_not_inside_selection_target() {
     hover(&mut cx, &view, 1);
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
         style,
-        interactivity,
+        interactivity: Some(interactivity),
         ..
     })) = cx.find("chat-message-m1-actions")
     else {
@@ -92,7 +92,8 @@ fn reaction_rows_keep_add_action_and_selected_accessibility() {
     });
     cx.run_until_parked();
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
-        interactivity, ..
+        interactivity: Some(interactivity),
+        ..
     })) = cx.find("chat-message-m1-reaction-🔥")
     else {
         panic!("reaction pill")
@@ -131,7 +132,7 @@ fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
     hover(&mut cx, &view, 1);
     let aria = |key: &str| match cx.find(key) {
         Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
-            interactivity,
+            interactivity: Some(interactivity),
             ..
         })) => interactivity.aria.clone(),
         _ => panic!("{key} is a container"),
@@ -266,7 +267,7 @@ fn replies_read_as_a_button() {
     cx.run_until_parked();
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
         style,
-        interactivity,
+        interactivity: Some(interactivity),
         ..
     })) = cx.find("chat-message-m1-replies")
     else {

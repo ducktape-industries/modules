@@ -10,18 +10,12 @@ fn lower(element: impl IntoElement) -> wire::Node {
 }
 
 fn aria(node: &wire::Node) -> &wire::Aria {
-    match node {
-        wire::Node::Container(wire::ContainerNode { interactivity, .. })
-        | wire::Node::Svg { interactivity, .. } => &interactivity.aria,
-        other => panic!("no interactivity: {other:?}"),
-    }
+    &interactivity(node).aria
 }
 
 fn interactivity(node: &wire::Node) -> &wire::Interactivity {
-    match node {
-        wire::Node::Container(wire::ContainerNode { interactivity, .. }) => interactivity,
-        other => panic!("no interactivity: {other:?}"),
-    }
+    node.interactivity()
+        .unwrap_or_else(|| panic!("no interactivity: {node:?}"))
 }
 
 #[test]
@@ -31,12 +25,37 @@ fn a_focusable_node_is_a_tab_stop_unless_it_says_otherwise() {
     let skipped = lower(div().id("busy").focusable().tab_stop(false));
     assert_eq!(interactivity(&skipped).tab_stop, Some(false));
     let plain = lower(div().id("box"));
-    assert_eq!(interactivity(&plain).tab_stop, None);
+    assert_eq!(plain.interactivity(), None);
     let mut app = App::for_driver();
     let handle = app.focus_handle();
     let mut window = app.window();
     let tracked = Lowering::new(&mut window, &mut app).lower(div().id("menu").track_focus(&handle));
     assert_eq!(interactivity(&tracked).tab_stop, Some(true));
+}
+
+/// A div pays for what it declares: its style and its id are not
+/// interactions, so a div with only those lowers to a node that carries no
+/// interactivity; the first listener, role or aria property makes one.
+#[test]
+fn a_div_that_declares_no_interaction_carries_no_interactivity() {
+    let plain = [
+        lower(div()),
+        lower(div().flex().child("text")),
+        lower(div().id("scroller").overflow_y_scroll()),
+    ];
+    for node in plain {
+        let wire::Node::Container(wire::ContainerNode { interactivity, .. }) = node else {
+            panic!("a div is a container")
+        };
+        assert_eq!(interactivity, None);
+    }
+    for declared in [
+        lower(div().id("open").on_click(|_, _, _| {})),
+        lower(div().id("title").role(gpui::Role::Heading)),
+        lower(div().hover(|style| style.opacity(0.5))),
+    ] {
+        assert!(declared.interactivity().is_some(), "{declared:?}");
+    }
 }
 
 fn named(names: &[&'static str]) -> Vec<wire::ElementIdWire> {

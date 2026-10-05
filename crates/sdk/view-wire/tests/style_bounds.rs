@@ -40,6 +40,7 @@ fn whole_frames_bound_base_and_every_conditional_style() {
     let Node::Container(view_wire::ContainerNode { interactivity, .. }) = &mut root else {
         unreachable!()
     };
+    let interactivity = interactivity.insert(Default::default());
     interactivity.hover = Some(StyleId(2));
     interactivity.active = Some(StyleId(3));
     interactivity.group_hover = Some(GroupRefinement {
@@ -59,7 +60,7 @@ fn whole_frames_bound_base_and_every_conditional_style() {
     view_wire::sanitize(&mut frame, &mut styles).unwrap();
     let Node::Container(view_wire::ContainerNode {
         style,
-        interactivity,
+        interactivity: Some(interactivity),
         ..
     }) = frame.root.unwrap()
     else {

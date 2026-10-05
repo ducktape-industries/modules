@@ -28,7 +28,10 @@ fn find<'a>(node: &'a wire::Node, key: &str) -> Option<&'a wire::Node> {
 }
 
 fn click_route(root: &wire::Node, key: &str) -> u32 {
-    let Some(wire::Node::Container(wire::ContainerNode { interactivity, .. })) = find(root, key)
+    let Some(wire::Node::Container(wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })) = find(root, key)
     else {
         panic!("no {key}")
     };
@@ -133,7 +136,10 @@ struct Routes {
 }
 
 fn routes(root: &wire::Node, key: &str) -> Routes {
-    let Some(wire::Node::Container(wire::ContainerNode { interactivity, .. })) = find(root, key)
+    let Some(wire::Node::Container(wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })) = find(root, key)
     else {
         panic!("no {key}")
     };
