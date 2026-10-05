@@ -85,48 +85,13 @@ pub fn apply(
     patches: Vec<Patch>,
     styles: &Styles,
 ) -> Result<SanitizeReport, Refused> {
-    apply_observed(root, patches, styles, &mut |_, _, _| {})
-}
-
-/// [`apply`], telling `observe` what each patch is about to do: the patch,
-/// the subtree it takes out of the tree (a `Replace`'s old node, a
-/// `Remove`'s child) and the node it brings (a `Replace`'s or `Insert`'s
-/// node whole; a `Props`'s node, its own fields). A host that keeps state
-/// per subtree retains it from these instead of walking the whole tree
-/// after every patch frame.
-pub fn apply_observed(
-    root: &mut Node,
-    patches: Vec<Patch>,
-    styles: &Styles,
-    observe: &mut impl FnMut(&Patch, Option<&Node>, Option<&Node>),
-) -> Result<SanitizeReport, Refused> {
     if patches.len() > MAX_PATCHES {
         return Err("more patches than the host applies".into());
     }
     for patch in patches {
-        let (taken, brought) = match &patch {
-            Patch::Replace { path, node } => (at(root, path, None), Some(node)),
-            Patch::Props { path, node } => (at(root, path, None), Some(node)),
-            Patch::Insert { node, .. } => (None, Some(node)),
-            Patch::Remove { path, index } => (at(root, path, Some(*index)), None),
-            Patch::Move { .. } => (None, None),
-        };
-        observe(&patch, taken, brought);
         apply_one(root, patch)?;
     }
     sanitize_tree(root, styles)
-}
-
-/// The node at `path`, or child `index` of the node there.
-fn at<'a>(root: &'a Node, path: &[u32], index: Option<u32>) -> Option<&'a Node> {
-    let mut target = root;
-    for index in path {
-        target = target.children().get(*index as usize)?;
-    }
-    match index {
-        Some(index) => target.children().get(index as usize),
-        None => Some(target),
-    }
 }
 
 fn apply_one(root: &mut Node, patch: Patch) -> Result<(), &'static str> {
