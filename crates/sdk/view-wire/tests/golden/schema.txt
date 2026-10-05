@@ -789,14 +789,18 @@ Node enum
   6 Deferred struct
     priority: U64
     content: TypeName("Node")
-  7 Sensor struct
+  7 View struct
+    view: U64
+    style: U32
+    content: Option(TypeName("Node"))
+  8 Sensor struct
     id: TypeName("WireRepr")
     style: U32
     on_show: Option(U32)
     on_resize: Option(U32)
     child: TypeName("Node")
-  8 Text: NewType(TypeName("TextNode"))
-  9 Image struct
+  9 Text: NewType(TypeName("TextNode"))
+  10 Image struct
     id: Option(TypeName("WireRepr"))
     hash: U64
     data: Option(TypeName("ImageData"))
@@ -807,14 +811,14 @@ Node enum
     state_children: Seq(TypeName("Node"))
     style: U32
     interactivity: TypeName("Interactivity")
-  10 Svg struct
+  11 Svg struct
     id: Option(TypeName("WireRepr"))
     source: TypeName("SvgSource")
     transformation: TypeName("SvgTransformation")
     label: Option(Str)
     style: U32
     interactivity: TypeName("Interactivity")
-  11 Field struct
+  12 Field struct
     id: TypeName("WireRepr")
     multiline: Bool
     value: Str
@@ -830,14 +834,14 @@ Node enum
     on_key: Option(U32)
     on_submit: Option(U32)
     style: U32
-  12 Space: Unit
-  13 Overlay struct
+  13 Space: Unit
+  14 Overlay struct
     id: TypeName("WireRepr")
     label: Option(Str)
     style: U32
     on_dismiss: Option(U32)
     children: Seq(TypeName("Node"))
-  14 Canvas struct
+  15 Canvas struct
     style: U32
     commands: Seq(TypeName("CanvasCommand"))
 NodeId NewTypeStruct(U64)

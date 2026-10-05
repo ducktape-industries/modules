@@ -334,6 +334,11 @@ fn first_nodes() -> Vec<Node> {
             priority: 1,
             content: boxed("later"),
         },
+        Node::View {
+            view: 3,
+            style: style(),
+            content: Some(boxed("kept")),
+        },
         Node::Sensor {
             id: id("sensor"),
             style: style(),
@@ -851,6 +856,7 @@ pub fn node_variant(node: &Node) -> &'static str {
         Node::Container(_) => "Container",
         Node::ResizeHandle { .. } => "ResizeHandle",
         Node::Deferred { .. } => "Deferred",
+        Node::View { .. } => "View",
         Node::Sensor { .. } => "Sensor",
         Node::Text(_) => "Text",
         Node::Image { .. } => "Image",

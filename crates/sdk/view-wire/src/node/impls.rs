@@ -24,9 +24,11 @@ impl Node {
             | Self::ResizeHandle { id, .. }
             | Self::Sensor { id, .. }
             | Self::Overlay { id, .. } => Some(id),
-            Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
-                None
-            }
+            Self::Space
+            | Self::Anchored { .. }
+            | Self::Deferred { .. }
+            | Self::View { .. }
+            | Self::Canvas { .. } => None,
         }
     }
 
@@ -59,6 +61,7 @@ impl Node {
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
             | Self::Overlay { style, .. }
+            | Self::View { style, .. }
             | Self::Canvas { style, .. } => Some(*style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
         }
@@ -80,6 +83,7 @@ impl Node {
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
             | Self::Overlay { style, .. }
+            | Self::View { style, .. }
             | Self::Canvas { style, .. } => visit(style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
         }
@@ -140,6 +144,7 @@ impl Node {
             Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
             | Self::ResizeHandle { content, .. } => std::slice::from_ref(content),
+            Self::View { content, .. } => content.as_deref().map_or(&[], std::slice::from_ref),
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Svg { .. }
@@ -171,6 +176,9 @@ impl Node {
             Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
             | Self::ResizeHandle { content, .. } => std::slice::from_mut(content),
+            Self::View { content, .. } => {
+                content.as_deref_mut().map_or(&mut [], std::slice::from_mut)
+            }
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Field { .. }
@@ -195,6 +203,7 @@ impl Node {
             }
             | Self::Overlay { children, .. } => Some(children),
             Self::Deferred { .. }
+            | Self::View { .. }
             | Self::Sensor { .. }
             | Self::ResizeHandle { .. }
             | Self::RichText { .. }

@@ -16,7 +16,12 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
             node = gen_list(rng, children);
             continue;
         }
-        node = match rng.next_range(5) {
+        node = match rng.next_range(6) {
+            5 => Node::View {
+                view: rng.next_u64(),
+                style: gen_style(rng),
+                content: Some(Box::new(node)),
+            },
             4 => Node::ResizeHandle {
                 id: gen_id(rng),
                 on_press: rng.next_bool().then(|| rng.next_u64() as u32),

@@ -11,6 +11,9 @@ pub(super) fn tree_depth(node: &Node) -> usize {
         Node::Sensor { child: content, .. }
         | Node::ResizeHandle { content, .. }
         | Node::Deferred { content, .. } => 1 + tree_depth(content),
+        Node::View { content, .. } => content
+            .as_deref()
+            .map_or(0, |content| 1 + tree_depth(content)),
         Node::Container(view_wire::ContainerNode { children, .. })
         | Node::Anchored { children, .. }
         | Node::Image {
@@ -212,6 +215,16 @@ pub(super) fn check_bounds(
         }
         Node::Deferred { priority, content } => {
             assert!(*priority <= 16);
+            check_bounds(content, styles, depth + 1, svg_bytes, ctx);
+        }
+        Node::View { style, content, .. } => {
+            assert!(
+                (style.0 as usize) < styles.len(),
+                "{ctx}: view names a style the table lacks"
+            );
+            let content = content
+                .as_deref()
+                .expect("a sanitized tree holds no hollow view");
             check_bounds(content, styles, depth + 1, svg_bytes, ctx);
         }
         Node::Field {

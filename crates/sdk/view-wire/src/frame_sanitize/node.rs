@@ -182,6 +182,14 @@ fn sanitize_fields(
             }
         }
         Node::Deferred { priority, .. } => *priority = (*priority).min(16),
+        // a hollow view is the guest's stand-in for a subtree it kept: it
+        // is filled before the frame leaves, so one in a tree is not a tree
+        Node::View { style, content, .. } => {
+            budgets.style(*style)?;
+            if content.is_none() {
+                return Err("a view with no content".into());
+            }
+        }
         Node::RichText {
             style,
             text,

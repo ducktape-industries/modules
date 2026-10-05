@@ -40,7 +40,7 @@ const MESSAGE: &str =
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 15;
+const NODE_VARIANTS: usize = 16;
 const EVENT_VARIANTS: usize = 34;
 
 fn golden(name: &str) -> PathBuf {

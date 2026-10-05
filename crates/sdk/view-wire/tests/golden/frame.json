@@ -506,6 +506,21 @@
             }
           },
           {
+            "View": {
+              "view": 3,
+              "style": 0,
+              "content": {
+                "Text": {
+                  "id": {
+                    "Name": "kept"
+                  },
+                  "style": 0,
+                  "content": "kept"
+                }
+              }
+            }
+          },
+          {
             "Sensor": {
               "id": {
                 "Name": "sensor"

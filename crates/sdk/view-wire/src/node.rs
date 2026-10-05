@@ -162,6 +162,18 @@ pub enum Node {
         priority: usize,
         content: Box<Node>,
     },
+    /// A cached child entity's subtree in the box its parent gave it
+    /// (`entity.cached(style)`). The host draws `content` out of flow inside
+    /// a container styled `style`, nothing more; `view` is the guest's key
+    /// for keeping the subtree while the entity is not notified, and the
+    /// host does not read it. `content` is `None` only inside the guest,
+    /// where it stands in for the kept subtree until the frame is filled:
+    /// no tree sent or held ever has one.
+    View {
+        view: u64,
+        style: StyleId,
+        content: Option<Box<Node>>,
+    },
     /// Watches its child's laid-out size. `on_show` hears the size when the
     /// child first comes into view, `on_resize` every change after, both as
     /// [`Event::Size`].

@@ -537,3 +537,120 @@ fn depth_is_cut_before_the_host_recurses_into_it() {
     }
     assert!(depth <= MAX_DEPTH, "{depth}");
 }
+
+/// A cached child's box, filled or hollow.
+fn view(view: u64, style: u32, content: Option<Node>) -> Node {
+    Node::View {
+        view,
+        style: StyleId(style),
+        content: content.map(Box::new),
+    }
+}
+
+/// The guest fills a kept child's stand-in from the base before the diff, so
+/// the base is hollow exactly there: paired with its own id, the hollow box
+/// emits nothing below it, and a `Props` only when its box's style moved.
+#[test]
+fn a_hollow_old_view_paired_by_id_emits_at_most_a_props() {
+    let mut hollow = column(vec![view(7, 0, None)]);
+    let mut filled = column(vec![view(7, 0, Some(keyed("inner", "kept")))]);
+    assert!(diff(&mut hollow.clone(), &mut filled).is_empty());
+    let mut restyled = column(vec![view(7, 1, Some(keyed("inner", "kept")))]);
+    let patches = diff(&mut hollow, &mut restyled);
+    let [Patch::Props { path, node }] = &patches[..] else {
+        panic!("{patches:#?}")
+    };
+    assert_eq!(path, &[0]);
+    assert_eq!(node.style(), Some(StyleId(1)));
+    assert!(node.children().iter().all(|child| *child == Node::empty()));
+    // the host applies that props to the box it holds filled
+    apply(&mut filled, patches, &held()).unwrap();
+    assert_eq!(filled, restyled);
+    // another entity at the slot is another node, carried whole (a keyed
+    // list's remove and insert here; a fixed slot's `Replace` below)
+    let mut other = column(vec![view(8, 0, Some(keyed("inner", "fresh")))]);
+    let mut hollow = column(vec![view(7, 0, None)]);
+    let patches = diff(&mut hollow, &mut other);
+    assert!(
+        matches!(&patches[..], [Patch::Remove { .. }, Patch::Insert { node, .. }] if node.count() == 2),
+        "{patches:#?}"
+    );
+}
+
+/// Two cached children reordered are one `Move`, matched by entity id.
+#[test]
+fn a_moved_view_is_a_move() {
+    let a = || view(1, 0, Some(keyed("a", "first")));
+    let b = || view(2, 0, Some(keyed("b", "second")));
+    let old = column(vec![a(), b(), text("tail")]);
+    let mut new = column(vec![b(), a(), text("tail")]);
+    let patches = diff(&mut old.clone(), &mut new);
+    assert!(
+        matches!(&patches[..], [Patch::Move { path, from: 1, to: 0 }] if path.is_empty()),
+        "{patches:#?}"
+    );
+    let mut applied = old;
+    apply(&mut applied, patches, &held()).unwrap();
+    assert_eq!(applied, new);
+}
+
+/// A changed key at a fixed-arity slot, or at a row's index, is another
+/// node: a `Replace`, never a `Props` that re-roots the paths under it.
+#[test]
+fn a_changed_key_at_a_fixed_slot_is_a_replace() {
+    let deferred = |content| Node::Deferred {
+        priority: 0,
+        content: Box::new(content),
+    };
+    let old = column(vec![deferred(view(1, 0, Some(text("one"))))]);
+    let mut new = column(vec![deferred(view(2, 0, Some(text("two"))))]);
+    let patches = diff(&mut old.clone(), &mut new);
+    assert!(
+        matches!(&patches[..], [Patch::Replace { path, .. }] if path == &[0, 0]),
+        "{patches:#?}"
+    );
+    let mut applied = old;
+    apply(&mut applied, patches, &held()).unwrap();
+    assert_eq!(applied, new);
+
+    let rows = |key: &str| Node::List {
+        id: ElementIdWire::Name("rows".into()),
+        path: vec![ElementIdWire::Name("rows".into())],
+        item_count: 1,
+        alignment: ListAlignment::Top,
+        overdraw: 0.,
+        sizing: ListSizingBehavior::Auto,
+        following_tail: false,
+        revision: 0,
+        commands: Vec::new(),
+        request_handler: 0,
+        scroll_handler: None,
+        range_start: 0,
+        style: StyleId(0),
+        interactivity: Default::default(),
+        children: vec![keyed(key, "row")],
+    };
+    let patches = diff(&mut rows("m1"), &mut rows("m2"));
+    assert!(
+        matches!(&patches[..], [Patch::Replace { path, .. }] if path == &[0]),
+        "{patches:#?}"
+    );
+}
+
+/// A hollow view never crosses in a tree: the sanitizer refuses it.
+#[test]
+fn a_view_with_no_content_is_refused() {
+    let mut frame = Frame {
+        root: Some(column(vec![view(1, 0, None)])),
+        ..Default::default()
+    };
+    assert_eq!(
+        sanitize_plain(&mut frame).unwrap_err(),
+        Refused::Invalid("a view with no content")
+    );
+    let mut frame = Frame {
+        root: Some(column(vec![view(1, 0, Some(text("kept")))])),
+        ..Default::default()
+    };
+    sanitize_plain(&mut frame).unwrap();
+}

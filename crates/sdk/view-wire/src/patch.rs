@@ -85,13 +85,48 @@ pub fn apply(
     patches: Vec<Patch>,
     styles: &Styles,
 ) -> Result<SanitizeReport, Refused> {
+    apply_observed(root, patches, styles, &mut |_, _, _| {})
+}
+
+/// [`apply`], telling `observe` what each patch is about to do: the patch,
+/// the subtree it takes out of the tree (a `Replace`'s old node, a
+/// `Remove`'s child) and the node it brings (a `Replace`'s or `Insert`'s
+/// node whole; a `Props`'s node, its own fields). A host that keeps state
+/// per subtree retains it from these instead of walking the whole tree
+/// after every patch frame.
+pub fn apply_observed(
+    root: &mut Node,
+    patches: Vec<Patch>,
+    styles: &Styles,
+    observe: &mut impl FnMut(&Patch, Option<&Node>, Option<&Node>),
+) -> Result<SanitizeReport, Refused> {
     if patches.len() > MAX_PATCHES {
         return Err("more patches than the host applies".into());
     }
     for patch in patches {
+        let (taken, brought) = match &patch {
+            Patch::Replace { path, node } => (at(root, path, None), Some(node)),
+            Patch::Props { path, node } => (at(root, path, None), Some(node)),
+            Patch::Insert { node, .. } => (None, Some(node)),
+            Patch::Remove { path, index } => (at(root, path, Some(*index)), None),
+            Patch::Move { .. } => (None, None),
+        };
+        observe(&patch, taken, brought);
         apply_one(root, patch)?;
     }
     sanitize_tree(root, styles)
+}
+
+/// The node at `path`, or child `index` of the node there.
+fn at<'a>(root: &'a Node, path: &[u32], index: Option<u32>) -> Option<&'a Node> {
+    let mut target = root;
+    for index in path {
+        target = target.children().get(*index as usize)?;
+    }
+    match index {
+        Some(index) => target.children().get(index as usize),
+        None => Some(target),
+    }
 }
 
 fn apply_one(root: &mut Node, patch: Patch) -> Result<(), &'static str> {
@@ -201,9 +236,18 @@ fn diff_node(
     path: &mut Vec<u32>,
     out: &mut Vec<Patch>,
 ) {
+    // A changed key is another node, never a `Props` that re-roots the
+    // paths under it: a kept child among fixed-arity siblings, a row whose
+    // root id moved.
     let same_kind = std::mem::discriminant(old) == std::mem::discriminant(new);
-    let same_arity = new.child_list_mut().is_some() || old.children().len() == new.children().len();
-    if !(same_kind && same_arity) {
+    let same_key = diff_key(old) == diff_key(new);
+    // A hollow old view paired with its own id: the guest moved the kept
+    // content from the base into the new tree, so there is nothing to emit
+    // below it, and only its box's style can have moved.
+    let hollow = matches!(old, Node::View { content: None, .. });
+    let same_arity =
+        hollow || new.child_list_mut().is_some() || old.children().len() == new.children().len();
+    if !(same_kind && same_key && same_arity) {
         out.push(Patch::Replace {
             path: path.clone(),
             node: carry(new, take),
@@ -212,11 +256,16 @@ fn diff_node(
     }
     let old_children = old.detach();
     let new_children = new.detach();
-    if old != new {
+    if old != new && !(hollow && own_fields_equal_but_content(old, new)) {
         out.push(Patch::Props {
             path: path.clone(),
             node: new.clone(),
         });
+    }
+    if hollow {
+        old.attach(old_children).expect("its own children");
+        new.attach(new_children).expect("its own children");
+        return;
     }
     let mut old_children = old_children;
     let mut new_children = new_children;
@@ -361,9 +410,53 @@ fn diff_list(
 /// Whether `old` and `new` are one child at one position (see
 /// [`diff_list`]).
 fn matches(old: &Node, new: &Node) -> bool {
-    match (old.identity(), new.identity()) {
+    match (diff_key(old), diff_key(new)) {
         (Some(a), Some(b)) => a == b,
         (None, None) => std::mem::discriminant(old) == std::mem::discriminant(new),
+        _ => false,
+    }
+}
+
+/// What the differ matches a node by across frames: its typed identity,
+/// else, for a cached view's box, the entity it keeps. A `View` has no
+/// identity of its own (a segment on the box would be one on every path
+/// under it), so the entity id is what tells one box from another.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum DiffKey<'a> {
+    Id(std::borrow::Cow<'a, ElementIdWire>),
+    View(u64),
+}
+
+fn diff_key(node: &Node) -> Option<DiffKey<'_>> {
+    match node {
+        Node::View { view, .. } => Some(DiffKey::View(*view)),
+        node => node
+            .identity()
+            .map(|id| DiffKey::Id(std::borrow::Cow::Borrowed(id))),
+    }
+}
+
+impl DiffKey<'_> {
+    fn into_owned(self) -> DiffKey<'static> {
+        match self {
+            Self::Id(id) => DiffKey::Id(std::borrow::Cow::Owned(id.into_owned())),
+            Self::View(view) => DiffKey::View(view),
+        }
+    }
+}
+
+/// Whether a hollow `old` view and the filled `new` one, children detached,
+/// differ only in the slot the content is missing from.
+fn own_fields_equal_but_content(old: &Node, new: &Node) -> bool {
+    match (old, new) {
+        (
+            Node::View {
+                view: a, style: x, ..
+            },
+            Node::View {
+                view: b, style: y, ..
+            },
+        ) => a == b && x == y,
         _ => false,
     }
 }
@@ -389,11 +482,11 @@ fn diff_keyed(
     path: &mut Vec<u32>,
     out: &mut Vec<Patch>,
 ) {
-    let unique = |nodes: &[Node]| -> std::collections::HashMap<ElementIdWire, usize> {
+    let unique = |nodes: &[Node]| -> std::collections::HashMap<DiffKey<'static>, usize> {
         let mut seen = std::collections::HashMap::new();
         for (index, node) in nodes.iter().enumerate() {
-            if let Some(identity) = node.identity() {
-                seen.entry(identity.clone())
+            if let Some(key) = diff_key(node) {
+                seen.entry(key.into_owned())
                     .and_modify(|at| *at = usize::MAX)
                     .or_insert(index);
             }
@@ -406,10 +499,8 @@ fn diff_keyed(
     // The middle as the host has it after the patches so far: old indices.
     let mut live: Vec<usize> = Vec::with_capacity(new.len());
     for (index, node) in old.iter().enumerate() {
-        let survives = node.identity().is_some_and(|identity| {
-            let owned = identity.to_owned();
-            old_keys.contains_key(&owned) && new_keys.contains_key(&owned)
-        });
+        let survives = diff_key(node)
+            .is_some_and(|key| old_keys.contains_key(&key) && new_keys.contains_key(&key));
         match survives {
             true => live.push(index),
             false => out.push(Patch::Remove {
@@ -419,11 +510,10 @@ fn diff_keyed(
         }
     }
     for (index, new_child) in new.iter_mut().enumerate() {
-        let wanted = new_child.identity().and_then(|identity| {
-            let owned = identity.to_owned();
+        let wanted = diff_key(new_child).and_then(|key| {
             new_keys
-                .contains_key(&owned)
-                .then(|| old_keys.get(&owned).copied())
+                .contains_key(&key)
+                .then(|| old_keys.get(&key).copied())
                 .flatten()
         });
         let Some(wanted) = wanted else {
