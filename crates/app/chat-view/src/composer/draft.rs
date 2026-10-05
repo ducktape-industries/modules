@@ -818,6 +818,9 @@ mod tests {
             "an address is not a mention"
         );
         assert_eq!(caret("@A b", 2).query(), Some((0..2, "A".into())));
+        let selected = Draft::from_body("@A", &roster());
+        host::selects(&selected.field, 0..2);
+        assert_eq!(selected.query(), None, "a selection is not a caret");
         assert_eq!(
             caret("@Ab", 2).query(),
             None,

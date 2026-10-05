@@ -393,6 +393,9 @@ carries at most
 `view_wire::MAX_REQUESTS` requests; the rest go in the next.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.
+`testing::lower(build)` is the one path that is not: it lowers a single
+element with no host, sanitizer or audit, for a test of what that element
+carries (`testing::assert_accessible(&tree)` audits it when the test wants).
 It holds the view to its `View::CAPABILITIES` and `View::TARGETS` as the app
 does: a method whose capability the manifest leaves out panics with
 `methods::refusal::UNDECLARED_CAPABILITY`, a node method naming a program

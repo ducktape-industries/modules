@@ -147,7 +147,8 @@ impl TextField {
     }
 
     /// A new document in the field: `text`, caret at its end, `tokens` its
-    /// atomic spans.
+    /// atomic spans: in text order, none empty, none over another, each on
+    /// char boundaries and with an id, or the host refuses the frame.
     pub fn reset_with_tokens(&mut self, text: impl Into<String>, tokens: Vec<TextToken>) {
         let mut state = self.0.borrow_mut();
         *state = State {
@@ -191,6 +192,9 @@ impl TextField {
     /// atomic span meaning `token`. The ask names this document's
     /// generation: after a `reset`, `revision` is the host's count of the
     /// old one, and only the generation says which text `range` is bytes of.
+    /// This builds the ask; [`Window::dispatch`](crate::Window::dispatch)
+    /// sends it.
+    #[must_use]
     pub fn replace(
         &self,
         target: impl Into<ElementId>,
@@ -212,7 +216,9 @@ impl TextField {
     }
 
     /// Asks the host to put `text` in place of the whole text as known
-    /// here, the caret after it.
+    /// here, the caret after it. As [`replace`](Self::replace), it builds
+    /// the ask.
+    #[must_use]
     pub fn replace_all(
         &self,
         target: impl Into<ElementId>,
@@ -266,6 +272,10 @@ mod tests {
     #[test]
     fn a_replace_speaks_at_the_revision_the_field_knows() {
         let mut field = TextField::new("say word now");
+        let span = TextToken {
+            range: TextRange::from(4..8),
+            id: "word".into(),
+        };
         let change = |generation, revision, text: &str| TextChange {
             generation,
             revision,
@@ -273,10 +283,15 @@ mod tests {
             text: text.into(),
             cursor: TextRange::from(4..8),
             preedit: None,
-            tokens: Default::default(),
+            tokens: vec![span.clone()],
         };
         let current = field.generation();
         assert!(field.apply(&change(current, 7, "say word now")));
+        // the host's selection and spans are the field's
+        assert_eq!(
+            (field.selection(), field.tokens()),
+            (4..8, vec![span.clone()])
+        );
         let wire::WidgetCommand::Replace {
             generation,
             revision,
