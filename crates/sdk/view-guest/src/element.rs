@@ -90,6 +90,10 @@ impl Element for AnyElement {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         self.0.lower(lowering)
     }
+
+    fn into_any(self) -> AnyElement {
+        self
+    }
 }
 
 impl IntoElement for AnyElement {
@@ -199,7 +203,8 @@ impl<'a> Lowering<'a> {
             slots::enter_scope(&self.app.inner.slots, segment.clone());
             self.authored_path.push(segment);
         }
-        let node = Element::lower(Box::new(element), self);
+        // the box an `AnyElement` already is, or the one box an element gets
+        let node = element.into_any().0.lower(self);
         debug_assert!(
             defers
                 || wire::identity::segment(node.identity().cloned(), row).as_ref()
