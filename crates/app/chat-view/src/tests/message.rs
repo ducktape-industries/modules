@@ -42,8 +42,9 @@ fn action_strip_keeps_the_rows_hover_and_is_not_inside_selection_target() {
 
 /// The pointer over message `seq`'s row, as the host reports it.
 pub(super) fn hover(cx: &mut TestAppContext, view: &Entity<Chat>, seq: u64) {
-    cx.update(view, |chat, _, cx| {
-        chat.hovered = Some((Pane::Timeline, seq));
+    let timeline = view.read(|chat| chat.timeline(Pane::Timeline).clone());
+    cx.update(&timeline, |timeline, _, cx| {
+        timeline.hovered = Some(seq);
         cx.notify();
     });
     cx.run_until_parked();
@@ -207,10 +208,9 @@ fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
     cx.update(&view, |chat, _, cx| {
         chat.search.draft.reset("hello");
         chat.confirmation = "Saved".into();
-        chat.hovered = Some((Pane::Timeline, 1));
         cx.notify();
     });
-    cx.run_until_parked();
+    hover(&mut cx, &view, 1);
     let style = |key: &str| cx.style(key).clone();
     // a strip button is 24 tall and as wide as a kit row, over 24
     assert!(design::size::ROW >= px(24.));
@@ -663,8 +663,9 @@ fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
     cx.simulate_key_down("chat-message-list", "right");
     assert!(super::room::claims(&cx, "chat-message-m1-reaction-🔥"));
     // the recorded controls are another row's: nothing to press
-    cx.update(&view, |chat, _, _| {
-        chat.timeline_cursor.controls_of = Some("m2".into());
+    let timeline = view.read(|chat| chat.timeline(Pane::Timeline).clone());
+    cx.update(&timeline, |timeline, _, _| {
+        timeline.cursor.controls_of = Some("m2".into());
     });
     cx.simulate_key_down("chat-message-list", "enter");
     cx.run_until_parked();

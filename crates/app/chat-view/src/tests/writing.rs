@@ -182,3 +182,198 @@ fn a_first_post_to_a_dm_opens_it_and_a_listed_one_does_not() {
         assert!(chat.dm_to_open(&post("general")).is_none(), "not a dm");
     });
 }
+
+/// Nodes one composer keystroke lowers: the root's own, the composer with
+/// it. Pinned from the first measurement; the rooms and the pane's rows
+/// stand in.
+const KEYSTROKE_NODES: usize = 40;
+
+/// The root and its three cached children.
+fn panes(view: &Entity<Chat>) -> (Entity<Rooms>, Entity<Timeline>, Entity<Timeline>) {
+    view.read(|chat| {
+        (
+            chat.rooms().clone(),
+            chat.timeline(Pane::Timeline).clone(),
+            chat.timeline(Pane::Thread).clone(),
+        )
+    })
+}
+
+/// A character typed into the composer renders the root alone: the rooms
+/// and the timeline stand in, the frame is one `Props` on the field, and
+/// the root lowers no more than [`KEYSTROKE_NODES`].
+#[test]
+fn a_keystroke_lowers_the_root_and_the_composer_alone() {
+    let (mut cx, view) = opened();
+    let (rooms, timeline, _) = panes(&view);
+    let before = (cx.lowered(&rooms), cx.lowered(&timeline));
+    cx.simulate_input("draft-general/editor", "a");
+    assert_eq!((cx.lowered(&rooms), cx.lowered(&timeline)), before);
+    let report = &cx.reports()[0];
+    assert!(report.rendered, "{report:?}");
+    assert!(
+        report.lowered <= KEYSTROKE_NODES,
+        "the root lowered {} nodes, over the pin {KEYSTROKE_NODES}",
+        report.lowered
+    );
+    assert_eq!(report.patches, 1, "{report:?}");
+    assert!(
+        matches!(
+            &cx.last_frame().patches[..],
+            [wire::Patch::Props {
+                node: wire::Node::Field { .. },
+                ..
+            }]
+        ),
+        "{:#?}",
+        cx.last_frame().patches
+    );
+}
+
+/// A row landing in the open room renders the timeline, not the rooms (no
+/// room row changed); a row landing in another room renders the rooms,
+/// whose unread dot flips, not the timeline.
+#[test]
+fn a_landing_row_lowers_the_timeline_not_the_rooms() {
+    let (mut cx, view) = opened();
+    let (rooms, timeline, _) = panes(&view);
+    let before = (cx.lowered(&rooms), cx.lowered(&timeline));
+    cx.update(&view, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        room.messages
+            .ready_mut()
+            .unwrap()
+            .push(row(3, 8, "a new one"));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("a new one"));
+    assert_eq!(
+        (cx.lowered(&rooms), cx.lowered(&timeline)),
+        (before.0, before.1 + 1)
+    );
+    cx.update(&view, |chat, _, cx| {
+        let dm = chat
+            .channels
+            .ready_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|info| info.channel.id == "dm-7-8")
+            .unwrap();
+        // the cursor was seated at the head when the room was listed
+        dm.head_seq += 1;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.find("chat-sidebar-dm-8-unread").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+    assert_eq!(
+        (cx.lowered(&rooms), cx.lowered(&timeline)),
+        (before.0 + 1, before.1 + 1)
+    );
+}
+
+/// Typing in the search field renders the root alone.
+#[test]
+fn search_typing_keeps_the_rooms_and_the_timeline() {
+    let (mut cx, view) = opened();
+    let (rooms, timeline, _) = panes(&view);
+    let before = (cx.lowered(&rooms), cx.lowered(&timeline));
+    cx.simulate_input("chat-sidebar-search", "h");
+    assert!(cx.reports()[0].rendered);
+    assert_eq!((cx.lowered(&rooms), cx.lowered(&timeline)), before);
+}
+
+/// The sidebar's divider moves `layout.sidebar`, the root's: a `Props` on
+/// `chat-sidebar`, nothing under the rooms box, the rooms not rendered.
+#[test]
+fn a_sidebar_drag_keeps_the_rooms() {
+    let (mut cx, view) = opened();
+    let (rooms, timeline, _) = panes(&view);
+    let before = (cx.lowered(&rooms), cx.lowered(&timeline));
+    cx.simulate_drag("chat-sidebar-resize", 18., 0.);
+    assert_eq!((cx.lowered(&rooms), cx.lowered(&timeline)), before);
+    let patches = &cx.last_frame().patches;
+    // the one box that moved; the untouched composer's field also crosses,
+    // its empty draft being made afresh by every render of the root
+    let boxes: Vec<_> = patches
+        .iter()
+        .filter_map(|patch| match patch {
+            wire::Patch::Props {
+                node: wire::Node::Container(wire::ContainerNode { id, .. }),
+                ..
+            } => Some(id.clone()),
+            wire::Patch::Props { .. } => None,
+            other => panic!("not a props patch: {other:#?}"),
+        })
+        .collect();
+    assert_eq!(
+        boxes,
+        [Some(wire::ElementIdWire::Name("chat-sidebar".into()))],
+        "{patches:#?}"
+    );
+}
+
+/// `hovered` is one field per pane: the pointer over a room row shows its
+/// strip, over a thread row the thread's; a row's strip goes when the host
+/// says the pointer left it, and each hover renders its own pane alone.
+#[test]
+fn a_hover_crosses_the_panes() {
+    let (mut cx, view) = opened();
+    cx.update(&view, |chat, _, cx| {
+        let room = chat.room.as_mut().unwrap();
+        room.messages.ready_mut().unwrap()[0].reply_count = 1;
+        room.thread = Some(Thread {
+            root: 1,
+            replies: Loadable::Ready(vec![MsgRow {
+                thread: Some(1),
+                ..row(3, 8, "a reply")
+            }]),
+            ..Thread::default()
+        });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let (rooms, timeline, thread) = panes(&view);
+    let before = [
+        cx.lowered(&rooms),
+        cx.lowered(&timeline),
+        cx.lowered(&thread),
+    ];
+    cx.simulate_hover("chat-message-m2-row", true);
+    assert!(
+        cx.find("chat-message-m2-more").is_some(),
+        "the room row's strip"
+    );
+    assert_eq!(
+        [
+            cx.lowered(&rooms),
+            cx.lowered(&timeline),
+            cx.lowered(&thread)
+        ],
+        [before[0], before[1] + 1, before[2]]
+    );
+    cx.simulate_hover("chat-message-m3-row", true);
+    assert!(
+        cx.find("chat-message-m3-more").is_some(),
+        "the thread row's strip"
+    );
+    assert!(
+        cx.find("chat-message-m2-more").is_some(),
+        "the room row's strip stays until the host says the pointer left it"
+    );
+    cx.simulate_hover("chat-message-m2-row", false);
+    assert!(cx.find("chat-message-m2-more").is_none());
+    assert!(cx.find("chat-message-m3-more").is_some());
+    assert_eq!(
+        [
+            cx.lowered(&rooms),
+            cx.lowered(&timeline),
+            cx.lowered(&thread)
+        ],
+        [before[0], before[1] + 2, before[2] + 1]
+    );
+}

@@ -714,8 +714,10 @@ fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
     cx.simulate_focus("chat-thread-list");
     cx.simulate_key_down("chat-thread-list", "up");
     view.read(|chat| {
-        assert_eq!(chat.thread_cursor.id.as_deref(), Some("m1"));
-        assert_eq!(chat.timeline_cursor.id, None);
+        chat.timeline(Pane::Thread)
+            .read(|thread| assert_eq!(thread.cursor.id.as_deref(), Some("m1")));
+        chat.timeline(Pane::Timeline)
+            .read(|timeline| assert_eq!(timeline.cursor.id, None));
     });
     // the list draws the revealed row until the host asks for more
     assert!(!claims(&cx, "chat-message-m3"));

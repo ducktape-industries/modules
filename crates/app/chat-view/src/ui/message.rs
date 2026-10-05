@@ -9,7 +9,7 @@ use ducktape_view_guest::{
 
 use crate::message::{ChatMessage, SpanStyle};
 use crate::ui::badge;
-use crate::{Chat, Control, Pane};
+use crate::{Control, Pane, Timeline};
 use chat::view::Names;
 use chat::{Block, Span};
 mod controls;
@@ -41,16 +41,17 @@ impl Cells {
 /// when this is their row. `set`: the row's place among the pane's
 /// messages, 1-based, and their count — said by the row itself, since the
 /// host positions only a list item's own node, and a message under a day
-/// or unread marker is wrapped.
+/// or unread marker is wrapped. What the card reads beyond the message is
+/// the pane's ([`Timeline::shown`]); what a press does is the root's.
 pub fn card(
-    chat: &Chat,
+    timeline: &Timeline,
     message: ChatMessage,
-    pane: Pane,
     active: Option<usize>,
     set: (usize, usize),
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> (AnyElement, Vec<Control>) {
+    let pane = timeline.pane;
     let id = message.id.clone();
     let seq = message.seq;
     let press = press(pane, seq, cx);
@@ -58,13 +59,12 @@ pub fn card(
         active,
         controls: Vec::new(),
     };
-    let chosen = !message.deleted
-        && seq > 0
-        && chat
-            .menu
-            .as_ref()
-            .is_some_and(|menu| menu.pane == pane && menu.seq == seq);
-    let ranged = !message.deleted && chat.copy.is_some_and(|range| range.holds(pane, seq));
+    let chosen = !message.deleted && seq > 0 && timeline.shown.chosen == Some(seq);
+    let ranged = !message.deleted
+        && timeline
+            .shown
+            .copy
+            .is_some_and(|range| range.holds(pane, seq));
     let group: ducktape_view_guest::SharedString = format!("chat-message-{id}").into();
     // cell 0 of the row: the message, the cell the arrows land on and
     // claimed while they are on it. It lies under the whole card, as a
@@ -102,15 +102,21 @@ pub fn card(
         .hover(|style| style.bg(theme.surface_raised))
         .child(message_cell)
         .child(avatar(&message, theme))
-        .child(content(chat, message.clone(), pane, &mut cells, cx, theme));
+        .child(content(
+            timeline,
+            message.clone(),
+            pane,
+            &mut cells,
+            cx,
+            theme,
+        ));
     // Controls are siblings of the selection target: their native click must
     // not also replace the opened menu with the message-selection toolbar.
     // The row says when the pointer is over it, and only that row (and a
     // chosen one) carries the action strip: drawn invisible under every
     // row, the strips were most of each frame the view sends — over half
     // its bytes in a busy room — and every frame is paid for in fuel.
-    let key = (pane, seq);
-    let row_hover = hovers(key, cx);
+    let row_hover = hovers(seq, cx);
     let mut outer = div()
         .id(format!("chat-message-{id}-row"))
         .relative()
@@ -126,8 +132,8 @@ pub fn card(
         .aria_position_in_set(set.0)
         .aria_size_of_set(set.1)
         .child(card);
-    if !message.pending && !message.deleted && (chosen || chat.hovered == Some(key)) {
-        let strip = action_strip(chat, &message, pane, chosen, &mut cells, cx, theme);
+    if !message.pending && !message.deleted && (chosen || timeline.hovered == Some(seq)) {
+        let strip = action_strip(timeline, &message, pane, chosen, &mut cells, cx, theme);
         outer = outer.child(strip);
     }
     (outer.into_any_element(), cells.controls)
@@ -141,13 +147,17 @@ fn acts(
     seq: u64,
     rev: u32,
     control: Control,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
 ) -> impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static {
-    cx.listener(move |chat, event: &ClickEvent, window, cx| {
+    cx.listener(move |timeline, event: &ClickEvent, _window, cx| {
         let position = event.position();
-        chat.layout.press = (position.x.into(), position.y.into());
-        cx.notify();
-        chat.act(pane, seq, rev, control.clone(), window, cx);
+        let at = (position.x.into(), position.y.into());
+        let control = control.clone();
+        timeline.root_in(cx, |chat, window, cx| {
+            chat.layout.press = at;
+            cx.notify();
+            chat.act(pane, seq, rev, control, window, cx);
+        });
     })
 }
 
@@ -156,28 +166,30 @@ fn acts(
 fn press(
     pane: Pane,
     seq: u64,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
 ) -> impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static {
-    cx.listener(move |chat, event: &ClickEvent, _window, cx| {
+    cx.listener(move |timeline, event: &ClickEvent, _window, cx| {
         let position = event.position();
         let at = (position.x.into(), position.y.into());
-        cx.notify();
-        chat.layout.press = at;
-        chat.press_message(pane, seq);
+        timeline.root(cx, |chat, cx| {
+            cx.notify();
+            chat.layout.press = at;
+            chat.press_message(pane, seq);
+        });
     })
 }
 
 /// The row keeps `hovered` on itself while the pointer is over it.
 fn hovers(
-    key: (Pane, u64),
-    cx: &mut Context<Chat>,
+    seq: u64,
+    cx: &mut Context<Timeline>,
 ) -> impl Fn(&bool, &mut Window, &mut ducktape_view_guest::App) + 'static {
-    cx.listener(move |chat, over: &bool, _window, cx| {
-        if *over && chat.hovered != Some(key) {
-            chat.hovered = Some(key);
+    cx.listener(move |timeline, over: &bool, _window, cx| {
+        if *over && timeline.hovered != Some(seq) {
+            timeline.hovered = Some(seq);
             cx.notify();
-        } else if !*over && chat.hovered == Some(key) {
-            chat.hovered = None;
+        } else if !*over && timeline.hovered == Some(seq) {
+            timeline.hovered = None;
             cx.notify();
         }
     })
@@ -232,19 +244,19 @@ fn avatar(message: &ChatMessage, theme: &Theme) -> AnyElement {
 /// The strip over a row the pointer is on (or a chosen one): thread,
 /// 👍, the picker and the "More" menu.
 fn action_strip(
-    chat: &Chat,
+    timeline: &Timeline,
     message: &ChatMessage,
     pane: Pane,
     chosen: bool,
     cells: &mut Cells,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> AnyElement {
     let (id, seq) = (&message.id, message.seq);
     // the row's hover group (`card`)
     let group: ducktape_view_guest::SharedString = format!("chat-message-{id}").into();
     let rev = message.rev;
-    let writable = chat.may_write();
+    let writable = timeline.shown.writable;
     let actions = div()
         .id(format!("chat-message-{id}-actions"))
         .absolute()
@@ -333,21 +345,21 @@ fn action_strip(
 /// The card's content: the header, the blocks, the marks, the reactions and
 /// the way into the thread, in that order (the controls' cell order too).
 fn content(
-    chat: &Chat,
+    timeline: &Timeline,
     message: ChatMessage,
     pane: Pane,
     cells: &mut Cells,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> AnyElement {
     let header = match message.show_author {
         true => Some(header(&message, cells, theme)),
         false => None,
     };
-    let blocks = blocks(chat, &message, cells, cx, theme);
+    let blocks = blocks(timeline, &message, cells, cx, theme);
     let reactions = match message.reactions.is_empty() {
         true => None,
-        false => Some(reactions(chat, &message, pane, cells, cx, theme)),
+        false => Some(reactions(timeline, &message, pane, cells, cx, theme)),
     };
     let replies = replies(&message, pane, cells, cx, theme);
     div()
@@ -367,14 +379,16 @@ fn content(
 
 /// The message's blocks, or its plain body where it has none.
 fn blocks(
-    chat: &Chat,
+    timeline: &Timeline,
     message: &ChatMessage,
     cells: &mut Cells,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> Vec<AnyElement> {
     if let Some((program, code)) = &message.system {
-        return vec![program_post(chat, message, program, code, cells, cx, theme)];
+        return vec![program_post(
+            timeline, message, program, code, cells, cx, theme,
+        )];
     }
     if message.blocks.is_empty() {
         let text = div()
@@ -382,8 +396,7 @@ fn blocks(
             .child(message.body.clone());
         return vec![text.into_any_element()];
     }
-    let empty = Names::empty();
-    let names = chat.names.ready().unwrap_or(&empty);
+    let names = &timeline.shown.names;
     let blocks = message.blocks.iter().enumerate();
     blocks
         .map(|(index, block)| {
@@ -417,7 +430,7 @@ fn replies(
     message: &ChatMessage,
     pane: Pane,
     cells: &mut Cells,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> Option<AnyElement> {
     if message.reply_count == 0 {
@@ -511,12 +524,12 @@ fn header(message: &ChatMessage, cells: &mut Cells, theme: &Theme) -> AnyElement
 /// A program's own post: its event code, quiet and mono, and (on the first
 /// of a run) a link to where the program itself shows the room.
 fn program_post(
-    chat: &Chat,
+    timeline: &Timeline,
     message: &ChatMessage,
     program: &str,
     code: &str,
     cells: &mut Cells,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> AnyElement {
     let mut line = div()
@@ -530,12 +543,13 @@ fn program_post(
     // one link per run of the program's lines: the room is the same
     let link = message
         .show_author
-        .then(|| crate::links::program_link(&chat.session.chain_id, &chat.room_id()))
+        .then(|| timeline.shown.program_link.clone())
         .flatten();
     if let Some(link) = link {
         let active = cells.push(Control::ProgramOpen(link.clone()));
-        let open = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
-            chat.open_link(link.clone(), cx);
+        let open = cx.listener(move |timeline, _: &ClickEvent, _window, cx| {
+            let link = link.clone();
+            timeline.root(cx, |chat, cx| chat.open_link(link, cx));
         });
         let theme = *theme;
         let id = format!("chat-message-{}-program-open", message.id);
@@ -558,15 +572,15 @@ fn program_post(
 
 /// The reactions under a message, and the `+` that opens the picker.
 fn reactions(
-    chat: &Chat,
+    timeline: &Timeline,
     message: &ChatMessage,
     pane: Pane,
     cells: &mut Cells,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> AnyElement {
     let (seq, rev) = (message.seq, message.rev);
-    let writable = chat.may_write();
+    let writable = timeline.shown.writable;
     let mut reactions = div()
         .id(format!("chat-message-{}-reactions", message.id))
         .flex()
@@ -617,7 +631,7 @@ fn block_view(
     index: usize,
     block: &Block,
     names: &Names,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> AnyElement {
     let id = ElementId::from(format!("chat-message-{}-block-{index}", message.id));

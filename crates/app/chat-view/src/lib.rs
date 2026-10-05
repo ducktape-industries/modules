@@ -57,6 +57,10 @@ impl View for Chat {
     /// Follows the host and reads what the screen shows: on a first mount,
     /// and again after a snapshot, whose in-flight work it parks.
     fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let chat = cx.weak_entity();
+        self.rooms = Some(cx.new(|_| Rooms::new(chat.clone())));
+        self.timeline = Some(cx.new(|_| Timeline::new(Pane::Timeline, chat.clone())));
+        self.thread_timeline = Some(cx.new(|_| Timeline::new(Pane::Thread, chat)));
         // a send in flight when the snapshot was taken never came back:
         // park its body as a failed send the composer can restore
         for draft in self.drafts.values_mut() {

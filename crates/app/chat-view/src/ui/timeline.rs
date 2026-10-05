@@ -5,16 +5,16 @@ use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
     ClickEvent, Context, FollowMode, ListAlignment, ListSizingBehavior, ListState, ParentElement,
-    Role, Styled, Theme, div, list as gpui_list, px,
+    Role, StyleRefinement, Styled, Theme, WeakEntity, div, list as gpui_list, px,
 };
 
 use ducktape_view_guest::AnyElement;
 use ducktape_view_guest::Loadable;
 
-use crate::message::{ChatMessage, new_day, unread_seq};
+use crate::message::{new_day, unread_seq};
 use crate::ui::room::selection_bar;
 use crate::ui::{message, quiet};
-use crate::{Chat, Pane};
+use crate::{Chat, Cursor, Pane, Shown, Timeline};
 
 /// A row's height before the list has measured it: an overdraw budget, not
 /// a layout size.
@@ -45,19 +45,14 @@ pub fn list(chat: &Chat, pane: Pane, cx: &mut Context<Chat>, theme: &Theme) -> i
             el.child(older)
         })
         .when(!messages.is_empty(), |el| {
-            // the way back floats over the list's foot, taking no row of its own
-            el.child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h(px(0.))
-                    .child(rows(chat, pane, messages.clone(), cx, theme))
-                    .when(timeline, |el| {
-                        el.when_some(jump_to_latest(chat, cx, theme), |el, jump| el.child(jump))
-                    }),
-            )
+            // the pane's rows, kept across frames in a box that takes the
+            // column's share as the rows' wrapper did (`flex_1 min_h(0)`):
+            // the pane renders only when what it shows moved, or its own
+            // state did
+            let shown = chat.shown(pane, messages);
+            let entity = chat.timeline(pane).clone();
+            entity.update(cx, |timeline, cx| timeline.show(shown, cx));
+            el.child(entity.cached(StyleRefinement::default().flex_1().min_h(px(0.))))
         })
         .when(
             timeline && chat.copy.is_some_and(|copy| copy.pane == pane),
@@ -138,233 +133,306 @@ fn older(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElemen
     Some(row.into_any_element())
 }
 
-/// The native list: the room's intro first once its history is all here,
-/// the unread divider over the first unread message, and "No replies yet"
-/// under a thread that is only its root.
-fn rows(
-    chat: &Chat,
-    pane: Pane,
-    messages: Vec<ChatMessage>,
-    cx: &mut Context<Chat>,
-    theme: &Theme,
-) -> impl IntoElement {
-    let room = chat.room.as_ref();
-    let lead = pane == Pane::Timeline && room.is_some_and(|room| !room.has_older && !room.landed);
-    let lead_text = lead.then(|| beginning(chat)).flatten();
-    let bare = pane == Pane::Thread
-        && messages.len() == 1
-        && room
-            .and_then(|room| room.thread.as_ref())
-            .is_some_and(|thread| thread.replies.ready().is_some_and(Vec::is_empty));
-    let keys = lead
-        .then_some("intro".to_owned())
-        .into_iter()
-        .chain(messages.iter().map(|message| message.id.clone()))
-        .chain(bare.then_some("no-replies".to_owned()))
-        .collect::<Vec<_>>();
-    let state = list_state(chat, pane, &keys);
-    state.set_follow_mode(match pane {
-        Pane::Timeline => FollowMode::Tail,
-        Pane::Thread => FollowMode::Normal,
-    });
-    state.set_scroll_handler(cx.listener(move |chat, event, _window, cx| {
-        chat.list_scrolled(pane, event, cx);
-    }));
-    let theme = *theme;
-    let unread = unread_seq(
-        &messages,
-        (pane == Pane::Timeline).then_some(chat.reads.boundary),
-    );
-    // One Tab stop, a grid: ↑ ↓ walk the messages (the list scrolls the
-    // next one into view before it claims), ← → a message's cells (the
-    // message, then its controls), Enter presses the active cell — on the
-    // message, its click. Active by message id: the newest until the
-    // arrows move.
-    let cursor = chat.cursor(pane);
-    let at = cursor
-        .id
-        .as_ref()
-        .and_then(|id| messages.iter().position(|message| &message.id == id))
-        .unwrap_or(messages.len().saturating_sub(1));
-    let active_id = messages.get(at).map(|message| message.id.clone());
-    let cell = cursor.cell;
-    let keys: Vec<(String, u64, u32)> = messages
-        .iter()
-        .map(|message| (message.id.clone(), message.seq, message.rev))
-        .collect();
-    let reveal = state.clone();
-    let moved_to = keys.clone();
-    let cell_row = active_id.clone();
-    let grid = design::composite(
-        match pane {
-            Pane::Timeline => "chat-message-list",
-            Pane::Thread => "chat-thread-list",
-        },
-        Role::Grid,
-        match pane {
-            Pane::Timeline => "Messages",
-            Pane::Thread => "Replies",
-        },
-    )
-    .active(at, messages.len())
-    // the cells are counted as the active row is drawn (`Cursor::controls`),
-    // so the bound is the recorded count at the key, not at the build
-    .cells(cell, usize::MAX)
-    .on_move(cx.processor(move |chat, index: usize, _, cx| {
-        let cursor = chat.cursor_mut(pane);
-        cursor.id = Some(moved_to[index].0.clone());
-        cursor.cell = 0;
-        reveal.scroll_to_reveal_item(index + usize::from(lead));
-        cx.notify();
-    }))
-    .on_move_cell(cx.processor(move |chat, cell: usize, _, cx| {
-        let cursor = chat.cursor_mut(pane);
-        let last = cursor
-            .id
-            .clone()
-            .or_else(|| cell_row.clone())
-            .map_or(0, |id| cursor.controls_of(&id).len());
-        cursor.cell = cell.min(last);
-        cx.notify();
-    }))
-    .on_press(cx.processor(move |chat, index: usize, window, cx| {
-        let (id, seq, rev) = keys[index].clone();
-        let cursor = chat.cursor(pane);
-        // the controls recorded are this message's, else the row was not
-        // drawn since the cursor moved and no control is pressed
-        let control = match cursor.cell {
-            0 => None,
-            cell => Some(cursor.controls_of(&id).get(cell - 1).cloned()),
-        };
-        chat.layout.press = chat.key_spot(pane);
-        cx.notify();
-        match control {
-            None => chat.press_message(pane, seq),
-            Some(Some(control)) => chat.act(pane, seq, rev, control, window, cx),
-            Some(None) => {}
+impl Chat {
+    /// What `pane` shows: its messages and the facts around them.
+    pub(crate) fn shown(&self, pane: Pane, messages: Vec<crate::message::ChatMessage>) -> Shown {
+        let room = self.room.as_ref();
+        let timeline = pane == Pane::Timeline;
+        let lead = timeline && room.is_some_and(|room| !room.has_older && !room.landed);
+        let bare = pane == Pane::Thread
+            && messages.len() == 1
+            && room
+                .and_then(|room| room.thread.as_ref())
+                .is_some_and(|thread| thread.replies.ready().is_some_and(Vec::is_empty));
+        let jump = room
+            .filter(|room| timeline && (room.landed || !room.at_tail))
+            .map(|room| room.id.clone());
+        Shown {
+            messages,
+            lead,
+            intro: lead.then(|| beginning(self)).flatten(),
+            bare,
+            boundary: timeline.then_some(self.reads.boundary),
+            jump,
+            copy: self.copy.filter(|copy| copy.pane == pane),
+            chosen: self
+                .menu
+                .as_ref()
+                .filter(|menu| menu.pane == pane)
+                .map(|menu| menu.seq),
+            writable: self.may_write(),
+            names: self.names.ready().cloned().unwrap_or_default(),
+            program_link: crate::links::program_link(&self.session.chain_id, &self.room_id()),
         }
-    }))
-    .build();
-    let list = gpui_list(
-        match pane {
-            Pane::Timeline => "chat-message-rows",
-            Pane::Thread => "chat-thread-rows",
-        },
-        state,
-        cx.processor(move |chat, index: usize, _window, cx| {
-            if lead && index == 0 {
-                let (name, dm) = lead_text.clone().expect("lead row");
-                return intro(&name, dm.as_deref(), &theme).into_any_element();
-            }
-            let at = index - usize::from(lead);
-            let Some(message) = messages.get(at).cloned() else {
-                return match bare {
-                    true => no_replies(&theme).into_any_element(),
-                    false => div().into_any_element(),
-                };
+    }
+}
+
+impl Timeline {
+    pub(crate) fn new(pane: Pane, chat: WeakEntity<Chat>) -> Self {
+        Self {
+            pane,
+            chat,
+            shown: Shown::default(),
+            cursor: Cursor::default(),
+            hovered: None,
+            list: None,
+            rows: Vec::new(),
+        }
+    }
+
+    /// What the root shows: a render when it moved.
+    pub(crate) fn show(&mut self, shown: Shown, cx: &mut Context<Self>) {
+        if self.shown != shown {
+            self.shown = shown;
+            cx.notify();
+        }
+    }
+
+    /// Runs `f` on the root: an intent the root's handlers carry out.
+    pub(crate) fn root(
+        &self,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut Chat, &mut Context<Chat>),
+    ) {
+        let _ = self.chat.update(cx, f);
+    }
+
+    /// [`Self::root`] with the window, for a handler that moves the keys.
+    pub(crate) fn root_in(
+        &self,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut Chat, &mut Window, &mut Context<Chat>),
+    ) {
+        let _ = self.chat.update_in(cx, f);
+    }
+}
+
+impl Render for Timeline {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = *cx.global::<Theme>();
+        let timeline = self.pane == Pane::Timeline;
+        // the way back floats over the list's foot, taking no row of its own
+        div()
+            .relative()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(self.rows(cx, &theme))
+            .when(timeline, |el| {
+                el.when_some(self.jump_to_latest(cx, &theme), |el, jump| el.child(jump))
+            })
+    }
+}
+
+impl Timeline {
+    /// The native list: the room's intro first once its history is all here,
+    /// the unread divider over the first unread message, and "No replies yet"
+    /// under a thread that is only its root.
+    fn rows(&mut self, cx: &mut Context<Self>, theme: &Theme) -> impl IntoElement {
+        let pane = self.pane;
+        let (lead, bare) = (self.shown.lead, self.shown.bare);
+        let messages = &self.shown.messages;
+        let keys = lead
+            .then_some("intro".to_owned())
+            .into_iter()
+            .chain(messages.iter().map(|message| message.id.clone()))
+            .chain(bare.then_some("no-replies".to_owned()))
+            .collect::<Vec<_>>();
+        let unread = unread_seq(messages, self.shown.boundary);
+        // One Tab stop, a grid: ↑ ↓ walk the messages (the list scrolls the
+        // next one into view before it claims), ← → a message's cells (the
+        // message, then its controls), Enter presses the active cell — on the
+        // message, its click. Active by message id: the newest until the
+        // arrows move.
+        let at = self
+            .cursor
+            .id
+            .as_ref()
+            .and_then(|id| messages.iter().position(|message| &message.id == id))
+            .unwrap_or(messages.len().saturating_sub(1));
+        let active_id = messages.get(at).map(|message| message.id.clone());
+        let cell = self.cursor.cell;
+        let count = messages.len();
+        let press_keys: Vec<(String, u64, u32)> = messages
+            .iter()
+            .map(|message| (message.id.clone(), message.seq, message.rev))
+            .collect();
+        let state = self.list_state(&keys);
+        state.set_follow_mode(match pane {
+            Pane::Timeline => FollowMode::Tail,
+            Pane::Thread => FollowMode::Normal,
+        });
+        state.set_scroll_handler(cx.listener(move |timeline, event, _window, cx| {
+            timeline.root(cx, |chat, cx| chat.list_scrolled(pane, event, cx));
+        }));
+        let theme = *theme;
+        let reveal = state.clone();
+        let moved_to = press_keys.clone();
+        let cell_row = active_id.clone();
+        let grid = design::composite(
+            match pane {
+                Pane::Timeline => "chat-message-list",
+                Pane::Thread => "chat-thread-list",
+            },
+            Role::Grid,
+            match pane {
+                Pane::Timeline => "Messages",
+                Pane::Thread => "Replies",
+            },
+        )
+        .active(at, count)
+        // the cells are counted as the active row is drawn (`Cursor::controls`),
+        // so the bound is the recorded count at the key, not at the build
+        .cells(cell, usize::MAX)
+        .on_move(cx.processor(move |timeline, index: usize, _, cx| {
+            timeline.cursor.id = Some(moved_to[index].0.clone());
+            timeline.cursor.cell = 0;
+            reveal.scroll_to_reveal_item(index + usize::from(lead));
+            cx.notify();
+        }))
+        .on_move_cell(cx.processor(move |timeline, cell: usize, _, cx| {
+            let cursor = &mut timeline.cursor;
+            let last = cursor
+                .id
+                .clone()
+                .or_else(|| cell_row.clone())
+                .map_or(0, |id| cursor.controls_of(&id).len());
+            cursor.cell = cell.min(last);
+            cx.notify();
+        }))
+        .on_press(cx.processor(move |timeline, index: usize, _, cx| {
+            let (id, seq, rev) = press_keys[index].clone();
+            // the controls recorded are this message's, else the row was not
+            // drawn since the cursor moved and no control is pressed
+            let control = match timeline.cursor.cell {
+                0 => None,
+                cell => Some(timeline.cursor.controls_of(&id).get(cell - 1).cloned()),
             };
-            let day = new_day(&messages, at)
-                .map(|day| day_marker(&message.id, day, &theme).into_any_element());
-            let unread = (unread == Some(message.seq)).then(|| unread_marker(&theme));
-            let active = (active_id.as_ref() == Some(&message.id)).then_some(cell);
-            let id = message.id.clone();
-            let marked = format!("chat-message-{id}-marked");
-            let set = (at + 1, messages.len());
-            let (card, controls) = message::card(chat, message, pane, active, set, cx, &theme);
-            if active.is_some() {
-                let cursor = chat.cursor_mut(pane);
-                cursor.controls = controls;
-                cursor.controls_of = Some(id);
-            }
-            if day.is_none() && unread.is_none() {
-                return card;
-            }
-            // The markers sit outside the card, which is the grid's row,
-            // so the list's row is this wrapper: it carries the message's
-            // key, as a bare card does, and the card under it is filed by
-            // its message wherever the row moves. Full width, as a bare
-            // card is: a row shrunk to its words took the hover and the
-            // action strip with it
-            div()
-                .id(marked)
-                .w_full()
-                .flex()
-                .flex_col()
-                .children(day)
-                .children(unread)
-                .child(card)
-                .into_any_element()
-        }),
-    )
-    .with_sizing_behavior(ListSizingBehavior::Auto)
-    .flex_1()
-    .min_h(px(0.))
-    .w_full();
-    grid.flex().flex_col().flex_1().min_h(px(0.)).child(list)
-}
+            timeline.root_in(cx, |chat, window, cx| {
+                chat.layout.press = chat.key_spot(pane);
+                cx.notify();
+                match control {
+                    None => chat.press_message(pane, seq),
+                    Some(Some(control)) => chat.act(pane, seq, rev, control, window, cx),
+                    Some(None) => {}
+                }
+            });
+        }))
+        .build();
+        let list = gpui_list(
+            match pane {
+                Pane::Timeline => "chat-message-rows",
+                Pane::Thread => "chat-thread-rows",
+            },
+            state,
+            cx.processor(move |timeline, index: usize, _window, cx| {
+                if lead && index == 0 {
+                    let (name, dm) = timeline.shown.intro.clone().expect("lead row");
+                    return intro(&name, dm.as_deref(), &theme).into_any_element();
+                }
+                let at = index - usize::from(lead);
+                let Some(message) = timeline.shown.messages.get(at).cloned() else {
+                    return match bare {
+                        true => no_replies(&theme).into_any_element(),
+                        false => div().into_any_element(),
+                    };
+                };
+                let day = new_day(&timeline.shown.messages, at)
+                    .map(|day| day_marker(&message.id, day, &theme).into_any_element());
+                let unread = (unread == Some(message.seq)).then(|| unread_marker(&theme));
+                let active = (active_id.as_ref() == Some(&message.id)).then_some(cell);
+                let id = message.id.clone();
+                let marked = format!("chat-message-{id}-marked");
+                let set = (at + 1, count);
+                let (card, controls) = message::card(timeline, message, active, set, cx, &theme);
+                if active.is_some() {
+                    timeline.cursor.controls = controls;
+                    timeline.cursor.controls_of = Some(id);
+                }
+                if day.is_none() && unread.is_none() {
+                    return card;
+                }
+                // The markers sit outside the card, which is the grid's row,
+                // so the list's row is this wrapper: it carries the message's
+                // key, as a bare card does, and the card under it is filed by
+                // its message wherever the row moves. Full width, as a bare
+                // card is: a row shrunk to its words took the hover and the
+                // action strip with it
+                div()
+                    .id(marked)
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .children(day)
+                    .children(unread)
+                    .child(card)
+                    .into_any_element()
+            }),
+        )
+        .with_sizing_behavior(ListSizingBehavior::Auto)
+        .flex_1()
+        .min_h(px(0.))
+        .w_full();
+        grid.flex().flex_col().flex_1().min_h(px(0.)).child(list)
+    }
 
-/// "Jump to latest", when the timeline is not at its live tail.
-fn jump_to_latest(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElement> {
-    let room = chat.room.as_ref()?;
-    if !room.landed && room.at_tail {
-        return None;
+    /// "Jump to latest", when the timeline is not at its live tail.
+    fn jump_to_latest(&self, cx: &mut Context<Self>, theme: &Theme) -> Option<AnyElement> {
+        let id = self.shown.jump.clone()?;
+        let latest = cx.listener(move |timeline, _: &ClickEvent, _, cx| {
+            let id = id.clone();
+            timeline.root(cx, |chat, cx| {
+                cx.notify();
+                chat.open(id, cx)
+            });
+        });
+        // a strip across the list's foot that only centres the button: it has
+        // no handlers, so a click beside the button still reaches the row under it
+        let jump = div()
+            .id("chat-jump-latest")
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_3()
+            .flex()
+            .justify_center()
+            .child(div().bg(theme.background).shadow_lg().child(super::button(
+                "chat-jump-latest-button",
+                "Jump to latest",
+                theme,
+                latest,
+            )));
+        Some(jump.into_any_element())
     }
-    let id = room.id.clone();
-    let latest = cx.listener(move |chat, _: &ClickEvent, _, cx| {
-        cx.notify();
-        chat.open(id.clone(), cx)
-    });
-    // a strip across the list's foot that only centres the button: it has
-    // no handlers, so a click beside the button still reaches the row under it
-    let jump = div()
-        .id("chat-jump-latest")
-        .absolute()
-        .left_0()
-        .right_0()
-        .bottom_3()
-        .flex()
-        .justify_center()
-        .child(div().bg(theme.background).shadow_lg().child(super::button(
-            "chat-jump-latest-button",
-            "Jump to latest",
-            theme,
-            latest,
-        )));
-    Some(jump.into_any_element())
-}
 
-fn list_state(chat: &Chat, pane: Pane, keys: &[String]) -> ListState {
-    let (slot, remembered, alignment) = match pane {
-        Pane::Timeline => (
-            &chat.timeline_list,
-            &chat.timeline_rows,
-            ListAlignment::Bottom,
-        ),
-        Pane::Thread => (&chat.thread_list, &chat.thread_rows, ListAlignment::Top),
-    };
-    let mut slot = slot.borrow_mut();
-    let mut old = remembered.borrow_mut();
-    if slot.is_none() {
-        let state = ListState::new(keys.len(), alignment, px(UNMEASURED_ROW));
-        *slot = Some(state.clone());
-        *old = keys.to_vec();
-        return state;
+    /// The list's state, spliced to `keys` where they moved.
+    fn list_state(&mut self, keys: &[String]) -> ListState {
+        let alignment = match self.pane {
+            Pane::Timeline => ListAlignment::Bottom,
+            Pane::Thread => ListAlignment::Top,
+        };
+        let Some(state) = self.list.clone() else {
+            let state = ListState::new(keys.len(), alignment, px(UNMEASURED_ROW));
+            self.list = Some(state.clone());
+            self.rows = keys.to_vec();
+            return state;
+        };
+        let old = &self.rows;
+        let prefix = old.iter().zip(keys).take_while(|(a, b)| a == b).count();
+        let suffix = old[prefix..]
+            .iter()
+            .rev()
+            .zip(keys[prefix..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let old_end = old.len() - suffix;
+        let new_end = keys.len() - suffix;
+        if prefix != old_end || prefix != new_end {
+            state.splice(prefix..old_end, new_end - prefix);
+        }
+        self.rows = keys.to_vec();
+        state
     }
-    let state = slot.as_ref().expect("initialized list state").clone();
-    let prefix = old.iter().zip(keys).take_while(|(a, b)| a == b).count();
-    let suffix = old[prefix..]
-        .iter()
-        .rev()
-        .zip(keys[prefix..].iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
-    let old_end = old.len() - suffix;
-    let new_end = keys.len() - suffix;
-    if prefix != old_end || prefix != new_end {
-        state.splice(prefix..old_end, new_end - prefix);
-    }
-    *old = keys.to_vec();
-    state
 }
 
 /// The day the messages under it were posted on, between two days.

@@ -4,13 +4,14 @@ use ducktape_view_guest::AnyElement;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    ClickEvent, Context, ElementId, ParentElement, Role, Styled, Theme, div, px, wire,
+    ClickEvent, Context, ElementId, ParentElement, Role, StyleRefinement, Styled, Theme,
+    WeakEntity, div, px, wire,
 };
 
-use chat::{ChannelInfo, Principal};
+use chat::Principal;
 
 use crate::names::dm_peer_of;
-use crate::{ChannelCreate, Chat};
+use crate::{ChannelCreate, Chat, RoomRow, Rooms, RoomsShown};
 
 pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
     div()
@@ -30,7 +31,17 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
                 .p_2()
                 .child(search(chat, cx, theme)),
         )
-        .child(rooms(chat, cx, theme))
+        .child(rooms(chat, cx))
+}
+
+/// The rooms list, kept across frames in a box that takes the column's
+/// share as the list did (`flex_1`): the list renders only when what it
+/// shows moved, or its arrows did.
+fn rooms(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
+    let rooms = chat.rooms().clone();
+    let shown = chat.rooms_shown();
+    rooms.update(cx, |rooms, cx| rooms.show(shown, cx));
+    rooms.cached(StyleRefinement::default().flex_1())
 }
 
 /// The message search field, and its clear button once it holds a search.
@@ -82,116 +93,170 @@ fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         })
 }
 
-/// The rooms in two sections: channels, direct messages.
-/// A program's own rooms (`forge:…` review threads) are its to show.
-fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
-    let mut list = div()
-        .id("chat-sidebar-rooms")
-        .flex_1()
-        .overflow_y_scroll()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .p_2()
-        .child(section_header(
-            "chat-sidebar-channels-header",
-            "Channels",
-            new_channel(chat, cx, theme),
-            theme,
-        ));
-    let channels: Vec<&ChannelInfo> = chat.channels.ready().into_iter().flatten().collect();
-    if chat.channels.is_loading() && channels.is_empty() {
-        list = list.child(quiet("chat-sidebar-loading", "Loading rooms…", theme));
-    }
-    if let Some(refusal) = chat.channels.failed() {
-        list = list.child(quiet("chat-sidebar-failed", refusal.message.clone(), theme));
-    }
-    let open = chat.room.as_ref().map(|room| room.id.as_str());
-    let mine = chat.my_account();
-    let mut rooms = Vec::new();
-    let mut dms = Vec::new();
-    for info in channels {
-        let id = info.channel.id.as_str();
-        if chat::namespace::program(id).is_some() {
-            continue;
-        }
-        if chat::dm_peers(id).is_some() {
-            dms.extend(
-                mine.and_then(|mine| dm_peer_of(mine, id))
-                    .map(|peer| (info, peer)),
-            );
-        } else {
-            rooms.push(info);
-        }
-    }
-    // one Tab stop under the header: ↑ ↓ walk the channels and the direct
-    // messages, Enter opens the active room. Active: where the arrows are,
-    // else the open room, else the first
-    let ids: Vec<String> = rooms
-        .iter()
-        .chain(dms.iter().map(|(info, _)| info))
-        .map(|info| info.channel.id.clone())
-        .collect();
-    let at = chat
-        .rooms_cursor
-        .as_deref()
-        .or(open)
-        .and_then(|id| ids.iter().position(|room| room == id))
-        .unwrap_or(0);
-    let picked = ids.clone();
-    let mut box_ = design::composite("chat-sidebar-rooms-list", Role::ListBox, "Rooms")
-        .active(at, ids.len())
-        .on_move(cx.processor(move |chat, index: usize, _, cx| {
-            chat.rooms_cursor = Some(ids[index].clone());
-            cx.notify();
-        }))
-        .on_press(cx.processor(move |chat, index: usize, _, cx| {
-            cx.notify();
-            chat.choose(picked[index].clone(), cx)
-        }))
-        .build()
-        .flex()
-        .flex_col()
-        .gap_1();
-    let mut index = 0;
-    for info in rooms {
-        let id = info.channel.id.as_str();
-        let row = channel_button(chat, info, open == Some(id), index == at, cx, theme);
-        box_ = box_.child(row);
-        index += 1;
-    }
-    if !dms.is_empty() {
-        box_ = box_.child(section_header(
-            "chat-sidebar-dm-header",
-            "Direct messages",
-            div(),
-            theme,
-        ));
-        for (info, peer) in dms {
-            let selected = open == Some(info.channel.id.as_str());
-            box_ = box_.child(dm_button(
-                chat,
-                info,
+/// The rooms as the sidebar draws them: channels and direct messages, a
+/// program's own rooms (`forge:…` review threads) left to it to show.
+impl Chat {
+    pub(crate) fn rooms_shown(&self) -> RoomsShown {
+        let open = self.room.as_ref().map(|room| room.id.as_str());
+        let mine = self.my_account();
+        let names = self.names.ready();
+        let (mut channels, mut dms) = (Vec::new(), Vec::new());
+        for info in self.channels.ready().into_iter().flatten() {
+            let id = info.channel.id.as_str();
+            if chat::namespace::program(id).is_some() {
+                continue;
+            }
+            let selected = open == Some(id);
+            let row = |name: String, peer| RoomRow {
+                id: id.to_owned(),
+                name,
                 peer,
+                unread: self.unread(info) && !selected,
                 selected,
-                index == at,
-                cx,
+                members_only: info.channel.members_only(),
+                archived: info.channel.archived,
+            };
+            if chat::dm_peers(id).is_some() {
+                let Some(peer) = mine.and_then(|mine| dm_peer_of(mine, id)) else {
+                    continue;
+                };
+                let name = names.map_or_else(
+                    || format!("account {peer}"),
+                    |n| n.member(&Principal::Account(peer)),
+                );
+                let agent =
+                    names.is_some_and(|n| crate::message::agent(n, &Principal::Account(peer)));
+                dms.push(row(name, Some((peer, agent))));
+            } else {
+                channels.push(row(info.channel.name.clone(), None));
+            }
+        }
+        RoomsShown {
+            loading: self.channels.is_loading() && channels.is_empty() && dms.is_empty(),
+            failed: self
+                .channels
+                .failed()
+                .map(|refusal| refusal.message.clone()),
+            create_open: self.create.is_some(),
+            channels,
+            dms,
+        }
+    }
+}
+
+impl Rooms {
+    pub(crate) fn new(chat: WeakEntity<Chat>) -> Self {
+        Self {
+            chat,
+            shown: RoomsShown::default(),
+            cursor: None,
+        }
+    }
+
+    /// What the root shows: a render when it moved.
+    pub(crate) fn show(&mut self, shown: RoomsShown, cx: &mut Context<Self>) {
+        if self.shown != shown {
+            self.shown = shown;
+            cx.notify();
+        }
+    }
+}
+
+impl Render for Rooms {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = *cx.global::<Theme>();
+        let theme = &theme;
+        let shown = &self.shown;
+        let mut list = div()
+            .id("chat-sidebar-rooms")
+            .size_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .p_2()
+            .child(section_header(
+                "chat-sidebar-channels-header",
+                "Channels",
+                new_channel(shown.create_open, cx, theme),
                 theme,
             ));
+        if shown.loading {
+            list = list.child(quiet("chat-sidebar-loading", "Loading rooms…", theme));
+        }
+        if let Some(refusal) = &shown.failed {
+            list = list.child(quiet("chat-sidebar-failed", refusal.clone(), theme));
+        }
+        // one Tab stop under the header: ↑ ↓ walk the channels and the direct
+        // messages, Enter opens the active room. Active: where the arrows are,
+        // else the open room, else the first
+        let rows: Vec<&RoomRow> = shown.channels.iter().chain(&shown.dms).collect();
+        let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+        let open = rows
+            .iter()
+            .find(|row| row.selected)
+            .map(|row| row.id.as_str());
+        let at = self
+            .cursor
+            .as_deref()
+            .or(open)
+            .and_then(|id| ids.iter().position(|room| room == id))
+            .unwrap_or(0);
+        let picked = ids.clone();
+        let mut box_ = design::composite("chat-sidebar-rooms-list", Role::ListBox, "Rooms")
+            .active(at, ids.len())
+            .on_move(cx.processor(move |rooms, index: usize, _, cx| {
+                rooms.cursor = Some(ids[index].clone());
+                cx.notify();
+            }))
+            .on_press(cx.processor(move |rooms, index: usize, _, cx| {
+                rooms.choose(picked[index].clone(), cx)
+            }))
+            .build()
+            .flex()
+            .flex_col()
+            .gap_1();
+        let mut index = 0;
+        for row in &shown.channels {
+            box_ = box_.child(channel_button(row, index == at, cx, theme));
             index += 1;
         }
+        if !shown.dms.is_empty() {
+            box_ = box_.child(section_header(
+                "chat-sidebar-dm-header",
+                "Direct messages",
+                div(),
+                theme,
+            ));
+            for row in &shown.dms {
+                box_ = box_.child(dm_button(row, index == at, cx, theme));
+                index += 1;
+            }
+        }
+        list.child(box_)
     }
-    list.child(box_)
+}
+
+impl Rooms {
+    /// Opens `id`: the root's.
+    fn choose(&mut self, id: String, cx: &mut Context<Self>) {
+        let _ = self.chat.update(cx, |chat, cx| {
+            cx.notify();
+            chat.choose(id, cx)
+        });
+    }
 }
 
 /// "+ New channel", or "✕ Close" while the create dialog is open.
-fn new_channel(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
-    let toggle = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        chat.create = match chat.create.take() {
-            Some(_) => None,
-            None => Some(ChannelCreate::default()),
-        };
-        cx.notify();
+fn new_channel(open: bool, cx: &mut Context<Rooms>, theme: &Theme) -> impl IntoElement {
+    let toggle = cx.listener(|rooms, _: &ClickEvent, _window, cx| {
+        let _ = rooms.chat.update(cx, |chat, cx| {
+            chat.create = match chat.create.take() {
+                Some(_) => None,
+                None => Some(ChannelCreate::default()),
+            };
+            cx.notify();
+        });
     });
     div()
         .id("chat-sidebar-new-channel")
@@ -206,11 +271,7 @@ fn new_channel(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoE
         .role(ducktape_view_guest::Role::Button)
         .focusable()
         .on_click(toggle)
-        .child(if chat.create.is_some() {
-            "✕ Close"
-        } else {
-            "+ New channel"
-        })
+        .child(if open { "✕ Close" } else { "+ New channel" })
 }
 
 fn section_header(
@@ -242,22 +303,25 @@ fn quiet(id: impl Into<ElementId>, text: impl Into<String>, theme: &Theme) -> im
         .child(text.into())
 }
 
+/// A click on a row opens its room.
+fn opens(
+    id: &str,
+    cx: &mut Context<Rooms>,
+) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+    let id = id.to_owned();
+    cx.listener(move |rooms, _: &ClickEvent, _, cx| rooms.choose(id.clone(), cx))
+}
+
 fn channel_button(
-    chat: &Chat,
-    info: &ChannelInfo,
-    selected: bool,
+    row: &RoomRow,
     active: bool,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Rooms>,
     theme: &Theme,
 ) -> AnyElement {
-    let id = info.channel.id.clone();
-    let click = cx.listener(move |chat, _: &ClickEvent, _, cx| {
-        cx.notify();
-        chat.choose(id.clone(), cx)
-    });
-    let unread = chat.unread(info) && !selected;
-    let mut row = div()
-        .id(format!("chat-sidebar-channel-{}", info.channel.id))
+    let selected = row.selected;
+    let unread = row.unread;
+    let mut el = div()
+        .id(format!("chat-sidebar-channel-{}", row.id))
         .flex()
         .w_full()
         .items_center()
@@ -270,9 +334,9 @@ fn channel_button(
             theme.sidebar
         })
         .hover(|s| s.bg(theme.sidebar_raised))
-        .when(active && !selected, |row| row.bg(theme.sidebar_raised))
+        .when(active && !selected, |el| el.bg(theme.sidebar_raised))
         .aria_selected(selected)
-        .on_click(click)
+        .on_click(opens(&row.id, cx))
         .child(div().text_color(theme.sidebar_muted).child("#"))
         .child(
             div()
@@ -283,18 +347,18 @@ fn channel_button(
                 } else {
                     theme.sidebar_muted
                 })
-                .child(info.channel.name.clone()),
+                .child(row.name.clone()),
         );
-    if info.channel.members_only() {
-        row = row.child(
+    if row.members_only {
+        el = el.child(
             div()
                 .text_size(design::text::CAPTION)
                 .text_color(theme.sidebar_muted)
                 .child("Members only"),
         );
     }
-    if info.channel.archived {
-        row = row.child(
+    if row.archived {
+        el = el.child(
             div()
                 .text_size(design::text::CAPTION)
                 .text_color(theme.sidebar_muted)
@@ -302,39 +366,26 @@ fn channel_button(
         );
     }
     if unread {
-        row = row.child(
+        el = el.child(
             div()
-                .id(format!("chat-sidebar-channel-{}-unread", info.channel.id))
+                .id(format!("chat-sidebar-channel-{}-unread", row.id))
                 .size_2()
                 .rounded_full()
                 .bg(theme.accent),
         );
     }
-    design::item(row, Role::ListBoxOption, active).into_any_element()
+    design::item(el, Role::ListBoxOption, active).into_any_element()
 }
 
 fn dm_button(
-    chat: &Chat,
-    info: &ChannelInfo,
-    peer: u64,
-    selected: bool,
+    row: &RoomRow,
     active: bool,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Rooms>,
     theme: &Theme,
 ) -> impl IntoElement {
-    let names = chat.names.ready();
-    let name = names.map_or_else(
-        || format!("account {peer}"),
-        |n| n.member(&Principal::Account(peer)),
-    );
-    let agent = names.is_some_and(|n| crate::message::agent(n, &Principal::Account(peer)));
-    let unread = chat.unread(info) && !selected;
-    let id = info.channel.id.clone();
-    let click = cx.listener(move |chat, _: &ClickEvent, _, cx| {
-        cx.notify();
-        chat.choose(id.clone(), cx)
-    });
-    let mut row = div()
+    let (peer, agent) = row.peer.expect("a direct room has its peer");
+    let (name, selected, unread) = (&row.name, row.selected, row.unread);
+    let mut el = div()
         .id(format!("chat-sidebar-dm-{peer}"))
         .flex()
         .items_center()
@@ -347,15 +398,15 @@ fn dm_button(
             theme.sidebar
         })
         .hover(|s| s.bg(theme.sidebar_raised))
-        .when(active && !selected, |row| row.bg(theme.sidebar_raised))
+        .when(active && !selected, |el| el.bg(theme.sidebar_raised))
         // the peer's name, not the avatar's initial drawn before it
         .aria_label(name.clone())
-        .when(agent, |row| row.aria_description("Agent"))
+        .when(agent, |el| el.aria_description("Agent"))
         .aria_selected(selected)
-        .on_click(click)
+        .on_click(opens(&row.id, cx))
         .child(avatar(
             format!("chat-sidebar-dm-{peer}-avatar"),
-            &name,
+            name,
             agent,
             theme.sidebar_raised,
             theme,
@@ -369,10 +420,10 @@ fn dm_button(
                 } else {
                     theme.sidebar_muted
                 })
-                .child(name),
+                .child(name.clone()),
         );
     if agent {
-        row = row.child(super::badge(
+        el = el.child(super::badge(
             format!("chat-sidebar-dm-{peer}-agent"),
             "Agent",
             theme.agent,
@@ -380,7 +431,7 @@ fn dm_button(
         ));
     }
     if unread {
-        row = row.child(
+        el = el.child(
             div()
                 .id(format!("chat-sidebar-dm-{peer}-unread"))
                 .size_2()
@@ -388,7 +439,7 @@ fn dm_button(
                 .bg(theme.accent),
         );
     }
-    design::item(row, Role::ListBoxOption, active)
+    design::item(el, Role::ListBoxOption, active)
 }
 
 /// A person's round initials: a direct room's face, in the sidebar and

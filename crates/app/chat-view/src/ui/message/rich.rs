@@ -16,7 +16,7 @@ pub(super) fn rich_line(
     id: ElementId,
     spans: &[Span],
     names: &Names,
-    cx: &mut Context<Chat>,
+    cx: &mut Context<Timeline>,
     theme: &Theme,
 ) -> InteractiveText {
     let styled = crate::message::styled_spans(spans, names);
@@ -73,10 +73,13 @@ pub(super) fn rich_line(
     let styled = StyledText::new(text)
         .with_highlights(highlights)
         .with_font_family_overrides(mono);
-    let open = cx.processor(move |chat, index: usize, _window, cx| {
+    let open = cx.processor(move |timeline, index: usize, _window, cx| {
         if let Some(target) = targets.get(index) {
-            cx.notify();
-            chat.open_link(target.clone(), cx);
+            let target = target.clone();
+            timeline.root(cx, |chat, cx| {
+                cx.notify();
+                chat.open_link(target, cx);
+            });
         }
     });
     InteractiveText::new(id, styled)

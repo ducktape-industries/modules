@@ -1,12 +1,12 @@
 //! State stored by the root view and its panes.
 use chat::{ChannelInfo, MemberRow, MsgRow};
-use ducktape_view_guest::{Loadable, TextField};
+use ducktape_view_guest::{Entity, ListState, Loadable, TextField, WeakEntity};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use crate::api::Session;
 use crate::composer::Draft;
+use crate::message::ChatMessage;
 use chat::view::Names;
 
 #[derive(Serialize, Deserialize, Default)]
@@ -31,19 +31,15 @@ pub struct Chat {
     /// The reader's reactions, newest first: the picker's frequent row.
     #[serde(default)]
     pub(crate) recent_emoji: Vec<String>,
-    /// The message row under the pointer: the one that carries the action
-    /// strip, beside a chosen one.
+    /// The sidebar's room list and each pane's messages: entities of their
+    /// own, cached in the tree, built in `attach` from the root's state
+    /// (nothing of theirs is in the snapshot).
     #[serde(skip)]
-    pub(crate) hovered: Option<(Pane, u64)>,
-    /// The room the arrows are on in the sidebar's list; the open room
-    /// until they move.
+    pub(crate) rooms: Option<Entity<Rooms>>,
     #[serde(skip)]
-    pub(crate) rooms_cursor: Option<String>,
-    /// The message the arrows are on in the room, and in the thread.
+    pub(crate) timeline: Option<Entity<Timeline>>,
     #[serde(skip)]
-    pub(crate) timeline_cursor: Cursor,
-    #[serde(skip)]
-    pub(crate) thread_cursor: Cursor,
+    pub(crate) thread_timeline: Option<Entity<Timeline>>,
     /// The item the arrows are on in the open message menu.
     #[serde(skip)]
     pub(crate) menu_cursor: usize,
@@ -55,14 +51,6 @@ pub struct Chat {
     /// What the view follows (`watch.rs`); dropping them unsubscribes.
     #[serde(skip)]
     pub(crate) followers: Vec<ducktape_view_guest::Task<()>>,
-    #[serde(skip)]
-    pub(crate) timeline_list: RefCell<Option<ducktape_view_guest::ListState>>,
-    #[serde(skip)]
-    pub(crate) thread_list: RefCell<Option<ducktape_view_guest::ListState>>,
-    #[serde(skip)]
-    pub(crate) timeline_rows: RefCell<Vec<String>>,
-    #[serde(skip)]
-    pub(crate) thread_rows: RefCell<Vec<String>>,
     /// messages meant for the reader in rooms they have not read, by room
     #[serde(skip)]
     pub(crate) attention: BTreeMap<String, i64>,
@@ -286,18 +274,96 @@ pub enum Control {
     More,
 }
 
+/// A pane's messages as an entity of its own, cached in the tree
+/// (`entity.cached(..)`): it renders only when it, or the root pushing it a
+/// fact that moved, called `cx.notify()`. It owns what it draws and what
+/// its handlers change; what the root knows comes down as [`Shown`], and an
+/// intent goes up through `chat`, the root's own handlers.
+pub struct Timeline {
+    pub(crate) pane: Pane,
+    pub(crate) chat: WeakEntity<Chat>,
+    /// What the root last showed it.
+    pub(crate) shown: Shown,
+    /// The message the arrows are on in this pane.
+    pub(crate) cursor: Cursor,
+    /// The message row under the pointer in this pane: the one that
+    /// carries the action strip, beside a chosen one.
+    pub(crate) hovered: Option<u64>,
+    pub(crate) list: Option<ListState>,
+    /// The row keys the list was last spliced to.
+    pub(crate) rows: Vec<String>,
+}
+
+/// What the root shows a [`Timeline`]: its messages, folded with the names
+/// the reader has, and the facts around them. Pushed on every root render
+/// and compared there, so the pane renders only when one moved.
+#[derive(Clone, Default, PartialEq)]
+pub struct Shown {
+    pub(crate) messages: Vec<ChatMessage>,
+    /// The room's history is all here: the intro leads the rows.
+    pub(crate) lead: bool,
+    /// The intro's room name and, for a dm, its peer.
+    pub(crate) intro: Option<(String, Option<String>)>,
+    /// A thread that is only its root: "No replies yet" ends the rows.
+    pub(crate) bare: bool,
+    /// The unread divider's boundary, in the room.
+    pub(crate) boundary: Option<u64>,
+    /// The room "Jump to latest" opens, while the room shows one.
+    pub(crate) jump: Option<String>,
+    /// The copy range, when it is this pane's.
+    pub(crate) copy: Option<CopyRange>,
+    /// The chosen message (the open menu's), when it is this pane's.
+    pub(crate) chosen: Option<u64>,
+    pub(crate) writable: bool,
+    pub(crate) names: Names,
+    /// The link a program's own post opens, in a program's room.
+    pub(crate) program_link: Option<String>,
+}
+
+/// The sidebar's rooms as an entity of its own, cached in the tree.
+pub struct Rooms {
+    pub(crate) chat: WeakEntity<Chat>,
+    pub(crate) shown: RoomsShown,
+    /// The room the arrows are on; the open room until they move.
+    pub(crate) cursor: Option<String>,
+}
+
+/// What the root shows [`Rooms`]: the channels and the direct messages,
+/// each as the row draws it, and the list's state.
+#[derive(Clone, Default, PartialEq)]
+pub struct RoomsShown {
+    pub(crate) channels: Vec<RoomRow>,
+    pub(crate) dms: Vec<RoomRow>,
+    pub(crate) loading: bool,
+    pub(crate) failed: Option<String>,
+    pub(crate) create_open: bool,
+}
+
+/// One room's row in the sidebar.
+#[derive(Clone, PartialEq)]
+pub struct RoomRow {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    /// A direct room's peer and whether it is an agent.
+    pub(crate) peer: Option<(u64, bool)>,
+    pub(crate) unread: bool,
+    pub(crate) selected: bool,
+    pub(crate) members_only: bool,
+    pub(crate) archived: bool,
+}
+
 impl Chat {
-    pub(crate) fn cursor(&self, pane: Pane) -> &Cursor {
+    pub(crate) fn timeline(&self, pane: Pane) -> &Entity<Timeline> {
         match pane {
-            Pane::Timeline => &self.timeline_cursor,
-            Pane::Thread => &self.thread_cursor,
+            Pane::Timeline => &self.timeline,
+            Pane::Thread => &self.thread_timeline,
         }
+        .as_ref()
+        .expect("attach built it")
     }
-    pub(crate) fn cursor_mut(&mut self, pane: Pane) -> &mut Cursor {
-        match pane {
-            Pane::Timeline => &mut self.timeline_cursor,
-            Pane::Thread => &mut self.thread_cursor,
-        }
+
+    pub(crate) fn rooms(&self) -> &Entity<Rooms> {
+        self.rooms.as_ref().expect("attach built it")
     }
 
     /// Where a popup the keys open sits: a key has no pointer position, so
@@ -330,7 +396,7 @@ pub struct Picker {
     pub(crate) cursor: Option<(&'static str, usize)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CopyRange {
     pub(crate) pane: Pane,
     pub(crate) anchor: u64,
