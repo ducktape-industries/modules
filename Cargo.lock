@@ -2012,6 +2012,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-view"
+version = "0.1.0"
+dependencies = [
+ "ducktape-view-guest",
+ "identity",
+ "serde",
+]
+
+[[package]]
 name = "explorer-view"
 version = "0.1.0"
 dependencies = [

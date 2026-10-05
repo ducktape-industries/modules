@@ -4,6 +4,12 @@ A view is a wasm32 cdylib on `ducktape-view-guest`. It builds a widget tree the 
 lays out and draws, hears meaning-level events back, and asks the host for
 data through a fixed table of methods. This page is the whole surface.
 
+Read `crates/app/example-view/src/lib.rs` first: one file, the smallest view
+that uses every core feature once (a stream followed, a listing read, a
+bound field, a write, a refusal shown, a restore), with a comment on every
+piece and its tests under it. It is built and tested with the workspace and
+ships in no network. This page is what that file leans on.
+
 ## Depending on it
 
 A view crate outside this repository, with this repository checked out
