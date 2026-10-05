@@ -141,9 +141,6 @@ pub struct Explorer {
     /// the status read again while the one on screen stays
     #[serde(skip)]
     pub(crate) rereading_status: Option<Task<()>>,
-    /// What the view follows (`watch.rs`); dropping them unsubscribes.
-    #[serde(skip)]
-    pub(crate) followers: Vec<Task<()>>,
     /// the pane's width, read from the window each render
     #[serde(skip)]
     pub(crate) width: f32,

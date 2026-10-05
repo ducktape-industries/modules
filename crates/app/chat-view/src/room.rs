@@ -121,7 +121,7 @@ impl Chat {
         let list = queries::channels(cx.host());
         self.rereading_channels = Some(cx.refresh(list, |chat, rooms, cx| match rooms {
             Ok(rooms) => chat.channels_landed(rooms, cx),
-            Err(refusal) => cx.host().log_refused("chat", "the channel list", &refusal),
+            Err(refusal) => cx.log_refused("the channel list", &refusal),
         }));
     }
 
@@ -179,7 +179,7 @@ impl Chat {
                         }
                         room.landed_rows(moved, cx);
                     }
-                    Err(refusal) => cx.host().log_refused("chat", "the room", &refusal),
+                    Err(refusal) => cx.log_refused("the room", &refusal),
                 }
             }));
         } else if let Some(Some(seq)) = window {
@@ -196,7 +196,7 @@ impl Chat {
                         }
                         room.landed_rows(moved, cx);
                     }
-                    Err(refusal) => cx.host().log_refused("chat", "the room", &refusal),
+                    Err(refusal) => cx.log_refused("the room", &refusal),
                 }
             }));
         }
@@ -232,7 +232,7 @@ impl Chat {
                         }
                         room.landed_rows(moved, cx);
                     }
-                    Err(refusal) => cx.host().log_refused("chat", "the thread", &refusal),
+                    Err(refusal) => cx.log_refused("the thread", &refusal),
                 }
             }));
         }

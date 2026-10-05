@@ -95,8 +95,7 @@ impl View for Untargeted {
     const CAPABILITIES: &'static [Capability] = &[Capability::Module];
     const TARGETS: &'static [&'static str] = &["other"];
     fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let live = cx.host().subscribe::<Changes<Probe>>(());
-        self.live = Some(cx.for_each(live, |_: &mut Self, _, _, _| {}));
+        self.live = Some(cx.follow::<Changes<Probe>>((), |_: &mut Self, _, _| {}));
     }
 }
 impl Render for Untargeted {

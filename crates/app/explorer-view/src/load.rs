@@ -40,20 +40,15 @@ impl Explorer {
     pub(crate) fn read_head(&mut self, cx: &mut Context<Self>) {
         let ask = cx.host().ask::<ChainStatus>(());
         if self.status.ready().is_some() {
-            self.rereading_status = Some(cx.refresh(ask, |view, status, cx| {
-                match status {
-                    Ok(status) => {
-                        if view.status.ready() != Some(&status) {
-                            view.status = Loadable::Ready(status);
-                            cx.notify();
-                        }
-                        view.pull(cx);
+            self.rereading_status = Some(cx.refresh(ask, |view, status, cx| match status {
+                Ok(status) => {
+                    if view.status.ready() != Some(&status) {
+                        view.status = Loadable::Ready(status);
+                        cx.notify();
                     }
-                    Err(refusal) => {
-                        cx.host()
-                            .log_refused("explorer", "the node's status", &refusal)
-                    }
+                    view.pull(cx);
                 }
+                Err(refusal) => cx.log_refused("the node's status", &refusal),
             }));
         } else if !self.status.is_loading() {
             self.status = cx.load(ask, |view| &mut view.status);
@@ -162,7 +157,7 @@ impl Explorer {
                     Ok(Some(op)) => op,
                     Ok(None) => decode::bytes(&tx.target, &tx.payload),
                     Err(refusal) => {
-                        cx.host().log_refused("explorer", "a description", &refusal);
+                        cx.log_refused("a description", &refusal);
                         decode::bytes(&tx.target, &tx.payload)
                     }
                 };

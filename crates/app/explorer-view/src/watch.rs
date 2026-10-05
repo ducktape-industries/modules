@@ -10,61 +10,48 @@ use valset::Valset;
 use crate::Explorer;
 
 impl Explorer {
-    /// Subscribes every follower; the ones before are dropped with them.
+    /// Follows each of them for as long as the view runs.
     pub(crate) fn watch(&mut self, cx: &mut Context<Self>) {
-        let host = cx.host();
-        let heads = host.subscribe::<ChainHeads>(());
-        let session = host.subscribe::<HostSession>(());
-        let routes = host.subscribe::<HostRoute>(());
-        let identity = host.subscribe::<Changes<Identity>>(());
-        let valset = host.subscribe::<Changes<Valset>>(());
-        let registry = host.subscribe::<Changes<Modules>>(());
-        self.followers = vec![
-            // A head is not drawn on its own: it is drawn with the page it
-            // brings (`at_head`). The host keeps the stream across a
-            // reconnect, opened again at the new node's tip.
-            cx.for_each(heads, |view, head, _, cx| match head {
-                Ok(head) => view.at_head(head, cx),
-                Err(refusal) => cx
-                    .host()
-                    .log_refused("explorer", "the chain's heads", &refusal),
-            }),
-            cx.for_each(session, |view, session, _, cx| match session {
-                Ok(session) => {
-                    if view.session_chain != session.chain_id {
-                        view.session_chain = session.chain_id;
-                        cx.notify();
-                    }
+        // A head is not drawn on its own: it is drawn with the page it
+        // brings (`at_head`). The host keeps the stream across a
+        // reconnect, opened again at the new node's tip.
+        cx.follow::<ChainHeads>((), |view, head, cx| match head {
+            Ok(head) => view.at_head(head, cx),
+            Err(refusal) => cx.log_refused("the chain's heads", &refusal),
+        })
+        .detach();
+        cx.follow::<HostSession>((), |view, session, cx| match session {
+            Ok(session) => {
+                if view.session_chain != session.chain_id {
+                    view.session_chain = session.chain_id;
+                    cx.notify();
                 }
-                Err(refusal) => cx.host().log_refused("explorer", "the session", &refusal),
-            }),
-            // `duck://<chain>/explorer/<route>`
-            cx.for_each(routes, |view, route, _, cx| match route {
-                Ok(route) => view.open_route(&route, cx),
-                Err(refusal) => cx.host().log_refused("explorer", "the route", &refusal),
-            }),
-            // an account made, renamed or re-keyed, by anyone: a module's
-            // `RegisterModule` included, which no transaction targets
-            cx.for_each(identity, |view, head, _, cx| match head {
-                Ok(_) => view.read_accounts(cx),
-                Err(refusal) => {
-                    cx.host()
-                        .log_refused("explorer", "identity's live heads", &refusal)
-                }
-            }),
-            cx.for_each(valset, |view, head, _, cx| match head {
-                Ok(_) => view.read_validators(cx),
-                Err(refusal) => cx
-                    .host()
-                    .log_refused("explorer", "valset's live heads", &refusal),
-            }),
-            cx.for_each(registry, |view, head, _, cx| match head {
-                Ok(_) => view.read_network(cx),
-                Err(refusal) => {
-                    cx.host()
-                        .log_refused("explorer", "the registry's live heads", &refusal)
-                }
-            }),
-        ];
+            }
+            Err(refusal) => cx.log_refused("the session", &refusal),
+        })
+        .detach();
+        // `duck://<chain>/explorer/<route>`
+        cx.follow::<HostRoute>((), |view, route, cx| match route {
+            Ok(route) => view.open_route(&route, cx),
+            Err(refusal) => cx.log_refused("the route", &refusal),
+        })
+        .detach();
+        // an account made, renamed or re-keyed, by anyone: a module's
+        // `RegisterModule` included, which no transaction targets
+        cx.follow::<Changes<Identity>>((), |view, head, cx| match head {
+            Ok(_) => view.read_accounts(cx),
+            Err(refusal) => cx.log_refused("identity's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<Valset>>((), |view, head, cx| match head {
+            Ok(_) => view.read_validators(cx),
+            Err(refusal) => cx.log_refused("valset's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<Modules>>((), |view, head, cx| match head {
+            Ok(_) => view.read_network(cx),
+            Err(refusal) => cx.log_refused("the registry's live heads", &refusal),
+        })
+        .detach();
     }
 }

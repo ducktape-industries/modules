@@ -171,7 +171,7 @@ program refuses `stale` (it was handed out before a write): the read starts
 over from the first page, and the refusal is never shown. Any other refusal
 is the answer.
 
-`Session` (`methods.rs`, `subscribe::<HostSession>`) is what every view is handed:
+`Session` (`methods.rs`, `cx.follow::<HostSession>`) is what every view is handed:
 `connected`, `chain_id`, `signer` (the seated key, hex), `account` (its
 account number, `None` until the host resolves one), `endpoint`; an item per
 change. Read "who am I" from `account`; no view asks identity for it.
@@ -183,9 +183,14 @@ times it called it, and at no other time but its first frame and a host that
 lost its tree. The view decides: nothing in the SDK notifies on its behalf
 for something only the view can judge.
 
-- `cx.for_each(stream, each)` runs `each` per item and does not notify:
-  `each` calls `cx.notify()` when the item changed what the view shows. An
-  item that only starts a read draws nothing; the read draws when it lands.
+- `cx.follow::<D>(request, each)` subscribes to the host stream `D` and runs
+  `each` per item, a refused item included, and does not notify: `each` calls
+  `cx.notify()` when the item changed what the view shows. An item that only
+  starts a read draws nothing; the read draws when it lands. The `Task` it
+  returns is the subscription, as gpui's `Subscription` is: `.detach()` it to
+  follow for as long as the view runs, or keep it and drop it to stop.
+  `cx.log_refused(what, &refusal)` writes a refusal nothing on screen waits
+  for to the host's log, under the view's `NAME`.
 - `cx.load(work, at)` fills a `Loadable` slot and notifies when it lands
   (`Loading` to `Ready` or `Failed` is always a change).
 - `cx.reload(&mut slot, work, at)` reads a slot again. The value on screen

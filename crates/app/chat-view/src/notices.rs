@@ -100,7 +100,7 @@ impl Chat {
                 cx.notify();
                 let rows = match asked {
                     Ok(rows) => rows,
-                    Err(refusal) => return cx.host().log_refused("chat", "news", &refusal),
+                    Err(refusal) => return cx.log_refused("news", &refusal),
                 };
                 let empty = Names::default();
                 let names = chat.names.ready().unwrap_or(&empty);

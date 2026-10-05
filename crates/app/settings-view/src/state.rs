@@ -1,5 +1,4 @@
 //! The state Settings keeps: what it read, and each form as typed.
-use ducktape_view_guest::Task;
 use ducktape_view_guest::{Loadable, TextField};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -28,9 +27,6 @@ pub struct Settings {
     pub(crate) rename_agent: BTreeMap<u64, Form>,
     /// the one suspend, resume or revoke in flight
     pub(crate) agent_standing: Form,
-    /// What the view follows (`watch.rs`); dropping them unsubscribes.
-    #[serde(skip)]
-    pub(crate) followers: Vec<Task<()>>,
 }
 
 /// The panes of the left menu. Agents is listed only for an account that

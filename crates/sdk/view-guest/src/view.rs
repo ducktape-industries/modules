@@ -1,7 +1,8 @@
 //! A serializable root view and small loading conveniences.
 use crate::host::Error;
+use crate::methods::Method;
 use crate::{Context, IntoElement, Task, Window};
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -244,22 +245,26 @@ impl<V: 'static> Context<'_, V> {
         };
     }
 
-    /// Runs `each` on every item `stream` yields, in order, until the
-    /// stream ends or the view is gone. `each` decides what the item means:
-    /// it calls `cx.notify()` when the item changed what the view shows,
-    /// and an item that changes nothing draws nothing. Keep the task:
-    /// dropping it unsubscribes. A refused item is handed to `each` like
-    /// any other, so each follower says what a refusal means to it; a
-    /// refusal the host sends as the stream's last item ends the stream.
-    pub fn for_each<T: 'static>(
+    /// Follows a host stream: subscribes to `D` with `request` and runs
+    /// `each` on every item, in order, until the stream ends or the view is
+    /// gone. `each` decides what the item means: it calls `cx.notify()`
+    /// when the item changed what the view shows, and an item that changes
+    /// nothing draws nothing. A refused item is handed to `each` like any
+    /// other, so each follower says what a refusal means to it; a refusal
+    /// the host sends as the stream's last item ends the stream.
+    ///
+    /// The task is the subscription, as gpui's `Subscription` is: keep it
+    /// to end the stream early (dropping it unsubscribes), or `.detach()`
+    /// it to follow for as long as the view runs.
+    pub fn follow<D: Method>(
         &mut self,
-        mut stream: impl Stream<Item = T> + Unpin + 'static,
-        mut each: impl FnMut(&mut V, T, &mut Window, &mut Context<V>) + 'static,
+        request: D::Request,
+        mut each: impl FnMut(&mut V, Result<D::Reply, Error>, &mut Context<V>) + 'static,
     ) -> Task<()> {
+        let mut stream = self.host().subscribe::<D>(request);
         self.spawn(async move |this, cx| {
             while let Some(item) = stream.next().await {
-                let landed = this.update_in(cx, |view, window, cx| each(view, item, window, cx));
-                if landed.is_err() {
+                if this.update(cx, |view, cx| each(view, item, cx)).is_err() {
                     break;
                 }
             }
@@ -286,6 +291,15 @@ impl<V: 'static> Context<'_, V> {
     }
 }
 
+impl<V: View> Context<'_, V> {
+    /// A refusal nothing on screen waits for, kept in the host's log under
+    /// the view's [`NAME`](View::NAME): `<name>: <what> refused: <refusal>`.
+    pub fn log_refused(&self, what: &str, refusal: &Error) {
+        self.host()
+            .log(format!("{}: {what} refused: {refusal}", V::NAME));
+    }
+}
+
 #[cfg(test)]
 mod follow_tests {
     use crate::methods::{self, Capability, Change, Changes, Program, Query};
@@ -303,23 +317,25 @@ mod follow_tests {
         })
     }
 
-    /// Counts the heads a program's live stream announces.
+    /// Counts the heads a program's live stream announces, for as long as
+    /// the view runs.
     #[derive(Default, Serialize, Deserialize)]
     struct Heads {
         seen: usize,
-        #[serde(skip)]
-        live: Option<Task<()>>,
     }
     impl View for Heads {
         const NAME: &'static str = "Heads";
-        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module, Capability::Host];
         const TARGETS: &'static [&'static str] = &[<Probe as Program>::NAME];
         fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-            let live = cx.host().subscribe::<Changes<Probe>>(());
-            self.live = Some(cx.for_each(live, |view: &mut Heads, _, _, cx| {
-                view.seen += 1;
-                cx.notify();
-            }));
+            cx.follow::<Changes<Probe>>((), |view: &mut Heads, change, cx| match change {
+                Ok(_) => {
+                    view.seen += 1;
+                    cx.notify();
+                }
+                Err(refusal) => cx.log_refused("the changes", &refusal),
+            })
+            .detach();
         }
     }
     impl Render for Heads {
@@ -328,8 +344,10 @@ mod follow_tests {
         }
     }
 
+    /// Nothing in the view holds the follower: `detach` keeps it for as
+    /// long as the view runs, and releasing the view unsubscribes.
     #[test]
-    fn a_follower_hears_every_item_until_its_task_is_dropped() {
+    fn a_detached_follower_hears_every_item_until_the_view_is_released() {
         let mut cx = TestAppContext::new();
         let feed = cx.host().stream::<Changes<Probe>>();
         let view = cx.open::<Heads>();
@@ -339,9 +357,72 @@ mod follow_tests {
         cx.run_until_parked();
         view.read(|heads| assert_eq!(heads.seen, 2));
         assert!(cx.has_text("2"), "the item that notifies is drawn");
+        assert!(feed.subscribed(), "nothing dropped the stream");
+
+        let mut driver = crate::Driver::<Heads>::new();
+        let host = driver.app.host();
+        driver.tick_with(Vec::new(), |_| ());
+        assert!(host.drain_cancels().is_empty());
+        drop(driver);
+        assert_eq!(
+            host.drain_cancels().len(),
+            1,
+            "releasing the view unsubscribed"
+        );
+    }
+
+    /// Follows the same stream with the task kept, so the view can end it.
+    #[derive(Default, Serialize, Deserialize)]
+    struct Kept {
+        seen: usize,
+        #[serde(skip)]
+        live: Option<Task<()>>,
+    }
+    impl View for Kept {
+        const NAME: &'static str = "Kept";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Module];
+        const TARGETS: &'static [&'static str] = &[<Probe as Program>::NAME];
+        fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+            self.live = Some(cx.follow::<Changes<Probe>>((), |view: &mut Kept, _, cx| {
+                view.seen += 1;
+                cx.notify();
+            }));
+        }
+    }
+    impl Render for Kept {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            crate::div().child(self.seen.to_string())
+        }
+    }
+
+    #[test]
+    fn a_kept_follower_hears_every_item_until_its_task_is_dropped() {
+        let mut cx = TestAppContext::new();
+        let feed = cx.host().stream::<Changes<Probe>>();
+        let view = cx.open::<Kept>();
+        cx.run_until_parked();
+        feed.send(None);
+        feed.send(None);
+        cx.run_until_parked();
+        view.read(|heads| assert_eq!(heads.seen, 2));
+        assert!(cx.has_text("2"), "the item that notifies is drawn");
         cx.update(&view, |heads, _, _| heads.live = None);
         cx.run_until_parked();
         assert!(!feed.subscribed(), "dropping the task unsubscribed");
+    }
+
+    /// The log line carries the view's own `NAME`: no call site spells it.
+    #[test]
+    fn log_refused_names_the_view() {
+        let mut cx = TestAppContext::new();
+        cx.host()
+            .refuse::<Changes<Probe>>("gone", "the program left");
+        cx.open::<Heads>();
+        cx.run_until_parked();
+        assert_eq!(
+            cx.host().requests::<methods::HostLog>(),
+            ["Heads: the changes refused: gone: the program left"]
+        );
     }
 
     /// A program that keeps one number.
@@ -367,8 +448,8 @@ mod follow_tests {
         const CAPABILITIES: &'static [Capability] = &[Capability::Module];
         const TARGETS: &'static [&'static str] = &[Counter::NAME];
         fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-            let live = cx.host().subscribe::<Changes<Counter>>(());
-            self.live = Some(cx.for_each(live, |view: &mut Count, _, _, cx| view.read(cx)));
+            self.live =
+                Some(cx.follow::<Changes<Counter>>((), |view: &mut Count, _, cx| view.read(cx)));
             self.read(cx);
         }
     }

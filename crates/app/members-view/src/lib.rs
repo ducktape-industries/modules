@@ -59,8 +59,6 @@ pub struct Members {
     /// the roster's re-read while the rows on screen stay
     #[serde(skip)]
     rereading_rows: Option<Task<()>>,
-    #[serde(skip)]
-    watches: Vec<Task<()>>,
     /// the pane's width, read from the window each render
     #[serde(skip)]
     width: f32,
@@ -147,40 +145,28 @@ impl View for Members {
     const MIN_WINDOW_WIDTH: u32 = 320;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.watches.clear();
-        let session = cx.host().subscribe::<HostSession>(());
-        self.watches
-            .push(cx.for_each(session, |view, session, _, cx| match session {
-                Ok(session) => {
-                    if (view.me, &view.chain) != (session.account, &session.chain_id) {
-                        view.me = session.account;
-                        view.chain = session.chain_id;
-                        cx.notify();
-                    }
+        cx.follow::<HostSession>((), |view, session, cx| match session {
+            Ok(session) => {
+                if (view.me, &view.chain) != (session.account, &session.chain_id) {
+                    view.me = session.account;
+                    view.chain = session.chain_id;
+                    cx.notify();
                 }
-                Err(refusal) => cx.host().log_refused("members", "the session", &refusal),
-            }));
-        // the roster joins two programs: a block of either re-reads it
-        let changes = cx.host().subscribe::<Changes<Identity>>(());
-        self.watches.push(cx.for_each(changes, |view, bump, _, cx| {
-            match bump {
-                Ok(_) => view.read(cx),
-                Err(refusal) => cx
-                    .host()
-                    .log_refused("members", "identity's live heads", &refusal),
             }
-        }));
-        let standing = cx.host().subscribe::<Changes<Valset>>(());
-        self.watches
-            .push(cx.for_each(standing, |view, bump, _, cx| {
-                match bump {
-                    Ok(_) => view.read(cx),
-                    Err(refusal) => {
-                        cx.host()
-                            .log_refused("members", "valset's live heads", &refusal)
-                    }
-                }
-            }));
+            Err(refusal) => cx.log_refused("the session", &refusal),
+        })
+        .detach();
+        // the roster joins two programs: a block of either re-reads it
+        cx.follow::<Changes<Identity>>((), |view, bump, cx| match bump {
+            Ok(_) => view.read(cx),
+            Err(refusal) => cx.log_refused("identity's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<Valset>>((), |view, bump, cx| match bump {
+            Ok(_) => view.read(cx),
+            Err(refusal) => cx.log_refused("valset's live heads", &refusal),
+        })
+        .detach();
         self.read(cx);
         self.read_activity(cx);
     }
@@ -217,7 +203,7 @@ impl Members {
                         return view.read_activity(cx);
                     }
                 }
-                (Err(refusal), Some(_)) => cx.host().log_refused("members", "a refresh", &refusal),
+                (Err(refusal), Some(_)) => cx.log_refused("a refresh", &refusal),
                 (Err(refusal), None) => {
                     view.rows = Loadable::Failed(refusal);
                     cx.notify();

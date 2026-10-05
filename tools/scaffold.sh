@@ -263,7 +263,6 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-futures.workspace = true
 ducktape-view-guest.workspace = true
 # The module with \`module\` off: its types and the program this view
 # names it by, no host import.
@@ -280,15 +279,12 @@ use ducktape_view_guest::host::Error;
 use ducktape_view_guest::methods::{Capability, Changes};
 // gpui's names: elements, styles, \`Render\`, \`Context\`, \`Window\`
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Host, Loadable, Task, View, export_view};
-use futures::StreamExt;
+use ducktape_view_guest::{Host, Loadable, View, export_view};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct $title {
     count: Loadable<u64>,
-    #[serde(skip)]
-    live: Option<Task<()>>,
     /// A child entity. The snapshot carries this root alone, so \`attach\`
     /// builds its children on every mount.
     #[serde(skip)]
@@ -312,14 +308,8 @@ impl View for $title {
     /// Follows the module and reads the count: on the first mount and
     /// after every redeploy, which restores the view from its snapshot.
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let mut stream = cx.host().subscribe::<Changes<$program_snake::$title>>(());
-        self.live = Some(cx.spawn(async move |this, cx| {
-            while stream.next().await.is_some() {
-                if this.update(cx, |view, cx| view.read(cx)).is_err() {
-                    break;
-                }
-            }
-        }));
+        cx.follow::<Changes<$program_snake::$title>>((), |view, _, cx| view.read(cx))
+            .detach();
         self.read(cx);
         self.heading = Some(cx.new(|_| Heading {
             text: "$title".into(),

@@ -58,8 +58,6 @@ pub struct Forge {
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
     #[serde(skip)]
-    pub(crate) watches: Vec<Task<()>>,
-    #[serde(skip)]
     pub(crate) diff_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) log_scroll: UniformListScrollHandle,

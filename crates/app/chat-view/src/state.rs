@@ -52,9 +52,6 @@ pub struct Chat {
     #[serde(skip)]
     pub(crate) confirmation: String,
     pub(crate) copy: Option<CopyRange>,
-    /// What the view follows (`watch.rs`); dropping them unsubscribes.
-    #[serde(skip)]
-    pub(crate) followers: Vec<ducktape_view_guest::Task<()>>,
     #[serde(skip)]
     pub(crate) timeline_list: RefCell<Option<ducktape_view_guest::ListState>>,
     #[serde(skip)]

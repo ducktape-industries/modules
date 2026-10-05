@@ -34,8 +34,7 @@ impl Chat {
             let _ = this.update(cx, |chat, cx| {
                 cx.notify();
                 let emoji = emoji.unwrap_or_else(|refusal| {
-                    cx.host()
-                        .log_refused("chat", "the kept reactions", &refusal);
+                    cx.log_refused("the kept reactions", &refusal);
                     None
                 });
                 for kept in emoji.unwrap_or_default() {
