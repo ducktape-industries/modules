@@ -26,7 +26,6 @@ mod ui;
 
 use ducktape_view_guest::prelude::*;
 
-use api::HostSession;
 use program::role::Identity;
 pub(crate) use select::Stage;
 pub use state::Forge;

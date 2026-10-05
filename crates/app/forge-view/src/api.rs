@@ -2,8 +2,6 @@
 //! forge (its own) and chat (the discussion threads).
 use ducktape_view_guest::prelude::*;
 
-pub use ducktape_view_guest::methods::{HostSession, Session};
-
 /// The forge program's two methods (`forge::Forge` the program, apart from
 /// this view's `Forge`). Chat is read by its typed asks (`chat::ask`).
 pub type Ask = Query<forge::Forge>;

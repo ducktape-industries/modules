@@ -260,7 +260,7 @@ publish = false
 # \`export_view!\`; \`unsafe_code\` is not forbidden only because the module
 # exports need \`#[unsafe(export_name)]\`.
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 ducktape-view-guest.workspace = true

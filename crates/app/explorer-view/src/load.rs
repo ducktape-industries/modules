@@ -1,6 +1,6 @@
 //! The loaders: the head and the window it pulls (`chain.status`,
 //! `chain.blocks`), the lists the system programs answer, and what an op
-//! says it does (`module.describe`). A list is read with `cx.reload`,
+//! says it does (`module.describe`). A list is read with `cx.load`,
 //! which keeps what is on screen while it reads again and draws only what
 //! changed.
 use ducktape_view_guest::prelude::*;

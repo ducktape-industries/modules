@@ -7,7 +7,6 @@ use ducktape_view_guest::Paged;
 use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::api::Session;
 use forge::{CommitInfo, LineComment, Query, Reply, Revision, Side, Verdict};
 
 #[derive(Default, Serialize, Deserialize)]

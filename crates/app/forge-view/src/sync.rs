@@ -7,7 +7,6 @@ use std::collections::BTreeSet;
 use ducktape_view_guest::Paged;
 use ducktape_view_guest::prelude::*;
 
-use crate::api::Session;
 use crate::queries::{self, PAGE};
 use crate::state::{ChangeTab, Filter, Forge, Progress, RepoTab};
 use forge::{ChangeFilter, ChangeState, PageRequest, Query, Revision};

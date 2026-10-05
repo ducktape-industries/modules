@@ -5,9 +5,9 @@
 //! hands it back, so an unhandled ask is a panic and a screen that reads a
 //! field the program does not send cannot compile.
 use super::*;
-use crate::api::{Ask, HostSession, Session, SubmitForge};
+use crate::api::{Ask, SubmitForge};
 use crate::state::{ChangeTab, Filter, RepoTab};
-use ducktape_view_guest::methods::HostId;
+use ducktape_view_guest::methods::{HostId, HostSession, Session};
 use ducktape_view_guest::methods::{Query as ProgramQuery, Submit};
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::{Entity, Theme, wire};
