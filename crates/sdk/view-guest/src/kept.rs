@@ -27,9 +27,13 @@ pub(crate) struct Kept {
     /// The cached boundaries open around it when it was lowered, outermost
     /// first: each owner, and how many segments of `path` were in before
     /// it. The debug check re-enters them so scope numbers agree.
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     pub boundaries: Vec<(usize, u64)>,
+    /// Its render, for the debug check to run again.
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     pub render: ChildRenderer,
     /// The entity's type, for the debug check's panic.
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     pub type_name: &'static str,
     /// This frame's lowering met it (as a stand-in or lowered).
     pub seen: bool,

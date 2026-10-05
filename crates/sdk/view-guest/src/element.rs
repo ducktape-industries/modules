@@ -129,7 +129,9 @@ pub struct Lowering<'a> {
     /// innermost owns what is lowered now.
     owners: Vec<u64>,
     /// The cached boundaries open, outermost first: each owner, and how
-    /// many segments of `authored_path` were in before it.
+    /// many segments of `authored_path` were in before it; recorded on a
+    /// kept entry for the debug check to re-enter.
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     boundaries: Vec<(usize, u64)>,
     /// Every child entity placed so far: whether cached, and where. One
     /// entity has one kept subtree, so a cached placement is its only one.
@@ -177,6 +179,7 @@ impl<'a> Lowering<'a> {
             authored_path: Vec::new(),
             row: None,
             owners: vec![root],
+            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
             boundaries: Vec::new(),
             placed: HashMap::new(),
             lowered: 0,
@@ -351,6 +354,7 @@ impl<'a> Lowering<'a> {
         let clean = clean(self, child);
         slots::enter_boundary(&self.app.inner.slots, child.id);
         self.owners.push(child.id);
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         self.boundaries.push((self.authored_path.len(), child.id));
         let content = match clean {
             true => {
@@ -378,14 +382,16 @@ impl<'a> Lowering<'a> {
                 let node = self.lower_element(element);
                 self.app.inner.lowering.borrow_mut().pop();
                 if !self.scratch {
-                    let boundaries = self.boundaries[..self.boundaries.len() - 1].to_vec();
                     self.app.inner.kept.borrow_mut().insert(
                         child.id,
                         Kept {
                             parent,
                             path: self.authored_path.clone(),
-                            boundaries,
+                            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+                            boundaries: self.boundaries[..self.boundaries.len() - 1].to_vec(),
+                            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
                             render: child.render.clone(),
+                            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
                             type_name: child.type_name,
                             seen: true,
                             lowered: true,
@@ -395,6 +401,7 @@ impl<'a> Lowering<'a> {
                 Some(Box::new(node))
             }
         };
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         self.boundaries.pop();
         self.owners.pop();
         slots::leave_boundary(&self.app.inner.slots);
