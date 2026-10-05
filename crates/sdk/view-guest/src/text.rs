@@ -5,7 +5,7 @@
 use crate::wire::{self, TextChange, TextRange, TextToken};
 use gpui::ElementId;
 use serde::{Deserialize, Serialize};
-use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::cell::{Cell, Ref, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -45,8 +45,9 @@ pub(crate) fn lowered_generation(generation: u64) {
 #[derive(Clone)]
 pub struct TextField(Rc<RefCell<State>>);
 
-/// What a [`TextField`] holds. The SDK's own consumers (lowering, the
-/// composer) read it through [`TextField::state`]; no view does.
+/// What a [`TextField`] holds. The SDK's own consumers (lowering) read it
+/// through [`TextField::state`]; a view reads it through the field's
+/// readers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename = "TextField")]
 pub(crate) struct State {
@@ -130,20 +131,28 @@ impl TextField {
         self.0.borrow()
     }
 
-    pub(crate) fn state_mut(&mut self) -> RefMut<'_, State> {
-        self.0.borrow_mut()
+    /// The atomic spans of the text and what they mean, where they now lie.
+    pub fn tokens(&self) -> Vec<TextToken> {
+        self.0.borrow().tokens.clone()
     }
 
     /// The document this field holds, by number: it moves on `reset`.
-    #[cfg(test)]
-    pub(crate) fn generation(&self) -> u64 {
+    pub fn generation(&self) -> u64 {
         self.0.borrow().generation
     }
 
     /// A new document in the field: `text`, caret at its end, no tokens.
     pub fn reset(&mut self, text: impl Into<String>) {
+        self.reset_with_tokens(text, Vec::new());
+    }
+
+    /// A new document in the field: `text`, caret at its end, `tokens` its
+    /// atomic spans: in text order, none empty, none over another, each on
+    /// char boundaries and with an id, or the host refuses the frame.
+    pub fn reset_with_tokens(&mut self, text: impl Into<String>, tokens: Vec<TextToken>) {
         let mut state = self.0.borrow_mut();
         *state = State {
+            tokens,
             revision: state.revision,
             ..State::new(text.into())
         };
@@ -154,9 +163,9 @@ impl TextField {
     /// echoed before it adopted the reset) is not: the reset's text stands
     /// until the host adopts it. Answers whether the change was taken, and
     /// taking the same change twice is taking it once: the bound field's
-    /// route applies each change, and the composer, which gates on the
-    /// answer, applies it again.
-    pub(crate) fn apply(&self, change: &TextChange) -> bool {
+    /// route applies each change, and a view that keeps its own gate on the
+    /// answer may ask again.
+    pub fn apply(&self, change: &TextChange) -> bool {
         let mut state = self.0.borrow_mut();
         if change.generation != state.generation {
             return false;
@@ -183,6 +192,9 @@ impl TextField {
     /// atomic span meaning `token`. The ask names this document's
     /// generation: after a `reset`, `revision` is the host's count of the
     /// old one, and only the generation says which text `range` is bytes of.
+    /// This builds the ask; [`Window::dispatch`](crate::Window::dispatch)
+    /// sends it.
+    #[must_use]
     pub fn replace(
         &self,
         target: impl Into<ElementId>,
@@ -204,7 +216,9 @@ impl TextField {
     }
 
     /// Asks the host to put `text` in place of the whole text as known
-    /// here, the caret after it.
+    /// here, the caret after it. As [`replace`](Self::replace), it builds
+    /// the ask.
+    #[must_use]
     pub fn replace_all(
         &self,
         target: impl Into<ElementId>,
@@ -235,9 +249,33 @@ mod tests {
         assert_eq!(later.state().cursor, TextRange::caret(5));
     }
 
+    /// A reset is a new document with the spans it is given, and none
+    /// when it is given none.
+    #[test]
+    fn a_reset_seats_the_spans_it_is_given() {
+        let mut field = TextField::new("old");
+        let before = field.generation();
+        let span = TextToken {
+            range: TextRange::from(3..7),
+            id: "ada".into(),
+        };
+        field.reset_with_tokens("Hi @Ada", vec![span.clone()]);
+        assert!(field.generation() > before);
+        assert_eq!(
+            (field.text().as_str(), field.tokens(), field.selection()),
+            ("Hi @Ada", vec![span], 7..7)
+        );
+        field.reset("plain");
+        assert!(field.tokens().is_empty());
+    }
+
     #[test]
     fn a_replace_speaks_at_the_revision_the_field_knows() {
         let mut field = TextField::new("say word now");
+        let span = TextToken {
+            range: TextRange::from(4..8),
+            id: "word".into(),
+        };
         let change = |generation, revision, text: &str| TextChange {
             generation,
             revision,
@@ -245,10 +283,15 @@ mod tests {
             text: text.into(),
             cursor: TextRange::from(4..8),
             preedit: None,
-            tokens: Default::default(),
+            tokens: vec![span.clone()],
         };
         let current = field.generation();
         assert!(field.apply(&change(current, 7, "say word now")));
+        // the host's selection and spans are the field's
+        assert_eq!(
+            (field.selection(), field.tokens()),
+            (4..8, vec![span.clone()])
+        );
         let wire::WidgetCommand::Replace {
             generation,
             revision,

@@ -1,8 +1,14 @@
-//! The boundary to the SDK's rich composer: what a draft is for (a
-//! [`Target`]), the key it is kept and focused under, and the chat op a
-//! committed draft becomes. Everything else about editing is the SDK's.
+//! The rich composer: what a draft is for (a [`Target`]), the key it is
+//! kept and focused under, and the chat op a committed draft becomes. The
+//! draft over the host's text field is `draft`; the tree that draws it,
+//! `binding`.
+mod binding;
+mod draft;
+
+pub use binding::{Click, Event, Outcome, view};
+pub use draft::{Draft, MentionChoice, Send, focus};
+
 use chat::{MsgRow, Op, Principal, parse_message};
-pub use ducktape_view_guest::composer::*;
 use ducktape_view_guest::host::Error;
 use serde::{Deserialize, Serialize};
 

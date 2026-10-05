@@ -83,9 +83,28 @@ pub(crate) fn assert_frame_accessible(root: Option<&Node>, tooltips: &[TooltipRe
     root.into_iter().chain(tooltips).for_each(assert_accessible);
 }
 
+/// Lowers the one element `build` makes under a view's context, with no
+/// host behind it: the tree, and the table its nodes' styles are in.
+/// Nothing holds the tree to the host's rules here, as [`TestAppContext`]
+/// holds every frame of a view: this is for a test of what one element
+/// carries, [`assert_accessible`] its audit when the test wants one.
+pub fn lower<V, E: crate::IntoElement>(
+    build: impl FnOnce(&mut crate::Context<V>) -> E,
+) -> (Node, crate::wire::Styles) {
+    let mut app = crate::App::for_driver();
+    let entity = crate::Entity::reserve(&app);
+    let mut window = app.window();
+    let element = build(&mut crate::Context {
+        app: &mut app,
+        entity,
+    });
+    let tree = crate::Lowering::new(&mut window, &mut app).lower(element);
+    (tree, app.styles())
+}
+
 /// Panics listing each node assistive technology cannot name, place or
 /// reach, by its key path and fault.
-pub(crate) fn assert_accessible(tree: &Node) {
+pub fn assert_accessible(tree: &Node) {
     let faults = crate::wire::audit(tree);
     assert!(
         faults.is_empty(),

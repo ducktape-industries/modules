@@ -50,8 +50,11 @@ impl Window {
     pub fn focus_prev(&mut self) {
         self.dispatch(wire::WidgetCommand::FocusPrevious);
     }
-    /// Asks the host for `command` with this tick's frame ([`send_widgets`]).
-    pub(crate) fn dispatch(&mut self, command: wire::WidgetCommand) {
+    /// Asks the host for `command` with the frame this tick renders: what
+    /// a [`TextField`](crate::TextField)'s `replace` asks is sent here. A
+    /// target the command names by an element's own id goes out as that
+    /// element's whole path, as [`focus`](Self::focus)'s does.
+    pub fn dispatch(&mut self, command: wire::WidgetCommand) {
         slots::widget(&self.app.slots, command);
     }
 }

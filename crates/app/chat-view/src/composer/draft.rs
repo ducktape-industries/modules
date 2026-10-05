@@ -1,23 +1,21 @@
-//! The rich composer conversation views share: a draft over the host's
-//! text field, the @-mention menu, formatting marks, and the sends it made.
-//! The host's engine owns the text, its undo and its clipboard; the draft
-//! follows it and asks for edits.
+//! The composer's draft over the host's text field: the @-mention menu,
+//! formatting marks, and the sends it made. The host's engine owns the
+//! text, its undo and its clipboard; the draft follows it and asks for
+//! edits.
 
-mod binding;
-
-pub use binding::{Click, Event, Outcome, view};
-
-use crate::{ElementId, TextField, Window, wire};
+use super::Outcome;
+use ducktape_view_guest::{ElementId, Modifiers, TextField, Window, wire};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 use wire::keyboard::{Key, Named};
 
-/// The id of the editor [`view`] draws for the draft `key`.
-fn editor_id(key: &str) -> String {
+/// The id of the editor [`view`](super::view) draws for the draft `key`.
+pub(super) fn editor_id(key: &str) -> String {
     format!("{key}/editor")
 }
 
-/// Gives the keyboard to the editor [`view`] drew for the draft `key`.
+/// Gives the keyboard to the editor [`view`](super::view) drew for the
+/// draft `key`.
 pub fn focus(window: &mut Window, key: &str) {
     window.focus(ElementId::Name(editor_id(key).into()));
 }
@@ -75,6 +73,7 @@ pub(crate) fn matching_choices<'a>(
 }
 
 impl Draft {
+    #[cfg(test)]
     pub fn from_body(body: &str, roster: &[MentionChoice]) -> Self {
         let mut draft = Self::default();
         draft.seed(body, roster);
@@ -110,8 +109,7 @@ impl Draft {
             remaining = &remaining[end + 1..];
         }
         text.push_str(remaining);
-        self.field.reset(text);
-        self.field.state_mut().tokens = tokens;
+        self.field.reset_with_tokens(text, tokens);
         self.cleared.clear();
         self.menu_index = 0;
         self.menu_dismissed = false;
@@ -120,14 +118,14 @@ impl Draft {
     /// The text with every mention as its token, less what a send asked the
     /// host to clear.
     pub fn body(&self) -> String {
-        let field = self.field.state();
-        let text = field.text.as_str();
+        let text = self.field.text();
+        let tokens = self.field.tokens();
         let mut body = String::new();
         let mut at = 0;
         let end = wire::TextRange::caret(text.len());
         for piece in self.cleared.iter().chain([&end]) {
             let mut from = at;
-            for token in &field.tokens {
+            for token in &tokens {
                 if token.range.start as usize >= at && token.range.end <= piece.start {
                     body.push_str(&text[from..token.range.start as usize]);
                     body.push_str(&token.id);
@@ -171,12 +169,12 @@ impl Draft {
     /// The `@name` being typed at the caret, if any: its span and the name
     /// so far. None with a selection, inside a mention, or after Escape.
     pub(crate) fn query(&self) -> Option<(Range<usize>, String)> {
-        let field = self.field.state();
-        if self.menu_dismissed || !field.cursor.is_empty() {
+        let cursor = self.field.selection();
+        if self.menu_dismissed || cursor.start != cursor.end {
             return None;
         }
-        let text = field.text.as_str();
-        let at = field.cursor.start as usize;
+        let text = self.field.text();
+        let at = cursor.start;
         let before = text.get(..at)?;
         let after = text.get(at..)?;
         let handle_char = |c: char| c.is_alphanumeric() || matches!(c, '-' | '_' | '.');
@@ -195,7 +193,7 @@ impl Draft {
             return None;
         }
         let range = before.len() - line.len() + start..at;
-        let overlaps = field.tokens.iter().any(|token| {
+        let overlaps = self.field.tokens().iter().any(|token| {
             range.start < token.range.end as usize && range.end > token.range.start as usize
         });
         if overlaps {
@@ -215,17 +213,17 @@ impl Draft {
     /// The keys the composer hears instead of the engine: Enter to send or
     /// to pick a mention, the arrows and Escape while the menu is open, and
     /// the formatting chords.
-    fn claims(&self) -> Vec<wire::KeyClaim> {
+    pub(super) fn claims(&self) -> Vec<wire::KeyClaim> {
         let bare = |key| wire::KeyClaim {
             key: Key::Named(key),
-            modifiers: gpui::Modifiers::default(),
+            modifiers: Modifiers::default(),
             command: false,
         };
         let chord = |key: &str, shift| wire::KeyClaim {
             key: Key::Character(key.into()),
-            modifiers: gpui::Modifiers {
+            modifiers: Modifiers {
                 shift,
-                ..gpui::Modifiers::default()
+                ..Modifiers::default()
             },
             command: true,
         };
@@ -240,7 +238,7 @@ impl Draft {
     }
 
     /// What a claimed key does; `None` leaves the draft as it is.
-    fn key_tag(&self, key: &wire::keyboard::KeyState, repeat: bool) -> Option<String> {
+    pub(super) fn key_tag(&self, key: &wire::keyboard::KeyState, repeat: bool) -> Option<String> {
         if key.modifiers.control || key.modifiers.platform {
             return match (&key.key, key.modifiers.shift) {
                 (Key::Character(key), false) if key == "b" => Some("bold".into()),
@@ -267,16 +265,15 @@ impl Draft {
 
     /// The edits `tag` asks of the host's field `target`, if any, and
     /// whether the view has a send to make.
-    fn act(
+    pub(super) fn act(
         &mut self,
         tag: &str,
         target: &str,
         choices: &[MentionChoice],
     ) -> (Vec<wire::WidgetCommand>, Outcome) {
-        let target = gpui::ElementId::Name(target.to_owned().into());
+        let target = ElementId::Name(target.to_owned().into());
         let field = &self.field;
-        // read now and let go: `seed` below writes the field
-        let len = field.state().text.len();
+        let len = field.text().len();
         let edits = match tag {
             "menu-next" => {
                 self.menu_index = self.menu_index.saturating_add(1);
@@ -361,11 +358,7 @@ impl Draft {
 
     /// The `@name` being typed becomes the mention `choice`, a space after
     /// it for the next word.
-    fn mention(
-        &self,
-        choice: &MentionChoice,
-        target: &gpui::ElementId,
-    ) -> Vec<wire::WidgetCommand> {
+    fn mention(&self, choice: &MentionChoice, target: &ElementId) -> Vec<wire::WidgetCommand> {
         let Some((range, _)) = self.query() else {
             return Vec::new();
         };
@@ -416,6 +409,47 @@ impl Draft {
     }
 }
 
+/// What the composer's tests say for the host: its word reaches a field
+/// through `apply`, as it reaches a view's.
+#[cfg(test)]
+pub(super) mod host {
+    use ducktape_view_guest::{TextField, wire};
+    use std::ops::Range;
+
+    /// The host's count of `field`'s edits, as an ask of it names it.
+    pub fn revision(field: &TextField) -> u64 {
+        let wire::WidgetCommand::Replace { revision, .. } = field.replace_all("field", "") else {
+            unreachable!()
+        };
+        revision
+    }
+
+    /// The host's word that `cursor` is selected at its count `revision`:
+    /// the text and its spans stand.
+    fn says(field: &TextField, cursor: Range<usize>, revision: u64) {
+        let taken = field.apply(&wire::TextChange {
+            generation: field.generation(),
+            revision,
+            edit: None,
+            text: field.text(),
+            cursor: cursor.into(),
+            preedit: None,
+            tokens: field.tokens(),
+        });
+        assert!(taken, "a word on the field's own document");
+    }
+
+    /// The host's word that `cursor` is selected.
+    pub fn selects(field: &TextField, cursor: Range<usize>) {
+        says(field, cursor, revision(field));
+    }
+
+    /// The host's word that its count is `revision`.
+    pub fn at_revision(field: &TextField, revision: u64) {
+        says(field, field.selection(), revision);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,7 +490,7 @@ mod tests {
     fn formatting_wraps_the_selection_around_a_mention() {
         let mut draft = Draft::from_body("Hi <@7>", &roster());
         assert_eq!(draft.field.text(), "Hi @Ada");
-        draft.field.state_mut().cursor = wire::TextRange::from(3..7);
+        host::selects(&draft.field, 3..7);
         let (bold, _) = draft.act("bold", "c/editor", &roster());
         assert_eq!(
             replaces(&bold),
@@ -464,7 +498,7 @@ mod tests {
         );
         let (quote, _) = draft.act("quote", "c/editor", &roster());
         assert_eq!(replaces(&quote), [(3..3, "> ", None, 5)]);
-        draft.field.state_mut().cursor = wire::TextRange::caret(7);
+        host::selects(&draft.field, 7..7);
         let (italic, _) = draft.act("italic", "c/editor", &roster());
         assert_eq!(replaces(&italic), [(7..7, "**", None, 8)]);
     }
@@ -501,7 +535,7 @@ mod tests {
     #[test]
     fn a_send_clears_the_field_at_the_revision_it_knows_and_keeps_the_body() {
         let mut draft = Draft::from_body("first <@7>", &roster());
-        draft.field.state_mut().revision = 4;
+        host::at_revision(&draft.field, 4);
         let (edits, outcome) = draft.act("send", "c/editor", &roster());
         assert!(matches!(outcome, Outcome::Action(tag) if tag == "send"));
         let [
@@ -657,7 +691,7 @@ mod tests {
     fn restore_then_send_in_one_tick_speak_of_the_seeded_document() {
         let mut draft = Draft::from_body("", &[]);
         let left = draft.field.generation();
-        draft.field.state_mut().revision = 4;
+        host::at_revision(&draft.field, 4);
         draft.failed_send = Some(Send {
             body: "hello".into(),
         });
@@ -698,7 +732,7 @@ mod tests {
         // the document the reset left
         draft.changed(&change(left, 5, Some((0..0, 1)), "a"));
         assert_eq!(
-            (draft.field.text().as_str(), draft.field.state().revision),
+            (draft.field.text().as_str(), host::revision(&draft.field)),
             ("hello", 4)
         );
         // the host adopts the seeded text: not an edit of anything
@@ -709,7 +743,7 @@ mod tests {
         draft.changed(&change(seeded, 7, Some((0..5, 0)), ""));
         assert!(draft.cleared.is_empty());
         assert_eq!(
-            (draft.body().as_str(), draft.field.state().revision),
+            (draft.body().as_str(), host::revision(&draft.field)),
             ("", 7)
         );
     }
@@ -743,7 +777,7 @@ mod tests {
             draft.field.generation() > generation,
             "a restore is a new document"
         );
-        assert_eq!(draft.field.state().revision, 9);
+        assert_eq!(host::revision(&draft.field), 9);
         assert!(draft.failed_send.is_none());
     }
 
@@ -773,8 +807,8 @@ mod tests {
     #[test]
     fn the_menu_opens_on_a_name_being_typed_and_nowhere_else() {
         let caret = |text: &str, at: usize| {
-            let mut draft = Draft::from_body(text, &roster());
-            draft.field.state_mut().cursor = wire::TextRange::caret(at);
+            let draft = Draft::from_body(text, &roster());
+            host::selects(&draft.field, at..at);
             draft
         };
         assert_eq!(caret("@A", 2).query(), Some((0..2, "A".into())));
@@ -784,6 +818,9 @@ mod tests {
             "an address is not a mention"
         );
         assert_eq!(caret("@A b", 2).query(), Some((0..2, "A".into())));
+        let selected = Draft::from_body("@A", &roster());
+        host::selects(&selected.field, 0..2);
+        assert_eq!(selected.query(), None, "a selection is not a caret");
         assert_eq!(
             caret("@Ab", 2).query(),
             None,

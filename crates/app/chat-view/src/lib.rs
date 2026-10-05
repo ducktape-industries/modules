@@ -5,7 +5,8 @@
 //! name directory into what a frame draws (`message.rs`, `names.rs`) at
 //! render time, and `render` (`ui/`) never mutates: what an event changes
 //! lands in the handlers of `room`, `actions`, `search` and `compose`. The
-//! rich editor is the SDK's composer; `composer.rs` is its whole boundary.
+//! rich editor is the composer (`composer.rs`, `composer/`), over the SDK's
+//! text field.
 mod actions;
 mod compose;
 mod composer;

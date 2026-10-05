@@ -987,7 +987,7 @@ pub fn link(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{App, Lowering, wire};
+    use crate::wire;
     use gpui::Toggled;
 
     fn lower(element: impl IntoElement) -> wire::Node {
@@ -996,10 +996,7 @@ mod tests {
 
     /// The lowered element, and the table its nodes' styles are in.
     fn lower_styled(element: impl IntoElement) -> (wire::Node, wire::Styles) {
-        let mut app = App::for_driver();
-        let mut window = app.window();
-        let node = Lowering::new(&mut window, &mut app).lower(element);
-        (node, app.styles())
+        crate::testing::lower(|_: &mut Context<()>| element)
     }
 
     fn interactivity(node: &wire::Node) -> &wire::Interactivity {
