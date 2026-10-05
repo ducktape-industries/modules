@@ -2,9 +2,9 @@
 //! the Restore banner and the toolbar. Every press and key goes through
 //! [`Draft::handle`], which asks the host for the edits.
 
-use super::{Draft, MentionChoice, matching_choices};
-use crate::prelude::*;
-use crate::{App, wire};
+use super::draft::{Draft, MentionChoice, matching_choices};
+use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{Div, FontWeight, wire};
 use std::rc::Rc;
 
 /// What the composer hears: the host's text moved, a key it claimed went
@@ -59,7 +59,7 @@ impl Draft {
 }
 
 /// Dresses a mark's sign as what it does: bold, italic, code, quote.
-type Face = fn(crate::Div) -> crate::Div;
+type Face = fn(Div) -> Div;
 
 #[derive(IntoElement)]
 struct Mark {
@@ -82,8 +82,8 @@ impl RenderOnce for Mark {
             .flex()
             .items_center()
             .justify_center()
-            .size(crate::design::size::CONTROL)
-            .text_size(crate::design::text::BODY)
+            .size(design::size::CONTROL)
+            .text_size(design::text::BODY)
             .text_color(theme.muted)
             .child(sign);
         if let Some(on_click) = self.on_click {
@@ -121,18 +121,18 @@ impl RenderOnce for ActionButton {
             .flex()
             .items_center()
             .justify_center()
-            .h(crate::design::size::CONTROL)
+            .h(design::size::CONTROL)
             .px_2()
             .border_1()
             .border_color(border)
             .bg(background)
             .text_color(foreground)
-            .text_size(crate::design::text::SECONDARY)
+            .text_size(design::text::SECONDARY)
             .child(self.label);
         if let Some(on_click) = self.on_click {
             button = button.focusable().on_click(on_click);
             if self.primary {
-                button = crate::design::focus_shown_on_ink(button, &theme);
+                button = design::focus_shown_on_ink(button, &theme);
             }
         }
         button
@@ -158,7 +158,7 @@ impl RenderOnce for MentionItem {
             .w_full()
             .flex()
             .items_center()
-            .min_h(crate::design::size::ROW)
+            .min_h(design::size::ROW)
             .px_2()
             .bg(if self.selected {
                 theme.accent_soft
@@ -170,7 +170,7 @@ impl RenderOnce for MentionItem {
             } else {
                 theme.foreground
             })
-            .text_size(crate::design::text::BODY)
+            .text_size(design::text::BODY)
             .child(self.label);
         if let Some(on_click) = self.on_click {
             row = row.on_click(on_click);
@@ -236,8 +236,8 @@ fn editor<V: 'static>(
     area.w_full()
         .min_h(px(40.))
         .max_h(px(200.))
-        .p(crate::design::space::MD)
-        .text_size(crate::design::text::BODY)
+        .p(design::space::MD)
+        .text_size(design::text::BODY)
         .whitespace_normal()
 }
 
@@ -261,7 +261,7 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
     handle: F,
 ) -> impl IntoElement + use<V, F> {
     let handle: Handle<V> = Rc::new(handle);
-    let editor_id = super::editor_id(key);
+    let editor_id = super::draft::editor_id(key);
     let editor = editor(draft, &editor_id, label, hint, editable, &handle, cx);
     let mut rows: Vec<AnyElement> = Vec::new();
 
@@ -300,7 +300,7 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
     if !draft.note.is_empty() {
         rows.push(
             div()
-                .mx(crate::design::space::MD)
+                .mx(design::space::MD)
                 .text_sm()
                 .text_color(cx.global::<Theme>().danger)
                 .child(draft.note.clone())
@@ -310,7 +310,7 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
     if draft.failed_send.is_some() {
         rows.push(
             div()
-                .mx(crate::design::space::MD)
+                .mx(design::space::MD)
                 .flex()
                 .items_center()
                 .gap_2()
@@ -329,18 +329,18 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
     }
 
     let mut toolbar = div()
-        .mx(crate::design::space::XXS)
+        .mx(design::space::XXS)
         .flex()
         .items_center()
         .gap(px(2.));
     let faces: [(&str, &str, &str, Face); 4] = [
         ("B", "Bold", "bold", |sign| {
-            sign.font_weight(crate::FontWeight::BOLD)
+            sign.font_weight(FontWeight::BOLD)
         }),
         ("I", "Italic", "italic", |sign| sign.italic()),
         ("</>", "Code", "code", |sign| {
             sign.font_family(design::fonts::FAMILY_MONO)
-                .text_size(crate::design::text::CAPTION)
+                .text_size(design::text::CAPTION)
         }),
         ("“", "Quote", "quote", |sign| sign.text_size(px(16.))),
     ];
@@ -379,7 +379,7 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
         .border_1()
         .border_color(cx.global::<Theme>().border)
         .bg(cx.global::<Theme>().background)
-        .pb(crate::design::space::XXS)
+        .pb(design::space::XXS)
         .children(rows)
 }
 

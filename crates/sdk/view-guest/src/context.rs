@@ -11,8 +11,8 @@ use std::rc::{Rc, Weak};
 
 mod events;
 
-/// A step to run on the view: an editor route or a composer outcome hands
-/// one back, and the driver runs it after the event.
+/// A step to run on the view: an editor route hands one back, and the
+/// driver runs it after the event.
 pub type Callback<V> = Rc<dyn Fn(&mut V, &mut Window, &mut Context<V>)>;
 
 pub(crate) type Globals = std::collections::HashMap<TypeId, Rc<dyn Any>>;
@@ -50,7 +50,6 @@ pub(crate) struct AppState {
 impl App {
     /// The style table a host holds after the trees lowered so far, for a
     /// test that lowers by hand and reads what a node's style id names.
-    #[cfg(test)]
     pub(crate) fn styles(&self) -> crate::wire::Styles {
         let mut styles = crate::wire::Styles::default();
         styles

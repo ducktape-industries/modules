@@ -174,6 +174,10 @@ Ours, defined in this crate:
   as gpui's `Entity<Editor>` is: a `Clone` of it is the same field (so
   `vec![Form::default(); n]` is one field `n` times), while equality and the
   snapshot are by value. `reset(text)` starts a new document.
+  A view that builds its own editor on a field has the rest: `tokens()` and
+  `reset_with_tokens(text, tokens)` for its atomic spans, `generation()` and
+  `apply(&change)` for the host's word, and `Window::dispatch(command)` to
+  send what `replace` and `replace_all` ask.
 - A control is named from birth: `Input::new(id, &field, label)`,
   `Textarea::new(id, &field, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words

@@ -9,10 +9,10 @@ extern crate self as ducktape_view_guest;
 pub use gpui::{
     Anchor, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId, EventEmitter,
     FileDropEvent, FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode,
-    Hsla, KeyDownEvent, KeyUpEvent, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
-    ListScrollEvent, ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent,
-    Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
+    Hsla, KeyDownEvent, KeyUpEvent, Keystroke, ListAlignment, ListHorizontalSizingBehavior,
+    ListOffset, ListScrollEvent, ListSizingBehavior, Modifiers, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit,
+    PinchEvent, Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
     StrikethroughStyle, StyleRefinement, Styled, Subscription, TextRun, TextStyle, Toggled,
     UnderlineStyle, hsla, px, rems, rgb,
 };
@@ -73,7 +73,6 @@ pub mod prelude {
 mod text;
 pub use text::TextField;
 pub mod borsh_bytes;
-pub mod composer;
 pub mod design;
 pub mod host;
 pub mod store;

@@ -1,7 +1,8 @@
 use super::super::Send;
+use super::super::draft::host;
 use super::*;
-use crate::testing::TestAppContext;
-use crate::{App, Context, Entity, IntoElement, Lowering, Render, Role, View, Window, wire};
+use ducktape_view_guest::testing::{self, TestAppContext};
+use ducktape_view_guest::{Keystroke, Modifiers};
 use serde::{Deserialize, Serialize};
 use wire::keyboard::{Key, Named};
 
@@ -17,7 +18,7 @@ impl View for ComposerView {
     const NAME: &'static str = "ComposerView";
     // the composer moves focus back to its editor and asks it for edits
     // (`host.widget`)
-    const CAPABILITIES: &'static [crate::methods::Capability] = &[crate::methods::Capability::Host];
+    const CAPABILITIES: &'static [Capability] = &[Capability::Host];
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self {
             draft: Draft::from_body("hello", &[]),
@@ -70,14 +71,14 @@ fn drawn(draft: &Draft) -> wire::Node {
 /// [`drawn`], and the table its nodes' styles are in.
 fn drawn_styled(draft: &Draft) -> (wire::Node, wire::Styles) {
     let (tree, styles) = lowered_styled(draft, "c", &[]);
-    crate::testing::assert_accessible(&tree);
+    testing::assert_accessible(&tree);
     (tree, styles)
 }
 
 /// The composer's tree, held to the audit as a view's tests hold it.
 fn drawn_with(draft: &Draft, key: &str, choices: &[MentionChoice]) -> wire::Node {
     let tree = lowered(draft, key, choices);
-    crate::testing::assert_accessible(&tree);
+    testing::assert_accessible(&tree);
     tree
 }
 
@@ -93,28 +94,20 @@ fn lowered_styled(
     key: &str,
     choices: &[MentionChoice],
 ) -> (wire::Node, wire::Styles) {
-    let mut app = App::for_driver();
-    let entity = Entity::reserve(&app);
-    let mut window = app.window();
-    let mut cx = Context {
-        app: &mut app,
-        entity,
-    };
-    let element = view(
-        draft,
-        key,
-        "New message",
-        "Message #general",
-        "Send",
-        None,
-        true,
-        choices,
-        &mut cx,
-        |_: &mut ComposerView, _, _, _| {},
-    );
-    drop(cx);
-    let tree = Lowering::new(&mut window, &mut app).lower(element);
-    (tree, app.styles())
+    testing::lower(|cx| {
+        view(
+            draft,
+            key,
+            "New message",
+            "Message #general",
+            "Send",
+            None,
+            true,
+            choices,
+            cx,
+            |_: &mut ComposerView, _, _, _| {},
+        )
+    })
 }
 
 fn find_field(root: &wire::Node) -> Option<&wire::Node> {
@@ -136,7 +129,7 @@ fn node<'a>(root: &'a wire::Node, key: &str) -> Option<&'a wire::Node> {
 }
 
 fn clickable(root: &wire::Node, key: &str) -> Option<u32> {
-    let Some(wire::Node::Container(crate::wire::ContainerNode {
+    let Some(wire::Node::Container(wire::ContainerNode {
         interactivity: Some(interactivity),
         ..
     })) = node(root, key)
@@ -154,8 +147,8 @@ fn roster() -> Vec<MentionChoice> {
 }
 
 fn caret(body: &str, at: usize) -> Draft {
-    let mut draft = Draft::from_body(body, &roster());
-    draft.field.state_mut().cursor = wire::TextRange::caret(at);
+    let draft = Draft::from_body(body, &roster());
+    host::selects(&draft.field, at..at);
     draft
 }
 
@@ -171,7 +164,7 @@ fn claimed(draft: &Draft) -> Vec<wire::KeyClaim> {
 fn bare(key: Named) -> wire::KeyClaim {
     wire::KeyClaim {
         key: Key::Named(key),
-        modifiers: gpui::Modifiers::default(),
+        modifiers: Modifiers::default(),
         command: false,
     }
 }
@@ -188,7 +181,7 @@ type Replace = (
 /// The edits the view asked of the host, in order.
 fn replaces(cx: &TestAppContext) -> Vec<Replace> {
     cx.host()
-        .requests::<crate::methods::HostWidget>()
+        .requests::<HostWidget>()
         .into_iter()
         .filter_map(|command| match command {
             wire::WidgetCommand::Replace {
@@ -242,13 +235,13 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
     let mut body_size = None;
     let mut editor_bounds = None;
     walk(&root, &mut |node| match node {
-        wire::Node::Container(crate::wire::ContainerNode {
+        wire::Node::Container(wire::ContainerNode {
             style,
             interactivity: Some(interactivity),
             ..
         }) if interactivity.role == Some(Role::Button) => {
             let style = &styles[*style];
-            let side = gpui::px(design::height::CONTROL as f32);
+            let side = px(design::height::CONTROL as f32);
             if style.size.width == Some(side.into()) && style.size.height == Some(side.into()) {
                 marks.push(interactivity.aria.label.clone());
             }
@@ -265,13 +258,10 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
         4,
         "bold, italic, code and quote are control-high squares"
     );
-    assert_eq!(
-        body_size,
-        Some(gpui::px(design::type_scale::BODY as f32).into())
-    );
+    assert_eq!(body_size, Some(px(design::type_scale::BODY as f32).into()));
     assert_eq!(
         editor_bounds,
-        Some((Some(gpui::px(40.).into()), Some(gpui::px(200.).into())))
+        Some((Some(px(40.).into()), Some(px(200.).into())))
     );
 }
 
@@ -318,7 +308,7 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
         ("c/quote", "Quote"),
         ("c/restore", "Restore"),
     ] {
-        let Some(wire::Node::Container(crate::wire::ContainerNode {
+        let Some(wire::Node::Container(wire::ContainerNode {
             interactivity: Some(interactivity),
             ..
         })) = node(&root, key)
@@ -329,7 +319,7 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
         assert!(interactivity.focusable, "{key} takes no focus");
         assert_eq!(interactivity.aria.label.as_deref(), Some(label));
     }
-    let Some(wire::Node::Container(crate::wire::ContainerNode {
+    let Some(wire::Node::Container(wire::ContainerNode {
         interactivity: Some(interactivity),
         ..
     })) = node(&root, "c/mention/<@1>")
@@ -340,7 +330,7 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
     assert_eq!(interactivity.role, Some(Role::MenuItem));
     assert_eq!(interactivity.aria.label.as_deref(), Some("@Ada"));
     // with the menu shut, the whole composer passes the audit
-    draft.field.state_mut().cursor = wire::TextRange::caret(0);
+    host::selects(&draft.field, 0..0);
     drawn_with(&draft, "c", &choices);
 }
 
@@ -392,27 +382,20 @@ fn no_claim_is_on_a_key_the_engine_owns() {
             "{claims:?}"
         );
     }
-    let mut app = App::for_driver();
-    let entity = Entity::reserve(&app);
-    let mut window = app.window();
-    let mut cx = Context {
-        app: &mut app,
-        entity,
-    };
-    let element = view(
-        &caret("@A", 2),
-        "c",
-        "New message",
-        "Message #general",
-        "Send",
-        None,
-        false,
-        &roster(),
-        &mut cx,
-        |_: &mut ComposerView, _, _, _| {},
-    );
-    drop(cx);
-    let root = Lowering::new(&mut window, &mut app).lower(element);
+    let (root, _) = testing::lower(|cx| {
+        view(
+            &caret("@A", 2),
+            "c",
+            "New message",
+            "Message #general",
+            "Send",
+            None,
+            false,
+            &roster(),
+            cx,
+            |_: &mut ComposerView, _, _, _| {},
+        )
+    });
     let wire::Node::Field {
         claims,
         options,
@@ -426,7 +409,7 @@ fn no_claim_is_on_a_key_the_engine_owns() {
 }
 
 fn key(keystroke: &str) -> wire::keyboard::KeyState {
-    (&gpui::Keystroke::parse(keystroke).unwrap()).into()
+    (&Keystroke::parse(keystroke).unwrap()).into()
 }
 
 /// Down picks the second name and Enter takes it as one span with a space
@@ -492,7 +475,7 @@ fn enter_sends_and_the_host_clears_the_field() {
     view.read(|view| {
         assert!(view.events.iter().any(|event| event == "outcome:send"));
         assert_eq!(view.draft.field.text(), "", "the host cleared the field");
-        assert_eq!(view.draft.field.state().revision, 1);
+        assert_eq!(host::revision(&view.draft.field), 1);
     });
     let field = wire::ElementIdWire::Name("c/editor".into());
     assert_eq!(replaces(&cx), [(field, 0, 0..5, String::new(), None)]);
@@ -515,7 +498,7 @@ fn a_mark_pressed_asks_the_host_for_the_edit_and_hands_the_keys_back() {
     let editor = cx.find("c/editor").and_then(wire::Node::identity).cloned();
     assert!(
         cx.host()
-            .requests::<crate::methods::HostWidget>()
+            .requests::<HostWidget>()
             .iter()
             .any(|command| matches!(
                 command,
@@ -523,7 +506,7 @@ fn a_mark_pressed_asks_the_host_for_the_edit_and_hands_the_keys_back() {
                     if target.len() > 1 && target.last() == editor.as_ref()
             )),
         "{:?}",
-        cx.host().requests::<crate::methods::HostWidget>()
+        cx.host().requests::<HostWidget>()
     );
     assert_eq!(cx.focused().and_then(wire::Node::key), Some("c/editor"));
     let field = wire::ElementIdWire::Name("c/editor".into());
@@ -535,8 +518,8 @@ fn a_mark_pressed_asks_the_host_for_the_edit_and_hands_the_keys_back() {
     view.read(|view| {
         assert!(view.events.iter().any(|event| event == "changed"));
         assert_eq!(view.draft.field.text(), "hello****");
-        assert_eq!(view.draft.field.state().cursor, wire::TextRange::caret(7));
-        assert_eq!(view.draft.field.state().revision, 1);
+        assert_eq!(view.draft.field.selection(), 7..7);
+        assert_eq!(host::revision(&view.draft.field), 1);
     });
 }
 
@@ -551,7 +534,7 @@ struct LazyDraft {
 
 impl View for LazyDraft {
     const NAME: &'static str = "LazyDraft";
-    const CAPABILITIES: &'static [crate::methods::Capability] = &[crate::methods::Capability::Host];
+    const CAPABILITIES: &'static [Capability] = &[Capability::Host];
 }
 
 impl Render for LazyDraft {
