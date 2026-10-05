@@ -196,8 +196,8 @@ impl<'a> Lowering<'a> {
         let segment = wire::identity::segment(element.id().map(wire_id), row);
         let entered = segment.is_some();
         if let Some(segment) = segment {
+            slots::enter_scope(&self.app.inner.slots, segment.clone());
             self.authored_path.push(segment);
-            slots::enter_scope(&self.app.inner.slots);
         }
         let node = Element::lower(Box::new(element), self);
         debug_assert!(
@@ -246,7 +246,7 @@ impl<'a> Lowering<'a> {
         kind: slots::Kind,
         listener: impl Fn(&A, &mut Window, &mut App) + 'static,
     ) -> u32 {
-        slots::route(&self.app.inner.slots, &self.authored_path, kind, listener)
+        slots::route(&self.app.inner.slots, kind, listener)
     }
 
     pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
@@ -254,11 +254,11 @@ impl<'a> Lowering<'a> {
     }
 
     pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
-        slots::tooltip(&self.app.inner.slots, &self.authored_path, build)
+        slots::tooltip(&self.app.inner.slots, build)
     }
 
     pub(crate) fn rich_text_tooltip(&self, build: slots::RichTextTooltipBuilder) -> u32 {
-        slots::rich_text_tooltip(&self.app.inner.slots, &self.authored_path, build)
+        slots::rich_text_tooltip(&self.app.inner.slots, build)
     }
 }
 

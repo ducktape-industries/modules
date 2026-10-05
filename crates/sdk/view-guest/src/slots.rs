@@ -81,17 +81,40 @@ pub(crate) enum Kind {
     RichTooltip,
 }
 
-/// Where a listener was authored: the path of the element that carries it
+/// Where a listener was authored: the scope of the element that carries it
 /// (an id-less element's is its nearest identified ancestor's), what it is
-/// for, and which one of that kind under that path it is; a listener inside
+/// for, and which one of that kind in that scope it is; a listener inside
 /// a tooltip's content names the tooltip's own route too, since the content
 /// lowers in a scope of its own and lives as long as that route.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct Key {
     within: Option<u32>,
-    path: Vec<ElementIdWire>,
+    scope: u32,
     kind: Kind,
     ordinal: u32,
+}
+
+/// A scope: an identified element, named by its segment under the scope
+/// around it. Its number stands for its whole path, since the scope around
+/// it is a number that stands for the path so far; [`ROOT`] is around the
+/// outermost. A scope is looked up by these three, exactly: two paths
+/// never share a number.
+#[derive(PartialEq, Eq, Hash)]
+struct ScopeKey {
+    within: Option<u32>,
+    parent: u32,
+    segment: ElementIdWire,
+}
+
+/// The scope of a lowering itself, around every identified element in it.
+const ROOT: u32 = 0;
+
+/// A scope being lowered: its segment until a listener in it or under it
+/// asks for a route, then its number. A scope no listener asks in is never
+/// looked up.
+enum Open {
+    Unasked(ElementIdWire),
+    Numbered(u32),
 }
 
 struct Slot {
@@ -106,6 +129,12 @@ struct Slot {
 /// same listener in the next frame, whatever changed around it. A frame
 /// lowered without the key frees the id, and no id is handed out twice, so
 /// a freed route names nothing for the rest of the driver's life.
+///
+/// A scope's number is kept the same way: handed out the first time a
+/// listener is lowered in it or under it, kept while one is, freed by a
+/// frame that lowers none there, and never handed out twice. So a key,
+/// which names its scope by number, is the same key for as long as the
+/// path it was authored under is.
 #[derive(Default)]
 struct Routes {
     ids: HashMap<Key, Slot>,
@@ -113,6 +142,11 @@ struct Routes {
     next: u32,
     frame: u64,
     within: Option<u32>,
+    scopes: HashMap<ScopeKey, Slot>,
+    /// The last scope number handed out; [`ROOT`] is never handed out.
+    last_scope: u32,
+    /// The scopes being lowered, outermost first.
+    open: Vec<Open>,
     /// `(kind, taken)` for the scopes being lowered, innermost last;
     /// `marks` says where each scope's counters start.
     counters: Vec<(Kind, u32)>,
@@ -120,7 +154,51 @@ struct Routes {
 }
 
 impl Routes {
-    fn take(&mut self, path: &[ElementIdWire], kind: Kind, route: Rc<dyn Any>) -> u32 {
+    /// The number of the scope being lowered, innermost: every scope
+    /// around it that has none yet is looked up on the way, outermost
+    /// first, each under the number of the one around it.
+    fn scope(&mut self) -> u32 {
+        let numbered = self
+            .open
+            .iter()
+            .rposition(|scope| matches!(scope, Open::Numbered(_)));
+        let mut parent = match numbered.map(|at| &self.open[at]) {
+            Some(Open::Numbered(number)) => *number,
+            _ => ROOT,
+        };
+        for at in numbered.map_or(0, |at| at + 1)..self.open.len() {
+            let Open::Unasked(segment) = std::mem::replace(&mut self.open[at], Open::Numbered(0))
+            else {
+                unreachable!("every scope past the last numbered one is unasked")
+            };
+            let key = ScopeKey {
+                within: self.within,
+                parent,
+                segment,
+            };
+            parent = match self.scopes.entry(key) {
+                Entry::Occupied(mut slot) => {
+                    slot.get_mut().seen = self.frame;
+                    slot.get().id
+                }
+                Entry::Vacant(slot) => {
+                    self.last_scope = self
+                        .last_scope
+                        .checked_add(1)
+                        .expect("scope numbers exhausted");
+                    slot.insert(Slot {
+                        id: self.last_scope,
+                        seen: self.frame,
+                    });
+                    self.last_scope
+                }
+            };
+            self.open[at] = Open::Numbered(parent);
+        }
+        parent
+    }
+
+    fn take(&mut self, kind: Kind, route: Rc<dyn Any>) -> u32 {
         let start = self.marks.last().copied().unwrap_or(0);
         let ordinal = match self.counters[start..]
             .iter_mut()
@@ -137,7 +215,7 @@ impl Routes {
         };
         let key = Key {
             within: self.within,
-            path: path.to_vec(),
+            scope: self.scope(),
             kind,
             ordinal,
         };
@@ -166,23 +244,27 @@ impl Routes {
 
     fn begin_lowering(&mut self, within: Option<u32>) {
         self.within = within;
+        self.open.clear();
         self.counters.clear();
         self.marks.clear();
     }
 
-    fn enter_scope(&mut self) {
+    fn enter_scope(&mut self, segment: ElementIdWire) {
+        self.open.push(Open::Unasked(segment));
         self.marks.push(self.counters.len());
     }
 
     fn leave_scope(&mut self) {
+        self.open.pop();
         if let Some(mark) = self.marks.pop() {
             self.counters.truncate(mark);
         }
     }
 
-    /// Frees every key the frame did not lower. A route authored inside a
-    /// tooltip's content is lowered once, when the host asks for that
-    /// tooltip, and lives as long as the tooltip's own route does.
+    /// Frees every key and every scope the frame did not lower. A route
+    /// authored inside a tooltip's content is lowered once, when the host
+    /// asks for that tooltip, and lives as long as the tooltip's own route
+    /// does; so does the scope it was authored in.
     fn end_frame(&mut self) {
         let frame = self.frame;
         let kept: HashSet<u32> = self
@@ -191,14 +273,18 @@ impl Routes {
             .filter(|slot| slot.seen == frame)
             .map(|slot| slot.id)
             .collect();
+        let alive = |seen: u64, within: Option<u32>| {
+            seen == frame || within.is_some_and(|owner| kept.contains(&owner))
+        };
         let live = &mut self.live;
         self.ids.retain(|key, slot| {
-            let alive = slot.seen == frame || key.within.is_some_and(|owner| kept.contains(&owner));
+            let alive = alive(slot.seen, key.within);
             if !alive {
                 live.remove(&slot.id);
             }
             alive
         });
+        self.scopes.retain(|key, slot| alive(slot.seen, key.within));
     }
 }
 
@@ -271,10 +357,10 @@ pub(crate) fn begin_lowering(context: &Context, within: Option<u32>) {
     context.0.borrow_mut().routes.begin_lowering(within);
 }
 
-/// An identified element starts lowering: its listeners are the first of
-/// their kind under its path.
-pub(crate) fn enter_scope(context: &Context) {
-    context.0.borrow_mut().routes.enter_scope();
+/// An identified element starts lowering, filed under `segment` in the
+/// scope around it: its listeners are the first of their kind in its scope.
+pub(crate) fn enter_scope(context: &Context, segment: ElementIdWire) {
+    context.0.borrow_mut().routes.enter_scope(segment);
 }
 
 pub(crate) fn leave_scope(context: &Context) {
@@ -291,30 +377,18 @@ pub(crate) fn end_frame(context: &Context) {
     context.0.borrow_mut().routes.end_frame();
 }
 
-pub(crate) fn tooltip(context: &Context, scope: &[ElementIdWire], build: TooltipBuilder) -> u32 {
+pub(crate) fn tooltip(context: &Context, build: TooltipBuilder) -> u32 {
     let route: Rc<dyn Any> = Rc::new(TooltipRoute(Rc::new(move |_, window, cx| {
         Some(build(window, cx))
     })));
-    context
-        .0
-        .borrow_mut()
-        .routes
-        .take(scope, Kind::Tooltip, route)
+    context.0.borrow_mut().routes.take(Kind::Tooltip, route)
 }
 
-pub(crate) fn rich_text_tooltip(
-    context: &Context,
-    scope: &[ElementIdWire],
-    build: RichTextTooltipBuilder,
-) -> u32 {
+pub(crate) fn rich_text_tooltip(context: &Context, build: RichTextTooltipBuilder) -> u32 {
     let route: Rc<dyn Any> = Rc::new(TooltipRoute(Rc::new(move |index, window, cx| {
         index.and_then(|index| build(index, window, cx))
     })));
-    context
-        .0
-        .borrow_mut()
-        .routes
-        .take(scope, Kind::RichTooltip, route)
+    context.0.borrow_mut().routes.take(Kind::RichTooltip, route)
 }
 
 /// Builds the tooltip route `request` names, if it names one.
@@ -340,12 +414,11 @@ pub(crate) fn take_tooltip_responses(context: &Context) -> Vec<crate::wire::Tool
 
 pub(crate) fn route<A: 'static>(
     context: &Context,
-    scope: &[ElementIdWire],
     kind: Kind,
     listener: impl Fn(&A, &mut crate::Window, &mut crate::App) + 'static,
 ) -> u32 {
     let route: Rc<dyn Any> = Rc::new(EventRoute::<A>(Rc::new(listener)));
-    context.0.borrow_mut().routes.take(scope, kind, route)
+    context.0.borrow_mut().routes.take(kind, route)
 }
 
 /// Runs the route `index` names, if it names one that takes an `A`.
@@ -385,11 +458,11 @@ mod tests {
     #[test]
     fn nested_contexts_keep_their_own_routes_and_picture_history() {
         let first = Context::default();
-        let first_route = route::<String>(&first, &[], Kind::Change, |_, _, _| {});
+        let first_route = route::<String>(&first, Kind::Change, |_, _, _| {});
         assert!(picture(&first, b"svg", 3).1.is_some());
         {
             let second = Context::default();
-            let route = route::<String>(&second, &[], Kind::Change, |_, _, _| {});
+            let route = route::<String>(&second, Kind::Change, |_, _, _| {});
             assert_eq!(
                 (first_route, route),
                 (0, 0),
@@ -404,6 +477,73 @@ mod tests {
             picture(&first, b"svg", 3).1.is_none(),
             "returning to the first driver preserves its picture history"
         );
+    }
+
+    /// A frame that lowers one listener in each scope `paths` names;
+    /// answers the scope number each was keyed under.
+    fn frame(routes: &mut Routes, paths: &[&[&'static str]]) -> Vec<u32> {
+        routes.frame += 1;
+        routes.begin_lowering(None);
+        let scopes = paths
+            .iter()
+            .map(|path| {
+                for segment in *path {
+                    routes.enter_scope(ElementIdWire::Name((*segment).into()));
+                }
+                let scope = routes.scope();
+                routes.take(Kind::Click, Rc::new(()));
+                path.iter().for_each(|_| routes.leave_scope());
+                scope
+            })
+            .collect();
+        routes.end_frame();
+        scopes
+    }
+
+    /// A scope's number stands for its whole path: one segment under two
+    /// parents is two scopes, and a scope keeps its number for as long as
+    /// a frame lowers a listener in it, whatever is lowered around it.
+    #[test]
+    fn a_scope_number_names_one_path_and_is_kept_across_frames() {
+        let mut routes = Routes::default();
+        let first = frame(&mut routes, &[&["a", "row"], &["b", "row"], &["row"]]);
+        let [a_row, b_row, row] = first[..] else {
+            unreachable!()
+        };
+        assert!(a_row != b_row && a_row != row && b_row != row, "{first:?}");
+        assert!(!first.contains(&ROOT), "the root is no element's scope");
+
+        // the same paths, lowered in another order beside a new one
+        let second = frame(&mut routes, &[&["row"], &["c", "row"], &["b", "row"]]);
+        assert_eq!((second[0], second[2]), (row, b_row));
+        assert!(!first.contains(&second[1]), "a new path is a new scope");
+
+        // `a/row` was not lowered: its number is gone for good
+        let third = frame(&mut routes, &[&["a", "row"], &["b", "row"]]);
+        assert_eq!(third[1], b_row);
+        assert!(!first.contains(&third[0]) && !second.contains(&third[0]));
+    }
+
+    /// A scope no listener is lowered in, or under, is never looked up.
+    #[test]
+    fn a_scope_without_a_listener_is_not_numbered() {
+        let mut routes = Routes::default();
+        routes.frame += 1;
+        routes.begin_lowering(None);
+        routes.enter_scope(ElementIdWire::Name("page".into()));
+        routes.enter_scope(ElementIdWire::Name("plain".into()));
+        routes.leave_scope();
+        routes.enter_scope(ElementIdWire::Name("button".into()));
+        routes.take(Kind::Click, Rc::new(()));
+        routes.leave_scope();
+        routes.leave_scope();
+        let mut numbered: Vec<_> = routes
+            .scopes
+            .keys()
+            .map(|key| key.segment.name().unwrap().to_owned())
+            .collect();
+        numbered.sort();
+        assert_eq!(numbered, ["button", "page"]);
     }
 
     #[test]
