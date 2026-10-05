@@ -62,41 +62,47 @@ fn a_field_marked_invalid_required_and_read_only_says_so_and_why() {
 /// the size the views are built for that call is not inlined: it moves
 /// the element, and the guest pays fuel for every byte moved. So an
 /// element is small, and what makes it large (a style refinement, its
-/// interactivity) sits behind a pointer. A field added by value fails
-/// here, under the name of the element it grew.
+/// interactivity) sits behind a pointer. Each element is held to the
+/// size it has today, so a field added by value fails here, under the
+/// name of the element it grew: put it behind the element's pointer, or
+/// raise that element's line knowing what each of its builder calls now
+/// moves. The elements a tree is made of (a div is ten moves) are the
+/// small ones; an input or a text with runs is a few per view.
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn an_element_a_builder_method_moves_is_small() {
-    // nothing the size of a style refinement, or half of one, by value
-    const MOST: usize = size_of::<StyleRefinement>() / 2;
-    macro_rules! sizes {
-        ($($element:ty),+ $(,)?) => {
-            [$((stringify!($element), size_of::<$element>())),+]
+    macro_rules! grown {
+        ($($element:ty: $most:literal),+ $(,)?) => {
+            [$((stringify!($element), size_of::<$element>(), $most)),+]
+                .into_iter()
+                .filter(|(_, size, most)| size > most)
+                .collect::<Vec<_>>()
         };
     }
-    let large: Vec<_> = sizes![
-        Div,
-        crate::Stateful<Div>,
-        crate::Img,
-        crate::Stateful<crate::Img>,
-        crate::Svg,
-        crate::Stateful<crate::Svg>,
-        UniformList,
-        crate::Stateful<UniformList>,
-        crate::ResizeHandle,
-        crate::Sensor,
-        crate::ModalOverlay,
-        Input,
-        Textarea,
-        crate::List,
-        crate::StyledText,
-        crate::InteractiveText,
-        crate::Canvas,
-        crate::Anchored,
-        crate::Deferred,
-        AnyElement,
-    ]
-    .into_iter()
-    .filter(|(_, size)| *size > MOST)
-    .collect();
-    assert!(large.is_empty(), "larger than {MOST} bytes: {large:?}");
+    let grown = grown![
+        Div: 32,
+        crate::Stateful<Div>: 32,
+        crate::Img: 80,
+        crate::Stateful<crate::Img>: 80,
+        crate::Svg: 64,
+        crate::Stateful<crate::Svg>: 64,
+        UniformList: 56,
+        crate::Stateful<UniformList>: 56,
+        crate::ResizeHandle: 48,
+        crate::Sensor: 96,
+        crate::ModalOverlay: 136,
+        Input: 296,
+        Textarea: 296,
+        crate::List: 80,
+        crate::StyledText: 104,
+        crate::InteractiveText: 216,
+        crate::Canvas: 32,
+        crate::Anchored: 72,
+        crate::Deferred: 24,
+        AnyElement: 16,
+    ];
+    assert!(
+        grown.is_empty(),
+        "(element, bytes, the most it may be): {grown:?}"
+    );
 }
