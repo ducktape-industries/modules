@@ -436,3 +436,35 @@ fn an_edit_emptied_keeps_its_draft_while_it_is_open() {
     cx.run_until_parked();
     types(&mut cx, &view, "edit-general-1", "again");
 }
+
+/// An edit left without saving leaves no draft behind: opening it again
+/// starts from the message, so there is nothing of it to keep.
+#[test]
+fn an_edit_cancelled_leaves_no_draft_and_opens_from_the_message_again() {
+    let (mut cx, view) = opened();
+    let edit = |cx: &mut TestAppContext| {
+        cx.update(&view, |chat, window, cx| {
+            cx.notify();
+            chat.open_menu(Pane::Timeline, 1, 0, Mode::Editing, window, cx);
+        });
+        cx.run_until_parked();
+    };
+    edit(&mut cx);
+    types(&mut cx, &view, "edit-general-1", "hello there");
+    cx.simulate_click("Cancel");
+    view.read(|chat| assert!(!chat.drafts.contains_key("edit-general-1")));
+    edit(&mut cx);
+    assert_eq!(held(&cx, "edit-general-1"), "hello", "seeded again");
+    // one that holds a send stays: the send is not in the message
+    cx.update(&view, |chat, _, cx| {
+        cx.notify();
+        let failed_send = Some(crate::composer::Send { body: "x".into() });
+        let parked = crate::composer::Draft {
+            failed_send,
+            ..Default::default()
+        };
+        chat.drafts.insert("edit-general-2".into(), parked);
+    });
+    cx.run_until_parked();
+    view.read(|chat| assert!(chat.drafts.contains_key("edit-general-2")));
+}

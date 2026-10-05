@@ -78,7 +78,6 @@ impl Chat {
         cx.load(self, queries::members(cx.host(), members_id), |chat| {
             &mut room_of(chat).members
         });
-        self.seat_drafts();
     }
 
     /// The newest window landed: the rows, and whether older ones remain.
@@ -346,7 +345,6 @@ impl Chat {
             return;
         };
         thread.replies = Loadable::Loading(handle);
-        self.seat_drafts();
     }
 
     pub(crate) fn load_more_replies(&mut self, cx: &mut Context<Self>) {
@@ -399,7 +397,6 @@ impl Chat {
         if self.copy.is_some_and(|copy| copy.pane == Pane::Thread) {
             self.copy = None;
         }
-        self.seat_drafts();
     }
 
     /// The channel list landed: the rooms, and what each one's head says

@@ -87,6 +87,7 @@ impl Render for Chat {
         let size = window.viewport_size();
         self.layout.viewport = (size.width.into(), size.height.into());
         self.layout.clamp();
+        self.seat_drafts();
         ui::render(self, cx)
     }
 }

@@ -193,7 +193,6 @@ fn unread_rooms_carry_a_dot_and_the_open_room_a_divider() {
             reaches_head: true,
             ..Room::default()
         });
-        chat.seat_drafts();
         chat.channels_arrived(vec![channel("general", "General", 9)], cx);
         assert_eq!(chat.reads.boundary, 3);
         cx.notify();
@@ -705,7 +704,6 @@ fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
             }]),
             ..Thread::default()
         });
-        chat.seat_drafts();
         cx.notify();
     });
     cx.run_until_parked();
@@ -792,7 +790,6 @@ fn every_message_row_says_its_place_in_its_set() {
             }]),
             ..Thread::default()
         });
-        chat.seat_drafts();
         cx.notify();
     });
     cx.run_until_parked();

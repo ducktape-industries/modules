@@ -416,12 +416,12 @@ pub fn composer(
     cx: &mut Context<Chat>,
 ) -> impl IntoElement {
     let key = target.key();
-    // render makes no draft: one made here is a document its handler never
+    // no draft is made here: one made here is a document its handler never
     // sees, and what is typed into it is lost
     let draft = chat
         .drafts
         .get(&key)
-        .expect("seated where its composer came on screen");
+        .expect("seated by `Chat::render` before the frame");
     let choices = chat.mention_choices();
     let (commit, cancel) = match target {
         Target::Post { .. } => ("Send", None),

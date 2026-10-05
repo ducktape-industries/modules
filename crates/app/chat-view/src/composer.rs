@@ -43,6 +43,11 @@ impl Target {
             Target::Edit { channel, seq, .. } => format!("edit-{channel}-{seq}"),
         }
     }
+
+    /// Whether `key` is an edit's.
+    pub fn edits(key: &str) -> bool {
+        key.starts_with("edit-")
+    }
 }
 
 /// The op a committed draft becomes, `id` naming a new message.

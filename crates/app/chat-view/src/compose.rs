@@ -32,14 +32,14 @@ impl Chat {
         window: &mut ducktape_view_guest::Window,
         cx: &mut Context<Self>,
     ) {
-        cx.notify();
         let choices = self.mention_choices();
         let key = target.key();
-        // the draft the frame drew; none is an event that came in the tick
-        // its composer left the screen
+        // the draft the frame drew; none is an event that came the tick
+        // after its composer left the screen
         let Some(draft) = self.drafts.get_mut(&key) else {
             return;
         };
+        cx.notify();
         if let Outcome::Action(tag) = draft.handle(event, &key, &choices, window)
             && tag == "send"
             && let Some(send) = draft.submitted.take()
@@ -49,13 +49,13 @@ impl Chat {
         }
     }
 
-    /// Makes the drafts agree with the screen, wherever the room or the
-    /// thread on it changes: every composer the next frame draws has its
-    /// draft, so the draft a frame lowers is the one that hears what is
-    /// typed into it, and render makes none. (An edit's is seeded where its
-    /// menu opens.) A draft whose composer is off screen stays while it
-    /// holds something: the map is saved whole, and must not grow with
-    /// every room ever opened.
+    /// Makes the drafts agree with the screen, before every frame: each
+    /// composer the frame draws has its stored draft, whatever wrote the
+    /// room, the thread or the menu, so the draft a frame lowers is the one
+    /// that hears what is typed into it. (An edit's is seeded with its
+    /// message where its menu opens.) A draft whose composer is off screen
+    /// stays while it holds something: the map is saved whole, and must
+    /// not grow with every room opened or every edit begun.
     pub(crate) fn seat_drafts(&mut self) {
         let mut shown = Vec::new();
         if let Some(room) = &self.room {
@@ -68,7 +68,7 @@ impl Chat {
         }
         shown.extend(self.editing().map(|target| target.key()));
         self.drafts
-            .retain(|key, draft| shown.contains(key) || !blank(draft));
+            .retain(|key, draft| shown.contains(key) || !spent(key, draft));
         for key in shown {
             self.drafts.entry(key).or_default();
         }
@@ -157,10 +157,12 @@ impl Chat {
     }
 }
 
-/// Nothing a reader would miss: the draft shows what a new one would.
-fn blank(draft: &Draft) -> bool {
-    draft.field.text().is_empty()
-        && draft.note.is_empty()
+/// Nothing a reader would miss in the draft kept under `key`: it holds no
+/// send, and shows what a new one would. For an edit that is whatever it
+/// holds: opening the edit seeds it with the message again.
+fn spent(key: &str, draft: &Draft) -> bool {
+    let unwritten = draft.field.text().is_empty() && draft.note.is_empty();
+    (unwritten || Target::edits(key))
         && draft.failed_send.is_none()
         && draft.submitted.is_none()
         && draft.in_flight.is_empty()
