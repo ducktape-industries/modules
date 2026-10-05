@@ -455,7 +455,8 @@ methods! {
     HostSession, "host.session", (), Session;
     /// `host.visible`: whether the view is on screen, an item per change.
     HostVisible, "host.visible", (), bool;
-    /// `host.badge`: the count on the view's tab.
+    /// `host.badge`: the count of things unread in the view, shown on its
+    /// tab (the app words it "N unread").
     HostBadge, "host.badge", i64, ();
     /// `link.open`: the one way out: a `duck://` link, opened in the
     /// app, or an `https://` one, handed to the system browser. Any other

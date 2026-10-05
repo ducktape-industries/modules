@@ -13,13 +13,38 @@ pub trait Render: 'static + Sized {
 /// A root view: everything the host reads about it (the manifest
 /// `export_view!` writes: [`NAME`](View::NAME), [`DESCRIPTION`](View::DESCRIPTION),
 /// [`CAPABILITIES`](View::CAPABILITIES), [`MIN_WINDOW_WIDTH`](View::MIN_WINDOW_WIDTH),
-/// [`TARGETS`](View::TARGETS)), how it is built ([`new`](View::new)) and
-/// how it joins the host ([`attach`](View::attach)).
+/// [`TARGETS`](View::TARGETS), [`ICON`](View::ICON)), how it is built
+/// ([`new`](View::new)) and how it joins the host ([`attach`](View::attach)).
 pub trait View: Render + Serialize + DeserializeOwned + Default {
     /// The name on the tab and in the catalog, `1..=64` bytes.
     const NAME: &'static str;
     /// One line for the catalog, at most 256 bytes.
     const DESCRIPTION: &'static str = "";
+    /// The view's icon where the app shows the view small (a tab on a
+    /// folded bar), named as `svg().path(..)` names an icon the app bundles
+    /// (`"icons/hammer.svg"`), at most 64 bytes. With none, the app shows
+    /// the name's initial. A path that could leave the app's bundled set
+    /// (a leading `/`, a `\` or `:`, an empty, `.` or `..` segment) does
+    /// not compile:
+    ///
+    /// ```compile_fail,E0080
+    /// # use serde::{Deserialize, Serialize};
+    /// # use ducktape_view_guest::{View, prelude::*};
+    /// #[derive(Default, Serialize, Deserialize)]
+    /// struct Outside;
+    /// impl View for Outside {
+    ///     const NAME: &'static str = "Outside";
+    ///     const ICON: &'static str = "../icons/hammer.svg";
+    /// }
+    /// # impl Render for Outside {
+    /// #     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    /// #         div()
+    /// #     }
+    /// # }
+    /// ducktape_view_guest::export_view!(Outside);
+    /// # fn main() {}
+    /// ```
+    const ICON: &'static str = "";
     /// The `<capability>` halves of the method kinds this view asks
     /// through, and the only ones the host lets it reach: a method whose
     /// capability is not here is refused `undeclared_capability`, by the

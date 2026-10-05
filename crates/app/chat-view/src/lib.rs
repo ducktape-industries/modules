@@ -37,6 +37,7 @@ impl View for Chat {
     const NAME: &'static str = "Chat";
     const DESCRIPTION: &'static str =
         "Channels, direct messages, threads, search and the live call of this workspace.";
+    const ICON: &'static str = "icons/messages-square.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Module,
         Capability::Op,

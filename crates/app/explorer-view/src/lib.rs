@@ -39,6 +39,7 @@ impl View for Explorer {
     const NAME: &'static str = "Explorer";
     const DESCRIPTION: &'static str =
         "The chain as this node keeps it: blocks, transactions, accounts and programs.";
+    const ICON: &'static str = "icons/compass.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
         Capability::Module,

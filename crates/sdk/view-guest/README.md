@@ -304,7 +304,10 @@ opened, so a test can pin that an event draws nothing.
 
 `View` (`src/view.rs`) is everything the host reads about a view, how it is
 built and how it joins the host: `NAME` (the tab and catalog name), `DESCRIPTION` (one
-catalog line, `""` by default), `CAPABILITIES` (the `methods::Capability`
+catalog line, `""` by default), `ICON` (its icon where the app shows it
+small, named as `svg().path(..)` names one the app bundles,
+`"icons/hammer.svg"`; `""` by default, and the app shows the name's
+initial), `CAPABILITIES` (the `methods::Capability`
 halves of the kinds it asks through, `&[]` by default: a method whose
 capability is not listed is refused `undeclared_capability`), `TARGETS` (the
 programs it addresses with `op.submit`, `module.query` and `module.changes`,
@@ -346,7 +349,7 @@ A child is not a `View`: it logs with `cx.host().log(..)`.
 `export_view!(View)` (`src/lib.rs`) writes the five wasm exports and the
 manifest section `ducktape.view.manifest` from the trait's consts
 (`view-wire/src/manifest.rs`: header, `NAME`, `DESCRIPTION`,
-`CAPABILITIES`, `MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`, `TARGETS`; the
+`CAPABILITIES`, `MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`, `TARGETS`, `ICON`; the
 line list is `manifest::LINES`, part of `schema.txt` and so of `WIRE_ID`).
 
 The ABI gate (`view-wire/src/abi.rs`, `tools/check-view-abi.py`): exactly one

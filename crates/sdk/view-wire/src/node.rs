@@ -55,8 +55,41 @@ pub enum SvgSource {
         #[serde(with = "crate::codec::bin")]
         bytes: Option<Vec<u8>>,
     },
+    /// A file of the set the host bundles (`icons/hammer.svg`); a host
+    /// draws it only if it is a [`safe_asset_path`].
     Asset(String),
     External(String),
+}
+
+/// Whether `path` names a file inside the set a host bundles
+/// (`icons/hammer.svg`) and nothing outside it: not empty, no leading `/`,
+/// no `\`, no `:`, and no empty, `.` or `..` segment. The one rule for an
+/// [`SvgSource::Asset`] and a manifest's `icon`.
+pub const fn safe_asset_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    // where the segment being read starts
+    let mut start = 0;
+    let mut i = 0;
+    while i <= bytes.len() {
+        if i == bytes.len() || bytes[i] == b'/' {
+            // an empty path and a leading, doubled or trailing `/` are each
+            // an empty segment
+            let outside = match i - start {
+                0 => true,
+                1 => bytes[start] == b'.',
+                2 => bytes[start] == b'.' && bytes[start + 1] == b'.',
+                _ => false,
+            };
+            if outside {
+                return false;
+            }
+            start = i + 1;
+        } else if matches!(bytes[i], b'\\' | b':') {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

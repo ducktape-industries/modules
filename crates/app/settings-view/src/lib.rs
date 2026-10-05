@@ -20,6 +20,7 @@ use ducktape_view_guest::prelude::*;
 impl View for Settings {
     const NAME: &'static str = "Account";
     const DESCRIPTION: &'static str = "Your account, its keys, the agents it manages, and invites.";
+    const ICON: &'static str = "icons/circle-user.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Module,
         Capability::Op,
