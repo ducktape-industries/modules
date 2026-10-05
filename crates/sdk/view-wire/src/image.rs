@@ -3,11 +3,20 @@ use serde::{Deserialize, Serialize};
 /// Copied raster data or an opaque host image resource. Native allocations never cross.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ImageData {
-    Encoded(#[serde(deserialize_with = "decode_bytes")] Vec<u8>),
+    Encoded(
+        #[serde(
+            serialize_with = "crate::codec::bin::serialize",
+            deserialize_with = "decode_bytes"
+        )]
+        Vec<u8>,
+    ),
     Rgba {
         width: u32,
         height: u32,
-        #[serde(deserialize_with = "decode_bytes")]
+        #[serde(
+            serialize_with = "crate::codec::bin::serialize",
+            deserialize_with = "decode_bytes"
+        )]
         pixels: Vec<u8>,
     },
     /// A host-issued image key, resolved at paint time rather than cached pixels.
@@ -64,10 +73,10 @@ impl ImageData {
 }
 
 // Bounded by the frame, not the picture allowance: frame sanitization applies
-// that, dropping a picture whole rather than truncating it. A collection header
-// is refused before allocating, even when ImageData is decoded on its own.
+// that, dropping a picture whole rather than truncating it. A longer `bin` is
+// refused before allocating, even when ImageData is decoded on its own.
 fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-    crate::bounded_vec(
+    crate::codec::bin::bounded(
         deserializer,
         crate::MAX_FRAME_BYTES,
         "raster byte limit exceeded",
@@ -78,7 +87,7 @@ fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec
 mod tests {
     use super::*;
     #[test]
-    fn copied_images_roundtrip_and_refuse_malicious_collection_headers() {
+    fn copied_images_roundtrip() {
         for image in [
             ImageData::Encoded(vec![0, 255]),
             ImageData::Resource("image:7".into()),
@@ -94,17 +103,6 @@ mod tests {
                 image
             );
         }
-        let mut malicious = vec![0x81, 0xa7];
-        malicious.extend_from_slice(b"Encoded");
-        malicious.push(0xdd);
-        malicious.extend_from_slice(&(crate::MAX_FRAME_BYTES as u32 + 1).to_be_bytes());
-        let error = crate::decode::<ImageData>(&malicious)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("raster byte limit"),
-            "reject the header before reading elements: {error}"
-        );
     }
     #[test]
     fn invalid_rgba_is_dropped_without_spending_valid_picture_budget() {

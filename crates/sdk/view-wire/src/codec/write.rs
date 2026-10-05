@@ -8,9 +8,13 @@
 //!   something.
 //! - An enum's variant is its declaration index: alone for a unit variant,
 //!   as the one key of a map for a variant that carries data.
+//! - Bytes are a `bin`, the bytes as they are, where the field says so
+//!   ([`bin`](super::bin)): serde has no way to tell a `Vec<u8>` from any
+//!   other sequence.
 //!
-//! `rmp-serde` reads all three: a derived `Deserialize` takes a struct from
-//! an array or a map, and a field or a variant by its index.
+//! `rmp-serde` reads the first three: a derived `Deserialize` takes a struct from
+//! an array or a map, and a field or a variant by its index. A `bin` is read
+//! by [`bin`](super::bin)'s own visitor.
 
 use serde::Serialize;
 use serde::ser;

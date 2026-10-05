@@ -208,6 +208,7 @@ pub enum Event {
     /// `done`; a subscription gets many, the last one `done`.
     Response {
         id: u64,
+        #[serde(with = "crate::codec::bin")]
         result: Result<Vec<u8>, Error>,
         done: bool,
     },
@@ -239,6 +240,7 @@ pub use ::error::{Error, code};
 pub struct Request {
     pub id: u64,
     pub kind: String,
+    #[serde(with = "crate::codec::bin")]
     pub payload: Vec<u8>,
 }
 

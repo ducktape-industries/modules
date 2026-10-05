@@ -1,6 +1,7 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
 
+pub(crate) mod bin;
 mod write;
 pub(crate) use write::SPARSE;
 
@@ -191,9 +192,11 @@ pub(crate) use sparse;
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, String> {
     budget::reset();
     canvas::reset_decode_budget();
-    let mut deserializer = rmp_serde::Deserializer::new(std::io::Cursor::new(bytes));
+    // The reader over the slice itself: a string or a `bin` is lent from
+    // `bytes` and copied once, into the value that keeps it.
+    let mut deserializer = rmp_serde::Deserializer::from_read_ref(bytes);
     let value = T::deserialize(&mut deserializer).map_err(|error| error.to_string())?;
-    if deserializer.position() != bytes.len() as u64 {
+    if !deserializer.remaining_slice().is_empty() {
         return Err("trailing MessagePack bytes".into());
     }
     Ok(value)

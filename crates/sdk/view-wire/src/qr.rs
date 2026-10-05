@@ -23,6 +23,7 @@ pub enum QrSize {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Qr {
+    #[serde(with = "crate::codec::bin")]
     pub payload: Option<Vec<u8>>,
     pub correction: Option<QrCorrection>,
     pub version: Option<QrVersion>,

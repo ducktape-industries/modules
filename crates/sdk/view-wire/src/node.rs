@@ -50,7 +50,11 @@ pub struct ImageStyle {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SvgSource {
     None,
-    Data { hash: u64, bytes: Option<Vec<u8>> },
+    Data {
+        hash: u64,
+        #[serde(with = "crate::codec::bin")]
+        bytes: Option<Vec<u8>>,
+    },
     Asset(String),
     External(String),
 }

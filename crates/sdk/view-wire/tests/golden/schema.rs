@@ -196,6 +196,28 @@ fn backgrounds(tracer: &mut Tracer) -> Format {
     trace::<gpui::Background>(tracer)
 }
 
+/// A `bin` as the tracer reads one. A reply's `Result` holds its bytes as
+/// a `bin` (`codec/bin.rs`), and a `Result` is whole only traced on its own:
+/// this stands where the crate's own reader does, and the trace refuses it
+/// if `Event::Response` reads anything else there.
+struct Bin;
+
+impl<'de> serde::Deserialize<'de> for Bin {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Bytes;
+        impl serde::de::Visitor<'_> for Bytes {
+            type Value = Bin;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("bytes")
+            }
+            fn visit_bytes<E: serde::de::Error>(self, _: &[u8]) -> Result<Bin, E> {
+                Ok(Bin)
+            }
+        }
+        deserializer.deserialize_bytes(Bytes)
+    }
+}
+
 /// What the tree's trace starts from: what crosses, and every enum of
 /// view-wire's, accesskit's and gpui's under it.
 const TREE: &[Trace] = &[
@@ -205,7 +227,7 @@ const TREE: &[Trace] = &[
     trace::<methods::Call>,
     trace::<Node>,
     trace::<Patch>,
-    trace::<Result<Vec<u8>, view_wire::Error>>,
+    trace::<Result<Bin, view_wire::Error>>,
     trace::<view_wire::ElementIdWire>,
     trace::<view_wire::Anchor>,
     trace::<view_wire::AnchoredFitMode>,
@@ -505,6 +527,33 @@ fn render(text: &mut String, registry: &Registry) {
             other => writeln!(text, "{name} {other:?}").unwrap(),
         }
     }
+}
+
+/// Bytes cross as a `bin`, one copy each way (`codec/bin.rs`). A byte field
+/// that does not say so would cross as an array of integers and be read an
+/// element at a time: the shape names it here, so it cannot be added
+/// without failing.
+#[test]
+fn no_bytes_cross_as_an_array_of_integers() {
+    let (tree, style) = tree();
+    let mut arrays = Vec::new();
+    for (name, container) in tree.iter().chain(&style) {
+        container
+            .visit(&mut |format| {
+                if let Format::Seq(content) | Format::TupleArray { content, .. } = format
+                    && **content == Format::U8
+                {
+                    arrays.push(name.as_str());
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+    assert!(
+        arrays.is_empty(),
+        "bytes that cross as an array of integers, in {arrays:?}: \
+         mark the field `#[serde(with = \"crate::codec::bin\")]`"
+    );
 }
 
 const MESSAGE: &str = "the wire's shape changed: if intended, regenerate with \
