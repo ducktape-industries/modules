@@ -22,10 +22,11 @@ pub trait View: Render + Serialize + DeserializeOwned + Default {
     const DESCRIPTION: &'static str = "";
     /// The view's icon where the app shows the view small (a tab on a
     /// folded bar), named as `svg().path(..)` names an icon the app bundles
-    /// (`"icons/hammer.svg"`), at most 64 bytes. With none, the app shows
-    /// the name's initial. A path that could leave the app's bundled set
-    /// (a leading `/`, a `\` or `:`, an empty, `.` or `..` segment) does
-    /// not compile:
+    /// (`"icons/hammer.svg"`), at most 64 bytes: the app bundles the Lucide
+    /// icons as `icons/<lucide name>.svg`. With none, or with a name the
+    /// app does not bundle, the app shows the name's initial. A path that
+    /// could leave the app's bundled set (a leading `/`, a `\` or `:`, an
+    /// empty, `.` or `..` segment) does not compile:
     ///
     /// ```compile_fail,E0080
     /// # use serde::{Deserialize, Serialize};

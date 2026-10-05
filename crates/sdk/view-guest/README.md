@@ -305,9 +305,9 @@ opened, so a test can pin that an event draws nothing.
 `View` (`src/view.rs`) is everything the host reads about a view, how it is
 built and how it joins the host: `NAME` (the tab and catalog name), `DESCRIPTION` (one
 catalog line, `""` by default), `ICON` (its icon where the app shows it
-small, named as `svg().path(..)` names one the app bundles,
-`"icons/hammer.svg"`; `""` by default, and the app shows the name's
-initial), `CAPABILITIES` (the `methods::Capability`
+small, named as `svg().path(..)` names one the app bundles, the Lucide set
+as `"icons/<lucide name>.svg"`; `""` by default, and then, or for a name the
+app lacks, the app shows the name's initial), `CAPABILITIES` (the `methods::Capability`
 halves of the kinds it asks through, `&[]` by default: a method whose
 capability is not listed is refused `undeclared_capability`), `TARGETS` (the
 programs it addresses with `op.submit`, `module.query` and `module.changes`,

@@ -65,9 +65,26 @@ pub const fn needs_targets(capabilities: &[Capability]) -> bool {
 }
 
 /// Whether `icon` is what a manifest's `icon` line may say: nothing, or a
-/// [`crate::safe_asset_path`] within its bound.
+/// [`crate::safe_asset_path`] within its bound and, as all of the
+/// manifest's text, with no control character.
 pub const fn is_icon(icon: &str) -> bool {
-    icon.is_empty() || (icon.len() <= MAX_ICON_BYTES && crate::safe_asset_path(icon))
+    icon.is_empty()
+        || (icon.len() <= MAX_ICON_BYTES && crate::safe_asset_path(icon) && !has_control(icon))
+}
+
+/// A control character (`char::is_control`) somewhere in `text`.
+const fn has_control(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // U+0080..=U+009F is `c2 80`..=`c2 9f`
+        let c1 = bytes[i] == 0xc2 && i + 1 < bytes.len() && matches!(bytes[i + 1], 0x80..=0x9f);
+        if bytes[i] < 0x20 || bytes[i] == 0x7f || c1 {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 /// Extracts exactly one current manifest from a view's core module.
@@ -337,6 +354,11 @@ mod tests {
         ] {
             assert!(parse(invalid).is_none(), "accepted {invalid:?}");
         }
+        // a view's build asks the same rule, before there is a text to parse
+        for control in ["a\nb", "a\tb", "a\u{7f}b", "a\u{85}b"] {
+            assert!(!is_icon(control), "accepted {control:?}");
+        }
+        assert!(is_icon("icons/\u{e9}.svg"));
     }
 
     // Claim: the wire id is short lowercase hex, so a host can show it in a
