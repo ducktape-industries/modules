@@ -671,8 +671,9 @@ impl Composite {
 /// [`block_link`]) leaves the Tab order here. A grid row is never an item:
 /// the claim goes on a cell, or on the one control inside it.
 pub fn item(mut element: Stateful<Div>, role: Role, active: bool) -> Stateful<Div> {
-    element.interactivity().focusable = false;
-    element.interactivity().tab_stop = None;
+    let interactions = element.interactivity().interactions();
+    interactions.focusable = false;
+    interactions.tab_stop = None;
     element
         .role(role)
         .when(active, |item| item.aria_active_descendant())
@@ -1010,11 +1011,8 @@ mod tests {
     }
 
     fn interactivity(node: &wire::Node) -> &wire::Interactivity {
-        match node {
-            wire::Node::Container(wire::ContainerNode { interactivity, .. })
-            | wire::Node::ResizeHandle { interactivity, .. } => interactivity,
-            other => panic!("no interactivity: {other:?}"),
-        }
+        node.interactivity()
+            .unwrap_or_else(|| panic!("no interactivity: {node:?}"))
     }
 
     fn faults(node: &wire::Node) -> Vec<wire::FaultKind> {
@@ -1074,8 +1072,8 @@ mod tests {
         // the style a node shows while it holds the keyboard
         let shown = |element: crate::AnyElement| {
             let (node, styles) = lower_styled(element);
-            interactivity(&node)
-                .focus_visible
+            node.interactivity()
+                .and_then(|interactivity| interactivity.focus_visible)
                 .map(|style| styles[style].clone())
         };
         let plain = button("save", "Save", &theme, |_, _, _| {});

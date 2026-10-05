@@ -69,7 +69,7 @@ impl Transformation {
 }
 
 pub struct Svg {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     source: Source,
     transformation: Transformation,
 }
@@ -80,7 +80,7 @@ pub struct Svg {
 #[track_caller]
 pub fn svg() -> Svg {
     Svg {
-        interactivity: Interactivity::default(),
+        interactivity: Box::default(),
         source: Source::None,
         transformation: Transformation::default(),
     }
@@ -128,8 +128,13 @@ impl Element for Svg {
             transformation,
         } = *self;
         let style = lowering.style(&interactivity.base_style);
-        let label = interactivity.aria.label.as_ref().map(ToString::to_string);
-        let (id, interactivity) = interactivity.into_wire(lowering);
+        let label = interactivity
+            .interactions
+            .as_ref()
+            .and_then(|interactions| interactions.aria.label.as_ref())
+            .map(ToString::to_string);
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
+        let interactivity = interactivity.into_wire(lowering);
         let source = match source {
             Source::None => wire::SvgSource::None,
             Source::Data(bytes) => {

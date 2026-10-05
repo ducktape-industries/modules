@@ -310,3 +310,61 @@ pub(super) fn gen_color(rng: &mut Rng) -> gpui::Hsla {
         a: gen_f32(rng),
     }
 }
+
+/// The bytes of a style entry are what a table tells two styles apart by,
+/// so the writer may change how it gets to them and never what they are.
+/// A corpus of styles, from the one that sets nothing to ones that set
+/// every bounded field, with nested refinements (an edge set, the text
+/// style) set, half set and emptied again, writes these bytes: their
+/// digest was taken from the writer that wrote each field and then removed
+/// the nested refinements that had set nothing.
+#[test]
+fn a_style_entry_is_the_same_bytes_however_the_writer_walks_it() {
+    use gpui::{Styled, px};
+    let mut corpus = vec![
+        StyleRefinement::default(),
+        StyleRefinement::default().opacity(0.5),
+        StyleRefinement::default().w(px(2.)),
+        StyleRefinement::default()
+            .flex()
+            .pt(px(1.))
+            .text_color(gpui::red()),
+    ];
+    let mut rng = Rng::new(0x5717);
+    for round in 0..256u32 {
+        let mut style = gen_native_style(&mut rng);
+        // a nested refinement left as it was, emptied, or holding one field
+        let mut emptied = |bit: u32, empty: &mut dyn FnMut(&mut StyleRefinement)| {
+            if round >> bit & 1 == 1 {
+                empty(&mut style);
+            }
+        };
+        emptied(0, &mut |style| style.inset = Default::default());
+        emptied(1, &mut |style| style.size = Default::default());
+        emptied(2, &mut |style| style.min_size.width = None);
+        emptied(3, &mut |style| style.margin = Default::default());
+        emptied(4, &mut |style| style.padding = Default::default());
+        emptied(5, &mut |style| style.border_widths.left = None);
+        emptied(6, &mut |style| style.corner_radii = Default::default());
+        emptied(7, &mut |style| style.text = Default::default());
+        emptied(0, &mut |style| style.gap = Default::default());
+        emptied(1, &mut |style| style.max_size = Default::default());
+        emptied(2, &mut |style| style.background = None);
+        emptied(3, &mut |style| style.box_shadow = None);
+        corpus.push(style);
+    }
+    // FNV-1a 64 over each entry's length and bytes
+    let mut digest = 0xcbf2_9ce4_8422_2325u64;
+    let mut feed = |bytes: &[u8]| {
+        for byte in bytes {
+            digest = (digest ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    for style in &corpus {
+        let entry = encode(&Style::new(style));
+        feed(&(entry.len() as u64).to_le_bytes());
+        feed(&entry);
+    }
+    assert_eq!(corpus.len(), 260);
+    assert_eq!(digest, 0xa384_0e9b_bfaf_0a93, "{digest:#018x}");
+}

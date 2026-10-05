@@ -230,7 +230,10 @@ fn every_key_is_one_row_validators_first() {
         "no membership, no address"
     );
     let Some(ducktape_view_guest::wire::Node::Container(
-        ducktape_view_guest::wire::ContainerNode { interactivity, .. },
+        ducktape_view_guest::wire::ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        },
     )) = cx.find("nodes-validators")
     else {
         panic!("group heading is a native container");

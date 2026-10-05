@@ -20,8 +20,8 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
     };
     assert_eq!(
         (
-            bar.interactivity.role,
-            bar.interactivity.aria.label.as_deref()
+            bar.interactivity.as_ref().unwrap().role,
+            bar.interactivity.as_ref().unwrap().aria.label.as_deref()
         ),
         (Some(ducktape_view_guest::Role::TabList), Some("Pages"))
     );
@@ -383,7 +383,7 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
     cx.run_until_parked();
     let name = |id: &str| match cx.find(id) {
         Some(ducktape_view_guest::wire::Node::Container(row)) => {
-            row.interactivity.aria.label.clone()
+            row.interactivity.as_ref().unwrap().aria.label.clone()
         }
         _ => panic!("no row {id}"),
     };

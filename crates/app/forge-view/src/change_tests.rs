@@ -97,14 +97,20 @@ fn the_change_header_carries_its_endpoints_and_a_merge_the_program_allows() {
     let Some(ducktape_view_guest::wire::Node::Container(node)) = cx.find("forge-merge") else {
         panic!("the merge button is a native container");
     };
-    assert!(node.interactivity.on_click.is_some());
-    assert_ne!(node.interactivity.aria.disabled, Some(true));
+    assert!(node.interactivity.as_ref().unwrap().on_click.is_some());
+    assert_ne!(
+        node.interactivity.as_ref().unwrap().aria.disabled,
+        Some(true)
+    );
     // The reader is not the author, so editing is closed to them.
     let Some(ducktape_view_guest::wire::Node::Container(edit)) = cx.find("forge-edit-change")
     else {
         panic!("the edit button stays visible")
     };
-    assert_eq!(edit.interactivity.aria.disabled, Some(true));
+    assert_eq!(
+        edit.interactivity.as_ref().unwrap().aria.disabled,
+        Some(true)
+    );
 }
 
 #[test]
@@ -120,8 +126,11 @@ fn a_diverged_comparison_says_why_it_cannot_merge() {
     let Some(ducktape_view_guest::wire::Node::Container(node)) = cx.find("forge-merge") else {
         panic!("the merge button stays visible");
     };
-    assert_eq!(node.interactivity.aria.disabled, Some(true));
-    assert!(node.interactivity.on_click.is_none());
+    assert_eq!(
+        node.interactivity.as_ref().unwrap().aria.disabled,
+        Some(true)
+    );
+    assert!(node.interactivity.as_ref().unwrap().on_click.is_none());
 }
 
 #[test]
@@ -347,7 +356,7 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
         panic!("the viewed tick");
     };
     assert_eq!(
-        tick.interactivity.aria.toggled,
+        tick.interactivity.as_ref().unwrap().aria.toggled,
         Some(true.into()),
         "checked"
     );
@@ -362,17 +371,20 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     // the row holds the tick beside its press; the shown file is current
     let row = super::control(&cx, "forge-file-src/lib.rs");
     assert_eq!(
-        row.interactivity.role,
+        row.interactivity.as_ref().unwrap().role,
         Some(ducktape_view_guest::Role::ListItem)
     );
-    assert!(!row.interactivity.focusable && row.interactivity.on_click.is_none());
+    assert!(
+        !row.interactivity.as_ref().unwrap().focusable
+            && row.interactivity.as_ref().unwrap().on_click.is_none()
+    );
     let open = super::control(&cx, "forge-file-src/lib.rs-open");
     assert_eq!(
-        open.interactivity.role,
+        open.interactivity.as_ref().unwrap().role,
         Some(ducktape_view_guest::Role::Button)
     );
     assert_eq!(
-        open.interactivity.aria.current,
+        open.interactivity.as_ref().unwrap().aria.current,
         Some(ducktape_view_guest::accesskit::AriaCurrent::True)
     );
     assert!(!super::holds(
@@ -415,10 +427,10 @@ fn the_diff_draws_typed_lines_and_believes_the_program_about_a_literal_plus_plus
         panic!("the gutter number is the comment button");
     };
     assert_eq!(
-        gutter.interactivity.aria.label.as_deref(),
+        gutter.interactivity.as_ref().unwrap().aria.label.as_deref(),
         Some("Comment on this line")
     );
-    assert!(gutter.interactivity.on_click.is_some());
+    assert!(gutter.interactivity.as_ref().unwrap().on_click.is_some());
 }
 
 /// Under a review the diff is one grid: ↓ moves to the next line with a
@@ -850,7 +862,11 @@ fn a_reader_without_write_gets_no_close_or_merge() {
         let Some(ducktape_view_guest::wire::Node::Container(node)) = cx.find(id) else {
             panic!("{id} is a native container");
         };
-        assert_eq!(node.interactivity.aria.disabled, Some(true), "{id}");
+        assert_eq!(
+            node.interactivity.as_ref().unwrap().aria.disabled,
+            Some(true),
+            "{id}"
+        );
     }
 }
 

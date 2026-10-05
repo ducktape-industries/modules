@@ -7,10 +7,10 @@ fn with_aria(aria: Aria) -> Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 aria,
                 ..Default::default()
-            }),
+            })),
             children: Vec::new(),
         })),
         ..Frame::default()
@@ -31,10 +31,10 @@ fn decode_refuses_more_consumed_keys_than_a_node_takes() {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 consumes_keys: vec!["escape".into(); keys],
                 ..Default::default()
-            }),
+            })),
             children: Vec::new(),
         })),
         ..Frame::default()
@@ -53,10 +53,10 @@ fn sanitize_refuses_a_consumed_key_gpui_cannot_read() {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 consumes_keys: keys.into_iter().map(Into::into).collect(),
                 ..Default::default()
-            }),
+            })),
             children: Vec::new(),
         })),
         ..Frame::default()
@@ -88,11 +88,11 @@ fn sanitize_refuses_a_consumed_click_with_no_click() {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 on_click,
                 consumes_click: true,
                 ..Default::default()
-            }),
+            })),
             children: Vec::new(),
         })),
         ..Frame::default()
@@ -134,7 +134,7 @@ fn sanitized(interactivity: Interactivity) -> Result<Interactivity, Refused> {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: PLAIN,
-            interactivity: Box::new(interactivity),
+            interactivity: Some(Box::new(interactivity)),
             children: Vec::new(),
         })),
         ..Frame::default()
@@ -143,7 +143,7 @@ fn sanitized(interactivity: Interactivity) -> Result<Interactivity, Refused> {
     let Some(Node::Container(ContainerNode { interactivity, .. })) = frame.root else {
         unreachable!("a container stays a container")
     };
-    Ok(*interactivity)
+    Ok(interactivity.map(|kept| *kept).unwrap_or_default())
 }
 
 fn aria(aria: Aria) -> Aria {
@@ -240,14 +240,14 @@ fn only_the_first_active_descendant_in_a_frame_is_kept() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
                     active_descendant: true,
                     ..Default::default()
                 },
                 ..Default::default()
-            }),
+            })),
             children: Vec::new(),
         })
     };
@@ -264,9 +264,10 @@ fn only_the_first_active_descendant_in_a_frame_is_kept() {
     let claims: Vec<bool> = frame.root.unwrap().children()[..]
         .iter()
         .map(|child| match child {
-            Node::Container(ContainerNode { interactivity, .. }) => {
-                interactivity.aria.active_descendant
-            }
+            Node::Container(ContainerNode {
+                interactivity: Some(interactivity),
+                ..
+            }) => interactivity.aria.active_descendant,
             _ => unreachable!("a container stays a container"),
         })
         .collect();
@@ -281,14 +282,14 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
                     active_descendant: true,
                     ..Default::default()
                 },
                 ..Default::default()
-            }),
+            })),
             children: Vec::new(),
         })
     };
@@ -296,11 +297,11 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 role: Some(gpui::Role::ListBox),
                 focusable: true,
                 ..Default::default()
-            }),
+            })),
             children: rows,
         })
     };
@@ -321,7 +322,7 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
     frame.root.unwrap().for_each_mut(&mut |node| {
         if let Node::Container(ContainerNode {
             id: Some(id),
-            interactivity,
+            interactivity: Some(interactivity),
             ..
         }) = node
             && interactivity.role == Some(gpui::Role::ListBoxOption)
@@ -349,14 +350,14 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 role: Some(gpui::Role::ListBoxOption),
                 aria: Aria {
                     active_descendant: true,
                     ..Default::default()
                 },
                 ..Default::default()
-            }),
+            })),
             children: Vec::new(),
         })
     };
@@ -364,10 +365,10 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 focusable: true,
                 ..Default::default()
-            }),
+            })),
             children: vec![row],
         })
     };
@@ -375,11 +376,11 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
         root: Some(Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name("pane".into())),
             style: PLAIN,
-            interactivity: Box::new(Interactivity {
+            interactivity: Some(Box::new(Interactivity {
                 role: Some(gpui::Role::Group),
                 focusable: true,
                 ..Default::default()
-            }),
+            })),
             children: vec![
                 box_("channels", option("general")),
                 box_("people", option("minseo")),
@@ -390,7 +391,10 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
     sanitize(&mut frame).unwrap();
     let mut claims = Vec::new();
     frame.root.unwrap().for_each_mut(&mut |node| {
-        if let Node::Container(ContainerNode { interactivity, .. }) = node
+        if let Node::Container(ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        }) = node
             && interactivity.role == Some(gpui::Role::ListBoxOption)
         {
             claims.push(interactivity.aria.active_descendant);
@@ -530,7 +534,7 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
         root: Some(Node::ResizeHandle {
             id: ElementIdWire::Name("divider".into()),
             style: PLAIN,
-            interactivity: Box::new(hostile()),
+            interactivity: Some(Box::new(hostile())),
             on_press: None,
             on_release: None,
             on_drag: None,
@@ -552,7 +556,7 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
                 scroll_handler: None,
                 range_start: 0,
                 style: PLAIN,
-                interactivity: Box::new(hostile()),
+                interactivity: Some(Box::new(hostile())),
                 children: Vec::new(),
             }),
         }),
@@ -573,6 +577,9 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
     } = *content
     else {
         unreachable!()
+    };
+    let (Some(handle), Some(list)) = (handle, list) else {
+        panic!("both keep their interactivity")
     };
     for interactivity in [handle, list] {
         assert_eq!(interactivity.role, None);

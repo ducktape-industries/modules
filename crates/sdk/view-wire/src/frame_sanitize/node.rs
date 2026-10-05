@@ -21,12 +21,30 @@ pub(super) fn sanitize_node(
         return Ok(());
     }
     let entered = scopes.enter(identity::segment(node.identity().cloned(), row))?;
-    if let Node::Container(crate::ContainerNode { interactivity, .. })
-    | Node::UniformList { interactivity, .. }
-    | Node::List { interactivity, .. }
-    | Node::ResizeHandle { interactivity, .. }
-    | Node::Image { interactivity, .. }
-    | Node::Svg { interactivity, .. } = node
+    if let Node::Container(crate::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })
+    | Node::UniformList {
+        interactivity: Some(interactivity),
+        ..
+    }
+    | Node::List {
+        interactivity: Some(interactivity),
+        ..
+    }
+    | Node::ResizeHandle {
+        interactivity: Some(interactivity),
+        ..
+    }
+    | Node::Image {
+        interactivity: Some(interactivity),
+        ..
+    }
+    | Node::Svg {
+        interactivity: Some(interactivity),
+        ..
+    } = node
     {
         sanitize_interactivity(interactivity, budgets)?;
         // gpui panics (debug) on a second claim under one focused node;

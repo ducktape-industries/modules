@@ -542,7 +542,10 @@ fn the_first_row_is_active_before_a_choice_and_end_selects_the_last() {
 fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
     let (mut cx, _) = ready();
     let of = |cx: &TestAppContext, key: &str| match cx.find(key) {
-        Some(Node::Container(ContainerNode { interactivity, .. })) => interactivity.clone(),
+        Some(Node::Container(ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        })) => interactivity.clone(),
         _ => panic!("{key} is a container"),
     };
     let list = of(&cx, "members-list");
@@ -622,7 +625,10 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
 fn a_row_is_named_by_the_member_not_the_avatar() {
     let (cx, _) = ready();
     let aria = |key: &str| match cx.find(key) {
-        Some(Node::Container(ContainerNode { interactivity, .. })) => interactivity.aria.clone(),
+        Some(Node::Container(ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        })) => interactivity.aria.clone(),
         _ => panic!("{key} is a container"),
     };
     for (number, name, description) in [
@@ -648,8 +654,10 @@ fn a_managed_agent_is_named_by_the_agent_not_the_avatar() {
         (9, "scout", "account 9 · Agent · active"),
         (10, "relay", "account 10 · Agent · revoked"),
     ] {
-        let Some(Node::Container(ContainerNode { interactivity, .. })) =
-            cx.find(&format!("members-manages-{number}"))
+        let Some(Node::Container(ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        })) = cx.find(&format!("members-manages-{number}"))
         else {
             panic!("members-manages-{number} is a container")
         };

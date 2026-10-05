@@ -108,6 +108,40 @@ pub struct Interactivity {
 
 crate::codec::sparse!(Interactivity);
 
+/// A node's interactivity as it crosses: a node that declares none holds
+/// none, and on the wire that is the sparse struct with no field in it,
+/// which is what a node that sets no field writes too. So the reader hands
+/// back `None` for both, and the bytes do not say which the writer held.
+pub(crate) mod optional {
+    use super::Interactivity;
+    use serde::ser::SerializeStruct;
+    use serde::{Deserializer, Serialize, Serializer};
+
+    struct NoField;
+    impl Serialize for NoField {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.serialize_struct("Interactivity", 0)?.end()
+        }
+    }
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<Box<Interactivity>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(interactivity) => interactivity.serialize(serializer),
+            None => serializer.serialize_newtype_struct(crate::codec::SPARSE, &NoField),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Box<Interactivity>>, D::Error> {
+        let read = <Interactivity as serde::Deserialize>::deserialize(deserializer)?;
+        Ok((read != Interactivity::default()).then(|| Box::new(read)))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GroupRefinement {
     pub group: SharedString,
@@ -115,6 +149,15 @@ pub struct GroupRefinement {
 }
 
 impl Interactivity {
+    /// What a node that declares no interactivity says: nothing, in every
+    /// field. For a reader that takes a node's interactivity whether it
+    /// holds one or not.
+    pub fn none() -> &'static Self {
+        static NONE: std::sync::LazyLock<Interactivity> =
+            std::sync::LazyLock::new(Default::default);
+        &NONE
+    }
+
     /// The seven conditional styles, each where it is set: every style
     /// besides its own that a node names.
     pub(crate) fn style_slots(&mut self) -> impl Iterator<Item = &mut StyleId> {

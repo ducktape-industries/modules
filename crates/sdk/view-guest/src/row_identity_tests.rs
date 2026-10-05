@@ -34,7 +34,9 @@ fn row(index: usize, log: &Log) -> AnyElement {
 /// The `open` buttons' click routes, in tree order.
 fn opens(node: &wire::Node, out: &mut Vec<u32>) {
     if let wire::Node::Container(wire::ContainerNode {
-        interactivity, id, ..
+        interactivity: Some(interactivity),
+        id,
+        ..
     }) = node
         && id.as_ref().and_then(wire::ElementIdWire::name) == Some("open")
     {

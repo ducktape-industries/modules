@@ -14,7 +14,7 @@ pub struct Sensor {
     child: AnyElement,
     on_show: Option<EventListener<(Pixels, Pixels)>>,
     on_resize: Option<EventListener<(Pixels, Pixels)>>,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
 }
 
 pub fn sensor(id: impl Into<ElementId>, child: impl IntoElement) -> Sensor {
@@ -23,7 +23,7 @@ pub fn sensor(id: impl Into<ElementId>, child: impl IntoElement) -> Sensor {
         child: child.into_any_element(),
         on_show: None,
         on_resize: None,
-        style: StyleRefinement::default(),
+        style: Box::default(),
     }
 }
 
@@ -79,14 +79,14 @@ impl Styled for Sensor {
 }
 
 pub struct ResizeHandle {
-    interactivity: Interactivity,
+    interactivity: Box<Interactivity>,
     child: AnyElement,
     on_drag: Option<EventListener<(Pixels, Pixels)>>,
     cursor: Option<CursorStyle>,
 }
 
 pub fn resize_handle(id: impl Into<ElementId>, child: impl IntoElement) -> ResizeHandle {
-    let mut interactivity = Interactivity::default();
+    let mut interactivity = Box::<Interactivity>::default();
     interactivity.id = Some(id.into());
     ResizeHandle {
         interactivity,
@@ -132,9 +132,9 @@ impl Element for ResizeHandle {
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let style = lowering.style(&self.interactivity.base_style);
-        let (id, interactivity) = self.interactivity.into_wire(lowering);
+        let interactivity = self.interactivity.into_wire(lowering);
         wire::Node::ResizeHandle {
-            id: id.expect("a resize handle has an id"),
+            id: lowering.own_id(),
             on_press: None,
             on_release: None,
             on_drag: self
@@ -153,7 +153,7 @@ pub struct ModalOverlay {
     base: AnyElement,
     modal: Option<AnyElement>,
     label: String,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
     backdrop: Hsla,
     on_dismiss: Option<EventListener<()>>,
 }
@@ -183,7 +183,7 @@ pub fn modal_overlay(
         base: base.into_any_element(),
         modal: modal.map(IntoElement::into_any_element),
         label,
-        style: StyleRefinement::default(),
+        style: Box::default(),
         backdrop: Hsla::transparent_black(),
         on_dismiss: None,
     }

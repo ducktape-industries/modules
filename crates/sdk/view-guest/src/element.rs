@@ -90,6 +90,10 @@ impl Element for AnyElement {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         self.0.lower(lowering)
     }
+
+    fn into_any(self) -> AnyElement {
+        self
+    }
 }
 
 impl IntoElement for AnyElement {
@@ -196,10 +200,11 @@ impl<'a> Lowering<'a> {
         let segment = wire::identity::segment(element.id().map(wire_id), row);
         let entered = segment.is_some();
         if let Some(segment) = segment {
+            slots::enter_scope(&self.app.inner.slots, segment.clone());
             self.authored_path.push(segment);
-            slots::enter_scope(&self.app.inner.slots);
         }
-        let node = Element::lower(Box::new(element), self);
+        // the box an `AnyElement` already is, or the one box an element gets
+        let node = element.into_any().0.lower(self);
         debug_assert!(
             defers
                 || wire::identity::segment(node.identity().cloned(), row).as_ref()
@@ -240,13 +245,22 @@ impl<'a> Lowering<'a> {
         &self.authored_path
     }
 
+    /// The id of the identified element being lowered, as the wire carries
+    /// it: the segment it was filed under when its lowering began.
+    pub(crate) fn own_id(&self) -> wire::ElementIdWire {
+        self.authored_path
+            .last()
+            .cloned()
+            .expect("an identified element lowers inside its authored scope")
+    }
+
     /// A route for a listener of `kind` on the element being lowered.
     pub(crate) fn route<A: 'static>(
         &self,
         kind: slots::Kind,
         listener: impl Fn(&A, &mut Window, &mut App) + 'static,
     ) -> u32 {
-        slots::route(&self.app.inner.slots, &self.authored_path, kind, listener)
+        slots::route(&self.app.inner.slots, kind, listener)
     }
 
     pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
@@ -254,18 +268,18 @@ impl<'a> Lowering<'a> {
     }
 
     pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
-        slots::tooltip(&self.app.inner.slots, &self.authored_path, build)
+        slots::tooltip(&self.app.inner.slots, build)
     }
 
     pub(crate) fn rich_text_tooltip(&self, build: slots::RichTextTooltipBuilder) -> u32 {
-        slots::rich_text_tooltip(&self.app.inner.slots, &self.authored_path, build)
+        slots::rich_text_tooltip(&self.app.inner.slots, build)
     }
 }
 
 /// A guest container backed by a real GPUI style refinement.
 #[derive(Default)]
 pub struct Div {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     children: Vec<AnyElement>,
 }
 
@@ -285,18 +299,12 @@ impl Element for Div {
             mut interactivity,
             children,
         } = *self;
-        let id = interactivity.id.as_ref().map(|_| {
-            lowering
-                .current_path()
-                .last()
-                .cloned()
-                .expect("identified div must lower inside its authored scope")
-        });
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
         if id.is_some() {
             bar_gutter(&mut interactivity.base_style);
         }
         let style = lowering.style(&interactivity.base_style);
-        let (_, wire_interactivity) = interactivity.into_wire(lowering);
+        let wire_interactivity = interactivity.into_wire(lowering);
         let children = children
             .into_iter()
             .map(|child| lowering.lower_element(child))
@@ -354,7 +362,7 @@ pub struct Input {
     options: wire::InputOptions,
     secure: bool,
     claims: Vec<wire::KeyClaim>,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
     on_change: Option<EventListener<wire::TextChange>>,
     on_key: Option<EventListener<gpui::KeyDownEvent>>,
     on_submit: Option<EventListener<()>>,
@@ -373,7 +381,7 @@ impl Input {
             },
             secure: false,
             claims: Vec::new(),
-            style: StyleRefinement::default(),
+            style: Box::default(),
             on_change: None,
             on_key: None,
             on_submit: None,

@@ -134,7 +134,9 @@ fn a_resize_handle_carries_role_name_focus_and_keys_to_the_wire() {
         .on_key_down(|_, _, _| {});
     let node = crate::Lowering::new(&mut window, &mut app).lower(handle);
     let wire::Node::ResizeHandle {
-        id, interactivity, ..
+        id,
+        interactivity: Some(interactivity),
+        ..
     } = node
     else {
         panic!("a resize handle")

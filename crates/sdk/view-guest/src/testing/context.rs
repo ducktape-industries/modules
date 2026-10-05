@@ -322,9 +322,15 @@ impl TestAppContext {
     /// The role, aria, focus and routes of the node `key` names, which
     /// must be one of the kinds that carry them.
     pub fn interactivity(&self, key: &str) -> &Interactivity {
-        self.node(key)
-            .interactivity()
-            .unwrap_or_else(|| panic!("{key:?} carries no interactivity"))
+        match self.node(key) {
+            node @ (Node::Container(_)
+            | Node::UniformList { .. }
+            | Node::List { .. }
+            | Node::ResizeHandle { .. }
+            | Node::Image { .. }
+            | Node::Svg { .. }) => node.interactivity().unwrap_or(Interactivity::none()),
+            _ => panic!("{key:?} carries no interactivity"),
+        }
     }
     /// The node that holds the keyboard, if any does.
     pub fn focused(&self) -> Option<&Node> {

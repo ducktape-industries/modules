@@ -150,9 +150,10 @@ pub(crate) fn authored_path(chain: &[&Node]) -> Vec<crate::wire::ElementIdWire> 
 /// The button whose key, label or accessible name is `name`.
 pub(crate) fn button<'a>(root: &'a Node, name: &str) -> Option<Vec<&'a Node>> {
     chain(root, &mut |chain| match chain.last().unwrap() {
-        node @ Node::Container(crate::wire::ContainerNode { interactivity, .. })
-            if interactivity.on_click.is_some() =>
-        {
+        node @ Node::Container(crate::wire::ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        }) if interactivity.on_click.is_some() => {
             let mut labels = Vec::new();
             collect_texts(node, &mut labels);
             node.key() == Some(name)

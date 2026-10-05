@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct ContainerNode {
     pub id: Option<ElementIdWire>,
     pub style: StyleId,
-    pub interactivity: Box<Interactivity>,
+    #[serde(with = "crate::style::optional")]
+    pub interactivity: Option<Box<Interactivity>>,
     pub children: Vec<Node>,
 }
 

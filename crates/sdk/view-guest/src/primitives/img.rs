@@ -48,7 +48,7 @@ pub trait StyledImage: Sized {
 }
 
 pub struct Img {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     source: ImageSource,
     image_style: ImageStyle,
 }
@@ -56,7 +56,7 @@ pub struct Img {
 #[track_caller]
 pub fn img(source: impl Into<ImageSource>) -> Img {
     Img {
-        interactivity: Interactivity::default(),
+        interactivity: Box::default(),
         source: source.into(),
         image_style: ImageStyle::default(),
     }
@@ -105,8 +105,13 @@ impl Element for Img {
             image_style,
         } = *self;
         let style = lowering.style(&interactivity.base_style);
-        let label = interactivity.aria.label.as_ref().map(ToString::to_string);
-        let (id, interactivity) = interactivity.into_wire(lowering);
+        let label = interactivity
+            .interactions
+            .as_ref()
+            .and_then(|interactions| interactions.aria.label.as_ref())
+            .map(ToString::to_string);
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
+        let interactivity = interactivity.into_wire(lowering);
         let (hash, data) = image_data(source, lowering);
         let loading = image_style.loading.is_some();
         let fallback = image_style.fallback.is_some();

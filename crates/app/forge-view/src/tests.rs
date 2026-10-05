@@ -500,7 +500,8 @@ pub(crate) fn opened_as(mode: &'static str, account: u64) -> (TestAppContext, En
 
 fn disabled(cx: &TestAppContext, id: &str) -> bool {
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
-        interactivity, ..
+        interactivity: Some(interactivity),
+        ..
     })) = cx.find(id)
     else {
         panic!("{id} button")
@@ -1023,7 +1024,7 @@ fn a_folder_row_is_named_without_its_glyph() {
     cx.simulate_click("forge-tab-code");
     cx.run_until_parked();
     let aria = |cx: &TestAppContext| match cx.find("forge-tree-src") {
-        Some(wire::Node::Container(row)) => row.interactivity.aria.clone(),
+        Some(wire::Node::Container(row)) => row.interactivity.as_ref().unwrap().aria.clone(),
         _ => panic!("the src row"),
     };
     let shut = aria(&cx);
@@ -1064,7 +1065,10 @@ fn the_tree_walks_by_keyboard() {
     let Some(wire::Node::Container(row)) = cx.find("forge-tree-src") else {
         panic!("the src row");
     };
-    assert!(row.interactivity.aria.active_descendant && !row.interactivity.focusable);
+    assert!(
+        row.interactivity.as_ref().unwrap().aria.active_descendant
+            && !row.interactivity.as_ref().unwrap().focusable
+    );
     press(&mut cx, Key::Right);
     view.read(|forge| assert!(forge.nav().expanded.contains(b"src".as_slice())));
     press(&mut cx, Key::Right);
@@ -1482,16 +1486,25 @@ pub(crate) fn holds(node: &wire::Node, key: &str) -> bool {
 fn a_repository_row_is_a_grid_row_whose_press_is_a_button_beside_its_controls() {
     let (cx, _view) = booted("default");
     let row = control(&cx, "forge-repo-project");
-    assert_eq!(row.interactivity.role, Some(ducktape_view_guest::Role::Row));
-    assert!(!row.interactivity.focusable && row.interactivity.on_click.is_none());
+    assert_eq!(
+        row.interactivity.as_ref().unwrap().role,
+        Some(ducktape_view_guest::Role::Row)
+    );
+    assert!(
+        !row.interactivity.as_ref().unwrap().focusable
+            && row.interactivity.as_ref().unwrap().on_click.is_none()
+    );
     let open = control(&cx, "forge-repo-project-open");
     assert_eq!(
-        open.interactivity.role,
+        open.interactivity.as_ref().unwrap().role,
         Some(ducktape_view_guest::Role::Button)
     );
     // the grid holds the focus; its first row's press is active on entry
-    assert!(!open.interactivity.focusable && open.interactivity.on_click.is_some());
-    assert!(open.interactivity.aria.active_descendant);
+    assert!(
+        !open.interactivity.as_ref().unwrap().focusable
+            && open.interactivity.as_ref().unwrap().on_click.is_some()
+    );
+    assert!(open.interactivity.as_ref().unwrap().aria.active_descendant);
     let open = wire::Node::Container(open);
     for sibling in ["forge-repo-project-copy", "forge-repo-project-activity"] {
         assert!(!holds(&open, sibling), "{sibling} is inside the press");

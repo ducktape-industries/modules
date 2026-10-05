@@ -15,7 +15,7 @@ fn el(key: &str, interactivity: Interactivity, children: Vec<Node>) -> Node {
     Node::Container(ContainerNode {
         id: Some(ElementIdWire::Name(key.into())),
         style: StyleId(0),
-        interactivity: Box::new(interactivity),
+        interactivity: Some(Box::new(interactivity)),
         children,
     })
 }
@@ -100,7 +100,7 @@ fn handle(interactivity: Interactivity) -> Node {
     Node::ResizeHandle {
         id: ElementIdWire::Name("divider".into()),
         style: StyleId(0),
-        interactivity: Box::new(interactivity),
+        interactivity: Some(Box::new(interactivity)),
         on_press: None,
         on_release: None,
         on_drag: Some(1),
@@ -123,7 +123,7 @@ fn image(interactivity: Interactivity, label: Option<&str>) -> Node {
         fallback: false,
         state_children: Vec::new(),
         style: StyleId(0),
-        interactivity: Box::new(interactivity),
+        interactivity: Some(Box::new(interactivity)),
     }
 }
 
@@ -714,7 +714,11 @@ fn a_roleless_focusable_box_between_two_claims_does_not_restart_the_budget() {
 #[test]
 fn a_keyed_composite_out_of_the_tab_order_fails() {
     let mut list = rooms(Some(2));
-    let Node::Container(ContainerNode { interactivity, .. }) = &mut list else {
+    let Node::Container(ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    }) = &mut list
+    else {
         unreachable!()
     };
     interactivity.tab_stop = Some(false);

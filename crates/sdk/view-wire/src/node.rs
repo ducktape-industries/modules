@@ -105,7 +105,8 @@ pub enum Node {
         path: Vec<ElementIdWire>,
         route: u32,
         style: StyleId,
-        interactivity: Box<Interactivity>,
+        #[serde(with = "crate::style::optional")]
+        interactivity: Option<Box<Interactivity>>,
         count: usize,
         measure_index: usize,
         sizing: crate::list::UniformListSizing,
@@ -139,7 +140,8 @@ pub enum Node {
         scroll_handler: Option<u32>,
         range_start: usize,
         style: StyleId,
-        interactivity: Box<Interactivity>,
+        #[serde(with = "crate::style::optional")]
+        interactivity: Option<Box<Interactivity>>,
         children: Vec<Node>,
     },
     Container(ContainerNode),
@@ -147,7 +149,8 @@ pub enum Node {
     ResizeHandle {
         id: ElementIdWire,
         style: StyleId,
-        interactivity: Box<Interactivity>,
+        #[serde(with = "crate::style::optional")]
+        interactivity: Option<Box<Interactivity>>,
         on_press: Option<u32>,
         on_release: Option<u32>,
         on_drag: Option<u32>,
@@ -181,7 +184,8 @@ pub enum Node {
         fallback: bool,
         state_children: Vec<Node>,
         style: StyleId,
-        interactivity: Box<Interactivity>,
+        #[serde(with = "crate::style::optional")]
+        interactivity: Option<Box<Interactivity>>,
     },
     /// A vector picture. Its bytes cross ONCE: the frame that first shows a
     /// picture carries them under `hash`, and every frame after — a changed
@@ -194,7 +198,8 @@ pub enum Node {
         transformation: SvgTransformation,
         label: Option<String>,
         style: StyleId,
-        interactivity: Box<Interactivity>,
+        #[serde(with = "crate::style::optional")]
+        interactivity: Option<Box<Interactivity>>,
     },
     /// A text field, one line or many, whose text the host's editing engine
     /// owns. `value`, `cursor` and `tokens` are the guest's copy: the host
