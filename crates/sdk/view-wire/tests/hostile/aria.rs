@@ -578,7 +578,10 @@ fn list_and_resize_handle_interactivity_is_sanitized() {
     else {
         unreachable!()
     };
-    for interactivity in [handle, list].into_iter().flatten() {
+    let (Some(handle), Some(list)) = (handle, list) else {
+        panic!("both keep their interactivity")
+    };
+    for interactivity in [handle, list] {
         assert_eq!(interactivity.role, None);
         assert_eq!(interactivity.aria.live, None);
         check_native_style(&styles[interactivity.focus.unwrap()]);
