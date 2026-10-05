@@ -376,8 +376,8 @@ node off that path fails the test. A click goes out from the node pressed
 through every node around it with a click, as gpui passes it, until one
 consumes it (`consumes_click`), hides what is behind it (`occlude`), or the
 press leaves a dialog's layer. A field's text is the host's: it takes a
-frame's text when the field is new or its generation moved, telling the
-view what it took, and `simulate_input` types into the text it holds; a
+frame's text when the field is new or its generation moved, and tells the
+view when what it took differs; `simulate_input` types into that text; a
 field drawn from a `TextField` made in `render` is a new generation every
 frame, and loses what is typed. The view opens in a pane the size the
 app gives a new window (`testing::VIEWPORT`; `simulate_resize` moves it,

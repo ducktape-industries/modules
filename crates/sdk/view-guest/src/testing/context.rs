@@ -93,6 +93,11 @@ pub struct TestAppContext {
 /// One field's text in the host's engine: the engine owns it, and the view's
 /// copy in a frame only follows. `generation` is the view's document the
 /// engine took its text from.
+///
+/// Narrower than the app's host: it tells the view of a text it adopted
+/// only when the text differs (the app also when the cursor or the preedit
+/// does), keeps one revision and one edit log for all fields, forgets every
+/// field on a restore, and has no IME.
 struct HostField {
     generation: u64,
     text: String,
