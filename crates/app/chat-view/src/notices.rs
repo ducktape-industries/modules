@@ -83,48 +83,43 @@ impl Chat {
     ) {
         let fresh = (head - was).min(MAX_NEW);
         let viewer = self.viewer();
-        cx.spawn(async move |this, cx| {
-            let host = cx.host();
-            let asked = host
-                .query(chat::ask::MessagesAround {
-                    channel_id: channel.clone(),
-                    seq: head,
-                    viewer,
-                    page: chat::PageRequest {
-                        after: None,
-                        limit: Some(fresh * 2),
-                    },
+        let asked = cx.host().query(chat::ask::MessagesAround {
+            channel_id: channel.clone(),
+            seq: head,
+            viewer,
+            page: chat::PageRequest {
+                after: None,
+                limit: Some(fresh * 2),
+            },
+        });
+        cx.land(asked, move |chat, asked, cx| {
+            cx.notify();
+            let rows = match asked {
+                Ok(rows) => rows,
+                Err(refusal) => return cx.log_refused("news", &refusal),
+            };
+            let empty = Names::default();
+            let names = chat.names.ready().unwrap_or(&empty);
+            let name = chat
+                .info(&channel)
+                .map(|info| info.channel.name.clone())
+                .unwrap_or_default();
+            let posts: Vec<(u64, Notification)> = rows
+                .iter()
+                .filter(|row| row.seq > was && row.seq <= head)
+                .filter_map(|row| {
+                    notice(row, me, &name, &chat.session.chain_id, names)
+                        .map(|post| (row.seq, post))
                 })
-                .await;
-            let _ = this.update(cx, |chat, cx| {
-                cx.notify();
-                let rows = match asked {
-                    Ok(rows) => rows,
-                    Err(refusal) => return cx.log_refused("news", &refusal),
-                };
-                let empty = Names::default();
-                let names = chat.names.ready().unwrap_or(&empty);
-                let name = chat
-                    .info(&channel)
-                    .map(|info| info.channel.name.clone())
-                    .unwrap_or_default();
-                let posts: Vec<(u64, Notification)> = rows
-                    .iter()
-                    .filter(|row| row.seq > was && row.seq <= head)
-                    .filter_map(|row| {
-                        notice(row, me, &name, &chat.session.chain_id, names)
-                            .map(|post| (row.seq, post))
-                    })
-                    .collect();
-                if posts.is_empty() || chat.viewing().as_deref() == Some(channel.as_str()) {
-                    return;
-                }
-                *chat.attention.entry(channel).or_default() += posts.len() as i64;
-                for (_, post) in posts.into_iter().filter(|(seq, _)| *seq > seen) {
-                    cx.host().notify::<NotifyPost>(post);
-                }
-                chat.settle_badge(cx);
-            });
+                .collect();
+            if posts.is_empty() || chat.viewing().as_deref() == Some(channel.as_str()) {
+                return;
+            }
+            *chat.attention.entry(channel).or_default() += posts.len() as i64;
+            for (_, post) in posts.into_iter().filter(|(seq, _)| *seq > seen) {
+                cx.host().notify::<NotifyPost>(post);
+            }
+            chat.settle_badge(cx);
         })
         .detach();
     }

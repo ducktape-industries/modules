@@ -120,7 +120,7 @@ pub struct Search {
     pub(crate) more_loading: bool,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq)]
 pub struct Hits {
     pub(crate) rows: Vec<MsgRow>,
     pub(crate) capped: bool,

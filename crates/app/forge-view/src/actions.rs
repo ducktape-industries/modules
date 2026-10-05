@@ -55,25 +55,22 @@ impl Forge {
             progress: Progress::Submitting,
         });
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx.host().ask::<SubmitForge>(op).await;
-            // the view is gone: nobody is waiting on this row
-            let _ = this.update(cx, |forge, cx| {
-                cx.notify();
-                let Some(op) = forge.pending.iter_mut().find(|op| op.id == id) else {
-                    return;
-                };
-                match result {
-                    Ok(_) => {
-                        op.progress = Progress::Accepted;
-                        if let Some(key) = &review {
-                            forge.reviews.remove(key);
-                        }
-                        forge.refresh(cx);
+        let submit = cx.host().ask::<SubmitForge>(op);
+        cx.land(submit, move |forge, result, cx| {
+            cx.notify();
+            let Some(op) = forge.pending.iter_mut().find(|op| op.id == id) else {
+                return;
+            };
+            match result {
+                Ok(_) => {
+                    op.progress = Progress::Accepted;
+                    if let Some(key) = &review {
+                        forge.reviews.remove(key);
                     }
-                    Err(refusal) => op.progress = Progress::Refused(refusal.message),
+                    forge.refresh(cx);
                 }
-            });
+                Err(refusal) => op.progress = Progress::Refused(refusal.message),
+            }
         })
         .detach();
     }
@@ -335,28 +332,25 @@ impl Forge {
         let channel = change.channel.clone();
         self.reply.reset("");
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            let host = cx.host();
-            let result = async {
-                let message_id = host.ask::<HostId>("message".into()).await?;
-                host.ask::<Submit<::chat::Chat>>(chat::Op::PostMessage {
-                    channel_id: channel,
-                    message_id,
-                    blocks: chat::parse_message(&text),
-                    thread: None,
-                })
-                .await
-            }
-            .await;
-            let _ = this.update(cx, |forge, cx| {
-                cx.notify();
-                match result {
-                    Ok(_) => forge.refresh(cx),
-                    Err(refusal) => {
-                        forge.notice = format!("That didn’t go through: {}", refusal.message)
-                    }
+        let host = cx.host();
+        let post = async move {
+            let message_id = host.ask::<HostId>("message".into()).await?;
+            host.ask::<Submit<::chat::Chat>>(chat::Op::PostMessage {
+                channel_id: channel,
+                message_id,
+                blocks: chat::parse_message(&text),
+                thread: None,
+            })
+            .await
+        };
+        cx.land(post, |forge, result, cx| {
+            cx.notify();
+            match result {
+                Ok(_) => forge.refresh(cx),
+                Err(refusal) => {
+                    forge.notice = format!("That didn’t go through: {}", refusal.message)
                 }
-            });
+            }
         })
         .detach();
     }

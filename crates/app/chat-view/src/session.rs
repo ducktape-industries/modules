@@ -72,19 +72,13 @@ impl Chat {
 
     /// The roster's names, read again with the ones on screen kept.
     pub(crate) fn load_names(&mut self, cx: &mut Context<Self>) {
-        cx.reload(&mut self.names, roster(cx.host()), |chat| &mut chat.names);
+        cx.load(self, roster(cx.host()), |chat| &mut chat.names);
     }
 
     pub(crate) fn load_channels(&mut self, cx: &mut Context<Self>) {
-        let list = channels(cx.host());
-        let task = cx.spawn(async move |this, cx| {
-            let result = list.await;
-            let _ = this.update(cx, |chat, cx| {
-                chat.channels = Loadable::from(result);
-                cx.notify();
-            });
-        });
-        self.channels = Loadable::Loading(task);
+        // a link that came back: the sidebar says the rooms are loading
+        self.channels = Loadable::Idle;
+        cx.load(self, channels(cx.host()), |chat| &mut chat.channels);
     }
 
     /// The reader's account number, as the host resolved it.

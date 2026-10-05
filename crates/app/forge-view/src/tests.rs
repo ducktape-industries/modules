@@ -436,6 +436,68 @@ fn a_refused_conversation_is_asked_again_with_each_block_until_it_answers() {
     assert!(cx.has_text("Reading it now"), "{:?}", cx.texts());
 }
 
+/// Another key takes the seat while a change's conversation is open.
+/// forge's own lines are told by their author, whom the roster names, so
+/// the names shown for the key before are not kept under the new one: the
+/// conversation says it is being read until the roster lands again.
+/// (`session_changed` blanks `names` on purpose; `load` alone would keep
+/// them.)
+#[test]
+fn a_reader_change_shows_the_conversation_being_read_until_the_names_land() {
+    use ducktape_view_guest::methods::Method;
+    let mut cx = TestAppContext::new();
+    configure(&mut cx, "default");
+    let props = cx.host().stream::<HostSession>();
+    let view = cx.open::<Forge>();
+    let seat = |key: &[u8]| Session {
+        signer: abi::hex(key),
+        account: Some(2),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    };
+    props.send(seat(b"reviewer"));
+    cx.run_until_parked();
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(cx.has_text("Reading it now"), "{:?}", cx.texts());
+
+    // chat answers nothing by itself from here: the roster stays out, and
+    // the conversation is answered by hand below
+    cx.host().never::<ProgramQuery<::chat::Chat>>();
+    props.send(seat(b"another"));
+    let mut conversation = None;
+    for _ in 0..50 {
+        cx.tick(Vec::new());
+        conversation = cx.last_frame().requests.iter().find_map(|request| {
+            let asked = ProgramQuery::<::chat::Chat>::decode_request(&request.payload);
+            matches!(asked, Ok(chat::Query::Roots { .. })).then_some(request.id)
+        });
+        if conversation.is_some() {
+            break;
+        }
+    }
+    let id = conversation.expect("the conversation is read again for the new reader");
+    let rows = chat_answer(chat::Query::Roots {
+        channel_id: "forge:project:1".into(),
+        viewer: Vec::new(),
+        page: chat::PageRequest::default(),
+    });
+    cx.tick(vec![wire::Event::Response {
+        id,
+        result: Ok(ProgramQuery::<::chat::Chat>::encode_reply(&rows)),
+        done: true,
+    }]);
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.names.is_loading(), "{:?}", forge.names));
+    assert!(cx.has_text("Reading the conversation…"), "{:?}", cx.texts());
+    assert!(!cx.has_text("Reading it now"), "{:?}", cx.texts());
+}
+
 /// A read still out when a block lands is left to land: a block asks
 /// again only what is on screen, so heads that come faster than a slow
 /// read (a wide Compare, a large Diff) never restart it.

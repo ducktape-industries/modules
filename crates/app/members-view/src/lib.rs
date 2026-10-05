@@ -188,7 +188,7 @@ impl Members {
     /// row draws nothing; a refused bump is logged and leaves them. A newer
     /// read cancels the one before.
     fn read(&mut self, cx: &mut Context<Self>) {
-        let task = cx.refresh(roster(cx.host()), |view, result, cx| {
+        let task = cx.land(roster(cx.host()), |view, result, cx| {
             let rescan = view.activity.is_idle();
             match (result, view.rows.ready()) {
                 (Ok(rows), Some(old)) if *old == rows => {}
@@ -257,21 +257,18 @@ impl Members {
         let work = activity::recent(cx.host(), keys);
         // held in `activity` or `rereading`, so choosing someone else drops
         // it unfinished
-        let task = cx.spawn(async move |this, cx| {
-            let result = work.await;
-            let _ = this.update(cx, |view, cx| {
-                if let Ok(recent) = &result {
-                    view.seen.insert(number, recent.clone());
+        let task = cx.land(work, move |view, result, cx| {
+            if let Ok(recent) = &result {
+                view.seen.insert(number, recent.clone());
+            }
+            match result {
+                // read anew and the same: nothing to draw
+                Ok(recent) if view.activity.ready() == Some(&recent) => {}
+                result => {
+                    view.activity = Loadable::from(result);
+                    cx.notify();
                 }
-                match result {
-                    // read anew and the same: nothing to draw
-                    Ok(recent) if view.activity.ready() == Some(&recent) => {}
-                    result => {
-                        view.activity = Loadable::from(result);
-                        cx.notify();
-                    }
-                }
-            });
+            }
         });
         match self.seen.get(&number) {
             Some(recent) => {

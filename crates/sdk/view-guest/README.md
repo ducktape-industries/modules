@@ -153,7 +153,7 @@ role a view follows without linking
 its program is `program::role::Identity`. Every refusal is the module SDK's `Error`
 (`code` token, `message`), one type end to end: a program's codes are
 `error::code`, the host's own are `methods::refusal`. `Loadable<T>` + `cx.load`
-and `cx.reload` (`src/view.rs`) hold an ask's states and snapshot `Loading`
+(`src/view.rs`) hold an ask's states and snapshot `Loading`
 as `Idle`.
 
 A cursored listing is read one of two ways. `host::all_pages` follows it to
@@ -191,16 +191,21 @@ for something only the view can judge.
   follow for as long as the view runs, or keep it and drop it to stop.
   `cx.log_refused(what, &refusal)` writes a refusal nothing on screen waits
   for to the host's log, under the view's `NAME`.
-- `cx.load(work, at)` fills a `Loadable` slot and notifies when it lands
-  (`Loading` to `Ready` or `Failed` is always a change).
-- `cx.reload(&mut slot, work, at)` reads a slot again. The value on screen
-  stays (`Loadable::Reloading`) until the answer lands; it notifies only if
-  the answer differs from it, or is a refusal, which lands `Failed`. The read
-  lives in the slot: replacing or dropping the slot cancels it, so a newer
-  read supersedes an older one.
-- `cx.refresh(work, land)` hands the answer, the value or the refusal, to
-  `land`, which notifies if it moved anything. Keep the task it returns
-  beside what it reads: a newer one stored in its place cancels the older.
+- `cx.load(self, work, |view| &mut view.slot)` reads `work` into a `Loadable`
+  slot. What the slot shows stays until the answer lands: a value stays on
+  screen (`Loadable::Reloading`), a slot with nothing to show (`Idle`,
+  `Failed`) shows `Loading`. It notifies when, and only when, it changes what
+  the slot shows: a read that lands the value already there draws nothing. A
+  read that must blank what is shown first says so in its own line,
+  `self.slot = Loadable::Idle;`. The read lives in the slot: replacing or
+  dropping the slot cancels it, so a newer read supersedes an older one.
+- `cx.land(work, |view, answer, cx| ..)` hands the answer, the value or the
+  refusal, to the closure and does nothing else; the closure notifies if it
+  moved anything. It is for a write, or a read that does more than fill a
+  slot: in gpui's words, `cx.spawn(async move |this, cx| { let answer =
+  work.await; this.update(cx, |view, cx| ..) })` in one line. `.detach()` the
+  task it returns, or keep it beside what it reads: a newer one stored in its
+  place cancels the older.
 - A list the host scrolls renders when it needs rows it does not hold.
 - A `Paged` notifies when a page lands, and when a re-read lands rows that
   differ from the ones held or a refusal.

@@ -99,7 +99,7 @@ pub enum Loadable<T> {
     Idle,
     Loading(Task<()>),
     Ready(T),
-    /// The value on screen while [`Context::reload`] reads it again.
+    /// The value on screen while [`Context::load`] reads it again.
     Reloading(T, Task<()>),
     Failed(Error),
 }
@@ -190,34 +190,29 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Loadable<T> {
 }
 
 impl<V: 'static> Context<'_, V> {
-    pub fn load<T: 'static>(
+    /// Reads `work` into the slot `at` finds in `view`: `cx.load(self,
+    /// work, |view| &mut view.slot)`. The one rule: what the slot shows
+    /// stays until the answer lands. A value already there stays on screen
+    /// (`Reloading`); a slot with nothing to show (`Idle`, `Failed`) shows
+    /// `Loading`. A value lands `Ready`, a refusal `Failed`. It notifies
+    /// when, and only when, it changes what the slot shows: a read that
+    /// lands the value already there draws nothing.
+    ///
+    /// A read that must blank what is shown says so in a line of its own
+    /// first: `self.slot = Loadable::Idle;`.
+    ///
+    /// The read lives in the slot: dropping or replacing the slot cancels
+    /// it, so a newer `load` of the slot supersedes this one and an older
+    /// answer never lands over a newer one.
+    pub fn load<T: PartialEq + 'static>(
         &mut self,
-        work: impl Future<Output = Result<T, Error>> + 'static,
-        at: impl Fn(&mut V) -> &mut Loadable<T> + 'static,
-    ) -> Loadable<T> {
-        let task = self.spawn(async move |this, cx| {
-            let result = work.await;
-            let _ = this.update(cx, |view, cx| {
-                *at(view) = Loadable::from(result);
-                cx.notify();
-            });
-        });
-        Loadable::Loading(task)
-    }
-    /// Reads the value `slot` holds again. A value already there stays on
-    /// screen (`Reloading`) until the answer lands; any other slot shows
-    /// `Loading`. The read lives in the slot: dropping or replacing the slot
-    /// cancels it, so a newer `reload` of the slot supersedes this one and
-    /// an older answer never lands over a newer one. `at` finds the slot
-    /// again when the answer lands: a value lands `Ready`, a refusal
-    /// `Failed`. It notifies when, and only when, it changes what the slot
-    /// shows: a re-read that lands the value already there draws nothing.
-    pub fn reload<T: PartialEq + 'static>(
-        &mut self,
-        slot: &mut Loadable<T>,
+        view: &mut V,
         work: impl Future<Output = Result<T, Error>> + 'static,
         at: impl Fn(&mut V) -> &mut Loadable<T> + 'static,
     ) {
+        // the slot as it is now; `at` then moves into the task, which finds
+        // the slot again when the answer lands
+        let slot = at(view);
         let task = self.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |view, cx| {
@@ -272,20 +267,25 @@ impl<V: 'static> Context<'_, V> {
     }
 
     /// Runs `work` and hands its answer, the value or the refusal, to
-    /// `land`, which changes what it changes and calls `cx.notify()` if
-    /// that moved what the view shows. Keep the task beside the value it
-    /// reads: a newer read stored in its place cancels this one, so an
-    /// older answer never lands over a newer one, and dropping it cancels
-    /// the read. A value kept whole in a [`Loadable`] is
-    /// [`reload`](Context::reload)'s.
-    pub fn refresh<T: 'static>(
+    /// `land`, and does nothing else: `land` changes what it changes and
+    /// calls `cx.notify()` if that moved what the view shows. For a write,
+    /// or a read that does more than fill a slot. In gpui's words it is
+    /// `cx.spawn(async move |this, cx| { let answer = work.await;
+    /// this.update(cx, |view, cx| ..) })` in one line.
+    ///
+    /// The task is the wait: `.detach()` it, or keep it beside the value it
+    /// reads, where a newer one stored in its place cancels this one, so
+    /// an older answer never lands over a newer one, and dropping it
+    /// cancels the wait. A value kept whole in a [`Loadable`] is
+    /// [`load`](Context::load)'s.
+    pub fn land<T: 'static>(
         &mut self,
         work: impl Future<Output = Result<T, Error>> + 'static,
         land: impl FnOnce(&mut V, Result<T, Error>, &mut Context<V>) + 'static,
     ) -> Task<()> {
         self.spawn(async move |this, cx| {
             let result = work.await;
-            // the view is gone: nothing is waiting for the read
+            // the view is gone: nothing is waiting for the answer
             let _ = this.update(cx, |view, cx| land(view, result, cx));
         })
     }
@@ -456,7 +456,7 @@ mod follow_tests {
     impl Count {
         fn read(&mut self, cx: &mut Context<Self>) {
             let ask = cx.host().ask::<Query<Counter>>(());
-            cx.reload(&mut self.value, ask, |view| &mut view.value);
+            cx.load(self, ask, |view| &mut view.value);
         }
     }
     impl Render for Count {
@@ -498,10 +498,79 @@ mod follow_tests {
         assert_eq!(cx.renders() - renders, 1, "a moved count draws once");
     }
 
+    /// The id of the counter read the last frame asked.
+    fn asked(cx: &TestAppContext) -> u64 {
+        let asks = cx.last_frame().requests.iter();
+        let mut reads = asks.filter(|request| request.kind == "module.query");
+        reads.next().expect("the frame asked the counter").id
+    }
+
+    fn answer(id: u64, value: u64) -> Event {
+        Event::Response {
+            id,
+            result: Ok(methods::encode(&value)),
+            done: true,
+        }
+    }
+
+    /// The one rule of `load`: a value on screen stays there, `Reloading`,
+    /// until the answer lands, and asking again draws nothing.
+    #[test]
+    fn a_load_on_a_ready_slot_keeps_it_shown_until_the_answer_lands() {
+        let mut cx = TestAppContext::new();
+        cx.host().handle::<Query<Counter>>(|()| Ok(5));
+        let view = cx.open::<Count>();
+        assert!(cx.has_text("5"), "{:?}", cx.texts());
+        cx.host().never::<Query<Counter>>();
+        let renders = cx.renders();
+        cx.update(&view, |view, _, cx| view.read(cx));
+        cx.tick(vec![]);
+        view.read(|view| {
+            assert!(
+                matches!(view.value, Loadable::Reloading(5, _)),
+                "{:?}",
+                view.value
+            )
+        });
+        assert!(cx.has_text("5"), "the value stays on screen");
+        assert_eq!(cx.renders(), renders, "asking again drew nothing");
+        let id = asked(&cx);
+        cx.tick(vec![answer(id, 6)]);
+        view.read(|view| assert!(matches!(view.value, Loadable::Ready(6)), "{:?}", view.value));
+        assert!(cx.has_text("6"), "{:?}", cx.texts());
+        assert_eq!(cx.renders(), renders + 1, "the new value draws once");
+    }
+
+    /// A slot with nothing to show says it is loading, and the view renders
+    /// for that once: the caller writes no `cx.notify()` beside the `load`.
+    /// A slot the view blanks first (`Loadable::Idle`, a line of its own)
+    /// is such a slot.
+    #[test]
+    fn a_load_on_an_idle_slot_shows_loading_and_notifies_once() {
+        let mut cx = TestAppContext::new();
+        cx.host().handle::<Query<Counter>>(|()| Ok(5));
+        let view = cx.open::<Count>();
+        assert!(cx.has_text("5"), "{:?}", cx.texts());
+        cx.host().never::<Query<Counter>>();
+        let renders = cx.renders();
+        cx.update(&view, |view, _, cx| {
+            view.value = Loadable::Idle;
+            view.read(cx);
+        });
+        cx.tick(vec![]);
+        view.read(|view| assert!(view.value.is_loading(), "{:?}", view.value));
+        assert!(cx.has_text("…"), "{:?}", cx.texts());
+        assert_eq!(cx.renders(), renders + 1, "the blanked slot drew once");
+        let id = asked(&cx);
+        cx.tick(vec![answer(id, 5)]);
+        assert!(cx.has_text("5"), "{:?}", cx.texts());
+        assert_eq!(cx.renders(), renders + 2, "and its answer once");
+    }
+
     /// The view declares no `host`: a refused re-read reaches the view
     /// itself, in the slot it re-read, not a log it cannot write.
     #[test]
-    fn a_refused_reload_lands_its_refusal_in_the_view() {
+    fn a_refused_load_lands_its_refusal_in_the_view() {
         let mut cx = TestAppContext::new();
         let feed = cx.host().stream::<Changes<Counter>>();
         cx.host().handle::<Query<Counter>>(|()| Ok(5));
@@ -519,8 +588,8 @@ mod follow_tests {
 
     /// Two reads of one value are out; the host answers the newer first
     /// (the older was retrying a transport failure). The older answer must
-    /// not land over the newer one: in a `reload` slot the newer read
-    /// cancelled it, and so does a `refresh` task stored in its place.
+    /// not land over the newer one: in a `load` slot the newer read
+    /// cancelled it, and so does a `land` task stored in its place.
     #[test]
     fn a_late_answer_never_lands_over_a_newer_one() {
         let mut cx = TestAppContext::new();
@@ -541,12 +610,12 @@ mod follow_tests {
         };
         let first = query(&cx);
         cx.tick(vec![answer(first[0], 0)]);
-        // a reload and a refresh go out, then a newer pair replaces them
+        // a load and a land go out, then a newer pair replaces them
         let read = |cx: &mut TestAppContext| {
             cx.update(&entity, |view, _, cx| {
                 view.read(cx);
                 let ask = cx.host().ask::<Query<Counter>>(());
-                view.read = Some(cx.refresh(ask, |view, value, cx| {
+                view.read = Some(cx.land(ask, |view, value, cx| {
                     view.value = Loadable::from(value.map(|value| value * 10));
                     cx.notify();
                 }));
@@ -557,10 +626,10 @@ mod follow_tests {
         let older = read(&mut cx);
         let newer = read(&mut cx);
         assert_eq!((older.len(), newer.len()), (2, 2), "{older:?} {newer:?}");
-        // the reloads: the newer lands, then the older
+        // the loads: the newer lands, then the older
         cx.tick(vec![answer(newer[0], 2), answer(older[0], 1)]);
         entity.read(|view| assert_eq!(view.value.ready(), Some(&2), "{:?}", view.value));
-        // the refreshes: the newer lands, then the older
+        // the lands: the newer lands, then the older
         cx.tick(vec![answer(newer[1], 4), answer(older[1], 3)]);
         entity.read(|view| assert_eq!(view.value.ready(), Some(&40), "{:?}", view.value));
     }

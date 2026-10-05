@@ -17,7 +17,10 @@ impl Explorer {
                 matches!(self.opened.ready(), Some(Some((row, _))) if row.height == height);
             if !held && !opened {
                 let ask = cx.host().ask::<ChainBlock>(BlockRef::Height(height));
-                self.opened = cx.load(
+                // another block: the one opened before is not shown under it
+                self.opened = Loadable::Idle;
+                cx.load(
+                    self,
                     async move { ask.await.map(|block| block.map(rows)) },
                     |view| &mut view.opened,
                 );
@@ -84,21 +87,18 @@ impl Explorer {
         }
         let ask = cx.host().ask::<ChainBlock>(BlockRef::Id(hash));
         let blocks = self.chain.blocks.len() as u64;
-        cx.spawn(async move |this, cx| {
-            let found = ask.await;
-            let _ = this.update(cx, |view, cx| {
-                match found {
-                    Ok(Some(block)) => {
-                        let (row, txs) = rows(block);
-                        let height = row.height;
-                        view.opened = Loadable::Ready(Some((row, txs)));
-                        view.go(Route::Block(height), cx);
-                    }
-                    Ok(None) => view.note = Some(Note::NoSuchHash { blocks }),
-                    Err(refusal) => view.note = Some(Note::Refused(refusal.message)),
+        cx.land(ask, move |view, found, cx| {
+            match found {
+                Ok(Some(block)) => {
+                    let (row, txs) = rows(block);
+                    let height = row.height;
+                    view.opened = Loadable::Ready(Some((row, txs)));
+                    view.go(Route::Block(height), cx);
                 }
-                cx.notify();
-            });
+                Ok(None) => view.note = Some(Note::NoSuchHash { blocks }),
+                Err(refusal) => view.note = Some(Note::Refused(refusal.message)),
+            }
+            cx.notify();
         })
         .detach();
     }
@@ -130,15 +130,12 @@ impl Explorer {
 
     pub(crate) fn copy_link(&mut self, link: String, cx: &mut Context<Self>) {
         let ask = cx.host().ask::<ClipboardWrite>(link);
-        cx.spawn(async move |this, cx| {
-            let copied = ask.await;
-            let _ = this.update(cx, |view, cx| {
-                view.note = Some(match copied {
-                    Ok(()) => Note::Copied,
-                    Err(refusal) => Note::Refused(refusal.message),
-                });
-                cx.notify();
+        cx.land(ask, move |view, copied, cx| {
+            view.note = Some(match copied {
+                Ok(()) => Note::Copied,
+                Err(refusal) => Note::Refused(refusal.message),
             });
+            cx.notify();
         })
         .detach();
     }

@@ -29,21 +29,18 @@ impl Chat {
             return;
         };
         let emoji = store::get::<Vec<String>>(&cx.host(), EMOJI);
-        cx.spawn(async move |this, cx| {
-            let emoji = emoji.await;
-            let _ = this.update(cx, |chat, cx| {
-                cx.notify();
-                let emoji = emoji.unwrap_or_else(|refusal| {
-                    cx.log_refused("the kept reactions", &refusal);
-                    None
-                });
-                for kept in emoji.unwrap_or_default() {
-                    if !chat.recent_emoji.contains(&kept) {
-                        chat.recent_emoji.push(kept);
-                    }
-                }
-                chat.recent_emoji.truncate(crate::emoji::RECENT);
+        cx.land(emoji, move |chat, emoji, cx| {
+            cx.notify();
+            let emoji = emoji.unwrap_or_else(|refusal| {
+                cx.log_refused("the kept reactions", &refusal);
+                None
             });
+            for kept in emoji.unwrap_or_default() {
+                if !chat.recent_emoji.contains(&kept) {
+                    chat.recent_emoji.push(kept);
+                }
+            }
+            chat.recent_emoji.truncate(crate::emoji::RECENT);
         })
         .detach();
         self.load_reads(key, 1, cx);
@@ -54,30 +51,27 @@ impl Chat {
     /// save; what the device held for rooms not seen yet is lost.
     fn load_reads(&mut self, key: String, attempt: u32, cx: &mut Context<Self>) {
         let reads = store::get::<BTreeMap<String, u64>>(&cx.host(), &key);
-        cx.spawn(async move |this, cx| {
-            let reads = reads.await;
-            let _ = this.update(cx, |chat, cx| {
-                cx.notify();
-                match reads {
-                    Ok(reads) => chat.reads_landed(key, reads.unwrap_or_default(), cx),
-                    // the reader changed meanwhile: their own load is under way
-                    Err(_) if chat.reads_key().as_ref() != Some(&key) => {}
-                    Err(refusal) if attempt < READ_ATTEMPTS => {
-                        cx.host()
-                            .log(format!("read cursors not loaded, asking again: {refusal}"));
-                        chat.load_reads(key, attempt + 1, cx);
-                    }
-                    Err(refusal) => {
-                        cx.host().log(format!(
-                            "read cursors not loaded, starting from this session: {refusal}"
-                        ));
-                        chat.reads_landed(key, BTreeMap::new(), cx);
-                        // nothing of this session is on the device yet
-                        chat.reads.written.clear();
-                        chat.save_reads(cx);
-                    }
+        cx.land(reads, move |chat, reads, cx| {
+            cx.notify();
+            match reads {
+                Ok(reads) => chat.reads_landed(key, reads.unwrap_or_default(), cx),
+                // the reader changed meanwhile: their own load is under way
+                Err(_) if chat.reads_key().as_ref() != Some(&key) => {}
+                Err(refusal) if attempt < READ_ATTEMPTS => {
+                    cx.host()
+                        .log(format!("read cursors not loaded, asking again: {refusal}"));
+                    chat.load_reads(key, attempt + 1, cx);
                 }
-            });
+                Err(refusal) => {
+                    cx.host().log(format!(
+                        "read cursors not loaded, starting from this session: {refusal}"
+                    ));
+                    chat.reads_landed(key, BTreeMap::new(), cx);
+                    // nothing of this session is on the device yet
+                    chat.reads.written.clear();
+                    chat.save_reads(cx);
+                }
+            }
         })
         .detach();
     }

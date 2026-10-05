@@ -357,7 +357,7 @@ impl $title {
     /// screen stays there while it runs, and a bump that lands the same
     /// count draws nothing.
     fn read(&mut self, cx: &mut Context<Self>) {
-        cx.reload(&mut self.count, count(cx.host()), |view| &mut view.count);
+        cx.load(self, count(cx.host()), |view| &mut view.count);
     }
 }
 

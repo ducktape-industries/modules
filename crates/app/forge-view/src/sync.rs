@@ -28,7 +28,10 @@ impl Forge {
         let reader_changed = next.signer != self.session.signer;
         self.session = next;
         if reader_changed {
-            self.names = cx.load(queries::roster(cx.host()), |forge| &mut forge.names);
+            // another reader: the names shown are read as theirs until
+            // the roster lands again
+            self.names = Loadable::Idle;
+            cx.load(self, queries::roster(cx.host()), |forge| &mut forge.names);
             self.data.clear();
             self.logs.clear();
             self.rereading.clear();
@@ -53,14 +56,11 @@ impl Forge {
         }
         let landing = query.clone();
         let asked = query.clone();
-        let task = cx.spawn(async move |this, cx| {
-            let result = queries::fetch(cx.host(), asked).await;
-            // the view is gone: nothing is waiting for this read
-            let _ = this.update(cx, |forge, cx| {
-                forge.data.insert(landing, Loadable::from(result));
-                cx.notify();
-                forge.sync(cx);
-            });
+        let fetch = queries::fetch(cx.host(), asked);
+        let task = cx.land(fetch, move |forge, result, cx| {
+            forge.data.insert(landing, Loadable::from(result));
+            cx.notify();
+            forge.sync(cx);
         });
         self.data.insert(query, Loadable::Loading(task));
     }
@@ -113,27 +113,34 @@ impl Forge {
                 log.update(cx, |log, cx| log.reread(cx));
             }
         }
-        for (query, slot) in self.data.iter_mut() {
+        // the reads to ask again, named before any is asked: `load` takes
+        // the view, which this loop would otherwise still hold
+        let again: Vec<(Query, bool)> = self
+            .data
+            .iter()
+            .filter_map(|(query, slot)| match slot {
+                Loadable::Idle | Loadable::Loading(_) => None,
+                Loadable::Failed(_) => Some((query.clone(), true)),
+                Loadable::Ready(_) | Loadable::Reloading(..) => {
+                    touched(query).then(|| (query.clone(), false))
+                }
+            })
+            .collect();
+        for (query, refused) in again {
+            let work = queries::fetch(cx.host(), query.clone());
             let landing = query.clone();
-            match slot {
-                Loadable::Idle | Loadable::Loading(_) => {}
-                Loadable::Failed(_) => {
-                    let work = queries::fetch(cx.host(), query.clone());
-                    let task = cx.refresh(work, move |forge, result, cx| {
-                        if replaces_refusal(forge.data.get_mut(&landing), result) {
-                            cx.notify();
-                            forge.sync(cx);
-                        }
-                    });
-                    self.rereading.insert(query.clone(), task);
-                }
-                Loadable::Ready(_) | Loadable::Reloading(..) if touched(query) => {
-                    let work = queries::fetch(cx.host(), query.clone());
-                    cx.reload(slot, work, move |forge| {
-                        forge.data.entry(landing.clone()).or_insert(Loadable::Idle)
-                    })
-                }
-                Loadable::Ready(_) | Loadable::Reloading(..) => {}
+            if refused {
+                let task = cx.land(work, move |forge, result, cx| {
+                    if replaces_refusal(forge.data.get_mut(&landing), result) {
+                        cx.notify();
+                        forge.sync(cx);
+                    }
+                });
+                self.rereading.insert(query, task);
+            } else {
+                cx.load(self, work, move |forge| {
+                    forge.data.entry(landing.clone()).or_insert(Loadable::Idle)
+                });
             }
         }
         self.sync(cx);
@@ -143,42 +150,48 @@ impl Forge {
     /// again (`None`: every one), on the same terms as [`Self::reread`].
     pub(crate) fn reread_conversations(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
         let (host, viewer) = (cx.host(), self.viewer());
-        for (channel, slot) in self.messages.iter_mut() {
+        let touched = |channel: &String| {
+            change.is_none_or(|change| {
+                change.touches::<chat::Chat, _>(&chat::ask::Roots {
+                    channel_id: channel.clone(),
+                    viewer: viewer.clone(),
+                    page: PageRequest::default(),
+                })
+            })
+        };
+        // named before any is asked, as in `reread`
+        let again: Vec<(String, bool)> = self
+            .messages
+            .iter()
+            .filter_map(|(channel, slot)| match slot {
+                Loadable::Idle | Loadable::Loading(_) => None,
+                Loadable::Failed(_) => Some((channel.clone(), true)),
+                Loadable::Ready(_) | Loadable::Reloading(..) => {
+                    touched(channel).then(|| (channel.clone(), false))
+                }
+            })
+            .collect();
+        for (channel, refused) in again {
+            let rows = queries::conversation(host.clone(), channel.clone(), viewer.clone());
             let landing = channel.clone();
-            let rows = || queries::conversation(host.clone(), channel.clone(), viewer.clone());
-            match slot {
-                Loadable::Idle | Loadable::Loading(_) => {}
-                Loadable::Failed(_) => {
-                    let task = cx.refresh(rows(), move |forge, result, cx| {
-                        if replaces_refusal(forge.messages.get_mut(&landing), result) {
-                            cx.notify();
-                        }
-                    });
-                    self.rereading_messages.insert(channel.clone(), task);
-                }
-                Loadable::Ready(_) | Loadable::Reloading(..)
-                    if change.is_none_or(|change| {
-                        change.touches::<chat::Chat, _>(&chat::ask::Roots {
-                            channel_id: channel.clone(),
-                            viewer: viewer.clone(),
-                            page: PageRequest::default(),
-                        })
-                    }) =>
-                {
-                    cx.reload(slot, rows(), move |forge| {
-                        forge.messages.entry(landing.clone()).or_default()
-                    })
-                }
-                Loadable::Ready(_) | Loadable::Reloading(..) => {}
+            if refused {
+                let task = cx.land(rows, move |forge, result, cx| {
+                    if replaces_refusal(forge.messages.get_mut(&landing), result) {
+                        cx.notify();
+                    }
+                });
+                self.rereading_messages.insert(channel, task);
+            } else {
+                cx.load(self, rows, move |forge| {
+                    forge.messages.entry(landing.clone()).or_default()
+                });
             }
         }
     }
 
     /// An identity block landed: the names are read again.
     pub(crate) fn reread_names(&mut self, cx: &mut Context<Self>) {
-        cx.reload(&mut self.names, queries::roster(cx.host()), |forge| {
-            &mut forge.names
-        });
+        cx.load(self, queries::roster(cx.host()), |forge| &mut forge.names);
     }
 
     /// Retry one read the reader asked to retry.
@@ -209,10 +222,9 @@ impl Forge {
         if !self.messages.contains_key(&channel) {
             let conversation = queries::conversation(cx.host(), channel.clone(), self.viewer());
             let landing = channel.clone();
-            let slot = cx.load(conversation, move |forge| {
+            cx.load(self, conversation, move |forge| {
                 forge.messages.entry(landing.clone()).or_default()
             });
-            self.messages.insert(channel, slot);
         }
     }
 

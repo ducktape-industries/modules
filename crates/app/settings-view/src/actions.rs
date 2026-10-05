@@ -27,14 +27,15 @@ impl Settings {
     /// retry.
     pub(crate) fn read_account(&mut self, cx: &mut Context<Self>) {
         let work = self.account_query(cx);
-        self.account = cx.load(work, |view| &mut view.account);
-        cx.notify();
+        // another reader's account is not this one's: nothing of it stays
+        self.account = Loadable::Idle;
+        cx.load(self, work, |view| &mut view.account);
     }
 
     /// The same account, re-read with what is on screen kept.
     pub(crate) fn refresh_account(&mut self, cx: &mut Context<Self>) {
         let work = self.account_query(cx);
-        cx.reload(&mut self.account, work, |view| &mut view.account);
+        cx.load(self, work, |view| &mut view.account);
     }
 
     fn account_query(
@@ -64,17 +65,14 @@ impl Settings {
             scheme: abi::Scheme::Ed25519,
         };
         let ask = cx.host().ask::<Submit<Identity>>(op);
-        cx.spawn(async move |this, cx| {
-            let result = ask.await;
-            let _ = this.update(cx, |view, cx| {
-                // created: the form stays busy until the host's session
-                // names the new account, which re-reads it
-                if let Err(refusal) = result {
-                    view.create_account.busy = false;
-                    view.create_account.problem = Some(Problem::Refused(refusal.message));
-                }
-                cx.notify();
-            });
+        cx.land(ask, |view, result, cx| {
+            // created: the form stays busy until the host's session
+            // names the new account, which re-reads it
+            if let Err(refusal) = result {
+                view.create_account.busy = false;
+                view.create_account.problem = Some(Problem::Refused(refusal.message));
+            }
+            cx.notify();
         })
         .detach();
     }
@@ -181,22 +179,19 @@ impl Settings {
         pending.problem = None;
         cx.notify();
         let ask = cx.host().ask::<Submit<Identity>>(op);
-        cx.spawn(async move |this, cx| {
-            let result = ask.await;
-            let _ = this.update(cx, |view, cx| {
-                let form = form(view);
-                form.busy = false;
-                match result {
-                    Ok(_) => form.text.reset(""),
-                    Err(refusal) => form.problem = Some(Problem::Refused(refusal.message)),
-                }
-                // a rename that landed closes its field
-                view.rename_agent.retain(|_, form| {
-                    form.busy || form.problem.is_some() || !form.text.text.is_empty()
-                });
-                view.refresh_account(cx);
-                cx.notify();
+        cx.land(ask, move |view, result, cx| {
+            let form = form(view);
+            form.busy = false;
+            match result {
+                Ok(_) => form.text.reset(""),
+                Err(refusal) => form.problem = Some(Problem::Refused(refusal.message)),
+            }
+            // a rename that landed closes its field
+            view.rename_agent.retain(|_, form| {
+                form.busy || form.problem.is_some() || !form.text.text.is_empty()
             });
+            view.refresh_account(cx);
+            cx.notify();
         })
         .detach();
     }
@@ -206,8 +201,9 @@ impl Settings {
         let ask = cx.host().ask::<InviteCreate>(CreateInvite {
             ttl_days: TTL[self.ttl],
         });
-        self.invite = cx.load(ask, |view| &mut view.invite);
-        cx.notify();
+        // a new invite: the one shown is no longer the one being minted
+        self.invite = Loadable::Idle;
+        cx.load(self, ask, |view| &mut view.invite);
     }
 
     pub(crate) fn copy_invite(&mut self, cx: &mut Context<Self>) {
@@ -215,7 +211,8 @@ impl Settings {
             return;
         };
         let ask = cx.host().ask::<ClipboardWrite>(invite.invite.clone());
-        self.copied = cx.load(ask, |view| &mut view.copied);
-        cx.notify();
+        // each press copies again and says so again
+        self.copied = Loadable::Idle;
+        cx.load(self, ask, |view| &mut view.copied);
     }
 }

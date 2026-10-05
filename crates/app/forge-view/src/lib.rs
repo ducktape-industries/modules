@@ -99,7 +99,7 @@ impl View for Forge {
         })
         .detach();
         if self.names.is_idle() {
-            self.names = cx.load(queries::roster(cx.host()), |forge| &mut forge.names);
+            cx.load(self, queries::roster(cx.host()), |forge| &mut forge.names);
         }
         self.sync(cx);
     }
