@@ -110,7 +110,8 @@ impl Element for Img {
             .as_ref()
             .and_then(|interactions| interactions.aria.label.as_ref())
             .map(ToString::to_string);
-        let (id, interactivity) = interactivity.into_wire(lowering);
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
+        let interactivity = interactivity.into_wire(lowering);
         let (hash, data) = image_data(source, lowering);
         let loading = image_style.loading.is_some();
         let fallback = image_style.fallback.is_some();

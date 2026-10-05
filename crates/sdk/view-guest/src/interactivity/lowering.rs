@@ -2,21 +2,16 @@ use super::*;
 use crate::slots::Kind;
 
 impl Interactivity {
-    /// The element's id as the wire carries it, and the interactivity of
-    /// the node it lowers to: none when it declared none.
+    /// The interactivity of the node the element lowers to: none when it
+    /// declared none. The node's id is not made here: lowering filed the
+    /// element under it already ([`Lowering::own_id`]).
     pub(crate) fn into_wire(
         self: Box<Self>,
         lowering: &Lowering<'_>,
-    ) -> (
-        Option<wire::ElementIdWire>,
-        Option<Box<wire::Interactivity>>,
-    ) {
+    ) -> Option<Box<wire::Interactivity>> {
         let identified = self.id.is_some();
-        let id = self.id.map(crate::element::wire_id);
-        let interactions = self
-            .interactions
-            .map(|interactions| interactions.into_wire(identified, lowering));
-        (id, interactions)
+        self.interactions
+            .map(|interactions| interactions.into_wire(identified, lowering))
     }
 }
 

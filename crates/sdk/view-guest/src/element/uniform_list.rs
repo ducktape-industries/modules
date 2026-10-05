@@ -246,7 +246,7 @@ impl Element for UniformList {
             }
         }
         let style = lowering.style(&self.interactivity.base_style);
-        let (_, interactivity) = self.interactivity.into_wire(lowering);
+        let interactivity = self.interactivity.into_wire(lowering);
         wire::Node::UniformList {
             id,
             path,

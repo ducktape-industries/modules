@@ -132,9 +132,9 @@ impl Element for ResizeHandle {
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let style = lowering.style(&self.interactivity.base_style);
-        let (id, interactivity) = self.interactivity.into_wire(lowering);
+        let interactivity = self.interactivity.into_wire(lowering);
         wire::Node::ResizeHandle {
-            id: id.expect("a resize handle has an id"),
+            id: lowering.own_id(),
             on_press: None,
             on_release: None,
             on_drag: self

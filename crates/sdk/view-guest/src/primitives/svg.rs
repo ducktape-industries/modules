@@ -133,7 +133,8 @@ impl Element for Svg {
             .as_ref()
             .and_then(|interactions| interactions.aria.label.as_ref())
             .map(ToString::to_string);
-        let (id, interactivity) = interactivity.into_wire(lowering);
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
+        let interactivity = interactivity.into_wire(lowering);
         let source = match source {
             Source::None => wire::SvgSource::None,
             Source::Data(bytes) => {

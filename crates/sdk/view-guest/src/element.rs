@@ -245,6 +245,15 @@ impl<'a> Lowering<'a> {
         &self.authored_path
     }
 
+    /// The id of the identified element being lowered, as the wire carries
+    /// it: the segment it was filed under when its lowering began.
+    pub(crate) fn own_id(&self) -> wire::ElementIdWire {
+        self.authored_path
+            .last()
+            .cloned()
+            .expect("an identified element lowers inside its authored scope")
+    }
+
     /// A route for a listener of `kind` on the element being lowered.
     pub(crate) fn route<A: 'static>(
         &self,
@@ -290,18 +299,12 @@ impl Element for Div {
             mut interactivity,
             children,
         } = *self;
-        let id = interactivity.id.as_ref().map(|_| {
-            lowering
-                .current_path()
-                .last()
-                .cloned()
-                .expect("identified div must lower inside its authored scope")
-        });
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
         if id.is_some() {
             bar_gutter(&mut interactivity.base_style);
         }
         let style = lowering.style(&interactivity.base_style);
-        let (_, wire_interactivity) = interactivity.into_wire(lowering);
+        let wire_interactivity = interactivity.into_wire(lowering);
         let children = children
             .into_iter()
             .map(|child| lowering.lower_element(child))
