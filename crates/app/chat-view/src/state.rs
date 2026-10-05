@@ -1,11 +1,10 @@
 //! State stored by the root view and its panes.
 use chat::{ChannelInfo, MemberRow, MsgRow};
-use ducktape_view_guest::{Loadable, TextField};
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use crate::api::Session;
 use crate::composer::Draft;
 use chat::view::Names;
 
@@ -52,9 +51,6 @@ pub struct Chat {
     #[serde(skip)]
     pub(crate) confirmation: String,
     pub(crate) copy: Option<CopyRange>,
-    /// What the view follows (`watch.rs`); dropping them unsubscribes.
-    #[serde(skip)]
-    pub(crate) followers: Vec<ducktape_view_guest::Task<()>>,
     #[serde(skip)]
     pub(crate) timeline_list: RefCell<Option<ducktape_view_guest::ListState>>,
     #[serde(skip)]
@@ -123,7 +119,7 @@ pub struct Search {
     pub(crate) more_loading: bool,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq)]
 pub struct Hits {
     pub(crate) rows: Vec<MsgRow>,
     pub(crate) capped: bool,

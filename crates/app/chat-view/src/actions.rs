@@ -1,10 +1,8 @@
 //! What a press does: the message menus, the writes (reactions, deletes,
 //! the channel's details, new channels), copying and links.
 use chat::{MsgRow, Op, PostPolicy, Principal};
-use ducktape_view_guest::Context;
-use ducktape_view_guest::host::Error;
+use ducktape_view_guest::prelude::*;
 
-use crate::api::{ClipboardWrite, HostId, Submit};
 use crate::composer::Target;
 use crate::message::{ChatMessage, chat_message, mark_message_groups};
 use crate::{Chat, Control, Menu, Mode, Pane, links};
@@ -234,7 +232,7 @@ impl Chat {
 
     pub(crate) fn rename(&mut self, cx: &mut Context<Self>) {
         let Some(details) = &self.details else { return };
-        let name = details.name_draft.text.trim().to_owned();
+        let name = details.name_draft.text().trim().to_owned();
         if name.is_empty() {
             return;
         }
@@ -261,8 +259,8 @@ impl Chat {
         let typed = self
             .details
             .as_ref()
-            .map(|details| details.member_draft.text.as_str());
-        let Some(principal) = typed.and_then(Principal::parse) else {
+            .map(|details| details.member_draft.text());
+        let Some(principal) = typed.as_deref().and_then(Principal::parse) else {
             self.notice = "A member is an account number".into();
             return;
         };
@@ -359,18 +357,15 @@ impl Chat {
     /// One op to the chat program; a refusal lands in the banner.
     pub(crate) fn submit(&mut self, op: Op, cx: &mut Context<Self>) {
         self.notice.clear();
-        cx.spawn(async move |this, cx| {
-            let host = cx.host();
-            let result = host.ask::<Submit<::chat::Chat>>(op).await;
-            let _ = this.update(cx, |chat, cx| {
-                cx.notify();
-                match result {
-                    Ok(_) => chat.refresh(cx),
-                    Err(refusal) => {
-                        chat.notice = format!("That didn’t go through: {}", refusal.message)
-                    }
+        let submit = cx.host().ask::<Submit<::chat::Chat>>(op);
+        cx.land(submit, |chat, result, cx| {
+            cx.notify();
+            match result {
+                Ok(_) => chat.refresh(cx),
+                Err(refusal) => {
+                    chat.notice = format!("That didn’t go through: {}", refusal.message)
                 }
-            });
+            }
         })
         .detach();
     }
@@ -381,7 +376,7 @@ impl Chat {
         let Some(create) = self.create.as_mut().filter(|create| ready && !create.busy) else {
             return;
         };
-        let name = create.name.text.trim().to_string();
+        let name = create.name.text().trim().to_string();
         if name.is_empty() || name.len() > chat::MAX_NAME_BYTES || name.contains('\0') {
             create.error = format!(
                 "Enter a channel name of at most {} bytes",
@@ -392,32 +387,28 @@ impl Chat {
         create.error.clear();
         create.busy = true;
         let members_only = create.members_only;
-        cx.spawn(async move |this, cx| {
-            let host = cx.host();
-            let created = async {
-                let channel_id = host.ask::<HostId>("channel".into()).await?;
-                let op = new_channel(channel_id.clone(), name, members_only);
-                host.ask::<Submit<::chat::Chat>>(op).await?;
-                Ok::<_, Error>(channel_id)
-            };
-            let result = created.await;
-            let _ = this.update_in(cx, |chat, _, cx| {
-                cx.notify();
-                match result {
-                    Ok(id) => {
-                        chat.create = None;
-                        chat.reread_channels(cx);
-                        chat.choose(id, cx);
-                    }
-                    Err(refusal) => {
-                        if let Some(create) = &mut chat.create {
-                            create.busy = false;
-                            create.error =
-                                format!("Couldn’t create this channel: {}", refusal.message);
-                        }
+        let host = cx.host();
+        let created = async move {
+            let channel_id = host.ask::<HostId>("channel".into()).await?;
+            let op = new_channel(channel_id.clone(), name, members_only);
+            host.ask::<Submit<::chat::Chat>>(op).await?;
+            Ok::<_, Error>(channel_id)
+        };
+        cx.land(created, |chat, result, cx| {
+            cx.notify();
+            match result {
+                Ok(id) => {
+                    chat.create = None;
+                    chat.reread_channels(cx);
+                    chat.choose(id, cx);
+                }
+                Err(refusal) => {
+                    if let Some(create) = &mut chat.create {
+                        create.busy = false;
+                        create.error = format!("Couldn’t create this channel: {}", refusal.message);
                     }
                 }
-            });
+            }
         })
         .detach();
     }

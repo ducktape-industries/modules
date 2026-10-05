@@ -1,8 +1,8 @@
 //! Typed reads: who the seated key is (identity), and whether each of its
 //! keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
-use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, all_pages, malformed};
+use ducktape_view_guest::host::malformed;
+use ducktape_view_guest::prelude::*;
 use identity::{Control, Kind, PageRequest, Reference, Standing};
 use serde::{Deserialize, Serialize};
 
@@ -123,17 +123,12 @@ async fn held_by(host: &Host, key: &[u8]) -> Result<Option<(String, &'static str
 
 /// Every agent `manager` manages.
 async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
-    let listed = all_pages(|after| {
-        let ask = host.query(identity::ask::Managed {
+    let listed = host
+        .query_all(|after| identity::ask::Managed {
             by: manager,
             page: PageRequest { after, limit: None },
-        });
-        async move {
-            let reply = ask.await?;
-            Ok((reply.items, reply.next))
-        }
-    })
-    .await?;
+        })
+        .await?;
     let agents = listed
         .into_iter()
         .map(|agent| match agent.kind() {

@@ -4,9 +4,7 @@
 //! straight away, keeps saying so while the block that carries it is on its
 //! way, and a refusal replaces it with the reason inline. Nothing is guessed
 //! into the lists — the next query reconciles them.
-use ducktape_view_guest::methods::HostId;
-use ducktape_view_guest::methods::Submit;
-use ducktape_view_guest::{Context, TextField, Window};
+use ducktape_view_guest::prelude::*;
 
 use crate::api::SubmitForge;
 use crate::state::{ChangeForm, Forge, NewRepo, Pending, Progress, change_key};
@@ -55,25 +53,22 @@ impl Forge {
             progress: Progress::Submitting,
         });
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx.host().ask::<SubmitForge>(op).await;
-            // the view is gone: nobody is waiting on this row
-            let _ = this.update(cx, |forge, cx| {
-                cx.notify();
-                let Some(op) = forge.pending.iter_mut().find(|op| op.id == id) else {
-                    return;
-                };
-                match result {
-                    Ok(_) => {
-                        op.progress = Progress::Accepted;
-                        if let Some(key) = &review {
-                            forge.reviews.remove(key);
-                        }
-                        forge.refresh(cx);
+        let submit = cx.host().ask::<SubmitForge>(op);
+        cx.land(submit, move |forge, result, cx| {
+            cx.notify();
+            let Some(op) = forge.pending.iter_mut().find(|op| op.id == id) else {
+                return;
+            };
+            match result {
+                Ok(_) => {
+                    op.progress = Progress::Accepted;
+                    if let Some(key) = &review {
+                        forge.reviews.remove(key);
                     }
-                    Err(refusal) => op.progress = Progress::Refused(refusal.message),
+                    forge.refresh(cx);
                 }
-            });
+                Err(refusal) => op.progress = Progress::Refused(refusal.message),
+            }
         })
         .detach();
     }
@@ -82,7 +77,7 @@ impl Forge {
         let Some(form) = &mut self.new_repo else {
             return;
         };
-        let name = form.name.text.trim().to_owned();
+        let name = form.name.text().trim().to_owned();
         if !valid_repo_name(&name) {
             form.error = format!(
                 "A repository name is 1–{} bytes of letters, digits, dot, dash or underscore",
@@ -167,8 +162,8 @@ impl Forge {
                 Op::ChangeEdit {
                     repo: repo.clone(),
                     n,
-                    title: Some(form.title.text.clone()),
-                    body: Some(form.body.text.clone()),
+                    title: Some(form.title.text()),
+                    body: Some(form.body.text()),
                     reviewers: Some(form.reviewers),
                 },
                 "Saving the change".to_owned(),
@@ -179,11 +174,11 @@ impl Forge {
                     repo,
                     from: Revision::Ref(form.from.clone()),
                     into: form.into.clone(),
-                    title: form.title.text.clone(),
-                    body: form.body.text.clone(),
+                    title: form.title.text(),
+                    body: form.body.text(),
                     reviewers: form.reviewers.clone(),
                 },
-                format!("Opening “{}”", form.title.text.trim()),
+                format!("Opening “{}”", form.title.text().trim()),
                 "changes".to_owned(),
             ),
         };
@@ -292,7 +287,7 @@ impl Forge {
         let typed = self
             .repo_settings
             .as_ref()
-            .map(|form| form.grant.text.trim().to_owned())
+            .map(|form| form.grant.text().trim().to_owned())
             .unwrap_or_default();
         let Some(principal) = forge::Principal::parse(&typed) else {
             self.notice = "Grant takes an account number".into();
@@ -325,7 +320,7 @@ impl Forge {
     /// A reply in the change's hidden channel. Chat owns every reply; forge
     /// owns only the change's own body.
     pub(crate) fn post_reply(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.reply.text.trim().to_owned();
+        let text = self.reply.text().trim().to_owned();
         if text.is_empty() {
             return;
         }
@@ -335,28 +330,25 @@ impl Forge {
         let channel = change.channel.clone();
         self.reply.reset("");
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            let host = cx.host();
-            let result = async {
-                let message_id = host.ask::<HostId>("message".into()).await?;
-                host.ask::<Submit<::chat::Chat>>(chat::Op::PostMessage {
-                    channel_id: channel,
-                    message_id,
-                    blocks: chat::parse_message(&text),
-                    thread: None,
-                })
-                .await
-            }
-            .await;
-            let _ = this.update(cx, |forge, cx| {
-                cx.notify();
-                match result {
-                    Ok(_) => forge.refresh(cx),
-                    Err(refusal) => {
-                        forge.notice = format!("That didn’t go through: {}", refusal.message)
-                    }
+        let host = cx.host();
+        let post = async move {
+            let message_id = host.ask::<HostId>("message".into()).await?;
+            host.ask::<Submit<::chat::Chat>>(chat::Op::PostMessage {
+                channel_id: channel,
+                message_id,
+                blocks: chat::parse_message(&text),
+                thread: None,
+            })
+            .await
+        };
+        cx.land(post, |forge, result, cx| {
+            cx.notify();
+            match result {
+                Ok(_) => forge.refresh(cx),
+                Err(refusal) => {
+                    forge.notice = format!("That didn’t go through: {}", refusal.message)
                 }
-            });
+            }
         })
         .detach();
     }

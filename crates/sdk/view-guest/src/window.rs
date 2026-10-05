@@ -171,8 +171,12 @@ mod tests {
     }
     impl Render for WidgetView {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl crate::IntoElement {
-            Input::new(ElementId::Name("App/draft".into()), "Draft")
-                .on_change(cx.listener(|_, _: &wire::TextChange, _, _| {}))
+            Input::new(
+                ElementId::Name("App/draft".into()),
+                &crate::TextField::default(),
+                "Draft",
+            )
+            .on_change(cx.listener(|_, _: &wire::TextChange, _, _| {}))
         }
     }
 
@@ -264,7 +268,11 @@ mod tests {
     impl Render for TwoForms {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
             use crate::{InteractiveElement, ParentElement, StatefulInteractiveElement, div};
-            let form = |id: &'static str| div().id(id).child(Input::new("input", id));
+            let form = |id: &'static str| {
+                div()
+                    .id(id)
+                    .child(Input::new("input", &crate::TextField::default(), id))
+            };
             let press = |id: &'static str, focus: fn(&mut Window)| {
                 div()
                     .id(id)

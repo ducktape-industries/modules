@@ -1,10 +1,6 @@
 //! The channel creation dialog.
 
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, ParentElement, Styled, Theme, div, px, wire,
-};
 
 use crate::{ChannelCreate, Chat};
 
@@ -73,23 +69,15 @@ fn name_field(
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> Input {
-    let typed = cx.listener(|chat, change: &wire::TextChange, _window, cx| {
-        if let Some(create) = &mut chat.create {
-            create.name.apply(change);
-        }
-        cx.notify();
-    });
-    let name = Input::new("chat-create-name", "Name the new channel")
+    let name = Input::new("chat-create-name", &create.name, "Name the new channel")
         .h(design::size::CONTROL)
         .px_2()
         .py_1()
         .border_1()
         .border_color(theme.border_strong)
         .bg(theme.surface)
-        .value(&create.name)
         .placeholder("Channel name")
-        .disabled(create.busy)
-        .on_change(typed);
+        .disabled(create.busy);
     match can_submit {
         true => name.on_submit(cx.listener(|chat, _: &(), _window, cx| {
             cx.notify();

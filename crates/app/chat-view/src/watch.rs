@@ -1,59 +1,53 @@
 //! What chat follows while it is open: the session, routes opened into
 //! it, whether it is on screen, and the live heads of chat and identity.
 //! Every follower says what a refusal means to it; none ends on one.
-use ducktape_view_guest::Context;
+use ducktape_view_guest::prelude::*;
 
-use crate::api::{Changes, HostRoute, HostSession, HostVisible};
 use crate::{Chat, links};
 use program::role::Identity;
 
 impl Chat {
-    /// Subscribes every follower; the ones before are dropped with them.
+    /// Follows each of them for as long as the view runs.
     pub(crate) fn watch(&mut self, cx: &mut Context<Self>) {
-        let host = cx.host();
-        let props = host.subscribe::<HostSession>(());
-        let changes = host.subscribe::<Changes<::chat::Chat>>(());
-        let routes = host.subscribe::<HostRoute>(());
-        let visible = host.subscribe::<HostVisible>(());
-        let identity = host.subscribe::<Changes<Identity>>(());
-        self.followers = vec![
-            cx.for_each(props, |chat, props, _, cx| match props {
-                Ok(next) => chat.session_changed(next, cx),
-                Err(refusal) => {
-                    chat.notice = format!("Couldn’t read the session: {}", refusal.message);
+        cx.follow::<HostSession>((), |chat, props, cx| match props {
+            Ok(next) => chat.session_changed(next, cx),
+            Err(refusal) => {
+                chat.notice = format!("Couldn’t read the session: {}", refusal.message);
+                cx.notify();
+            }
+        })
+        .detach();
+        // a block re-reads what it wrote to, as the program declares it
+        cx.follow::<Changes<::chat::Chat>>((), |chat, change, cx| match change {
+            Ok(change) => chat.changed(change.as_ref(), cx),
+            Err(refusal) => cx.log_refused("chat's live heads", &refusal),
+        })
+        .detach();
+        // `duck://<chain>/chat/<channel>[/<seq>]`: a link opened into
+        // this view (a notice's, say) names the room and the message
+        cx.follow::<HostRoute>((), |chat, route, cx| match route {
+            Ok(route) => {
+                if let Some((channel, seq)) = links::route_target(&route) {
+                    chat.search_clear();
+                    chat.open_at(channel, seq, cx);
+                    chat.settle_badge(cx);
                     cx.notify();
                 }
-            }),
-            // a block re-reads what it wrote to, as the program declares it
-            cx.for_each(changes, |chat, change, _, cx| match change {
-                Ok(change) => chat.changed(change.as_ref(), cx),
-                Err(refusal) => cx.host().log_refused("chat", "chat's live heads", &refusal),
-            }),
-            // `duck://<chain>/chat/<channel>[/<seq>]`: a link opened into
-            // this view (a notice's, say) names the room and the message
-            cx.for_each(routes, |chat, route, _, cx| match route {
-                Ok(route) => {
-                    if let Some((channel, seq)) = links::route_target(&route) {
-                        chat.search_clear();
-                        chat.open_at(channel, seq, cx);
-                        chat.settle_badge(cx);
-                        cx.notify();
-                    }
-                }
-                Err(refusal) => cx.host().log_refused("chat", "the route", &refusal),
-            }),
-            cx.for_each(visible, |chat, visible, _, cx| match visible {
-                Ok(visible) => chat.visibility_changed(visible, cx),
-                Err(refusal) => cx.host().log_refused("chat", "visibility", &refusal),
-            }),
-            // re-read the roster on identity's heads, so a name another
-            // signer claims replaces its "account N" fallback
-            cx.for_each(identity, |chat, head, _, cx| match head {
-                Ok(_) => chat.load_names(cx),
-                Err(refusal) => cx
-                    .host()
-                    .log_refused("chat", "identity's live heads", &refusal),
-            }),
-        ];
+            }
+            Err(refusal) => cx.log_refused("the route", &refusal),
+        })
+        .detach();
+        cx.follow::<HostVisible>((), |chat, visible, cx| match visible {
+            Ok(visible) => chat.visibility_changed(visible, cx),
+            Err(refusal) => cx.log_refused("visibility", &refusal),
+        })
+        .detach();
+        // re-read the roster on identity's heads, so a name another
+        // signer claims replaces its "account N" fallback
+        cx.follow::<Changes<Identity>>((), |chat, head, cx| match head {
+            Ok(_) => chat.load_names(cx),
+            Err(refusal) => cx.log_refused("identity's live heads", &refusal),
+        })
+        .detach();
     }
 }

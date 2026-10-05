@@ -15,12 +15,7 @@
 mod activity;
 mod ui;
 
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::export_view;
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::methods::{Changes, HostSession};
-use ducktape_view_guest::{Context, Host, IntoElement, Render, Task, TextField, View, Window};
+use ducktape_view_guest::prelude::*;
 use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
 
@@ -59,8 +54,6 @@ pub struct Members {
     /// the roster's re-read while the rows on screen stay
     #[serde(skip)]
     rereading_rows: Option<Task<()>>,
-    #[serde(skip)]
-    watches: Vec<Task<()>>,
     /// the pane's width, read from the window each render
     #[serde(skip)]
     width: f32,
@@ -147,40 +140,28 @@ impl View for Members {
     const MIN_WINDOW_WIDTH: u32 = 320;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.watches.clear();
-        let session = cx.host().subscribe::<HostSession>(());
-        self.watches
-            .push(cx.for_each(session, |view, session, _, cx| match session {
-                Ok(session) => {
-                    if (view.me, &view.chain) != (session.account, &session.chain_id) {
-                        view.me = session.account;
-                        view.chain = session.chain_id;
-                        cx.notify();
-                    }
+        cx.follow::<HostSession>((), |view, session, cx| match session {
+            Ok(session) => {
+                if (view.me, &view.chain) != (session.account, &session.chain_id) {
+                    view.me = session.account;
+                    view.chain = session.chain_id;
+                    cx.notify();
                 }
-                Err(refusal) => cx.host().log_refused("members", "the session", &refusal),
-            }));
-        // the roster joins two programs: a block of either re-reads it
-        let changes = cx.host().subscribe::<Changes<Identity>>(());
-        self.watches.push(cx.for_each(changes, |view, bump, _, cx| {
-            match bump {
-                Ok(_) => view.read(cx),
-                Err(refusal) => cx
-                    .host()
-                    .log_refused("members", "identity's live heads", &refusal),
             }
-        }));
-        let standing = cx.host().subscribe::<Changes<Valset>>(());
-        self.watches
-            .push(cx.for_each(standing, |view, bump, _, cx| {
-                match bump {
-                    Ok(_) => view.read(cx),
-                    Err(refusal) => {
-                        cx.host()
-                            .log_refused("members", "valset's live heads", &refusal)
-                    }
-                }
-            }));
+            Err(refusal) => cx.log_refused("the session", &refusal),
+        })
+        .detach();
+        // the roster joins two programs: a block of either re-reads it
+        cx.follow::<Changes<Identity>>((), |view, bump, cx| match bump {
+            Ok(_) => view.read(cx),
+            Err(refusal) => cx.log_refused("identity's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<Valset>>((), |view, bump, cx| match bump {
+            Ok(_) => view.read(cx),
+            Err(refusal) => cx.log_refused("valset's live heads", &refusal),
+        })
+        .detach();
         self.read(cx);
         self.read_activity(cx);
     }
@@ -202,7 +183,7 @@ impl Members {
     /// row draws nothing; a refused bump is logged and leaves them. A newer
     /// read cancels the one before.
     fn read(&mut self, cx: &mut Context<Self>) {
-        let task = cx.refresh(roster(cx.host()), |view, result, cx| {
+        let task = cx.land(roster(cx.host()), |view, result, cx| {
             let rescan = view.activity.is_idle();
             match (result, view.rows.ready()) {
                 (Ok(rows), Some(old)) if *old == rows => {}
@@ -217,7 +198,7 @@ impl Members {
                         return view.read_activity(cx);
                     }
                 }
-                (Err(refusal), Some(_)) => cx.host().log_refused("members", "a refresh", &refusal),
+                (Err(refusal), Some(_)) => cx.log_refused("a refresh", &refusal),
                 (Err(refusal), None) => {
                     view.rows = Loadable::Failed(refusal);
                     cx.notify();
@@ -271,21 +252,18 @@ impl Members {
         let work = activity::recent(cx.host(), keys);
         // held in `activity` or `rereading`, so choosing someone else drops
         // it unfinished
-        let task = cx.spawn(async move |this, cx| {
-            let result = work.await;
-            let _ = this.update(cx, |view, cx| {
-                if let Ok(recent) = &result {
-                    view.seen.insert(number, recent.clone());
+        let task = cx.land(work, move |view, result, cx| {
+            if let Ok(recent) = &result {
+                view.seen.insert(number, recent.clone());
+            }
+            match result {
+                // read anew and the same: nothing to draw
+                Ok(recent) if view.activity.ready() == Some(&recent) => {}
+                result => {
+                    view.activity = Loadable::from(result);
+                    cx.notify();
                 }
-                match result {
-                    // read anew and the same: nothing to draw
-                    Ok(recent) if view.activity.ready() == Some(&recent) => {}
-                    result => {
-                        view.activity = Loadable::from(result);
-                        cx.notify();
-                    }
-                }
-            });
+            }
         });
         match self.seen.get(&number) {
             Some(recent) => {
@@ -312,7 +290,7 @@ impl Members {
         let Some(rows) = self.rows.ready() else {
             return Vec::new();
         };
-        let needle = self.filter.text.trim().to_lowercase();
+        let needle = self.filter.text().trim().to_lowercase();
         let mut shown: Vec<&Row> = rows
             .iter()
             .filter(|row| self.only.is_none_or(|only| row.group() == only))
@@ -333,28 +311,13 @@ impl Members {
 /// Both programs answer in pages; the roster follows every `next` cursor to
 /// the end, since the screen shows the whole network.
 async fn roster(host: Host) -> Result<Vec<Row>, Error> {
-    let mut accounts = Vec::new();
-    let mut after = None;
-    loop {
-        let page = PageRequest { after, limit: None };
-        let reply = host.query(identity::ask::List { page }).await?;
-        accounts.extend(reply.items);
-        match reply.next {
-            Some(next) => after = Some(next),
-            None => break,
-        }
-    }
-    let mut members = Vec::new();
-    let mut after = None;
-    loop {
-        let page = PageRequest { after, limit: None };
-        let reply = host.query(valset::ask::Memberships { page }).await?;
-        members.extend(reply.items);
-        match reply.next {
-            Some(next) => after = Some(next),
-            None => break,
-        }
-    }
+    let page = |after| PageRequest { after, limit: None };
+    let accounts = host
+        .query_all(|after| identity::ask::List { page: page(after) })
+        .await?;
+    let members = host
+        .query_all(|after| valset::ask::Memberships { page: page(after) })
+        .await?;
     Ok(accounts
         .iter()
         .map(|account| row(account, &members))

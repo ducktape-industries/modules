@@ -56,6 +56,7 @@ members = [
     "crates/app/node-view",
     "crates/app/explorer-view",
     "crates/app/settings-view",
+    "crates/app/example-view",
     "crates/app/forge",
     "crates/lib/gitcore",
 ]

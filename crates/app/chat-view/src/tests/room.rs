@@ -418,7 +418,9 @@ fn an_empty_thread_says_so_and_its_field_takes_focus() {
 fn a_link_to_a_forge_room_lands_in_it() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
-    let routes = cx.host().stream::<api::HostRoute>();
+    let routes = cx
+        .host()
+        .stream::<ducktape_view_guest::methods::HostRoute>();
     let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Chat>();
     props.send(Session {
@@ -819,4 +821,54 @@ fn every_message_row_says_its_place_in_its_set() {
     );
     assert_eq!(places("chat-message-m2-row"), vec![(Some(2), Some(2))]);
     assert_eq!(places("chat-message-m3-row"), vec![(Some(2), Some(2))]);
+}
+
+/// A search hit in the room already open lands the room on other rows:
+/// the rows and the roster shown go, and the room reads as loading until
+/// the window around the hit lands. (`open_at` blanks both slots on
+/// purpose; `load` alone would keep what is shown.)
+#[test]
+fn a_jump_to_a_hit_in_the_open_room_shows_the_room_loading() {
+    let (mut cx, view) = opened();
+    assert!(cx.has_text("hello"), "{:?}", cx.texts());
+    cx.simulate_input("chat-sidebar-search", "hello");
+    cx.simulate_submit("chat-sidebar-search");
+    cx.run_until_parked();
+    // the window around the hit is asked and not answered yet
+    cx.host().never::<Ask<::chat::Chat>>();
+    cx.simulate_click("chat-search-hit-general-1");
+    view.read(|chat| {
+        let room = chat.room.as_ref().expect("the room stays open");
+        assert_eq!(room.id, "general");
+        assert!(room.messages.is_loading(), "{:?}", room.messages);
+        assert!(room.members.is_loading(), "{:?}", room.members);
+    });
+    assert!(cx.has_text("Loading messages…"), "{:?}", cx.texts());
+    assert!(
+        cx.find("chat-message-m2-block-0").is_none(),
+        "the rows of the window before are gone"
+    );
+}
+
+/// The link to the node comes back: the rooms are read afresh, and the
+/// sidebar says so instead of showing the list from before the drop.
+#[test]
+fn a_reconnect_shows_the_rooms_loading() {
+    let (mut cx, view) = opened();
+    let props = cx.host().stream::<HostSession>();
+    let session = view.read(|chat| chat.session.clone());
+    props.send(Session {
+        connected: false,
+        ..session.clone()
+    });
+    cx.run_until_parked();
+    cx.host().never::<Ask<::chat::Chat>>();
+    props.send(session);
+    cx.run_until_parked();
+    view.read(|chat| assert!(chat.channels.is_loading(), "{:?}", chat.channels));
+    assert!(cx.has_text("Loading rooms…"), "{:?}", cx.texts());
+    assert!(
+        cx.find("chat-sidebar-channel-general").is_none(),
+        "the list from before the drop is not shown as the node's"
+    );
 }

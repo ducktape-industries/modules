@@ -1,10 +1,7 @@
 //! The open room: opening, landing, paging history, the thread beside it and
 //! what the reader has read.
 use chat::{ChannelInfo, MsgRow, PageRequest, Principal, ask};
-use ducktape_view_guest::Context;
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::Change;
+use ducktape_view_guest::prelude::*;
 
 use crate::composer::Target;
 use crate::queries;
@@ -56,29 +53,29 @@ impl Chat {
         }
         room.landed = land > 0;
         room.at_tail = land == 0;
-        room.messages = if land > 0 {
+        // the room is entered, or entered again at another row: the rows
+        // and the roster shown go, and both read as loading
+        room.messages = Loadable::Idle;
+        room.members = Loadable::Idle;
+        let members_id = room.id.clone();
+        if land > 0 {
             let host = cx.host();
             cx.load(
+                self,
                 async move {
                     let rows = queries::around(host, id, land, viewer).await?;
                     Ok(rows)
                 },
                 |chat| &mut room_of(chat).messages,
-            )
+            );
         } else {
-            let handle = cx.spawn(async move |this, cx| {
-                let host = cx.host();
-                let result = queries::roots(host, id, viewer, None, WINDOW).await;
-                let _ = this.update(cx, |chat, cx| {
-                    cx.notify();
-                    chat.rows_arrived(result)
-                });
-            });
-            Loadable::Loading(handle)
-        };
-        let members_id = self.room.as_ref().map(|r| r.id.clone()).unwrap_or_default();
-        let room = room_of(self);
-        room.members = cx.load(queries::members(cx.host(), members_id), |chat| {
+            let rows = queries::roots(cx.host(), id, viewer, None, WINDOW);
+            room.messages = Loadable::Loading(cx.land(rows, |chat, result, cx| {
+                cx.notify();
+                chat.rows_arrived(result)
+            }));
+        }
+        cx.load(self, queries::members(cx.host(), members_id), |chat| {
             &mut room_of(chat).members
         });
     }
@@ -119,9 +116,9 @@ impl Chat {
 
     pub(crate) fn reread_channels(&mut self, cx: &mut Context<Self>) {
         let list = queries::channels(cx.host());
-        self.rereading_channels = Some(cx.refresh(list, |chat, rooms, cx| match rooms {
+        self.rereading_channels = Some(cx.land(list, |chat, rooms, cx| match rooms {
             Ok(rooms) => chat.channels_landed(rooms, cx),
-            Err(refusal) => cx.host().log_refused("chat", "the channel list", &refusal),
+            Err(refusal) => cx.log_refused("the channel list", &refusal),
         }));
     }
 
@@ -167,7 +164,7 @@ impl Chat {
                 .ready()
                 .map_or(WINDOW, |rows| rows.len().max(WINDOW));
             let rows = queries::roots(cx.host(), id.clone(), viewer.clone(), None, shown);
-            room.rereading = Some(cx.refresh(rows, |chat, rows, cx| {
+            room.rereading = Some(cx.land(rows, |chat, rows, cx| {
                 let room = room_of(chat);
                 match rows {
                     Ok((rows, has_older)) => {
@@ -179,14 +176,14 @@ impl Chat {
                         }
                         room.landed_rows(moved, cx);
                     }
-                    Err(refusal) => cx.host().log_refused("chat", "the room", &refusal),
+                    Err(refusal) => cx.log_refused("the room", &refusal),
                 }
             }));
         } else if let Some(Some(seq)) = window {
             // a landed window re-reads around its middle row, so reactions,
             // edits and reply counts land there too
             let rows = queries::around(cx.host(), id.clone(), seq, viewer.clone());
-            room.rereading = Some(cx.refresh(rows, |chat, rows, cx| {
+            room.rereading = Some(cx.land(rows, |chat, rows, cx| {
                 let room = room_of(chat);
                 match rows {
                     Ok(rows) => {
@@ -196,7 +193,7 @@ impl Chat {
                         }
                         room.landed_rows(moved, cx);
                     }
-                    Err(refusal) => cx.host().log_refused("chat", "the room", &refusal),
+                    Err(refusal) => cx.log_refused("the room", &refusal),
                 }
             }));
         }
@@ -205,9 +202,9 @@ impl Chat {
             page: page.clone(),
         }) {
             let roster = queries::members(cx.host(), id.clone());
-            cx.reload(&mut room.members, roster, |chat| &mut room_of(chat).members);
+            cx.load(self, roster, |chat| &mut room_of(chat).members);
         }
-        if let Some(thread) = room.thread.as_mut()
+        if let Some(thread) = room_of(self).thread.as_mut()
             && touched(&ask::Thread {
                 channel_id: id.clone(),
                 root_seq: thread.root,
@@ -217,7 +214,7 @@ impl Chat {
         {
             let root = thread.root;
             let replies = queries::thread(cx.host(), id, root, viewer, None);
-            thread.rereading = Some(cx.refresh(replies, move |chat, replies, cx| {
+            thread.rereading = Some(cx.land(replies, move |chat, replies, cx| {
                 let room = room_of(chat);
                 let Some(thread) = room.thread.as_mut().filter(|thread| thread.root == root) else {
                     return;
@@ -232,7 +229,7 @@ impl Chat {
                         }
                         room.landed_rows(moved, cx);
                     }
-                    Err(refusal) => cx.host().log_refused("chat", "the thread", &refusal),
+                    Err(refusal) => cx.log_refused("the thread", &refusal),
                 }
             }));
         }
@@ -255,28 +252,25 @@ impl Chat {
         }
         room.older_loading = true;
         let id = room.id.clone();
-        cx.spawn(async move |this, cx| {
-            let host = cx.host();
-            let below = chat::roots_below(&id, oldest);
-            let result = queries::roots(host, id, viewer, Some(below), PAGE).await;
-            let _ = this.update(cx, |chat, cx| {
-                cx.notify();
-                let Some(room) = &mut chat.room else { return };
-                room.older_loading = false;
-                match result {
-                    Ok((older, has_older)) => {
-                        room.has_older = has_older;
-                        if let Some(rows) = room.messages.ready_mut() {
-                            let mut all = older;
-                            all.append(rows);
-                            *rows = all;
-                        }
-                    }
-                    Err(refusal) => {
-                        chat.notice = format!("Couldn’t read this room: {}", refusal.message)
+        let below = chat::roots_below(&id, oldest);
+        let older = queries::roots(cx.host(), id, viewer, Some(below), PAGE);
+        cx.land(older, |chat, result, cx| {
+            cx.notify();
+            let Some(room) = &mut chat.room else { return };
+            room.older_loading = false;
+            match result {
+                Ok((older, has_older)) => {
+                    room.has_older = has_older;
+                    if let Some(rows) = room.messages.ready_mut() {
+                        let mut all = older;
+                        all.append(rows);
+                        *rows = all;
                     }
                 }
-            });
+                Err(refusal) => {
+                    chat.notice = format!("Couldn’t read this room: {}", refusal.message)
+                }
+            }
         })
         .detach();
     }
@@ -365,29 +359,26 @@ impl Chat {
         }
         thread.more_loading = true;
         let (root, after) = (thread.root, thread.next.clone());
-        cx.spawn(async move |this, cx| {
-            let host = cx.host();
-            let result = queries::thread(host, id, root, viewer, after).await;
-            let _ = this.update(cx, |chat, cx| {
-                cx.notify();
-                let Some(thread) = chat.room.as_mut().and_then(|r| r.thread.as_mut()) else {
-                    return;
-                };
-                thread.more_loading = false;
-                match result {
-                    Ok(_) if thread.root != root => {}
-                    Ok((more, next)) => {
-                        thread.has_more = next.is_some();
-                        thread.next = next;
-                        if let Some(rows) = thread.replies.ready_mut() {
-                            rows.extend(more);
-                        }
-                    }
-                    Err(refusal) => {
-                        chat.notice = format!("Couldn’t read this thread: {}", refusal.message)
+        let more = queries::thread(cx.host(), id, root, viewer, after);
+        cx.land(more, move |chat, result, cx| {
+            cx.notify();
+            let Some(thread) = chat.room.as_mut().and_then(|r| r.thread.as_mut()) else {
+                return;
+            };
+            thread.more_loading = false;
+            match result {
+                Ok(_) if thread.root != root => {}
+                Ok((more, next)) => {
+                    thread.has_more = next.is_some();
+                    thread.next = next;
+                    if let Some(rows) = thread.replies.ready_mut() {
+                        rows.extend(more);
                     }
                 }
-            });
+                Err(refusal) => {
+                    chat.notice = format!("Couldn’t read this thread: {}", refusal.message)
+                }
+            }
         })
         .detach();
     }

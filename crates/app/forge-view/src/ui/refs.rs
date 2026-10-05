@@ -1,6 +1,5 @@
 //! Refs: branches and tags, how far each one is from the default head, and
 //! the Change a comparison can become.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 
 use crate::Forge;

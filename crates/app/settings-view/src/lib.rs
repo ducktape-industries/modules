@@ -8,7 +8,6 @@
 //! and valset (`queries.rs`), re-read on their live heads (`watch.rs`);
 //! presses land in `actions.rs`; `ui/` draws and never mutates.
 mod actions;
-mod api;
 mod queries;
 mod state;
 mod ui;
@@ -16,8 +15,7 @@ mod watch;
 
 pub use state::Settings;
 
-use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::{Context, IntoElement, Render, View, Window, export_view};
+use ducktape_view_guest::prelude::*;
 
 impl View for Settings {
     const NAME: &'static str = "Account";

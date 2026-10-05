@@ -1,10 +1,8 @@
 //! The Account screen: a left menu (Account, Agents, Invites) and the one
 //! pane it has open. `render` reads the state and changes nothing; presses
 //! land in `actions.rs`.
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful, wire};
+use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::Settings;
 use crate::queries::Seat;
@@ -308,25 +306,16 @@ fn secondary(id: impl Into<String>, text: impl Into<String>, theme: &Theme) -> S
 
 /// A text field over `form`: `name` says what it is for, `hint` is drawn
 /// in it while it is empty.
-fn field(
-    id: &str,
-    name: &str,
-    hint: &str,
-    form: &Form,
-    theme: &Theme,
-    typed: impl Fn(&wire::TextChange, &mut Window, &mut App) + 'static,
-) -> Input {
-    Input::new(id.to_owned(), name.to_owned())
+fn field(id: &str, name: &str, hint: &str, form: &Form, theme: &Theme) -> Input {
+    Input::new(id.to_owned(), &form.text, name.to_owned())
         .h(design::size::CONTROL)
         .w(FIELD_W)
         .px_2()
         .border_1()
         .border_color(theme.border_strong)
         .bg(theme.background)
-        .value(&form.text)
         .placeholder(hint.to_owned())
         .disabled(form.busy)
-        .on_change(typed)
 }
 
 /// A form's button: disabled, and saying so, while its submit is in flight.

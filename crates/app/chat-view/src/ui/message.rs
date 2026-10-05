@@ -1,11 +1,7 @@
 //! Message cards and their native GPUI actions.
 
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, ElementId, FontStyle, FontWeight, HighlightStyle,
-    InteractiveText, ParentElement, Styled, StyledText, Theme, UnderlineStyle, Window, div, px,
-};
+use ducktape_view_guest::{FontStyle, FontWeight, HighlightStyle, UnderlineStyle};
 
 use crate::message::{ChatMessage, SpanStyle};
 use crate::ui::badge;

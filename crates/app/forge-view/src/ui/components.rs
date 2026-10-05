@@ -5,13 +5,9 @@ use std::rc::Rc;
 
 use crate::Forge;
 use crate::state::Menu;
-use ducktape_view_guest::UniformListScrollHandle;
-use ducktape_view_guest::design;
 pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, heading, short_hex};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnchoredPositionMode, Div, Edges, KeyDownEvent, Point, Stateful, accesskit,
-};
+use ducktape_view_guest::{AnchoredPositionMode, Div, Edges, Point, Stateful, accesskit};
 
 /// The smallest box a pointer presses, each way (the door's AX-017).
 pub(crate) const PRESS_TARGET: Pixels = px(24.);

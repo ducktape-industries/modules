@@ -293,7 +293,7 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
                 chat::Op::PostMessage { channel_id, .. } if channel_id == "forge:project:1"
             ))
     );
-    view.read(|forge| assert!(forge.reply.text.is_empty()));
+    view.read(|forge| assert!(forge.reply.text().is_empty()));
 }
 
 /// A forge op accepted between two pages of a read makes the cursor its
@@ -668,7 +668,7 @@ fn a_refused_review_keeps_every_draft() {
     view.read(|forge| {
         let review = forge.review().expect("the session survives a refusal");
         assert_eq!(review.comments.len(), 1);
-        assert_eq!(review.comments[0].body.text, "keep me");
+        assert_eq!(review.comments[0].body.text(), "keep me");
     });
 }
 

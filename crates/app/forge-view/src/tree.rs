@@ -1,7 +1,7 @@
 //! The Code tab's file tree: a directory's children open inline beneath
 //! it. Each expanded directory is its own lazy `Query::Tree`; the rows on
 //! screen are a walk of whatever of those has landed.
-use ducktape_view_guest::{Context, ScrollStrategy};
+use ducktape_view_guest::prelude::*;
 
 use crate::queries::PAGE;
 use crate::state::Forge;
@@ -89,7 +89,7 @@ impl Forge {
     /// whose name holds it.
     pub(crate) fn tree_rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
-        let needle = self.tree_search.text.trim().to_lowercase();
+        let needle = self.tree_search.text().trim().to_lowercase();
         self.walk(Vec::new(), 0, &needle, &mut rows);
         rows
     }

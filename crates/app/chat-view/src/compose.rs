@@ -1,11 +1,9 @@
 //! The composer's events for one target, run through its draft: the
 //! sends it makes.
-use crate::api::HostId;
 use crate::composer::{Event, MentionChoice, Outcome, Send, Target, pending_row};
 use crate::names::mention_token;
 use crate::{Chat, Mode};
-use ducktape_view_guest::Context;
-use ducktape_view_guest::methods::Submit;
+use ducktape_view_guest::prelude::*;
 
 impl Chat {
     /// Who the composer offers after `@`: the roster, and the room's members.

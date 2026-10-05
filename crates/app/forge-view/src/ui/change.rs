@@ -1,18 +1,14 @@
 //! One Change: its header, the three tabs a reviewer lives in, and its
 //! details beside them. Conversation is chat's hidden channel; Files is
 //! the reviewer's home.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnchoredPositionMode, Div, FontWeight, MouseDownEvent, Point, Stateful, TextField, wire,
-};
+use ducktape_view_guest::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
 
 use crate::Forge;
 use crate::state::{ChangeTab, verdict_label};
 use crate::ui::changes::{revision_name, state_chip};
 use crate::ui::components::{badge, button, heading, id, path_text, quiet, ref_label, short_hex};
 use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, scroller, staged};
-use ducktape_view_guest::Anchor;
 use forge::{Change, ChangeState, FileDiff, Query, Reply, Verdict};
 
 /// The Files tab's file list.
@@ -662,7 +658,7 @@ fn finish_panel(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Finish your review"),
         )
-        .child(review_body(&review.body, cx, theme))
+        .child(review_body(&review.body, theme))
         .child(verdicts(forge, verdict, cx, theme))
         .child(
             div().flex().justify_end().child(
@@ -690,18 +686,8 @@ fn finish_panel(
 }
 
 /// What the review says overall, typed while finishing.
-fn review_body(
-    body: &TextField,
-    cx: &mut Context<Forge>,
-    theme: &Theme,
-) -> impl IntoElement + use<> {
+fn review_body(body: &TextField, theme: &Theme) -> impl IntoElement + use<> {
     Textarea::new(id("forge-review-body"), body, "Review body")
-        .on_change(cx.listener(|forge, change: &wire::TextChange, _, cx| {
-            if let Some(review) = forge.review_mut() {
-                review.body.apply(change);
-            }
-            cx.notify();
-        }))
         .min_h(design::size::CONTROL * 2.5)
         .w_full()
         .px_2()

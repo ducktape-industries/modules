@@ -40,7 +40,7 @@ fn the_search_field_holds_only_what_is_being_typed() {
     node(&mut cx, Rc::new(RefCell::new(12)));
     let explorer = cx.open::<Explorer>();
     cx.run_until_parked();
-    let field = |_: &TestAppContext| explorer.read(|view| view.search.text.clone());
+    let field = |_: &TestAppContext| explorer.read(|view| view.search.text());
     cx.simulate_input("explorer-search", "11");
     cx.simulate_submit("explorer-search");
     cx.run_until_parked();

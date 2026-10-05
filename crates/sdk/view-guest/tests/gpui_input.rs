@@ -22,14 +22,9 @@ impl Render for Form {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let id = ElementId::NamedChild(Arc::new(ElementId::Name("chat".into())), "search".into());
         div().child(
-            Input::new(id, "Search messages")
-                .value(&self.value)
+            Input::new(id, &self.value, "Search messages")
                 .placeholder("Search")
                 .w(px(240.))
-                .on_change(cx.listener(|view, change: &wire::TextChange, _, cx| {
-                    view.value.apply(change);
-                    cx.notify();
-                }))
                 .on_submit(cx.listener(|view, _: &(), _, cx| {
                     view.submits += 1;
                     cx.notify();
@@ -46,6 +41,16 @@ type Lowered<'a> = (
     &'a str,
     u64,
 );
+
+/// The form's one child, as the last frame lowered it.
+fn field(cx: &TestAppContext) -> &wire::Node {
+    let wire::Node::Container(ducktape_view_guest::wire::ContainerNode { children, .. }) =
+        cx.root()
+    else {
+        panic!("root container")
+    };
+    &children[0]
+}
 
 fn input(cx: &TestAppContext) -> Lowered<'_> {
     let wire::Node::Container(ducktape_view_guest::wire::ContainerNode { children, .. }) =
@@ -99,11 +104,11 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
     first.simulate_input("Search", "hello");
     first.simulate_submit("Search");
     first_form.read(|form| {
-        assert_eq!(form.value.text, "hello");
+        assert_eq!(form.value.text(), "hello");
         assert_eq!(form.submits, 1);
     });
     second_form.read(|form| {
-        assert_eq!(form.value.text, "");
+        assert_eq!(form.value.text(), "");
         assert_eq!(form.submits, 0);
     });
 
@@ -122,10 +127,66 @@ fn input_lowers_typed_identity_style_and_frame_owned_callbacks() {
             tokens: Default::default(),
         },
     });
-    first_form.read(|form| {
-        assert_eq!(
-            (form.value.text.as_str(), form.value.revision),
-            ("stale", 9)
+    first_form.read(|form| assert_eq!(form.value.text(), "stale"));
+    // the revision the field took, as the next frame speaks it to the host
+    let wire::Node::Field { revision, .. } = field(&first) else {
+        panic!("the field")
+    };
+    assert_eq!(*revision, 9);
+}
+
+/// A field bound at birth, with no listener written: what the host says
+/// was typed is the field's text, and the view renders for it, once.
+#[test]
+fn a_bound_field_hears_what_is_typed() {
+    let mut cx = TestAppContext::new();
+    let form = cx.open::<Form>();
+    let renders = cx.renders();
+    cx.simulate_input("Search", "hi");
+    form.read(|form| assert_eq!(form.value.text(), "hi"));
+    assert_eq!(cx.renders(), renders + 1, "the keystroke drew once");
+    let wire::Node::Field { value, .. } = field(&cx) else {
+        panic!("the field")
+    };
+    assert_eq!(value, "hi", "and the frame shows it");
+}
+
+/// A view that does more on a change than keep the text.
+#[derive(Default, Serialize, Deserialize)]
+struct Counted {
+    name: TextField,
+    /// The field's text as each change found it.
+    heard: Vec<String>,
+}
+
+impl View for Counted {
+    const NAME: &'static str = "Counted";
+}
+
+impl Render for Counted {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().child(
+            Input::new("name", &self.name, "Name")
+                .placeholder("Name")
+                .on_change(
+                    cx.listener(|view: &mut Counted, _: &wire::TextChange, _, cx| {
+                        view.heard.push(view.name.text());
+                        cx.notify();
+                    }),
+                ),
         )
-    });
+    }
+}
+
+/// The author's own `on_change` runs after the binding: the field already
+/// holds the change when the listener reads it.
+#[test]
+fn on_change_runs_after_the_field_took_the_change() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<Counted>();
+    let renders = cx.renders();
+    cx.simulate_input("Name", "a");
+    cx.simulate_input("Name", "ab");
+    view.read(|view| assert_eq!(view.heard, ["a", "ab"]));
+    assert_eq!(cx.renders(), renders + 2, "one render a change, not two");
 }

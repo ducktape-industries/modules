@@ -7,7 +7,6 @@
 //! lands in the handlers of `room`, `actions`, `search` and `compose`. The
 //! rich editor is the SDK's composer; `composer.rs` is its whole boundary.
 mod actions;
-mod api;
 mod compose;
 mod composer;
 mod emoji;
@@ -26,9 +25,7 @@ mod watch;
 
 pub use state::*;
 
-use ducktape_view_guest::View;
-use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::{Context, IntoElement, Render, Window, export_view};
+use ducktape_view_guest::prelude::*;
 
 /// Rows asked per page.
 const PAGE: usize = 64;

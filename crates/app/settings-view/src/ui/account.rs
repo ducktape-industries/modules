@@ -153,10 +153,6 @@ fn key_row(i: usize, label: &str, key: &Key, theme: &Theme) -> Stateful<Div> {
 
 fn create_account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
     let form = &view.create_account;
-    let typed = cx.listener(|v: &mut Settings, change: &wire::TextChange, _, cx| {
-        v.create_account.text.apply(change);
-        cx.notify();
-    });
     let pressed =
         cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_account(cx));
     let mut name = field(
@@ -165,7 +161,6 @@ fn create_account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) ->
         "Account name",
         form,
         theme,
-        typed,
     );
     if !form.busy {
         name = name
@@ -222,14 +217,6 @@ fn agents(
     cx: &mut Context<Settings>,
     theme: &Theme,
 ) -> AnyElement {
-    let create_typed = cx.listener(|v: &mut Settings, change: &wire::TextChange, _, cx| {
-        v.create_agent.text.apply(change);
-        cx.notify();
-    });
-    let key_typed = cx.listener(|v: &mut Settings, change: &wire::TextChange, _, cx| {
-        v.agent_key.text.apply(change);
-        cx.notify();
-    });
     let create = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_agent(cx));
     let add = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_agent_key(cx));
     let rows: Vec<AnyElement> = account
@@ -246,7 +233,6 @@ fn agents(
             "Agent name",
             &view.create_agent,
             theme,
-            create_typed,
         ))
         .child(submit(
             "settings/agents/create/submit",
@@ -266,7 +252,6 @@ fn agents(
             "Agent key request",
             &view.agent_key,
             theme,
-            key_typed,
         ))
         .child(submit(
             "settings/agents/key/submit",
@@ -331,10 +316,6 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
     let editing = renaming.is_some() && !revoked;
     let name: AnyElement = match renaming.filter(|_| !revoked) {
         Some(form) => {
-            let typed = cx.listener(move |v: &mut Settings, change: &wire::TextChange, _, cx| {
-                v.rename_agent.entry(number).or_default().text.apply(change);
-                cx.notify();
-            });
             let submitted = cx
                 .listener(move |v: &mut Settings, _: &(), _, cx| v.submit_rename_agent(number, cx));
             let input = field(
@@ -343,7 +324,6 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
                 "New name",
                 form,
                 theme,
-                typed,
             );
             match form.busy {
                 true => input.into_any_element(),

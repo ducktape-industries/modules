@@ -7,9 +7,9 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::rc::Rc;
 
-use ducktape_view_guest::design::{self, space, text};
+use ducktape_view_guest::design::{space, text};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, KeyDownEvent, Stateful, wire};
+use ducktape_view_guest::{Div, Stateful};
 
 use crate::Forge;
 use crate::tree::{Key, Row, Slot};
@@ -40,7 +40,7 @@ const INDENT_STEP: f32 = 14.;
 const GLYPH: Pixels = px(12.);
 
 fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let column = tree_column(forge, cx, theme);
+    let column = tree_column(forge, theme);
     let Some(query) = forge.tree_query(Vec::new()) else {
         // `refs()` lands (even empty) before `head_oid()` ever resolves for
         // a repo with no commits: without this, a freshly created repo sat
@@ -78,11 +78,7 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
 }
 
 /// The tree's column and its filter field.
-fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
-    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
-        forge.tree_search.apply(change);
-        cx.notify();
-    });
+fn tree_column(forge: &Forge, theme: &Theme) -> Stateful<Div> {
     div()
         .id(id("forge-tree"))
         .w(px(forge.layout.files))
@@ -92,17 +88,19 @@ fn tree_column(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Statefu
         .min_h(px(0.))
         .child(
             div().id(id("forge-tree-header")).p_2().child(
-                Input::new(id("forge-tree-search"), "Filter the file tree")
-                    .h(design::size::ROW)
-                    .w_full()
-                    .px_2()
-                    .border_1()
-                    .border_color(theme.border_strong)
-                    .bg(theme.surface)
-                    .text_color(theme.foreground)
-                    .value(&forge.tree_search)
-                    .placeholder("Filter files")
-                    .on_change(typed),
+                Input::new(
+                    id("forge-tree-search"),
+                    &forge.tree_search,
+                    "Filter the file tree",
+                )
+                .h(design::size::ROW)
+                .w_full()
+                .px_2()
+                .border_1()
+                .border_color(theme.border_strong)
+                .bg(theme.surface)
+                .text_color(theme.foreground)
+                .placeholder("Filter files"),
             ),
         )
 }

@@ -1,9 +1,7 @@
 //! The state Explorer keeps: where it is, and what it read. Rows are the
 //! programs' own types, worded only when drawn (`ui/`).
-use ducktape_view_guest::Loadable;
 use ducktape_view_guest::borsh_bytes;
-use ducktape_view_guest::methods::NodeStatus;
-use ducktape_view_guest::{Task, TextField, UniformListScrollHandle, design};
+use ducktape_view_guest::prelude::*;
 use module_registry as registry;
 use serde::{Deserialize, Serialize};
 
@@ -141,9 +139,6 @@ pub struct Explorer {
     /// the status read again while the one on screen stays
     #[serde(skip)]
     pub(crate) rereading_status: Option<Task<()>>,
-    /// What the view follows (`watch.rs`); dropping them unsubscribes.
-    #[serde(skip)]
-    pub(crate) followers: Vec<Task<()>>,
     /// the pane's width, read from the window each render
     #[serde(skip)]
     pub(crate) width: f32,

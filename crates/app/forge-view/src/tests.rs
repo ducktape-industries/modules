@@ -5,9 +5,9 @@
 //! hands it back, so an unhandled ask is a panic and a screen that reads a
 //! field the program does not send cannot compile.
 use super::*;
-use crate::api::{Ask, HostSession, Session, SubmitForge};
+use crate::api::{Ask, SubmitForge};
 use crate::state::{ChangeTab, Filter, RepoTab};
-use ducktape_view_guest::methods::HostId;
+use ducktape_view_guest::methods::{HostId, HostSession, Session};
 use ducktape_view_guest::methods::{Query as ProgramQuery, Submit};
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 use ducktape_view_guest::{Entity, Theme, wire};
@@ -434,6 +434,68 @@ fn a_refused_conversation_is_asked_again_with_each_block_until_it_answers() {
         cx.texts()
     );
     assert!(cx.has_text("Reading it now"), "{:?}", cx.texts());
+}
+
+/// Another key takes the seat while a change's conversation is open.
+/// forge's own lines are told by their author, whom the roster names, so
+/// the names shown for the key before are not kept under the new one: the
+/// conversation says it is being read until the roster lands again.
+/// (`session_changed` blanks `names` on purpose; `load` alone would keep
+/// them.)
+#[test]
+fn a_reader_change_shows_the_conversation_being_read_until_the_names_land() {
+    use ducktape_view_guest::methods::Method;
+    let mut cx = TestAppContext::new();
+    configure(&mut cx, "default");
+    let props = cx.host().stream::<HostSession>();
+    let view = cx.open::<Forge>();
+    let seat = |key: &[u8]| Session {
+        signer: abi::hex(key),
+        account: Some(2),
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    };
+    props.send(seat(b"reviewer"));
+    cx.run_until_parked();
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(cx.has_text("Reading it now"), "{:?}", cx.texts());
+
+    // chat answers nothing by itself from here: the roster stays out, and
+    // the conversation is answered by hand below
+    cx.host().never::<ProgramQuery<::chat::Chat>>();
+    props.send(seat(b"another"));
+    let mut conversation = None;
+    for _ in 0..50 {
+        cx.tick(Vec::new());
+        conversation = cx.last_frame().requests.iter().find_map(|request| {
+            let asked = ProgramQuery::<::chat::Chat>::decode_request(&request.payload);
+            matches!(asked, Ok(chat::Query::Roots { .. })).then_some(request.id)
+        });
+        if conversation.is_some() {
+            break;
+        }
+    }
+    let id = conversation.expect("the conversation is read again for the new reader");
+    let rows = chat_answer(chat::Query::Roots {
+        channel_id: "forge:project:1".into(),
+        viewer: Vec::new(),
+        page: chat::PageRequest::default(),
+    });
+    cx.tick(vec![wire::Event::Response {
+        id,
+        result: Ok(ProgramQuery::<::chat::Chat>::encode_reply(&rows)),
+        done: true,
+    }]);
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.names.is_loading(), "{:?}", forge.names));
+    assert!(cx.has_text("Reading the conversation…"), "{:?}", cx.texts());
+    assert!(!cx.has_text("Reading it now"), "{:?}", cx.texts());
 }
 
 /// A read still out when a block lands is left to land: a block asks
@@ -1227,12 +1289,7 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
     );
     cx.simulate_click("forge-grant-pick-2");
     cx.run_until_parked();
-    let filled = view.read(|forge| {
-        forge
-            .repo_settings
-            .as_ref()
-            .map(|form| form.grant.text.clone())
-    });
+    let filled = view.read(|forge| forge.repo_settings.as_ref().map(|form| form.grant.text()));
     assert_eq!(filled.as_deref(), Some("2"));
     assert!(
         cx.find("forge-grant-pick-2").is_none(),

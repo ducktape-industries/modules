@@ -7,9 +7,9 @@ use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire;
 use ducktape_view_guest::{Entity, StyleRefinement, Styled};
 
-use crate::api::{Changes, HostId, HostSession, HostVisible, Session, Submit};
 use ducktape_view_guest::methods::Change;
 use ducktape_view_guest::methods::Query as Ask;
+use ducktape_view_guest::methods::{Changes, HostId, HostSession, HostVisible, Session, Submit};
 use program::role::Identity;
 
 mod menus;

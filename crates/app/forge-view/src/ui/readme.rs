@@ -1,6 +1,5 @@
 //! The README tab: the root README rendered whole, the repository's front
 //! page. The Code tab is where the tree lives.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, Stateful};
 

@@ -1,7 +1,6 @@
 //! A change's details, one sidebar beside its conversation: who reviewed
 //! it and how, what stands between it and its target ref, every line
 //! comment in one place, and the channel it talks in.
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 

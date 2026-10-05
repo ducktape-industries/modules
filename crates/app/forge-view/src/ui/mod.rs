@@ -16,7 +16,6 @@ pub(crate) mod refs;
 pub(crate) mod repos;
 pub(crate) mod settings;
 
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 

@@ -3,10 +3,7 @@
 //! recent window of blocks, newest first, and keeps the transactions one of
 //! the account's keys signed, each titled by its own program
 //! (`module.describe`).
-use ducktape_view_guest::Host;
-use ducktape_view_guest::design;
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::{BlockPage, ChainBlocks, ModuleDescribe};
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// The recent window, in blocks: explorer-view's `WINDOW`.

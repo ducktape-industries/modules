@@ -401,7 +401,7 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
     restored.run_until_parked();
     assert!(restored.has_text("scout's bio"));
     view.read(|view| {
-        assert_eq!(view.filter.text, "sc");
+        assert_eq!(view.filter.text(), "sc");
         assert_eq!(view.only, Some(Group::Agents));
         assert_eq!(view.selected, Some(9));
     });

@@ -1,11 +1,7 @@
 //! Thread and channel-details panes.
 
-use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, Div, ElementId, ParentElement, Stateful, Styled, TextField,
-    Theme, div, px, wire,
-};
+use ducktape_view_guest::{Div, Stateful};
 
 use super::timeline;
 use crate::Chat;
@@ -153,12 +149,6 @@ fn name_section(
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> Vec<AnyElement> {
-    let typed_name = cx.listener(|chat, change: &wire::TextChange, _window, cx| {
-        if let Some(details) = &mut chat.details {
-            details.name_draft.apply(change);
-        }
-        cx.notify();
-    });
     let rename = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         cx.notify();
         chat.rename(cx)
@@ -173,9 +163,7 @@ fn name_section(
     };
     vec![
         section("Name", theme).into_any_element(),
-        field("chat-details-name-input", draft, "Channel name", theme)
-            .on_change(typed_name)
-            .into_any_element(),
+        field("chat-details-name-input", draft, "Channel name", theme).into_any_element(),
         button("chat-details-rename-button", "Rename", theme, rename).into_any_element(),
         button("chat-details-archive", archive_label, theme, archive).into_any_element(),
     ]
@@ -183,20 +171,12 @@ fn name_section(
 
 /// The field and button that seat a member, and how one is removed.
 fn member_adder(draft: &TextField, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
-    let typed_member = cx.listener(|chat, change: &wire::TextChange, _window, cx| {
-        if let Some(details) = &mut chat.details {
-            details.member_draft.apply(change);
-        }
-        cx.notify();
-    });
     let add_member = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         cx.notify();
         chat.add_member(cx);
     });
     vec![
-        field("chat-details-member-input", draft, "Add member", theme)
-            .on_change(typed_member)
-            .into_any_element(),
+        field("chat-details-member-input", draft, "Add member", theme).into_any_element(),
         button("chat-details-add-member", "Add member", theme, add_member).into_any_element(),
         div()
             .text_size(design::text::CAPTION)
@@ -218,14 +198,13 @@ fn section(name: &'static str, theme: &Theme) -> impl IntoElement {
 }
 
 fn field(id: &'static str, value: &TextField, label: &'static str, theme: &Theme) -> Input {
-    Input::new(id, label)
+    Input::new(id, value, label)
         .h(design::size::CONTROL)
         .px_2()
         .py_1()
         .border_1()
         .border_color(theme.border_strong)
         .bg(theme.background)
-        .value(value)
 }
 
 /// A row per member, each with its way out where the room has one; a word

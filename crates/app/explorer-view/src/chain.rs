@@ -1,6 +1,6 @@
 //! The recent window: the last [`WINDOW`] finalized blocks and the
 //! transactions they carry, folded in a page at a time.
-use ducktape_view_guest::methods::{Block, Description, Receipt};
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell};

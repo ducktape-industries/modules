@@ -111,7 +111,7 @@ impl Draft {
         }
         text.push_str(remaining);
         self.field.reset(text);
-        self.field.tokens = tokens;
+        self.field.state_mut().tokens = tokens;
         self.cleared.clear();
         self.menu_index = 0;
         self.menu_dismissed = false;
@@ -120,13 +120,14 @@ impl Draft {
     /// The text with every mention as its token, less what a send asked the
     /// host to clear.
     pub fn body(&self) -> String {
-        let text = self.field.text.as_str();
+        let field = self.field.state();
+        let text = field.text.as_str();
         let mut body = String::new();
         let mut at = 0;
         let end = wire::TextRange::caret(text.len());
         for piece in self.cleared.iter().chain([&end]) {
             let mut from = at;
-            for token in &self.field.tokens {
+            for token in &field.tokens {
                 if token.range.start as usize >= at && token.range.end <= piece.start {
                     body.push_str(&text[from..token.range.start as usize]);
                     body.push_str(&token.id);
@@ -170,11 +171,12 @@ impl Draft {
     /// The `@name` being typed at the caret, if any: its span and the name
     /// so far. None with a selection, inside a mention, or after Escape.
     pub(crate) fn query(&self) -> Option<(Range<usize>, String)> {
-        if self.menu_dismissed || !self.field.cursor.is_empty() {
+        let field = self.field.state();
+        if self.menu_dismissed || !field.cursor.is_empty() {
             return None;
         }
-        let text = self.field.text.as_str();
-        let at = self.field.cursor.start as usize;
+        let text = field.text.as_str();
+        let at = field.cursor.start as usize;
         let before = text.get(..at)?;
         let after = text.get(at..)?;
         let handle_char = |c: char| c.is_alphanumeric() || matches!(c, '-' | '_' | '.');
@@ -193,7 +195,7 @@ impl Draft {
             return None;
         }
         let range = before.len() - line.len() + start..at;
-        let overlaps = self.field.tokens.iter().any(|token| {
+        let overlaps = field.tokens.iter().any(|token| {
             range.start < token.range.end as usize && range.end > token.range.start as usize
         });
         if overlaps {
@@ -273,7 +275,8 @@ impl Draft {
     ) -> (Vec<wire::WidgetCommand>, Outcome) {
         let target = gpui::ElementId::Name(target.to_owned().into());
         let field = &self.field;
-        let text = field.text.as_str();
+        // read now and let go: `seed` below writes the field
+        let len = field.state().text.len();
         let edits = match tag {
             "menu-next" => {
                 self.menu_index = self.menu_index.saturating_add(1);
@@ -297,12 +300,12 @@ impl Draft {
                 // the whole text is spoken for until the host's word shows
                 // the clear landed: a second Enter before then sends only
                 // what was typed since
-                self.cleared = vec![wire::TextRange::from(0..text.len())];
+                self.cleared = vec![wire::TextRange::from(0..len)];
                 let clear = field.replace_all(target, "");
                 return (vec![clear], Outcome::Action("send".into()));
             }
             "restore" => {
-                if !text.is_empty() {
+                if len > 0 {
                     return (Vec::new(), Outcome::Updated);
                 }
                 if let Some(send) = self.failed_send.take() {
@@ -452,8 +455,8 @@ mod tests {
     #[test]
     fn formatting_wraps_the_selection_around_a_mention() {
         let mut draft = Draft::from_body("Hi <@7>", &roster());
-        assert_eq!(draft.field.text, "Hi @Ada");
-        draft.field.cursor = wire::TextRange::from(3..7);
+        assert_eq!(draft.field.text(), "Hi @Ada");
+        draft.field.state_mut().cursor = wire::TextRange::from(3..7);
         let (bold, _) = draft.act("bold", "c/editor", &roster());
         assert_eq!(
             replaces(&bold),
@@ -461,7 +464,7 @@ mod tests {
         );
         let (quote, _) = draft.act("quote", "c/editor", &roster());
         assert_eq!(replaces(&quote), [(3..3, "> ", None, 5)]);
-        draft.field.cursor = wire::TextRange::caret(7);
+        draft.field.state_mut().cursor = wire::TextRange::caret(7);
         let (italic, _) = draft.act("italic", "c/editor", &roster());
         assert_eq!(replaces(&italic), [(7..7, "**", None, 8)]);
     }
@@ -477,7 +480,7 @@ mod tests {
         );
         // the host's answer: the span sits where the engine put it
         draft.changed(&wire::TextChange {
-            generation: draft.field.generation,
+            generation: draft.field.generation(),
             revision: 1,
             edit: Some(wire::Edit {
                 range: wire::TextRange::from(3..5),
@@ -498,7 +501,7 @@ mod tests {
     #[test]
     fn a_send_clears_the_field_at_the_revision_it_knows_and_keeps_the_body() {
         let mut draft = Draft::from_body("first <@7>", &roster());
-        draft.field.revision = 4;
+        draft.field.state_mut().revision = 4;
         let (edits, outcome) = draft.act("send", "c/editor", &roster());
         assert!(matches!(outcome, Outcome::Action(tag) if tag == "send"));
         let [
@@ -525,14 +528,14 @@ mod tests {
     #[test]
     fn a_second_send_before_the_clear_lands_sends_only_what_was_typed_since() {
         let mut draft = Draft::from_body("hi <@7>", &roster());
-        assert_eq!(draft.field.text, "hi @Ada");
+        assert_eq!(draft.field.text(), "hi @Ada");
         let change = |draft: &mut Draft,
                       revision,
                       edit: (Range<usize>, u32),
                       text: &str,
                       tokens: Vec<wire::TextToken>| {
             draft.changed(&wire::TextChange {
-                generation: draft.field.generation,
+                generation: draft.field.generation(),
                 revision,
                 edit: Some(wire::Edit {
                     range: edit.0.into(),
@@ -608,7 +611,7 @@ mod tests {
         let mut draft = Draft::from_body("ok", &[]);
         let change = |draft: &mut Draft, revision, edit: (Range<usize>, u32), text: &str| {
             draft.changed(&wire::TextChange {
-                generation: draft.field.generation,
+                generation: draft.field.generation(),
                 revision,
                 edit: Some(wire::Edit {
                     range: edit.0.into(),
@@ -653,14 +656,14 @@ mod tests {
     #[test]
     fn restore_then_send_in_one_tick_speak_of_the_seeded_document() {
         let mut draft = Draft::from_body("", &[]);
-        let left = draft.field.generation;
-        draft.field.revision = 4;
+        let left = draft.field.generation();
+        draft.field.state_mut().revision = 4;
         draft.failed_send = Some(Send {
             body: "hello".into(),
         });
         draft.act("restore", "c/editor", &[]);
-        assert_eq!(draft.field.text, "hello");
-        let seeded = draft.field.generation;
+        assert_eq!(draft.field.text(), "hello");
+        let seeded = draft.field.generation();
         assert!(seeded > left);
         let (asks, outcome) = draft.act("send", "c/editor", &[]);
         assert!(matches!(outcome, Outcome::Action(tag) if tag == "send"));
@@ -695,7 +698,7 @@ mod tests {
         // the document the reset left
         draft.changed(&change(left, 5, Some((0..0, 1)), "a"));
         assert_eq!(
-            (draft.field.text.as_str(), draft.field.revision),
+            (draft.field.text().as_str(), draft.field.state().revision),
             ("hello", 4)
         );
         // the host adopts the seeded text: not an edit of anything
@@ -705,7 +708,10 @@ mod tests {
         // the clear lands
         draft.changed(&change(seeded, 7, Some((0..5, 0)), ""));
         assert!(draft.cleared.is_empty());
-        assert_eq!((draft.body().as_str(), draft.field.revision), ("", 7));
+        assert_eq!(
+            (draft.body().as_str(), draft.field.state().revision),
+            ("", 7)
+        );
     }
 
     #[test]
@@ -716,11 +722,11 @@ mod tests {
         }
         assert_eq!(draft.failed_send.as_ref().unwrap().body, "first\nsecond");
         draft.act("restore", "c/editor", &[]);
-        assert_eq!(draft.field.text, "new typing");
+        assert_eq!(draft.field.text(), "new typing");
         assert!(draft.failed_send.is_some());
-        let generation = draft.field.generation;
+        let generation = draft.field.generation();
         draft.changed(&wire::TextChange {
-            generation: draft.field.generation,
+            generation: draft.field.generation(),
             revision: 9,
             edit: Some(wire::Edit {
                 range: wire::TextRange::from(0..10),
@@ -732,12 +738,12 @@ mod tests {
             tokens: Default::default(),
         });
         draft.act("restore", "c/editor", &[]);
-        assert_eq!(draft.field.text, "first\nsecond");
+        assert_eq!(draft.field.text(), "first\nsecond");
         assert!(
-            draft.field.generation > generation,
+            draft.field.generation() > generation,
             "a restore is a new document"
         );
-        assert_eq!(draft.field.revision, 9);
+        assert_eq!(draft.field.state().revision, 9);
         assert!(draft.failed_send.is_none());
     }
 
@@ -750,7 +756,7 @@ mod tests {
         let mut restored: Draft =
             serde_json::from_slice(&serde_json::to_vec(&draft).unwrap()).unwrap();
         restored.retire_device_requests();
-        assert_eq!(restored.field.text, "new typing");
+        assert_eq!(restored.field.text(), "new typing");
         assert_eq!(restored.failed_send.as_ref().unwrap().body, "in flight");
         assert!(restored.in_flight.is_empty());
     }
@@ -758,7 +764,7 @@ mod tests {
     #[test]
     fn restored_drafts_keep_stable_mentions_when_labels_change() {
         let draft = Draft::from_body("Hello <@7>", &roster());
-        assert_eq!(draft.field.text, "Hello @Ada");
+        assert_eq!(draft.field.text(), "Hello @Ada");
         assert_eq!(draft.body(), "Hello <@7>");
         let restored: Draft = serde_json::from_slice(&serde_json::to_vec(&draft).unwrap()).unwrap();
         assert_eq!(restored.body(), "Hello <@7>");
@@ -768,7 +774,7 @@ mod tests {
     fn the_menu_opens_on_a_name_being_typed_and_nowhere_else() {
         let caret = |text: &str, at: usize| {
             let mut draft = Draft::from_body(text, &roster());
-            draft.field.cursor = wire::TextRange::caret(at);
+            draft.field.state_mut().cursor = wire::TextRange::caret(at);
             draft
         };
         assert_eq!(caret("@A", 2).query(), Some((0..2, "A".into())));
@@ -787,7 +793,7 @@ mod tests {
         dismissed.act("menu-dismiss", "c/editor", &roster());
         assert_eq!(dismissed.query(), None);
         dismissed.changed(&wire::TextChange {
-            generation: dismissed.field.generation,
+            generation: dismissed.field.generation(),
             revision: 1,
             edit: Some(wire::Edit {
                 range: wire::TextRange::caret(2),

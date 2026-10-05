@@ -1,8 +1,6 @@
 //! The Transactions tab and one transaction.
 use super::*;
 use crate::decode::{amount, clip, preview, scheme};
-use ducktape_view_guest::design;
-use ducktape_view_guest::methods::Value;
 
 pub(super) fn transactions(
     view: &Explorer,

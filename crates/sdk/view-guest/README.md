@@ -4,6 +4,12 @@ A view is a wasm32 cdylib on `ducktape-view-guest`. It builds a widget tree the 
 lays out and draws, hears meaning-level events back, and asks the host for
 data through a fixed table of methods. This page is the whole surface.
 
+Read `crates/app/example-view/src/lib.rs` first: one file, the smallest view
+that uses every core feature once (a stream followed, a listing read, a
+bound field, a write, a refusal shown, a restore), with a comment on every
+piece and its tests under it. It is built and tested with the workspace and
+ships in no network. This page is what that file leans on.
+
 ## Depending on it
 
 A view crate outside this repository, with this repository checked out
@@ -40,7 +46,6 @@ The smallest view, `src/lib.rs`:
 
 ```rust
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{View, export_view};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -59,11 +64,63 @@ impl Render for Hello {
 export_view!(Hello);
 ```
 
-`prelude` holds what a render body names (`Render`, `Window`, `Context`,
-`IntoElement`, `div`, ...); `View` and `export_view!` are imported beside
-it. `View` asks for `Default`, `Serialize` and `Deserialize`, which is why
-`serde` is a dependency. It builds with
-`cargo build --target wasm32-unknown-unknown`.
+`prelude` is every SDK name a view file writes, in one import: gpui's names
+(`Render`, `Window`, `Context`, `IntoElement`, `div`, ...), the view's own
+(`View`, `Loadable`, `Task`, `Host`, `Error`, `TextField`, `Theme`,
+`export_view!`), the `design` module, and the `methods` module whole
+(`HostSession`, `Changes`, `Submit`, `Capability`, `Session`, ...). A
+program's types come from the program's crate, and an explicit import wins
+over the glob (`use forge::Query;`). `View` asks for `Default`, `Serialize`
+and `Deserialize`, which is why `serde` is a dependency. It builds with
+`cargo build --target wasm32-unknown-unknown`. `crate-type = ["cdylib"]` is
+all a view needs: no crate links a view as a library, and its unit tests
+run without `rlib`.
+
+## What a view is made of
+
+What the six first-party views write, by how many of them write it. Start
+with these; the rest of this page is reference.
+
+| A view writes | Views | What it is |
+|---|---|---|
+| `impl View`: `NAME`, `CAPABILITIES`, `TARGETS`, `attach` | 6/6 | What the host reads before the view runs, and where what it follows starts ("The `View` trait"). |
+| `cx.follow::<D>(request, \|view, item, cx\| ..).detach()` | 6/6 | A host stream: the session, a program's blocks, the clock. One call a stream, in `attach`. |
+| `cx.log_refused(what, &refusal)` | 6/6 | A refusal nothing on screen waits for, to the host's log under the view's `NAME`. It asks `host.log`, so the view declares `Capability::Host`. |
+| `Loadable<T>`; `cx.load(self, work, \|view\| &mut view.slot)` | 6/6; 5/6 | An answer and its states, and the read that fills it. |
+| `cx.land(work, \|view, answer, cx\| ..)` | 6/6 | The answer to your own closure: a write, or a read that does more than fill a slot. |
+| `host.query(ask)`, `host.query_all(\|after\| ask)` | 5/6 | A typed question to a program: one page, or the listing whole. |
+| `cx.notify()` | 6/6 | The view decides when it renders ("When a view renders"). |
+| `cx.listener(\|view, event, window, cx\| ..)` | 6/6 | A method of the view as a handler: a press (`&ClickEvent`), Enter in a field (`&()`), a key. gpui's. |
+| `let theme = *cx.global::<Theme>();` | 6/6 | The host's colors, light or dark: gpui's `cx.theme()`. The first line of a render; `design`'s functions take `&theme`. |
+| `design::space`, `design::size`, `design::text` | 6/6 | The spacing, control and type tokens every screen is laid out in. |
+| `design::empty_state(id, title, detail, &theme)` | 6/6 | What a list says when it has no rows. |
+| `design::badge(..)` | 6/6 | A small labelled state: "agent", "suspended". |
+| `design::refused(name, message, &theme, retry)` | 5/6 | A refused read: the reason and a Retry, under the ids `<name>-refused` and `<name>-retry`. |
+| `design::composite(..)` | 5/6 | A group one Tab stop holds and the arrows move in: a tab bar, a list of rows. |
+| `TextField` and `Input::new(id, &self.field, label)` | 5/6 | A text field bound to the view's state ("What is gpui and what is ours"). |
+| `.focusable()`, `.role(..)`, `.aria_disabled(..)` | 5/6 | What a pressable `div` owes the keyboard and a screen reader; the test host fails a frame that lacks one. |
+| `cx.processor(\|view, item, window, cx\| ..)` | 5/6 | `cx.listener` for a callback that returns a value: a list's row builder. gpui's. |
+| `design::button(id, label, &theme, click).enabled(..)` | 3/6 | A button with its role, Tab stop and disabled state done. |
+| `cx.new(..)`, child entities | 1/6 | State and a render of its own inside a view ("Child entities"). |
+
+Three patterns the views share:
+
+- **Who is reading.** `cx.follow::<HostSession>` hands a `Session` per
+  change; `account` is `None` both before the host resolved it and for a key
+  that holds none. A view tells them apart by what it shows: its slot stays
+  `Idle` until the first session item, and a read for no account answers an
+  empty list. What a session change means is each view's (chat reopens,
+  settings resets a form), so the view compares and decides.
+- **A program's type in the state.** The snapshot is serde; a program's
+  type may derive borsh only (identity's `Account` holds abi types that do).
+  A view keeps a row struct of what the screen shows, folds the program's
+  answer into it, and saves a borsh-only field as its bytes with
+  `#[serde(with = "ducktape_view_guest::borsh_bytes")]`. The fold also keeps
+  the snapshot to what is drawn.
+- **A write.** `host.ask::<Submit<P>>(op)` sends the op; `cx.land` hands the
+  answer to a closure that clears the form or keeps the program's reason.
+  The view keeps the task (`Option<Task<()>>` under `#[serde(skip)]`) for as
+  long as the button reads busy.
 
 ## What is gpui and what is ours
 
@@ -108,7 +165,16 @@ Ours, defined in this crate:
   twice in a scope are refused by the host, naming the id and its scope; a
   view's test fails in the same words, since `TestAppContext` holds every
   frame to the host's sanitizer.
-- A control is named from birth: `Input::new(id, label)`,
+- A text field is bound from birth: `Input::new(id, &self.name, label)` and
+  `Textarea::new(id, &self.body, label)` take the `TextField` of the view
+  they show. The host owns the editing; what is typed lands in the field
+  (read it with `self.name.text()`) and renders the view, with no listener
+  written for it. `.on_change(cx.listener(..))` is for a view that does more
+  on a change, and runs after the field took it. A `TextField` is a handle,
+  as gpui's `Entity<Editor>` is: a `Clone` of it is the same field (so
+  `vec![Form::default(); n]` is one field `n` times), while equality and the
+  snapshot are by value. `reset(text)` starts a new document.
+- A control is named from birth: `Input::new(id, &field, label)`,
   `Textarea::new(id, &field, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words
   assistive technology reads; the audit catches one given none.
@@ -124,13 +190,23 @@ Ours, defined in this crate:
 `view-wire/src/methods.rs` is the one list of what a view may ask for
 (`methods::ALL`): each kind a marker type naming its request and reply (borsh both ways;
 `host.widget` alone is MessagePack, because it names tree ids). The trait is
-sealed, so a view cannot invent a kind. Three verbs on `Host` (`src/host.rs`):
+sealed, so a view cannot invent a kind. A view speaks to the host in four
+ways:
 
 ```rust
+// a stream: an item per change, for as long as the view runs
+cx.follow::<Changes<valset::Valset>>((), |view, change, cx| ..).detach();
+// one question, one answer
 let status = cx.host().ask::<ChainStatus>(()).await?;
-let mut live = cx.host().subscribe::<Changes<valset::Valset>>(());
-cx.host().notify::<methods::HostBadge>(3);
+// a question to a program, typed by its reply
+let accounts = cx.host().query(identity::ask::List { page }).await?;
+// something said, with no answer waited for
+cx.host().notify::<HostBadge>(3);
 ```
+
+`cx.follow` is `host.subscribe::<D>(request)`, the raw stream, driven for
+the view; a view that drives a stream itself (`cx.spawn`) asks for the
+stream.
 
 A program's query is asked alone, typed by the reply that answers it:
 `cx.host().query(identity::ask::List { page })` is `module.query` with the
@@ -153,12 +229,16 @@ role a view follows without linking
 its program is `program::role::Identity`. Every refusal is the module SDK's `Error`
 (`code` token, `message`), one type end to end: a program's codes are
 `error::code`, the host's own are `methods::refusal`. `Loadable<T>` + `cx.load`
-and `cx.reload` (`src/view.rs`) hold an ask's states and snapshot `Loading`
+(`src/view.rs`) hold an ask's states and snapshot `Loading`
 as `Idle`.
 
-A cursored listing is read one of two ways. `host::all_pages` follows it to
-its end: for a list that is whole by nature (a roster, a settings list), which
-a screen searches, counts or draws all of. `Paged<T>` (`src/paged.rs`) holds it
+A cursored listing is read one of two ways. `host.query_all(|after| ask)`
+follows it to its end: the closure is handed each page's cursor (`None`
+first) and puts it in the question, and the rows of every page come back as
+one list. It is for a list that is whole by nature (a roster, a settings
+list), which a screen searches, counts or draws all of, and for an ask
+answered with a `PageResponse`; `host::all_pages` is the same walk over a
+page-asking closure of your own, for a listing in another shape. `Paged<T>` (`src/paged.rs`) holds it
 a page at a time: for a history. It is an entity built from the same
 page-asking closure; the `uniform_list` that draws it hands it the rows it
 lowers (`show`), and the next page is asked for when they reach past the rows
@@ -171,7 +251,7 @@ program refuses `stale` (it was handed out before a write): the read starts
 over from the first page, and the refusal is never shown. Any other refusal
 is the answer.
 
-`Session` (`methods.rs`, `subscribe::<HostSession>`) is what every view is handed:
+`Session` (`methods.rs`, `cx.follow::<HostSession>`) is what every view is handed:
 `connected`, `chain_id`, `signer` (the seated key, hex), `account` (its
 account number, `None` until the host resolves one), `endpoint`; an item per
 change. Read "who am I" from `account`; no view asks identity for it.
@@ -183,19 +263,29 @@ times it called it, and at no other time but its first frame and a host that
 lost its tree. The view decides: nothing in the SDK notifies on its behalf
 for something only the view can judge.
 
-- `cx.for_each(stream, each)` runs `each` per item and does not notify:
-  `each` calls `cx.notify()` when the item changed what the view shows. An
-  item that only starts a read draws nothing; the read draws when it lands.
-- `cx.load(work, at)` fills a `Loadable` slot and notifies when it lands
-  (`Loading` to `Ready` or `Failed` is always a change).
-- `cx.reload(&mut slot, work, at)` reads a slot again. The value on screen
-  stays (`Loadable::Reloading`) until the answer lands; it notifies only if
-  the answer differs from it, or is a refusal, which lands `Failed`. The read
-  lives in the slot: replacing or dropping the slot cancels it, so a newer
-  read supersedes an older one.
-- `cx.refresh(work, land)` hands the answer, the value or the refusal, to
-  `land`, which notifies if it moved anything. Keep the task it returns
-  beside what it reads: a newer one stored in its place cancels the older.
+- `cx.follow::<D>(request, each)` subscribes to the host stream `D` and runs
+  `each` per item, a refused item included, and does not notify: `each` calls
+  `cx.notify()` when the item changed what the view shows. An item that only
+  starts a read draws nothing; the read draws when it lands. The `Task` it
+  returns is the subscription, as gpui's `Subscription` is: `.detach()` it to
+  follow for as long as the view runs, or keep it and drop it to stop.
+  `cx.log_refused(what, &refusal)` writes a refusal nothing on screen waits
+  for to the host's log, under the view's `NAME`.
+- `cx.load(self, work, |view| &mut view.slot)` reads `work` into a `Loadable`
+  slot. What the slot shows stays until the answer lands: a value stays on
+  screen (`Loadable::Reloading`), a slot with nothing to show (`Idle`,
+  `Failed`) shows `Loading`. It notifies when, and only when, it changes what
+  the slot shows: a read that lands the value already there draws nothing. A
+  read that must blank what is shown first says so in its own line,
+  `self.slot = Loadable::Idle;`. The read lives in the slot: replacing or
+  dropping the slot cancels it, so a newer read supersedes an older one.
+- `cx.land(work, |view, answer, cx| ..)` hands the answer, the value or the
+  refusal, to the closure and does nothing else; the closure notifies if it
+  moved anything. It is for a write, or a read that does more than fill a
+  slot: in gpui's words, `cx.spawn(async move |this, cx| { let answer =
+  work.await; this.update(cx, |view, cx| ..) })` in one line. `.detach()` the
+  task it returns, or keep it beside what it reads: a newer one stored in its
+  place cancels the older.
 - A list the host scrolls renders when it needs rows it does not hold.
 - A `Paged` notifies when a page lands, and when a re-read lands rows that
   differ from the ones held or a refusal.
@@ -234,48 +324,18 @@ derives only borsh goes in the state as its bytes:
 
 ## Child entities
 
-A view composes as a gpui view does. `cx.new(|cx| Sidebar::new(cx))` builds
-a child entity from any `'static` state, with no `View` of its own. A child
-that implements `Render` is a child element (`.child(self.sidebar.clone())`)
-and a tooltip's content (`.tooltip(|_, cx| cx.new(|_| Tip("Help")).into())`).
-`entity.update(cx, |sidebar, cx| sidebar.select(i, cx))` runs on it from a
-listener's `App`, an entity's `Context` or a task's `AsyncApp` (each an
-`AppContext`); a test does it between ticks with
-`TestAppContext::update(&entity, ..)`. A child's `cx.notify()` renders the
-view, as the root's does. A child that implements `EventEmitter<E>` tells
-what `cx.subscribe(&child, ..)`s with `cx.emit(event)`, and
-`cx.observe(&child, ..)` hears its `cx.notify()`: both are heard once the
-update that raised them is done, so a parent may update the child back, and
-only while the `Subscription` they return is kept.
-
-The snapshot is the root's serde alone. Keep a child `#[serde(skip)]` in an
-`Option`, beside its subscriptions, and build both in `attach`, from the
-root's state, so a restore builds them again:
-
-```rust
-#[derive(Default, Serialize, Deserialize)]
-struct Shell {
-    picked: Option<usize>,
-    #[serde(skip)]
-    sidebar: Option<Entity<Sidebar>>,
-    #[serde(skip)]
-    subscriptions: Vec<Subscription>,
-}
-impl View for Shell {
-    const NAME: &'static str = "Shell";
-    fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let picked = self.picked;
-        let sidebar = cx.new(|cx| Sidebar::new(picked, cx));
-        self.subscriptions.push(cx.subscribe(&sidebar, |shell, _, Selected(row): &Selected, cx| {
-            shell.picked = Some(*row);
-            cx.notify();
-        }));
-        self.sidebar = Some(sidebar);
-    }
-}
-```
-
-`tests/gpui_entities.rs` is the whole of it, `Sidebar` included.
+A view composes as a gpui view does, and one of the six does it.
+`cx.new(|cx| Sidebar::new(cx))` builds a child entity from any `'static`
+state, with no `View` of its own; a child that implements `Render` is a
+child element (`.child(self.sidebar.clone())`) or a tooltip's content.
+`entity.update(cx, |sidebar, cx| ..)` runs on it from a listener, another
+entity or a task, and its `cx.notify()` renders the view. `cx.emit(event)`
+tells what `cx.subscribe(&child, ..)`s, and `cx.observe(&child, ..)` hears
+its notify, for as long as the `Subscription` is kept. The snapshot is the
+root's serde alone: keep a child `#[serde(skip)]` in an `Option`, beside its
+subscriptions, and build both in `attach`, so a restore builds them again.
+A child is not a `View`: it logs with `cx.host().log(..)`.
+`tests/gpui_entities.rs` is the whole of it.
 
 ## Exporting
 

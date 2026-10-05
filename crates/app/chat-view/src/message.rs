@@ -2,7 +2,7 @@
 //! with the name directory into author lines, bodies and styled runs, and
 //! grouped into runs the way Slack groups them.
 use chat::{Block, Mark, MsgRow, Principal, Reaction, Span};
-use ducktape_view_guest::design;
+use ducktape_view_guest::prelude::*;
 
 use crate::names::mention_token;
 use chat::view::Names;

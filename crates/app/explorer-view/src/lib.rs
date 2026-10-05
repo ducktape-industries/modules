@@ -26,8 +26,7 @@ mod watch;
 pub use chain::{BlockRow, Chain, TxRow};
 pub use state::{Accounts, Explorer, Network, Note, Route};
 
-use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::{Context, IntoElement, Render, View, Window, export_view};
+use ducktape_view_guest::prelude::*;
 
 /// The recent window the explorer reads: activity, search by transaction
 /// hash and the transaction list reach this far back and no further.

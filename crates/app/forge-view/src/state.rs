@@ -3,12 +3,10 @@
 //! navigation and drafts, never wire records.
 use std::collections::{BTreeMap, BTreeSet};
 
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::{Entity, Paged, Subscription};
-use ducktape_view_guest::{Task, TextField, UniformListScrollHandle};
+use ducktape_view_guest::Paged;
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::api::Session;
 use forge::{CommitInfo, LineComment, Query, Reply, Revision, Side, Verdict};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -57,8 +55,6 @@ pub struct Forge {
     pub(crate) rereading_messages: BTreeMap<String, Task<()>>,
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
-    #[serde(skip)]
-    pub(crate) watches: Vec<Task<()>>,
     #[serde(skip)]
     pub(crate) diff_scroll: UniformListScrollHandle,
     #[serde(skip)]
@@ -315,7 +311,7 @@ impl ReviewSession {
                 path: c.path.clone(),
                 side: if c.new_side { Side::New } else { Side::Old },
                 line: c.line,
-                body: c.body.text.clone(),
+                body: c.body.text().clone(),
             })
             .collect()
     }

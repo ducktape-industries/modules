@@ -24,11 +24,8 @@ mod navigate;
 mod review;
 mod ui;
 
-use ducktape_view_guest::methods::Capability;
-use ducktape_view_guest::methods::{Changes, HostRoute, HostVisible};
-use ducktape_view_guest::{Context, IntoElement, Render, View, Window, export_view};
+use ducktape_view_guest::prelude::*;
 
-use api::HostSession;
 use program::role::Identity;
 pub(crate) use select::Stage;
 pub use state::Forge;
@@ -54,64 +51,52 @@ impl View for Forge {
     /// Every stream this view follows, on a first mount and after a
     /// snapshot. A refused item says so in the notice.
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.watches.clear();
-        let props = cx.host().subscribe::<HostSession>(());
-        self.watches
-            .push(cx.for_each(props, |forge, item, _, cx| match item {
-                Ok(session) => forge.session_changed(session, cx),
-                Err(refusal) => {
-                    forge.notice = format!("Couldn’t read the session: {}", refusal.message);
-                    cx.notify();
-                }
-            }));
+        cx.follow::<HostSession>((), |forge, item, cx| match item {
+            Ok(session) => forge.session_changed(session, cx),
+            Err(refusal) => {
+                forge.notice = format!("Couldn’t read the session: {}", refusal.message);
+                cx.notify();
+            }
+        })
+        .detach();
         // `duck://<chain>/forge/<name>`: a link opened into this view names
         // the repository to open
-        let routes = cx.host().subscribe::<HostRoute>(());
-        self.watches
-            .push(cx.for_each(routes, |forge, route, _, cx| match route {
-                Ok(route) => forge.open_route(&route, cx),
-                Err(refusal) => {
-                    forge.notice = format!("Couldn’t follow the link: {}", refusal.message);
-                    cx.notify();
-                }
-            }));
+        cx.follow::<HostRoute>((), |forge, route, cx| match route {
+            Ok(route) => forge.open_route(&route, cx),
+            Err(refusal) => {
+                forge.notice = format!("Couldn’t follow the link: {}", refusal.message);
+                cx.notify();
+            }
+        })
+        .detach();
         // a block re-reads what it wrote to: forge's its reads on screen,
         // chat's the change conversations and the reads answered from chat
         // (a judgment), identity's the names. A refused item is a block this
         // view cannot see into: the host's log keeps why, and the next block
         // reconciles
-        let forge = cx.host().subscribe::<Changes<forge::Forge>>(());
-        let chat = cx.host().subscribe::<Changes<::chat::Chat>>(());
-        let identity = cx.host().subscribe::<Changes<Identity>>(());
-        self.watches.extend([
-            cx.for_each(forge, |forge, change, _, cx| match change {
-                Ok(change) => forge.reconcile(change.as_ref(), cx),
-                Err(refusal) => cx
-                    .host()
-                    .log_refused("forge", "forge's live heads", &refusal),
-            }),
-            cx.for_each(chat, |forge, change, _, cx| match change {
-                Ok(change) => forge.chat_changed(change.as_ref(), cx),
-                Err(refusal) => cx
-                    .host()
-                    .log_refused("forge", "chat's live heads", &refusal),
-            }),
-            cx.for_each(identity, |forge, change, _, cx| match change {
-                Ok(_) => forge.reread_names(cx),
-                Err(refusal) => cx
-                    .host()
-                    .log_refused("forge", "identity's live heads", &refusal),
-            }),
-        ]);
-        let visible = cx.host().subscribe::<HostVisible>(());
-        self.watches
-            .push(cx.for_each(visible, |forge, shown, _, cx| match shown {
-                Ok(true) => forge.refresh(cx),
-                Ok(false) => {}
-                Err(refusal) => cx.host().log_refused("forge", "visibility", &refusal),
-            }));
+        cx.follow::<Changes<forge::Forge>>((), |forge, change, cx| match change {
+            Ok(change) => forge.reconcile(change.as_ref(), cx),
+            Err(refusal) => cx.log_refused("forge's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<::chat::Chat>>((), |forge, change, cx| match change {
+            Ok(change) => forge.chat_changed(change.as_ref(), cx),
+            Err(refusal) => cx.log_refused("chat's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<Identity>>((), |forge, change, cx| match change {
+            Ok(_) => forge.reread_names(cx),
+            Err(refusal) => cx.log_refused("identity's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<HostVisible>((), |forge, shown, cx| match shown {
+            Ok(true) => forge.refresh(cx),
+            Ok(false) => {}
+            Err(refusal) => cx.log_refused("visibility", &refusal),
+        })
+        .detach();
         if self.names.is_idle() {
-            self.names = cx.load(queries::roster(cx.host()), |forge| &mut forge.names);
+            cx.load(self, queries::roster(cx.host()), |forge| &mut forge.names);
         }
         self.sync(cx);
     }

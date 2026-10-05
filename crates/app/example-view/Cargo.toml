@@ -1,0 +1,16 @@
+[package]
+name = "example-view"
+edition.workspace = true
+version.workspace = true
+publish = false
+
+# The wasm module the host loads.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ducktape-view-guest.workspace = true
+# The program this view talks to: its types. Its `module` feature, the
+# program's own wasm exports, stays off.
+identity.workspace = true
+serde.workspace = true

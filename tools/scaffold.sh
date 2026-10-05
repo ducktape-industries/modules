@@ -260,10 +260,9 @@ publish = false
 # \`export_view!\`; \`unsafe_code\` is not forbidden only because the module
 # exports need \`#[unsafe(export_name)]\`.
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
-futures.workspace = true
 ducktape-view-guest.workspace = true
 # The module with \`module\` off: its types and the program this view
 # names it by, no host import.
@@ -276,19 +275,15 @@ EOF
     cat > "$dir/src/lib.rs" <<EOF
 //! $title: the count the \`$program\` module keeps, re-read on every live
 //! bump of the module.
-use ducktape_view_guest::host::Error;
-use ducktape_view_guest::methods::{Capability, Changes};
-// gpui's names: elements, styles, \`Render\`, \`Context\`, \`Window\`
+// every SDK name this file writes: gpui's (elements, styles, \`Render\`,
+// \`Context\`, \`Window\`), the view's (\`View\`, \`Loadable\`, \`Host\`,
+// \`Error\`, \`export_view!\`) and the methods' (\`Capability\`, \`Changes\`)
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Host, Loadable, Task, View, export_view};
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct $title {
     count: Loadable<u64>,
-    #[serde(skip)]
-    live: Option<Task<()>>,
     /// A child entity. The snapshot carries this root alone, so \`attach\`
     /// builds its children on every mount.
     #[serde(skip)]
@@ -312,14 +307,8 @@ impl View for $title {
     /// Follows the module and reads the count: on the first mount and
     /// after every redeploy, which restores the view from its snapshot.
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let mut stream = cx.host().subscribe::<Changes<$program_snake::$title>>(());
-        self.live = Some(cx.spawn(async move |this, cx| {
-            while stream.next().await.is_some() {
-                if this.update(cx, |view, cx| view.read(cx)).is_err() {
-                    break;
-                }
-            }
-        }));
+        cx.follow::<Changes<$program_snake::$title>>((), |view, _, cx| view.read(cx))
+            .detach();
         self.read(cx);
         self.heading = Some(cx.new(|_| Heading {
             text: "$title".into(),
@@ -367,7 +356,7 @@ impl $title {
     /// screen stays there while it runs, and a bump that lands the same
     /// count draws nothing.
     fn read(&mut self, cx: &mut Context<Self>) {
-        cx.reload(&mut self.count, count(cx.host()), |view| &mut view.count);
+        cx.load(self, count(cx.host()), |view| &mut view.count);
     }
 }
 

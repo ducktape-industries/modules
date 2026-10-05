@@ -1,6 +1,6 @@
 //! Writing a review: what is staged, at which anchor, and the one operation
 //! it all becomes. A refusal keeps every draft.
-use ducktape_view_guest::{Context, TextField, wire};
+use ducktape_view_guest::prelude::*;
 
 use crate::state::{Forge, PendingComment, ReviewSession, change_key};
 use forge::{Op, ReviewDraft, Verdict};
@@ -59,21 +59,13 @@ impl Forge {
         if let Some(review) = self.reviews.get_mut(&key) {
             review.error.clear();
             // a new document each time, whatever the field showed before
-            let body = TextField::new(staged.map(|staged| staged.body.text).unwrap_or_default());
+            let body = TextField::new(staged.map(|staged| staged.body.text()).unwrap_or_default());
             review.open = Some(PendingComment {
                 path,
                 new_side,
                 line,
                 body,
             });
-        }
-        cx.notify();
-    }
-
-    pub(crate) fn typed_comment(&mut self, change: &wire::TextChange, cx: &mut Context<Self>) {
-        let Some(key) = self.review_key() else { return };
-        if let Some(open) = self.reviews.get_mut(&key).and_then(|r| r.open.as_mut()) {
-            open.body.apply(change);
         }
         cx.notify();
     }
@@ -149,7 +141,7 @@ impl Forge {
             commit_oid: review.commit.clone(),
             base_oid: review.base.clone(),
             verdict,
-            body: review.body.text.clone(),
+            body: review.body.text(),
             comments,
         };
         if let Some(review) = self.reviews.get_mut(&key) {
