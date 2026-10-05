@@ -29,12 +29,12 @@ impl Route {
         match self {
             Route::Overview => String::new(),
             Route::Blocks => "blocks".into(),
-            Route::Block(height) => design::explorer::block_path(*height),
+            Route::Block(height) => format!("block/{height}"),
             Route::Transactions(None) => "txs".into(),
             Route::Transactions(Some(program)) => format!("program/{program}"),
-            Route::Tx(hash) => design::explorer::tx_path(hash),
+            Route::Tx(hash) => format!("tx/{}", abi::hex(hash)),
             Route::Accounts => "accounts".into(),
-            Route::Account(number) => design::explorer::account_path(*number),
+            Route::Account(number) => format!("account/{number}"),
             Route::Programs => "programs".into(),
         }
     }

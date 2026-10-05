@@ -3,12 +3,10 @@
 //! (`text`, `size`, `space`), and the empty state, refused-with-retry
 //! screen, quiet line, heading and mono run views used to copy between
 //! them, and the controls: buttons, tabs, the segmented choice, the switch
-//! and the row it sits in, and the pane divider. The number and time
-//! formatters (`format.rs`) and Explorer's link paths (`explorer.rs`) sit
-//! beside them for the same reason.
+//! and the row it sits in, the pane divider and the link. The number and
+//! time formatters (`format.rs`) sit beside them for the same reason.
 pub use ::design::*;
 
-pub mod explorer;
 mod format;
 pub(crate) use format::set_utc_offset;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural};
@@ -668,7 +666,7 @@ impl Composite {
 /// active one. It keeps its `on_click` and the role's state
 /// (`aria_selected`, `aria_toggled`) and is never focusable: the composite
 /// holds the focus, so a control built focusable (a [`button`], a
-/// [`block_link`]) leaves the Tab order here. A grid row is never an item:
+/// [`link`]) leaves the Tab order here. A grid row is never an item:
 /// the claim goes on a cell, or on the one control inside it.
 pub fn item(mut element: Stateful<Div>, role: Role, active: bool) -> Stateful<Div> {
     let interactions = element.interactivity().interactions();
@@ -950,27 +948,22 @@ pub fn badge(
         .child(label.into())
 }
 
-/// `block 1,024`, quiet and mono, opening Explorer at that block. Its click
-/// consumes the press: a clickable card under it does not hear it.
-pub fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> Stateful<Div> {
-    let label = format!("block {}", grouped(height));
-    explorer_link(id, label, explorer::block_path(height), theme)
-}
-
 /// The smallest box a pointer presses, each way (the door's AX-017).
 const PRESS_TARGET: Pixels = px(24.);
 
-/// Subdued mono text that underlines under the pointer and opens
-/// Explorer at `path` through `link.open`, in a box no smaller than
-/// [`PRESS_TARGET`] with the text centred down it.
-fn explorer_link(
+/// A link: subdued mono text that underlines under the pointer and opens
+/// `href` through `link.open`, in a box no smaller than [`PRESS_TARGET`]
+/// with the text centred down it. Its text is its name; a caller that
+/// says more adds `.aria_label(..)`. Its click consumes the press: a
+/// clickable card under it does not hear it.
+pub fn link(
     id: impl Into<ElementId>,
-    label: String,
-    path: String,
+    label: impl Into<SharedString>,
+    href: impl Into<String>,
     theme: &Theme,
 ) -> Stateful<Div> {
     let theme = *theme;
-    let link = explorer::link(&path);
+    let href = href.into();
     div()
         .id(id)
         .min_w(PRESS_TARGET)
@@ -984,12 +977,11 @@ fn explorer_link(
         .cursor_pointer()
         .hover(move |style| style.text_color(theme.foreground).text_decoration_1())
         .role(Role::Link)
-        .aria_label(format!("Open {label} in Explorer"))
         .focusable()
-        .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&link))
+        .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&href))
         .consumes_click()
         .consumes_keys(["enter", "space"])
-        .child(label)
+        .child(label.into())
 }
 
 #[cfg(test)]
@@ -1279,7 +1271,7 @@ mod tests {
         moved: Vec<usize>,
         moved_cell: Vec<usize>,
         pressed: Vec<usize>,
-        /// a focusable block link inside the composite, beside its items
+        /// a focusable link inside the composite, beside its items
         link: bool,
     }
 
@@ -1361,7 +1353,12 @@ mod tests {
                     }
                 }))
                 .when(link, |list| {
-                    list.child(block_link("inside", 12, &Theme::light()))
+                    list.child(super::link(
+                        "inside",
+                        "block 12",
+                        "duck://a/b",
+                        &Theme::light(),
+                    ))
                 })
         }
     }
@@ -1414,12 +1411,12 @@ mod tests {
         });
     }
 
-    /// A block link inside a composite consumes the keys that press it:
+    /// A link inside a composite consumes the keys that press it:
     /// Space or Enter on it opens the link (gpui's click on the key's way
     /// up) and never reaches the composite around it, which would press its
     /// own active item too.
     #[test]
-    fn a_block_link_inside_a_composite_keeps_its_press_from_it() {
+    fn a_link_inside_a_composite_keeps_its_press_from_it() {
         let (mut cx, picker) = picker(|view| view.link = true);
         cx.simulate_focus("inside");
         cx.simulate_key_down("inside", "space");
@@ -1467,7 +1464,11 @@ mod tests {
     #[test]
     fn an_item_built_focusable_leaves_the_tab_order() {
         let theme = Theme::light();
-        let cell = lower(item(block_link("activity", 12, &theme), Role::Link, true));
+        let cell = lower(item(
+            link("activity", "block 12", "duck://a/b", &theme),
+            Role::Link,
+            true,
+        ));
         let link = interactivity(&cell);
         assert!(!link.focusable && link.tab_stop.is_none());
         assert!(link.aria.active_descendant && link.on_click.is_some());

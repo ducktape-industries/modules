@@ -491,10 +491,12 @@ fn header(message: &ChatMessage, cells: &mut Cells, theme: &Theme) -> AnyElement
     if message.height > 0 {
         // the link opens Explorer at its block, and the card under it
         // stays unchosen
-        let link = design::explorer::link(&design::explorer::block_path(message.height));
-        let active = cells.push(Control::Height(link));
+        let href = crate::links::block_link(message.height);
+        let active = cells.push(Control::Height(href.clone()));
         let id = format!("chat-message-{}-height", message.id);
-        let link = design::block_link(id.clone(), message.height, theme);
+        let label = format!("block {}", design::grouped(message.height));
+        let link = design::link(id.clone(), label.clone(), href, theme)
+            .aria_label(format!("Open {label} in Explorer"));
         header = header.child(cell(
             &id,
             true,

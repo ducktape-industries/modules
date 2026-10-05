@@ -20,6 +20,12 @@ pub fn program_link(chain: &str, channel: &str) -> Option<String> {
     ducklink::mint(chain, program, &path)
 }
 
+/// `duck://explorer/block/<height>`: the host's short link to a view on
+/// this connection, Explorer at that block.
+pub fn block_link(height: u64) -> String {
+    format!("duck://explorer/block/{height}")
+}
+
 /// The room and message a route handed to this view names:
 /// `<channel>[/<seq>]`, delivered decoded, the seq 0 when there is none.
 pub fn route_target(route: &str) -> Option<(String, u64)> {

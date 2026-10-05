@@ -508,7 +508,7 @@ fn head(
             .when(index < last, |part| part.child("·"))
     });
     let number = row.number;
-    let explorer = design::explorer::link(&design::explorer::account_path(number));
+    let explorer = format!("duck://explorer/account/{number}");
     let dm = match (view.me, &row.kind) {
         (Some(me), identity::Kind::Person | identity::Kind::Managed { .. }) if me != number => {
             ducklink::mint(
@@ -855,11 +855,16 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
                             .truncate()
                             .child(signed.title.clone()),
                     )
-                    .child(design::block_link(
-                        format!("members-block-{}", index),
-                        signed.height,
-                        theme,
-                    ))
+                    .child({
+                        let label = format!("block {}", design::grouped(signed.height));
+                        design::link(
+                            format!("members-block-{}", index),
+                            label.clone(),
+                            format!("duck://explorer/block/{}", signed.height),
+                            theme,
+                        )
+                        .aria_label(format!("Open {label} in Explorer"))
+                    })
                     .child(
                         div()
                             .w(px(52.))
