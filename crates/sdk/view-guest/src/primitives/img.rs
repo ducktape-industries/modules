@@ -48,7 +48,7 @@ pub trait StyledImage: Sized {
 }
 
 pub struct Img {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     source: ImageSource,
     image_style: ImageStyle,
 }
@@ -56,7 +56,7 @@ pub struct Img {
 #[track_caller]
 pub fn img(source: impl Into<ImageSource>) -> Img {
     Img {
-        interactivity: Interactivity::default(),
+        interactivity: Box::default(),
         source: source.into(),
         image_style: ImageStyle::default(),
     }

@@ -13,7 +13,7 @@ pub struct StyledText {
     runs: Option<Vec<TextRun>>,
     highlights: Option<Vec<(Range<usize>, HighlightStyle)>>,
     font_family_overrides: Vec<(Range<usize>, SharedString)>,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
 }
 
 impl StyledText {
@@ -23,7 +23,7 @@ impl StyledText {
             runs: None,
             highlights: None,
             font_family_overrides: Vec::new(),
-            style: StyleRefinement::default(),
+            style: Box::default(),
         }
     }
 

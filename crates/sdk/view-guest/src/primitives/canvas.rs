@@ -6,13 +6,13 @@ use gpui::{Bounds, Hsla, Pixels, Point, StyleRefinement, Styled};
 /// is drawn by the calls below, in order.
 pub struct Canvas {
     commands: Vec<wire::CanvasCommand>,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
 }
 
 pub fn canvas() -> Canvas {
     Canvas {
         commands: Vec::new(),
-        style: StyleRefinement::default(),
+        style: Box::default(),
     }
 }
 

@@ -57,3 +57,46 @@ fn a_field_marked_invalid_required_and_read_only_says_so_and_why() {
         []
     );
 }
+
+/// A builder method takes its element by value and hands it back, and at
+/// the size the views are built for that call is not inlined: it moves
+/// the element, and the guest pays fuel for every byte moved. So an
+/// element is small, and what makes it large (a style refinement, its
+/// interactivity) sits behind a pointer. A field added by value fails
+/// here, under the name of the element it grew.
+#[test]
+fn an_element_a_builder_method_moves_is_small() {
+    // nothing the size of a style refinement, or half of one, by value
+    const MOST: usize = size_of::<StyleRefinement>() / 2;
+    macro_rules! sizes {
+        ($($element:ty),+ $(,)?) => {
+            [$((stringify!($element), size_of::<$element>())),+]
+        };
+    }
+    let large: Vec<_> = sizes![
+        Div,
+        crate::Stateful<Div>,
+        crate::Img,
+        crate::Stateful<crate::Img>,
+        crate::Svg,
+        crate::Stateful<crate::Svg>,
+        UniformList,
+        crate::Stateful<UniformList>,
+        crate::ResizeHandle,
+        crate::Sensor,
+        crate::ModalOverlay,
+        Input,
+        Textarea,
+        crate::List,
+        crate::StyledText,
+        crate::InteractiveText,
+        crate::Canvas,
+        crate::Anchored,
+        crate::Deferred,
+        AnyElement,
+    ]
+    .into_iter()
+    .filter(|(_, size)| *size > MOST)
+    .collect();
+    assert!(large.is_empty(), "larger than {MOST} bytes: {large:?}");
+}

@@ -99,7 +99,7 @@ impl UniformListScrollHandle {
 pub struct UniformList {
     count: usize,
     processor: UniformProcessor,
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     measure_index: usize,
     sizing: wire::list::UniformListSizing,
     horizontal_sizing: wire::list::UniformListHorizontalSizing,
@@ -122,11 +122,9 @@ pub fn uniform_list<R: IntoElement>(
     count: usize,
     processor: impl Fn(Range<usize>, &mut Window, &mut App) -> Vec<R> + 'static,
 ) -> UniformList {
-    let mut style = StyleRefinement::default();
-    style.overflow.y = Some(Overflow::Scroll);
-    let mut interactivity = Interactivity::default();
+    let mut interactivity = Box::<Interactivity>::default();
     interactivity.id = Some(id.into());
-    interactivity.base_style = style;
+    interactivity.base_style.overflow.y = Some(Overflow::Scroll);
     UniformList {
         count,
         processor: Box::new(move |range, window, app| {

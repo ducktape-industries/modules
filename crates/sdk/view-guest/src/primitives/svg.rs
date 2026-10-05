@@ -69,7 +69,7 @@ impl Transformation {
 }
 
 pub struct Svg {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     source: Source,
     transformation: Transformation,
 }
@@ -80,7 +80,7 @@ pub struct Svg {
 #[track_caller]
 pub fn svg() -> Svg {
     Svg {
-        interactivity: Interactivity::default(),
+        interactivity: Box::default(),
         source: Source::None,
         transformation: Transformation::default(),
     }

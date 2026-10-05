@@ -271,7 +271,7 @@ pub struct List {
     id: ElementId,
     state: ListState,
     render_item: ItemRenderer,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
     sizing_behavior: ListSizingBehavior,
 }
 /// A variable-height list of `state`'s items, each row built by
@@ -306,7 +306,7 @@ pub fn list(
         id: id.into(),
         state,
         render_item: Box::new(render_item),
-        style: StyleRefinement::default(),
+        style: Box::default(),
         sizing_behavior: ListSizingBehavior::default(),
     }
 }

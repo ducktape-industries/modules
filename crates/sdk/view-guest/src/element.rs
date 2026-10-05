@@ -265,7 +265,7 @@ impl<'a> Lowering<'a> {
 /// A guest container backed by a real GPUI style refinement.
 #[derive(Default)]
 pub struct Div {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     children: Vec<AnyElement>,
 }
 
@@ -354,7 +354,7 @@ pub struct Input {
     options: wire::InputOptions,
     secure: bool,
     claims: Vec<wire::KeyClaim>,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
     on_change: Option<EventListener<wire::TextChange>>,
     on_key: Option<EventListener<gpui::KeyDownEvent>>,
     on_submit: Option<EventListener<()>>,
@@ -373,7 +373,7 @@ impl Input {
             },
             secure: false,
             claims: Vec::new(),
-            style: StyleRefinement::default(),
+            style: Box::default(),
             on_change: None,
             on_key: None,
             on_submit: None,

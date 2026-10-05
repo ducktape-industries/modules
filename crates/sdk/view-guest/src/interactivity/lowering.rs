@@ -3,7 +3,7 @@ use crate::slots::Kind;
 
 impl Interactivity {
     pub(crate) fn into_wire(
-        self,
+        self: Box<Self>,
         lowering: &Lowering<'_>,
     ) -> (Option<wire::ElementIdWire>, Box<wire::Interactivity>) {
         let scope = lowering.current_path();
