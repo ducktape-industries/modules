@@ -5,7 +5,7 @@ use std::ops::Range;
 use ducktape_view_guest::Loadable;
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful, wire};
+use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::decode::{ago, clip, date, grouped, plural, short};
 use crate::{BlockRow, Explorer, Note, Route, TxRow};
@@ -128,10 +128,6 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         ("accounts", "Accounts", Route::Accounts),
         ("programs", "Programs", Route::Programs),
     ];
-    let typed = cx.listener(|view: &mut Explorer, change: &wire::TextChange, _, cx| {
-        view.search.apply(change);
-        cx.notify();
-    });
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
     let shown = view.route.tab();
     let routes: Vec<Route> = tabs.iter().map(|(_, _, route)| route.clone()).collect();
@@ -192,7 +188,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
                 .flex()
                 .items_center()
                 .child(
-                    Input::new("explorer-search", "Search the chain")
+                    Input::new("explorer-search", &view.search, "Search the chain")
                         .w_full()
                         .h(design::size::CONTROL)
                         .px_2()
@@ -200,9 +196,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
                         .border_color(theme.border)
                         .bg(theme.background)
                         .text_size(design::text::SECONDARY)
-                        .value(&view.search)
                         .placeholder("Search by height, hash, account or program")
-                        .on_change(typed)
                         .on_submit(submit),
                 ),
         )

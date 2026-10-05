@@ -89,7 +89,7 @@ impl Forge {
     /// whose name holds it.
     pub(crate) fn tree_rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
-        let needle = self.tree_search.text.trim().to_lowercase();
+        let needle = self.tree_search.text().trim().to_lowercase();
         self.walk(Vec::new(), 0, &needle, &mut rows);
         rows
     }

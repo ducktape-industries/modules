@@ -52,7 +52,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             .collect(),
         _ => Vec::new(),
     };
-    let needle = forge.change_search.text.trim().to_lowercase();
+    let needle = forge.change_search.text().trim().to_lowercase();
     let shown: Vec<&(ChangeSummary, Option<&Judgment>)> = rows
         .iter()
         .filter(|(summary, _)| needle.is_empty() || summary.title.to_lowercase().contains(&needle))
@@ -257,10 +257,6 @@ fn verdicts(counts: &ReviewCounts, n: u64, theme: &Theme) -> AnyElement {
 /// The state as one segmented choice (Open with its count), the lists
 /// about me as quiet buttons, and the title search on the right.
 fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
-        forge.change_search.apply(change);
-        cx.notify();
-    });
     const STATES: [Filter; 3] = [Filter::Open, Filter::Merged, Filter::Closed];
     let states = design::segmented(
         id("forge-filter-states"),
@@ -308,17 +304,19 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
     // the Input sits in a box of its own: pushed right, it keeps its width
     bar.child(
         div().ml_auto().flex_none().w(SEARCH_W).child(
-            Input::new(id("forge-changes-search"), "Search changes")
-                .h(design::size::CONTROL)
-                .w(SEARCH_W)
-                .px_2()
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.background)
-                .text_color(theme.foreground)
-                .value(&forge.change_search)
-                .placeholder("Search titles")
-                .on_change(typed),
+            Input::new(
+                id("forge-changes-search"),
+                &forge.change_search,
+                "Search changes",
+            )
+            .h(design::size::CONTROL)
+            .w(SEARCH_W)
+            .px_2()
+            .border_1()
+            .border_color(theme.border_strong)
+            .bg(theme.background)
+            .text_color(theme.foreground)
+            .placeholder("Search titles"),
         ),
     )
     .into_any_element()
@@ -389,16 +387,10 @@ pub(crate) fn form(
 
 /// The draft's title and body fields.
 fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div {
-    let title = cx.listener(|forge, change: &wire::TextChange, _, cx| {
+    // a title typed again takes the last refusal with it
+    let title = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.form {
-            form.title.apply(change);
             form.error.clear();
-        }
-        cx.notify();
-    });
-    let body = cx.listener(|forge, change: &wire::TextChange, _, cx| {
-        if let Some(form) = &mut forge.form {
-            form.body.apply(change);
         }
         cx.notify();
     });
@@ -407,7 +399,7 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
         .flex_col()
         .gap_2()
         .child(
-            Input::new(id("forge-change-title"), "Change title")
+            Input::new(id("forge-change-title"), &form.title, "Change title")
                 .h(design::size::CONTROL)
                 .w_full()
                 .px_2()
@@ -415,14 +407,12 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .value(&form.title)
                 .placeholder("What this change does")
                 .on_change(title),
         )
         .child(
             Textarea::new(id("forge-change-body"), &form.body, "Change body")
                 .placeholder("Why it changes")
-                .on_change(body)
                 .min_h(design::size::CONTROL * 4.)
                 .w_full()
                 .px_2()

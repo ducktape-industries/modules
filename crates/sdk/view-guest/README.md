@@ -108,7 +108,16 @@ Ours, defined in this crate:
   twice in a scope are refused by the host, naming the id and its scope; a
   view's test fails in the same words, since `TestAppContext` holds every
   frame to the host's sanitizer.
-- A control is named from birth: `Input::new(id, label)`,
+- A text field is bound from birth: `Input::new(id, &self.name, label)` and
+  `Textarea::new(id, &self.body, label)` take the `TextField` of the view
+  they show. The host owns the editing; what is typed lands in the field
+  (read it with `self.name.text()`) and renders the view, with no listener
+  written for it. `.on_change(cx.listener(..))` is for a view that does more
+  on a change, and runs after the field took it. A `TextField` is a handle,
+  as gpui's `Entity<Editor>` is: a `Clone` of it is the same field (so
+  `vec![Form::default(); n]` is one field `n` times), while equality and the
+  snapshot are by value. `reset(text)` starts a new document.
+- A control is named from birth: `Input::new(id, &field, label)`,
   `Textarea::new(id, &field, label)`, `modal_overlay(id, label, …)`, and
   `design`'s `segmented`, `icon_button` and `divider` take the words
   assistive technology reads; the audit catches one given none.

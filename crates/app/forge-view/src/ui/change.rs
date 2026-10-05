@@ -4,7 +4,7 @@
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    AnchoredPositionMode, Div, FontWeight, MouseDownEvent, Point, Stateful, TextField, wire,
+    AnchoredPositionMode, Div, FontWeight, MouseDownEvent, Point, Stateful, TextField,
 };
 
 use crate::Forge;
@@ -662,7 +662,7 @@ fn finish_panel(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Finish your review"),
         )
-        .child(review_body(&review.body, cx, theme))
+        .child(review_body(&review.body, theme))
         .child(verdicts(forge, verdict, cx, theme))
         .child(
             div().flex().justify_end().child(
@@ -690,18 +690,8 @@ fn finish_panel(
 }
 
 /// What the review says overall, typed while finishing.
-fn review_body(
-    body: &TextField,
-    cx: &mut Context<Forge>,
-    theme: &Theme,
-) -> impl IntoElement + use<> {
+fn review_body(body: &TextField, theme: &Theme) -> impl IntoElement + use<> {
     Textarea::new(id("forge-review-body"), body, "Review body")
-        .on_change(cx.listener(|forge, change: &wire::TextChange, _, cx| {
-            if let Some(review) = forge.review_mut() {
-                review.body.apply(change);
-            }
-            cx.notify();
-        }))
         .min_h(design::size::CONTROL * 2.5)
         .w_full()
         .px_2()

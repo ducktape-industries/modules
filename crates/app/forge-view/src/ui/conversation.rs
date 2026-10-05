@@ -2,7 +2,6 @@
 //! chat's hidden channel beneath them, with a composer at the end.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::wire;
 
 use crate::Forge;
 use crate::state::verdict_verb;
@@ -304,10 +303,6 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
         .border_color(theme.border)
         .child(
             Textarea::new(id("forge-reply"), &forge.reply, "Reply")
-                .on_change(cx.listener(|forge, change: &wire::TextChange, _, cx| {
-                    forge.reply.apply(change);
-                    cx.notify();
-                }))
                 .min_h(design::size::CONTROL)
                 .flex_1()
                 .px_2()

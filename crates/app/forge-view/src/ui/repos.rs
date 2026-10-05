@@ -18,7 +18,7 @@ fn listed<'a>(forge: &'a Forge, reply: &'a Reply) -> Vec<&'a RepoInfo> {
     let Reply::Repos { page, .. } = reply else {
         return Vec::new();
     };
-    let needle = forge.search.text.trim().to_lowercase();
+    let needle = forge.search.text().trim().to_lowercase();
     page.items
         .iter()
         .filter(|info| needle.is_empty() || info.name.to_lowercase().contains(&needle))
@@ -418,7 +418,7 @@ pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
         .min_h(px(0.))
         .bg(theme.background)
         .child(rail_home(cx, theme))
-        .child(rail_search(forge, cx, theme));
+        .child(rail_search(forge, theme));
     let reply = match staged(
         forge,
         &query(),
@@ -515,22 +515,21 @@ fn rail_home(cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
 
 /// The row pads, not the field: a full-width field with its own margins
 /// ran past the rail's edge.
-fn rail_search(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Div {
+fn rail_search(forge: &Forge, theme: &Theme) -> Div {
     div().px(design::space::LG).pb(design::space::SM).child(
-        Input::new(id("forge-rail-search"), "Filter repositories")
-            .h(design::size::CONTROL)
-            .px_2()
-            .py_1()
-            .border_1()
-            .border_color(theme.border_strong)
-            .bg(theme.background)
-            .text_color(theme.foreground)
-            .value(&forge.search)
-            .placeholder("Search repositories")
-            .on_change(cx.listener(|forge, change: &wire::TextChange, _, cx| {
-                forge.search.apply(change);
-                cx.notify();
-            })),
+        Input::new(
+            id("forge-rail-search"),
+            &forge.search,
+            "Filter repositories",
+        )
+        .h(design::size::CONTROL)
+        .px_2()
+        .py_1()
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .text_color(theme.foreground)
+        .placeholder("Search repositories"),
     )
 }
 
@@ -541,10 +540,6 @@ fn header(
     theme: &Theme,
     search_id: &str,
 ) -> AnyElement {
-    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
-        forge.search.apply(change);
-        cx.notify();
-    });
     let new = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_repo(cx));
     div()
         .id(id("forge-repos-header"))
@@ -560,18 +555,20 @@ fn header(
                 .text_color(theme.muted)
         }))
         .child(
-            Input::new(id(search_id.to_owned()), "Filter repositories")
-                .ml(design::space::LG)
-                .h(design::size::CONTROL)
-                .w(SEARCH_W)
-                .px_2()
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.background)
-                .text_color(theme.foreground)
-                .value(&forge.search)
-                .placeholder("Filter by name")
-                .on_change(typed),
+            Input::new(
+                id(search_id.to_owned()),
+                &forge.search,
+                "Filter repositories",
+            )
+            .ml(design::space::LG)
+            .h(design::size::CONTROL)
+            .w(SEARCH_W)
+            .px_2()
+            .border_1()
+            .border_color(theme.border_strong)
+            .bg(theme.background)
+            .text_color(theme.foreground)
+            .placeholder("Filter by name"),
         )
         .child(div().flex_1())
         .child(
@@ -583,9 +580,9 @@ fn header(
 }
 
 fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
+    // a name typed again takes the last refusal with it
+    let typed = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.new_repo {
-            form.name.apply(change);
             form.error.clear();
         }
         cx.notify();
@@ -647,7 +644,7 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                         .gap(design::space::XS)
                         .child(caption("Name"))
                         .child(
-                            Input::new(id("forge-new-repo-name"), "Repository name")
+                            Input::new(id("forge-new-repo-name"), &form.name, "Repository name")
                                 .h(design::size::CONTROL)
                                 .w_full()
                                 .px_2()
@@ -655,7 +652,6 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                                 .border_color(theme.border_strong)
                                 .bg(theme.background)
                                 .text_color(theme.foreground)
-                                .value(&form.name)
                                 .placeholder("letters, digits, dot, dash, underscore")
                                 .on_change(typed),
                         ),

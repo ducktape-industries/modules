@@ -295,7 +295,7 @@ impl Members {
         let Some(rows) = self.rows.ready() else {
             return Vec::new();
         };
-        let needle = self.filter.text.trim().to_lowercase();
+        let needle = self.filter.text().trim().to_lowercase();
         let mut shown: Vec<&Row> = rows
             .iter()
             .filter(|row| self.only.is_none_or(|only| row.group() == only))

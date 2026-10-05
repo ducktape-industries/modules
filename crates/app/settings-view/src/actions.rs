@@ -51,7 +51,7 @@ impl Settings {
         if self.create_account.busy {
             return;
         }
-        let name = self.create_account.text.text.trim().to_string();
+        let name = self.create_account.text.text().trim().to_string();
         if name.is_empty() {
             self.create_account.problem = Some(Problem::Empty);
             cx.notify();
@@ -93,7 +93,7 @@ impl Settings {
             return;
         }
         let form = self.rename_agent.entry(number).or_default();
-        let name = form.text.text.trim().to_string();
+        let name = form.text.text().trim().to_string();
         if name.is_empty() {
             form.problem = Some(Problem::Empty);
             cx.notify();
@@ -123,7 +123,7 @@ impl Settings {
     }
 
     pub(crate) fn submit_create_agent(&mut self, cx: &mut Context<Self>) {
-        let name = self.create_agent.text.text.trim().to_string();
+        let name = self.create_agent.text.text().trim().to_string();
         if name.is_empty() {
             self.create_agent.problem = Some(Problem::Empty);
             cx.notify();
@@ -143,7 +143,7 @@ impl Settings {
                 agent.number == account && agent.standing() != identity::Standing::Revoked
             }))
         };
-        let op = abi::unhex(self.agent_key.text.text.trim())
+        let op = abi::unhex(self.agent_key.text.text().trim())
             .and_then(|bytes| abi::decode::<identity::Op>(&bytes).ok())
             .filter(
                 |op| matches!(op, identity::Op::AddKey { consent, .. } if mine(consent.account)),
@@ -188,7 +188,7 @@ impl Settings {
             }
             // a rename that landed closes its field
             view.rename_agent.retain(|_, form| {
-                form.busy || form.problem.is_some() || !form.text.text.is_empty()
+                form.busy || form.problem.is_some() || !form.text.text().is_empty()
             });
             view.refresh_account(cx);
             cx.notify();

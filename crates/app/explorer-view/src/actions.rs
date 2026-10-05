@@ -40,7 +40,7 @@ impl Explorer {
     /// A height, a block or transaction hash, an account (`#3` or a name)
     /// or a program name.
     pub(crate) fn search(&mut self, cx: &mut Context<Self>) {
-        let query = self.search.text.trim().to_string();
+        let query = self.search.text().trim().to_string();
         self.note = None;
         if query.is_empty() {
             return;

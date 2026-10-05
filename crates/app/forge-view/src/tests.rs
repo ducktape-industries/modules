@@ -1289,12 +1289,7 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
     );
     cx.simulate_click("forge-grant-pick-2");
     cx.run_until_parked();
-    let filled = view.read(|forge| {
-        forge
-            .repo_settings
-            .as_ref()
-            .map(|form| form.grant.text.clone())
-    });
+    let filled = view.read(|forge| forge.repo_settings.as_ref().map(|form| form.grant.text()));
     assert_eq!(filled.as_deref(), Some("2"));
     assert!(
         cx.find("forge-grant-pick-2").is_none(),

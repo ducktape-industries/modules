@@ -350,14 +350,14 @@ pub fn div() -> Div {
 }
 
 /// A text field the host's editing engine owns, shown as the host's native
-/// one-line field. It shows a [`TextField`](crate::TextField): the host
-/// adopts the field's text when its generation moves and otherwise tells
-/// the view what it holds through `on_change`. Its label is what assistive
-/// technology calls it: a field has one from birth.
+/// one-line field, bound to a [`TextField`](crate::TextField) of the view:
+/// the host adopts the field's text when its generation moves, and whenever
+/// the host's text moves it lands in the field and the view renders. Its
+/// label is what assistive technology calls it: a field has one from birth.
 pub struct Input {
     id: ElementId,
     multiline: bool,
-    field: Option<crate::TextField>,
+    field: crate::TextField,
     placeholder: String,
     options: wire::InputOptions,
     secure: bool,
@@ -369,11 +369,19 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn new(id: impl Into<ElementId>, label: impl Into<String>) -> Self {
+    /// A field over `field`: `Input::new("name", &self.name, "Your name")`.
+    /// What is typed lands in `field`, read with
+    /// [`text()`](crate::TextField::text), and renders the view, with no
+    /// listener written for it.
+    pub fn new(
+        id: impl Into<ElementId>,
+        field: &crate::TextField,
+        label: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             multiline: false,
-            field: None,
+            field: field.clone(),
             placeholder: String::new(),
             options: wire::InputOptions {
                 label: label.into(),
@@ -386,13 +394,6 @@ impl Input {
             on_key: None,
             on_submit: None,
         }
-    }
-
-    /// The field whose text this shows; without one the field is empty
-    /// and the view hears nothing typed into it.
-    pub fn value(mut self, field: &crate::TextField) -> Self {
-        self.field = Some(field.clone());
-        self
     }
 
     pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
@@ -432,8 +433,9 @@ impl Input {
     }
 
     /// Hears the host's text whenever it moves: typed, pasted, undone, or
-    /// an asked-for edit landed. A view keeps its field current with
-    /// [`TextField::apply`](crate::TextField::apply).
+    /// an asked-for edit landed. For a view that does more on a change than
+    /// keep the text: the bound field already holds the change, and the
+    /// view already renders, when the listener runs.
     pub fn on_change(
         mut self,
         listener: impl Fn(&wire::TextChange, &mut Window, &mut App) + 'static,
@@ -463,11 +465,21 @@ impl Element for Input {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let this = *self;
         let id = wire_id(this.id);
-        let field = this.field.unwrap_or_default();
+        let field = this.field.state().clone();
         crate::text::lowered_generation(field.generation);
-        let on_change = this
-            .on_change
-            .map(|listener| lowering.route(slots::Kind::Change, listener));
+        // the binding: the host's word lands in the view's field, the view
+        // renders, and then the author's own listener hears it, if any
+        let (bound, heard) = (this.field, this.on_change);
+        let on_change = Some(lowering.route(
+            slots::Kind::Change,
+            move |change: &wire::TextChange, window: &mut Window, app: &mut App| {
+                bound.apply(change);
+                app.notify();
+                if let Some(heard) = &heard {
+                    heard(change, window, app);
+                }
+            },
+        ));
         let on_key = this
             .on_key
             .map(|listener| lowering.route(slots::Kind::Key, listener));
@@ -520,7 +532,7 @@ impl Textarea {
         field: &crate::TextField,
         label: impl Into<String>,
     ) -> Self {
-        let mut input = Input::new(id, label).value(field);
+        let mut input = Input::new(id, field, label);
         input.multiline = true;
         Self(input)
     }

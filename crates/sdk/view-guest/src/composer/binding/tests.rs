@@ -155,7 +155,7 @@ fn roster() -> Vec<MentionChoice> {
 
 fn caret(body: &str, at: usize) -> Draft {
     let mut draft = Draft::from_body(body, &roster());
-    draft.field.cursor = wire::TextRange::caret(at);
+    draft.field.state_mut().cursor = wire::TextRange::caret(at);
     draft
 }
 
@@ -280,7 +280,7 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
 #[test]
 fn a_restored_mention_draft_is_a_new_document_with_its_mention_as_a_span() {
     let choices = roster();
-    let before = Draft::default().field.generation;
+    let before = Draft::default().field.generation();
     let draft = Draft::from_body("Hi <@1>", &choices);
     let root = drawn_with(&draft, "c", &choices);
     let wire::Node::Field {
@@ -340,7 +340,7 @@ fn toolbar_mention_and_restore_actions_have_reachable_aria_routes() {
     assert_eq!(interactivity.role, Some(Role::MenuItem));
     assert_eq!(interactivity.aria.label.as_deref(), Some("@Ada"));
     // with the menu shut, the whole composer passes the audit
-    draft.field.cursor = wire::TextRange::caret(0);
+    draft.field.state_mut().cursor = wire::TextRange::caret(0);
     drawn_with(&draft, "c", &choices);
 }
 
@@ -491,8 +491,8 @@ fn enter_sends_and_the_host_clears_the_field() {
     cx.simulate_field_key("c/editor", "enter");
     view.read(|view| {
         assert!(view.events.iter().any(|event| event == "outcome:send"));
-        assert_eq!(view.draft.field.text, "", "the host cleared the field");
-        assert_eq!(view.draft.field.revision, 1);
+        assert_eq!(view.draft.field.text(), "", "the host cleared the field");
+        assert_eq!(view.draft.field.state().revision, 1);
     });
     let field = wire::ElementIdWire::Name("c/editor".into());
     assert_eq!(replaces(&cx), [(field, 0, 0..5, String::new(), None)]);
@@ -534,8 +534,69 @@ fn a_mark_pressed_asks_the_host_for_the_edit_and_hands_the_keys_back() {
     );
     view.read(|view| {
         assert!(view.events.iter().any(|event| event == "changed"));
-        assert_eq!(view.draft.field.text, "hello****");
-        assert_eq!(view.draft.field.cursor, wire::TextRange::caret(7));
-        assert_eq!(view.draft.field.revision, 1);
+        assert_eq!(view.draft.field.text(), "hello****");
+        assert_eq!(view.draft.field.state().cursor, wire::TextRange::caret(7));
+        assert_eq!(view.draft.field.state().revision, 1);
     });
+}
+
+/// A view that makes a draft only once something is typed into it, as chat
+/// does for a room nobody wrote in yet: until then it draws a temporary
+/// draft.
+#[derive(Default, Serialize, Deserialize)]
+struct LazyDraft {
+    draft: Option<Draft>,
+}
+
+impl View for LazyDraft {
+    const NAME: &'static str = "LazyDraft";
+    const CAPABILITIES: &'static [crate::methods::Capability] = &[crate::methods::Capability::Host];
+}
+
+impl Render for LazyDraft {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let empty = Draft::default();
+        let draft = self.draft.as_ref().unwrap_or(&empty);
+        view(
+            draft,
+            "c",
+            "New message",
+            "Message #general",
+            "Send",
+            None,
+            true,
+            &[],
+            cx,
+            |view: &mut LazyDraft, event, window, cx| {
+                let draft = view.draft.get_or_insert_default();
+                draft.handle(event, "c", &[], window);
+                cx.notify();
+            },
+        )
+    }
+}
+
+/// The composer's own listener still decides for a draft: the binding
+/// lands each change in the field the editor was drawn from, here the
+/// temporary one, which is dropped with its frame, and the draft the view
+/// makes in its listener takes a change by `Draft::changed`, on its own
+/// document. So the change that made the draft is not a word on it (the
+/// temporary was another document, as it was before the field was bound),
+/// and every change from the next frame on is.
+#[test]
+fn a_change_to_a_temporary_draft_is_the_views_draft_to_take() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<LazyDraft>();
+    view.read(|view| assert!(view.draft.is_none()));
+    cx.simulate_input("c/editor", "h");
+    view.read(|view| {
+        let draft = view.draft.as_ref().expect("the listener made the draft");
+        assert_eq!(draft.field.text(), "", "a word on the temporary's document");
+    });
+    cx.simulate_input("c/editor", "hi");
+    view.read(|view| assert_eq!(view.draft.as_ref().unwrap().field.text(), "hi"));
+    let wire::Node::Field { value, .. } = field_node(cx.root()) else {
+        panic!("the editor")
+    };
+    assert_eq!(value, "hi");
 }

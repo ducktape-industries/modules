@@ -376,7 +376,7 @@ impl Render for Panes {
             div().id(id).child(list("rows", state, move |_, _, _| {
                 div()
                     .id("m")
-                    .child(Input::new("edit", id))
+                    .child(Input::new("edit", &crate::TextField::default(), id))
                     .into_any_element()
             }))
         };

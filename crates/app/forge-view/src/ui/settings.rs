@@ -3,7 +3,7 @@
 //! appears here.
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful, wire};
+use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::Forge;
 use crate::state::{Menu, SettingsForm};
@@ -236,15 +236,10 @@ fn grant_field(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let typed = cx.listener(|forge, change: &wire::TextChange, _, cx| {
-        if let Some(form) = &mut forge.repo_settings {
-            form.grant.apply(change);
-        }
-        cx.notify();
-    });
     let grant = cx.listener(|forge, _: &ClickEvent, _, cx| forge.grant(cx));
     // a typed number needs no search; a name does
-    let needle = form.grant.text.trim();
+    let typed = form.grant.text();
+    let needle = typed.trim();
     let searching = !needle.is_empty() && forge::Principal::parse(needle).is_none();
     let matches = match searching {
         true => {
@@ -270,17 +265,19 @@ fn grant_field(
         .gap(design::space::SM)
         .items_center()
         .child(
-            Input::new(id("forge-settings-grant-input"), "Grant write access")
-                .h(design::size::CONTROL)
-                .w(GRANT_W)
-                .px_2()
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.background)
-                .text_color(theme.foreground)
-                .value(&form.grant)
-                .placeholder("Search members")
-                .on_change(typed),
+            Input::new(
+                id("forge-settings-grant-input"),
+                &form.grant,
+                "Grant write access",
+            )
+            .h(design::size::CONTROL)
+            .w(GRANT_W)
+            .px_2()
+            .border_1()
+            .border_color(theme.border_strong)
+            .bg(theme.background)
+            .text_color(theme.foreground)
+            .placeholder("Search members"),
         )
         .child(
             button(id("forge-settings-grant"), "Grant", theme, grant)

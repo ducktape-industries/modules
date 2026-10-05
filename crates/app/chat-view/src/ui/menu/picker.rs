@@ -3,8 +3,7 @@
 use ducktape_view_guest::design;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{
-    AnyElement, App, ClickEvent, Context, Div, ElementId, RenderOnce, Role, Stateful, Theme,
-    Window, wire,
+    AnyElement, App, ClickEvent, Context, Div, ElementId, RenderOnce, Role, Stateful, Theme, Window,
 };
 
 use super::{
@@ -51,12 +50,8 @@ fn pick(chat: &Chat, seq: u64, emoji: &str, cx: &mut Context<Chat>) -> Option<Pr
 
 /// The field that takes the keys; Enter reacts with its first match.
 fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> Input {
-    let typed = cx.listener(|chat, change: &wire::TextChange, _, cx| {
-        chat.picker.query.apply(change);
-        cx.notify();
-    });
     let key = focus_key(menu.pane, Mode::Reactions);
-    let search = Input::new(key, "Find an emoji to react with")
+    let search = Input::new(key, &chat.picker.query, "Find an emoji to react with")
         .h(px(SEARCH))
         .w_full()
         .px_2()
@@ -64,10 +59,8 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
         .border_color(theme.border_strong)
         .bg(theme.background)
         .text_size(design::text::SECONDARY)
-        .value(&chat.picker.query)
-        .placeholder("Search emoji")
-        .on_change(typed);
-    let first = emoji::search(&chat.picker.query.text).first().copied();
+        .placeholder("Search emoji");
+    let first = emoji::search(&chat.picker.query.text()).first().copied();
     match first.filter(|_| chat.may_write()) {
         Some(first) => {
             let seq = menu.seq;
@@ -164,7 +157,7 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
 /// A search's matches, counted, scrolled in the room the tabs and grid
 /// leave.
 fn matches(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
-    let found = emoji::search(&chat.picker.query.text);
+    let found = emoji::search(&chat.picker.query.text());
     let count = match found.len() {
         0 => "No emoji match".to_owned(),
         n => design::plural(n as u64, "match", "matches"),

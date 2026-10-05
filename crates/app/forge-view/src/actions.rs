@@ -79,7 +79,7 @@ impl Forge {
         let Some(form) = &mut self.new_repo else {
             return;
         };
-        let name = form.name.text.trim().to_owned();
+        let name = form.name.text().trim().to_owned();
         if !valid_repo_name(&name) {
             form.error = format!(
                 "A repository name is 1–{} bytes of letters, digits, dot, dash or underscore",
@@ -164,8 +164,8 @@ impl Forge {
                 Op::ChangeEdit {
                     repo: repo.clone(),
                     n,
-                    title: Some(form.title.text.clone()),
-                    body: Some(form.body.text.clone()),
+                    title: Some(form.title.text()),
+                    body: Some(form.body.text()),
                     reviewers: Some(form.reviewers),
                 },
                 "Saving the change".to_owned(),
@@ -176,11 +176,11 @@ impl Forge {
                     repo,
                     from: Revision::Ref(form.from.clone()),
                     into: form.into.clone(),
-                    title: form.title.text.clone(),
-                    body: form.body.text.clone(),
+                    title: form.title.text(),
+                    body: form.body.text(),
                     reviewers: form.reviewers.clone(),
                 },
-                format!("Opening “{}”", form.title.text.trim()),
+                format!("Opening “{}”", form.title.text().trim()),
                 "changes".to_owned(),
             ),
         };
@@ -289,7 +289,7 @@ impl Forge {
         let typed = self
             .repo_settings
             .as_ref()
-            .map(|form| form.grant.text.trim().to_owned())
+            .map(|form| form.grant.text().trim().to_owned())
             .unwrap_or_default();
         let Some(principal) = forge::Principal::parse(&typed) else {
             self.notice = "Grant takes an account number".into();
@@ -322,7 +322,7 @@ impl Forge {
     /// A reply in the change's hidden channel. Chat owns every reply; forge
     /// owns only the change's own body.
     pub(crate) fn post_reply(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.reply.text.trim().to_owned();
+        let text = self.reply.text().trim().to_owned();
         if text.is_empty() {
             return;
         }

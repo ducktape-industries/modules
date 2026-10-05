@@ -6,8 +6,8 @@
 use ducktape_view_guest::design;
 use std::rc::Rc;
 
+use ducktape_view_guest::ScrollStrategy;
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{ScrollStrategy, wire};
 
 use crate::Forge;
 use crate::state::ReviewSession;
@@ -327,7 +327,7 @@ fn paint_file(
                 line: line.kind,
                 draft: review
                     .and_then(|review| review.staged(&path, anchor_side, anchor_line))
-                    .map(|staged| staged.body.text.clone()),
+                    .map(|staged| staged.body.text().clone()),
                 published: published
                     .iter()
                     .filter(|(p, side, at, _, _, _)| {
@@ -619,8 +619,6 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
     let Some(open) = review.open.clone() else {
         return div().into_any_element();
     };
-    let typed =
-        cx.listener(|forge, change: &wire::TextChange, _, cx| forge.typed_comment(change, cx));
     let save = cx.listener(|forge, _: &ClickEvent, _, cx| forge.stage_comment(cx));
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.discard_comment(cx));
     let mut card = div()
@@ -635,7 +633,7 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
         .bg(theme.surface)
         .child(quiet(open.anchor(), theme))
         .child(
-            Input::new(id("forge-comment-body"), "Line comment")
+            Input::new(id("forge-comment-body"), &open.body, "Line comment")
                 .h(design::size::CONTROL)
                 .w_full()
                 .px_2()
@@ -643,9 +641,7 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .value(&open.body)
-                .placeholder("What should change here?")
-                .on_change(typed),
+                .placeholder("What should change here?"),
         );
     if !review.error.is_empty() {
         card = card.child(

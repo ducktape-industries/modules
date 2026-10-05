@@ -380,7 +380,7 @@ impl Render for Form {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let field = |name: &'static str| {
             let (change, submit) = (self.log.clone(), self.log.clone());
-            Input::new(name, name)
+            Input::new(name, &crate::TextField::default(), name)
                 .on_change(move |_, _, _| change.borrow_mut().push(format!("{name}:change")))
                 .on_submit(move |_, _, _| submit.borrow_mut().push(format!("{name}:submit")))
         };

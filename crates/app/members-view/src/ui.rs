@@ -9,7 +9,7 @@ use ducktape_view_guest::{
     ParentElement, Pixels, Role, SharedString, Stateful, StatefulInteractiveElement, Styled, Theme,
     div, px,
 };
-use ducktape_view_guest::{Input, prelude::FluentBuilder, wire};
+use ducktape_view_guest::{Input, prelude::FluentBuilder};
 
 use crate::activity::WINDOW;
 use crate::{Group, Members, Row};
@@ -93,10 +93,6 @@ fn list_pane(
     cx: &mut Context<Members>,
     theme: &Theme,
 ) -> impl IntoElement {
-    let typed = cx.listener(|view, change: &wire::TextChange, _, cx| {
-        view.filter.apply(change);
-        cx.notify();
-    });
     let count = match view.rows.ready() {
         Some(rows) => design::plural(rows.len() as u64, "account", "accounts"),
         None => String::new(),
@@ -134,7 +130,7 @@ fn list_pane(
                 .px(space::BLOCK)
                 .pb(space::MD)
                 .child(
-                    Input::new("members-filter", "Filter members")
+                    Input::new("members-filter", &view.filter, "Filter members")
                         .h(size::CONTROL)
                         .w_full()
                         .px_2()
@@ -143,9 +139,7 @@ fn list_pane(
                         .border_color(theme.border_strong)
                         .bg(theme.surface)
                         .text_color(theme.foreground)
-                        .value(&view.filter)
-                        .placeholder("Filter by name or number")
-                        .on_change(typed),
+                        .placeholder("Filter by name or number"),
                 )
                 .child(chips(view, cx, theme)),
         )
@@ -235,7 +229,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
     let shown = view.shown();
     if shown.is_empty() {
         // the chip alone, or the filter (with or without a chip)
-        let detail = match (view.filter.text.trim(), view.only) {
+        let detail = match (view.filter.text().trim(), view.only) {
             ("", Some(group)) => {
                 format!("No {} on this network yet.", group.label().to_lowercase())
             }

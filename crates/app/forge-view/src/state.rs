@@ -313,7 +313,7 @@ impl ReviewSession {
                 path: c.path.clone(),
                 side: if c.new_side { Side::New } else { Side::Old },
                 line: c.line,
-                body: c.body.text.clone(),
+                body: c.body.text().clone(),
             })
             .collect()
     }

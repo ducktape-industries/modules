@@ -35,7 +35,7 @@ fn a_field_marked_invalid_required_and_read_only_says_so_and_why() {
         Lowering::new(&mut window, &mut app).lower(input)
     };
     let email = || {
-        Input::new("email", "Email")
+        Input::new("email", &crate::TextField::default(), "Email")
             .invalid(gpui::accesskit::Invalid::True)
             .required(true)
             .read_only(true)
