@@ -2,23 +2,18 @@
 //! (valset) and programs (module-registry). The window's blocks are the
 //! host's (`load.rs`).
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, all_pages};
+use ducktape_view_guest::host::Error;
 use module_registry as registry;
 
 use crate::state::{Accounts, Network};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
-    let list = all_pages(|after| {
-        let ask = host.query(identity::ask::List {
+    let list = host
+        .query_all(|after| identity::ask::List {
             page: identity::PageRequest { after, limit: None },
-        });
-        async move {
-            let reply = ask.await?;
-            Ok((reply.items, reply.next))
-        }
-    })
-    .await?;
+        })
+        .await?;
     Ok(Accounts { list })
 }
 
@@ -34,16 +29,11 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
     let programs = host.query(registry::ask::At(0)).await?;
     let views = host.query(registry::ask::Views(0)).await?;
-    let changes = all_pages(|after| {
-        let ask = host.query(registry::ask::Scheduled {
+    let changes = host
+        .query_all(|after| registry::ask::Scheduled {
             page: registry::PageRequest { after, limit: None },
-        });
-        async move {
-            let reply = ask.await?;
-            Ok((reply.items, reply.next))
-        }
-    })
-    .await?;
+        })
+        .await?;
     Ok(Network {
         programs,
         views,

@@ -156,9 +156,13 @@ its program is `program::role::Identity`. Every refusal is the module SDK's `Err
 (`src/view.rs`) hold an ask's states and snapshot `Loading`
 as `Idle`.
 
-A cursored listing is read one of two ways. `host::all_pages` follows it to
-its end: for a list that is whole by nature (a roster, a settings list), which
-a screen searches, counts or draws all of. `Paged<T>` (`src/paged.rs`) holds it
+A cursored listing is read one of two ways. `host.query_all(|after| ask)`
+follows it to its end: the closure is handed each page's cursor (`None`
+first) and puts it in the question, and the rows of every page come back as
+one list. It is for a list that is whole by nature (a roster, a settings
+list), which a screen searches, counts or draws all of, and for an ask
+answered with a `PageResponse`; `host::all_pages` is the same walk over a
+page-asking closure of your own, for a listing in another shape. `Paged<T>` (`src/paged.rs`) holds it
 a page at a time: for a history. It is an entity built from the same
 page-asking closure; the `uniform_list` that draws it hands it the rows it
 lowers (`show`), and the next page is asked for when they reach past the rows

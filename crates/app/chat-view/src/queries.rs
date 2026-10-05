@@ -3,7 +3,7 @@
 use chat::view::Names;
 use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, all_pages};
+use ducktape_view_guest::host::Error;
 
 use crate::{PAGE, WINDOW};
 
@@ -16,14 +16,8 @@ fn page(after: Option<Vec<u8>>, limit: usize) -> PageRequest {
 
 /// Every room.
 pub(crate) async fn channels(host: Host) -> Result<Vec<ChannelInfo>, Error> {
-    all_pages(|after| {
-        let ask = host.query(ask::Channels {
-            page: page(after, PAGE),
-        });
-        async move {
-            let reply = ask.await?;
-            Ok((reply.items, reply.next))
-        }
+    host.query_all(|after| ask::Channels {
+        page: page(after, PAGE),
     })
     .await
 }
@@ -71,15 +65,9 @@ pub(crate) fn sorted(mut rows: Vec<MsgRow>) -> Vec<MsgRow> {
 
 /// Every member of a room, in account order.
 pub(crate) async fn members(host: Host, channel_id: String) -> Result<Vec<MemberRow>, Error> {
-    all_pages(|after| {
-        let ask = host.query(ask::Members {
-            channel_id: channel_id.clone(),
-            page: page(after, WINDOW),
-        });
-        async move {
-            let reply = ask.await?;
-            Ok((reply.items, reply.next))
-        }
+    host.query_all(|after| ask::Members {
+        channel_id: channel_id.clone(),
+        page: page(after, WINDOW),
     })
     .await
 }

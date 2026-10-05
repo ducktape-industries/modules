@@ -1753,6 +1753,7 @@ dependencies = [
  "program",
  "serde",
  "serde_json",
+ "store",
  "unicode-segmentation",
  "view-guest-derive",
  "view-wire",

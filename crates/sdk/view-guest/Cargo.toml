@@ -14,6 +14,8 @@ borsh.workspace = true
 futures.workspace = true
 view-wire.workspace = true
 program.workspace = true
+# `PageResponse`, the reply `Host::query_all` walks
+store.workspace = true
 design.workspace = true
 serde.workspace = true
 gpui.workspace = true

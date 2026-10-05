@@ -195,6 +195,34 @@ impl Host {
         let reply = self.ask::<methods::Query<A::Program>>(ask.into());
         async move { A::answer(reply.await?).ok_or_else(wrong_reply) }
     }
+    /// A cursored listing of a program, read whole: `ask` is given the
+    /// cursor of each page (`None` first, then each page's `next`) and
+    /// says where it goes in the question; the pages are asked one after
+    /// another until the listing ends, and their rows come back as one
+    /// list. `host.query` reads one page, `query_all` all of them:
+    ///
+    /// ```ignore
+    /// let page = |after| PageRequest { after, limit: None };
+    /// let accounts = host.query_all(|after| identity::ask::List { page: page(after) }).await?;
+    /// ```
+    ///
+    /// It is [`all_pages`] over `host.query`, with the same rule for a
+    /// cursor refused `stale` (the read starts over from the first page)
+    /// and the same cost: every page is a round trip and a tick of its
+    /// own. For a listing that is whole by nature; a history is a
+    /// [`Paged`](crate::Paged).
+    pub fn query_all<A, R>(
+        &self,
+        mut ask: impl FnMut(Option<Vec<u8>>) -> A,
+    ) -> impl Future<Output = Result<Vec<R>, Error>>
+    where
+        A: program::Ask<Reply = ::store::PageResponse<R>> + 'static,
+    {
+        all_pages(move |after| {
+            let reply = self.query(ask(after));
+            async move { reply.await.map(|page| (page.items, page.next)) }
+        })
+    }
     /// A subscription: an item per answer until the stream is dropped.
     pub fn subscribe<D: Method>(
         &self,
@@ -503,6 +531,9 @@ mod ask_tests {
         #[reads(STOCK)]
         #[reads(Ledger: BALANCES)]
         Free(String),
+        /// Every item's number, a page at a time.
+        #[ask(Said::Items(::store::PageResponse<u8>))]
+        Items { after: Option<Vec<u8>> },
     }
 
     /// A block's change touches the questions that read a table it wrote
@@ -548,6 +579,74 @@ mod ask_tests {
         Stock { count: u32, at: u64 },
         Open(bool),
         Free(u32),
+        Items(::store::PageResponse<u8>),
+    }
+
+    /// Reads the shop's items whole with `query_all`, the host answering
+    /// each page with what `page` says for its cursor: the rows, and the
+    /// cursor of every page asked, in order.
+    fn items(
+        mut page: impl FnMut(Option<Vec<u8>>) -> Result<::store::PageResponse<u8>, super::Error>,
+    ) -> (Result<Vec<u8>, super::Error>, Vec<Option<u8>>) {
+        use std::task::{Context, Poll};
+        let host = Host::default();
+        let mut asked = Vec::new();
+        let mut all = Box::pin(host.query_all(|after| ask::Items { after }));
+        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+        for _ in 0..32 {
+            if let Poll::Ready(rows) = all.as_mut().poll(&mut cx) {
+                return (rows, asked);
+            }
+            for request in host.drain_outbox() {
+                let Ok(Asked::Items { after }) = Query::<Shop>::decode_request(&request.payload)
+                else {
+                    panic!("query_all asks the listing and nothing else");
+                };
+                asked.push(after.as_ref().map(|cursor| cursor[0]));
+                let said = page(after).map(|page| borsh::to_vec(&Said::Items(page)).unwrap());
+                host.fulfill(request.id, said, true);
+            }
+        }
+        panic!("the listing never ended: asked {asked:?}");
+    }
+
+    /// Items 0..10, three a page.
+    fn listing(after: Option<Vec<u8>>) -> Result<::store::PageResponse<u8>, super::Error> {
+        let start = after.map_or(0, |cursor| cursor[0]);
+        let end = (start + 3).min(10);
+        Ok(::store::PageResponse {
+            height: 1,
+            items: (start..end).collect(),
+            next: (end < 10).then(|| vec![end]),
+        })
+    }
+
+    /// The closure is handed `None`, then each page's `next`, and the rows
+    /// of every page come back as one list.
+    #[test]
+    fn query_all_follows_the_cursor_to_the_end() {
+        let (all, asked) = items(listing);
+        assert_eq!(all, Ok((0..10).collect::<Vec<_>>()));
+        assert_eq!(asked, [None, Some(3), Some(6), Some(9)]);
+    }
+
+    /// `query_all` is `all_pages`' walk: a cursor the program refuses
+    /// `stale` starts the listing over, and the refusal is never the answer.
+    #[test]
+    fn a_write_between_two_pages_starts_query_all_over() {
+        let mut written = false;
+        let (all, asked) = items(|after| {
+            // the write lands once, after the first page is answered
+            if after.is_some() && !std::mem::replace(&mut written, true) {
+                return Err(super::Error::new(
+                    ::error::code::STALE,
+                    "the listing changed; restart it",
+                ));
+            }
+            listing(after)
+        });
+        assert_eq!(all, Ok((0..10).collect::<Vec<_>>()));
+        assert_eq!(asked, [None, Some(3), None, Some(3), Some(6), Some(9)]);
     }
 
     /// Asks `ask` and answers it `said`: the bytes it sent, and what the

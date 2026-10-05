@@ -1,6 +1,6 @@
 //! Typed reads of valset, folded into one row per key.
 use ducktape_view_guest::Host;
-use ducktape_view_guest::host::{Error, all_pages};
+use ducktape_view_guest::host::Error;
 use serde::{Deserialize, Serialize};
 use valset::{Membership, PageRequest, Role, ask};
 
@@ -54,15 +54,10 @@ pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
 /// membership behind them.
 pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
     let validators = host.query(ask::Validators).await?;
-    let members = all_pages(|after| {
-        let ask = host.query(ask::Memberships {
+    let members = host
+        .query_all(|after| ask::Memberships {
             page: PageRequest { after, limit: None },
-        });
-        async move {
-            let reply = ask.await?;
-            Ok((reply.items, reply.next))
-        }
-    })
-    .await?;
+        })
+        .await?;
     Ok(fold(&validators, members))
 }

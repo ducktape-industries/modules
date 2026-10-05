@@ -316,28 +316,13 @@ impl Members {
 /// Both programs answer in pages; the roster follows every `next` cursor to
 /// the end, since the screen shows the whole network.
 async fn roster(host: Host) -> Result<Vec<Row>, Error> {
-    let mut accounts = Vec::new();
-    let mut after = None;
-    loop {
-        let page = PageRequest { after, limit: None };
-        let reply = host.query(identity::ask::List { page }).await?;
-        accounts.extend(reply.items);
-        match reply.next {
-            Some(next) => after = Some(next),
-            None => break,
-        }
-    }
-    let mut members = Vec::new();
-    let mut after = None;
-    loop {
-        let page = PageRequest { after, limit: None };
-        let reply = host.query(valset::ask::Memberships { page }).await?;
-        members.extend(reply.items);
-        match reply.next {
-            Some(next) => after = Some(next),
-            None => break,
-        }
-    }
+    let page = |after| PageRequest { after, limit: None };
+    let accounts = host
+        .query_all(|after| identity::ask::List { page: page(after) })
+        .await?;
+    let members = host
+        .query_all(|after| valset::ask::Memberships { page: page(after) })
+        .await?;
     Ok(accounts
         .iter()
         .map(|account| row(account, &members))
