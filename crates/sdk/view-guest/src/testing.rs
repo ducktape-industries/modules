@@ -32,8 +32,8 @@
 use crate::wire::{Node, TooltipResponse};
 
 /// Every text the tree shows, depth first: text nodes and the value or
-/// placeholder of a field (the view's copy of it, which in a test is the
-/// host's).
+/// placeholder of a field (the view's copy of it: the host's engine holds
+/// the text, and a view that follows it shows the same).
 pub(crate) fn texts(root: Option<&Node>) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(root) = root {

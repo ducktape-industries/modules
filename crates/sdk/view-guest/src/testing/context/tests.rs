@@ -740,3 +740,62 @@ fn a_tick_reports_what_it_rendered_and_sent() {
     let key = cx.reports()[0];
     assert!(key.rendered && key.patches > 0 && key.bytes < first.bytes);
 }
+
+/// A note with a button that starts it over.
+#[derive(Default, Serialize, Deserialize)]
+struct Note {
+    text: crate::TextField,
+    /// Every change the host told: the span it edited, if it edited one,
+    /// and the text after it.
+    #[serde(skip)]
+    heard: Vec<(Option<std::ops::Range<usize>>, String)>,
+}
+impl View for Note {
+    const NAME: &'static str = "Note";
+}
+impl Render for Note {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl crate::IntoElement {
+        let heard = cx.listener(|note: &mut Self, change: &wire::TextChange, _, _| {
+            let edit = change.edit.map(|edit| edit.range.range());
+            note.heard.push((edit, change.text.clone()));
+        });
+        let again = cx.listener(|note: &mut Self, _: &ClickEvent, _, cx| {
+            note.text.reset("new");
+            cx.notify();
+        });
+        crate::div()
+            .child(crate::Input::new("note", &self.text, "Note").on_change(heard))
+            .child(
+                crate::div()
+                    .id("again")
+                    .role(Role::Button)
+                    .focusable()
+                    .on_click(again)
+                    .child("Start over"),
+            )
+    }
+}
+
+/// The host's engine holds a field's text; a frame's text is the view's
+/// copy of it. A frame whose field is a new generation is a new document:
+/// the engine's text becomes the frame's, the view hears it with no edit,
+/// and the next thing typed is typed into it.
+#[test]
+fn a_new_generation_replaces_the_hosts_text_and_the_view_hears_it() {
+    let mut cx = TestAppContext::new();
+    let note = cx.open::<Note>();
+    cx.simulate_input("note", "typed");
+    cx.simulate_click("again");
+    cx.simulate_input("note", "new!");
+    note.read(|note| {
+        assert_eq!(
+            note.heard,
+            [
+                (Some(0..0), "typed".into()),
+                (None, "new".into()),
+                (Some(3..3), "new!".into()),
+            ]
+        );
+        assert_eq!(note.text.state().revision, 3);
+    });
+}
