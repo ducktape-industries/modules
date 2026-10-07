@@ -195,14 +195,13 @@ pub enum Node {
         priority: usize,
         content: Box<Node>,
     },
-    /// Watches its child's laid-out size. `on_show` hears the size when the
-    /// child first comes into view, `on_resize` every change after, both as
-    /// [`Event::Size`].
+    /// Watches where layout put its child. `on_bounds` hears the child's
+    /// bounds when it comes into view and whenever they differ from the
+    /// last it heard, as [`Event::Bounds`].
     Sensor {
         id: ElementIdWire,
         style: StyleId,
-        on_show: Option<u32>,
-        on_resize: Option<u32>,
+        on_bounds: Option<u32>,
         child: Box<Node>,
     },
     Text(TextNode),

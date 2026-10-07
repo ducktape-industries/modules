@@ -511,8 +511,7 @@
                 "Name": "sensor"
               },
               "style": 0,
-              "on_show": 16,
-              "on_resize": 17,
+              "on_bounds": 16,
               "child": {
                 "Text": {
                   "id": {
@@ -2244,8 +2243,10 @@
       }
     },
     {
-      "Size": {
+      "Bounds": {
         "handler": 27,
+        "x": 12.0,
+        "y": 34.0,
         "width": 100.0,
         "height": 50.0
       }

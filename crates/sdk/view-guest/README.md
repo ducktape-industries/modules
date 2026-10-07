@@ -150,6 +150,16 @@ Ours, defined in this crate:
   none, since the host files a list's state and its rows by path (below);
   `canvas` is drawn by calls (`rect`, `circle`, `line`), since gpui's paint
   closures cannot cross.
+- `sensor(id, child).on_bounds(listener)` tells a view where layout put
+  `child`. gpui hands an element its bounds in its prepaint and paint
+  closures, which cannot cross to a guest, so the host tells them as an
+  event: the listener (`Fn(&Bounds<Pixels>, &mut Window, &mut App)`) hears
+  the child's bounds when it comes into view, and whenever its origin or
+  its size differs from the last heard while it is in view. They are in the
+  window's pixels, as a mouse event's `position` is, so
+  `event.position - bounds.origin` is the pointer inside the child: which
+  row, which candle, which price. Before the first event the host has not
+  laid the view out, and the view draws without them.
 - An id is unique among the ids under its nearest identified ancestor, as
   gpui's are (`view_wire::identity`). A `list`, a `uniform_list` and each of
   their rows are scopes of their own: a list is filed under the id its
@@ -391,6 +401,9 @@ app gives a new window (`testing::VIEWPORT`; `simulate_resize` moves it,
 before or after the open), reads it as `Window::viewport_size()`, and a
 list's first frame holds the rows that fill it; `simulate_viewport(rows)`
 or `simulate_range(key, range)` then show it the rows the host shows.
+A sensor hears nothing until `simulate_bounds(name, origin, size)` lays
+its child out, and then as the app tells it: the same bounds again are no
+event.
 The reader's offset is UTC until `simulate_offset(minutes)`. A frame
 carries at most
 `view_wire::MAX_REQUESTS` requests; the rest go in the next.

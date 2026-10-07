@@ -4,7 +4,12 @@ use crate::{View, modal_overlay, resize_handle, sensor, wire};
 
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 struct BehaviorView {
-    measured: (f32, f32),
+    /// The sensor's bounds as last heard (x, y, width, height), and how
+    /// many times it heard them.
+    measured: [f32; 4],
+    heard: u32,
+    /// The sensor is out of the tree.
+    gone: bool,
     dragged: (f32, f32),
     dismissed: bool,
 }
@@ -34,10 +39,15 @@ impl Render for DefaultSensorView {
 
 impl Render for BehaviorView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let measured = cx.listener(|view, size: &(Pixels, Pixels), _, cx| {
-            view.measured = (size.0.into(), size.1.into());
+        let measured = cx.listener(|view, bounds: &Bounds<Pixels>, _, cx| {
+            let (origin, size) = (bounds.origin, bounds.size);
+            view.measured = [origin.x, origin.y, size.width, size.height].map(f32::from);
+            view.heard += 1;
             cx.notify();
         });
+        if self.gone {
+            return div().into_any_element();
+        }
         let dragged = cx.listener(|view, delta: &(Pixels, Pixels), _, cx| {
             view.dragged = (delta.0.into(), delta.1.into());
             cx.notify();
@@ -61,7 +71,7 @@ impl Render for BehaviorView {
                 .on_key_down(|_, _, _| {})
                 .on_drag(dragged),
             )
-            .on_show(measured)
+            .on_bounds(measured)
             .size_full(),
             Some(div().child("modal")),
         )
@@ -69,6 +79,7 @@ impl Render for BehaviorView {
         .items_center()
         .justify_center()
         .on_dismiss(dismissed)
+        .into_any_element()
     }
 }
 
@@ -78,7 +89,7 @@ fn behavior_elements_lower_typed_routes_and_children() {
     let view = cx.open::<BehaviorView>();
     let full = crate::StyleRefinement::default().size_full();
     let Some(wire::Node::Sensor {
-        on_show: Some(_),
+        on_bounds: Some(_),
         style,
         ..
     }) = cx.find("behavior-sensor")
@@ -103,14 +114,65 @@ fn behavior_elements_lower_typed_routes_and_children() {
             ..
         }) if label == "Behavior dialog" && children.len() == 2
     ));
-    cx.simulate_measure("behavior-sensor", 321., 123.);
+    cx.simulate_bounds("behavior-sensor", (10., 20.), (321., 123.));
     cx.simulate_drag("behavior-resize", 12., -3.);
     cx.simulate_dismiss("behavior-overlay");
     view.read(|view| {
-        assert_eq!(view.measured, (321., 123.));
+        assert_eq!(view.measured, [10., 20., 321., 123.]);
         assert_eq!(view.dragged, (12., -3.));
         assert!(view.dismissed);
     });
+}
+
+/// What the host tells a sensor, and when: its child's bounds in the
+/// window's pixels, on the first sight of it and whenever the origin or the
+/// size differs from the last told. The same bounds again are no event:
+/// the view does not tick.
+#[test]
+fn a_sensor_hears_its_bounds_at_first_sight_and_when_they_differ() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<BehaviorView>();
+    let heard = |view: &crate::Entity<BehaviorView>| view.read(|view| (view.heard, view.measured));
+    assert_eq!(heard(&view).0, 0, "no bounds before the host lays it out");
+    cx.simulate_bounds("behavior-sensor", (10., 20.), (300., 200.));
+    assert_eq!(heard(&view), (1, [10., 20., 300., 200.]), "the first sight");
+    let ticks = cx.ticks();
+    cx.simulate_bounds("behavior-sensor", (10., 20.), (300., 200.));
+    assert_eq!(heard(&view).0, 1, "nothing changed");
+    assert_eq!(cx.ticks(), ticks, "and nothing ticked");
+    cx.simulate_bounds("behavior-sensor", (40., 20.), (300., 200.));
+    assert_eq!(
+        heard(&view),
+        (2, [40., 20., 300., 200.]),
+        "moved, same size"
+    );
+    cx.simulate_bounds("behavior-sensor", (40., 20.), (300., 260.));
+    assert_eq!(
+        heard(&view),
+        (3, [40., 20., 300., 260.]),
+        "resized in place"
+    );
+}
+
+/// A sensor that left the tree is forgotten: back in it, it hears the
+/// bounds it had before, since the view may have dropped them with it.
+#[test]
+fn a_sensor_back_in_the_tree_hears_its_bounds_again() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<BehaviorView>();
+    let show = |cx: &mut TestAppContext, gone: bool| {
+        cx.update(&view, |view, _, cx| {
+            view.gone = gone;
+            cx.notify();
+        });
+        cx.run_until_parked();
+    };
+    cx.simulate_bounds("behavior-sensor", (10., 20.), (300., 200.));
+    show(&mut cx, true);
+    assert!(cx.find("behavior-sensor").is_none());
+    show(&mut cx, false);
+    cx.simulate_bounds("behavior-sensor", (10., 20.), (300., 200.));
+    assert_eq!(view.read(|view| view.heard), 2);
 }
 
 #[test]

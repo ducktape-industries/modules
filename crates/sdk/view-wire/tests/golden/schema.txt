@@ -411,8 +411,10 @@ Event enum
   23 RichTextHover struct
     handler: U32
     event: TypeName("RichTextHover")
-  24 Size struct
+  24 Bounds struct
     handler: U32
+    x: F32
+    y: F32
     width: F32
     height: F32
   25 Drag struct
@@ -792,8 +794,7 @@ Node enum
   7 Sensor struct
     id: TypeName("WireRepr")
     style: U32
-    on_show: Option(U32)
-    on_resize: Option(U32)
+    on_bounds: Option(U32)
     child: TypeName("Node")
   8 Text: NewType(TypeName("TextNode"))
   9 Image struct

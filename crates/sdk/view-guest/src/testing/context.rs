@@ -88,6 +88,9 @@ pub struct TestAppContext {
     ///
     /// [`simulate_resize`]: Self::simulate_resize
     viewport: Option<(f32, f32)>,
+    /// The bounds each sensor in the tree was last told, by the ids it is
+    /// filed under: the host tells them again only when they differ.
+    sensors: HashMap<Vec<wire::ElementIdWire>, [f32; 4]>,
 }
 
 /// One field's text in the host's engine: the engine owns it, and the view's
@@ -143,6 +146,7 @@ impl TestAppContext {
         self.frame = Frame::default();
         self.tree = None;
         self.fields.clear();
+        self.sensors.clear();
         self.styles = wire::Styles::default();
         self.ticks = 0;
         let (width, height) = self.viewport.unwrap_or(VIEWPORT);
@@ -273,6 +277,7 @@ impl TestAppContext {
         self.move_focus(&frame, dialogs.unwrap_or_default());
         let mut told = self.adopt();
         told.extend(self.replace(&frame));
+        self.forget_sensors();
         self.host.owe(told);
         self.frame = frame;
         report
@@ -325,6 +330,23 @@ impl TestAppContext {
             self.fields.insert(path, field);
         }
         told
+    }
+    /// A sensor that left the tree is forgotten, as the app forgets it: back
+    /// in the tree, it is told its bounds again.
+    fn forget_sensors(&mut self) {
+        if self.sensors.is_empty() {
+            return;
+        }
+        let mut shown = std::collections::HashSet::new();
+        if let Some(root) = &self.tree {
+            super::chain(root, &mut |chain| {
+                if matches!(chain.last(), Some(Node::Sensor { .. })) {
+                    shown.insert(super::authored_path(chain));
+                }
+                false
+            });
+        }
+        self.sensors.retain(|path, _| shown.contains(path));
     }
     /// The view's own focus moves, then a dialog that opened this frame
     /// takes the keyboard; focus on a node that left the tree is gone.
@@ -984,21 +1006,30 @@ impl TestAppContext {
         );
         self.run(events);
     }
-    /// The sensor `name` measures its child at `width` by `height`: a
-    /// first measurement is a show, so the show route hears it, and a
-    /// sensor with only a resize route hears it there.
-    pub fn simulate_measure(&mut self, name: &str, width: f32, height: f32) {
-        let Node::Sensor {
-            on_show, on_resize, ..
-        } = self.node(name)
-        else {
+    /// The host lays the child of the sensor `name` out at `origin`, in
+    /// the window's pixels, `size` wide and tall, in view. The sensor hears
+    /// it as the app tells it: the first time, and when the origin or the
+    /// size differs from the last it was told; the same bounds again are no
+    /// event and no tick. A sensor that left the tree is forgotten, so it
+    /// hears its bounds again when it is back. A test that never gives a
+    /// sensor its bounds reads the frame the app draws before layout.
+    pub fn simulate_bounds(&mut self, name: &str, origin: (f32, f32), size: (f32, f32)) {
+        let chain = self.chain(name);
+        let Some(Node::Sensor { on_bounds, .. }) = chain.last() else {
             panic!("{name:?} is no sensor");
         };
-        let Some(handler) = on_show.or(*on_resize) else {
-            panic!("sensor {name:?} has no size route");
+        let Some(handler) = *on_bounds else {
+            panic!("sensor {name:?} has no bounds route");
         };
-        self.run(vec![Event::Size {
+        let bounds = [origin.0, origin.1, size.0, size.1];
+        if self.sensors.insert(super::authored_path(&chain), bounds) == Some(bounds) {
+            return;
+        }
+        let [x, y, width, height] = bounds;
+        self.run(vec![Event::Bounds {
             handler,
+            x,
+            y,
             width,
             height,
         }]);

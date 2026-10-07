@@ -89,7 +89,7 @@ fn an_element_a_builder_method_moves_is_small() {
         UniformList: 56,
         crate::Stateful<UniformList>: 56,
         crate::ResizeHandle: 48,
-        crate::Sensor: 96,
+        crate::Sensor: 80,
         crate::ModalOverlay: 136,
         Input: 296,
         Textarea: 296,
