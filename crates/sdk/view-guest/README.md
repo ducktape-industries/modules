@@ -159,7 +159,11 @@ Ours, defined in this crate:
   window's pixels, as a mouse event's `position` is, so
   `event.position - bounds.origin` is the pointer inside the child: which
   row, which candle, which price. Before the first event the host has not
-  laid the view out, and the view draws without them.
+  laid the view out, and the view draws without them. The listener is told
+  once for every frame in which the child's bounds differ from the last
+  told, so a sensor inside something that scrolls, or in a pane being
+  dragged, hears once a frame while it moves; a listener that stores the
+  bounds and does not notify costs an unchanged tick each time.
 - An id is unique among the ids under its nearest identified ancestor, as
   gpui's are (`view_wire::identity`). A `list`, a `uniform_list` and each of
   their rows are scopes of their own: a list is filed under the id its
