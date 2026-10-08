@@ -337,8 +337,7 @@ fn first_nodes() -> Vec<Node> {
         Node::Sensor {
             id: id("sensor"),
             style: style(),
-            on_show: Some(16),
-            on_resize: Some(17),
+            on_bounds: Some(16),
             child: boxed("measured"),
         },
         text("plain"),

@@ -29,8 +29,7 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
             },
             3 => Node::Sensor {
                 id: gen_id(rng),
-                on_show: rng.next_bool().then(|| rng.next_u64() as u32),
-                on_resize: rng.next_bool().then(|| rng.next_u64() as u32),
+                on_bounds: rng.next_bool().then(|| rng.next_u64() as u32),
                 child: Box::new(node),
                 style: gen_style(rng),
             },

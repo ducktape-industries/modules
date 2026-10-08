@@ -173,11 +173,17 @@ impl<V: View> Driver<V> {
                 None
             }
             wire::Event::Select { handler, index } => self.route(handler, &index),
-            wire::Event::Size {
+            wire::Event::Bounds {
                 handler,
+                x,
+                y,
                 width,
                 height,
-            } => self.route(handler, &(px(width), px(height))),
+            } => {
+                let origin = gpui::point(px(x), px(y));
+                let bounds = gpui::Bounds::new(origin, gpui::size(px(width), px(height)));
+                self.route(handler, &bounds)
+            }
             wire::Event::Drag { handler, dx, dy } => {
                 self.route(handler, &(px(dx as f32), px(dy as f32)))
             }

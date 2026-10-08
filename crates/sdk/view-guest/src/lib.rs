@@ -7,7 +7,7 @@ pub use gpui::{AccessibleAction, accesskit};
 extern crate self as ducktape_view_guest;
 
 pub use gpui::{
-    Anchor, AnchoredPositionMode, ClickEvent, CursorStyle, Edges, ElementId, EventEmitter,
+    Anchor, AnchoredPositionMode, Bounds, ClickEvent, CursorStyle, Edges, ElementId, EventEmitter,
     FileDropEvent, FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode,
     Hsla, KeyDownEvent, KeyUpEvent, Keystroke, ListAlignment, ListHorizontalSizingBehavior,
     ListOffset, ListScrollEvent, ListSizingBehavior, Modifiers, ModifiersChangedEvent, MouseButton,
@@ -57,17 +57,18 @@ pub mod prelude {
     pub use crate::host::Error;
     pub use crate::methods::*;
     pub use crate::{
-        AnyElement, AnyView, App, ClickEvent, Context, Element, ElementId, Entity, EventEmitter,
-        FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, Host, HoverListenerMode,
-        Hsla, Input, InteractiveElement, InteractiveText, IntoElement, KeyDownEvent, KeyUpEvent,
-        List, ListAlignment, ListHorizontalSizingBehavior, ListOffset, ListScrollEvent,
-        ListSizingBehavior, ListState, Loadable, ModifiersChangedEvent, MouseButton,
-        MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent,
-        ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy,
-        ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-        StyledText, Subscription, Task, TextField, Textarea, Theme, UniformListScrollHandle, View,
-        Window, anchored, canvas, deferred, design, div, export_view, hsla, img, list,
-        modal_overlay, px, rems, resize_handle, rgb, sensor, svg, uniform_list,
+        AnyElement, AnyView, App, Bounds, ClickEvent, Context, Element, ElementId, Entity,
+        EventEmitter, FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, Host,
+        HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText, IntoElement,
+        KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
+        ListScrollEvent, ListSizingBehavior, ListState, Loadable, ModifiersChangedEvent,
+        MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent,
+        MouseUpEvent, ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle,
+        ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
+        StyledImage, StyledText, Subscription, Task, TextField, Textarea, Theme,
+        UniformListScrollHandle, View, Window, anchored, canvas, deferred, design, div,
+        export_view, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg,
+        uniform_list,
     };
 }
 mod text;

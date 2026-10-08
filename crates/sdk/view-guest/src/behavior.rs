@@ -7,13 +7,15 @@ use crate::{
     AnyElement, App, ElementId, InteractiveElement, Interactivity, IntoElement, Lowering,
     ParentElement, StatefulInteractiveElement, Window, div, wire,
 };
-use gpui::{CursorStyle, Hsla, Pixels, StyleRefinement, Styled};
+use gpui::{Bounds, CursorStyle, Hsla, Pixels, StyleRefinement, Styled};
 
+/// Tells a view where layout put `child`: gpui hands an element its bounds
+/// in its prepaint and paint closures, which cannot cross to a guest, so
+/// the host tells them as an event.
 pub struct Sensor {
     id: ElementId,
     child: AnyElement,
-    on_show: Option<EventListener<(Pixels, Pixels)>>,
-    on_resize: Option<EventListener<(Pixels, Pixels)>>,
+    on_bounds: Option<EventListener<Bounds<Pixels>>>,
     style: Box<StyleRefinement>,
 }
 
@@ -21,26 +23,23 @@ pub fn sensor(id: impl Into<ElementId>, child: impl IntoElement) -> Sensor {
     Sensor {
         id: id.into(),
         child: child.into_any_element(),
-        on_show: None,
-        on_resize: None,
+        on_bounds: None,
         style: Box::default(),
     }
 }
 
 impl Sensor {
-    pub fn on_show(
+    /// Hears the child's bounds, in the window's pixels (the pixels a
+    /// mouse event's `position` is in, so `event.position - bounds.origin`
+    /// is the pointer inside the child): when the child comes into view,
+    /// and whenever its origin or its size differs from the last heard
+    /// while it is in view. Until the first, layout has not run: the view
+    /// has no bounds to draw from.
+    pub fn on_bounds(
         mut self,
-        listener: impl Fn(&(Pixels, Pixels), &mut Window, &mut App) + 'static,
+        listener: impl Fn(&Bounds<Pixels>, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_show = Some(Box::new(listener));
-        self
-    }
-
-    pub fn on_resize(
-        mut self,
-        listener: impl Fn(&(Pixels, Pixels), &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_resize = Some(Box::new(listener));
+        self.on_bounds = Some(Box::new(listener));
         self
     }
 }
@@ -60,12 +59,9 @@ impl Element for Sensor {
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         wire::Node::Sensor {
             id: wire_id(self.id),
-            on_show: self
-                .on_show
-                .map(|listener| lowering.route(crate::slots::Kind::Show, listener)),
-            on_resize: self
-                .on_resize
-                .map(|listener| lowering.route(crate::slots::Kind::Resize, listener)),
+            on_bounds: self
+                .on_bounds
+                .map(|listener| lowering.route(crate::slots::Kind::Bounds, listener)),
             child: Box::new(lowering.lower(self.child)),
             style: lowering.style(&self.style),
         }

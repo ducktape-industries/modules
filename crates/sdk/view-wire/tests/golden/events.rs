@@ -245,8 +245,10 @@ pub fn every_event() -> Vec<Event> {
                 modifiers: gpui::Modifiers::default(),
             },
         },
-        Event::Size {
+        Event::Bounds {
             handler: 27,
+            x: 12.0,
+            y: 34.0,
             width: 100.0,
             height: 50.0,
         },
@@ -422,7 +424,7 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::Offset { .. } => "Offset",
         Event::Select { .. } => "Select",
         Event::RichTextHover { .. } => "RichTextHover",
-        Event::Size { .. } => "Size",
+        Event::Bounds { .. } => "Bounds",
         Event::Drag { .. } => "Drag",
         Event::ScrollOffset { .. } => "ScrollOffset",
         Event::UniformListRange { .. } => "UniformListRange",

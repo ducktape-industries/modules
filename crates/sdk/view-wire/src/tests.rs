@@ -82,12 +82,11 @@ fn uniform(path: Vec<ElementIdWire>) -> Node {
     }
 }
 
-fn sensor(key: &str, on_show: Option<u32>, content: Node) -> Node {
+fn sensor(key: &str, on_bounds: Option<u32>, content: Node) -> Node {
     Node::Sensor {
         id: ElementIdWire::Name(key.into()),
         style: StyleId(0),
-        on_show,
-        on_resize: Some(2),
+        on_bounds,
         child: Box::new(content),
     }
 }

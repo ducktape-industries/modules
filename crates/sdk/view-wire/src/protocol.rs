@@ -143,19 +143,25 @@ pub enum Event {
         handler: u32,
         event: RichTextHover,
     },
-    /// A [`Node::Sensor`]'s child was measured: shown at, or resized to,
-    /// `width` by `height` — the child's own laid-out size in logical
-    /// pixels, never where it sits in the window. `handler` is the node's
-    /// `on_show` or `on_resize`.
+    /// A [`Node::Sensor`]'s child was measured: its bounds, `width` by
+    /// `height` with the top left corner at `x`, `y`, in the window's
+    /// logical pixels — the pixels a mouse event's `position` is in, so a
+    /// view places a pointer inside the child by subtracting the corner.
+    /// `handler` is the node's `on_bounds`. Sent when the child comes into
+    /// view, and whenever its bounds, the corner or the size, differ from
+    /// the last sent while it is in view; out of view the host forgets
+    /// them, so the next sight sends them again.
     ///
     /// Delivered after layout, like a DOM `ResizeObserver`: the host lays
-    /// the tree out, the sensor reads its child's size, and the event goes
-    /// to the guest on the next tick. A guest whose answer changes the
-    /// tree so the child measures differently again is measured again;
-    /// a host bounds how many times in a row that may drive a tick before
-    /// it stops delivering and logs `sensor loop limit exceeded`.
-    Size {
+    /// the tree out, the sensor reads its child's bounds, and the event
+    /// goes to the guest on the next tick. A guest whose answer changes the
+    /// tree so the child measures differently again is told again, one tick
+    /// and one frame for each draw, for as long as it does: the host does
+    /// not stop it.
+    Bounds {
         handler: u32,
+        x: f32,
+        y: f32,
         width: f32,
         height: f32,
     },
@@ -166,8 +172,8 @@ pub enum Event {
         dy: f64,
     },
     /// A scrollable's content offset in logical pixels and anchor-relative
-    /// fractions, emitted only when its native viewport changes. No window
-    /// coordinates cross the wire.
+    /// fractions, emitted only when its native viewport changes. It carries
+    /// no window coordinates.
     ScrollOffset {
         handler: u32,
         x: f32,
