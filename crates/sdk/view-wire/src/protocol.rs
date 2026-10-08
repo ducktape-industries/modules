@@ -155,9 +155,9 @@ pub enum Event {
     /// Delivered after layout, like a DOM `ResizeObserver`: the host lays
     /// the tree out, the sensor reads its child's bounds, and the event
     /// goes to the guest on the next tick. A guest whose answer changes the
-    /// tree so the child measures differently again is measured again;
-    /// a host bounds how many times in a row that may drive a tick before
-    /// it stops delivering and logs `sensor loop limit exceeded`.
+    /// tree so the child measures differently again is told again, one tick
+    /// and one frame for each draw, for as long as it does: the host does
+    /// not stop it.
     Bounds {
         handler: u32,
         x: f32,
