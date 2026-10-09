@@ -588,7 +588,7 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
         id("forge-new-repo-format"),
         "Object format",
         theme,
-        usize::from(form.sha1),
+        Some(usize::from(form.sha1)),
         [
             (id("forge-new-repo-sha256"), "SHA-256".into()),
             (id("forge-new-repo-sha1"), "SHA-1".into()),

@@ -49,6 +49,29 @@ fn the_change_state_filter_checks_on_an_arrow() {
     assert!(merged.aria.active_descendant);
 }
 
+/// A list about me is no state: the state filter checks no segment, and
+/// its arrows still start at Open.
+#[test]
+fn a_filter_about_me_checks_no_state() {
+    let (mut cx, view) = opened("judgment");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-filter-judgment");
+    cx.run_until_parked();
+    use crate::state::Filter;
+    view.read(|forge| assert_eq!(forge.filter, Filter::Judgment));
+    for state in ["open", "merged", "closed"] {
+        assert_eq!(
+            cx.interactivity(&format!("forge-filter-{state}"))
+                .aria
+                .toggled,
+            Some(ducktape_view_guest::Toggled::False),
+            "{state} is not checked"
+        );
+    }
+    assert!(cx.interactivity("forge-filter-open").aria.active_descendant);
+}
+
 #[test]
 fn the_change_list_shows_the_plans_row_and_its_filters() {
     let (mut cx, view) = opened("default");

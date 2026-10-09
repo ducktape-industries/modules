@@ -130,7 +130,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
         "settings/ttl",
         "Expires after",
         theme,
-        view.ttl,
+        Some(view.ttl),
         TTL.into_iter().map(|days| {
             (
                 format!("settings/ttl/{days}").into(),
