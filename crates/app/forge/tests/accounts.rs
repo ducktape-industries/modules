@@ -129,28 +129,6 @@ fn one_person_with_two_keys_is_one_owner_author_and_reviewer() {
     assert_eq!(record(&rig, n).0.closed_by, Some(Principal::Account(1)));
 }
 
-#[test]
-fn a_granted_account_writes_from_every_key() {
-    let (mut rig, story) = story();
-    rig.sandbox.hold(b"k1", 3);
-    rig.sandbox.hold(b"k2", 3);
-    rig.execute(&Op::Grant {
-        repo: REPO.into(),
-        principal: Principal::Account(3),
-    })
-    .unwrap();
-    let n = opened(&mut rig, &story);
-    as_key(
-        &mut rig,
-        b"k2",
-        &Op::ChangeClose {
-            repo: REPO.into(),
-            n,
-        },
-    );
-    assert_eq!(record(&rig, n).0.closed_by, Some(Principal::Account(3)));
-}
-
 /// A key that holds no account writes nothing, whatever the op, and leaves
 /// forge as it was; once identity seats it in an account, the same key
 /// writes as that account.

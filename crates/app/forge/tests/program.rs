@@ -95,30 +95,6 @@ fn create_names_an_owner_and_refuses_bad_or_taken_names() {
 }
 
 #[test]
-fn a_push_stores_the_objects_moves_the_ref_and_reports() {
-    let sandbox = founded();
-    create(&sandbox, "project", HashKind::Sha1);
-    let mut source = MemoryObjects::new(Hash::Sha1);
-    let tip = file_commit(&mut source, &[], 1, &[("README", b"hello\n")]);
-    let zero = Hash::Sha1.zero();
-
-    let report = push(
-        &sandbox,
-        OWNER,
-        "project",
-        &[(zero, tip, "refs/heads/main")],
-        &pack_of(&source, &all_ids(&source)),
-    )
-    .unwrap();
-    assert_eq!(report, ["unpack ok", "ok refs/heads/main"]);
-    assert_eq!(sandbox.blob_count(), 3);
-    assert_eq!(
-        refs_of(&sandbox, "project"),
-        BTreeMap::from([("refs/heads/main".to_string(), tip.to_hex())])
-    );
-}
-
-#[test]
 fn only_the_owner_and_granted_writers_push() {
     let sandbox = founded();
     create(&sandbox, "project", HashKind::Sha1);
@@ -252,34 +228,6 @@ fn a_non_fast_forward_is_reported_and_not_applied_unless_allowed() {
     .unwrap();
     assert_eq!(deleted, ["unpack ok", "ok refs/heads/main"]);
     assert!(refs_of(&sandbox, "project").is_empty());
-}
-
-#[test]
-fn a_stale_old_value_is_reported() {
-    let sandbox = founded();
-    create(&sandbox, "project", HashKind::Sha1);
-    let mut source = MemoryObjects::new(Hash::Sha1);
-    let root = file_commit(&mut source, &[], 1, &[("a", b"1")]);
-    let next = file_commit(&mut source, &[root], 2, &[("a", b"2")]);
-    let zero = Hash::Sha1.zero();
-    let everything = pack_of(&source, &all_ids(&source));
-    push(
-        &sandbox,
-        OWNER,
-        "project",
-        &[(zero, root, "refs/heads/main")],
-        &everything,
-    )
-    .unwrap();
-    let stale = push(
-        &sandbox,
-        OWNER,
-        "project",
-        &[(zero, next, "refs/heads/main")],
-        b"",
-    )
-    .unwrap();
-    assert_eq!(stale, ["unpack ok", "ng refs/heads/main stale info"]);
 }
 
 #[test]

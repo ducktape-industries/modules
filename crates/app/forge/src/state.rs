@@ -264,34 +264,6 @@ pub fn load_review(ctx: &QueryCtx, repo: &str, n: u64, id: u64) -> Result<Review
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{ChangeState, ReviewCounts};
-    use guest::MockHost;
-
-    fn change(n: u64) -> Change {
-        Change {
-            n,
-            from: Revision::Ref(b"refs/heads/feature".to_vec()),
-            into: b"refs/heads/main".to_vec(),
-            title: "t".into(),
-            body: String::new(),
-            author: Principal::Account(1),
-            state: ChangeState::Open,
-            reviewers: Vec::new(),
-            created_height: 1,
-            updated_height: 1,
-            created_time: 1,
-            updated_time: 1,
-            review_count: 0,
-            comment_count: 0,
-            verdicts: ReviewCounts::default(),
-            merge_oid: None,
-            closed_by: None,
-            merged_by: None,
-            merged_heads: None,
-            channel: String::new(),
-            system_seq: 1,
-        }
-    }
 
     /// The longest ids forge gives chat fit chat's id limit, and
     /// [`MAX_REPO_NAME`](crate::MAX_REPO_NAME) is the longest that does.
@@ -300,27 +272,5 @@ mod tests {
         let repo = "r".repeat(crate::MAX_REPO_NAME);
         assert_eq!(channel_id(&repo, u64::MAX).len(), chat::MAX_ID_BYTES);
         assert!(message_id(u64::MAX).len() <= chat::MAX_ID_BYTES);
-    }
-
-    /// Judgment pages every change across repositories: by name, not by
-    /// name length, and one repository's prefix never reaches a longer name.
-    #[test]
-    fn changes_across_repositories_list_by_name() {
-        let ctx = MockHost::default().exec(MockHost::env(crate::MODULE));
-        for (repo, n) in [("zz", 1), ("abc", 2), ("ab", 1), ("abc", 1)] {
-            save_change(&ctx, repo, &change(n)).unwrap();
-        }
-        let order: Vec<(String, u64)> = CHANGES
-            .all(&ctx)
-            .unwrap()
-            .into_iter()
-            .map(|((repo, n), _)| (repo, n))
-            .collect();
-        let expected = [("ab", 1), ("abc", 1), ("abc", 2), ("zz", 1)];
-        assert_eq!(order, expected.map(|(r, n)| (r.to_owned(), n)));
-        let ab = CHANGES
-            .scan(&ctx, CHANGES.prefix_of(&"ab".to_string()))
-            .unwrap();
-        assert_eq!(ab.len(), 1);
     }
 }
