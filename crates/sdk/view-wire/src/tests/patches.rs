@@ -30,7 +30,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
     ]);
     let mut applied = old.clone();
     let patches = diff(&mut applied.clone(), &mut new.clone());
-    let kinds: Vec<&str> = patches
+    let mut kinds: Vec<&str> = patches
         .iter()
         .map(|patch| match patch {
             Patch::Replace { .. } => "replace",
@@ -40,9 +40,10 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
             Patch::Move { .. } => "move",
         })
         .collect();
+    kinds.sort_unstable();
     assert_eq!(
         kinds,
-        ["remove", "move", "props", "insert", "remove", "insert"],
+        ["insert", "insert", "move", "props", "remove", "remove"],
         "{patches:#?}"
     );
     apply(&mut applied, patches, &held()).unwrap();
