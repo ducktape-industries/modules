@@ -320,6 +320,16 @@ impl MockChain {
         abi::decode(&answer).map_err(crate::kernel::error_from)
     }
 
+    /// [`query`](MockChain::query) with the request's bytes as they are,
+    /// and the answer's: what a node relays for a view.
+    pub fn query_bytes(&self, module: &str, request: &[u8]) -> Result<Vec<u8>, Error> {
+        let env = Env {
+            sender: None,
+            ..self.env(module)
+        };
+        self.query_raw(&env, request)
+    }
+
     fn query_raw(&self, env: &Env, request: &[u8]) -> Result<Vec<u8>, Error> {
         let seat = self.seated(&env.module)?;
         (seat.query)(seat.host.query(env.clone()), request)?;
