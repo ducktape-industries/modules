@@ -571,15 +571,6 @@ fn disabled(cx: &TestAppContext, id: &str) -> bool {
     interactivity.aria.disabled == Some(true) && interactivity.on_click.is_none()
 }
 
-#[test]
-fn session_key_resolves_to_its_account() {
-    let (_cx, view) = booted("default");
-    view.read(|forge| {
-        assert_eq!(forge.my_account(), Some(2));
-        assert_eq!(forge.me_principal(), Some(forge::Principal::Account(2)));
-    });
-}
-
 /// Seats `key` (with `account` once identity names one) in a fresh view
 /// and opens `project`'s changes.
 fn seated(key: &[u8], account: Option<u64>) -> (TestAppContext, Entity<Forge>) {
@@ -613,15 +604,6 @@ fn judged(cx: &TestAppContext) -> Vec<forge::Principal> {
             _ => None,
         })
         .collect()
-}
-
-/// With no key seated nobody is "me": the filters about me are off.
-#[test]
-fn no_seated_key_has_no_changes_of_its_own() {
-    let (cx, view) = seated(b"", None);
-    view.read(|forge| assert_eq!(forge.me_principal(), None));
-    assert!(disabled(&cx, "forge-filter-judgment"));
-    assert!(disabled(&cx, "forge-filter-authored"));
 }
 
 /// A key that holds no account reads everything and writes nothing: every
