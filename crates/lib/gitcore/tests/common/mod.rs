@@ -2,7 +2,9 @@
 
 #![allow(dead_code, unused_macros, unused_imports)]
 
-use gitcore::{Commit, Hash, Kind, MemoryObjects, Mode, Objects, Oid, Signature, Tree, TreeEntry};
+use gitcore::{
+    Commit, Hash, Kind, MemoryObjects, Mode, Object, Objects, Oid, Signature, Tree, TreeEntry,
+};
 
 macro_rules! fixture {
     ($name:literal) => {
@@ -85,4 +87,38 @@ pub fn file_tree(store: &mut MemoryObjects, files: &[(&str, &str)]) -> Oid {
         .map(|(name, content)| (*name, Mode::Regular, blob(store, content.as_bytes())))
         .collect();
     tree(store, &entries)
+}
+
+/// No base held: a pack read that needs one refuses.
+pub fn no_base(_: &Oid) -> gitcore::Result<Option<Object>> {
+    Ok(None)
+}
+
+/// The `git` on PATH, if any (a test checking our bytes with git returns
+/// early without one).
+pub fn git_binary() -> Option<std::path::PathBuf> {
+    let output = std::process::Command::new("which")
+        .arg("git")
+        .output()
+        .ok()?;
+    let found = output.status.success();
+    if !found {
+        return None;
+    }
+    Some(std::path::PathBuf::from(
+        String::from_utf8_lossy(&output.stdout).trim(),
+    ))
+}
+
+/// A fresh directory under the system temp dir, named for this process and thread.
+pub fn temp_dir(prefix: &str) -> std::path::PathBuf {
+    let unique = format!(
+        "{prefix}-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    );
+    let dir = std::env::temp_dir().join(unique);
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }
