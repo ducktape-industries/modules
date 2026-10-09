@@ -130,18 +130,8 @@ fn kept_cursors_bring_the_badge_back_after_a_relaunch() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
-    let _view = cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    cx.open::<Chat>();
+    seat(&mut cx);
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&2));
     assert!(cx.find("chat-sidebar-channel-general-unread").is_some());
     assert!(cx.find("chat-sidebar-dm-8-unread").is_some());
@@ -189,24 +179,17 @@ fn the_relaunch_recount_waits_for_the_readers_account() {
         })
     });
     let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
-    let _view = cx.open::<Chat>();
-    let unresolved = Session {
-        signer: "0102".into(),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    };
-    props.send(unresolved.clone());
-    visible.send(true);
+    cx.open::<Chat>();
+    props.send(Session {
+        account: None,
+        ..session()
+    });
+    cx.host().stream::<HostVisible>().send(true);
     cx.run_until_parked();
     assert_ne!(cx.host().requests::<HostBadge>().last(), Some(&1));
 
     // the host names their account
-    props.send(Session {
-        account: Some(7),
-        ..unresolved
-    });
+    props.send(session());
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&1));
 }
@@ -233,18 +216,8 @@ fn a_refused_store_read_still_keeps_cursors() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
-    let _view = cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    cx.open::<Chat>();
+    seat(&mut cx);
     let asked = cx.host().requests::<StoreGet>();
     assert_eq!(
         asked.iter().filter(|key| *key == "reads/0102").count(),

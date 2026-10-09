@@ -295,20 +295,19 @@ fn span_display(span: &Span, names: &Names) -> String {
 mod tests {
     use super::*;
 
+    /// Account 7 saying "hi" as row `seq`, posted at `time`.
+    fn at(seq: u64, time: u64) -> ChatMessage {
+        let row = MsgRow {
+            seq,
+            time,
+            blocks: vec![Block::paragraph("hi")],
+            ..MsgRow::by(Principal::Account(7))
+        };
+        chat_message(row, &Names::empty())
+    }
+
     #[test]
     fn a_run_breaks_at_the_unread_divider_and_after_a_long_quiet() {
-        let names = Names::empty();
-        let at = |seq: u64, time: u64| {
-            chat_message(
-                MsgRow {
-                    seq,
-                    time,
-                    blocks: vec![Block::paragraph("hi")],
-                    ..MsgRow::by(Principal::Account(7))
-                },
-                &names,
-            )
-        };
         let minute = 60 * 1000;
         let mut messages = vec![
             at(1, 0),
@@ -328,18 +327,6 @@ mod tests {
 
     #[test]
     fn a_pending_row_runs_on_under_its_authors_served_row() {
-        let names = Names::empty();
-        let at = |seq: u64, time: u64| {
-            chat_message(
-                MsgRow {
-                    seq,
-                    time,
-                    blocks: vec![Block::paragraph("hi")],
-                    ..MsgRow::by(Principal::Account(7))
-                },
-                &names,
-            )
-        };
         // 24 Sep 2026, 15:42 UTC, then a pending post (seq 0, no time yet)
         let mut messages = vec![at(1, 1_790_264_527_000), at(0, 0)];
         mark_message_groups(&mut messages, None);

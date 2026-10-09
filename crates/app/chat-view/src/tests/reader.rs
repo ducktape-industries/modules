@@ -5,17 +5,13 @@ use super::*;
 fn an_unregistered_key_stays_read_only() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    props.send(Session {
+    cx.host().stream::<HostSession>().send(Session {
         signer: "ffff".into(),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
+        account: None,
+        ..session()
     });
-    visible.send(true);
+    cx.host().stream::<HostVisible>().send(true);
     cx.run_until_parked();
     view.read(|chat| {
         assert_eq!(chat.my_account(), None);
@@ -35,26 +31,18 @@ fn an_account_gained_later_re_enables_create_channel() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
     let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    let unregistered = Session {
-        signer: "0102".into(),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    };
-    props.send(unregistered.clone());
-    visible.send(true);
+    props.send(Session {
+        account: None,
+        ..session()
+    });
+    cx.host().stream::<HostVisible>().send(true);
     cx.run_until_parked();
     cx.simulate_click("chat-sidebar-new-channel");
     cx.run_until_parked();
     assert!(cx.has_text("Create an account to create a channel"));
 
-    props.send(Session {
-        account: Some(7),
-        ..unregistered
-    });
+    props.send(session());
     cx.run_until_parked();
 
     assert!(!cx.has_text("Create an account to create a channel"));
@@ -90,20 +78,9 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
     });
     cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
 
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
 
@@ -157,20 +134,9 @@ fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
     });
     cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
 
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
 
@@ -225,19 +191,8 @@ fn the_roster_is_read_past_its_first_page() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     view.read(|chat| {
         let names = chat.names.ready().expect("the roster landed");
         assert_eq!(names.people().count(), 600);

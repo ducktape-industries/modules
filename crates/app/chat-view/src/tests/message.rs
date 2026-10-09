@@ -40,6 +40,21 @@ fn action_strip_keeps_the_rows_hover_and_is_not_inside_selection_target() {
     assert!(cx.find("chat-message-m1-thumbs-up").is_some());
 }
 
+/// Two 🔥 on m1, one of them the reader's when `mine`.
+fn fire(cx: &mut TestAppContext, view: &Entity<Chat>, mine: bool) {
+    cx.update(view, |chat, _, cx| {
+        chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
+            .reactions
+            .push(chat::Reaction {
+                emoji: "🔥".into(),
+                count: 2,
+                reacted_by_me: mine,
+            });
+        cx.notify();
+    });
+    cx.run_until_parked();
+}
+
 /// The pointer over message `seq`'s row, as the host reports it.
 pub(super) fn hover(cx: &mut TestAppContext, view: &Entity<Chat>, seq: u64) {
     cx.update(view, |chat, _, cx| {
@@ -80,17 +95,7 @@ fn copy_range_keeps_its_distinct_message_plate() {
 #[test]
 fn reaction_rows_keep_add_action_and_selected_accessibility() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
-            .reactions
-            .push(chat::Reaction {
-                emoji: "🔥".into(),
-                count: 2,
-                reacted_by_me: true,
-            });
-        cx.notify();
-    });
-    cx.run_until_parked();
+    fire(&mut cx, &view, true);
     let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
         interactivity: Some(interactivity),
         ..
@@ -163,17 +168,7 @@ fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
 fn the_small_press_targets_are_at_least_24_px_each_way() {
     use ducktape_view_guest::px;
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
-            .reactions
-            .push(chat::Reaction {
-                emoji: "🔥".into(),
-                count: 2,
-                reacted_by_me: true,
-            });
-        cx.notify();
-    });
-    cx.run_until_parked();
+    fire(&mut cx, &view, true);
     let style = |key: &str| cx.style(key).clone();
     for key in ["chat-message-m1-height", "chat-sidebar-new-channel"] {
         let style = style(key);
@@ -353,17 +348,7 @@ fn the_picker_searches_and_enter_picks_the_first_match() {
 #[test]
 fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
-            .reactions
-            .push(chat::Reaction {
-                emoji: "🔥".into(),
-                count: 2,
-                reacted_by_me: false,
-            });
-        cx.notify();
-    });
-    cx.run_until_parked();
+    fire(&mut cx, &view, false);
     let grid = cx.interactivity("chat-message-list");
     assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
@@ -646,17 +631,7 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
 #[test]
 fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        chat.room.as_mut().unwrap().messages.ready_mut().unwrap()[0]
-            .reactions
-            .push(chat::Reaction {
-                emoji: "🔥".into(),
-                count: 2,
-                reacted_by_me: false,
-            });
-        cx.notify();
-    });
-    cx.run_until_parked();
+    fire(&mut cx, &view, false);
     cx.simulate_focus("chat-message-list");
     cx.simulate_key_down("chat-message-list", "up");
     cx.simulate_key_down("chat-message-list", "right");

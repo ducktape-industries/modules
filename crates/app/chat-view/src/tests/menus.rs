@@ -242,11 +242,7 @@ fn an_emoji_search_shows_every_match() {
 fn the_edit_field_saves() {
     let (mut cx, view) = opened();
     assert!(cx.has_text("Send") && !cx.has_text("Save"));
-    cx.update(&view, |chat, window, cx| {
-        cx.notify();
-        chat.open_menu(Pane::Timeline, 1, 0, Mode::Editing, window, cx);
-    });
-    cx.run_until_parked();
+    edit(&mut cx, &view, 1);
     assert!(cx.find("chat-message-editing").is_some());
     assert!(cx.has_text("Save"));
     // Cancel sits on Save's row, and leaves the edit

@@ -138,24 +138,60 @@ fn configure(cx: &mut TestAppContext) {
     cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
 }
 
-/// Boots, seats a reader, lists rooms and opens `general` with two rows.
-fn opened() -> (TestAppContext, Entity<Chat>) {
-    let mut cx = TestAppContext::new();
-    configure(&mut cx);
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
-    let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    assert!(cx.has_text("Not connected"));
-    props.send(Session {
+/// The reader the host seats: key `0102`, account 7, on testnet.
+fn session() -> Session {
+    Session {
         signer: "0102".into(),
         account: Some(7),
         connected: true,
         chain_id: "testnet#0a1b2c3d".into(),
         ..Session::default()
-    });
-    visible.send(true);
+    }
+}
+
+/// The host seats [`session`] in the open view and shows its tab.
+fn seat(cx: &mut TestAppContext) {
+    cx.host().stream::<HostSession>().send(session());
+    cx.host().stream::<HostVisible>().send(true);
     cx.run_until_parked();
+}
+
+/// The view `cx` holds, saved and restored on a host configured afresh.
+fn restored(cx: &TestAppContext) -> (TestAppContext, Entity<Chat>) {
+    let bytes = cx.snapshot().unwrap();
+    let mut restored = TestAppContext::new();
+    configure(&mut restored);
+    let view = restored.restore::<Chat>(&bytes).unwrap();
+    restored.run_until_parked();
+    (restored, view)
+}
+
+/// The thread under message `root` opened beside the room.
+fn thread(cx: &mut TestAppContext, view: &Entity<Chat>, root: u64) {
+    cx.update(view, |chat, _, cx| {
+        cx.notify();
+        chat.open_thread(root, cx);
+    });
+    cx.run_until_parked();
+}
+
+/// Message `seq`'s edit field opened in the timeline.
+fn edit(cx: &mut TestAppContext, view: &Entity<Chat>, seq: u64) {
+    cx.update(view, |chat, window, cx| {
+        cx.notify();
+        chat.open_menu(Pane::Timeline, seq, 0, Mode::Editing, window, cx);
+    });
+    cx.run_until_parked();
+}
+
+/// Boots, seats a reader, lists rooms and opens `general` with two rows.
+fn opened() -> (TestAppContext, Entity<Chat>) {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx);
+    let view = cx.open::<Chat>();
+    cx.run_until_parked();
+    assert!(cx.has_text("Not connected"));
+    seat(&mut cx);
     assert!(cx.has_text("General"));
     assert!(cx.has_text("No channel open"));
     assert!(cx.has_text("Channels"));
@@ -208,24 +244,9 @@ fn posted(channel: &str) -> Vec<Vec<u8>> {
 /// for the items or the landings.
 #[test]
 fn a_block_whose_rereads_land_the_same_rows_draws_nothing() {
-    let mut cx = TestAppContext::new();
-    configure(&mut cx);
+    let (mut cx, _) = opened();
     let changes = cx.host().stream::<Changes<::chat::Chat>>();
     let identity = cx.host().stream::<Changes<Identity>>();
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
-    cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
-    cx.simulate_click("chat-sidebar-channel-general");
-    cx.run_until_parked();
     assert!(cx.has_text("hello"), "{:?}", cx.texts());
     let (asked, renders) = (
         cx.host().requests::<Ask<::chat::Chat>>().len(),
@@ -256,23 +277,8 @@ fn a_block_whose_rereads_land_the_same_rows_draws_nothing() {
 /// the roster, and a reopened link (`None`) re-reads all three.
 #[test]
 fn a_block_re_reads_only_the_tables_it_wrote_to() {
-    let mut cx = TestAppContext::new();
-    configure(&mut cx);
+    let (mut cx, _) = opened();
     let changes = cx.host().stream::<Changes<::chat::Chat>>();
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
-    cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
-    cx.simulate_click("chat-sidebar-channel-general");
-    cx.run_until_parked();
     let counts = |cx: &TestAppContext| {
         let asked = cx.host().requests::<Ask<::chat::Chat>>();
         let count = |pick: fn(&Query) -> bool| asked.iter().filter(|query| pick(query)).count();

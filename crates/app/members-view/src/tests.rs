@@ -4,7 +4,7 @@ use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::methods::{
     Block, BlockPage, ChainBlocks, Change, Description, ModuleDescribe, Session, Tx,
 };
-use ducktape_view_guest::testing::{StreamSender, TestAppContext};
+use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire::{ContainerNode, Node};
 use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
 use valset::Valset;
@@ -144,19 +144,18 @@ fn respond(cx: &mut TestAppContext) {
     });
 }
 
-fn ready() -> (TestAppContext, StreamSender<Changes<Identity>>) {
+/// The view open on [`respond`]'s host, seated as eddy (#7).
+fn ready() -> (TestAppContext, Entity<Members>) {
     let mut cx = TestAppContext::new();
-    let session = cx.host().stream::<HostSession>();
-    let feed = cx.host().stream::<Changes<Identity>>();
     respond(&mut cx);
-    cx.open::<Members>();
-    session.send(Session {
+    let view = cx.open::<Members>();
+    cx.host().stream::<HostSession>().send(Session {
         account: Some(7),
         chain_id: "testnet#0a1b2c3d".into(),
         ..Session::default()
     });
     cx.run_until_parked();
-    (cx, feed)
+    (cx, view)
 }
 
 /// The colour `text` is drawn in under `key`, inherited down the tree.
@@ -369,7 +368,8 @@ fn a_refusal_shows_its_sentence_and_retry_asks_again() {
 
 #[test]
 fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
-    let (mut cx, feed) = ready();
+    let (mut cx, _) = ready();
+    let feed = cx.host().stream::<Changes<Identity>>();
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
     cx.host()
@@ -417,7 +417,8 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
 /// the same rows land, and the view draws nothing for either.
 #[test]
 fn a_live_bump_that_lands_the_same_roster_draws_nothing() {
-    let (mut cx, feed) = ready();
+    let (mut cx, _) = ready();
+    let feed = cx.host().stream::<Changes<Identity>>();
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
     let (asked, renders) = (cx.host().requests::<Query<Identity>>().len(), cx.renders());
@@ -435,17 +436,8 @@ fn a_live_bump_that_lands_the_same_roster_draws_nothing() {
 /// in the list follows it with no identity bump.
 #[test]
 fn a_valset_block_reaches_the_standing_without_an_identity_bump() {
-    let mut cx = TestAppContext::new();
-    let session = cx.host().stream::<HostSession>();
+    let (mut cx, _) = ready();
     let standing = cx.host().stream::<Changes<Valset>>();
-    respond(&mut cx);
-    cx.open::<Members>();
-    session.send(Session {
-        account: Some(7),
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    cx.run_until_parked();
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
     assert!(cx.has_text("Validator"), "{:?}", cx.texts());
@@ -471,16 +463,7 @@ fn a_valset_block_reaches_the_standing_without_an_identity_bump() {
 /// The detail's activity read again lands what it shows: nothing draws.
 #[test]
 fn an_activity_read_anew_that_lands_the_same_draws_nothing() {
-    let mut cx = TestAppContext::new();
-    let session = cx.host().stream::<HostSession>();
-    respond(&mut cx);
-    let view = cx.open::<Members>();
-    session.send(Session {
-        account: Some(7),
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    cx.run_until_parked();
+    let (mut cx, view) = ready();
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
     assert!(cx.has_text("block 12"), "{:?}", cx.texts());

@@ -490,6 +490,30 @@ mod tests {
             .collect()
     }
 
+    /// The host's word on document `generation` at its count `revision`:
+    /// `edit` (the range it replaced and the length put there) made `text`,
+    /// the caret after it.
+    fn change(
+        generation: u64,
+        revision: u64,
+        edit: Option<(Range<usize>, u32)>,
+        text: &str,
+        tokens: Vec<wire::TextToken>,
+    ) -> wire::TextChange {
+        wire::TextChange {
+            generation,
+            revision,
+            edit: edit.map(|(range, len)| wire::Edit {
+                range: range.into(),
+                len,
+            }),
+            text: text.into(),
+            cursor: wire::TextRange::caret(text.len()),
+            preedit: None,
+            tokens,
+        }
+    }
+
     /// Bold is `**…**` and italic `*…*`: the chat message parser reads
     /// emphasis by the flanking rule, so an `_` inside a word is a letter.
     /// A selection is wrapped by two insertions, so the mention in it
@@ -521,21 +545,18 @@ mod tests {
             [(3..5, "@Ada", Some("<@7>"), 7), (5..5, " ", None, 6)]
         );
         // the host's answer: the span sits where the engine put it
-        draft.changed(&wire::TextChange {
-            generation: draft.field.generation(),
-            revision: 1,
-            edit: Some(wire::Edit {
-                range: wire::TextRange::from(3..5),
-                len: 5,
-            }),
-            text: "hi @Ada ".into(),
-            cursor: wire::TextRange::caret(8),
-            preedit: None,
-            tokens: vec![wire::TextToken {
-                range: wire::TextRange::from(3..7),
-                id: "<@7>".into(),
-            }],
-        });
+        let ada = wire::TextToken {
+            range: wire::TextRange::from(3..7),
+            id: "<@7>".into(),
+        };
+        let generation = draft.field.generation();
+        draft.changed(&change(
+            generation,
+            1,
+            Some((3..5, 5)),
+            "hi @Ada ",
+            vec![ada],
+        ));
         assert_eq!(draft.body(), "hi <@7> ");
         assert_eq!(draft.query(), None, "a mention is never a query");
     }
@@ -576,18 +597,13 @@ mod tests {
                       edit: (Range<usize>, u32),
                       text: &str,
                       tokens: Vec<wire::TextToken>| {
-            draft.changed(&wire::TextChange {
-                generation: draft.field.generation(),
+            draft.changed(&change(
+                draft.field.generation(),
                 revision,
-                edit: Some(wire::Edit {
-                    range: edit.0.into(),
-                    len: edit.1,
-                }),
-                text: text.into(),
-                cursor: wire::TextRange::caret(text.len()),
-                preedit: None,
+                Some(edit),
+                text,
                 tokens,
-            })
+            ))
         };
         let send = |draft: &mut Draft| {
             let (edits, outcome) = draft.act("send", "c/editor", &roster());
@@ -652,18 +668,13 @@ mod tests {
     fn type_ahead_that_repeats_the_sent_texts_start_stays_the_writers() {
         let mut draft = Draft::from_body("ok", &[]);
         let change = |draft: &mut Draft, revision, edit: (Range<usize>, u32), text: &str| {
-            draft.changed(&wire::TextChange {
-                generation: draft.field.generation(),
+            draft.changed(&change(
+                draft.field.generation(),
                 revision,
-                edit: Some(wire::Edit {
-                    range: edit.0.into(),
-                    len: edit.1,
-                }),
-                text: text.into(),
-                cursor: wire::TextRange::caret(text.len()),
-                preedit: None,
-                tokens: Default::default(),
-            })
+                Some(edit),
+                text,
+                Vec::new(),
+            ))
         };
         let send = |draft: &mut Draft| {
             let (_, outcome) = draft.act("send", "c/editor", &[]);
@@ -722,33 +733,19 @@ mod tests {
             panic!("one clear: {asks:?}")
         };
         assert_eq!((*generation, *revision, range.range()), (seeded, 4, 0..5));
-        let change = |generation, revision, edit: Option<(Range<usize>, u32)>, text: &str| {
-            wire::TextChange {
-                generation,
-                revision,
-                edit: edit.map(|(range, len)| wire::Edit {
-                    range: range.into(),
-                    len,
-                }),
-                text: text.into(),
-                cursor: wire::TextRange::caret(text.len()),
-                preedit: None,
-                tokens: Default::default(),
-            }
-        };
         // "a" typed into the empty field as Restore was clicked: a word on
         // the document the reset left
-        draft.changed(&change(left, 5, Some((0..0, 1)), "a"));
+        draft.changed(&change(left, 5, Some((0..0, 1)), "a", Vec::new()));
         assert_eq!(
             (draft.field.text().as_str(), host::revision(&draft.field)),
             ("hello", 4)
         );
         // the host adopts the seeded text: not an edit of anything
-        draft.changed(&change(seeded, 6, None, "hello"));
+        draft.changed(&change(seeded, 6, None, "hello", Vec::new()));
         assert_eq!(draft.cleared, [wire::TextRange::from(0..5)]);
         assert_eq!((draft.body().as_str(), draft.can_send()), ("", false));
         // the clear lands
-        draft.changed(&change(seeded, 7, Some((0..5, 0)), ""));
+        draft.changed(&change(seeded, 7, Some((0..5, 0)), "", Vec::new()));
         assert!(draft.cleared.is_empty());
         assert_eq!(
             (draft.body().as_str(), host::revision(&draft.field)),
@@ -767,18 +764,7 @@ mod tests {
         assert_eq!(draft.field.text(), "new typing");
         assert!(draft.failed_send.is_some());
         let generation = draft.field.generation();
-        draft.changed(&wire::TextChange {
-            generation: draft.field.generation(),
-            revision: 9,
-            edit: Some(wire::Edit {
-                range: wire::TextRange::from(0..10),
-                len: 0,
-            }),
-            text: String::new(),
-            cursor: wire::TextRange::caret(0),
-            preedit: None,
-            tokens: Default::default(),
-        });
+        draft.changed(&change(generation, 9, Some((0..10, 0)), "", Vec::new()));
         draft.act("restore", "c/editor", &[]);
         assert_eq!(draft.field.text(), "first\nsecond");
         assert!(
@@ -837,18 +823,8 @@ mod tests {
         let mut dismissed = caret("@A", 2);
         dismissed.act("menu-dismiss", "c/editor", &roster());
         assert_eq!(dismissed.query(), None);
-        dismissed.changed(&wire::TextChange {
-            generation: dismissed.field.generation(),
-            revision: 1,
-            edit: Some(wire::Edit {
-                range: wire::TextRange::caret(2),
-                len: 1,
-            }),
-            text: "@Al".into(),
-            cursor: wire::TextRange::caret(3),
-            preedit: None,
-            tokens: Default::default(),
-        });
+        let generation = dismissed.field.generation();
+        dismissed.changed(&change(generation, 1, Some((2..2, 1)), "@Al", Vec::new()));
         assert_eq!(
             dismissed.query(),
             Some((0..3, "Al".into())),

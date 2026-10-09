@@ -46,11 +46,7 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
     cx.run_until_parked();
     assert!(cx.host().requests::<Submit<::chat::Chat>>().iter().any(|op| matches!(op, Op::CreateChannel { name, post_policy: PostPolicy::MembersOnly, .. } if name == "random")));
     assert!(cx.has_text("Couldn’t create this channel: no"));
-    let bytes = cx.snapshot().unwrap();
-    let mut restored = TestAppContext::new();
-    configure(&mut restored);
-    let view = restored.restore::<Chat>(&bytes).unwrap();
-    restored.run_until_parked();
+    let (restored, view) = restored(&cx);
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
     assert!(restored.host().requests::<Ask<::chat::Chat>>().len() >= 2);
 }
@@ -216,11 +212,7 @@ fn the_first_key_in_a_room_is_kept() {
 #[test]
 fn the_first_key_in_a_thread_reply_is_kept() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        cx.notify();
-        chat.open_thread(1, cx);
-    });
-    cx.run_until_parked();
+    thread(&mut cx, &view, 1);
     let (shown, sent) = a_then_b(&mut cx, &view, "draft-general-1");
     assert_eq!((shown.as_str(), sent.as_str()), ("ab", "ab"));
 }
@@ -228,11 +220,7 @@ fn the_first_key_in_a_thread_reply_is_kept() {
 #[test]
 fn a_key_in_the_edit_field_is_kept() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, window, cx| {
-        cx.notify();
-        chat.open_menu(Pane::Timeline, 1, 0, Mode::Editing, window, cx);
-    });
-    cx.run_until_parked();
+    edit(&mut cx, &view, 1);
     let (shown, sent) = a_then_b(&mut cx, &view, "edit-general-1");
     assert_eq!((shown.as_str(), sent.as_str()), ("helloab", "helloab"));
 }
@@ -263,11 +251,7 @@ fn a_room_typed_in_again_and_after_a_restore_keeps_every_key() {
         (&shown, &sent),
         (&format!("{first}ab"), &format!("{first}ab"))
     );
-    let bytes = cx.snapshot().unwrap();
-    let mut restored = TestAppContext::new();
-    configure(&mut restored);
-    let view = restored.restore::<Chat>(&bytes).unwrap();
-    restored.run_until_parked();
+    let (mut restored, view) = restored(&cx);
     let (shown, sent) = a_then_b(&mut restored, &view, "draft-general");
     assert_eq!(
         (&shown, &sent),
@@ -279,11 +263,7 @@ fn a_room_typed_in_again_and_after_a_restore_keeps_every_key() {
 #[test]
 fn the_first_key_after_a_restore_of_a_room_never_typed_in_is_kept() {
     let (cx, _) = opened();
-    let bytes = cx.snapshot().unwrap();
-    let mut restored = TestAppContext::new();
-    configure(&mut restored);
-    let view = restored.restore::<Chat>(&bytes).unwrap();
-    restored.run_until_parked();
+    let (mut restored, view) = restored(&cx);
     let (shown, sent) = a_then_b(&mut restored, &view, "draft-general");
     assert_eq!((shown.as_str(), sent.as_str()), ("ab", "ab"));
 }
@@ -310,16 +290,8 @@ fn the_first_key_is_kept_however_the_room_came_on_screen() {
     let routes = cx
         .host()
         .stream::<ducktape_view_guest::methods::HostRoute>();
-    let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    cx.run_until_parked();
+    seat(&mut cx);
     let link = crate::links::channel_link("testnet#0a1b2c3d", "forge:web:3", None).unwrap();
     routes.send(ducklink::Link::parse(&link).unwrap().tail.join("/"));
     cx.run_until_parked();
@@ -353,16 +325,8 @@ fn the_first_key_is_kept_however_the_room_came_on_screen() {
 #[test]
 fn the_first_key_is_kept_in_a_thread_restored_open() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        cx.notify();
-        chat.open_thread(1, cx);
-    });
-    cx.run_until_parked();
-    let bytes = cx.snapshot().unwrap();
-    let mut restored = TestAppContext::new();
-    configure(&mut restored);
-    let view = restored.restore::<Chat>(&bytes).unwrap();
-    restored.run_until_parked();
+    thread(&mut cx, &view, 1);
+    let (mut restored, view) = restored(&cx);
     types(&mut restored, &view, "draft-general-1", "a");
     types(&mut restored, &view, "draft-general", "a");
 }
@@ -405,11 +369,7 @@ fn a_draft_left_blank_goes_and_one_with_text_stays() {
     types(&mut cx, &view, "draft-dm-7-8", "half a thought");
     choose(&mut cx, "general");
     assert_eq!(kept(&view), ["draft-dm-7-8", "draft-general"]);
-    cx.update(&view, |chat, _, cx| {
-        cx.notify();
-        chat.open_thread(1, cx);
-    });
-    cx.run_until_parked();
+    thread(&mut cx, &view, 1);
     assert!(kept(&view).contains(&"draft-general-1".to_owned()));
     cx.simulate_click("chat-thread-close");
     assert_eq!(kept(&view), ["draft-dm-7-8", "draft-general"]);
@@ -423,11 +383,7 @@ fn a_draft_left_blank_goes_and_one_with_text_stays() {
 #[test]
 fn an_edit_emptied_keeps_its_draft_while_it_is_open() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, window, cx| {
-        cx.notify();
-        chat.open_menu(Pane::Timeline, 1, 0, Mode::Editing, window, cx);
-    });
-    cx.run_until_parked();
+    edit(&mut cx, &view, 1);
     types(&mut cx, &view, "edit-general-1", "");
     cx.update(&view, |chat, _, cx| {
         cx.notify();
@@ -442,18 +398,11 @@ fn an_edit_emptied_keeps_its_draft_while_it_is_open() {
 #[test]
 fn an_edit_cancelled_leaves_no_draft_and_opens_from_the_message_again() {
     let (mut cx, view) = opened();
-    let edit = |cx: &mut TestAppContext| {
-        cx.update(&view, |chat, window, cx| {
-            cx.notify();
-            chat.open_menu(Pane::Timeline, 1, 0, Mode::Editing, window, cx);
-        });
-        cx.run_until_parked();
-    };
-    edit(&mut cx);
+    edit(&mut cx, &view, 1);
     types(&mut cx, &view, "edit-general-1", "hello there");
     cx.simulate_click("Cancel");
     view.read(|chat| assert!(!chat.drafts.contains_key("edit-general-1")));
-    edit(&mut cx);
+    edit(&mut cx, &view, 1);
     assert_eq!(held(&cx, "edit-general-1"), "hello", "seeded again");
     // one that holds a send stays: the send is not in the message
     cx.update(&view, |chat, _, cx| {

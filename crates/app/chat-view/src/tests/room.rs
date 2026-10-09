@@ -233,18 +233,8 @@ fn a_full_room_renders_inside_the_frame_budget() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
     assert!(
@@ -341,11 +331,7 @@ fn create_channel_leaves_the_room_where_it_was() {
 #[test]
 fn a_field_is_named_apart_from_its_hint() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        cx.notify();
-        chat.open_thread(1, cx);
-    });
-    cx.run_until_parked();
+    thread(&mut cx, &view, 1);
     for (key, name, hint) in [
         ("draft-general/editor", "New message", "Message #General"),
         ("draft-general-1/editor", "Reply", "Reply in thread"),
@@ -397,11 +383,7 @@ fn a_text_field_is_named_apart_from_its_hint() {
 #[test]
 fn an_empty_thread_says_so_and_its_field_takes_focus() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        cx.notify();
-        chat.open_thread(1, cx);
-    });
-    cx.run_until_parked();
+    thread(&mut cx, &view, 1);
     assert!(cx.has_text("No replies yet"));
     let field = wire::ElementIdWire::Name("draft-general-1/editor".into());
     assert!(
@@ -421,16 +403,8 @@ fn a_link_to_a_forge_room_lands_in_it() {
     let routes = cx
         .host()
         .stream::<ducktape_view_guest::methods::HostRoute>();
-    let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    cx.run_until_parked();
+    seat(&mut cx);
     let link = crate::links::channel_link("testnet#0a1b2c3d", "forge:web:3", None).unwrap();
     assert!(link.ends_with("/chat/forge%3Aweb%3A3"), "{link}");
     // what the app does with a chain link: the tail, decoded, joined
@@ -566,18 +540,8 @@ fn a_room_lists_every_member_past_the_first_page() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
     cx.simulate_click("chat-room-details");
