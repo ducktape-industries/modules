@@ -252,14 +252,17 @@ fn an_arrow_and_enter_on_the_accounts_opens_the_second_account() {
 /// in under it, whatever the text inside.
 #[test]
 fn the_overview_links_are_at_least_24_px_each_way() {
-    use ducktape_view_guest::px;
+    // a style's length in pixels, as gpui prints it ("24px")
+    fn pixels(length: Option<impl std::fmt::Display>) -> Option<f32> {
+        length?.to_string().strip_suffix("px")?.parse().ok()
+    }
     let (cx, _) = ready();
     for key in ["explorer-all-blocks", "explorer-all-txs"] {
-        let link = cx.style(key);
-        assert_eq!(
-            (link.min_size.width, link.min_size.height),
-            (Some(px(24.).into()), Some(px(24.).into())),
-            "{key}"
+        let floor = &cx.style(key).min_size;
+        let (width, height) = (pixels(floor.width), pixels(floor.height));
+        assert!(
+            width >= Some(24.) && height >= Some(24.),
+            "{key}: {width:?} × {height:?}"
         );
     }
 }

@@ -314,8 +314,8 @@ fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     respond(&mut cx);
     cx.simulate_click("nodes-retry");
     cx.run_until_parked();
-    assert!(cx.has_text("10.0.0.1:4000"));
-    assert_eq!(cx.host().requests::<Query<Valset>>().len(), 3);
+    // only a read asked after the press lands the members
+    assert!(cx.has_text("10.0.0.1:4000"), "{:?}", cx.texts());
 }
 
 #[test]

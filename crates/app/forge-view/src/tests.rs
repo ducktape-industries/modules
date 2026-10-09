@@ -1460,24 +1460,25 @@ fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {
 /// AX-017 reads cannot come in under it, whatever the text inside.
 #[test]
 fn the_small_press_targets_are_at_least_24_px_each_way() {
-    use ducktape_view_guest::px;
-    let floor = |cx: &TestAppContext, key: &str| {
-        let style = cx.style(key);
-        (style.min_size.width, style.min_size.height)
+    let at_least_24 = |cx: &TestAppContext, key: &str| {
+        let floor = &cx.style(key).min_size;
+        let (width, height) = (pixels(floor.width), pixels(floor.height));
+        assert!(
+            width >= Some(24.) && height >= Some(24.),
+            "{key}: {width:?} × {height:?}"
+        );
     };
     let (cx, _) = booted("default");
     for key in ["forge-repo-project-copy", "forge-repo-project-activity"] {
-        assert_eq!(
-            floor(&cx, key),
-            (Some(px(24.).into()), Some(px(24.).into())),
-            "{key}"
-        );
+        at_least_24(&cx, key);
     }
     let (cx, _) = opened("default");
-    assert_eq!(
-        floor(&cx, "forge-repo-activity"),
-        (Some(px(24.).into()), Some(px(24.).into()))
-    );
+    at_least_24(&cx, "forge-repo-activity");
+}
+
+/// A style's length in pixels, as gpui prints it ("24px"); `None` unset.
+pub(crate) fn pixels(length: Option<impl std::fmt::Display>) -> Option<f32> {
+    length?.to_string().strip_suffix("px")?.parse().ok()
 }
 
 /// The key's roled container: its role, focus and press.

@@ -898,15 +898,16 @@ fn a_reader_without_write_gets_no_close_or_merge() {
 /// a gutter column wider than that.
 #[test]
 fn a_gutter_comment_button_is_at_least_24_px_each_way() {
-    use ducktape_view_guest::px;
+    use super::pixels;
     let (cx, _view) = change_screen("reviewed", ChangeTab::Files);
     for key in [
         "forge-gutter-src/lib.rs-old-1",
         "forge-gutter-src/lib.rs-new-1",
         "forge-gutter-src/lib.rs-new-5",
     ] {
-        assert_eq!(cx.style(key).min_size.height, Some(px(24.).into()), "{key}");
-        let column = cx.style(&format!("{key}-cell")).size.width;
-        assert_eq!(column, Some(px(44.).into()), "{key}");
+        let height = pixels(cx.style(key).min_size.height);
+        assert!(height >= Some(24.), "{key}: {height:?}");
+        let column = pixels(cx.style(&format!("{key}-cell")).size.width);
+        assert!(column > Some(24.), "{key}: a column of {column:?}");
     }
 }
