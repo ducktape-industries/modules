@@ -503,8 +503,9 @@ methods! {
     /// `None` where the code carries none or it cannot read these bytes.
     ModuleDescribe, "module.describe", (String, Vec<u8>), Option<Description>;
     /// `host.title`: the name of the view's window, shown by the host
-    /// beside the program's name; empty clears it. At most 80 chars; the
-    /// host trims longer names and ignores control characters.
+    /// beside the program's name, on one line; empty clears it. At most 80
+    /// chars; the host trims longer names and drops control characters,
+    /// bidi controls and line or paragraph separators.
     HostTitle, "host.title", String, ();
 }
 
