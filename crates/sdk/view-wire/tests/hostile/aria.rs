@@ -234,29 +234,31 @@ fn a_focusable_node_is_not_its_own_active_descendant() {
     }
 }
 
+/// A list box option that claims to be the active descendant.
+fn claiming_option(key: &str) -> Node {
+    Node::Container(ContainerNode {
+        id: Some(ElementIdWire::Name(key.into())),
+        style: PLAIN,
+        interactivity: Some(Box::new(Interactivity {
+            role: Some(gpui::Role::ListBoxOption),
+            aria: Aria {
+                active_descendant: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        children: Vec::new(),
+    })
+}
+
 #[test]
 fn only_the_first_active_descendant_in_a_frame_is_kept() {
-    let option = |key: &str| {
-        Node::Container(ContainerNode {
-            id: Some(ElementIdWire::Name(key.into())),
-            style: PLAIN,
-            interactivity: Some(Box::new(Interactivity {
-                role: Some(gpui::Role::ListBoxOption),
-                aria: Aria {
-                    active_descendant: true,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })),
-            children: Vec::new(),
-        })
-    };
     let mut frame = Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
             style: PLAIN,
             interactivity: Default::default(),
-            children: vec![option("first"), option("second")],
+            children: vec![claiming_option("first"), claiming_option("second")],
         })),
         ..Frame::default()
     };
@@ -278,21 +280,6 @@ fn only_the_first_active_descendant_in_a_frame_is_kept() {
 /// both keep their claim, as gpui counts claims per focused node.
 #[test]
 fn a_claim_under_each_focusable_ancestor_is_kept() {
-    let option = |key: &str| {
-        Node::Container(ContainerNode {
-            id: Some(ElementIdWire::Name(key.into())),
-            style: PLAIN,
-            interactivity: Some(Box::new(Interactivity {
-                role: Some(gpui::Role::ListBoxOption),
-                aria: Aria {
-                    active_descendant: true,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })),
-            children: Vec::new(),
-        })
-    };
     let list = |key: &str, rows: Vec<Node>| {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
@@ -311,8 +298,11 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
             style: PLAIN,
             interactivity: Default::default(),
             children: vec![
-                list("rooms", vec![option("general"), option("random")]),
-                list("members", vec![option("minseo")]),
+                list(
+                    "rooms",
+                    vec![claiming_option("general"), claiming_option("random")],
+                ),
+                list("members", vec![claiming_option("minseo")]),
             ],
         })),
         ..Frame::default()
@@ -346,21 +336,6 @@ fn a_claim_under_each_focusable_ancestor_is_kept() {
 /// over two claims keep one claim, not two.
 #[test]
 fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
-    let option = |key: &str| {
-        Node::Container(ContainerNode {
-            id: Some(ElementIdWire::Name(key.into())),
-            style: PLAIN,
-            interactivity: Some(Box::new(Interactivity {
-                role: Some(gpui::Role::ListBoxOption),
-                aria: Aria {
-                    active_descendant: true,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })),
-            children: Vec::new(),
-        })
-    };
     let box_ = |key: &str, row: Node| {
         Node::Container(ContainerNode {
             id: Some(ElementIdWire::Name(key.into())),
@@ -382,8 +357,8 @@ fn a_roleless_focusable_box_does_not_restart_the_claim_budget() {
                 ..Default::default()
             })),
             children: vec![
-                box_("channels", option("general")),
-                box_("people", option("minseo")),
+                box_("channels", claiming_option("general")),
+                box_("people", claiming_option("minseo")),
             ],
         })),
         ..Frame::default()

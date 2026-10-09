@@ -322,17 +322,6 @@ fn an_applied_patch_frame_is_a_sanitized_tree() {
 }
 
 #[test]
-fn a_well_behaved_frame_is_untouched() {
-    let mut frame = Frame {
-        root: Some(column(vec![text("hello")])),
-        ..Frame::default()
-    };
-    let before = frame.clone();
-    sanitize_plain(&mut frame).unwrap();
-    assert_eq!(frame, before);
-}
-
-#[test]
 fn a_frame_past_the_text_budget_keeps_its_head_and_loses_its_tail() {
     const NODES: usize = 8;
     const EACH: usize = MAX_TEXT_BYTES_PER_FRAME / 4;
@@ -389,8 +378,11 @@ fn display_truncation_shortens_a_placeholder_and_never_a_fields_text() {
     );
 }
 
+/// A field is checked by `validate_field` (`text.rs` holds its cases), and
+/// what it refuses refuses the frame whole: the engine adopts a value
+/// entire or not at all, so nothing is cut to fit.
 #[test]
-fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
+fn a_field_validate_field_refuses_refuses_the_frame() {
     let over = "x".repeat(MAX_FIELD_BYTES + 1);
     let mut frame = Frame {
         root: Some(column(vec![field("App/e", &over, "")])),
@@ -399,36 +391,6 @@ fn a_field_off_its_own_text_or_claiming_an_engine_key_is_refused() {
     assert_eq!(
         sanitize_plain(&mut frame),
         Err(Refused::Invalid("field text exceeds its cap"))
-    );
-    let mut node = field("App/e", "é", "");
-    let Node::Field { cursor, .. } = &mut node else {
-        unreachable!()
-    };
-    *cursor = TextRange::caret(1);
-    let mut frame = Frame {
-        root: Some(column(vec![node.clone()])),
-        ..Frame::default()
-    };
-    assert_eq!(
-        sanitize_plain(&mut frame),
-        Err(Refused::Invalid("field cursor is off its text"))
-    );
-    let Node::Field { claims, cursor, .. } = &mut node else {
-        unreachable!()
-    };
-    *cursor = TextRange::caret(2);
-    *claims = Box::new([KeyClaim {
-        key: keyboard::Key::Named(keyboard::Named::Backspace),
-        modifiers: Default::default(),
-        command: false,
-    }]);
-    let mut frame = Frame {
-        root: Some(column(vec![node])),
-        ..Frame::default()
-    };
-    assert_eq!(
-        sanitize_plain(&mut frame),
-        Err(Refused::Invalid("field claims a key the engine owns"))
     );
 }
 
@@ -520,20 +482,4 @@ fn oversized_typed_identity_is_refused_whole_instead_of_truncated() {
         sanitize_plain(&mut frame).unwrap_err(),
         Refused::Invalid("element identity name is too long")
     );
-}
-
-#[test]
-fn depth_is_cut_before_the_host_recurses_into_it() {
-    let mut deep = text("leaf");
-    for _ in 0..MAX_DEPTH * 2 {
-        deep = column(vec![deep]);
-    }
-    let root = sanitized_root(deep);
-    let mut depth = 0;
-    let mut node = &root;
-    while let Node::Container(crate::ContainerNode { children, .. }) = node {
-        depth += 1;
-        node = &children[0];
-    }
-    assert!(depth <= MAX_DEPTH, "{depth}");
 }

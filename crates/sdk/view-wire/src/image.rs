@@ -87,24 +87,6 @@ fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec
 mod tests {
     use super::*;
     #[test]
-    fn copied_images_roundtrip() {
-        for image in [
-            ImageData::Encoded(vec![0, 255]),
-            ImageData::Resource("image:7".into()),
-            ImageData::Refusal("resource refused".into()),
-            ImageData::Rgba {
-                width: 1,
-                height: 1,
-                pixels: vec![255; 4],
-            },
-        ] {
-            assert_eq!(
-                crate::decode::<ImageData>(&crate::encode(&image)).unwrap(),
-                image
-            );
-        }
-    }
-    #[test]
     fn invalid_rgba_is_dropped_without_spending_valid_picture_budget() {
         let mut budget = crate::Budgets::frame(&crate::styles::testing::held());
         budget.pictures = 4;

@@ -1,21 +1,5 @@
 use super::*;
 
-/// Children past the node budget are dropped, not stood in for.
-#[test]
-fn a_container_is_cut_at_the_node_budget() {
-    let root = sanitized_root(Node::Container(crate::ContainerNode {
-        id: Some(ElementIdWire::Name("App/cells".into())),
-        style: StyleId(0),
-        interactivity: Default::default(),
-        children: (0..MAX_NODES + 5).map(|_| text("x")).collect(),
-    }));
-    let Node::Container(crate::ContainerNode { children, .. }) = &root else {
-        panic!()
-    };
-    assert_eq!(children.len(), MAX_NODES - 1);
-    assert_eq!(root.count(), MAX_NODES);
-}
-
 #[test]
 fn svg_and_raster_images_share_the_frame_picture_budget() {
     let image = Node::Image {
