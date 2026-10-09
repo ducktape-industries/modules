@@ -710,6 +710,11 @@
     "reply": null
   },
   {
+    "kind": "host.title",
+    "request": "general",
+    "reply": null
+  },
+  {
     "kind": "link.open",
     "request": "duck://chat/room",
     "reply": null

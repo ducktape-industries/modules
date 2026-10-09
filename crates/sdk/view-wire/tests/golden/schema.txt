@@ -13,6 +13,7 @@ host.id None String -> String
 host.log None String -> ()
 host.route None () -> String
 host.session None () -> Session
+host.title None String -> ()
 host.visible None () -> bool
 host.widget None TypeName("WidgetCommand") -> Unit tree
 invite.create None CreateInvite -> Invite

@@ -338,6 +338,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         ),
         exchange::<HostVisible>((), true),
         exchange::<HostBadge>(3, ()),
+        exchange::<HostTitle>("general".into(), ()),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),
         exchange::<HostId>("msg".into(), "msg-1".into()),
