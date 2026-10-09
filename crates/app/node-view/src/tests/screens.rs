@@ -54,25 +54,16 @@ fn sheet_blocks(page: BlockPage) -> Vec<Block> {
 }
 
 fn sheet_valset(cx: &TestAppContext) {
-    cx.host().handle::<Query<Valset>>(|query| {
-        Ok(match query {
-            valset::Query::Validators => {
-                valset::Reply::Validators((0..VALIDATORS).map(key).collect())
-            }
-            valset::Query::Memberships { .. } => valset::Reply::Memberships(page(
-                (0..MEMBERS)
-                    .map(|index| {
-                        let (port, role) = match index < VALIDATORS {
-                            true => (44571 + index, valset::Role::Validator),
-                            false => (44581 + index - VALIDATORS, valset::Role::Resident),
-                        };
-                        membership(&key(index), &format!("127.0.0.1:{port}"), role)
-                    })
-                    .collect(),
-            )),
-            other => panic!("unexpected query: {other:?}"),
+    let members = (0..MEMBERS)
+        .map(|index| {
+            let (port, role) = match index < VALIDATORS {
+                true => (44571 + index, valset::Role::Validator),
+                false => (44581 + index - VALIDATORS, valset::Role::Resident),
+            };
+            membership(&key(index), &format!("127.0.0.1:{port}"), role)
         })
-    });
+        .collect();
+    serve_set(cx, (0..VALIDATORS).map(key).collect(), members);
 }
 
 /// The validators' newest votes in the design's network; the fifth's
@@ -201,12 +192,7 @@ fn screen(state: &str) -> TestAppContext {
                 "members-refused" => cx
                     .host()
                     .refuse::<Query<Valset>>("unavailable", "valset is not running here"),
-                _ => cx.host().handle::<Query<Valset>>(|query| {
-                    Ok(match query {
-                        valset::Query::Validators => valset::Reply::Validators(vec![]),
-                        _ => valset::Reply::Memberships(page(vec![])),
-                    })
-                }),
+                _ => serve_set(&cx, Vec::new(), Vec::new()),
             }
             cx.open::<Nodes>();
             cx.run_until_parked();

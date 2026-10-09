@@ -140,8 +140,6 @@ fn a_full_window_renders_inside_the_frame_budget() {
         cx.run_until_parked();
         sizes.push((tab, cx.frame_bytes()));
     }
-    let mut big = [0xfe; 32];
-    big[..8].copy_from_slice(&(WINDOW as u64).to_le_bytes());
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
     cx.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
@@ -182,8 +180,6 @@ fn a_snapshot_keeps_ops_not_payloads() {
     heavy(&mut restored);
     restored.restore::<Explorer>(&bytes).unwrap();
     restored.run_until_parked();
-    let mut big = [0xfe; 32];
-    big[..8].copy_from_slice(&(WINDOW as u64).to_le_bytes());
     restored.simulate_click("explorer-tab-transactions");
     restored.run_until_parked();
     restored.simulate_click(&format!("explorer-tx-{WINDOW}-0"));

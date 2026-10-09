@@ -225,23 +225,39 @@ pub(crate) fn entry(program: &str, code: u8) -> registry::Entry {
     }
 }
 
+/// The registry: chat and identity running, a view-only entry, and forge's
+/// removal scheduled at 120.
 pub(crate) fn respond(cx: &mut TestAppContext) {
-    cx.host().handle::<Query<Modules>>(|query| {
+    registry_with(
+        cx,
+        vec![entry("chat", 0xab), entry("identity", 0xcd)],
+        vec![registry::View {
+            name: "explorer".into(),
+            view: BlobId::Sha256([0xef; 32]),
+        }],
+        vec![registry::Scheduled {
+            height: 120,
+            change: registry::Change::Remove("forge".into()),
+        }],
+    );
+}
+
+/// The registry answering what it runs, the views it lists and what is
+/// scheduled.
+pub(crate) fn registry_with(
+    cx: &TestAppContext,
+    programs: Vec<registry::Entry>,
+    views: Vec<registry::View>,
+    scheduled: Vec<registry::Scheduled>,
+) {
+    cx.host().handle::<Query<Modules>>(move |query| {
         Ok(match query {
-            registry::Query::At(0) => {
-                registry::Reply::Programs(vec![entry("chat", 0xab), entry("identity", 0xcd)])
-            }
-            registry::Query::Views(0) => registry::Reply::Views(vec![registry::View {
-                name: "explorer".into(),
-                view: BlobId::Sha256([0xef; 32]),
-            }]),
+            registry::Query::At(0) => registry::Reply::Programs(programs.clone()),
+            registry::Query::Views(0) => registry::Reply::Views(views.clone()),
             registry::Query::Scheduled { .. } => {
-                registry::Reply::Scheduled(module_registry::PageResponse {
+                registry::Reply::Scheduled(registry::PageResponse {
                     height: 1,
-                    items: vec![registry::Scheduled {
-                        height: 120,
-                        change: registry::Change::Remove("forge".into()),
-                    }],
+                    items: scheduled.clone(),
                     next: None,
                 })
             }
