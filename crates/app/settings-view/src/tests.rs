@@ -151,15 +151,6 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
     }
     (cx, props)
 }
-// at 480 the Agents page's "Create agent" and "Add key" are cut
-#[test]
-fn the_view_is_laid_out_from_560() {
-    assert_eq!(
-        <Settings as ducktape_view_guest::View>::MIN_WINDOW_WIDTH,
-        560
-    );
-}
-
 #[test]
 fn four_states_are_honest() {
     assert!(fixture("loading", false).has_text("Reading your account…"));

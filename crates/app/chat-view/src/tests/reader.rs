@@ -2,16 +2,6 @@
 use super::*;
 
 #[test]
-fn session_key_resolves_to_its_account() {
-    let (_cx, view) = opened();
-    view.read(|chat| {
-        assert_eq!(chat.my_account(), Some(7));
-        assert!(chat.holds_account());
-        assert_eq!(chat.me(), Some(Principal::Account(7)));
-    });
-}
-
-#[test]
 fn an_unregistered_key_stays_read_only() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);

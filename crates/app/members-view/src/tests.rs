@@ -9,12 +9,6 @@ use ducktape_view_guest::wire::{ContainerNode, Node};
 use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
 use valset::Valset;
 
-// the list and the detail fit at 320, the desk's smallest window
-#[test]
-fn the_view_is_laid_out_from_320() {
-    assert_eq!(<Members as View>::MIN_WINDOW_WIDTH, 320);
-}
-
 #[test]
 fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();
@@ -498,13 +492,6 @@ fn an_activity_read_anew_that_lands_the_same_draws_nothing() {
         "read anew"
     );
     assert_eq!(cx.renders(), renders, "the same activity drew nothing");
-}
-
-#[test]
-fn the_list_and_the_detail_are_accessible() {
-    let (mut cx, _) = ready();
-    cx.simulate_click("members-row-9");
-    cx.run_until_parked();
 }
 
 /// Nothing selected, the list still has an active row — its first shown —

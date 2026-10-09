@@ -42,12 +42,6 @@ fn channel(id: &str, name: &str, head_seq: u64) -> ChannelInfo {
     }
 }
 
-// at 480 an agent message's head line is cut at the room's edge
-#[test]
-fn the_view_is_laid_out_from_560() {
-    assert_eq!(<Chat as View>::MIN_WINDOW_WIDTH, 560);
-}
-
 #[test]
 fn the_root_tracks_the_shared_theme_and_is_accessible() {
     let (mut cx, _) = opened();

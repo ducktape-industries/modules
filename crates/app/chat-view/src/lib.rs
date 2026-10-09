@@ -51,6 +51,7 @@ impl View for Chat {
         chat::MODULE,
         <program::role::Identity as ducktape_view_guest::methods::Program>::NAME,
     ];
+    // at 480 an agent message's head line is cut at the room's edge
     const MIN_WINDOW_WIDTH: u32 = 560;
 
     /// Follows the host and reads what the screen shows: on a first mount,
