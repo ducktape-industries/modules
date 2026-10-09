@@ -654,7 +654,7 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
             },
         ]
     );
-    assert!(cx.has_text("Submitting this review") || cx.has_text("Waiting for the next block"));
+    assert!(cx.has_text("Submitting this review"), "{:?}", cx.texts());
     view.read(|forge| {
         assert!(
             forge.review().is_none(),

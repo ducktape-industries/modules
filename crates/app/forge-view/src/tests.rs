@@ -719,10 +719,18 @@ fn a_refused_read_keeps_its_reason_and_offers_one_retry() {
     cx.run_until_parked();
     let sentence = "object ffffffffffffffffffffffffffffffffffffffff is not held by this node";
     assert!(cx.has_text(sentence), "{:?}", cx.texts());
-    assert!(cx.find("forge-repos-list-retry").is_some());
+    let lists = |cx: &TestAppContext| {
+        let asked = cx.host().requests::<Ask>();
+        asked
+            .iter()
+            .filter(|query| matches!(query, Query::Repos { .. }))
+            .count()
+    };
+    let asked = lists(&cx);
     cx.simulate_click("forge-repos-list-retry");
     cx.run_until_parked();
-    assert!(cx.has_text(sentence));
+    assert_eq!(lists(&cx), asked + 1, "Retry asks the list again");
+    assert!(cx.has_text(sentence), "and the reason stays while it holds");
 }
 
 #[test]
@@ -774,7 +782,7 @@ fn creating_a_repository_validates_its_name_then_shows_the_submission() {
 }
 
 #[test]
-fn a_repository_opens_on_code_with_its_header_ref_picker_and_tabs() {
+fn a_repository_opens_with_its_header_ref_picker_and_tabs() {
     let (cx, view) = opened("default");
     view.read(|forge| assert_eq!(forge.nav().repo.as_deref(), Some("project")));
     assert!(
