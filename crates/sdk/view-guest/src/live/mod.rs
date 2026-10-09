@@ -512,7 +512,8 @@ impl Network {
             tip: tip.id,
             root: [0; 32],
             epoch: 0,
-            identity: Vec::new(),
+            // this node is the one validator, as a real node names its own key
+            identity: state.validator.clone(),
             contract: wire::NODE_CONTRACT,
         }
     }
