@@ -59,15 +59,13 @@ impl Chat {
         room.members = Loadable::Idle;
         let members_id = room.id.clone();
         if land > 0 {
-            let host = cx.host();
-            cx.load(
-                self,
-                async move {
-                    let rows = queries::around(host, id, land, viewer).await?;
-                    Ok(rows)
-                },
-                |chat| &mut room_of(chat).messages,
-            );
+            let rows = queries::around(cx.host(), id, land, viewer);
+            room.messages = Loadable::Loading(cx.land(rows, |chat, result, cx| {
+                cx.notify();
+                let room = room_of(chat);
+                room.messages = result.into();
+                room.settle();
+            }));
         } else {
             let rows = queries::roots(cx.host(), id, viewer, None, WINDOW);
             room.messages = Loadable::Loading(cx.land(rows, |chat, result, cx| {
@@ -266,6 +264,7 @@ impl Chat {
                         all.append(rows);
                         *rows = all;
                     }
+                    room.settle();
                 }
                 Err(refusal) => {
                     chat.notice = format!("Couldn’t read this room: {}", refusal.message)
@@ -374,6 +373,7 @@ impl Chat {
                     if let Some(rows) = thread.replies.ready_mut() {
                         rows.extend(more);
                     }
+                    room_of(chat).settle();
                 }
                 Err(refusal) => {
                     chat.notice = format!("Couldn’t read this thread: {}", refusal.message)
@@ -511,7 +511,8 @@ impl Chat {
 }
 
 impl Room {
-    /// Fresh rows landed: a pending send the index now serves leaves.
+    /// Fresh rows landed or a send was held: a pending send the index
+    /// serves leaves, so the room never lists a message twice.
     pub(crate) fn settle(&mut self) {
         let shown = |id: &str, rows: Option<&Vec<MsgRow>>| {
             rows.is_some_and(|rows| rows.iter().any(|row| row.message_id == id))

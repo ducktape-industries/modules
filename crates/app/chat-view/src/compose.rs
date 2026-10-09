@@ -108,10 +108,13 @@ impl Chat {
                 match result {
                     Ok(pending) => {
                         draft.note.clear();
+                        // the room's re-read may have served it already: the
+                        // receipt and the changes come over separate links
                         if let (Some(row), Some(room)) = (pending, chat.room.as_mut())
                             && room.id == target.channel()
                         {
                             room.pending.push(row);
+                            room.settle();
                         }
                         if let Target::Edit { seq, .. } = target
                             && chat
