@@ -50,69 +50,23 @@ fn removing_a_reaction_uncounts_it_and_the_last_one_leaves() {
     assert!(chat.message(1).reactions.is_empty());
 }
 
+/// Adding and removing are one op with one set of guards.
 #[test]
 fn a_reaction_needs_an_emoji_a_standing_message_and_a_seat() {
-    let mut chat = Chat::with_channel(PostPolicy::MembersOnly);
-    chat.post(&ADA, "m1", "members only", None);
-    let long = "x".repeat(MAX_EMOJI_BYTES + 1);
-    for bad in ["", "a/b", long.as_str()] {
-        assert_eq!(chat.refused(&ADA, react(1, bad, true)), code::INVALID_INPUT);
-    }
-    assert_eq!(chat.refused(&BO, react(1, "👍", true)), code::UNAUTHORIZED);
-    assert_eq!(chat.refused(&ADA, react(9, "👍", true)), code::NOT_FOUND);
-    chat.ok(&ADA, delete(1));
-    assert_eq!(chat.refused(&ADA, react(1, "👍", true)), code::WRONG_STATE);
-}
-
-#[test]
-fn removing_a_reaction_needs_what_adding_one_does() {
-    let mut chat = Chat::with_channel(PostPolicy::MembersOnly);
-    chat.post(&ADA, "m1", "members only", None);
-    chat.ok(&ADA, react(1, "👍", true));
-    let long = "x".repeat(MAX_EMOJI_BYTES + 1);
-    for bad in ["", "a/b", long.as_str()] {
-        assert_eq!(
-            chat.refused(&ADA, react(1, bad, false)),
-            code::INVALID_INPUT
-        );
-    }
-    assert_eq!(chat.refused(&BO, react(1, "👍", false)), code::UNAUTHORIZED);
-    assert_eq!(chat.refused(&ADA, react(9, "👍", false)), code::NOT_FOUND);
-    chat.ok(&ADA, archive(true));
-    assert_eq!(chat.refused(&ADA, react(1, "👍", false)), code::WRONG_STATE);
-    chat.ok(&ADA, archive(false));
-    chat.ok(&ADA, delete(1));
-    assert_eq!(chat.refused(&ADA, react(1, "👍", false)), code::WRONG_STATE);
-}
-
-/// A deleted message leaves the store as if no one had reacted to it: the
-/// reaction markers go with it (they once stayed forever).
-#[test]
-fn deleting_a_message_drops_its_reactions() {
-    let reacted_then_deleted = |react_first: bool| {
-        let mut chat = Chat::with_channel(PostPolicy::Open);
-        chat.post(&ADA, "m1", "hi", None);
-        chat.post(&ADA, "m2", "stays", None);
-        chat.ok(&BO, react(2, "👍", true));
-        if react_first {
-            for (who, emoji) in [(&ADA, "👍"), (&BO, "🎉"), (&CY, "👍")] {
-                chat.ok(who, react(1, emoji, true));
-            }
+    for on in [true, false] {
+        let mut chat = Chat::with_channel(PostPolicy::MembersOnly);
+        chat.post(&ADA, "m1", "members only", None);
+        chat.ok(&ADA, react(1, "👍", true));
+        let long = "x".repeat(MAX_EMOJI_BYTES + 1);
+        for bad in ["", "a/b", long.as_str()] {
+            assert_eq!(chat.refused(&ADA, react(1, bad, on)), code::INVALID_INPUT);
         }
+        assert_eq!(chat.refused(&BO, react(1, "👍", on)), code::UNAUTHORIZED);
+        assert_eq!(chat.refused(&ADA, react(9, "👍", on)), code::NOT_FOUND);
+        chat.ok(&ADA, archive(true));
+        assert_eq!(chat.refused(&ADA, react(1, "👍", on)), code::WRONG_STATE);
+        chat.ok(&ADA, archive(false));
         chat.ok(&ADA, delete(1));
-        chat.store.borrow().state.clone()
-    };
-    let reacted = reacted_then_deleted(true);
-    assert_eq!(reacted, reacted_then_deleted(false));
-    assert_eq!(
-        markers(&reacted, 2),
-        1,
-        "the other message keeps its reaction"
-    );
-}
-
-/// How many reaction markers message `seq` of `#general` holds.
-fn markers(state: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>, seq: u64) -> usize {
-    let prefix = crate::state::REACTIONS.key(&("general".to_string(), seq));
-    state.keys().filter(|key| key.starts_with(&prefix)).count()
+        assert_eq!(chat.refused(&ADA, react(1, "👍", on)), code::WRONG_STATE);
+    }
 }

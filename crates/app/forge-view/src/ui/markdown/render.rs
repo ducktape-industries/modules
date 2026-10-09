@@ -219,26 +219,26 @@ mod view_tests {
     use ducktape_view_guest::testing::TestAppContext;
     use ducktape_view_guest::{Context, IntoElement, Render, View, Window};
 
+    /// A document that keeps each destination its `OnLink` is handed.
     #[derive(Default, serde::Serialize, serde::Deserialize)]
-    struct Doc;
+    struct Doc {
+        pressed: Vec<String>,
+    }
 
     impl View for Doc {
         const NAME: &'static str = "Doc";
-        // the forge view's own manifest, so the doc reaches only what it does
-        const CAPABILITIES: &'static [ducktape_view_guest::methods::Capability] =
-            <crate::Forge as View>::CAPABILITIES;
-        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
-            Doc
-        }
     }
 
     impl Render for Doc {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let theme = *cx.global::<ducktape_view_guest::Theme>();
-            let on_link: super::super::OnLink = std::rc::Rc::new(|dest, _, cx| {
-                if let Some(super::super::Target::Web(url)) = super::super::target(b"", dest) {
-                    cx.host().open_link(&url);
-                }
+            let doc = cx.weak_entity();
+            let on_link: super::super::OnLink = std::rc::Rc::new(move |dest, _, cx| {
+                doc.update(cx, |doc, cx| {
+                    doc.pressed.push(dest.clone());
+                    cx.notify();
+                })
+                .unwrap();
             });
             super::super::render(
                 "doc",
@@ -249,20 +249,22 @@ mod view_tests {
         }
     }
 
+    /// Every link of a paragraph presses, a bare URL among them, and hands
+    /// the caller its destination as written: where it goes (the host, or a
+    /// file of the repository) is the caller's to decide, and
+    /// `a_relative_link_opens_its_file_in_the_code_tab` holds forge's.
     #[test]
-    fn a_pressed_web_link_goes_to_the_host() {
+    fn a_pressed_link_hands_its_destination_to_the_caller() {
         let mut cx = TestAppContext::new();
-        cx.open::<Doc>();
+        let doc = cx.open::<Doc>();
         cx.run_until_parked();
         assert!(cx.has_text("Title"));
-        // three links press; the relative one is the forge's to open, not the host's
         for index in 0..3 {
             cx.simulate_rich_click("doc-1", index);
         }
         assert_eq!(
-            cx.host()
-                .requests::<ducktape_view_guest::methods::LinkOpen>(),
-            vec!["duck://net-1/forge/rfcs", "https://x.example"]
+            doc.read(|doc| doc.pressed.clone()),
+            ["duck://net-1/forge/rfcs", "../a.md", "https://x.example"]
         );
     }
 }

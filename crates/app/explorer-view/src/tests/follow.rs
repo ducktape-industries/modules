@@ -48,24 +48,12 @@ fn a_registry_head_re_reads_the_programs() {
     cx.simulate_click("explorer-tab-programs");
     cx.run_until_parked();
     assert!(cx.has_text("2 programs"));
-    cx.host().handle::<Query<Modules>>(|query| {
-        Ok(match query {
-            registry::Query::At(0) => registry::Reply::Programs(vec![
-                entry("chat", 0xab),
-                entry("identity", 0xcd),
-                entry("chess", 0x11),
-            ]),
-            registry::Query::Views(0) => registry::Reply::Views(Vec::new()),
-            registry::Query::Scheduled { .. } => {
-                registry::Reply::Scheduled(registry::PageResponse {
-                    height: 13,
-                    items: Vec::new(),
-                    next: None,
-                })
-            }
-            other => panic!("unexpected query: {other:?}"),
-        })
-    });
+    let programs = vec![
+        entry("chat", 0xab),
+        entry("identity", 0xcd),
+        entry("chess", 0x11),
+    ];
+    registry_with(&cx, programs, Vec::new(), Vec::new());
     heads.send(Some(ducktape_view_guest::methods::Change {
         height: 13,
         keys: Vec::new(),
@@ -83,20 +71,7 @@ fn a_registry_head_re_reads_the_programs() {
 fn an_empty_registry_says_so() {
     let mut cx = TestAppContext::new();
     node(&mut cx, Rc::new(RefCell::new(12)));
-    cx.host().handle::<Query<Modules>>(|query| {
-        Ok(match query {
-            registry::Query::At(0) => registry::Reply::Programs(Vec::new()),
-            registry::Query::Views(0) => registry::Reply::Views(Vec::new()),
-            registry::Query::Scheduled { .. } => {
-                registry::Reply::Scheduled(registry::PageResponse {
-                    height: 1,
-                    items: Vec::new(),
-                    next: None,
-                })
-            }
-            other => panic!("unexpected query: {other:?}"),
-        })
-    });
+    registry_with(&cx, Vec::new(), Vec::new(), Vec::new());
     cx.open::<Explorer>();
     cx.run_until_parked();
     cx.simulate_click("explorer-tab-programs");

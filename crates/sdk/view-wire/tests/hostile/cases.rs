@@ -149,10 +149,7 @@ fn payload_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// bit flips, byte overwrites, truncations, insertions, and corrupted
 /// length prefixes — never make `decode` panic. `decode`'s own depth budget
 /// (checked before each level is even built) is what makes this safe on a
-/// plain stack: see `bytes_a_hostile_guest_could_write_are_answered_not_survived`
-/// in `src/tests/accessibility_and_decode.rs`,
-/// which this test generalizes to frames far larger than a single flipped
-/// bit's worth of hand-written cases.
+/// plain stack.
 #[test]
 fn mutated_bytes_never_panic() {
     const SEED: u64 = 0xBADF_00D5_A5A5_5A5A;
@@ -518,21 +515,55 @@ fn remove_patches(count: usize) -> Vec<Patch> {
     ]
 }
 
-/// A frame whose sequences are all empty but `set`'s: the decode must refuse
-/// the one over its bound, by the bound's own message.
-fn assert_frame_refused(frame: Frame, message: &str) {
-    let error = decode::<Frame>(&encode(&frame)).unwrap_err();
-    assert!(error.contains(message), "{error}");
-}
-
+/// Each sequence a frame carries is bounded at decode: at the bound it
+/// reads, one past it is refused by the bound's own message.
 #[test]
-fn more_patches_than_the_host_applies_are_refused_at_decode() {
-    let frame = |count| Frame {
-        patches: remove_patches(count),
-        ..Default::default()
+fn a_frame_sequence_past_its_bound_is_refused_at_decode() {
+    let request = Request {
+        id: 0,
+        kind: String::new(),
+        payload: Vec::new(),
     };
-    assert!(decode::<Frame>(&encode(&frame(MAX_PATCHES))).is_ok());
-    assert_frame_refused(frame(MAX_PATCHES + 1), "more patches than the host applies");
+    let response = TooltipResponse {
+        request: 0,
+        character_index: None,
+        content: None,
+    };
+    let frame = |name: &str, count: usize| match name {
+        "patches" => Frame {
+            patches: remove_patches(count),
+            ..Default::default()
+        },
+        "requests" => Frame {
+            requests: vec![request.clone(); count],
+            ..Default::default()
+        },
+        "cancels" => Frame {
+            cancels: vec![0; count],
+            ..Default::default()
+        },
+        _ => Frame {
+            tooltip_responses: vec![response.clone(); count],
+            ..Default::default()
+        },
+    };
+    for (name, bound, message) in [
+        ("patches", MAX_PATCHES, "more patches than the host applies"),
+        ("requests", MAX_REQUESTS, "too many requests"),
+        ("cancels", MAX_CANCELS, "too many cancels"),
+        (
+            "tooltip responses",
+            MAX_PATCHES,
+            "too many tooltip responses",
+        ),
+    ] {
+        assert!(
+            decode::<Frame>(&encode(&frame(name, bound))).is_ok(),
+            "{name}"
+        );
+        let error = decode::<Frame>(&encode(&frame(name, bound + 1))).unwrap_err();
+        assert!(error.contains(message), "{name}: {error}");
+    }
 }
 
 #[test]
@@ -553,60 +584,6 @@ fn a_frame_of_remove_patches_near_the_frame_byte_limit_is_refused_fast() {
         "{error}"
     );
     assert!(start.elapsed() < std::time::Duration::from_millis(500));
-}
-
-#[test]
-fn more_requests_than_a_frame_takes_are_refused() {
-    let request = Request {
-        id: 0,
-        kind: String::new(),
-        payload: Vec::new(),
-    };
-    let at_bound = Frame {
-        requests: vec![request.clone(); MAX_REQUESTS],
-        ..Default::default()
-    };
-    assert!(decode::<Frame>(&encode(&at_bound)).is_ok());
-    assert_frame_refused(
-        Frame {
-            requests: vec![request; MAX_REQUESTS + 1],
-            ..Default::default()
-        },
-        "too many requests",
-    );
-}
-
-#[test]
-fn more_cancels_than_a_frame_takes_are_refused() {
-    let at_bound = Frame {
-        cancels: vec![0; MAX_CANCELS],
-        ..Default::default()
-    };
-    assert!(decode::<Frame>(&encode(&at_bound)).is_ok());
-    assert_frame_refused(
-        Frame {
-            cancels: vec![0; MAX_CANCELS + 1],
-            ..Default::default()
-        },
-        "too many cancels",
-    );
-}
-
-#[test]
-fn more_tooltip_responses_than_a_frame_takes_are_refused() {
-    let frame = |count| Frame {
-        tooltip_responses: vec![
-            TooltipResponse {
-                request: 0,
-                character_index: None,
-                content: None,
-            };
-            count
-        ],
-        ..Default::default()
-    };
-    assert!(decode::<Frame>(&encode(&frame(MAX_PATCHES))).is_ok());
-    assert_frame_refused(frame(MAX_PATCHES + 1), "too many tooltip responses");
 }
 
 /// A tooltip response's content is a tree of its own, decoded on the same

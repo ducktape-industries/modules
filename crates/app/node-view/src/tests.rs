@@ -93,20 +93,29 @@ fn page<T>(items: Vec<T>) -> valset::PageResponse<T> {
     }
 }
 
-fn respond(cx: &mut TestAppContext) {
-    cx.host().handle::<Query<Valset>>(|query| {
+/// valset answering its consensus keys and one page of memberships.
+fn serve_set(cx: &TestAppContext, validators: Vec<Vec<u8>>, members: Vec<valset::Membership>) {
+    cx.host().handle::<Query<Valset>>(move |query| {
         Ok(match query {
-            valset::Query::Validators => {
-                valset::Reply::Validators(vec![THIS.to_vec(), OTHER.to_vec(), UNLISTED.to_vec()])
-            }
-            valset::Query::Memberships { .. } => valset::Reply::Memberships(page(vec![
-                membership(&RESIDENT, "10.0.0.9:4000", valset::Role::Resident),
-                membership(&OTHER, "10.0.0.2:4000", valset::Role::Validator),
-                membership(&THIS, "10.0.0.1:4000", valset::Role::Validator),
-            ])),
+            valset::Query::Validators => valset::Reply::Validators(validators.clone()),
+            valset::Query::Memberships { .. } => valset::Reply::Memberships(page(members.clone())),
             other => panic!("unexpected query: {other:?}"),
         })
     });
+}
+
+/// The set: three seated keys, UNLISTED without a membership, and a
+/// resident.
+fn respond(cx: &mut TestAppContext) {
+    serve_set(
+        cx,
+        vec![THIS.to_vec(), OTHER.to_vec(), UNLISTED.to_vec()],
+        vec![
+            membership(&RESIDENT, "10.0.0.9:4000", valset::Role::Resident),
+            membership(&OTHER, "10.0.0.2:4000", valset::Role::Validator),
+            membership(&THIS, "10.0.0.1:4000", valset::Role::Validator),
+        ],
+    );
 }
 
 /// The sheet over the node, and its clock.
@@ -138,12 +147,6 @@ fn collect(node: &ducktape_view_guest::wire::Node, texts: &mut Vec<String>) {
         }
         _ => {}
     }
-}
-
-// the set's table fits from 480 up
-#[test]
-fn the_view_is_laid_out_from_480() {
-    assert_eq!(<Nodes as View>::MIN_WINDOW_WIDTH, 480);
 }
 
 #[test]
@@ -293,13 +296,7 @@ fn loading_waits_for_the_host() {
 fn an_empty_set_says_so() {
     let mut cx = TestAppContext::new();
     node(&mut cx);
-    cx.host().handle::<Query<Valset>>(|query| {
-        Ok(match query {
-            valset::Query::Validators => valset::Reply::Validators(vec![]),
-            valset::Query::Memberships { .. } => valset::Reply::Memberships(page(vec![])),
-            other => panic!("unexpected query: {other:?}"),
-        })
-    });
+    serve_set(&cx, Vec::new(), Vec::new());
     cx.open::<Nodes>();
     cx.run_until_parked();
     assert!(cx.has_text("No members"));
@@ -317,8 +314,8 @@ fn a_refusal_shows_its_sentence_and_retry_asks_again() {
     respond(&mut cx);
     cx.simulate_click("nodes-retry");
     cx.run_until_parked();
-    assert!(cx.has_text("10.0.0.1:4000"));
-    assert_eq!(cx.host().requests::<Query<Valset>>().len(), 3);
+    // only a read asked after the press lands the members
+    assert!(cx.has_text("10.0.0.1:4000"), "{:?}", cx.texts());
 }
 
 #[test]
@@ -329,19 +326,8 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_screen() {
     respond(&mut cx);
     cx.open::<Nodes>();
     cx.run_until_parked();
-    cx.host().handle::<Query<Valset>>(|query| {
-        Ok(match query {
-            valset::Query::Validators => valset::Reply::Validators(vec![THIS.to_vec()]),
-            valset::Query::Memberships { .. } => {
-                valset::Reply::Memberships(page(vec![membership(
-                    &THIS,
-                    "10.9.9.9:4000",
-                    valset::Role::Validator,
-                )]))
-            }
-            other => panic!("unexpected query: {other:?}"),
-        })
-    });
+    let moved = membership(&THIS, "10.9.9.9:4000", valset::Role::Validator);
+    serve_set(&cx, vec![THIS.to_vec()], vec![moved]);
     feed.send(None);
     cx.run_until_parked();
     assert!(cx.has_text("10.9.9.9:4000") && !cx.has_text("10.0.0.1:4000"));

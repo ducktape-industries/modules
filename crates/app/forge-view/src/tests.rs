@@ -39,7 +39,7 @@ fn refusal(name: &str) -> ducktape_view_guest::host::Error {
 /// Which change record the program is holding in a given scenario.
 fn change_fixture(mode: &str) -> &'static str {
     match mode {
-        "reviewed" | "review" => "change-reviewed",
+        "reviewed" => "change-reviewed",
         "merged" => "change-merged",
         "closed" => "change-closed",
         "outdated" => "change-outdated",
@@ -80,7 +80,6 @@ fn answer(query: &Query, mode: &str) -> Reply {
             ..
         } => reply("log"),
         Query::Log { .. } => reply("log-next"),
-        Query::Diff { .. } if mode == "binary" => reply("diff-binary"),
         Query::Diff { .. } => reply("diff-text"),
         Query::Compare { .. } if mode == "diverged" => reply("compare-diverged"),
         Query::Compare { .. } => reply("compare"),
@@ -197,17 +196,24 @@ fn chat_answer(query: chat::Query) -> chat::Reply {
 }
 
 pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
-    cx.host().handle::<Ask>(move |query| {
-        if mode == "refused" && !matches!(query, Query::Repos { .. }) {
-            return Err(refusal("refused-not-found"));
-        }
-        Ok(answer(&query, mode))
-    });
+    cx.host()
+        .handle::<Ask>(move |query| Ok(answer(&query, mode)));
     cx.host()
         .handle::<ProgramQuery<::chat::Chat>>(|query| Ok(chat_answer(query)));
     cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
     cx.host().handle::<SubmitForge>(|_| Ok(Vec::new()));
     cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
+}
+
+/// `key` seated on the test chain, connected, holding `account`.
+fn seat(key: &[u8], account: Option<u64>) -> Session {
+    Session {
+        signer: abi::hex(key),
+        account,
+        connected: true,
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    }
 }
 
 /// Boots the view, seats a reader and waits for the first reads to land.
@@ -225,13 +231,7 @@ pub(crate) fn booted_as(mode: &'static str, account: u64) -> (TestAppContext, En
     let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Forge>();
     cx.run_until_parked();
-    props.send(Session {
-        signer: abi::hex(b"reviewer"),
-        account: Some(account),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
+    props.send(seat(b"reviewer", Some(account)));
     cx.run_until_parked();
     (cx, view)
 }
@@ -314,13 +314,7 @@ fn followed(mode: &'static str) -> (TestAppContext, Heads) {
     };
     let props = cx.host().stream::<HostSession>();
     cx.open::<Forge>();
-    props.send(Session {
-        signer: abi::hex(b"reviewer"),
-        account: Some(2),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
+    props.send(seat(b"reviewer", Some(2)));
     cx.run_until_parked();
     cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
@@ -449,14 +443,7 @@ fn a_reader_change_shows_the_conversation_being_read_until_the_names_land() {
     configure(&mut cx, "default");
     let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Forge>();
-    let seat = |key: &[u8]| Session {
-        signer: abi::hex(key),
-        account: Some(2),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    };
-    props.send(seat(b"reviewer"));
+    props.send(seat(b"reviewer", Some(2)));
     cx.run_until_parked();
     cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
@@ -469,7 +456,7 @@ fn a_reader_change_shows_the_conversation_being_read_until_the_names_land() {
     // chat answers nothing by itself from here: the roster stays out, and
     // the conversation is answered by hand below
     cx.host().never::<ProgramQuery<::chat::Chat>>();
-    props.send(seat(b"another"));
+    props.send(seat(b"another", Some(2)));
     let mut conversation = None;
     for _ in 0..50 {
         cx.tick(Vec::new());
@@ -571,15 +558,6 @@ fn disabled(cx: &TestAppContext, id: &str) -> bool {
     interactivity.aria.disabled == Some(true) && interactivity.on_click.is_none()
 }
 
-#[test]
-fn session_key_resolves_to_its_account() {
-    let (_cx, view) = booted("default");
-    view.read(|forge| {
-        assert_eq!(forge.my_account(), Some(2));
-        assert_eq!(forge.me_principal(), Some(forge::Principal::Account(2)));
-    });
-}
-
 /// Seats `key` (with `account` once identity names one) in a fresh view
 /// and opens `project`'s changes.
 fn seated(key: &[u8], account: Option<u64>) -> (TestAppContext, Entity<Forge>) {
@@ -588,13 +566,7 @@ fn seated(key: &[u8], account: Option<u64>) -> (TestAppContext, Entity<Forge>) {
     let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Forge>();
     cx.run_until_parked();
-    props.send(Session {
-        signer: abi::hex(key),
-        account,
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
+    props.send(seat(key, account));
     cx.run_until_parked();
     cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
@@ -613,15 +585,6 @@ fn judged(cx: &TestAppContext) -> Vec<forge::Principal> {
             _ => None,
         })
         .collect()
-}
-
-/// With no key seated nobody is "me": the filters about me are off.
-#[test]
-fn no_seated_key_has_no_changes_of_its_own() {
-    let (cx, view) = seated(b"", None);
-    view.read(|forge| assert_eq!(forge.me_principal(), None));
-    assert!(disabled(&cx, "forge-filter-judgment"));
-    assert!(disabled(&cx, "forge-filter-authored"));
 }
 
 /// A key that holds no account reads everything and writes nothing: every
@@ -670,35 +633,20 @@ fn an_account_gained_later_is_who_forge_judges() {
     let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Forge>();
     cx.run_until_parked();
-    let unregistered = Session {
-        signer: abi::hex(b"reviewer"),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    };
-    props.send(unregistered.clone());
+    props.send(seat(b"reviewer", None));
     cx.run_until_parked();
     cx.simulate_click("forge-repo-project-open");
     cx.run_until_parked();
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
     assert!(disabled(&cx, "forge-filter-judgment"));
-    props.send(Session {
-        account: Some(2),
-        ..unregistered
-    });
+    props.send(seat(b"reviewer", Some(2)));
     cx.run_until_parked();
     view.read(|forge| assert_eq!(forge.my_account(), Some(2)));
     assert!(cx.find("forge-no-account").is_none());
     cx.simulate_click("forge-filter-judgment");
     cx.run_until_parked();
     assert_eq!(judged(&cx), [forge::Principal::Account(2)]);
-}
-
-// at 560 the repository tab bar's About toggle is past the right edge
-#[test]
-fn the_view_is_laid_out_from_640() {
-    assert_eq!(<Forge as View>::MIN_WINDOW_WIDTH, 640);
 }
 
 #[test]
@@ -771,10 +719,18 @@ fn a_refused_read_keeps_its_reason_and_offers_one_retry() {
     cx.run_until_parked();
     let sentence = "object ffffffffffffffffffffffffffffffffffffffff is not held by this node";
     assert!(cx.has_text(sentence), "{:?}", cx.texts());
-    assert!(cx.find("forge-repos-list-retry").is_some());
+    let lists = |cx: &TestAppContext| {
+        let asked = cx.host().requests::<Ask>();
+        asked
+            .iter()
+            .filter(|query| matches!(query, Query::Repos { .. }))
+            .count()
+    };
+    let asked = lists(&cx);
     cx.simulate_click("forge-repos-list-retry");
     cx.run_until_parked();
-    assert!(cx.has_text(sentence));
+    assert_eq!(lists(&cx), asked + 1, "Retry asks the list again");
+    assert!(cx.has_text(sentence), "and the reason stays while it holds");
 }
 
 #[test]
@@ -826,7 +782,7 @@ fn creating_a_repository_validates_its_name_then_shows_the_submission() {
 }
 
 #[test]
-fn a_repository_opens_on_code_with_its_header_ref_picker_and_tabs() {
+fn a_repository_opens_with_its_header_ref_picker_and_tabs() {
     let (cx, view) = opened("default");
     view.read(|forge| assert_eq!(forge.nav().repo.as_deref(), Some("project")));
     assert!(
@@ -1504,24 +1460,25 @@ fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {
 /// AX-017 reads cannot come in under it, whatever the text inside.
 #[test]
 fn the_small_press_targets_are_at_least_24_px_each_way() {
-    use ducktape_view_guest::px;
-    let floor = |cx: &TestAppContext, key: &str| {
-        let style = cx.style(key);
-        (style.min_size.width, style.min_size.height)
+    let at_least_24 = |cx: &TestAppContext, key: &str| {
+        let floor = &cx.style(key).min_size;
+        let (width, height) = (pixels(floor.width), pixels(floor.height));
+        assert!(
+            width >= Some(24.) && height >= Some(24.),
+            "{key}: {width:?} × {height:?}"
+        );
     };
     let (cx, _) = booted("default");
     for key in ["forge-repo-project-copy", "forge-repo-project-activity"] {
-        assert_eq!(
-            floor(&cx, key),
-            (Some(px(24.).into()), Some(px(24.).into())),
-            "{key}"
-        );
+        at_least_24(&cx, key);
     }
     let (cx, _) = opened("default");
-    assert_eq!(
-        floor(&cx, "forge-repo-activity"),
-        (Some(px(24.).into()), Some(px(24.).into()))
-    );
+    at_least_24(&cx, "forge-repo-activity");
+}
+
+/// A style's length in pixels, as gpui prints it ("24px"); `None` unset.
+pub(crate) fn pixels(length: Option<impl std::fmt::Display>) -> Option<f32> {
+    length?.to_string().strip_suffix("px")?.parse().ok()
 }
 
 /// The key's roled container: its role, focus and press.
@@ -1849,11 +1806,7 @@ fn a_forge_link_opens_its_repository() {
         .stream::<ducktape_view_guest::methods::HostRoute>();
     let view = cx.open::<Forge>();
     cx.run_until_parked();
-    props.send(Session {
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
+    props.send(seat(b"", None));
     cx.run_until_parked();
     routes.send("project".into());
     cx.run_until_parked();
@@ -2134,17 +2087,14 @@ fn kind(query: &Query) -> String {
 
 struct Costed {
     cx: TestAppContext,
-    forge_heads: StreamSender<Changes<forge::Forge>>,
-    chat_heads: StreamSender<Changes<::chat::Chat>>,
-    identity_heads: StreamSender<Changes<Identity>>,
+    heads: Heads,
     /// bytes of every forge reply the fake node handed back
     reply_bytes: std::rc::Rc<std::cell::RefCell<usize>>,
 }
 
-/// `followed("default")` with the forge reply bytes counted.
+/// `followed("default")` with the forge reply bytes counted from here on.
 fn costed() -> Costed {
-    let mut cx = TestAppContext::new();
-    configure(&mut cx, "default");
+    let (cx, heads) = followed("default");
     let reply_bytes = std::rc::Rc::new(std::cell::RefCell::new(0usize));
     let counted = reply_bytes.clone();
     cx.host().handle::<Ask>(move |query| {
@@ -2152,27 +2102,9 @@ fn costed() -> Costed {
         *counted.borrow_mut() += borsh::to_vec(&reply).unwrap().len();
         Ok(reply)
     });
-    let forge_heads = cx.host().stream::<Changes<forge::Forge>>();
-    let chat_heads = cx.host().stream::<Changes<::chat::Chat>>();
-    let identity_heads = cx.host().stream::<Changes<Identity>>();
-    let props = cx.host().stream::<HostSession>();
-    cx.open::<Forge>();
-    cx.run_until_parked();
-    props.send(Session {
-        signer: abi::hex(b"reviewer"),
-        account: Some(2),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    cx.run_until_parked();
-    cx.simulate_click("forge-repo-project-open");
-    cx.run_until_parked();
     Costed {
         cx,
-        forge_heads,
-        chat_heads,
-        identity_heads,
+        heads,
         reply_bytes,
     }
 }
@@ -2216,11 +2148,11 @@ fn costs(
 fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     let mut costed = costed();
     let review = costs(&mut costed, "Readme tab, a review record written", |c| {
-        c.forge_heads.send(block(100, vec![review_key()]))
+        c.heads.forge.send(block(100, vec![review_key()]))
     });
     assert!(review.is_empty(), "{review:?}");
     let real_review = costs(&mut costed, "Readme tab, a real review block", |c| {
-        c.forge_heads.send(block(100, real_review_keys()))
+        c.heads.forge.send(block(100, real_review_keys()))
     });
     assert_eq!(
         real_review.keys().collect::<Vec<_>>(),
@@ -2228,7 +2160,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
         "{real_review:?}"
     );
     let pushed = costs(&mut costed, "Readme tab, a ref moved", |c| {
-        c.forge_heads.send(block(101, vec![ref_key()]))
+        c.heads.forge.send(block(101, vec![ref_key()]))
     });
     assert_eq!(
         pushed.keys().collect::<Vec<_>>(),
@@ -2237,7 +2169,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     );
     let repo = forge::tables::REPOS.key(&"project".to_owned());
     let configured = costs(&mut costed, "Readme tab, the repo record written", |c| {
-        c.forge_heads.send(block(102, vec![repo]))
+        c.heads.forge.send(block(102, vec![repo]))
     });
     assert_eq!(
         configured.keys().collect::<Vec<_>>(),
@@ -2245,7 +2177,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
         "{configured:?}"
     );
     let chat = costs(&mut costed, "Readme tab, one Changes<chat> item", |c| {
-        c.chat_heads.send(block(103, vec![root_key("general")]))
+        c.heads.chat.send(block(103, vec![root_key("general")]))
     });
     assert!(chat.is_empty(), "{chat:?}");
     let names = costed
@@ -2254,7 +2186,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
         .requests::<ProgramQuery<::chat::Chat>>()
         .len();
     let identity = costs(&mut costed, "Readme tab, one Changes<identity> item", |c| {
-        c.identity_heads.send(block(104, Vec::new()))
+        c.heads.identity.send(block(104, Vec::new()))
     });
     assert!(identity.is_empty(), "{identity:?}");
     assert!(
@@ -2267,7 +2199,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
         "the names re-read"
     );
     let all = costs(&mut costed, "Readme tab, a reopened link (None)", |c| {
-        c.forge_heads.send(None)
+        c.heads.forge.send(None)
     });
     assert_eq!(
         all.keys().collect::<Vec<_>>(),
@@ -2282,7 +2214,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     let judged = costs(
         &mut costed,
         "Judgment filter, a real review block, the forge item",
-        |c| c.forge_heads.send(block(106, real_review_keys())),
+        |c| c.heads.forge.send(block(106, real_review_keys())),
     );
     assert_eq!(
         judged.keys().collect::<Vec<_>>(),
@@ -2293,7 +2225,8 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
         &mut costed,
         "Judgment filter, a real review block, the chat item",
         |c| {
-            c.chat_heads
+            c.heads
+                .chat
                 .send(block(106, posted_line_keys("forge:project:1")))
         },
     );

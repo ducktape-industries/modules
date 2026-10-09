@@ -1013,26 +1013,19 @@ mod tests {
             .collect()
     }
 
+    /// A glyph alone names nothing: the button is named in words, and is
+    /// at least a press target each way.
     #[test]
-    fn an_icon_button_is_a_focusable_button_named_in_words() {
+    fn an_icon_button_is_a_focusable_button_named_in_words_and_a_press_target() {
         let theme = Theme::light();
-        let node = lower(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
+        let (node, styles) = lower_styled(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
         let control = interactivity(&node);
         assert_eq!(control.role, Some(Role::Button));
         assert_eq!(control.aria.label.as_deref(), Some("Close"));
         assert!(control.focusable && control.on_click.is_some());
         assert_eq!(faults(&node), []);
-    }
-
-    #[test]
-    fn an_icon_button_is_at_least_24_px_each_way() {
-        let theme = Theme::light();
-        let (node, styles) = lower_styled(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
-        let wire::Node::Container(container) = &node else {
-            panic!("no container: {node:?}")
-        };
-        let floor = Some(px(24.).into());
-        let style = &styles[container.style];
+        let style = &styles[node.style().expect("a styled container")];
+        let floor = Some(PRESS_TARGET.into());
         assert_eq!(
             (style.min_size.width, style.min_size.height),
             (floor, floor)
@@ -1458,28 +1451,31 @@ mod tests {
         assert_eq!(SILENT.take(), (vec![1, 2, 1, 1], vec![1]));
     }
 
+    /// A control built focusable (a button, a link) made an item leaves
+    /// the Tab order, keeps its role and its press, and claims when active.
     #[test]
-    fn a_button_as_an_item_leaves_the_tab_order_and_claims() {
+    fn a_focusable_control_as_an_item_leaves_the_tab_order_and_claims() {
         let theme = Theme::light();
-        let cell = lower(button("compare", "Compare", &theme, |_, _, _| {}).item(true));
-        let control = interactivity(&cell);
-        assert!(!control.focusable && control.tab_stop.is_none());
-        assert!(control.aria.active_descendant && control.on_click.is_some());
-        assert_eq!(control.role, Some(Role::Button));
-    }
-
-    #[test]
-    fn an_item_built_focusable_leaves_the_tab_order() {
-        let theme = Theme::light();
-        let cell = lower(item(
-            link("activity", "block 12", "duck://a/b", &theme),
-            Role::Link,
-            true,
-        ));
-        let link = interactivity(&cell);
-        assert!(!link.focusable && link.tab_stop.is_none());
-        assert!(link.aria.active_descendant && link.on_click.is_some());
-        assert_eq!(link.role, Some(Role::Link));
+        let cells = [
+            (
+                lower(button("compare", "Compare", &theme, |_, _, _| {}).item(true)),
+                Role::Button,
+            ),
+            (
+                lower(item(
+                    link("activity", "block 12", "duck://a/b", &theme),
+                    Role::Link,
+                    true,
+                )),
+                Role::Link,
+            ),
+        ];
+        for (cell, role) in cells {
+            let control = interactivity(&cell);
+            assert!(!control.focusable && control.tab_stop.is_none(), "{role:?}");
+            assert!(control.aria.active_descendant && control.on_click.is_some());
+            assert_eq!(control.role, Some(role));
+        }
     }
 
     #[test]
@@ -1579,13 +1575,5 @@ mod tests {
             assert_eq!(view.moved, [2, 1, 0, 3, 0]);
             assert_eq!(view.pressed, [0]);
         });
-    }
-
-    #[test]
-    fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
-        assert!(docks(1000., 576., 320.));
-        assert!(docks(896., 576., 320.));
-        assert!(!docks(895., 576., 320.));
-        assert!(!docks(720., 400., 440.));
     }
 }

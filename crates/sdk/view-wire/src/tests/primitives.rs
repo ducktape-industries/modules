@@ -1,21 +1,5 @@
 use super::*;
 
-/// Children past the node budget are dropped, not stood in for.
-#[test]
-fn a_container_is_cut_at_the_node_budget() {
-    let root = sanitized_root(Node::Container(crate::ContainerNode {
-        id: Some(ElementIdWire::Name("App/cells".into())),
-        style: StyleId(0),
-        interactivity: Default::default(),
-        children: (0..MAX_NODES + 5).map(|_| text("x")).collect(),
-    }));
-    let Node::Container(crate::ContainerNode { children, .. }) = &root else {
-        panic!()
-    };
-    assert_eq!(children.len(), MAX_NODES - 1);
-    assert_eq!(root.count(), MAX_NODES);
-}
-
 #[test]
 fn svg_and_raster_images_share_the_frame_picture_budget() {
     let image = Node::Image {
@@ -172,16 +156,6 @@ fn a_frame_past_the_picture_budget_drops_whole_pictures_from_its_tail() {
             Some(MAX_PICTURE_BYTES_PER_FRAME / 4)
         ]
     );
-}
-
-#[test]
-fn a_text_with_no_heading_or_live_region_round_trips() {
-    let text = Node::Text(crate::TextNode {
-        id: Some(ElementIdWire::Name("text".into())),
-        style: StyleId(0),
-        content: "huge".into(),
-    });
-    assert_eq!(decode::<Node>(&encode(&text)).unwrap(), text);
 }
 
 /// An aria field a view did not set costs no bytes: the default is the

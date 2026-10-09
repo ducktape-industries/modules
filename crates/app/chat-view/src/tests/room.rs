@@ -233,18 +233,8 @@ fn a_full_room_renders_inside_the_frame_budget() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
     assert!(
@@ -336,59 +326,43 @@ fn create_channel_leaves_the_room_where_it_was() {
     assert_eq!(room(&cx), closed);
 }
 
-/// The room's and a thread's fields are named for what they are, apart
-/// from the hint drawn in them.
+/// Every field is named for what it is, apart from the hint drawn in it:
+/// the room's and a thread's composers, the emoji search, a new channel's
+/// name.
 #[test]
 fn a_field_is_named_apart_from_its_hint() {
-    let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        cx.notify();
-        chat.open_thread(1, cx);
-    });
-    cx.run_until_parked();
-    for (key, name, hint) in [
-        ("draft-general/editor", "New message", "Message #General"),
-        ("draft-general-1/editor", "Reply", "Reply in thread"),
-    ] {
-        let Some(wire::Node::Field {
-            options,
-            placeholder,
-            multiline: true,
-            ..
-        }) = cx.find(key)
-        else {
-            panic!("no field {key}");
-        };
-        assert_eq!((options.label.as_str(), placeholder.as_str()), (name, hint));
-    }
-}
-
-/// The emoji search and a new channel's name say what they are for; the
-/// hint drawn in them stays a hint.
-#[test]
-fn a_text_field_is_named_apart_from_its_hint() {
     let (mut cx, view) = opened();
     let named = |cx: &TestAppContext, key: &str| {
         let Some(wire::Node::Field {
             options,
             placeholder,
+            multiline,
             ..
         }) = cx.find(key)
         else {
             panic!("no field {key}");
         };
-        (options.label.clone(), placeholder.clone())
+        (options.label.clone(), placeholder.clone(), *multiline)
     };
+    thread(&mut cx, &view, 1);
+    for (key, name, hint) in [
+        ("draft-general/editor", "New message", "Message #General"),
+        ("draft-general-1/editor", "Reply", "Reply in thread"),
+    ] {
+        assert_eq!(named(&cx, key), (name.into(), hint.into(), true), "{key}");
+    }
     message::hover(&mut cx, &view, 1);
     cx.simulate_click("chat-message-m1-react");
+    let (name, hint, _) = named(&cx, &ui::menu::focus_key(Pane::Timeline, Mode::Reactions));
     assert_eq!(
-        named(&cx, &ui::menu::focus_key(Pane::Timeline, Mode::Reactions)),
-        ("Find an emoji to react with".into(), "Search emoji".into())
+        (name.as_str(), hint.as_str()),
+        ("Find an emoji to react with", "Search emoji")
     );
     cx.simulate_click("chat-sidebar-new-channel");
+    let (name, hint, _) = named(&cx, "chat-create-name");
     assert_eq!(
-        named(&cx, "chat-create-name"),
-        ("Name the new channel".into(), "Channel name".into())
+        (name.as_str(), hint.as_str()),
+        ("Name the new channel", "Channel name")
     );
 }
 
@@ -397,11 +371,7 @@ fn a_text_field_is_named_apart_from_its_hint() {
 #[test]
 fn an_empty_thread_says_so_and_its_field_takes_focus() {
     let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        cx.notify();
-        chat.open_thread(1, cx);
-    });
-    cx.run_until_parked();
+    thread(&mut cx, &view, 1);
     assert!(cx.has_text("No replies yet"));
     let field = wire::ElementIdWire::Name("draft-general-1/editor".into());
     assert!(
@@ -421,16 +391,8 @@ fn a_link_to_a_forge_room_lands_in_it() {
     let routes = cx
         .host()
         .stream::<ducktape_view_guest::methods::HostRoute>();
-    let props = cx.host().stream::<HostSession>();
     let view = cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    cx.run_until_parked();
+    seat(&mut cx);
     let link = crate::links::channel_link("testnet#0a1b2c3d", "forge:web:3", None).unwrap();
     assert!(link.ends_with("/chat/forge%3Aweb%3A3"), "{link}");
     // what the app does with a chain link: the tail, decoded, joined
@@ -556,28 +518,19 @@ fn a_room_lists_every_member_past_the_first_page() {
             Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
             Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 0)])),
             Query::Roots { .. } => Reply::Roots(page(Vec::new())),
-            Query::Members { page: asked, .. } => Reply::Members(match asked.after {
+            Query::Members { page: asked, .. } => Reply::Members(match asked.after.as_deref() {
                 None => ::chat::PageResponse {
                     next: Some(vec![1]),
                     ..page((1..=256).map(member).collect())
                 },
-                Some(_) => page((257..=300).map(member).collect()),
+                Some([1]) => page((257..=300).map(member).collect()),
+                Some(after) => panic!("a cursor no page named: {after:?}"),
             }),
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     cx.open::<Chat>();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
     cx.simulate_click("chat-room-details");
@@ -653,7 +606,7 @@ fn jump_to_latest_floats_over_the_list() {
 }
 
 /// The rooms are one list box: ↓ reaches the direct message under the
-/// channels, Enter opens it.
+/// channels, Enter opens it and names it to the host.
 #[test]
 fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
     let (mut cx, view) = opened();
@@ -677,6 +630,13 @@ fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
     assert_eq!(
         cx.interactivity("chat-sidebar-dm-8").aria.selected,
         Some(true)
+    );
+    let opened = cx
+        .host()
+        .requests::<ducktape_view_guest::methods::LinkOpen>();
+    assert_eq!(
+        opened.last().map(String::as_str),
+        Some("duck://testnet-0a1b2c3d/chat/dm-7-8")
     );
 }
 

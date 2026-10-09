@@ -1,70 +1,28 @@
 //! Who reads: the seated key, the account it gains, the names it learns.
 use super::*;
 
-#[test]
-fn session_key_resolves_to_its_account() {
-    let (_cx, view) = opened();
-    view.read(|chat| {
-        assert_eq!(chat.my_account(), Some(7));
-        assert!(chat.holds_account());
-        assert_eq!(chat.me(), Some(Principal::Account(7)));
-    });
-}
-
-#[test]
-fn an_unregistered_key_stays_read_only() {
-    let mut cx = TestAppContext::new();
-    configure(&mut cx);
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
-    let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    props.send(Session {
-        signer: "ffff".into(),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
-    view.read(|chat| {
-        assert_eq!(chat.my_account(), None);
-        assert!(!chat.holds_account());
-        assert_eq!(chat.write_gate(), Some(crate::session::Gate::NoAccount));
-    });
-    cx.simulate_click("chat-sidebar-new-channel");
-    cx.run_until_parked();
-    assert!(cx.has_text("Create an account to create a channel"));
-}
-
-/// The reader creates the account in Account, then switches to Chat: the
-/// seated key never changes; the host resolves its new account and hands it
-/// over as a session change.
+/// A key with no account reads: it may not write and may not create a
+/// channel. The reader creates the account in Account, then switches to
+/// Chat: the seated key never changes; the host resolves its new account
+/// and hands it over as a session change.
 #[test]
 fn an_account_gained_later_re_enables_create_channel() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
     let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     let view = cx.open::<Chat>();
+    props.send(Session {
+        account: None,
+        ..session()
+    });
+    cx.host().stream::<HostVisible>().send(true);
     cx.run_until_parked();
-    let unregistered = Session {
-        signer: "0102".into(),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    };
-    props.send(unregistered.clone());
-    visible.send(true);
-    cx.run_until_parked();
+    view.read(|chat| assert_eq!(chat.write_gate(), Some(crate::session::Gate::NoAccount)));
     cx.simulate_click("chat-sidebar-new-channel");
     cx.run_until_parked();
     assert!(cx.has_text("Create an account to create a channel"));
 
-    props.send(Session {
-        account: Some(7),
-        ..unregistered
-    });
+    props.send(session());
     cx.run_until_parked();
 
     assert!(!cx.has_text("Create an account to create a channel"));
@@ -75,6 +33,9 @@ fn an_account_gained_later_re_enables_create_channel() {
 /// read still shows up under "account N" unless the roster naming everyone
 /// is re-read on identity's live stream: so a fresh signer's messages stayed numbered forever
 /// (regression: a two-account chat never named the other side's reply).
+/// The same roster gates the `@` mention menu's candidates, which draw on
+/// every named account, not the room's rows (regression: typing
+/// `@qa-mention-b-...` right after account B onboarded never offered it).
 #[test]
 fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
     let known = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -100,28 +61,25 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
     });
     cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
 
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
 
+    let offered = |view: &Entity<Chat>| {
+        view.read(|chat| {
+            chat.mention_choices()
+                .iter()
+                .any(|choice| choice.label == "gary")
+        })
+    };
     assert!(
         cx.has_text("account 9"),
         "an unregistered-at-load author falls back to a numeric label"
     );
     assert!(!cx.has_text("gary"));
+    assert!(!offered(&view), "not known to the roster yet");
 
     known.set(true);
     live.send(Some(ducktape_view_guest::methods::Change {
@@ -135,80 +93,7 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
         "the roster re-reads on identity's live stream"
     );
     assert!(!cx.has_text("account 9"));
-    let _ = view;
-}
-
-/// The same roster the last test names also gates the `@` mention menu's
-/// candidates (`client::mention_choices` builds them from `self.names`):
-/// a peer who registers their account after this view's roster was first
-/// read is un-mentionable until identity's live stream re-reads it — even
-/// in a channel neither side has posted to yet (regression: typing
-/// `@qa-mention-b-...` right after account B onboarded never offered it).
-#[test]
-fn a_peers_mention_becomes_offerable_once_their_account_is_known() {
-    let known = std::rc::Rc::new(std::cell::Cell::new(false));
-    let has_gary = known.clone();
-    let mut cx = TestAppContext::new();
-    quiet_methods(&mut cx);
-    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
-        Ok(match query {
-            Query::Accounts { .. } => {
-                let mut accounts = vec![person(7, "eddy")];
-                if has_gary.get() {
-                    accounts.push(person(9, "gary"));
-                }
-                Reply::Accounts(page(accounts))
-            }
-            Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 0)])),
-            Query::Roots { .. } => Reply::Roots(page(Vec::new())),
-            Query::Members { .. } => Reply::Members(page(Vec::new())),
-            query => panic!("unexpected chat query: {query:?}"),
-        })
-    });
-    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
-
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
-    let live = cx.host().stream::<Changes<Identity>>();
-    let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
-    cx.simulate_click("chat-sidebar-channel-general");
-    cx.run_until_parked();
-
-    view.read(|chat| {
-        assert!(
-            !chat
-                .mention_choices()
-                .iter()
-                .any(|choice| choice.label == "gary"),
-            "not known to the roster yet, so not offerable"
-        );
-    });
-
-    known.set(true);
-    live.send(Some(ducktape_view_guest::methods::Change {
-        height: 1,
-        keys: Vec::new(),
-    }));
-    cx.run_until_parked();
-
-    view.read(|chat| {
-        assert!(
-            chat.mention_choices()
-                .iter()
-                .any(|choice| choice.label == "gary"),
-            "the roster re-read makes the peer mentionable, same as it names their messages"
-        );
-    });
+    assert!(offered(&view), "the re-read roster offers the peer too");
 }
 
 /// A roster longer than one page (identity pages at 256) is read to its
@@ -235,19 +120,8 @@ fn the_roster_is_read_past_its_first_page() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    let props = cx.host().stream::<HostSession>();
-    let visible = cx.host().stream::<HostVisible>();
     let view = cx.open::<Chat>();
-    cx.run_until_parked();
-    props.send(Session {
-        signer: "0102".into(),
-        account: Some(7),
-        connected: true,
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    visible.send(true);
-    cx.run_until_parked();
+    seat(&mut cx);
     view.read(|chat| {
         let names = chat.names.ready().expect("the roster landed");
         assert_eq!(names.people().count(), 600);

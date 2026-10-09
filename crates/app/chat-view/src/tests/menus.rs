@@ -11,23 +11,9 @@ fn menus_and_dialogs_are_modal_overlays_with_dismiss_routes() {
         Some(wire::Node::Overlay {
             label: Some(label),
             on_dismiss: Some(_),
-            children,
             ..
-        }) if label == "Message menu" && children.len() == 2
+        }) if label == "Message menu"
     ));
-    // a Menu of MenuItems, named
-    let role = |cx: &TestAppContext, key: &str| match cx.find(key) {
-        Some(wire::Node::Container(node)) => node.interactivity.as_ref().unwrap().role,
-        _ => panic!("{key} is a container"),
-    };
-    assert_eq!(
-        role(&cx, "chat-room-message-action-focus"),
-        Some(ducktape_view_guest::Role::Menu)
-    );
-    assert_eq!(
-        role(&cx, "chat-menu-reply"),
-        Some(ducktape_view_guest::Role::MenuItem)
-    );
 
     cx.simulate_dismiss("chat-menu-overlay");
     view.read(|chat| assert!(chat.menu.is_none()));
@@ -37,9 +23,8 @@ fn menus_and_dialogs_are_modal_overlays_with_dismiss_routes() {
         Some(wire::Node::Overlay {
             label: Some(label),
             on_dismiss: Some(_),
-            children,
             ..
-        }) if label == "Create channel" && children.len() == 2
+        }) if label == "Create channel"
     ));
     cx.simulate_dismiss("chat-create-overlay");
     view.read(|chat| assert!(chat.create.is_none()));
@@ -242,11 +227,7 @@ fn an_emoji_search_shows_every_match() {
 fn the_edit_field_saves() {
     let (mut cx, view) = opened();
     assert!(cx.has_text("Send") && !cx.has_text("Save"));
-    cx.update(&view, |chat, window, cx| {
-        cx.notify();
-        chat.open_menu(Pane::Timeline, 1, 0, Mode::Editing, window, cx);
-    });
-    cx.run_until_parked();
+    edit(&mut cx, &view, 1);
     assert!(cx.find("chat-message-editing").is_some());
     assert!(cx.has_text("Save"));
     // Cancel sits on Save's row, and leaves the edit

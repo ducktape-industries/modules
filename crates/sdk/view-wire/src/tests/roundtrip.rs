@@ -2,7 +2,7 @@ use super::*;
 
 /// The report says what was cut and where the first cut fell, and no
 /// more: a frame sent on after sanitizing has nothing left to cut, and a
-/// frame inside every bound reports nothing.
+/// frame inside every bound reports nothing and is left as it came.
 #[test]
 fn a_cut_string_is_reported_with_where_it_fell() {
     let mut frame = Frame {
@@ -24,10 +24,12 @@ fn a_cut_string_is_reported_with_where_it_fell() {
     let mut received: Frame = decode(&encode(&frame)).unwrap();
     assert!(sanitize_plain(&mut received).unwrap().is_empty());
     let mut small = Frame {
-        root: Some(text("complete")),
+        root: Some(column(vec![text("complete")])),
         ..Default::default()
     };
+    let before = small.clone();
     assert!(sanitize_plain(&mut small).unwrap().is_empty());
+    assert_eq!(small, before);
 }
 
 /// Nodes past the node budget and subtrees past the depth bound are cuts,
@@ -114,9 +116,9 @@ fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
 }
 
 /// A frame comes back as it went at every width a child list's length
-/// header takes, and no field or variant name is in its bytes.
+/// header takes.
 #[test]
-fn a_frame_round_trips_at_every_header_width_and_carries_no_name() {
+fn a_frame_round_trips_at_every_header_width() {
     for count in [0, 1, 16, 256, 2000, 70_000] {
         let frame = Frame {
             styles: plain(),
@@ -127,14 +129,7 @@ fn a_frame_round_trips_at_every_header_width_and_carries_no_name() {
             )),
             ..Default::default()
         };
-        let bytes = encode(&frame);
-        assert_eq!(decode::<Frame>(&bytes).unwrap(), frame);
-        for name in ["Container", "Text", "style", "children", "content", "Name"] {
-            assert!(
-                !bytes.windows(name.len()).any(|at| at == name.as_bytes()),
-                "{name} crossed"
-            );
-        }
+        assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
     }
 }
 

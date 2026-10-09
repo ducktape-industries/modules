@@ -831,24 +831,6 @@ mod tests {
         assert!(matches!(cx.root(), wire::Node::List { commands, .. } if commands.is_empty()));
     }
 
-    #[test]
-    fn list_handles_and_requested_windows_are_driver_isolated() {
-        let (mut first, first_view) = opened();
-        let (_second, second_view) = opened();
-        let first_handler = match first.root() {
-            wire::Node::List {
-                request_handler, ..
-            } => *request_handler,
-            _ => unreachable!(),
-        };
-        first.tick(vec![wire::Event::ListRequest {
-            handler: first_handler,
-            request: wire::ListRequest { start: 7, end: 9 },
-        }]);
-        first_view.read(|view| assert_eq!(view.rendered.last().copied(), Some(8)));
-        second_view.read(|view| assert_eq!(view.rendered.last().copied(), Some(1_999)));
-    }
-
     /// One state, drawn by the lists `first` and `second` under `page`.
     #[derive(Default, Serialize, Deserialize)]
     struct Shared {

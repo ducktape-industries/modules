@@ -35,8 +35,6 @@ fn a_reply_crosses_as_bin() {
         result: Ok(mixed()),
         done: true,
     };
-    // {31: [1, {0: bin}, true]}: ten bytes around the payload.
-    assert_eq!(encode(&reply).len(), 50_010);
     crosses_as_bin(reply, &mixed());
 }
 

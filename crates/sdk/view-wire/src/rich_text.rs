@@ -254,8 +254,10 @@ mod tests {
         assert_eq!(runs, Runs::Highlights(vec![]));
     }
 
+    /// A rich text's id enters the sibling scope as any node's does (the
+    /// hostile generator builds no rich text, so this is its one pin).
     #[test]
-    fn rich_text_uses_typed_parent_scopes() {
+    fn a_rich_texts_id_is_a_sibling_identity() {
         let rich = || Node::RichText {
             id: Some(ElementIdWire::Integer(1)),
             style: StyleId(0),
@@ -280,24 +282,5 @@ mod tests {
             sanitize_plain(&mut duplicate),
             Err(crate::Refused::Duplicate(_))
         ));
-
-        let parent = |name: &str| {
-            Node::Container(crate::ContainerNode {
-                id: Some(ElementIdWire::Name(name.into())),
-                style: StyleId(0),
-                interactivity: Default::default(),
-                children: vec![rich()],
-            })
-        };
-        let mut separate = Frame {
-            root: Some(Node::Container(crate::ContainerNode {
-                id: Some(ElementIdWire::Name("root".into())),
-                style: StyleId(0),
-                interactivity: Default::default(),
-                children: vec![parent("left"), parent("right")],
-            })),
-            ..Default::default()
-        };
-        assert!(sanitize_plain(&mut separate).is_ok());
     }
 }

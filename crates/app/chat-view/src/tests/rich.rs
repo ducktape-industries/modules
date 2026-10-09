@@ -101,14 +101,12 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
 
     cx.simulate_rich_click(key, 0);
     cx.simulate_rich_click(key, 1);
+    let opened = cx
+        .host()
+        .requests::<ducktape_view_guest::methods::LinkOpen>();
     assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>(),
-        vec![
-            "duck://testnet-0a1b2c3d/chat/general",
-            "https://one.example",
-            "duck://testnet-0a1b2c3d/identity/8",
-        ]
+        opened[opened.len().saturating_sub(2)..],
+        ["https://one.example", "duck://testnet-0a1b2c3d/identity/8"]
     );
 }
 

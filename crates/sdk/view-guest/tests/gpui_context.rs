@@ -243,19 +243,6 @@ fn click_routes_are_frame_owned_and_isolated_per_view() {
 }
 
 #[test]
-fn globals_return_borrowed_non_clone_values() {
-    struct NonClone(usize);
-    impl Global for NonClone {}
-    let mut cx = TestAppContext::new();
-    let entity = cx.open::<Counter>();
-    cx.set_global(NonClone(7));
-    cx.update(&entity, |_, _, cx| {
-        let global: &NonClone = cx.global::<NonClone>();
-        assert_eq!(global.0, 7);
-    });
-}
-
-#[test]
 fn listeners_use_weak_entities() {
     let mut first = TestAppContext::new();
     let entity = first.open::<Counter>();

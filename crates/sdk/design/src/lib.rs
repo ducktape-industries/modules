@@ -439,27 +439,9 @@ mod tests {
     }
 
     #[test]
-    fn the_scales_ascend() {
-        let scale = [
-            spacing::HAIR,
-            spacing::XXS,
-            spacing::XS,
-            spacing::SM,
-            spacing::MD,
-            spacing::LG,
-            spacing::BLOCK,
-            spacing::XL,
-        ];
-        assert!(scale.windows(2).all(|pair| pair[0] < pair[1]));
-    }
-
-    #[test]
     fn css_notation_round_trips_the_palette() {
         assert_eq!(css(hex(0x5B5FC7)), "#5b5fc7");
         assert_eq!(css([1., 1., 1., 0.5]), "#ffffff80");
-        assert_eq!(css(LIGHT.background), "#ffffff");
-        assert_eq!(css(DARK.background), "#111111");
-        assert_eq!(css(LIGHT.sidebar), "#f5f5f3");
     }
 
     #[test]

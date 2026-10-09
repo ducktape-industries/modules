@@ -48,6 +48,7 @@ impl View for Forge {
         chat::MODULE,
         <Identity as ducktape_view_guest::methods::Program>::NAME,
     ];
+    // at 560 the repository tab bar's About toggle is past the right edge
     const MIN_WINDOW_WIDTH: u32 = 640;
 
     /// Every stream this view follows, on a first mount and after a

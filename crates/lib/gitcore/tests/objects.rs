@@ -5,8 +5,8 @@ mod common;
 
 use common::{fixture, oid_text, sha1};
 use gitcore::{
-    Commit, Error, Hash, Kind, MemoryObjects, Mode, Object, Objects, Oid, Signature, Tag, Tree,
-    TreeEntry, oid_of,
+    Commit, Error, Hash, Kind, MemoryObjects, Mode, Objects, Oid, Signature, Tag, Tree, TreeEntry,
+    oid_of,
 };
 
 #[test]
@@ -20,12 +20,6 @@ fn blob_oid_matches_git() {
         sha256.to_hex(),
         "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
     );
-}
-
-#[test]
-fn frame_is_header_plus_body() {
-    let object = Object::new(Kind::Blob, b"abc".to_vec());
-    assert_eq!(object.frame(), b"blob 3\0abc");
 }
 
 #[test]

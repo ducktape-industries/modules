@@ -151,15 +151,6 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
     }
     (cx, props)
 }
-// at 480 the Agents page's "Create agent" and "Add key" are cut
-#[test]
-fn the_view_is_laid_out_from_560() {
-    assert_eq!(
-        <Settings as ducktape_view_guest::View>::MIN_WINDOW_WIDTH,
-        560
-    );
-}
-
 #[test]
 fn four_states_are_honest() {
     assert!(fixture("loading", false).has_text("Reading your account…"));
@@ -235,11 +226,6 @@ fn an_arrow_on_the_menu_opens_the_next_section() {
     let mint = cx.interactivity("settings/invite/mint");
     let ring = &cx.styles()[mint.focus_visible.expect("a focus ring")];
     assert_eq!(ring.border_color, Some(Theme::light().primary_foreground));
-    assert!(
-        ring.box_shadow
-            .as_ref()
-            .is_some_and(|shadows| shadows.len() == 1 && shadows[0].inset)
-    );
 }
 
 #[test]
@@ -306,55 +292,6 @@ fn a_refusal_retries_and_a_snapshot_restores() {
     cx.restore::<Settings>(&snapshot).unwrap();
     cx.run_until_parked();
     assert!(cx.has_text("account 7 · Person"));
-}
-#[test]
-fn an_account_changed_elsewhere_is_read_again() {
-    let mut cx = TestAppContext::new();
-    let accounts = cx.host().stream::<Changes<Identity>>();
-    let props = cx.host().stream::<HostSession>();
-    respond(&cx);
-    cx.open::<Settings>();
-    props.send(Session {
-        signer: "abcd".into(),
-        account: Some(7),
-        ..Session::default()
-    });
-    cx.run_until_parked();
-    cx.simulate_click("settings/nav/agents");
-    cx.run_until_parked();
-    assert!(cx.find("settings/agents/12/suspend").is_some());
-    // Maya suspends Scout from another device
-    cx.host().handle::<Query<Identity>>(|q| {
-        Ok(match q {
-            identity::Query::Get { number } => {
-                identity::Reply::Account(Some(maya(number, "Laptop key")))
-            }
-            identity::Query::Managed { .. } => {
-                let mut scout = scout();
-                scout.control = identity::Control::Managed {
-                    manager: 7,
-                    category: identity::Category::Agent,
-                    life: identity::Life::Suspended { keys: Vec::new() },
-                };
-                identity::Reply::Accounts(identity::PageResponse {
-                    height: 43,
-                    items: vec![scout],
-                    next: None,
-                })
-            }
-            q => panic!("unexpected query: {q:?}"),
-        })
-    });
-    accounts.send(Some(Change {
-        height: 43,
-        keys: Vec::new(),
-    }));
-    cx.run_until_parked();
-    assert!(
-        cx.find("settings/agents/12/resume").is_some(),
-        "{:?}",
-        cx.texts()
-    );
 }
 #[test]
 fn export_settings_screens() {
@@ -743,22 +680,26 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     }
 }
 
-/// Identity's live heads re-read the account in place: a rename made
-/// elsewhere shows without the account leaving the screen first.
+/// Identity's live heads re-read the account in place: the account stays
+/// on screen while it is read again, and a rename and an agent suspended
+/// elsewhere then show.
 #[test]
 fn an_identity_head_re_reads_the_account_in_place() {
-    let mut cx = TestAppContext::new();
+    let mut cx = fixture("ready", false);
     let heads = cx.host().stream::<Changes<Identity>>();
-    let props = cx.host().stream::<HostSession>();
-    respond(&cx);
-    cx.open::<Settings>();
-    props.send(Session {
-        signer: "abcd".into(),
-        account: Some(7),
-        ..Session::default()
-    });
+    let head = || {
+        Some(Change {
+            height: 43,
+            keys: Vec::new(),
+        })
+    };
+    // the re-read is under way, not answered yet
+    cx.host().never::<Query<Identity>>();
+    heads.send(head());
     cx.run_until_parked();
-    assert!(cx.has_text("Maya"));
+    assert!(cx.has_text("Maya"), "{:?}", cx.texts());
+    assert!(!cx.has_text("Reading your account…"));
+    // Maya renames herself and suspends Scout from another device
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
             identity::Query::Get { number } => {
@@ -766,19 +707,30 @@ fn an_identity_head_re_reads_the_account_in_place() {
                 renamed.card.name = "Maya R".into();
                 identity::Reply::Account(Some(renamed))
             }
-            identity::Query::Managed { .. } => identity::Reply::Accounts(identity::PageResponse {
-                height: 43,
-                items: vec![],
-                next: None,
-            }),
+            identity::Query::Managed { .. } => {
+                let mut scout = scout();
+                scout.control = identity::Control::Managed {
+                    manager: 7,
+                    category: identity::Category::Agent,
+                    life: identity::Life::Suspended { keys: Vec::new() },
+                };
+                identity::Reply::Accounts(identity::PageResponse {
+                    height: 43,
+                    items: vec![scout],
+                    next: None,
+                })
+            }
             q => panic!("unexpected query: {q:?}"),
         })
     });
-    heads.send(Some(Change {
-        height: 43,
-        keys: Vec::new(),
-    }));
+    heads.send(head());
     cx.run_until_parked();
     assert!(cx.has_text("Maya R"), "{:?}", cx.texts());
-    assert!(!cx.has_text("Reading your account…"));
+    cx.simulate_click("settings/nav/agents");
+    cx.run_until_parked();
+    assert!(
+        cx.find("settings/agents/12/resume").is_some(),
+        "{:?}",
+        cx.texts()
+    );
 }

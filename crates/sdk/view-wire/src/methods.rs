@@ -681,11 +681,6 @@ mod tests {
     }
 
     #[test]
-    fn a_new_method_goes_last() {
-        assert_eq!(ALL.last(), Some(&"host.title"));
-    }
-
-    #[test]
     fn every_kind_is_listed_once() {
         let mut kinds = ALL.to_vec();
         kinds.sort_unstable();

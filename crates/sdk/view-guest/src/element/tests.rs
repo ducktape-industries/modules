@@ -1,31 +1,4 @@
 use super::*;
-use std::borrow::Cow;
-
-fn assert_element<T: Element>() {}
-
-#[test]
-fn authoring_associated_types_follow_gpui() {
-    fn string() -> <String as IntoElement>::Element {
-        String::from("string").into_element()
-    }
-    fn text() -> <&'static str as IntoElement>::Element {
-        "text".into_element()
-    }
-    fn shared() -> <SharedString as IntoElement>::Element {
-        SharedString::from("shared").into_element()
-    }
-    fn borrowed() -> <Cow<'static, str> as IntoElement>::Element {
-        Cow::Borrowed("borrowed").into_element()
-    }
-
-    assert_element::<SharedString>();
-    assert_element::<&'static str>();
-    assert_element::<Div>();
-    assert_eq!(string().to_string(), "string");
-    assert_eq!((*text()).to_owned(), "text");
-    assert_eq!(shared().to_string(), "shared");
-    assert_eq!(borrowed().to_string(), "borrowed");
-}
 
 #[test]
 fn a_field_marked_invalid_required_and_read_only_says_so_and_why() {

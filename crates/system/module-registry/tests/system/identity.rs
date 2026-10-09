@@ -312,6 +312,9 @@ fn an_agent_acts_until_its_manager_suspends_it() {
             )
             .await;
         assert_eq!(nested, reason::UNAUTHORIZED);
+        // its key acts: a frame it signs runs (the probe's empty script)
+        let idle = Vec::<Step>::new();
+        output_of(&net.submit(&bot_key, "probe", &idle).await);
 
         // the agent acts, as a member of chat would see; its card is its
         // manager's alone
@@ -339,17 +342,7 @@ fn an_agent_acts_until_its_manager_suspends_it() {
         let by_bob = net.refuse(&public(2), identity::MODULE, &suspend).await;
         assert_eq!(by_bob, reason::UNAUTHORIZED);
         net.apply(&public(1), identity::MODULE, &suspend).await;
-        let suspended = net
-            .refuse(
-                &bot_key,
-                identity::MODULE,
-                &identity::Op::SetProfile {
-                    account: agent,
-                    avatar: None,
-                    bio: None,
-                },
-            )
-            .await;
+        let suspended = net.refuse(&bot_key, "probe", &idle).await;
         assert_eq!(suspended, reason::UNAUTHORIZED);
         assert_eq!(net.account(agent).await.keys().len(), 1, "it keeps its key");
         net.apply(
@@ -358,18 +351,8 @@ fn an_agent_acts_until_its_manager_suspends_it() {
             &identity::Op::Resume { account: agent },
         )
         .await;
-        let identity::Reply::Number(holds) = net
-            .ask(
-                identity::MODULE,
-                &identity::Query::OfKey {
-                    key: bot_key.clone(),
-                },
-            )
-            .await
-        else {
-            panic!()
-        };
-        assert_eq!(holds, Some(agent), "resumed, its key acts again");
+        // resumed, its key acts again
+        output_of(&net.submit(&bot_key, "probe", &idle).await);
 
         // then revoked for good
         net.apply(

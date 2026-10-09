@@ -138,6 +138,7 @@ impl View for Members {
         Capability::Link,
     ];
     const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
+    // the list and the detail fit at 320, the desk's smallest window
     const MIN_WINDOW_WIDTH: u32 = 320;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {

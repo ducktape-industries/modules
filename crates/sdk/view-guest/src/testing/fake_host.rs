@@ -400,32 +400,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn streams_stop_delivering_to_cancelled_subscriptions() {
-        let host = FakeHost::default();
-        let feed = host.stream::<Changes<First>>();
-        let channel = crate::host::Host::default();
-        let stream = channel.subscribe::<Changes<First>>(());
-        host.accept(
-            &Frame {
-                requests: channel.drain_outbox(),
-                ..Frame::default()
-            },
-            &channel,
-        );
-        feed.send(None);
-        assert_eq!(host.take_events().len(), 1);
-        drop(stream);
-        host.accept(
-            &Frame {
-                cancels: channel.drain_cancels(),
-                ..Frame::default()
-            },
-            &channel,
-        );
-        assert!(!feed.subscribed());
-    }
-
     /// Sends what `channel` asked since the last frame to `host`.
     fn flush(host: &FakeHost, channel: &crate::host::Host) {
         host.accept(
@@ -436,6 +410,20 @@ mod tests {
             },
             channel,
         );
+    }
+
+    #[test]
+    fn streams_stop_delivering_to_cancelled_subscriptions() {
+        let host = FakeHost::default();
+        let feed = host.stream::<Changes<First>>();
+        let channel = crate::host::Host::default();
+        let stream = channel.subscribe::<Changes<First>>(());
+        flush(&host, &channel);
+        feed.send(None);
+        assert_eq!(host.take_events().len(), 1);
+        drop(stream);
+        flush(&host, &channel);
+        assert!(!feed.subscribed());
     }
 
     #[test]
@@ -516,13 +504,7 @@ mod tests {
         let channel = crate::host::Host::default();
         let _ask = channel.ask::<Query<First>>("ask".into());
         let _stream = channel.subscribe::<Query<First>>("subscribe".into());
-        host.accept(
-            &Frame {
-                requests: channel.drain_outbox(),
-                ..Frame::default()
-            },
-            &channel,
-        );
+        flush(&host, &channel);
         let replies = host.take_events();
         assert!(matches!(
             &replies[..],
@@ -550,13 +532,7 @@ mod tests {
         let feed = host.stream::<Changes<First>>();
         let channel = crate::host::Host::default();
         let mut stream = channel.subscribe::<Changes<First>>(());
-        host.accept(
-            &Frame {
-                requests: channel.drain_outbox(),
-                ..Frame::default()
-            },
-            &channel,
-        );
+        flush(&host, &channel);
         feed.close();
         assert!(futures::executor::block_on(stream.next()).is_none());
     }

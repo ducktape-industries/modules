@@ -278,7 +278,8 @@ fn uniform_list_lowers_a_screenful_before_the_host_asks_and_grows_to_what_it_sho
     assert_eq!(count, 2_000);
     let row = f32::from(crate::design::size::ROW);
     let rows = (crate::testing::VIEWPORT.1 / row).ceil() as usize;
-    let first: Vec<u32> = (0..rows as u32 + 12).collect();
+    let margin = crate::list::MARGIN_ROWS as u32;
+    let first: Vec<u32> = (0..rows as u32 + margin).collect();
     assert_eq!(indices, first, "the viewport's rows and a margin past them");
     assert_eq!(children, indices.len());
     let renders = cx.renders();
@@ -296,7 +297,7 @@ fn uniform_list_lowers_a_screenful_before_the_host_asks_and_grows_to_what_it_sho
     );
     assert_eq!(
         &indices[1..],
-        (988..1_032).map(|index| index as u32).collect::<Vec<_>>(),
+        (1_000 - margin..1_020 + margin).collect::<Vec<_>>(),
         "the rows shown with a margin past each edge"
     );
     assert!(cx.reports()[0].patches <= wire::MAX_PATCHES);
@@ -455,6 +456,7 @@ fn a_uniform_list_lowers_the_row_it_is_scrolled_to_in_the_same_frame() {
 #[test]
 fn a_scroll_to_a_row_on_screen_keeps_the_rows_on_screen() {
     use gpui::ScrollStrategy::{Nearest, Top};
+    let margin = crate::list::MARGIN_ROWS as u32;
     let (mut cx, view) = opened::<Scrolled>();
     cx.simulate_range("rows", 100..120);
     let (_, held, _) = uniform_rows(&cx);
@@ -468,12 +470,12 @@ fn a_scroll_to_a_row_on_screen_keeps_the_rows_on_screen() {
     // a row above the rows shown lands at their top: the window grows to
     // it with a margin, and keeps the rows on screen until the host moves
     let rows = scrolled_to(&mut cx, &view, 85, Nearest);
-    assert_eq!(rows[1..], (73..132).collect::<Vec<u32>>());
+    assert_eq!(rows[1..], (85 - margin..120 + margin).collect::<Vec<u32>>());
     cx.simulate_range("rows", 85..105);
     // a row below them lands at their bottom
     let rows = scrolled_to(&mut cx, &view, 125, Nearest);
     assert_eq!(missing(&rows, 85..126), [0u32; 0], "{rows:?}");
-    assert_eq!(rows.last(), Some(&(126 + 12 - 1)), "a margin below it");
+    assert_eq!(rows.last(), Some(&(126 + margin - 1)), "a margin below it");
 
     // a row far from the rows shown is a jump: the window goes with it
     let rows = scrolled_to(&mut cx, &view, 1_500, Nearest);
@@ -489,22 +491,35 @@ fn a_scroll_to_a_row_on_screen_keeps_the_rows_on_screen() {
 #[test]
 fn a_uniform_window_grown_by_a_scroll_is_trimmed_by_the_hosts_range() {
     use gpui::ScrollStrategy::Nearest;
+    let margin = crate::list::MARGIN_ROWS as u32;
     let (mut cx, view) = opened::<Scrolled>();
     cx.simulate_range("rows", 100..120);
     let rows = scrolled_to(&mut cx, &view, 80, Nearest);
-    assert_eq!((rows[1], rows.last()), (68, Some(&131)), "grown, not moved");
+    assert_eq!(
+        (rows[1], rows.last()),
+        (80 - margin, Some(&(120 + margin - 1))),
+        "grown, not moved"
+    );
     cx.simulate_range("rows", 80..100);
     assert!(cx.last_frame().unchanged, "rows it holds: nothing to draw");
     cx.update(&view, |_, _, cx| cx.notify());
     cx.run_until_parked();
     let (_, rows, _) = uniform_rows(&cx);
-    assert_eq!((rows[1], rows.last()), (68, Some(&111)), "{rows:?}");
+    assert_eq!(
+        (rows[1], rows.last()),
+        (80 - margin, Some(&(100 + margin - 1))),
+        "{rows:?}"
+    );
 
     // a pane of 240 rows holds more than a frame carries with a margin
     cx.simulate_range("rows", 400..640);
     let rows = scrolled_to(&mut cx, &view, 399, Nearest);
     assert_eq!(rows.len(), wire::MAX_UNIFORM_LIST_ROWS);
-    assert_eq!(rows[1], 399 - 12, "the side scrolled to is kept: {rows:?}");
+    assert_eq!(
+        rows[1],
+        399 - margin,
+        "the side scrolled to is kept: {rows:?}"
+    );
 }
 
 /// A pane resized taller while its list is scrolled shows more rows below

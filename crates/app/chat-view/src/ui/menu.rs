@@ -462,32 +462,31 @@ impl RenderOnce for Item {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A popup opens where its menu says. The message menu is one width
+    /// and grows with its items; the picker keeps one size; the delete
+    /// confirmation sizes to its words (a1b7fbf7); the strip and the edit
+    /// field are no popup.
     #[test]
     fn menu_and_picker_dimensions() {
-        assert_eq!(menu_size(5), (220., 160.));
-        assert_eq!(menu_size(4), (220., 130.));
-        assert_eq!(menu_size(2), (220., 70.));
-        // 8 cells a row; search, two captions, the frequent row, tabs and
-        // five rows of grid
-        assert_eq!(
-            picker_size(),
-            (286., 16. + 28. + 14. + 32. + 28. + 14. + 168. + 30.)
-        );
-        let menu = Menu {
+        let at = |mode| Menu {
             pane: Pane::Timeline,
             seq: 1,
             rev: 2,
-            mode: Mode::More,
+            mode,
             at: (617., 449.),
         };
-        assert_eq!(
-            popup_geometry(&menu, 3),
-            Some(((617., 449.), Some((220., 100.))))
-        );
-        let delete = Menu {
-            mode: Mode::Delete,
-            ..menu
+        let sized = |mode, items| {
+            let (spot, size) = popup_geometry(&at(mode), items).expect("a popup");
+            assert_eq!(spot, (617., 449.));
+            size
         };
-        assert_eq!(popup_geometry(&delete, 0), Some(((617., 449.), None)));
+        let (two, three) = (sized(Mode::More, 2).unwrap(), sized(Mode::More, 3).unwrap());
+        assert_eq!(two.0, three.0, "one width");
+        assert!(three.1 > two.1, "a row more is taller");
+        assert_eq!(sized(Mode::Reactions, 0), Some(picker_size()));
+        assert_eq!(sized(Mode::Delete, 0), None);
+        for mode in [Mode::Toolbar, Mode::Editing] {
+            assert_eq!(popup_geometry(&at(mode), 0), None);
+        }
     }
 }

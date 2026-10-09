@@ -49,6 +49,7 @@ impl View for Explorer {
     ];
     const TARGETS: &'static [&'static str] =
         &[identity::MODULE, valset::MODULE, module_registry::MODULE];
+    // at 560 a block's hash is cut at the right edge
     const MIN_WINDOW_WIDTH: u32 = 640;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {

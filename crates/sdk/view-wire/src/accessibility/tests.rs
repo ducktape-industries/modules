@@ -213,11 +213,6 @@ fn an_interactive_node_of_any_kind_without_a_role_fails() {
 }
 
 #[test]
-fn an_interactive_node_with_a_role_passes() {
-    passes(button("open", "Open"));
-}
-
-#[test]
 fn a_node_only_the_pointer_hears_needs_no_role() {
     passes(el(
         "row",

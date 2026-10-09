@@ -29,6 +29,7 @@ impl View for Settings {
         Capability::Clipboard,
     ];
     const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
+    // at 480 the Agents page's "Create agent" and "Add key" are cut
     const MIN_WINDOW_WIDTH: u32 = 560;
 
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {

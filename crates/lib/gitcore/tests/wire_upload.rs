@@ -3,12 +3,11 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::{fixture, oid_list, oid_text, sha1};
+use common::{fixture, git_binary, oid_list, oid_text, sha1, temp_dir};
 use gitcore::server::admit_pack;
 use gitcore::wire::pktline::{self, Pkt, Reader};
 use gitcore::wire::upload::{
-    Command, Fetch, LsRefs, acknowledgments, capability_advertisement, fetch, ls_refs_response,
-    parse_command,
+    Command, Fetch, LsRefs, capability_advertisement, fetch, ls_refs_response, parse_command,
 };
 use gitcore::{Error, Hash, Kind, Limits, MemoryObjects, Objects, Oid, pack};
 use std::collections::{BTreeMap, BTreeSet};
@@ -233,19 +232,6 @@ fn ls_refs_lists_head_symref_and_peeled_tags() {
     );
 }
 
-#[test]
-fn acknowledgment_section_golden() {
-    let a = sha1("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    assert_eq!(
-        lines(&acknowledgments(&[], false)),
-        ["acknowledgments", "NAK"]
-    );
-    assert_eq!(
-        lines(&acknowledgments(&[a], true)),
-        ["acknowledgments", format!("ACK {a}").as_str(), "ready"]
-    );
-}
-
 struct Response {
     sections: Vec<String>,
     pack: Vec<u8>,
@@ -461,9 +447,7 @@ fn fetch_pack_is_valid_for_git() {
             ..Fetch::default()
         },
     );
-    let dir = std::env::temp_dir().join(format!("forge-git-fetch-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = temp_dir("forge-git-fetch");
     assert!(
         std::process::Command::new(&git)
             .args(["init", "-q"])
@@ -489,18 +473,4 @@ fn fetch_pack_is_valid_for_git() {
         .unwrap();
     assert!(fsck.status.success(), "{fsck:?}");
     std::fs::remove_dir_all(&dir).ok();
-}
-
-fn git_binary() -> Option<std::path::PathBuf> {
-    let output = std::process::Command::new("which")
-        .arg("git")
-        .output()
-        .ok()?;
-    let found = output.status.success();
-    if !found {
-        return None;
-    }
-    Some(std::path::PathBuf::from(
-        String::from_utf8_lossy(&output.stdout).trim(),
-    ))
 }

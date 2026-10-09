@@ -92,33 +92,6 @@ fn a_pushed_head_is_drawn_with_the_page_it_brings_not_before() {
     assert!(cx.has_text("12") && !cx.has_text("40"), "{:?}", cx.texts());
 }
 
-/// The head is followed by `chain.heads` alone, as any stream: the host
-/// opens it again on the new node across a reconnect, so a stream that
-/// ends starts no clock in its place.
-#[test]
-fn the_head_is_followed_by_chain_heads_alone() {
-    let mut cx = TestAppContext::new();
-    let heads = cx.host().stream::<ChainHeads>();
-    let tip = Rc::new(RefCell::new(12));
-    node(&mut cx, tip.clone());
-    cx.open::<Explorer>();
-    cx.run_until_parked();
-    *tip.borrow_mut() = 14;
-    heads.send(Head {
-        height: 14,
-        time: T0 + 14_000,
-        id: [14; 32],
-    });
-    cx.run_until_parked();
-    assert!(cx.has_text("13–14 · 2 empty blocks"), "{:?}", cx.texts());
-    heads.close();
-    cx.run_until_parked();
-    assert!(
-        cx.host().requests::<ClockTicks>().is_empty(),
-        "no clock stands in for the heads"
-    );
-}
-
 #[test]
 fn a_refused_window_says_why_and_retry_reads_again() {
     let mut cx = TestAppContext::new();
@@ -167,8 +140,6 @@ fn a_full_window_renders_inside_the_frame_budget() {
         cx.run_until_parked();
         sizes.push((tab, cx.frame_bytes()));
     }
-    let mut big = [0xfe; 32];
-    big[..8].copy_from_slice(&(WINDOW as u64).to_le_bytes());
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
     cx.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
@@ -209,8 +180,6 @@ fn a_snapshot_keeps_ops_not_payloads() {
     heavy(&mut restored);
     restored.restore::<Explorer>(&bytes).unwrap();
     restored.run_until_parked();
-    let mut big = [0xfe; 32];
-    big[..8].copy_from_slice(&(WINDOW as u64).to_le_bytes());
     restored.simulate_click("explorer-tab-transactions");
     restored.run_until_parked();
     restored.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
