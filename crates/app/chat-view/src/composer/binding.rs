@@ -44,7 +44,7 @@ impl Draft {
                 self.changed(&change);
                 return Outcome::Updated;
             }
-            Event::Key(key, repeat) => match self.key_tag(&key, repeat) {
+            Event::Key(key, repeat) => match self.key_tag(&key, repeat, choices) {
                 Some(tag) => tag,
                 None => return Outcome::Updated,
             },
