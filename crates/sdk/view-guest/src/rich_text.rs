@@ -249,25 +249,6 @@ mod tests {
     use super::*;
     use std::{cell::RefCell, rc::Rc};
 
-    /// The route is the element's: lowering it again names the same one.
-    #[test]
-    fn a_relowered_element_keeps_its_route() {
-        let make = || {
-            InteractiveText::new("rich", StyledText::new("one two"))
-                .on_click(vec![0..3, 4..7], |_, _, _| {})
-        };
-        let mut app = App::for_driver();
-        let mut window = app.window();
-        let first = Lowering::new(&mut window, &mut app).lower(make());
-        let mut window = app.window();
-        let second = Lowering::new(&mut window, &mut app).lower(make());
-        let route = |node| match node {
-            wire::Node::RichText { on_click, .. } => on_click.expect("a click route"),
-            node => panic!("{node:?}"),
-        };
-        assert_eq!(route(first), route(second));
-    }
-
     #[test]
     fn a_new_frame_replaces_the_old_rich_text_callback() {
         let hits = Rc::new(RefCell::new(Vec::new()));

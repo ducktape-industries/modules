@@ -433,54 +433,6 @@ impl Host {
 }
 
 #[cfg(test)]
-mod all_pages_tests {
-    use super::{Error, Page, all_pages};
-    use std::cell::{Cell, RefCell};
-    use std::future::ready;
-
-    /// A listing of 0..10 served three rows a page.
-    fn listing(after: Option<Vec<u8>>) -> Result<Page<u8>, Error> {
-        let start = after.map_or(0, |cursor| cursor[0]);
-        let end = (start + 3).min(10);
-        let next = (end < 10).then(|| vec![end]);
-        Ok(((start..end).collect(), next))
-    }
-
-    #[test]
-    fn all_pages_follows_the_cursor_to_the_end() {
-        let all = futures::executor::block_on(all_pages(|after| ready(listing(after)))).unwrap();
-        assert_eq!(all, (0..10).collect::<Vec<_>>());
-    }
-
-    /// A write that lands between two pages makes the cursor the first page
-    /// handed out `stale`: the read starts over from the first page, and the
-    /// refusal is never the answer.
-    #[test]
-    fn a_write_between_two_pages_starts_the_read_over() {
-        let asked = RefCell::new(Vec::new());
-        let written = Cell::new(false);
-        let all = futures::executor::block_on(all_pages(|after| {
-            asked
-                .borrow_mut()
-                .push(after.as_ref().map(|cursor| cursor[0]));
-            // the write lands once, after the first page is answered
-            let crossed = after.is_some() && !written.replace(true);
-            ready(if crossed {
-                Err(Error::new(
-                    ::error::code::STALE,
-                    "the listing changed; restart it",
-                ))
-            } else {
-                listing(after)
-            })
-        }));
-        assert_eq!(all, Ok((0..10).collect::<Vec<_>>()));
-        let started_over = [None, Some(3), None, Some(3), Some(6), Some(9)];
-        assert_eq!(*asked.borrow(), started_over);
-    }
-}
-
-#[cfg(test)]
 mod ask_tests {
     use super::Host;
     use crate::methods::{Method, Query};

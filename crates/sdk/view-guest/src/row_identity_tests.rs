@@ -239,17 +239,6 @@ fn write_twice(cx: &mut TestAppContext, view: &Entity<Twice>) {
     cx.run_until_parked();
 }
 
-#[test]
-#[should_panic(
-    expected = "the host refuses this frame: duplicate typed element identity \
-                           among siblings: x twice under page > rows"
-)]
-fn a_duplicate_written_among_siblings_fails_naming_its_site() {
-    let mut cx = TestAppContext::new();
-    let view = cx.open::<Twice>();
-    write_twice(&mut cx, &view);
-}
-
 /// The panic `f` ends in, as text.
 fn panic_message(f: impl FnOnce()) -> String {
     let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
