@@ -45,12 +45,21 @@ RELEASE := $(BUILD_TARGET)/wasm32-unknown-unknown/release
 # The artifacts wasm-modules leaves there (the target dir may hold others).
 ARTIFACTS := $(foreach a,$(PROGRAMS) $(VIEWS),$(subst -,_,$(a)).wasm) $(foreach p,$(PROGRAMS),$(subst -,_,$(p)).describe.wasm)
 
-# A wasm artifact must be the same bytes from any checkout on any machine:
-# panic locations would otherwise carry this checkout's, cargo's and the
-# toolchain's absolute paths.
+# A wasm artifact is the same bytes from any checkout on any machine of one
+# host triple: panic locations would otherwise carry this checkout's, cargo's
+# and the toolchain's absolute paths. Across host triples (a Mac and a Linux
+# box) the bytes differ and no flag here changes that: cargo mixes the host
+# into the `-C metadata` of every crate with a build script or a proc macro
+# beneath it. The reference host is x86_64-unknown-linux-gnu (owner,
+# 2026-10-09): bytes someone will compare by hash (a founding, a release) are
+# built there, and a Mac's build is a development build.
 CARGO_HOME_DIR := $(or $(CARGO_HOME),$(HOME)/.cargo)
 SYSROOT := $(shell rustc --print sysroot)
-WASM_RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/build --remap-path-prefix=$(CARGO_HOME_DIR)=/cargo --remap-path-prefix=$(SYSROOT)=/rustc
+# Where the rust-src component is installed (rust-analyzer asks for it), rustc
+# names std's sources by their place under the sysroot, not by /rustc/<commit>
+# as it does without it. The last matching remap wins: both read /rustc/<commit>.
+RUSTC_COMMIT := $(shell rustc -vV | sed -n 's/^commit-hash: //p')
+WASM_RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/build --remap-path-prefix=$(CARGO_HOME_DIR)=/cargo --remap-path-prefix=$(SYSROOT)=/rustc --remap-path-prefix=$(SYSROOT)/lib/rustlib/src/rust=/rustc/$(RUSTC_COMMIT)
 WASM_CARGO := RUSTFLAGS="$(WASM_RUSTFLAGS)" $(CARGO) build --target wasm32-unknown-unknown
 WASM_BUILD := $(WASM_CARGO) --release
 
@@ -150,8 +159,8 @@ wasm-modules: wasm-programs wasm-describes wasm-views
 	@cd $(RELEASE) && ls -l $(ARTIFACTS)
 
 ## builds every program and view twice, the second time from a fresh target
-## directory, and requires the same sha256 for every artifact and no absolute
-## path of this checkout or this home inside any of them.
+## directory, and requires the same sha256 for every artifact and no path of
+## this checkout, this home or this toolchain's own sources inside any of them.
 wasm-reproducible:
 	$(MAKE) wasm-modules
 	@cd $(RELEASE) && sha256sum $(ARTIFACTS) > first.sha256 && cat first.sha256
@@ -159,8 +168,8 @@ wasm-reproducible:
 	@cd $(BUILD_TARGET)/repro/wasm32-unknown-unknown/release && sha256sum $(ARTIFACTS) > second.sha256 && cat second.sha256
 	@diff $(RELEASE)/first.sha256 $(BUILD_TARGET)/repro/wasm32-unknown-unknown/release/second.sha256 && echo "every program and view rebuilds to the same bytes"
 	@for a in $(ARTIFACTS); do f=$(RELEASE)/$$a; \
-	  if strings $$f | grep -qE "$(CURDIR)|$(HOME)"; then echo "$$f embeds an absolute path"; strings $$f | grep -E "$(CURDIR)|$(HOME)" | head -3; exit 1; fi; \
-	done; echo "no program or view embeds a path of this checkout or home"
+	  if strings $$f | grep -qE "$(CURDIR)|$(HOME)|/rustc/lib/"; then echo "$$f embeds a path of this machine"; strings $$f | grep -E "$(CURDIR)|$(HOME)|/rustc/lib/" | head -3; exit 1; fi; \
+	done; echo "no program or view embeds a path of this checkout, home or toolchain"
 
 ## refreshes the probe fixture the founding suite seats as the authority,
 ## from the ducktape checkout at $(DUCKTAPE). Its script type, `Step`, is
