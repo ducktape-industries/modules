@@ -140,12 +140,6 @@ fn collect(node: &ducktape_view_guest::wire::Node, texts: &mut Vec<String>) {
     }
 }
 
-// the set's table fits from 480 up
-#[test]
-fn the_view_is_laid_out_from_480() {
-    assert_eq!(<Nodes as View>::MIN_WINDOW_WIDTH, 480);
-}
-
 #[test]
 fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();

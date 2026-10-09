@@ -74,6 +74,7 @@ impl View for Nodes {
         Capability::Clock,
     ];
     const TARGETS: &'static [&'static str] = &[valset::MODULE];
+    // the set's table fits from 480 up
     const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
