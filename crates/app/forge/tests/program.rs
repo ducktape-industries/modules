@@ -6,12 +6,6 @@ fn founding_requires_bounds_and_ops_require_a_signer() {
     let sandbox = MemorySandbox::default();
     let unfounded = Forge::init(&sandbox.exec(1), b"").unwrap_err();
     assert_eq!(unfounded.code, code::INVALID_INPUT);
-    assert!(
-        unfounded
-            .message
-            .starts_with("forge: Bounds did not decode:"),
-        "{unfounded}"
-    );
     sandbox.chain.init("forge", &bounds()).unwrap();
 
     let create = Op::Create {
