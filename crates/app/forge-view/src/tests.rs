@@ -2361,9 +2361,15 @@ fn the_window_is_named_for_the_screen() {
         cx.host().requests::<HostTitle>(),
         ["Repositories", "project", "project · #1"]
     );
+    // the read lands: the same window takes the title, once
     let (cx, _) = change_screen("default", ChangeTab::Conversation);
     assert_eq!(
-        cx.host().requests::<HostTitle>().last().map(String::as_str),
-        Some("project · #1 Review this change")
+        cx.host().requests::<HostTitle>(),
+        [
+            "Repositories",
+            "project",
+            "project · #1",
+            "project · #1 Review this change"
+        ]
     );
 }
