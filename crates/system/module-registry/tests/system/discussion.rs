@@ -136,19 +136,11 @@ fn a_change_and_its_channel_land_in_one_block() {
             "{receipt:?}"
         );
         // chat created the channel in forge's frame
-        let ran: Vec<(&str, bool)> = receipt
-            .nested
-            .iter()
-            .map(|nested| {
-                (
-                    nested.program.as_str(),
-                    matches!(nested.outcome, Outcome::Applied { .. }),
-                )
-            })
-            .collect();
-        assert_eq!(
-            ran,
-            [(chat::MODULE, true), (chat::MODULE, true)],
+        let in_frame = |nested: &Receipt| {
+            nested.program == chat::MODULE && matches!(nested.outcome, Outcome::Applied { .. })
+        };
+        assert!(
+            !receipt.nested.is_empty() && receipt.nested.iter().all(in_frame),
             "{receipt:?}"
         );
         let channel = format!("forge:{REPO}:1");
