@@ -2339,3 +2339,37 @@ fn a_chat_block_that_answered_a_thread_re_reads_the_judgment() {
     cx.run_until_parked();
     assert_eq!(judgments(&cx), asked + 2, "a reopened chat link");
 }
+
+/// The window is named for the screen: the repository list, a repository,
+/// a change by its number and, once its read lands, its title. Each name
+/// goes to the host once.
+#[test]
+fn the_window_is_named_for_the_screen() {
+    use ducktape_view_guest::methods::HostTitle;
+    let (mut cx, _) = opened("default");
+    assert_eq!(
+        cx.host().requests::<HostTitle>(),
+        ["Repositories", "project"]
+    );
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    // the change's read never lands: its number alone
+    cx.host().never::<Ask>();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<HostTitle>(),
+        ["Repositories", "project", "project · #1"]
+    );
+    // the read lands: the same window takes the title, once
+    let (cx, _) = change_screen("default", ChangeTab::Conversation);
+    assert_eq!(
+        cx.host().requests::<HostTitle>(),
+        [
+            "Repositories",
+            "project",
+            "project · #1",
+            "project · #1 Review this change"
+        ]
+    );
+}

@@ -90,6 +90,8 @@ impl Render for Chat {
         self.layout.viewport = (size.width.into(), size.height.into());
         self.layout.clamp();
         self.seat_drafts();
+        // names land async: the frame is the one place that sees each
+        self.settle_title(cx);
         ui::render(self, cx)
     }
 }

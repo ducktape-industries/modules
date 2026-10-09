@@ -33,6 +33,9 @@ pub struct Forge {
     /// the repository whose address was copied last, so its row says so
     #[serde(skip)]
     pub(crate) copied: Option<String>,
+    /// the window's title last sent
+    #[serde(skip)]
+    pub(crate) title: Option<String>,
     pub(crate) layout: Layout,
     #[serde(skip)]
     /// every read on screen, keyed by the query that asked it

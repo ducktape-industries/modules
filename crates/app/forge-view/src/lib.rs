@@ -5,8 +5,9 @@
 //! one method (`module.query`); conversation is chat's, through the method
 //! chat-view uses. Reads are a cache keyed by the query itself: `sync` asks
 //! what the current screen needs, issues what is missing, and drops what the
-//! reader has navigated away from. `render` never mutates — what an event
-//! changes lands in `actions`.
+//! reader has navigated away from. `render` writes only what the frame
+//! learns, the pane's width and the window's title last sent — what an
+//! event changes lands in `actions`.
 //!
 //! - `state`: what the view holds; `select`: what the screens read out of it.
 //! - `sync`: which reads the screen needs; `queries`: how one read is asked.
@@ -108,7 +109,30 @@ impl Render for Forge {
         // the pane's width, as the host lays the frame out: the rail and
         // the dock fold to it in the frame that shows them
         self.layout.width = window.viewport_size().width.into();
+        // a change's title lands async: the frame is the one place that
+        // sees each
+        self.settle_title(cx);
         ui::render(self, cx)
+    }
+}
+
+impl Forge {
+    /// The window's title: `Repositories` over the list, a repository's
+    /// name, a change as `<repo> · #<n>` and its title once it lands. Sent
+    /// when it changes.
+    fn settle_title(&mut self, cx: &mut Context<Self>) {
+        let title = match (&self.nav.repo, self.nav.change) {
+            (None, _) => "Repositories".to_owned(),
+            (Some(repo), None) => repo.clone(),
+            (Some(repo), Some(n)) => match self.change() {
+                Some((change, ..)) => format!("{repo} · #{n} {}", change.title),
+                None => format!("{repo} · #{n}"),
+            },
+        };
+        if self.title.as_deref() != Some(title.as_str()) {
+            cx.host().notify::<HostTitle>(title.clone());
+            self.title = Some(title);
+        }
     }
 }
 

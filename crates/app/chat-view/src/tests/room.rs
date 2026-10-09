@@ -872,3 +872,35 @@ fn a_reconnect_shows_the_rooms_loading() {
         "the list from before the drop is not shown as the node's"
     );
 }
+
+/// The window is named for the open room as its header names it: `#name`
+/// for a channel, the peer for a direct room; nothing while the name is
+/// still out, never the room's id. Each name goes to the host once.
+#[test]
+fn the_window_is_named_for_the_open_room() {
+    use ducktape_view_guest::methods::HostTitle;
+    let (mut cx, view) = opened();
+    // no room at boot clears it; the room's name follows, once however
+    // often the room is drawn
+    assert_eq!(cx.host().requests::<HostTitle>(), ["", "#General"]);
+    cx.simulate_click("chat-sidebar-channel-general");
+    cx.run_until_parked();
+    assert_eq!(cx.host().requests::<HostTitle>(), ["", "#General"]);
+    // a direct room before the names land: no name yet
+    cx.update(&view, |chat, _, cx| {
+        cx.notify();
+        chat.names = Loadable::Idle;
+        chat.choose("dm-7-8".into(), cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(cx.host().requests::<HostTitle>(), ["", "#General", ""]);
+    cx.update(&view, |chat, _, cx| {
+        cx.notify();
+        chat.load_names(cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<HostTitle>(),
+        ["", "#General", "", "reviewer"]
+    );
+}

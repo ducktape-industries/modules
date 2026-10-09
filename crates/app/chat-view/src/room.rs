@@ -471,6 +471,26 @@ impl Chat {
             .find(|info| info.channel.id == id)
     }
 
+    /// The window's title: the open room as its header names it, `#name`
+    /// for a channel, the peer for a direct room; empty while the name is
+    /// still out, never the room's id. Sent when it changes.
+    pub(crate) fn settle_title(&mut self, cx: &mut Context<Self>) {
+        let title = match &self.room {
+            Some(room) if chat::dm_peers(&room.id).is_some() => {
+                crate::ui::sidebar::dm_peer(self).map(|(peer, _)| peer)
+            }
+            Some(room) => self
+                .info(&room.id)
+                .map(|info| format!("#{}", info.channel.name)),
+            None => None,
+        }
+        .unwrap_or_default();
+        if self.title.as_deref() != Some(title.as_str()) {
+            cx.host().notify::<HostTitle>(title.clone());
+            self.title = Some(title);
+        }
+    }
+
     pub(crate) fn room_info(&self) -> Option<&ChannelInfo> {
         self.info(&self.room.as_ref()?.id)
     }
