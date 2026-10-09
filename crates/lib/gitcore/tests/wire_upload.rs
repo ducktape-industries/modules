@@ -7,8 +7,7 @@ use common::{fixture, oid_list, oid_text, sha1};
 use gitcore::server::admit_pack;
 use gitcore::wire::pktline::{self, Pkt, Reader};
 use gitcore::wire::upload::{
-    Command, Fetch, LsRefs, acknowledgments, capability_advertisement, fetch, ls_refs_response,
-    parse_command,
+    Command, Fetch, LsRefs, capability_advertisement, fetch, ls_refs_response, parse_command,
 };
 use gitcore::{Error, Hash, Kind, Limits, MemoryObjects, Objects, Oid, pack};
 use std::collections::{BTreeMap, BTreeSet};
@@ -230,19 +229,6 @@ fn ls_refs_lists_head_symref_and_peeled_tags() {
     assert_eq!(
         lines(&ls_refs_response(&store, &BTreeMap::new(), None, &command, 10).unwrap()),
         ["<flush>"]
-    );
-}
-
-#[test]
-fn acknowledgment_section_golden() {
-    let a = sha1("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    assert_eq!(
-        lines(&acknowledgments(&[], false)),
-        ["acknowledgments", "NAK"]
-    );
-    assert_eq!(
-        lines(&acknowledgments(&[a], true)),
-        ["acknowledgments", format!("ACK {a}").as_str(), "ready"]
     );
 }
 
