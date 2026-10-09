@@ -680,13 +680,14 @@ pub fn item(mut element: Stateful<Div>, role: Role, active: bool) -> Stateful<Di
 /// A few choices side by side in one box, the picked one ink-filled: a
 /// state filter, an object format, an invite's lifetime. `label` names the
 /// choice, `choices` are each segment's id and label, `picked` the one
-/// that is; the box draws the edge they share. A radio group: one Tab
-/// stop, and ← → pick the next choice (`on_pick`), wrapping at the ends.
+/// that is, or none (the arrows then start at the first); the box draws
+/// the edge they share. A radio group: one Tab stop, and ← → pick the
+/// next choice (`on_pick`), wrapping at the ends.
 pub fn segmented(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     theme: &Theme,
-    picked: usize,
+    picked: Option<usize>,
     choices: impl IntoIterator<Item = (ElementId, SharedString)>,
     on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
@@ -694,20 +695,21 @@ pub fn segmented(
     let choices: Vec<_> = choices.into_iter().collect();
     let count = choices.len();
     let moved = on_pick.clone();
+    let active = picked.unwrap_or(0);
     let segments = choices.into_iter().enumerate().map(|(index, (id, label))| {
         let pick = on_pick.clone();
         let click =
             move |_: &ClickEvent, window: &mut Window, app: &mut App| pick(index, window, app);
         item(
-            segment(id, label, index == picked, theme, click),
+            segment(id, label, picked == Some(index), theme, click),
             Role::RadioButton,
-            index == picked,
+            index == active,
         )
     });
     composite(id, Role::RadioGroup, label)
         .orientation(Orientation::Horizontal)
         .wrap()
-        .active(picked, count)
+        .active(active, count)
         .on_move(move |index, window, app| moved(index, window, app))
         .build()
         .flex()
@@ -1044,7 +1046,7 @@ mod tests {
             "format",
             "Object format",
             &theme,
-            0,
+            Some(0),
             [("sha1".into(), "SHA-1".into())],
             |_, _, _| {},
         ));
@@ -1122,7 +1124,7 @@ mod tests {
             "format",
             "Object format",
             &theme,
-            1,
+            Some(1),
             [
                 ("sha256".into(), "SHA-256".into()),
                 ("sha1".into(), "SHA-1".into()),
@@ -1213,7 +1215,7 @@ mod tests {
                 "format",
                 "Object format",
                 &Theme::light(),
-                self.picked,
+                Some(self.picked),
                 [
                     ("sha256".into(), "SHA-256".into()),
                     ("sha1".into(), "SHA-1".into()),

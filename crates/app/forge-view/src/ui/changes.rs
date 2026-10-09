@@ -261,10 +261,7 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
         id("forge-filter-states"),
         "Change state",
         theme,
-        STATES
-            .iter()
-            .position(|state| *state == forge.filter)
-            .unwrap_or_default(),
+        STATES.iter().position(|state| *state == forge.filter),
         STATES.map(|filter| {
             let label = match (filter, forge.open_changes()) {
                 (Filter::Open, Some(count)) => format!("Open {count}"),
