@@ -1,9 +1,10 @@
 use super::*;
 
-/// A sensor recurses like a container and is diffed as a node with one
-/// fixed child.
+/// A sensor recurses like a container, is diffed as a node with one
+/// fixed child, and its id enters the sibling scope (the hostile property
+/// counts refusals over every kind at once, so this is the sensor's pin).
 #[test]
-fn a_sensor_round_trips_and_diffs_by_props() {
+fn a_sensor_round_trips_diffs_by_props_and_claims_its_key() {
     let frame = Frame {
         root: Some(sensor("App/m", Some(0), text("inside"))),
         ..Frame::default()
@@ -21,6 +22,18 @@ fn a_sensor_round_trips_and_diffs_by_props() {
     );
     apply(&mut old, patches, &held()).unwrap();
     assert_eq!(old, new);
+
+    let mut duplicate = Frame {
+        root: Some(column(vec![
+            sensor("App/m", None, text("a")),
+            sensor("App/m", None, text("b")),
+        ])),
+        ..Frame::default()
+    };
+    assert!(matches!(
+        sanitize_plain(&mut duplicate),
+        Err(Refused::Duplicate(_))
+    ));
 }
 
 /// A tree nested past `MAX_DEPTH` is refused as the bytes are read, before
