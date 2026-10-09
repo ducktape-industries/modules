@@ -157,7 +157,8 @@ impl ListState {
         let mut inner = self.0.inner.borrow_mut();
         let ix = ix.min(inner.item_count.saturating_sub(1));
         let held = inner.requested.clone();
-        let (start, end) = (held.start.min(ix), held.end.max(ix.saturating_add(1)));
+        let end = held.end.max(ix.saturating_add(1)).min(inner.item_count);
+        let start = held.start.min(ix);
         inner.requested = match end - start <= wire::MAX_LIST_ROWS {
             true => start..end,
             false if ix < held.start => bounded_window(start, end, inner.item_count),
@@ -660,6 +661,28 @@ mod tests {
         cx.app_mut().notify();
         cx.tick(vec![]);
         assert_eq!(window(&cx), 100..100 + wire::MAX_LIST_ROWS);
+    }
+
+    /// An empty list has no row to reveal: the window stays empty, and
+    /// the view is asked for no row.
+    #[test]
+    fn revealing_a_row_of_an_empty_list_renders_no_row() {
+        let (mut cx, view) = opened();
+        let state = view.read(|view| view.state.clone());
+        let rendered = view.read(|view| view.rendered.len());
+        state.reset(0);
+        state.scroll_to_reveal_item(0);
+        cx.app_mut().notify();
+        cx.tick(vec![]);
+        match cx.root() {
+            wire::Node::List {
+                item_count,
+                children,
+                ..
+            } => assert_eq!((*item_count, children.len()), (0, 0)),
+            other => panic!("expected list, got {other:?}"),
+        }
+        view.read(|view| assert_eq!(view.rendered.len(), rendered));
     }
 
     /// The window follows the rows it holds through an edit: history
