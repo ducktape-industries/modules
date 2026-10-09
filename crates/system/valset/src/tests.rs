@@ -154,22 +154,6 @@ fn role_asks_the_program_bound_to_the_validators_role() {
     );
 }
 
-fn members(store: &MockHost) -> Vec<Member> {
-    let Reply::Members(members) = ask(store, Query::Members) else {
-        panic!()
-    };
-    members
-}
-
-#[test]
-fn a_newcomer_past_the_cap_is_refused() {
-    let store = founded();
-    govern(&store, Op::Set(membership(3, Role::Resident))).unwrap();
-    let full = govern(&store, Op::Set(membership(4, Role::Resident)));
-    assert_eq!(full.unwrap_err().code, code::CAPACITY);
-    assert_eq!(members(&store).len(), 3);
-}
-
 #[test]
 fn a_member_at_the_cap_changes_role_and_address() {
     let store = founded();

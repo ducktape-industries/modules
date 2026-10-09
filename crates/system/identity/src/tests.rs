@@ -466,26 +466,19 @@ fn an_agent_is_suspended_resumed_or_revoked_by_its_manager_alone() {
     assert_eq!(bob.code, code::WRONG_STATE);
 }
 
+/// Who may register a module, and that registering twice keeps one
+/// account, is the identity role's (`conformance::identity`, run on this
+/// module by `conformance/tests/reference.rs`); what the account is, is
+/// identity's own.
 #[test]
 fn the_system_registers_a_module_which_alone_names_its_account() {
     let store = memory();
     create(&store, ALICE, "Alice");
-    let register = || Op::RegisterModule {
+    let register = Op::RegisterModule {
         module: "forge".into(),
     };
-    let by_person = refused(&store, &signed(&store, ALICE), register());
-    assert_eq!(by_person.code, code::UNAUTHORIZED);
-    run(&store, &root(), register()).unwrap();
-    run(&store, &root(), register()).unwrap();
+    run(&store, &root(), register).unwrap();
     let forge = from_module(&store, "forge");
-    let by_module = refused(
-        &store,
-        &forge,
-        Op::RegisterModule {
-            module: "other".into(),
-        },
-    );
-    assert_eq!(by_module.code, code::UNAUTHORIZED);
     assert_eq!(forge.sender, Some(Principal::Account(2)));
     let account = get(&store, 2);
     assert_eq!(account.card.name, "forge");

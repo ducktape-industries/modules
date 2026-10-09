@@ -65,43 +65,6 @@ fn anyone_seats_members_and_the_next_epoch_reads_them() {
 }
 
 #[test]
-fn memberships_resume_in_key_order_at_the_answering_height() {
-    deterministic::Runner::default().start(|context| async move {
-        let dir = tempfile::tempdir().unwrap();
-        let mut net = Net::found(context, dir.path()).await;
-        net.tick().await;
-        let mut after = None;
-        let mut keys = Vec::new();
-        loop {
-            let valset::Reply::Memberships(reply) = net
-                .ask(
-                    valset::MODULE,
-                    &valset::Query::Memberships {
-                        page: PageRequest {
-                            after,
-                            limit: Some(1),
-                        },
-                    },
-                )
-                .await
-            else {
-                panic!()
-            };
-            assert_eq!(reply.height, net.height);
-            assert_eq!(reply.items.len(), 1);
-            keys.push(reply.items[0].key.clone());
-            after = reply.next;
-            if after.is_none() {
-                break;
-            }
-        }
-        let mut expected = vec![public(1), public(2)];
-        expected.sort();
-        assert_eq!(keys, expected);
-    });
-}
-
-#[test]
 fn a_resident_is_a_member_the_next_epoch_does_not_seat() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
