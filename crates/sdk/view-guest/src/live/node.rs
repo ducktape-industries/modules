@@ -1,0 +1,507 @@
+//! The fake node's front: the `/v1` routes the app's node client speaks,
+//! over plain threads. Every connection thread parses one HTTP/1.1
+//! request at a time and hands it to the one chain thread as a job, as
+//! [`Network`] is single-threaded; `/v1/changes/<program>` upgrades to a
+//! websocket the chain thread writes to as blocks land.
+//!
+//! ponytail: HTTP/1.1 with `Content-Length` bodies, which is all reqwest
+//! sends here; no chunked uploads, no TLS.
+
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::mpsc::{Receiver, Sender, channel};
+
+use commonware_codec::DecodeExt as _;
+use commonware_cryptography::{Verifier as _, ed25519};
+use guest::abi;
+
+use super::wire::{self, route};
+use super::{Network, now_ms};
+use view_wire::methods;
+
+/// One request's turn on the chain thread.
+type Job = Box<dyn FnOnce(&Network) + Send>;
+
+/// What the chain thread hears: a job, or the end.
+pub(super) enum Msg {
+    Job(Job),
+    Stop,
+}
+
+struct Request {
+    method: String,
+    path: String,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+impl Request {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+struct Response {
+    status: u16,
+    content_type: &'static str,
+    body: Vec<u8>,
+}
+
+impl Response {
+    fn borsh<T: borsh::BorshSerialize>(value: &T) -> Response {
+        Response {
+            status: 200,
+            content_type: "application/octet-stream",
+            body: abi::encode(value),
+        }
+    }
+
+    fn refused(refusal: abi::Refusal) -> Response {
+        Response {
+            status: 400,
+            content_type: "application/octet-stream",
+            body: abi::encode(&refusal),
+        }
+    }
+
+    fn text(status: u16, text: &str) -> Response {
+        Response {
+            status,
+            content_type: "text/plain",
+            body: text.as_bytes().to_vec(),
+        }
+    }
+}
+
+/// Binds the node on a loopback port: the address, and the acceptor's
+/// side of the chain thread's channel is spawned.
+pub(super) fn bind(jobs: Sender<Msg>) -> std::io::Result<SocketAddr> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let addr = listener.local_addr()?;
+    std::thread::Builder::new()
+        .name("live-node".into())
+        .spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let jobs = jobs.clone();
+                let _ = std::thread::Builder::new()
+                    .name("live-conn".into())
+                    .spawn(move || connection(stream, jobs));
+            }
+        })?;
+    Ok(addr)
+}
+
+/// The chain thread: every job in turn, until `Stop`.
+pub(super) fn serve(net: &Network, msgs: Receiver<Msg>) {
+    while let Ok(Msg::Job(job)) = msgs.recv() {
+        job(net);
+    }
+}
+
+/// Runs `work` on the chain thread and waits for what it answers.
+fn on_chain<T: Send + 'static>(
+    jobs: &Sender<Msg>,
+    work: impl FnOnce(&Network) -> T + Send + 'static,
+) -> Option<T> {
+    let (tell, told) = channel();
+    jobs.send(Msg::Job(Box::new(move |net| {
+        let _ = tell.send(work(net));
+    })))
+    .ok()?;
+    told.recv().ok()
+}
+
+fn connection(stream: TcpStream, jobs: Sender<Msg>) {
+    let mut reader = BufReader::new(stream.try_clone().expect("a socket clones"));
+    let mut writer = stream;
+    while let Ok(Some(request)) = read_request(&mut reader) {
+        if request
+            .header("upgrade")
+            .is_some_and(|upgrade| upgrade.eq_ignore_ascii_case("websocket"))
+        {
+            if let Some(program) = request.path.strip_prefix(&format!("{}/", route::CHANGES)) {
+                changes_socket(reader, writer, &request, program, &jobs);
+            }
+            return;
+        }
+        let Some(response) = on_chain(&jobs, {
+            let (method, path, body) = (request.method, request.path, request.body);
+            move |net| respond(net, &method, &path, body)
+        }) else {
+            return;
+        };
+        if write_response(&mut writer, &response).is_err() {
+            return;
+        }
+        // the answer is on its way: the block it made may land now
+        let _ = jobs.send(Msg::Job(Box::new(|net| net.flush())));
+    }
+}
+
+fn read_request(reader: &mut BufReader<TcpStream>) -> std::io::Result<Option<Request>> {
+    let mut line = String::new();
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    let mut parts = line.split_whitespace();
+    let (method, path) = match (parts.next(), parts.next()) {
+        (Some(method), Some(path)) => (method.to_owned(), path.to_owned()),
+        _ => return Err(std::io::Error::other("not a request line")),
+    };
+    let mut headers = Vec::new();
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        let line = line.trim_end();
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            headers.push((name.trim().to_owned(), value.trim().to_owned()));
+        }
+    }
+    let length = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body)?;
+    Ok(Some(Request {
+        method,
+        path,
+        headers,
+        body,
+    }))
+}
+
+fn write_response(writer: &mut TcpStream, response: &Response) -> std::io::Result<()> {
+    let reason = match response.status {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        _ => "Error",
+    };
+    write!(
+        writer,
+        "HTTP/1.1 {} {reason}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+        response.status,
+        response.content_type,
+        response.body.len()
+    )?;
+    writer.write_all(&response.body)?;
+    writer.flush()
+}
+
+fn malformed(sentence: impl std::fmt::Display) -> Response {
+    Response::refused(abi::Refusal::new(
+        methods::refusal::MALFORMED_REQUEST,
+        sentence.to_string(),
+    ))
+}
+
+fn refusal(error: &crate::host::Error) -> abi::Refusal {
+    abi::Refusal::new(&error.code, &error.message)
+}
+
+/// One route, answered on the chain thread.
+fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
+    match (method, path) {
+        ("GET", route::STATUS) => {
+            let status = net.status();
+            Response::borsh(&wire::Status {
+                network: status.chain_id,
+                time: status.time,
+                block_time_ms: status.block_time_ms,
+                epoch_length: status.epoch_length,
+                height: status.height,
+                tip: status.tip,
+                root: abi::Root(status.root),
+                epoch: status.epoch,
+                identity: status.identity,
+                contract: status.contract,
+                genesis: net.genesis(),
+            })
+        }
+        ("GET", route::NETWORK) => match net.answer("chain.network", None, &[]) {
+            Ok(bytes) => {
+                let network: methods::NetworkStatus = methods::decode(&bytes).expect("own bytes");
+                Response::borsh(&wire::Network {
+                    height: network.height,
+                    members: network
+                        .members
+                        .into_iter()
+                        .map(|peer| wire::PeerStatus {
+                            key: peer.key,
+                            signed: peer.signed,
+                        })
+                        .collect(),
+                })
+            }
+            Err(error) => Response::refused(refusal(&error)),
+        },
+        ("POST", route::QUERY) => {
+            let query: wire::Query = match abi::decode(&body) {
+                Ok(query) => query,
+                Err(error) => return malformed(error.sentence),
+            };
+            let frame = match opened(&query.frame) {
+                Ok(frame) => frame,
+                Err(response) => return response,
+            };
+            let call = methods::encode(&methods::Call {
+                target: frame.body.target.clone(),
+                body: frame.body.payload,
+            });
+            // the program's bytes, as one borsh `Vec<u8>` answer
+            match net.answer("module.query", Some(&frame.body.target), &call) {
+                Ok(bytes) => Response::borsh(&bytes),
+                Err(error) => Response::refused(refusal(&error)),
+            }
+        }
+        ("POST", route::SUBMIT) => {
+            let frame = match opened(&body) {
+                Ok(frame) => frame,
+                Err(response) => return response,
+            };
+            let expected = net.seq(&frame.body.signer);
+            if frame.body.seq != expected {
+                return Response::refused(abi::Refusal::new(
+                    "sequence",
+                    format!("expected sequence {expected}, got {}", frame.body.seq),
+                ));
+            }
+            let receipt = net.run(
+                guest::Origin::Signed(frame.body.signer),
+                frame.body.target,
+                frame.body.payload,
+            );
+            Response::borsh(&wire::receipt(&receipt))
+        }
+        ("POST", route::GET) => {
+            let get: wire::Get = match abi::decode(&body) {
+                Ok(get) => get,
+                Err(error) => return malformed(error.sentence),
+            };
+            Response::borsh(&net.get(&get.program, &get.key))
+        }
+        ("POST", route::BLOB_GET) => {
+            let id: abi::BlobId = match abi::decode(&body) {
+                Ok(id) => id,
+                Err(error) => return malformed(error.sentence),
+            };
+            Response::borsh(&net.blob(&id))
+        }
+        ("POST", route::BLOCKS) => {
+            let page: wire::Blocks = match abi::decode(&body) {
+                Ok(page) => page,
+                Err(error) => return malformed(error.sentence),
+            };
+            let page = methods::encode(&methods::BlockPage {
+                before: page.before,
+                limit: page.limit,
+            });
+            match net.answer("chain.blocks", None, &page) {
+                Ok(bytes) => {
+                    let blocks: Vec<methods::Block> = methods::decode(&bytes).expect("own bytes");
+                    let blocks: Vec<wire::Finalized> = blocks.iter().map(wire::finalized).collect();
+                    Response::borsh(&blocks)
+                }
+                Err(error) => Response::refused(refusal(&error)),
+            }
+        }
+        ("POST", route::BLOCK) => {
+            let by: wire::BlockRef = match abi::decode(&body) {
+                Ok(by) => by,
+                Err(error) => return malformed(error.sentence),
+            };
+            let by = methods::encode(&match by {
+                wire::BlockRef::Height(height) => methods::BlockRef::Height(height),
+                wire::BlockRef::Id(id) => methods::BlockRef::Id(id),
+            });
+            match net.answer("chain.block", None, &by) {
+                Ok(bytes) => {
+                    let block: Option<methods::Block> = methods::decode(&bytes).expect("own bytes");
+                    Response::borsh(&block.as_ref().map(wire::finalized))
+                }
+                Err(error) => Response::refused(refusal(&error)),
+            }
+        }
+        ("POST", route::INVITE) => {
+            let ttl = serde_json::from_slice::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|json| json.get("ttl_days")?.as_u64())
+                .unwrap_or(0);
+            let ask = methods::encode(&methods::CreateInvite { ttl_days: ttl });
+            match net.answer("invite.create", None, &ask) {
+                Ok(bytes) => {
+                    let invite: methods::Invite = methods::decode(&bytes).expect("own bytes");
+                    let notes: Vec<serde_json::Value> = invite
+                        .notes
+                        .iter()
+                        .map(|note| serde_json::json!({ "reason": note.code, "sentence": note.message }))
+                        .collect();
+                    Response {
+                        status: 200,
+                        content_type: "application/json",
+                        body: serde_json::json!({ "invite": invite.invite, "notes": notes })
+                            .to_string()
+                            .into_bytes(),
+                    }
+                }
+                Err(error) => Response {
+                    status: 400,
+                    content_type: "application/json",
+                    body: serde_json::json!({ "reason": error.code, "sentence": error.message })
+                        .to_string()
+                        .into_bytes(),
+                },
+            }
+        }
+        _ => Response::text(404, "no such route"),
+    }
+}
+
+/// A signed frame, its proof checked: the signer is who the body says.
+fn opened(bytes: &[u8]) -> Result<wire::Frame, Response> {
+    let frame: wire::Frame = abi::decode(bytes).map_err(|error| malformed(error.sentence))?;
+    if frame.body.scheme != wire::KeyScheme::Ed25519 {
+        return Err(Response::refused(abi::Refusal::new(
+            "unsupported_scheme",
+            "the fake node verifies ed25519 frames alone",
+        )));
+    }
+    let verified = ed25519::PublicKey::decode(frame.body.signer.as_slice())
+        .ok()
+        .zip(ed25519::Signature::decode(frame.proof.as_slice()).ok())
+        .is_some_and(|(key, proof)| {
+            key.verify(wire::FRAME_NAMESPACE, &frame.body.preimage(), &proof)
+        });
+    if !verified {
+        return Err(Response::refused(abi::Refusal::new(
+            "bad_signature",
+            "the frame's proof does not verify",
+        )));
+    }
+    Ok(frame)
+}
+
+// ---------- the changes socket ----------
+
+const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+/// `/v1/changes/<program>` as a websocket: the handshake, then one binary
+/// frame per block that wrote to the program, until the client closes.
+fn changes_socket(
+    mut reader: BufReader<TcpStream>,
+    mut writer: TcpStream,
+    request: &Request,
+    program: &str,
+    jobs: &Sender<Msg>,
+) {
+    use base64::Engine as _;
+    use sha1::Digest as _;
+    let Some(key) = request.header("sec-websocket-key") else {
+        return;
+    };
+    let accept = base64::engine::general_purpose::STANDARD
+        .encode(sha1::Sha1::digest(format!("{key}{WS_GUID}").as_bytes()));
+    if write!(
+        writer,
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+    )
+    .and_then(|()| writer.flush())
+    .is_err()
+    {
+        return;
+    }
+    let (send, items) = channel::<Vec<u8>>();
+    let program = program.to_owned();
+    if on_chain(jobs, move |net| net.subscribe(&program, send)).is_none() {
+        return;
+    }
+    // the writer: every item the chain sends, as one binary frame
+    let mut out = match writer.try_clone() {
+        Ok(out) => out,
+        Err(_) => return,
+    };
+    let writing = std::thread::spawn(move || {
+        for item in items {
+            if ws_write(&mut out, 0x2, &item).is_err() {
+                break;
+            }
+        }
+    });
+    // the reader: a ping is answered, a close ends it, anything else is
+    // the client's to send and not ours to read
+    while let Some((opcode, payload)) = ws_read(&mut reader) {
+        match opcode {
+            0x8 => {
+                let _ = ws_write(&mut writer, 0x8, &payload);
+                break;
+            }
+            0x9 if ws_write(&mut writer, 0xA, &payload).is_err() => break,
+            _ => {}
+        }
+    }
+    let _ = writer.shutdown(std::net::Shutdown::Both);
+    let _ = writing.join();
+}
+
+/// One unmasked server frame.
+fn ws_write(out: &mut TcpStream, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
+    let mut frame = vec![0x80 | opcode];
+    match payload.len() {
+        len if len < 126 => frame.push(len as u8),
+        len if len < 65536 => {
+            frame.push(126);
+            frame.extend_from_slice(&(len as u16).to_be_bytes());
+        }
+        len => {
+            frame.push(127);
+            frame.extend_from_slice(&(len as u64).to_be_bytes());
+        }
+    }
+    frame.extend_from_slice(payload);
+    out.write_all(&frame)?;
+    out.flush()
+}
+
+/// One masked client frame: its opcode and payload; `None` once the
+/// socket is gone.
+fn ws_read(reader: &mut BufReader<TcpStream>) -> Option<(u8, Vec<u8>)> {
+    let mut head = [0u8; 2];
+    reader.read_exact(&mut head).ok()?;
+    let opcode = head[0] & 0x0f;
+    let masked = head[1] & 0x80 != 0;
+    let mut len = (head[1] & 0x7f) as u64;
+    if len == 126 {
+        let mut ext = [0u8; 2];
+        reader.read_exact(&mut ext).ok()?;
+        len = u16::from_be_bytes(ext) as u64;
+    } else if len == 127 {
+        let mut ext = [0u8; 8];
+        reader.read_exact(&mut ext).ok()?;
+        len = u64::from_be_bytes(ext);
+    }
+    let mut mask = [0u8; 4];
+    if masked {
+        reader.read_exact(&mut mask).ok()?;
+    }
+    let mut payload = vec![0; len as usize];
+    reader.read_exact(&mut payload).ok()?;
+    if masked {
+        for (at, byte) in payload.iter_mut().enumerate() {
+            *byte ^= mask[at % 4];
+        }
+    }
+    Some((opcode, payload))
+}
+
+/// A line of the node's own log, timed.
+pub(super) fn say(line: impl std::fmt::Display) {
+    println!("[live {}] {line}", now_ms() % 100_000);
+}

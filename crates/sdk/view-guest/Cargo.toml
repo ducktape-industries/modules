@@ -8,6 +8,24 @@ publish = false
 license = "MIT"
 description = "The guest half of the view wire: gpui-shaped contexts, elements and host methods for a wasm view"
 
+[features]
+# `live`: the fake node a view runs against outside a network
+# (`ducktape_view_guest::live`): a native chain of the real programs behind
+# the node's own HTTP surface, and the same chain behind `FakeHost` for a
+# test. Never on in a wasm build: a view enables it as a dev-dependency.
+live = [
+    "dep:guest",
+    "dep:identity",
+    "dep:valset",
+    "dep:module-registry",
+    "dep:commonware-cryptography",
+    "dep:commonware-codec",
+    "dep:sha1",
+    "dep:sha2",
+    "dep:base64",
+    "dep:serde_json",
+]
+
 [dependencies]
 error = { workspace = true }
 borsh.workspace = true
@@ -21,6 +39,17 @@ serde.workspace = true
 gpui.workspace = true
 view-guest-derive = { path = "../view-guest-derive" }
 unicode-segmentation = "1"
+# the `live` feature alone
+guest = { workspace = true, optional = true }
+identity = { workspace = true, optional = true }
+valset = { workspace = true, optional = true }
+module-registry = { workspace = true, optional = true }
+commonware-cryptography = { workspace = true, optional = true }
+commonware-codec = { version = "2026.9.0", optional = true }
+sha1 = { version = "0.10", optional = true }
+sha2 = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
