@@ -48,6 +48,15 @@ fn export_forge_screens() {
     .unwrap();
 }
 
+/// The `blob` screen is README.md opened from the Code tab's tree: the
+/// repository opens on its README page, which has no tree to press.
+#[test]
+fn the_blob_screen_opens_readme_from_the_code_tab() {
+    let cx = screen("blob");
+    assert_eq!(cx.interactivity("forge-tab-code").aria.selected, Some(true));
+    assert!(cx.find("forge-blob-markdown").is_some(), "{:?}", cx.texts());
+}
+
 const SCREENS: [&str; 12] = [
     "repos",
     "repos-empty",
@@ -89,6 +98,8 @@ fn screen(state: &str) -> TestAppContext {
             let (mut cx, _) = opened("default");
             cx.simulate_click("forge-ref-picker");
             cx.simulate_click("forge-ref-refs/heads/clean");
+            cx.run_until_parked();
+            cx.simulate_click("forge-tab-code");
             cx.run_until_parked();
             cx.simulate_click("forge-tree-README.md");
             cx.run_until_parked();
