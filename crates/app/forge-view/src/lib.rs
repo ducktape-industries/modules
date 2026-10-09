@@ -5,8 +5,9 @@
 //! one method (`module.query`); conversation is chat's, through the method
 //! chat-view uses. Reads are a cache keyed by the query itself: `sync` asks
 //! what the current screen needs, issues what is missing, and drops what the
-//! reader has navigated away from. `render` never mutates — what an event
-//! changes lands in `actions`.
+//! reader has navigated away from. `render` writes only what the frame
+//! learns, the pane's width and the window's title last sent — what an
+//! event changes lands in `actions`.
 //!
 //! - `state`: what the view holds; `select`: what the screens read out of it.
 //! - `sync`: which reads the screen needs; `queries`: how one read is asked.
