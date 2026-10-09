@@ -76,6 +76,8 @@ pub use text::TextField;
 pub mod borsh_bytes;
 pub mod design;
 pub mod host;
+#[cfg(feature = "live")]
+pub mod live;
 pub mod store;
 pub mod testing;
 mod window;

@@ -15,5 +15,7 @@ valset.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+# `examples/live.rs`: the view in the real app over the fake node
+ducktape-view-guest = { workspace = true, features = ["live"] }
 # the screen export writes the fixtures as JSON
 serde_json.workspace = true

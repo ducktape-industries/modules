@@ -1745,16 +1745,25 @@ dependencies = [
 name = "ducktape-view-guest"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "borsh",
+ "commonware-cryptography",
  "design",
  "error",
  "futures",
  "gpui-pre",
+ "guest",
+ "identity",
+ "keyscheme",
+ "module-registry",
  "program",
  "serde",
  "serde_json",
+ "sha1",
+ "sha2 0.10.9",
  "store",
  "unicode-segmentation",
+ "valset",
  "view-guest-derive",
  "view-wire",
 ]

@@ -9,6 +9,7 @@ use std::{cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 type Key = (String, Option<String>);
 type Handler = Box<dyn FnMut(&Request) -> Option<Event>>;
 type Stream = Rc<RefCell<StreamState>>;
+type Hook = Box<dyn FnMut(&FakeHost)>;
 
 #[derive(Default)]
 struct State {
@@ -20,6 +21,9 @@ struct State {
     streams: HashMap<Key, Stream>,
     requests: Vec<Request>,
     events: Vec<Event>,
+    /// Run after each frame is taken, with no borrow held: what a backing
+    /// feeds the view's subscriptions from the frame's effects.
+    after_frame: Vec<Hook>,
     declared: Option<&'static [methods::Capability]>,
     /// The programs the view's `TARGETS` names; a node method naming
     /// another fails the test, as the app refuses it.
@@ -117,6 +121,58 @@ impl FakeHost {
             .map(|r| C::decode_request(&r.payload).expect("valid capability request"))
             .collect()
     }
+    /// Answers each ask of `kind` addressed to `target` (`None`: to any
+    /// program, where no typed handler names one) with the bytes
+    /// `handler` gives for the request's: the fallback a chain-backed host
+    /// installs under a test's own typed handlers.
+    #[cfg(feature = "live")]
+    pub(crate) fn answer_with(
+        &self,
+        kind: &str,
+        target: Option<&str>,
+        mut handler: impl FnMut(&[u8]) -> Result<Vec<u8>, Error> + 'static,
+    ) {
+        let key = (kind.to_owned(), target.map(str::to_owned));
+        self.0.borrow_mut().asks.insert(
+            key,
+            Box::new(move |request| {
+                Some(Event::Response {
+                    id: request.id,
+                    result: handler(&request.payload),
+                    done: true,
+                })
+            }),
+        );
+    }
+
+    /// One item, as bytes, to every open subscription to `kind` addressed
+    /// to `target`; none open, it reaches nobody and is dropped.
+    #[cfg(feature = "live")]
+    pub(crate) fn send_raw(&self, kind: &str, target: Option<&str>, payload: Vec<u8>) {
+        let mut state = self.0.borrow_mut();
+        let Some(stream) = find(&mut state.streams, kind, target).cloned() else {
+            return;
+        };
+        let stream = stream.borrow();
+        if stream.closed {
+            return;
+        }
+        state
+            .events
+            .extend(stream.ids.iter().map(|id| Event::Response {
+                id: *id,
+                result: Ok(payload.clone()),
+                done: false,
+            }));
+    }
+
+    /// Runs `hook` after every frame the host takes, once its requests are
+    /// answered and no borrow is held.
+    #[cfg(feature = "live")]
+    pub(crate) fn after_frame(&self, hook: impl FnMut(&FakeHost) + 'static) {
+        self.0.borrow_mut().after_frame.push(Box::new(hook));
+    }
+
     pub(super) fn reset_connection(&self) {
         let mut state = self.0.borrow_mut();
         state.events.clear();
@@ -142,7 +198,7 @@ impl FakeHost {
     pub(super) fn owe(&self, events: Vec<Event>) {
         self.0.borrow_mut().events.extend(events);
     }
-    pub(super) fn take_events(&self) -> Vec<Event> {
+    pub(crate) fn take_events(&self) -> Vec<Event> {
         std::mem::take(&mut self.0.borrow_mut().events)
     }
     /// Answers or feed items wait for the view's next tick.
@@ -150,7 +206,7 @@ impl FakeHost {
         !self.0.borrow().events.is_empty()
     }
 
-    pub(super) fn accept(&self, frame: &Frame, host: &crate::host::Host) {
+    pub(crate) fn accept(&self, frame: &Frame, host: &crate::host::Host) {
         // The app refuses a frame past either budget whole, and the view
         // with it; a test fails on it instead.
         assert!(
@@ -256,6 +312,14 @@ impl FakeHost {
             };
             state.events.extend(event);
         }
+        drop(state);
+        let mut hooks = std::mem::take(&mut self.0.borrow_mut().after_frame);
+        for hook in &mut hooks {
+            hook(self);
+        }
+        let mut state = self.0.borrow_mut();
+        hooks.append(&mut state.after_frame);
+        state.after_frame = hooks;
     }
 }
 
