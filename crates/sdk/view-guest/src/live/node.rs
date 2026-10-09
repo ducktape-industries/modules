@@ -401,6 +401,13 @@ fn changes_socket(
     };
     let accept = base64::engine::general_purpose::STANDARD
         .encode(sha1::Sha1::digest(format!("{key}{WS_GUID}").as_bytes()));
+    // subscribed before the upgrade is answered, as the node does: a block
+    // that lands in between is not lost
+    let (send, items) = channel::<Vec<u8>>();
+    let program = program.to_owned();
+    if on_chain(jobs, move |net| net.subscribe(&program, send)).is_none() {
+        return;
+    }
     if write!(
         writer,
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
@@ -408,11 +415,6 @@ fn changes_socket(
     .and_then(|()| writer.flush())
     .is_err()
     {
-        return;
-    }
-    let (send, items) = channel::<Vec<u8>>();
-    let program = program.to_owned();
-    if on_chain(jobs, move |net| net.subscribe(&program, send)).is_none() {
         return;
     }
     // the writer: every item the chain sends, as one binary frame
