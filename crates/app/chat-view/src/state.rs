@@ -65,6 +65,9 @@ pub struct Chat {
     /// the tab badge last sent
     #[serde(skip)]
     pub(crate) badge: Option<i64>,
+    /// the window's title last sent
+    #[serde(skip)]
+    pub(crate) title: Option<String>,
     /// `attention` was counted again from the read cursors since this view
     /// (re)started
     #[serde(skip)]
