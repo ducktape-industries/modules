@@ -3,7 +3,7 @@
 //! text it is; an image is its alt text, quiet; nothing is fetched.
 use std::ops::Range;
 
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, TextMergeStream};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Block {
@@ -306,7 +306,9 @@ pub(crate) fn parse(text: &str) -> Vec<Block> {
         frames: vec![(Frame::Root, Vec::new())],
         ..Builder::default()
     };
-    for event in Parser::new_ext(text, options) {
+    // the parser splits a text run at a stray `~`, `*`, `_` or entity; one
+    // run again, so a bare URL in it links whole
+    for event in TextMergeStream::new(Parser::new_ext(text, options)) {
         builder.event(event);
     }
     builder.flush();
@@ -425,6 +427,28 @@ mod tests {
                         ..Marks::default()
                     }
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_bare_url_links_up_to_the_whitespace_through_stray_marks() {
+        let text = only("see https://x.example/~me/a and https://x.example/a*b?c=1&amp;d=2 now");
+        let link = |url: &str| {
+            let start = text.text.find(url).unwrap();
+            (
+                start..start + url.len(),
+                Marks {
+                    link: Some(url.into()),
+                    ..Marks::default()
+                },
+            )
+        };
+        assert_eq!(
+            text.runs,
+            vec![
+                link("https://x.example/~me/a"),
+                link("https://x.example/a*b?c=1&d=2"),
             ]
         );
     }
