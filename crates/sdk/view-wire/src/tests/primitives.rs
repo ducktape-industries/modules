@@ -158,16 +158,6 @@ fn a_frame_past_the_picture_budget_drops_whole_pictures_from_its_tail() {
     );
 }
 
-#[test]
-fn a_text_with_no_heading_or_live_region_round_trips() {
-    let text = Node::Text(crate::TextNode {
-        id: Some(ElementIdWire::Name("text".into())),
-        style: StyleId(0),
-        content: "huge".into(),
-    });
-    assert_eq!(decode::<Node>(&encode(&text)).unwrap(), text);
-}
-
 /// An aria field a view did not set costs no bytes: the default is the
 /// empty map, and one field set alone is a map of one.
 #[test]

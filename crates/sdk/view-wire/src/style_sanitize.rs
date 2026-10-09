@@ -347,13 +347,6 @@ mod tests {
         );
     }
     #[test]
-    fn visible_overflow_is_local_and_requires_host_slot_clip() {
-        let mut style = StyleRefinement::default();
-        style.overflow.x = Some(Overflow::Visible);
-        sanitize(&mut style).unwrap();
-        assert_eq!(style.overflow.x, Some(Overflow::Visible));
-    }
-    #[test]
     fn bounds_shadow_count_and_gpu_radius() {
         let mut style = StyleRefinement {
             box_shadow: Some(vec![
@@ -408,13 +401,17 @@ mod tests {
             GridPlacement::Span(MAX_GRID)
         );
     }
+    /// A value inside its bound, or a field no bound reads (overflow),
+    /// is left as authored; a second pass changes nothing.
     #[test]
     fn preserves_normal_line_spacing_and_is_idempotent() {
         let mut style = StyleRefinement::default()
             .text_size(px(16.))
             .line_height(relative(1.5));
+        style.overflow.x = Some(Overflow::Visible);
         sanitize(&mut style).unwrap();
         assert_eq!(style.text.line_height, Some(relative(1.5)));
+        assert_eq!(style.overflow.x, Some(Overflow::Visible));
         let once = style.clone();
         sanitize(&mut style).unwrap();
         assert_eq!(style, once);

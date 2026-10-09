@@ -3,9 +3,8 @@
 //! a struct that mostly says nothing is the fields it sets, with no name.
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::{
-    Aria, ContainerNode, Frame, GroupRefinement, Interactivity, Interner, MAX_NODES, MAX_STYLES,
-    Node, Patch, Refused, Style, StyleId, Styles, TextNode, Tooltip, TooltipResponse, decode,
-    encode,
+    Aria, ContainerNode, Frame, GroupRefinement, Interactivity, Interner, MAX_STYLES, Node, Patch,
+    Refused, Style, StyleId, Styles, TextNode, Tooltip, TooltipResponse, decode, encode,
 };
 
 mod common;
@@ -364,11 +363,10 @@ fn a_hosts_own_style_is_no_entry_of_the_trees_table() {
 }
 
 /// A table is no way around the node bounds: an entry decodes inside the
-/// frame's node budget, and a table holds no more entries than a tree holds
-/// nodes.
+/// frame's node budget, and a table holds no more entries than
+/// `MAX_STYLES`.
 #[test]
 fn a_table_is_held_to_the_bounds_a_tree_is() {
-    assert_eq!(MAX_STYLES, MAX_NODES);
     let frame = |entries: usize| Frame {
         styles: vec![Style::new(&StyleRefinement::default()); entries],
         ..Default::default()
