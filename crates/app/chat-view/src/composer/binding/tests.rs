@@ -430,7 +430,7 @@ fn menu_navigation_then_enter_picks_a_stable_identity_and_escape_leaves_enter_to
     ];
     let mut draft = caret("@A", 2);
     let press = |draft: &mut Draft, keystroke: &str, repeat: bool| {
-        let tag = draft.key_tag(&key(keystroke), repeat)?;
+        let tag = draft.key_tag(&key(keystroke), repeat, &choices)?;
         Some(draft.act(&tag, "c/editor", &choices))
     };
     press(&mut draft, "down", false).unwrap();
@@ -483,6 +483,33 @@ fn enter_sends_and_the_host_clears_the_field() {
         clickable(cx.root(), "c/send").is_none(),
         "nothing left to send"
     );
+}
+
+/// An `@` whose name no one in the roster has is text: Enter sends it as
+/// it sends a draft with no `@`. `meet @ 5pm` holds an open query, and so
+/// does `hi @Ada` before the roster arrives.
+#[test]
+fn enter_sends_when_no_name_matches_the_name_being_typed() {
+    for (choices, typed) in [(roster(), "meet @ 5pm"), (Vec::new(), "hi @Ada")] {
+        let mut cx = TestAppContext::new();
+        let view = cx.open::<ComposerView>();
+        cx.update(&view, |view, _, cx| {
+            view.choices = choices;
+            cx.notify();
+        });
+        cx.simulate_input("c/editor", typed);
+        view.read(|view| assert!(view.draft.query().is_some(), "{typed:?} opens a query"));
+        cx.simulate_field_key("c/editor", "enter");
+        view.read(|view| {
+            assert!(
+                view.events.iter().any(|event| event == "outcome:send"),
+                "{typed:?}: {:?}",
+                view.events
+            );
+            assert_eq!(view.draft.submitted.as_ref().unwrap().body, typed);
+            assert_eq!(view.draft.field.text(), "", "the host cleared {typed:?}");
+        });
+    }
 }
 
 /// A press on a mark focuses the field again and asks the host to wrap

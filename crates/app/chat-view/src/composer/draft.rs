@@ -238,7 +238,12 @@ impl Draft {
     }
 
     /// What a claimed key does; `None` leaves the draft as it is.
-    pub(super) fn key_tag(&self, key: &wire::keyboard::KeyState, repeat: bool) -> Option<String> {
+    pub(super) fn key_tag(
+        &self,
+        key: &wire::keyboard::KeyState,
+        repeat: bool,
+        choices: &[MentionChoice],
+    ) -> Option<String> {
         if key.modifiers.control || key.modifiers.platform {
             return match (&key.key, key.modifiers.shift) {
                 (Key::Character(key), false) if key == "b" => Some("bold".into()),
@@ -249,10 +254,13 @@ impl Draft {
             };
         }
         match &key.key {
-            Key::Named(Named::Enter) => match self.query() {
-                Some(_) => Some("mention".into()),
-                None if repeat => None,
-                None => Some("send".into()),
+            // a name no choice matches is text: Enter sends it
+            Key::Named(Named::Enter) => match self.menu(choices) {
+                Some((matches, selected)) if matches.get(selected).is_some() => {
+                    Some("mention".into())
+                }
+                _ if repeat => None,
+                _ => Some("send".into()),
             },
             // the arrows and Escape are claimed only while the menu is open;
             // one from a frame before it shut is the engine's to have had
