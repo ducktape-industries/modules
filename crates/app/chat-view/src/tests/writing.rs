@@ -46,6 +46,7 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
         .send(block(4, posted("general")));
     cx.run_until_parked();
     assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
+    assert_eq!(shown(&view, "message-1"), 1);
     cx.host().refuse::<Submit<::chat::Chat>>("no", "no");
     cx.simulate_click("chat-sidebar-new-channel");
     assert!(cx.has_text("Create a channel"));
@@ -58,6 +59,138 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
     let (restored, view) = restored(&cx);
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
     assert!(restored.host().requests::<Ask<::chat::Chat>>().len() >= 2);
+}
+
+/// How many timeline rows carry `message_id`.
+fn shown(view: &Entity<Chat>, message_id: &str) -> usize {
+    view.read(|chat| {
+        chat.rows(Pane::Timeline)
+            .iter()
+            .filter(|row| row.message_id == message_id)
+            .count()
+    })
+}
+
+/// The receipt and `module.changes` come over separate connections, and
+/// the app reads preconfirmed state: the room's re-read can serve the
+/// post before its receipt lands. The receipt then adds nothing: the room
+/// already shows the message, once, with no "sending…".
+#[test]
+fn a_post_the_room_shows_before_its_receipt_is_shown_once() {
+    use ducktape_view_guest::methods::Method;
+    let (mut cx, view) = opened();
+    cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
+    cx.host().never::<Submit<::chat::Chat>>();
+    cx.simulate_input("draft-general/editor", "on its way");
+    cx.update(&view, |chat, window, cx| {
+        let target = crate::composer::Target::Post {
+            channel: "general".into(),
+            thread: None,
+        };
+        let send = crate::composer::Event::Action("send".into());
+        chat.composer(target, send, window, cx);
+    });
+    // the submit goes out, and its receipt is held
+    let mut receipt = None;
+    for _ in 0..50 {
+        cx.tick(Vec::new());
+        receipt = cx.last_frame().requests.iter().find_map(|request| {
+            (request.kind == Submit::<::chat::Chat>::KIND).then_some(request.id)
+        });
+        if receipt.is_some() {
+            break;
+        }
+    }
+    let receipt = receipt.expect("the post is submitted");
+    cx.run_until_parked();
+    // its block lands first, and the re-read serves it
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
+        Ok(match query {
+            Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 3)])),
+            Query::Roots { .. } => Reply::Roots(page(vec![
+                row(1, 7, "hello"),
+                row(2, 8, "**hi** there"),
+                MsgRow {
+                    message_id: "message-1".into(),
+                    ..row(3, 7, "on its way")
+                },
+            ])),
+            // the receipt reads everything again, the roster too
+            Query::Members { .. } => Reply::Members(page(Vec::new())),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+    cx.host()
+        .stream::<Changes<::chat::Chat>>()
+        .send(block(4, posted("general")));
+    cx.run_until_parked();
+    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
+    // then the receipt
+    cx.tick(vec![wire::Event::Response {
+        id: receipt,
+        result: Ok(Submit::<::chat::Chat>::encode_reply(&Vec::new())),
+        done: true,
+    }]);
+    cx.run_until_parked();
+    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
+    assert_eq!(shown(&view, "message-1"), 1);
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().pending.is_empty()));
+}
+
+/// A post still sending, and the room opened again around a search hit
+/// whose window serves it: the window settles it, as a re-read does.
+#[test]
+fn a_window_opened_around_a_hit_settles_a_post_it_serves() {
+    let (mut cx, view) = opened();
+    cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
+    cx.simulate_input("draft-general/editor", "on its way");
+    cx.simulate_field_key("draft-general/editor", "enter");
+    cx.run_until_parked();
+    assert!(cx.has_text("sending…"));
+    let landed = || MsgRow {
+        message_id: "message-1".into(),
+        ..row(3, 7, "on its way")
+    };
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
+        Ok(match query {
+            Query::Search { .. } => Reply::Hits(MessageHits {
+                hits: vec![row(1, 7, "hello")],
+                capped: false,
+            }),
+            Query::MessagesAround { .. } => Reply::Messages(vec![
+                row(1, 7, "hello"),
+                row(2, 8, "**hi** there"),
+                landed(),
+            ]),
+            Query::Members { .. } => Reply::Members(page(Vec::new())),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+    cx.simulate_input("chat-sidebar-search", "hello");
+    cx.simulate_submit("chat-sidebar-search");
+    cx.run_until_parked();
+    cx.simulate_click("chat-search-hit-general-1");
+    cx.run_until_parked();
+    assert_eq!(shown(&view, "message-1"), 1);
+    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
+}
+
+/// A refused post shows no row: the composer says why and keeps the text
+/// to restore.
+#[test]
+fn a_refused_post_shows_no_row_and_keeps_the_text() {
+    let (mut cx, view) = opened();
+    cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
+    cx.host()
+        .refuse::<Submit<::chat::Chat>>("unauthorized", "not a member");
+    cx.simulate_input("draft-general/editor", "turned away");
+    cx.simulate_field_key("draft-general/editor", "enter");
+    cx.run_until_parked();
+    assert!(cx.has_text("not a member"), "{:?}", cx.texts());
+    assert!(cx.has_text("An earlier message wasn’t sent"));
+    assert!(!cx.has_text("sending…"));
+    assert_eq!(shown(&view, "message-1"), 0);
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().pending.is_empty()));
 }
 
 #[test]
