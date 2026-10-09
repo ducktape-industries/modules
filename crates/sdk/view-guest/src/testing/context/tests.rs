@@ -711,13 +711,14 @@ impl Render for Fanout {
 /// order, and every ask is answered; the host never sees a frame it
 /// would refuse.
 #[test]
-fn three_hundred_asks_go_out_256_then_44_and_every_one_is_answered() {
+fn three_hundred_asks_go_out_a_frames_worth_at_a_time_and_every_one_is_answered() {
     let mut cx = TestAppContext::new();
     cx.host()
         .handle::<crate::methods::HostId>(|prefix| Ok(format!("{prefix}-1")));
     let fanout = cx.open::<Fanout>();
     let sent: Vec<_> = cx.reports().iter().map(|tick| tick.requests).collect();
-    assert_eq!(sent, [256, 44, 0]);
+    let most = crate::wire::MAX_REQUESTS;
+    assert_eq!(sent, [most, 300 - most, 0]);
     fanout.read(|view| assert_eq!(view.answers, 300));
     let asked = cx.host().requests::<crate::methods::HostId>();
     assert_eq!(asked.first().map(String::as_str), Some("n0"));
