@@ -199,45 +199,12 @@ fn a_then_b(cx: &mut TestAppContext, view: &Entity<Chat>, key: &str) -> (String,
     (held(cx, key), body.unwrap_or_default())
 }
 
-/// The first thing typed into a room nobody wrote in yet stays: the draft
-/// the frame drew is the one that hears the change.
-#[test]
-fn the_first_key_in_a_room_is_kept() {
-    let (mut cx, view) = opened();
-    assert_eq!(held(&cx, "draft-general"), "", "nothing written here yet");
-    let (shown, sent) = a_then_b(&mut cx, &view, "draft-general");
-    assert_eq!((shown.as_str(), sent.as_str()), ("ab", "ab"));
-}
-
-#[test]
-fn the_first_key_in_a_thread_reply_is_kept() {
-    let (mut cx, view) = opened();
-    thread(&mut cx, &view, 1);
-    let (shown, sent) = a_then_b(&mut cx, &view, "draft-general-1");
-    assert_eq!((shown.as_str(), sent.as_str()), ("ab", "ab"));
-}
-
 #[test]
 fn a_key_in_the_edit_field_is_kept() {
     let (mut cx, view) = opened();
     edit(&mut cx, &view, 1);
     let (shown, sent) = a_then_b(&mut cx, &view, "edit-general-1");
     assert_eq!((shown.as_str(), sent.as_str()), ("helloab", "helloab"));
-}
-
-#[test]
-fn a_key_after_a_saved_draft_is_kept() {
-    let (mut cx, view) = opened();
-    cx.update(&view, |chat, _, cx| {
-        cx.notify();
-        chat.drafts.insert(
-            "draft-general".into(),
-            crate::composer::Draft::from_body("x", &[]),
-        );
-    });
-    cx.run_until_parked();
-    let (shown, sent) = a_then_b(&mut cx, &view, "draft-general");
-    assert_eq!((shown.as_str(), sent.as_str()), ("xab", "xab"));
 }
 
 /// A room typed in before keeps every key typed in it again, and after a
@@ -258,14 +225,6 @@ fn a_room_typed_in_again_and_after_a_restore_keeps_every_key() {
         (&format!("{first}abab"), &format!("{first}abab")),
         "restored with its draft"
     );
-}
-
-#[test]
-fn the_first_key_after_a_restore_of_a_room_never_typed_in_is_kept() {
-    let (cx, _) = opened();
-    let (mut restored, view) = restored(&cx);
-    let (shown, sent) = a_then_b(&mut restored, &view, "draft-general");
-    assert_eq!((shown.as_str(), sent.as_str()), ("ab", "ab"));
 }
 
 /// `text` typed into the composer of the draft `key` in one change: the

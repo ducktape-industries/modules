@@ -775,27 +775,21 @@ mod tests {
         assert!(draft.failed_send.is_none());
     }
 
+    /// A replacement keeps the text, its mention as the account it names,
+    /// and an interrupted send as one to restore.
     #[test]
     fn replacement_retains_the_bodies_of_interrupted_send_tasks() {
-        let mut draft = Draft::from_body("new typing", &[]);
+        let mut draft = Draft::from_body("new typing to <@7>", &roster());
         draft.in_flight.push(Send {
             body: "in flight".into(),
         });
         let mut restored: Draft =
             serde_json::from_slice(&serde_json::to_vec(&draft).unwrap()).unwrap();
         restored.retire_device_requests();
-        assert_eq!(restored.field.text(), "new typing");
+        assert_eq!(restored.field.text(), "new typing to @Ada");
+        assert_eq!(restored.body(), "new typing to <@7>");
         assert_eq!(restored.failed_send.as_ref().unwrap().body, "in flight");
         assert!(restored.in_flight.is_empty());
-    }
-
-    #[test]
-    fn restored_drafts_keep_stable_mentions_when_labels_change() {
-        let draft = Draft::from_body("Hello <@7>", &roster());
-        assert_eq!(draft.field.text(), "Hello @Ada");
-        assert_eq!(draft.body(), "Hello <@7>");
-        let restored: Draft = serde_json::from_slice(&serde_json::to_vec(&draft).unwrap()).unwrap();
-        assert_eq!(restored.body(), "Hello <@7>");
     }
 
     #[test]

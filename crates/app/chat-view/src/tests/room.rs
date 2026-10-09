@@ -326,55 +326,43 @@ fn create_channel_leaves_the_room_where_it_was() {
     assert_eq!(room(&cx), closed);
 }
 
-/// The room's and a thread's fields are named for what they are, apart
-/// from the hint drawn in them.
+/// Every field is named for what it is, apart from the hint drawn in it:
+/// the room's and a thread's composers, the emoji search, a new channel's
+/// name.
 #[test]
 fn a_field_is_named_apart_from_its_hint() {
-    let (mut cx, view) = opened();
-    thread(&mut cx, &view, 1);
-    for (key, name, hint) in [
-        ("draft-general/editor", "New message", "Message #General"),
-        ("draft-general-1/editor", "Reply", "Reply in thread"),
-    ] {
-        let Some(wire::Node::Field {
-            options,
-            placeholder,
-            multiline: true,
-            ..
-        }) = cx.find(key)
-        else {
-            panic!("no field {key}");
-        };
-        assert_eq!((options.label.as_str(), placeholder.as_str()), (name, hint));
-    }
-}
-
-/// The emoji search and a new channel's name say what they are for; the
-/// hint drawn in them stays a hint.
-#[test]
-fn a_text_field_is_named_apart_from_its_hint() {
     let (mut cx, view) = opened();
     let named = |cx: &TestAppContext, key: &str| {
         let Some(wire::Node::Field {
             options,
             placeholder,
+            multiline,
             ..
         }) = cx.find(key)
         else {
             panic!("no field {key}");
         };
-        (options.label.clone(), placeholder.clone())
+        (options.label.clone(), placeholder.clone(), *multiline)
     };
+    thread(&mut cx, &view, 1);
+    for (key, name, hint) in [
+        ("draft-general/editor", "New message", "Message #General"),
+        ("draft-general-1/editor", "Reply", "Reply in thread"),
+    ] {
+        assert_eq!(named(&cx, key), (name.into(), hint.into(), true), "{key}");
+    }
     message::hover(&mut cx, &view, 1);
     cx.simulate_click("chat-message-m1-react");
+    let (name, hint, _) = named(&cx, &ui::menu::focus_key(Pane::Timeline, Mode::Reactions));
     assert_eq!(
-        named(&cx, &ui::menu::focus_key(Pane::Timeline, Mode::Reactions)),
-        ("Find an emoji to react with".into(), "Search emoji".into())
+        (name.as_str(), hint.as_str()),
+        ("Find an emoji to react with", "Search emoji")
     );
     cx.simulate_click("chat-sidebar-new-channel");
+    let (name, hint, _) = named(&cx, "chat-create-name");
     assert_eq!(
-        named(&cx, "chat-create-name"),
-        ("Name the new channel".into(), "Channel name".into())
+        (name.as_str(), hint.as_str()),
+        ("Name the new channel", "Channel name")
     );
 }
 
