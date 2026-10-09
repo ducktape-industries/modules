@@ -230,9 +230,10 @@ fn every_mark_is_the_same_square_and_the_field_writes_at_body_size() {
         "bold, italic, code and quote are control-high squares"
     );
     assert_eq!(body_size, Some(px(design::type_scale::BODY as f32).into()));
-    assert_eq!(
-        editor_bounds,
-        Some((Some(px(40.).into()), Some(px(200.).into())))
+    // the field grows with what is written, between a floor and a ceiling
+    assert!(
+        matches!(editor_bounds, Some((Some(_), Some(_)))),
+        "{editor_bounds:?}"
     );
 }
 

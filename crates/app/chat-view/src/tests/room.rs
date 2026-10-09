@@ -606,7 +606,7 @@ fn jump_to_latest_floats_over_the_list() {
 }
 
 /// The rooms are one list box: ↓ reaches the direct message under the
-/// channels, Enter opens it.
+/// channels, Enter opens it and names it to the host.
 #[test]
 fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
     let (mut cx, view) = opened();
@@ -630,6 +630,13 @@ fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
     assert_eq!(
         cx.interactivity("chat-sidebar-dm-8").aria.selected,
         Some(true)
+    );
+    let opened = cx
+        .host()
+        .requests::<ducktape_view_guest::methods::LinkOpen>();
+    assert_eq!(
+        opened.last().map(String::as_str),
+        Some("duck://testnet-0a1b2c3d/chat/dm-7-8")
     );
 }
 

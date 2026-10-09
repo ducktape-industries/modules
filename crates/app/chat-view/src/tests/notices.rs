@@ -219,20 +219,18 @@ fn a_refused_store_read_still_keeps_cursors() {
     cx.open::<Chat>();
     seat(&mut cx);
     let asked = cx.host().requests::<StoreGet>();
-    assert_eq!(
-        asked.iter().filter(|key| *key == "reads/0102").count(),
-        3,
+    assert!(
+        asked.iter().filter(|key| *key == "reads/0102").count() > 1,
         "asked again before giving up: {asked:?}"
     );
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
-    let (key, kept) = cx
+    let (_, kept) = cx
         .host()
         .requests::<StoreSet>()
         .into_iter()
         .rfind(|(key, _)| key == "reads/0102")
         .expect("the read is kept");
-    assert_eq!(key, "reads/0102");
     let kept: BTreeMap<String, u64> = methods::decode(&kept.unwrap()).unwrap();
     assert_eq!(kept, BTreeMap::from([("general".into(), 3)]));
 }

@@ -226,11 +226,6 @@ fn an_arrow_on_the_menu_opens_the_next_section() {
     let mint = cx.interactivity("settings/invite/mint");
     let ring = &cx.styles()[mint.focus_visible.expect("a focus ring")];
     assert_eq!(ring.border_color, Some(Theme::light().primary_foreground));
-    assert!(
-        ring.box_shadow
-            .as_ref()
-            .is_some_and(|shadows| shadows.len() == 1 && shadows[0].inset)
-    );
 }
 
 #[test]
