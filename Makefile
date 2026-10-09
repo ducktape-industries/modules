@@ -50,7 +50,9 @@ ARTIFACTS := $(foreach a,$(PROGRAMS) $(VIEWS),$(subst -,_,$(a)).wasm) $(foreach 
 # and the toolchain's absolute paths. Across host triples (a Mac and a Linux
 # box) the bytes differ and no flag here changes that: cargo mixes the host
 # into the `-C metadata` of every crate with a build script or a proc macro
-# beneath it.
+# beneath it. The reference host is x86_64-unknown-linux-gnu (owner,
+# 2026-10-09): bytes someone will compare by hash (a founding, a release) are
+# built there, and a Mac's build is a development build.
 CARGO_HOME_DIR := $(or $(CARGO_HOME),$(HOME)/.cargo)
 SYSROOT := $(shell rustc --print sysroot)
 # Where the rust-src component is installed (rust-analyzer asks for it), rustc

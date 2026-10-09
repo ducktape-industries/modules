@@ -155,7 +155,10 @@ Every wasm artifact is a build output: `make wasm-modules` builds every
 module and every view under `$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/`;
 nothing built is committed, and nothing is packed here (qa's `make pack` embeds
 each view in its module for a founding). `make wasm-reproducible` proves the
-bytes do not depend on the checkout.
+bytes do not depend on the checkout. They do depend on the host triple (the
+Makefile says why at `WASM_RUSTFLAGS`), and the reference host is Linux x86_64:
+a founding or a release is packed from a build made there, and a Mac's build
+is a development build.
 
 `make dev`'s view gate and view releases require `wasm-tools`, Python 3, and
 [Binaryen wasm-opt 132](https://github.com/WebAssembly/binaryen/releases/tag/version_132).
