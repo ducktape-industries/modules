@@ -1,6 +1,7 @@
 //! Chat over the fake node: the chain seeded through chat's own ops, what
-//! the person sees read off it, and a post through the composer landing on
-//! the chain and coming back through `module.changes`.
+//! the person sees read off it, someone else's post reaching the open room
+//! through `module.changes`, and a post through the composer landing on the
+//! chain as the signed-in account.
 use chat::{Block, Op, PostPolicy, Query, Reply};
 use chat_view::Chat;
 use ducktape_view_guest::live::Network;
@@ -62,8 +63,19 @@ fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
     assert!(cx.has_text("and from me"));
     assert!(cx.has_text("ada"), "the author's name is identity's");
 
-    // a post through the composer: chat's rules run it, the block's
-    // changes reach the view, and it re-reads the room
+    // ada posts while the room is open: the view asked nothing, so her
+    // post reaches it only as the block's `module.changes` item and the
+    // re-read that item causes
+    post(&net, ada, "m3", "ada again, while the room is open");
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("ada again, while the room is open"),
+        "{:?}",
+        cx.texts()
+    );
+
+    // a post through the composer: chat's rules run it, as the signed-in
+    // account
     cx.simulate_input("draft-general/editor", "typed in the live test");
     cx.simulate_click("draft-general/send");
     cx.run_until_parked();
@@ -84,7 +96,7 @@ fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
     else {
         panic!("roots")
     };
-    assert_eq!(page.items.len(), 3);
+    assert_eq!(page.items.len(), 4);
     assert_eq!(page.items[0].text, "typed in the live test");
     assert_eq!(page.items[0].author, chat::Principal::Account(net.me()));
 }
