@@ -260,51 +260,35 @@ fn assert_ran(ran: &[(&'static str, Vec<String>)], who: &str) {
     }
 }
 
-/// A button inserted before `a` and `b` between the paint and the next tick
+/// A node inserted before `a` and `b` between the paint and the next tick
 /// (a reply, a clock item, a `Loadable` going ready): the routes `b` was
 /// painted with still name `b`, so every event the host took from that
-/// paint runs `b`, and its tooltip request builds `b`'s tooltip.
+/// paint runs `b`, and its tooltip request builds `b`'s tooltip. A full
+/// button takes every kind of route once more; a one-route node is the
+/// shape that used to drop the mouse-down silently, as the slot then held
+/// another payload type.
 #[test]
 fn a_painted_route_crossing_an_insert_runs_the_pressed_nodes_listener() {
-    let mut driver = Driver::<Shifting>::new();
-    tick(&mut driver, vec![]);
-    let b_painted = routes(&root(&driver), "b");
-    driver.entity().update(driver.app_mut(), |v, cx| {
-        v.before = Before::Button;
-        cx.notify();
-    });
-    tick(&mut driver, vec![]);
-    assert_eq!(
-        routes(&root(&driver), "b"),
-        b_painted,
-        "the insert left b's routes alone"
-    );
-    assert_ran(&ran_for(&mut driver, &b_painted), "b");
-    assert_eq!(
-        painted_tooltip(&mut driver, b_painted.tip),
-        Some(vec!["b".into()])
-    );
-}
-
-/// The same crossing with a one-route node inserted: the one shape that
-/// used to drop the mouse-down silently, as the slot now held another
-/// payload type.
-#[test]
-fn a_painted_route_crossing_a_one_route_insert_runs_the_pressed_nodes_listener() {
-    let mut driver = Driver::<Shifting>::new();
-    tick(&mut driver, vec![]);
-    let b_painted = routes(&root(&driver), "b");
-    driver.entity().update(driver.app_mut(), |v, cx| {
-        v.before = Before::HoverOnly;
-        cx.notify();
-    });
-    tick(&mut driver, vec![]);
-    assert_eq!(routes(&root(&driver), "b"), b_painted);
-    assert_ran(&ran_for(&mut driver, &b_painted), "b");
-    assert_eq!(
-        painted_tooltip(&mut driver, b_painted.tip),
-        Some(vec!["b".into()])
-    );
+    for before in [Before::Button, Before::HoverOnly] {
+        let mut driver = Driver::<Shifting>::new();
+        tick(&mut driver, vec![]);
+        let b_painted = routes(&root(&driver), "b");
+        driver.entity().update(driver.app_mut(), |v, cx| {
+            v.before = before;
+            cx.notify();
+        });
+        tick(&mut driver, vec![]);
+        assert_eq!(
+            routes(&root(&driver), "b"),
+            b_painted,
+            "the insert left b's routes alone"
+        );
+        assert_ran(&ran_for(&mut driver, &b_painted), "b");
+        assert_eq!(
+            painted_tooltip(&mut driver, b_painted.tip),
+            Some(vec!["b".into()])
+        );
+    }
 }
 
 /// A node BEFORE the target leaving (a spinner, an empty state giving way):
