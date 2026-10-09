@@ -353,7 +353,7 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                 Err(error) => Response {
                     status: 400,
                     content_type: "application/json",
-                    body: serde_json::json!({ "reason": error.code, "sentence": error.message })
+                    body: serde_json::json!({ "error": error.message, "reason": error.code })
                         .to_string()
                         .into_bytes(),
                 },
