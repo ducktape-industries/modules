@@ -384,8 +384,23 @@ impl Network {
     }
 
     /// One node method at the view-wire level: an override, else the chain.
+    /// A submission runs as the dev account, the one a test's session
+    /// signs in as.
     pub fn answer(
         &self,
+        kind: &str,
+        target: Option<&str>,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        self.answer_as(self.key_of(self.me()), kind, target, payload)
+    }
+
+    /// [`answer`](Self::answer), asked by `signer`: the key a submission
+    /// runs under. Every node method either front serves comes through
+    /// here, so an override answers the live window as it answers a test.
+    pub(crate) fn answer_as(
+        &self,
+        signer: Vec<u8>,
         kind: &str,
         target: Option<&str>,
         payload: &[u8],
@@ -410,11 +425,7 @@ impl Network {
             "op.submit" => {
                 let call: methods::Call =
                     methods::decode(payload).map_err(|error| malformed(&error))?;
-                self.applied(self.run(
-                    Origin::Signed(self.key_of(self.me())),
-                    call.target,
-                    call.body,
-                ))
+                self.applied(self.run(Origin::Signed(signer), call.target, call.body))
             }
             "chain.status" => Ok(methods::encode(&self.status())),
             "chain.network" => {

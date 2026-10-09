@@ -205,25 +205,31 @@ fn refusal(error: &crate::host::Error) -> abi::Refusal {
     abi::Refusal::new(&error.code, &error.message)
 }
 
-/// One route, answered on the chain thread.
+/// One route, answered on the chain thread: the request read as the node
+/// method it is, [`Network::answer`] (an override, else the chain), and
+/// the answer in the node's shape. `/v1/get` alone is the app's own read
+/// (a signer's sequence), no view's method.
 fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
     match (method, path) {
-        ("GET", route::STATUS) => {
-            let status = net.status();
-            Response::borsh(&wire::Status {
-                network: status.chain_id,
-                time: status.time,
-                block_time_ms: status.block_time_ms,
-                epoch_length: status.epoch_length,
-                height: status.height,
-                tip: status.tip,
-                root: abi::Root(status.root),
-                epoch: status.epoch,
-                identity: status.identity,
-                contract: status.contract,
-                genesis: net.genesis(),
-            })
-        }
+        ("GET", route::STATUS) => match net.answer("chain.status", None, &[]) {
+            Ok(bytes) => {
+                let status: methods::NodeStatus = methods::decode(&bytes).expect("own bytes");
+                Response::borsh(&wire::Status {
+                    network: status.chain_id,
+                    time: status.time,
+                    block_time_ms: status.block_time_ms,
+                    epoch_length: status.epoch_length,
+                    height: status.height,
+                    tip: status.tip,
+                    root: abi::Root(status.root),
+                    epoch: status.epoch,
+                    identity: status.identity,
+                    contract: status.contract,
+                    genesis: net.genesis(),
+                })
+            }
+            Err(error) => Response::refused(refusal(&error)),
+        },
         ("GET", route::NETWORK) => match net.answer("chain.network", None, &[]) {
             Ok(bytes) => {
                 let network: methods::NetworkStatus = methods::decode(&bytes).expect("own bytes");
@@ -255,7 +261,12 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                 body: frame.body.payload,
             });
             // the program's bytes, as one borsh `Vec<u8>` answer
-            match net.answer("module.query", Some(&frame.body.target), &call) {
+            match net.answer_as(
+                frame.body.signer,
+                "module.query",
+                Some(&frame.body.target),
+                &call,
+            ) {
                 Ok(bytes) => Response::borsh(&bytes),
                 Err(error) => Response::refused(refusal(&error)),
             }
@@ -272,12 +283,27 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                     format!("expected sequence {expected}, got {}", frame.body.seq),
                 ));
             }
-            let receipt = net.run(
-                guest::Origin::Signed(frame.body.signer),
-                frame.body.target,
-                frame.body.payload,
-            );
-            Response::borsh(&wire::receipt(&receipt))
+            let call = methods::encode(&methods::Call {
+                target: frame.body.target.clone(),
+                body: frame.body.payload,
+            });
+            // the program's refusal travels in the receipt, as the node
+            // sends it; the receipt's events are the archived block's
+            let outcome = match net.answer_as(
+                frame.body.signer,
+                "op.submit",
+                Some(&frame.body.target),
+                &call,
+            ) {
+                Ok(output) => abi::Outcome::Applied { output },
+                Err(error) => abi::Outcome::Rejected(refusal(&error)),
+            };
+            Response::borsh(&wire::Receipt {
+                program: frame.body.target,
+                outcome,
+                events: Vec::new(),
+                nested: Vec::new(),
+            })
         }
         ("POST", route::GET) => {
             let get: wire::Get = match abi::decode(&body) {
@@ -291,7 +317,24 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                 Ok(id) => id,
                 Err(error) => return malformed(error.sentence),
             };
-            Response::borsh(&net.blob(&id))
+            let name = match id {
+                abi::BlobId::Sha256(digest) => format!("sha256:{}", abi::hex(&digest)),
+                abi::BlobId::Sha1(digest) => format!("sha1:{}", abi::hex(&digest)),
+            };
+            match net.answer("blob.get", None, &methods::encode(&name)) {
+                Ok(bytes) => {
+                    let body: Option<Vec<u8>> = methods::decode(&bytes).expect("own bytes");
+                    // a view reads the body; the node serves it framed: as
+                    // the chain framed it when it is the chain's (the app
+                    // hashes a code blob's frame), else as a plain blob
+                    Response::borsh(&body.map(|body| {
+                        net.blob(&id)
+                            .filter(|framed| super::unframe(framed) == Some(&body[..]))
+                            .unwrap_or_else(|| wire::framed("blob", &body))
+                    }))
+                }
+                Err(error) => Response::refused(refusal(&error)),
+            }
         }
         ("POST", route::BLOCKS) => {
             let page: wire::Blocks = match abi::decode(&body) {
@@ -498,4 +541,44 @@ fn ws_read(reader: &mut BufReader<TcpStream>) -> Option<(u8, Vec<u8>)> {
 /// A line of the node's own log, timed.
 pub(super) fn say(line: impl std::fmt::Display) {
     println!("[live {}] {line}", now_ms() % 100_000);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{CHAIN, DEV_SEED, key_from_seed};
+    use super::*;
+    use crate::methods::Submit;
+    use commonware_cryptography::Signer as _;
+
+    /// A typed override answers the window's submit as it answers a
+    /// test's: the receipt carries the override's refusal, and the chain
+    /// never ran (no block, the signer's sequence unmoved).
+    #[test]
+    fn an_override_answers_the_windows_submit() {
+        let net = Network::new();
+        net.refuse::<Submit<identity::Identity>>("closed", "refused by the test");
+        let signer = net.key_of(net.me());
+        let (height, seq) = (net.height(), net.seq(&signer));
+        let body = wire::Body {
+            scheme: wire::KeyScheme::Ed25519,
+            signer: signer.clone(),
+            network: CHAIN.as_bytes().to_vec(),
+            seq,
+            target: identity::MODULE.into(),
+            payload: methods::encode(&identity::Op::CreateAgent { name: "bot".into() }),
+        };
+        let proof = key_from_seed(DEV_SEED)
+            .sign(wire::FRAME_NAMESPACE, &body.preimage())
+            .as_ref()
+            .to_vec();
+        let frame = abi::encode(&wire::Frame { body, proof });
+        let response = respond(&net, "POST", route::SUBMIT, frame);
+        assert_eq!(response.status, 200);
+        let receipt: wire::Receipt = abi::decode(&response.body).unwrap();
+        assert_eq!(
+            receipt.outcome,
+            abi::Outcome::Rejected(abi::Refusal::new("closed", "refused by the test"))
+        );
+        assert_eq!((net.height(), net.seq(&signer)), (height, seq));
+    }
 }
