@@ -31,13 +31,9 @@ pub enum Layer {
     Preconfirmed,
 }
 
-/// `keyscheme::KeyScheme`: the signer's scheme, as a frame body encodes it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum KeyScheme {
-    Ed25519,
-    Secp256k1,
-    Secp256r1,
-}
+/// The signer's scheme, as a frame body encodes it: core's own type, as
+/// the app's copy uses it.
+pub use keyscheme::KeyScheme;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Body {

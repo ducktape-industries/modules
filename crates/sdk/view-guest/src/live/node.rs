@@ -11,8 +11,6 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use commonware_codec::DecodeExt as _;
-use commonware_cryptography::{Verifier as _, ed25519};
 use guest::abi;
 
 use super::wire::{self, route};
@@ -368,18 +366,12 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
 /// A signed frame, its proof checked: the signer is who the body says.
 fn opened(bytes: &[u8]) -> Result<wire::Frame, Response> {
     let frame: wire::Frame = abi::decode(bytes).map_err(|error| malformed(error.sentence))?;
-    if frame.body.scheme != wire::KeyScheme::Ed25519 {
-        return Err(Response::refused(abi::Refusal::new(
-            "unsupported_scheme",
-            "the fake node verifies ed25519 frames alone",
-        )));
-    }
-    let verified = ed25519::PublicKey::decode(frame.body.signer.as_slice())
-        .ok()
-        .zip(ed25519::Signature::decode(frame.proof.as_slice()).ok())
-        .is_some_and(|(key, proof)| {
-            key.verify(wire::FRAME_NAMESPACE, &frame.body.preimage(), &proof)
-        });
+    let verified = frame.body.scheme.verify(
+        &frame.body.signer,
+        wire::FRAME_NAMESPACE,
+        &frame.body.preimage(),
+        &frame.proof,
+    );
     if !verified {
         return Err(Response::refused(abi::Refusal::new(
             "bad_signature",

@@ -19,7 +19,7 @@ live = [
     "dep:valset",
     "dep:module-registry",
     "dep:commonware-cryptography",
-    "dep:commonware-codec",
+    "dep:keyscheme",
     "dep:sha1",
     "dep:sha2",
     "dep:base64",
@@ -45,7 +45,7 @@ identity = { workspace = true, optional = true }
 valset = { workspace = true, optional = true }
 module-registry = { workspace = true, optional = true }
 commonware-cryptography = { workspace = true, optional = true }
-commonware-codec = { version = "2026.9.0", optional = true }
+keyscheme = { workspace = true, optional = true }
 sha1 = { version = "0.10", optional = true }
 sha2 = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }

@@ -1747,7 +1747,6 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "borsh",
- "commonware-codec",
  "commonware-cryptography",
  "design",
  "error",
@@ -1755,6 +1754,7 @@ dependencies = [
  "gpui-pre",
  "guest",
  "identity",
+ "keyscheme",
  "module-registry",
  "program",
  "serde",
