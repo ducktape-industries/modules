@@ -305,8 +305,12 @@ fn an_arrow_on_the_emoji_tabs_opens_the_next_category() {
     cx.simulate_key_down("chat-reaction-tabs", "right");
     view.read(|chat| assert_eq!(chat.picker.tab, 1));
     assert!(
-        cx.find("chat-reaction-People-👋").is_some()
-            || cx.find("chat-reaction-Smileys-😀").is_none()
+        cx.find("chat-reaction-People-👋").is_some(),
+        "the next category"
+    );
+    assert!(
+        cx.find("chat-reaction-Smileys-😀").is_none(),
+        "in place of the first"
     );
     let people = cx.interactivity("chat-reaction-tab-People");
     assert_eq!(people.aria.selected, Some(true));

@@ -685,14 +685,25 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     }
 }
 
-/// Identity's live heads re-read the account in place: a rename and an
-/// agent suspended elsewhere show without the account leaving the screen
-/// first.
+/// Identity's live heads re-read the account in place: the account stays
+/// on screen while it is read again, and a rename and an agent suspended
+/// elsewhere then show.
 #[test]
 fn an_identity_head_re_reads_the_account_in_place() {
     let mut cx = fixture("ready", false);
     let heads = cx.host().stream::<Changes<Identity>>();
-    assert!(cx.has_text("Maya"));
+    let head = || {
+        Some(Change {
+            height: 43,
+            keys: Vec::new(),
+        })
+    };
+    // the re-read is under way, not answered yet
+    cx.host().never::<Query<Identity>>();
+    heads.send(head());
+    cx.run_until_parked();
+    assert!(cx.has_text("Maya"), "{:?}", cx.texts());
+    assert!(!cx.has_text("Reading your account…"));
     // Maya renames herself and suspends Scout from another device
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
@@ -717,13 +728,9 @@ fn an_identity_head_re_reads_the_account_in_place() {
             q => panic!("unexpected query: {q:?}"),
         })
     });
-    heads.send(Some(Change {
-        height: 43,
-        keys: Vec::new(),
-    }));
+    heads.send(head());
     cx.run_until_parked();
     assert!(cx.has_text("Maya R"), "{:?}", cx.texts());
-    assert!(!cx.has_text("Reading your account…"));
     cx.simulate_click("settings/nav/agents");
     cx.run_until_parked();
     assert!(

@@ -518,12 +518,13 @@ fn a_room_lists_every_member_past_the_first_page() {
             Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
             Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 0)])),
             Query::Roots { .. } => Reply::Roots(page(Vec::new())),
-            Query::Members { page: asked, .. } => Reply::Members(match asked.after {
+            Query::Members { page: asked, .. } => Reply::Members(match asked.after.as_deref() {
                 None => ::chat::PageResponse {
                     next: Some(vec![1]),
                     ..page((1..=256).map(member).collect())
                 },
-                Some(_) => page((257..=300).map(member).collect()),
+                Some([1]) => page((257..=300).map(member).collect()),
+                Some(after) => panic!("a cursor no page named: {after:?}"),
             }),
             query => panic!("unexpected chat query: {query:?}"),
         })

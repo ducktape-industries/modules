@@ -1,31 +1,12 @@
 //! Sending, and creating channels.
 use super::*;
 
+/// A message sent from the composer shows as sending until a chat block's
+/// re-read serves it; a refused create is a banner; the view restores into
+/// its room.
 #[test]
 fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
     let (mut cx, view) = opened();
-    let pending = MsgRow {
-        message_id: "p1".into(),
-        blocks: vec![chat::Block::paragraph("on its way")],
-        ..MsgRow::by(Principal::Account(7))
-    };
-    cx.update(&view, |chat, _, cx| {
-        chat.room.as_mut().unwrap().pending.push(pending.clone());
-        cx.notify();
-    });
-    cx.run_until_parked();
-    assert!(cx.has_text("on its way") && cx.has_text("sending…"));
-    cx.update(&view, |chat, _, cx| {
-        let room = chat.room.as_mut().unwrap();
-        room.messages
-            .ready_mut()
-            .unwrap()
-            .push(MsgRow { seq: 3, ..pending });
-        room.settle();
-        cx.notify();
-    });
-    cx.run_until_parked();
-    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
     cx.simulate_input("chat-sidebar-search", "hello");
     cx.simulate_submit("chat-sidebar-search");
     cx.run_until_parked();
@@ -33,10 +14,38 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
     // the clear control is a glyph named in words
     cx.simulate_click("chat-sidebar-clear-search");
     view.read(|chat| assert!(chat.search.query.is_empty()));
-    cx.host().handle::<HostId>(|kind| {
-        assert_eq!(kind, "channel");
-        Ok("chan-1".into())
+    // the host mints the ids: `message-1`, `channel-1`
+    cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
+    cx.simulate_input("draft-general/editor", "on its way");
+    cx.simulate_field_key("draft-general/editor", "enter");
+    cx.run_until_parked();
+    assert!(
+        cx.host().requests::<Submit<::chat::Chat>>().iter().any(
+            |op| matches!(op, Op::PostMessage { message_id, .. } if message_id == "message-1")
+        )
+    );
+    // the program took it; the re-read after the send does not serve it yet
+    assert!(cx.has_text("on its way") && cx.has_text("sending…"));
+    // its block lands, and the rows read again serve it
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
+        Ok(match query {
+            Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 3)])),
+            Query::Roots { .. } => Reply::Roots(page(vec![
+                row(1, 7, "hello"),
+                row(2, 8, "**hi** there"),
+                MsgRow {
+                    message_id: "message-1".into(),
+                    ..row(3, 7, "on its way")
+                },
+            ])),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
     });
+    cx.host()
+        .stream::<Changes<::chat::Chat>>()
+        .send(block(4, posted("general")));
+    cx.run_until_parked();
+    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
     cx.host().refuse::<Submit<::chat::Chat>>("no", "no");
     cx.simulate_click("chat-sidebar-new-channel");
     assert!(cx.has_text("Create a channel"));
@@ -44,7 +53,7 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
     cx.simulate_click("chat-create-members");
     cx.simulate_submit("chat-create-name");
     cx.run_until_parked();
-    assert!(cx.host().requests::<Submit<::chat::Chat>>().iter().any(|op| matches!(op, Op::CreateChannel { name, post_policy: PostPolicy::MembersOnly, .. } if name == "random")));
+    assert!(cx.host().requests::<Submit<::chat::Chat>>().iter().any(|op| matches!(op, Op::CreateChannel { channel_id, name, post_policy: PostPolicy::MembersOnly } if channel_id == "channel-1" && name == "random")));
     assert!(cx.has_text("Couldn’t create this channel: no"));
     let (restored, view) = restored(&cx);
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
