@@ -20,3 +20,7 @@ chat = { path = "../chat" }
 # `role::Identity`: the identity program, followed by role, not linked
 program.workspace = true
 abi.workspace = true
+
+[dev-dependencies]
+# `examples/live.rs` and the chain-backed tests: the fake node
+ducktape-view-guest = { workspace = true, features = ["live"] }

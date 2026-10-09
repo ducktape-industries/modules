@@ -27,6 +27,8 @@ serde.workspace = true
 # What a test needs to play the node: the borsh replies the program would
 # write, and the envelope the host method would open.
 [dev-dependencies]
+# `examples/live.rs`: the view in the real app over the fake node
+ducktape-view-guest = { workspace = true, features = ["live"] }
 # the ops a test posts, and the describe functions its host answers with,
 # as the modules in those programs' code would
 borsh.workspace = true
