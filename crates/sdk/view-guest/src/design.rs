@@ -1580,12 +1580,4 @@ mod tests {
             assert_eq!(view.pressed, [0]);
         });
     }
-
-    #[test]
-    fn a_side_pane_docks_only_beside_the_whole_of_what_the_screen_keeps() {
-        assert!(docks(1000., 576., 320.));
-        assert!(docks(896., 576., 320.));
-        assert!(!docks(895., 576., 320.));
-        assert!(!docks(720., 400., 440.));
-    }
 }

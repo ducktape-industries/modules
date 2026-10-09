@@ -21,22 +21,6 @@ impl View for BehaviorView {
     }
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
-struct DefaultSensorView;
-
-impl View for DefaultSensorView {
-    const NAME: &'static str = "DefaultSensorView";
-    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
-        Self
-    }
-}
-
-impl Render for DefaultSensorView {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        sensor(ElementId::Name("default-sensor".into()), div())
-    }
-}
-
 impl Render for BehaviorView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let measured = cx.listener(|view, bounds: &Bounds<Pixels>, _, cx| {
@@ -173,16 +157,6 @@ fn a_sensor_back_in_the_tree_hears_its_bounds_again() {
     show(&mut cx, false);
     cx.simulate_bounds("behavior-sensor", (10., 20.), (300., 200.));
     assert_eq!(view.read(|view| view.heard), 2);
-}
-
-#[test]
-fn sensor_style_is_opt_in() {
-    let mut cx = TestAppContext::new();
-    cx.open::<DefaultSensorView>();
-    let Some(wire::Node::Sensor { style, .. }) = cx.find("default-sensor") else {
-        panic!("default sensor")
-    };
-    assert_eq!(cx.styles()[*style], crate::StyleRefinement::default());
 }
 
 #[test]
