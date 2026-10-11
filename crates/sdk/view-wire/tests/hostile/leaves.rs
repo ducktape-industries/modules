@@ -191,7 +191,7 @@ pub(super) fn gen_svg(rng: &mut Rng) -> Node {
 /// variant except `Space` carries a string, a colour or a number worth
 /// pulling into range.
 pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
-    match rng.next_range(4) {
+    match rng.next_range(5) {
         0 => gen_text(rng),
         1 => {
             // `Space` carried a style once: the draws it took still are,
@@ -200,7 +200,41 @@ pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
             Node::Space
         }
         2 => gen_svg(rng),
+        3 => gen_web(rng),
         _ => gen_field(rng),
+    }
+}
+
+/// An address up to twice [`MAX_URL_BYTES`], so about half are past the
+/// bound `sanitize` empties.
+fn gen_url(rng: &mut Rng) -> String {
+    let mut url = String::from("https://");
+    let target = rng.next_range(2 * view_wire::MAX_URL_BYTES);
+    while url.len() < target {
+        url.push(*rng.choose(&['a', '/', '한', '%']));
+    }
+    url
+}
+
+/// A web piece: a hostile address and up to `MAX_WEB_COMMANDS` commands
+/// (the decoder refuses more), each a `Load` of a hostile address or a
+/// plain navigation.
+pub(super) fn gen_web(rng: &mut Rng) -> Node {
+    let url = gen_url(rng);
+    let commands = (0..=rng.next_range(view_wire::MAX_WEB_COMMANDS))
+        .map(|_| match rng.next_range(3) {
+            0 => view_wire::WebCommand::Load(gen_url(rng)),
+            1 => view_wire::WebCommand::Back,
+            _ => view_wire::WebCommand::Reload,
+        })
+        .collect();
+    Node::Web {
+        id: gen_id(rng),
+        url,
+        style: PLAIN,
+        revision: rng.next_u64(),
+        commands,
+        on_state: rng.next_bool().then(|| rng.next_u64() as u32),
     }
 }
 

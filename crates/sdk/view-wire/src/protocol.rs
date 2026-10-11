@@ -221,6 +221,12 @@ pub enum Event {
     /// The host no longer holds the tree the guest is patching — a patch it
     /// could not apply, a tree it dropped — and wants the next frame whole.
     Resync,
+    /// An assistive-technology action request on the node that advertised
+    /// `(action, handler)` in [`Aria::actions`](crate::Aria::actions).
+    A11yAction {
+        handler: u32,
+        data: Option<ActionData>,
+    },
     /// Where a [`Node::Web`]'s page is now (its address, title, whether it
     /// loads, whether it can go back or forward), to the node's
     /// `on_state`: sent when the page first reports, and whenever any of it
@@ -228,12 +234,6 @@ pub enum Event {
     Web {
         handler: u32,
         state: crate::WebState,
-    },
-    /// An assistive-technology action request on the node that advertised
-    /// `(action, handler)` in [`Aria::actions`](crate::Aria::actions).
-    A11yAction {
-        handler: u32,
-        data: Option<ActionData>,
     },
 }
 
