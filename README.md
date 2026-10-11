@@ -138,8 +138,9 @@ The tree vocabulary, manifests, and five-function Wasm ABI are unchanged.
    `name  1,181,498 B` or `unchanged`), gates the rebuilt
    views (ABI) and runs the native tests of the crates cargo rebuilt.
    `P=forge` / `V=forge-view` narrow it to one.
-3. `kit build NAME && kit up NAME` in qa packs and founds these artifacts,
-   then the app opens on them.
+3. Push the branch and `make wasm-publish` (below); then in qa,
+   `kit new NAME --modules <branch> && kit up NAME` downloads, packs and
+   founds those artifacts, and `kit app NAME` opens the app on them.
 4. Where a view's bytes go: `make wasm-why V=members-view` (`twiggy top`, `cargo install twiggy`).
 5. A new module: `make new-module NAME=x`, then `make new-view NAME=x-view`;
    each prints what to do next, down to the `founding.toml` entry and kit's
@@ -162,6 +163,13 @@ bytes do not depend on the checkout. They do depend on the host triple (the
 Makefile says why at `WASM_RUSTFLAGS`), and the reference host is Linux x86_64:
 a founding or a release is packed from a build made there, and a Mac's build
 is a development build.
+
+`make wasm-publish` builds every artifact at the checked-out commit and
+publishes them as the GitHub release `wasm-<commit>` (`modules-wasm.tar.gz`,
+with `SHA256SUMS` inside). It runs only on the reference host, from a clean
+checkout whose commit is on origin, and never replaces a published commit.
+A founder downloads these bytes (qa's `kit` does) instead of building them,
+so only the machine that publishes needs the wasm tools below and `gh`.
 
 `make dev`'s view gate and view releases require `wasm-tools`, Python 3, and
 [Binaryen wasm-opt 132](https://github.com/WebAssembly/binaryen/releases/tag/version_132).
