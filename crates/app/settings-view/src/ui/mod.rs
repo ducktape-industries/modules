@@ -149,7 +149,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
         .child(design::setting_row(
             "settings/invite/ttl",
             "Expires after",
-            format!("An invite lets one person join {network}."),
+            format!("An invite lets one node join {network} as a resident."),
             choices,
             theme,
         ))
