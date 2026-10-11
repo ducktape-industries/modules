@@ -150,13 +150,16 @@ wasm-describes:
 	@mkdir -p $(RELEASE)
 	@$(foreach p,$(PROGRAMS),$(call describe_build,$(p)) && cp $(call describe_artifact,$(p)) $(RELEASE)/$(subst -,_,$(p)).describe.wasm && python3 tools/check-describe-abi.py $(RELEASE)/$(subst -,_,$(p)).describe.wasm || exit 1;)
 
-.PHONY: wasm-modules wasm-reproducible
+.PHONY: wasm-modules wasm-reproducible wasm-publish
 
 ## builds every program, its describe module and every view under
 ## $(RELEASE)/, unpacked. Packing a view and a describe module into its
 ## program is genesis's job: qa's `kit` pack runs view-pack over these outputs.
 wasm-modules: wasm-programs wasm-describes wasm-views
 	@cd $(RELEASE) && ls -l $(ARTIFACTS)
+
+wasm-publish:
+	@tools/publish-wasm.sh $(ARTIFACTS)
 
 ## builds every program and view twice, the second time from a fresh target
 ## directory, and requires the same sha256 for every artifact and no path of
