@@ -8,8 +8,7 @@
 //!
 //! Left out of the kernel's run, on purpose: fuel (a run never runs out),
 //! blob rostering (a blob put stays put), state roots (`ctx.root` is
-//! `None`), committed reads (they read the same map as a plain read), the
-//! signer's sequence number (a submission is never out of sequence), and
+//! `None`), committed reads (they read the same map as a plain read), and
 //! the query stack's cycle check (a module asked again while a query of it
 //! is being answered is refused as unknown rather than as a cycle), and
 //! receipts (a submission is its output or its refusal; what ran nested is

@@ -285,7 +285,10 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 txs: vec![Tx {
                     hash: [7; 32],
                     signer: vec![8; 32],
-                    seq: 1,
+                    anchor: Tip {
+                        height: 8,
+                        id: [3; 32],
+                    },
                     target: "chat".into(),
                     payload: vec![9],
                     receipt: Some(Receipt {
@@ -318,7 +321,10 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 txs: vec![Tx {
                     hash: [7; 32],
                     signer: vec![8; 32],
-                    seq: 2,
+                    anchor: Tip {
+                        height: 7,
+                        id: [2; 32],
+                    },
                     target: "chat".into(),
                     payload: vec![9],
                     receipt: None,

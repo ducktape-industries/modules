@@ -127,7 +127,17 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
         .child(field("Hash", mono(abi::hex(&tx.hash)), theme))
         .child(field("From", from(view, tx, cx, theme), theme))
         .child(field("Program", program, theme))
-        .child(field("Sequence", mono(grouped(tx.seq)), theme))
+        .child(field(
+            "Anchor",
+            link(
+                "explorer-tx-anchor".into(),
+                format!("Block {}", grouped(tx.anchor)),
+                Route::Block(tx.anchor),
+                cx,
+                theme,
+            ),
+            theme,
+        ))
         .child(field(
             "Time",
             div()

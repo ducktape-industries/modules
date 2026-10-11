@@ -8,14 +8,13 @@ use abi::{BlobId, ProgramId, Root};
 use borsh::{BorshDeserialize, BorshSerialize};
 use guest::abi;
 
-pub const NODE_CONTRACT: u32 = 1;
+pub const NODE_CONTRACT: u32 = 2;
 pub const FRAME_NAMESPACE: &[u8] = b"ducktape:frame";
 
 pub mod route {
     pub const STATUS: &str = "/v1/status";
     pub const SUBMIT: &str = "/v1/submit";
     pub const QUERY: &str = "/v1/query";
-    pub const GET: &str = "/v1/get";
     pub const BLOB_GET: &str = "/v1/blob/get";
     pub const CHANGES: &str = "/v1/changes";
     pub const BLOCKS: &str = "/v1/blocks";
@@ -35,12 +34,19 @@ pub enum Layer {
 /// the app's copy uses it.
 pub use keyscheme::KeyScheme;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Tip {
+    pub height: u64,
+    pub id: [u8; 32],
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Body {
     pub scheme: KeyScheme,
     pub signer: Vec<u8>,
     pub network: Vec<u8>,
-    pub seq: u64,
+    pub anchor: Tip,
+    pub salt: Option<u64>,
     pub target: String,
     pub payload: Vec<u8>,
 }
@@ -49,6 +55,18 @@ impl Body {
     /// What the signer signs under [`FRAME_NAMESPACE`].
     pub fn preimage(&self) -> Vec<u8> {
         abi::encode(self)
+    }
+
+    pub fn id(&self) -> [u8; 32] {
+        use sha2::Digest as _;
+        let submission = (
+            &self.signer,
+            self.anchor,
+            self.salt,
+            &self.target,
+            &self.payload,
+        );
+        sha2::Sha256::digest(abi::encode(&submission)).into()
     }
 }
 
@@ -93,13 +111,6 @@ pub struct Query {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct Get {
-    pub layer: Layer,
-    pub program: ProgramId,
-    pub key: Vec<u8>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Receipt {
     pub program: ProgramId,
     pub outcome: abi::Outcome,
@@ -130,7 +141,7 @@ pub enum BlockRef {
 pub struct Tx {
     pub hash: [u8; 32],
     pub signer: Vec<u8>,
-    pub seq: u64,
+    pub anchor: Tip,
     pub target: String,
     pub payload: Vec<u8>,
     pub receipt: Option<Receipt>,
@@ -177,7 +188,10 @@ pub fn finalized(block: &view_wire::methods::Block) -> Finalized {
             .map(|tx| Tx {
                 hash: tx.hash,
                 signer: tx.signer.clone(),
-                seq: tx.seq,
+                anchor: Tip {
+                    height: tx.anchor.height,
+                    id: tx.anchor.id,
+                },
                 target: tx.target.clone(),
                 payload: tx.payload.clone(),
                 receipt: tx.receipt.as_ref().map(receipt),

@@ -5,7 +5,7 @@ use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
 use host::{
     Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, Receipt, Roles,
-    Submission,
+    Submission, Tip,
 };
 use identity::AccountNumber;
 use keyscheme::testkit;
@@ -206,20 +206,14 @@ impl Net {
     fn submission(&self, signer: &[u8], target: &str, payload: Vec<u8>) -> Submission {
         Submission {
             signer: signer.to_vec(),
-            seq: self.next_seq(signer),
+            anchor: Tip {
+                height: self.height,
+                id: block_id(self.height),
+            },
+            salt: None,
             target: target.to_owned(),
             payload,
         }
-    }
-
-    /// The signer's next sequence as the host keeps it: an admitted frame
-    /// consumes one whether its run applied or was rejected.
-    fn next_seq(&self, signer: &[u8]) -> u64 {
-        self.host
-            .view(Layer::Confirmed)
-            .get("$signers", signer)
-            .unwrap()
-            .map_or(0, |bytes| abi::decode(&bytes).unwrap())
     }
 
     async fn submit<T: BorshSerialize>(&mut self, signer: &[u8], target: &str, op: &T) -> Receipt {

@@ -296,10 +296,10 @@ pub enum BlockRef {
     Height(u64),
     Id([u8; 32]),
 }
-/// One applied frame of a block. `hash` is sha256 over the frame's exact
-/// bytes; `payload` is the op the target program was handed. `receipt` is
-/// its run as the node kept it when it applied the block; `None` where the
-/// node keeps none (it never ran the block: one below its state-sync anchor).
+/// One applied frame of a block. `payload` is the op the target program
+/// was handed. `receipt` is its run as the node kept it when it applied
+/// the block; `None` where the node keeps none (it never ran the block:
+/// one below its state-sync anchor).
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
@@ -307,10 +307,27 @@ pub enum BlockRef {
 pub struct Tx {
     pub hash: [u8; 32],
     pub signer: Vec<u8>,
-    pub seq: u64,
+    pub anchor: Tip,
     pub target: String,
     pub payload: Vec<u8>,
     pub receipt: Option<Receipt>,
+}
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Tip {
+    pub height: u64,
+    pub id: [u8; 32],
 }
 /// One run: the program's, how it ended, what it announced, and the runs
 /// its messages caused, in order. A nested run's `Applied` stands only
