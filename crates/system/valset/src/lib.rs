@@ -1,6 +1,6 @@
-//! The `valset` module: who validates and who resides on a network. The
-//! types, rules and [`Valset`] module are always built; a view links them
-//! with `module` off. The `module` feature adds its wasm exports.
+//! The `valset` module: who validates and who resides on a network. A key enrolls as a
+//! resident, by invite or through an open door; the validators' vote changes the rest.
+//! Types, rules and [`Valset`] always build; the `module` feature adds the wasm exports.
 mod program;
 mod rules;
 #[cfg(test)]
@@ -11,7 +11,9 @@ pub use program::Valset;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use store::{PageRequest, PageResponse};
 
-pub use abi::role::validators::{Genesis, Member};
+pub use abi::role::validators::{
+    Genesis, Grant, INVITE_NAMESPACE, Invite, Member, Motion, Op, Voted,
+};
 
 pub const MODULE: &str = "valset";
 
@@ -35,12 +37,6 @@ impl Membership {
             address: self.address.clone(),
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum Op {
-    Set(Membership),
-    Remove { key: Vec<u8> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
@@ -79,21 +75,30 @@ pub fn role(ctx: &guest::QueryCtx, key: &[u8]) -> Result<Option<Role>, guest::Er
 pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let (title, fields) = match op {
-        Op::Set(membership) => (
-            format!("Set · {}", membership.address),
+        Op::Enroll { address, invite } => (
+            format!("Enroll · {address}"),
             vec![
-                field("key", Value::Key(membership.key.clone())),
-                field("address", Value::text(&membership.address)),
+                field("address", Value::text(address)),
                 field(
-                    "role",
-                    Value::text(match membership.role {
-                        Role::Validator => "validator",
-                        Role::Resident => "resident",
+                    "invite",
+                    invite.as_ref().map_or(Value::text("none"), |invite| {
+                        Value::Key(invite.issuer.clone())
                     }),
                 ),
             ],
         ),
-        Op::Remove { key } => ("Remove".into(), vec![field("key", Value::Key(key.clone()))]),
+        Op::Leave => ("Leave".into(), vec![]),
+        Op::Vote(motion) => {
+            let (verb, fields) = match motion {
+                Motion::Promote { key } => ("promote", vec![field("key", Value::Key(key.clone()))]),
+                Motion::Demote { key } => ("demote", vec![field("key", Value::Key(key.clone()))]),
+                Motion::Remove { key } => ("remove", vec![field("key", Value::Key(key.clone()))]),
+                Motion::Door { open: true } => ("open the door", vec![]),
+                Motion::Door { open: false } => ("close the door", vec![]),
+                Motion::Registry { op } => ("registry", vec![field("op", Value::bytes(op))]),
+            };
+            (format!("Vote · {verb}"), fields)
+        }
     };
     describe::Description { title, fields }
 }
@@ -104,5 +109,5 @@ describe::export!(Op, describe);
 /// enum only grows at its end. Append a new variant here; never reorder.
 #[test]
 fn op_variants_only_append() {
-    assert_eq!(describe::variants::<Op>(), ["Set", "Remove",]);
+    assert_eq!(describe::variants::<Op>(), ["Enroll", "Leave", "Vote"]);
 }

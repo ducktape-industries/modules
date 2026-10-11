@@ -10,7 +10,8 @@
 //! and several modules run together, a submission as one frame with its
 //! messages and replies as the kernel runs it, on a [`MockChain`].
 //! [`Env`] adds the origin checks (`signer`, `sending_module`, `sent_by`) and
-//! `authority`, a stub that admits anyone for now.
+//! `authority`, which admits only a message from the program bound to the
+//! validators role.
 //! A message emitted with [`Reply::Wanted`] comes back to its emitter in
 //! the same frame as [`Module::reply`], with its id and outcome; a module
 //! that never wants a reply leaves `reply` at its default.

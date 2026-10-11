@@ -2,8 +2,8 @@
 
 use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
 
-use crate::rules::{MEMBERS, init, memberships, remove, set};
-use crate::{Genesis, MODULE, Membership, Op, Query, Reply, Role};
+use crate::rules::{MEMBERS, execute, init, memberships, validators};
+use crate::{Genesis, MODULE, Membership, Op, Query, Reply};
 
 pub struct Valset;
 
@@ -20,22 +20,12 @@ impl Module for Valset {
     }
 
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
-        ctx.env().authority()?;
-        match op {
-            Op::Set(membership) => set(ctx, membership),
-            Op::Remove { key } => remove(ctx, &key),
-        }
+        execute(ctx, op)
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
         Ok(match query {
-            Query::Validators => Reply::Validators(
-                memberships(ctx)?
-                    .into_iter()
-                    .filter(|membership| membership.role == Role::Validator)
-                    .map(|membership| membership.key)
-                    .collect(),
-            ),
+            Query::Validators => Reply::Validators(validators(ctx)?),
             Query::Members => {
                 Reply::Members(memberships(ctx)?.iter().map(Membership::member).collect())
             }

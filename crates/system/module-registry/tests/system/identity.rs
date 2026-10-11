@@ -233,13 +233,10 @@ fn every_module_has_its_account_from_its_admission() {
             params: abi::encode(&Vec::<Step>::new()),
         };
         let scheduled = net
-            .as_anyone(
-                module_registry::MODULE,
-                &module_registry::Op::Schedule(module_registry::Scheduled {
-                    height: lands_at,
-                    change: module_registry::Change::Set(entry),
-                }),
-            )
+            .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
+                height: lands_at,
+                change: module_registry::Change::Set(entry),
+            }))
             .await;
         output_of(&scheduled);
         assert_eq!(net.of_module("late").await, None);

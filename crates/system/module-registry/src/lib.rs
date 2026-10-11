@@ -1,5 +1,5 @@
 //! The `module-registry` module: the roster of modules a network runs, and
-//! the scheduled changes to it (from anyone, for now: `Env::authority`).
+//! the scheduled changes to it (only by the validators' vote: `Env::authority`).
 //! It fills the kernel's registry role: each block the kernel asks
 //! `Query::At(height)` and runs what it answers. An update is a
 //! `Change::Set` of published code under a running id: the kernel swaps the

@@ -1,7 +1,7 @@
 //! `cargo run -p members-view --example live`: Members in the real app
 //! over a fake node with a few people, an agent and a resident node.
 use ducktape_view_guest::live;
-use valset::{Membership, Op, Role};
+use valset::{Motion, Op};
 
 fn main() {
     live::run(identity::MODULE, |net| {
@@ -14,13 +14,18 @@ fn main() {
                 name: "reviewer".into(),
             },
         )?;
-        net.system(
+        net.submit(
+            net.me(),
             valset::MODULE,
-            &Op::Set(Membership {
-                key: net.key_of(ada),
+            &Op::Vote(Motion::Door { open: true }),
+        )?;
+        net.submit(
+            ada,
+            valset::MODULE,
+            &Op::Enroll {
                 address: "10.0.0.2:4000".into(),
-                role: Role::Resident,
-            }),
+                invite: None,
+            },
         )?;
         Ok(())
     })
