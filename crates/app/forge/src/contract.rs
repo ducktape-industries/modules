@@ -32,6 +32,27 @@ pub struct Bounds {
     pub record_bytes: u64,
 }
 
+/// The bounds a founding gives forge when it has no reason to pick its own: what qa's kit and the
+/// app's `ducktape-network` found it with.
+impl Default for Bounds {
+    fn default() -> Self {
+        Self {
+            max_objects: 1_000_000,
+            max_delta_depth: 64,
+            max_object_size: 256 << 20,
+            push_walk: 10_000,
+            fetch_walk: 1_000_000,
+            merge_cost: 1024,
+            page_size: 128,
+            log_walk: 10_000,
+            tree_walk: 1024,
+            diff_bytes: 32 << 20,
+            blob_bytes: 256 << 10,
+            record_bytes: 64 << 10,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Settings {
     pub head: Vec<u8>,

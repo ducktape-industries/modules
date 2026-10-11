@@ -342,20 +342,10 @@ pub fn review(feature: &str, root: &str, verdict: Verdict) -> Op {
     }
 }
 
-/// The bounds the harness captured with: its defaults, blobs inline to 64 bytes.
+/// The bounds the harness captured with: the defaults, blobs inline to 64 bytes.
 pub fn fixture_bounds() -> Bounds {
     Bounds {
-        max_objects: 1_000_000,
-        max_delta_depth: 64,
-        max_object_size: 256 << 20,
-        push_walk: 10_000,
-        fetch_walk: 1_000_000,
-        merge_cost: 1024,
-        page_size: 128,
-        log_walk: 10_000,
-        tree_walk: 1024,
-        diff_bytes: 32 << 20,
         blob_bytes: 64,
-        record_bytes: 64 << 10,
+        ..Bounds::default()
     }
 }
