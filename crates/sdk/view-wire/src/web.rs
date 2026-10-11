@@ -32,8 +32,9 @@ pub enum WebCommand {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebState {
     /// The address the page is at now: a link followed in the page or a
-    /// redirect moves it. At most [`MAX_URL_BYTES`]; a longer one arrives
-    /// empty, since an address cut short is another address.
+    /// redirect moves it. At most [`MAX_URL_BYTES`] of plain ASCII with no
+    /// control character, as a canonical address is; any other arrives
+    /// empty, since an address cut short or cleaned is another address.
     pub url: String,
     /// One line, cleaned as a `host.title` is: no control, bidi embedding,
     /// override or isolate, line or paragraph separator, no space at either
