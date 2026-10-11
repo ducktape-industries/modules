@@ -156,3 +156,33 @@ fn a_typed_handler_on_the_host_wins_over_the_chain() {
     }
     assert_eq!(futures::executor::block_on(asked).unwrap(), Some(999));
 }
+
+#[test]
+fn the_dev_validator_opens_the_door_alone_and_a_person_enrolls_as_a_resident() {
+    let net = Network::new();
+    assert_eq!(net.roles(), MockHost::roles());
+    let ada = net.person("ada");
+    let enroll = valset::Op::Enroll {
+        address: "10.0.0.2:4000".into(),
+        invite: None,
+    };
+    let closed = net.submit(ada, valset::MODULE, &enroll).unwrap_err();
+    assert_eq!(closed.code, guest::code::UNAUTHORIZED);
+    let open = valset::Op::Vote(valset::Motion::Door { open: true });
+    let voted: valset::Voted =
+        methods::decode(&net.submit(net.me(), valset::MODULE, &open).unwrap()).unwrap();
+    assert_eq!(voted, valset::Voted::Enacted);
+    net.submit(ada, valset::MODULE, &enroll).unwrap();
+    let valset::Reply::Membership(Some(held)) = net
+        .query(
+            valset::MODULE,
+            &valset::Query::Membership {
+                key: net.key_of(ada),
+            },
+        )
+        .unwrap()
+    else {
+        panic!("ada is a member")
+    };
+    assert_eq!(held.role, valset::Role::Resident);
+}

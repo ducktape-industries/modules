@@ -11,7 +11,7 @@ modules in `crates/system/` are one implementation of each.
 | Role | Bound here to | What the kernel does with it |
 |---|---|---|
 | `registry` | `module-registry` | at founding, writes its params (`role::registry::Genesis`: every founding module and view); at each block, before any frame, asks `At(height)` and admits, swaps or drops modules to match the answer |
-| `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there |
+| `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there. The node (`ducktape join`, `invite`, `vote`, `leave`) signs the role's `Op` with its identity key |
 | `identity` | `identity` | as it admits a module (at founding, and later off the registry), executes `RegisterModule { module }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfModule(sender)` |
 
 The founding file binds them (ducktape's `[roles]` table; qa's
@@ -101,9 +101,31 @@ role's module updates the same way, under its bound id; the binding itself
 is fixed at genesis.
 
 Who may schedule is `Env::authority()` in `guest`, which `module-registry`
-calls before scheduling or cancelling a change and `valset` before every
-write (publishing a blob is open to anyone). It is a stub that admits anyone until
-the chain has an authority to ask; the real check replaces that one function.
+calls before scheduling or cancelling a change (publishing a blob is open to
+anyone). It admits only a message from the program bound to the validators
+role, and `valset` sends one only when the validators' vote passes a
+`Motion::Registry { op }`: the enacting vote emits `op` to the registry in
+the same frame, and a refusal there fails that vote.
+
+## Membership
+
+`valset` takes `abi::role::validators::Op`, signed by a node's identity
+key (`env.signer()`); every other origin is refused.
+
+- `Enroll { address, invite }`: a member enrolling again only moves its
+  address. A new key joins as a Resident while the door is open, or with an
+  `Invite`: a `Grant { network, nonce, expires }` that names this network,
+  has not expired, and is signed under `INVITE_NAMESPACE` over
+  `grant.preimage()` by a current validator. Each (issuer, nonce) admits
+  once. The door starts closed, and the member cap holds.
+- `Leave`: the signer leaves; the last validator cannot.
+- `Vote(motion)`: a validator votes for `Promote` (a resident),
+  `Demote` (a validator), `Remove` (a member), `Door { open }` (the other
+  state) or `Registry { op }`. A motion passes at `n - (n-1)/3` of the
+  current validators; a voter no longer a validator is dropped at the
+  tally. The output is `Voted::Counted { votes, needed }` or
+  `Voted::Enacted`. Removing a member clears the open motions that name
+  it, and the last validator is neither demoted nor removed.
 
 ## Filling a role with another module
 

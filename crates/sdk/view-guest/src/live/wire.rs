@@ -4,11 +4,11 @@
 //! ducktape): borsh in and out, and the signed frame every write and query
 //! carries. A field that moves there moves here.
 
-use abi::{BlobId, ProgramId, Root};
+use abi::{BlobId, ProgramId, Roles, Root};
 use borsh::{BorshDeserialize, BorshSerialize};
 use guest::abi;
 
-pub const NODE_CONTRACT: u32 = 2;
+pub const NODE_CONTRACT: u32 = 3;
 pub const FRAME_NAMESPACE: &[u8] = b"ducktape:frame";
 
 pub mod route {
@@ -90,6 +90,7 @@ pub struct Status {
     pub identity: Vec<u8>,
     pub contract: u32,
     pub genesis: [u8; 32],
+    pub roles: Roles,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

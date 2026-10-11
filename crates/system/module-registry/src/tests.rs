@@ -16,7 +16,7 @@ fn env(height: u64, origin: Origin) -> Env {
 }
 
 fn authority(height: u64) -> Env {
-    env(height, Origin::Signed(vec![9]))
+    env(height, Origin::Module(MockHost::roles().validators))
 }
 
 fn entry(program: &str, code: BlobId) -> Entry {
@@ -72,7 +72,34 @@ fn publishing_stores_the_code_under_its_blob_id() {
 }
 
 #[test]
-fn anyone_schedules_but_only_published_code_in_the_future() {
+fn only_the_validators_vote_schedules_or_cancels() {
+    let (store, code) = founded();
+    let scheduled = Scheduled {
+        height: 5,
+        change: Change::Set(entry("new", code)),
+    };
+    let cancel = Op::Cancel {
+        height: 5,
+        program: "new".into(),
+    };
+    for origin in [
+        Origin::Signed(vec![9]),
+        Origin::Root,
+        Origin::Module("probe".into()),
+        Origin::Module(MockHost::roles().registry),
+    ] {
+        for op in [Op::Schedule(scheduled.clone()), cancel.clone()] {
+            let refused =
+                store.refused(|| Modules::execute(&store.exec(env(1, origin.clone())), op));
+            assert_eq!(refused.code, code::UNAUTHORIZED);
+        }
+    }
+    Modules::execute(&store.exec(authority(1)), Op::Schedule(scheduled)).unwrap();
+    Modules::execute(&store.exec(authority(1)), cancel).unwrap();
+}
+
+#[test]
+fn a_change_lands_only_published_code_in_the_future() {
     let (store, code) = founded();
     let set = Change::Set(entry("new", code));
     assert_eq!(

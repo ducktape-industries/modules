@@ -225,6 +225,7 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                     identity: status.identity,
                     contract: status.contract,
                     genesis: net.genesis(),
+                    roles: net.roles(),
                 })
             }
             Err(error) => Response::refused(refusal(&error)),

@@ -121,9 +121,49 @@ fn identity_fills_the_identity_role() {
 struct Valset;
 
 impl Valset {
-    fn run(host: &MockHost, op: valset::Op) -> Result<(), Error> {
-        let env = env("valset", 1, Origin::Signed(vec![9]), None);
-        valset::Valset::execute(&host.exec(env), op)
+    fn run(host: &MockHost, signer: &[u8], op: valset::Op) -> Result<Vec<u8>, Error> {
+        let env = env("valset", 1, Origin::Signed(signer.to_vec()), None);
+        valset::Valset::execute(&host.exec(env), op)?;
+        Ok(host.take_output())
+    }
+
+    fn validators(host: &MockHost) -> Vec<Vec<u8>> {
+        let env = env("valset", 1, Origin::Root, None);
+        match valset::Valset::query(&host.query(env), valset::Query::Validators) {
+            Ok(valset::Reply::Validators(validators)) => validators,
+            other => panic!("Validators answers Validators, not {other:?}"),
+        }
+    }
+
+    fn pass(host: &MockHost, motion: valset::Motion) -> Result<(), Error> {
+        for voter in Self::validators(host) {
+            let output = Self::run(host, &voter, valset::Op::Vote(motion.clone()))?;
+            let voted: valset::Voted = abi::decode(&output).unwrap();
+            if voted == valset::Voted::Enacted {
+                return Ok(());
+            }
+        }
+        Err(guest::wrong_state(
+            "every validator voted and the motion did not pass",
+        ))
+    }
+
+    fn invite(host: &MockHost, invitee: &[u8]) -> valset::Invite {
+        host.borrow_mut().verifier = Some(Box::new(|_, key, _, message, signature| {
+            signature == [key, message].concat()
+        }));
+        let issuer = Self::validators(host).remove(0);
+        let grant = valset::Grant {
+            network: env("valset", 1, Origin::Root, None).chain_id,
+            nonce: invitee[..16].try_into().unwrap(),
+            expires: u64::MAX,
+        };
+        let signature = [issuer.as_slice(), &grant.preimage()].concat();
+        valset::Invite {
+            issuer,
+            grant,
+            signature,
+        }
     }
 }
 
@@ -131,16 +171,16 @@ impl conformance::validators::Fixture for Valset {
     type Module = valset::Valset;
 
     fn seat(&self, host: &MockHost, member: Member) -> Result<(), Error> {
-        let op = valset::Op::Set(valset::Membership {
-            key: member.key,
+        let enroll = valset::Op::Enroll {
             address: member.address,
-            role: valset::Role::Validator,
-        });
-        Self::run(host, op)
+            invite: Some(Self::invite(host, &member.key)),
+        };
+        Self::run(host, &member.key, enroll)?;
+        Self::pass(host, valset::Motion::Promote { key: member.key })
     }
 
     fn unseat(&self, host: &MockHost, key: &[u8]) -> Result<(), Error> {
-        Self::run(host, valset::Op::Remove { key: key.to_vec() })
+        Self::pass(host, valset::Motion::Demote { key: key.to_vec() })
     }
 }
 
@@ -153,7 +193,8 @@ struct Registry;
 
 impl Registry {
     fn run(host: &MockHost, height: u64, op: module_registry::Op) -> Result<(), Error> {
-        let env = env("module-registry", height, Origin::Signed(vec![9]), None);
+        let validators = Origin::Module(MockHost::roles().validators);
+        let env = env("module-registry", height, validators, None);
         module_registry::Modules::execute(&host.exec(env), op)
     }
 
