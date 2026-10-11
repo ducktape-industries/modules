@@ -219,6 +219,17 @@ impl FakeHost {
             crate::wire::MAX_CANCELS,
         );
         let mut state = self.0.borrow_mut();
+        // The app refuses a web piece from a view whose manifest leaves
+        // out `web` (and ends the view); a test fails on it instead.
+        if let Some(declared) = state.declared {
+            assert!(
+                declared.contains(&methods::Capability::Web)
+                    || !crate::wire::web::carries_web(frame),
+                "{}: a web piece needs the `web` capability, \
+                 which this view's CAPABILITIES does not declare",
+                methods::refusal::UNDECLARED_CAPABILITY,
+            );
+        }
         for stream in state.streams.values() {
             let mut stream = stream.borrow_mut();
             stream.host = Some(host.clone());
