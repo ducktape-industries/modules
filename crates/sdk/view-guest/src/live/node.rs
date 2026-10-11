@@ -207,8 +207,7 @@ fn refusal(error: &crate::host::Error) -> abi::Refusal {
 
 /// One route, answered on the chain thread: the request read as the node
 /// method it is, [`Network::answer`] (an override, else the chain), and
-/// the answer in the node's shape. `/v1/get` alone is the app's own read
-/// (a signer's sequence), no view's method.
+/// the answer in the node's shape.
 fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
     match (method, path) {
         ("GET", route::STATUS) => match net.answer("chain.status", None, &[]) {
@@ -276,13 +275,10 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                 Ok(frame) => frame,
                 Err(response) => return response,
             };
-            let expected = net.seq(&frame.body.signer);
-            if frame.body.seq != expected {
-                return Response::refused(abi::Refusal::new(
-                    "sequence",
-                    format!("expected sequence {expected}, got {}", frame.body.seq),
-                ));
+            if let Err(refusal) = net.fresh(&frame.body) {
+                return Response::refused(refusal);
             }
+            let (height, id) = (net.height(), frame.body.id());
             let call = methods::encode(&methods::Call {
                 target: frame.body.target.clone(),
                 body: frame.body.payload,
@@ -298,19 +294,16 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                 Ok(output) => abi::Outcome::Applied { output },
                 Err(error) => abi::Outcome::Rejected(refusal(&error)),
             };
+            let carried = net.height() > height;
+            if carried {
+                net.spend(id);
+            }
             Response::borsh(&wire::Receipt {
                 program: frame.body.target,
                 outcome,
                 events: Vec::new(),
                 nested: Vec::new(),
             })
-        }
-        ("POST", route::GET) => {
-            let get: wire::Get = match abi::decode(&body) {
-                Ok(get) => get,
-                Err(error) => return malformed(error.sentence),
-            };
-            Response::borsh(&net.get(&get.program, &get.key))
         }
         ("POST", route::BLOB_GET) => {
             let id: abi::BlobId = match abi::decode(&body) {
@@ -550,20 +543,13 @@ mod tests {
     use crate::methods::Submit;
     use commonware_cryptography::Signer as _;
 
-    /// A typed override answers the window's submit as it answers a
-    /// test's: the receipt carries the override's refusal, and the chain
-    /// never ran (no block, the signer's sequence unmoved).
-    #[test]
-    fn an_override_answers_the_windows_submit() {
-        let net = Network::new();
-        net.refuse::<Submit<identity::Identity>>("closed", "refused by the test");
-        let signer = net.key_of(net.me());
-        let (height, seq) = (net.height(), net.seq(&signer));
+    fn signed(net: &Network, anchor: wire::Tip, salt: Option<u64>) -> (wire::Body, Vec<u8>) {
         let body = wire::Body {
             scheme: wire::KeyScheme::Ed25519,
-            signer: signer.clone(),
+            signer: net.key_of(net.me()),
             network: CHAIN.as_bytes().to_vec(),
-            seq,
+            anchor,
+            salt,
             target: identity::MODULE.into(),
             payload: methods::encode(&identity::Op::CreateAgent { name: "bot".into() }),
         };
@@ -571,7 +557,33 @@ mod tests {
             .sign(wire::FRAME_NAMESPACE, &body.preimage())
             .as_ref()
             .to_vec();
-        let frame = abi::encode(&wire::Frame { body, proof });
+        let frame = abi::encode(&wire::Frame {
+            body: body.clone(),
+            proof,
+        });
+        (body, frame)
+    }
+
+    fn tip(net: &Network) -> wire::Tip {
+        let status = net.status();
+        wire::Tip {
+            height: status.height,
+            id: status.tip,
+        }
+    }
+
+    fn refused(response: &Response) -> String {
+        assert_ne!(response.status, 200);
+        let refusal: abi::Refusal = abi::decode(&response.body).unwrap();
+        refusal.reason
+    }
+
+    #[test]
+    fn an_override_answers_the_windows_submit() {
+        let net = Network::new();
+        net.refuse::<Submit<identity::Identity>>("closed", "refused by the test");
+        let height = net.height();
+        let (body, frame) = signed(&net, tip(&net), None);
         let response = respond(&net, "POST", route::SUBMIT, frame);
         assert_eq!(response.status, 200);
         let receipt: wire::Receipt = abi::decode(&response.body).unwrap();
@@ -579,6 +591,35 @@ mod tests {
             receipt.outcome,
             abi::Outcome::Rejected(abi::Refusal::new("closed", "refused by the test"))
         );
-        assert_eq!((net.height(), net.seq(&signer)), (height, seq));
+        assert_eq!(net.height(), height);
+        assert_eq!(net.fresh(&body), Ok(()));
+    }
+
+    #[test]
+    fn the_window_runs_a_frame_once_while_its_anchor_is_recent() {
+        let net = Network::new();
+        let anchor = tip(&net);
+        let (_, frame) = signed(&net, anchor, None);
+        assert_eq!(
+            respond(&net, "POST", route::SUBMIT, frame.clone()).status,
+            200
+        );
+        assert_eq!(
+            refused(&respond(&net, "POST", route::SUBMIT, frame)),
+            abi::reason::DUPLICATE
+        );
+
+        let (_, salted) = signed(&net, anchor, Some(1));
+        assert_eq!(respond(&net, "POST", route::SUBMIT, salted).status, 200);
+
+        let unknown = wire::Tip {
+            id: [9; 32],
+            ..anchor
+        };
+        let (_, forged) = signed(&net, unknown, None);
+        assert_eq!(
+            refused(&respond(&net, "POST", route::SUBMIT, forged)),
+            abi::reason::ANCHOR
+        );
     }
 }

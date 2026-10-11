@@ -28,7 +28,7 @@ pub use run::run;
 pub use crate::host::Error;
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 use abi::role::validators::{Genesis as Validators, Member};
@@ -47,6 +47,7 @@ pub const BLOCK_TIME_MS: u64 = 2000;
 pub const CHAIN: &str = "live";
 /// The seed the dev key is made from; the app's `--live` takes the same.
 pub const DEV_SEED: u64 = 1;
+const ANCHOR_WINDOW: u64 = 256;
 
 type Override = Box<dyn FnMut(&[u8]) -> Result<Vec<u8>, Error>>;
 type Writes = Vec<(Vec<u8>, Option<Vec<u8>>)>;
@@ -70,7 +71,7 @@ struct State {
     changes: Vec<(String, wire::Change)>,
     /// The open `/v1/changes/<program>` sockets.
     subscribers: Vec<(String, std::sync::mpsc::Sender<Vec<u8>>)>,
-    seqs: BTreeMap<Vec<u8>, u64>,
+    spent: BTreeSet<[u8; 32]>,
     /// Each program's packed code blob (framed) and its id; a program
     /// nothing packed gets a placeholder id the app never fetches.
     codes: BTreeMap<ModuleId, (abi::BlobId, Vec<u8>)>,
@@ -138,7 +139,7 @@ impl Network {
             blocks: vec![genesis],
             changes: Vec::new(),
             subscribers: Vec::new(),
-            seqs: BTreeMap::new(),
+            spent: BTreeSet::new(),
             codes: BTreeMap::new(),
             bare: None,
             overrides: HashMap::new(),
@@ -538,20 +539,34 @@ impl Network {
         self.0.borrow().blocks[0].id
     }
 
-    /// The sequence the node expects next from `signer`.
-    pub(crate) fn seq(&self, signer: &[u8]) -> u64 {
-        self.0.borrow().seqs.get(signer).copied().unwrap_or(0)
+    pub(crate) fn fresh(&self, body: &wire::Body) -> Result<(), abi::Refusal> {
+        let state = self.0.borrow();
+        let next = state.blocks.len() as u64 + 1;
+        let anchor = body.anchor;
+        let in_window = anchor.height < next && next - anchor.height <= ANCHOR_WINDOW;
+        let names_a_block = state
+            .blocks
+            .iter()
+            .any(|block| block.height == anchor.height && block.id == anchor.id);
+        if !(in_window && names_a_block) {
+            return Err(abi::Refusal::new(
+                abi::reason::ANCHOR,
+                format!(
+                    "the frame's anchor is not one of the {ANCHOR_WINDOW} blocks before block {next}"
+                ),
+            ));
+        }
+        if state.spent.contains(&body.id()) {
+            return Err(abi::Refusal::new(
+                abi::reason::DUPLICATE,
+                "a block already carried this frame",
+            ));
+        }
+        Ok(())
     }
 
-    /// `program`'s value under `key`, as `/v1/get` reads it; `$signers`
-    /// holds each signer's next sequence.
-    pub(crate) fn get(&self, program: &str, key: &[u8]) -> Option<Vec<u8>> {
-        if program == "$signers" {
-            return Some(methods::encode(&self.seq(key)));
-        }
-        let state = self.0.borrow();
-        let (_, host) = state.seats.iter().find(|(name, _)| name == program)?;
-        host.borrow().state.get(key).cloned()
+    pub(crate) fn spend(&self, id: [u8; 32]) {
+        self.0.borrow_mut().spent.insert(id);
     }
 
     /// A blob by id, framed: a program's packed code, or one a program put.
@@ -644,8 +659,8 @@ impl Network {
     /// One submission as one block: `payload` to `target`, signed by
     /// `signer` (an account's key, or none: the program hears nobody), at
     /// the next height; the block archived with the tx and its receipt
-    /// whether the program applied or refused it, the signer's sequence
-    /// moved, and what the run wrote recorded as the block's changes.
+    /// whether the program applied or refused it, and what the run wrote
+    /// recorded as the block's changes.
     pub(crate) fn run(&self, origin: Origin, target: String, payload: Vec<u8>) -> methods::Receipt {
         let signer = match &origin {
             Origin::Signed(key) => key.clone(),
@@ -678,11 +693,16 @@ impl Network {
             Ok(output) => methods::Outcome::Applied { output },
             Err(refusal) => methods::Outcome::Rejected(refusal),
         };
-        let seq = state.seqs.entry(signer.clone()).or_default();
+        let parent = state.blocks.last().expect("the genesis block");
+        let anchor = methods::Tip {
+            height: parent.height,
+            id: parent.id,
+        };
+        let parent = parent.id;
         let tx = methods::Tx {
             hash: digest(&[b"live-tx", &height.to_le_bytes()]),
             signer: signer.clone(),
-            seq: *seq,
+            anchor,
             target: target.clone(),
             payload,
             receipt: Some(methods::Receipt {
@@ -692,8 +712,6 @@ impl Network {
                 nested: Vec::new(),
             }),
         };
-        *seq += 1;
-        let parent = state.blocks.last().map_or([0; 32], |block| block.id);
         let proposer = state.validator.clone();
         state.blocks.push(methods::Block {
             height,

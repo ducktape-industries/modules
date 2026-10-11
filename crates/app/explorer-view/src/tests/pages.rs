@@ -294,12 +294,13 @@ fn a_block_opens_with_its_fields_its_proposer_and_its_transactions() {
 }
 
 #[test]
-fn a_transaction_shows_its_block_signer_and_operation() {
+fn a_transaction_shows_its_block_anchor_signer_and_operation() {
     let (mut cx, _) = ready();
     cx.simulate_click("explorer-tx-11-0");
     cx.run_until_parked();
     let texts = cx.texts();
     assert!(cx.has_text("In block 11"), "{texts:?}");
+    assert!(cx.has_text("Block 10"), "{texts:?}");
     assert!(cx.has_text(&abi::hex(&[0xa1; 32])));
     assert!(
         cx.has_text("#3 laptop · ed25519 01010101…0101"),

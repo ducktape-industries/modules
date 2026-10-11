@@ -115,11 +115,10 @@ fn respond(cx: &mut TestAppContext) {
     });
     // two blocks: scout posted at 12, eddy at 11 and 12
     cx.host().handle::<ChainBlocks>(|page: BlockPage| {
-        let tx = |signer: &[u8], seq| Tx {
+        let tx = |signer: &[u8], n: u8| Tx {
             signer: signer.to_vec(),
-            seq,
             target: "chat".into(),
-            payload: vec![seq as u8],
+            payload: vec![n],
             ..Tx::default()
         };
         let block = |height, txs| Block {
@@ -562,7 +561,6 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     cx.host().handle::<ChainBlocks>(|page: BlockPage| {
         let tx = Tx {
             signer: EDDY.to_vec(),
-            seq: 3,
             target: "chat".into(),
             payload: vec![3],
             ..Tx::default()

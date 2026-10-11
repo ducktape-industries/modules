@@ -16,7 +16,7 @@ pub(crate) use ducktape_view_guest::host::Error;
 pub(crate) use ducktape_view_guest::methods::{
     Block, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads, ChainStatus, Changes,
     ClipboardWrite, Description, Head, HostRoute, HostSession, ModuleDescribe, NodeStatus, Outcome,
-    Query, Receipt, Session, Tx, Value,
+    Query, Receipt, Session, Tip, Tx, Value,
 };
 pub(crate) use ducktape_view_guest::testing::TestAppContext;
 pub(crate) use identity::Identity;
@@ -44,7 +44,10 @@ pub(crate) fn tx(seed: u8, signer: [u8; 32], target: &str, payload: Vec<u8>) -> 
     Tx {
         hash: [seed; 32],
         signer: signer.to_vec(),
-        seq: seed as u64,
+        anchor: Tip {
+            height: 10,
+            id: [10; 32],
+        },
         target: target.into(),
         payload,
         receipt: None,

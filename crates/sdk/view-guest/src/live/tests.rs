@@ -33,8 +33,8 @@ fn a_network_is_founded_with_the_boot_set_and_a_signed_in_person() {
     assert_eq!(net.session().account, Some(me));
 }
 
-/// A submission is one block: the archive grows, the signer's sequence
-/// moves, and the keys the program wrote are the block's changes.
+/// A submission is one block: the archive grows, and the keys the program
+/// wrote are the block's changes.
 #[test]
 fn a_submission_is_a_block_with_its_changes() {
     let net = Network::new();
@@ -47,7 +47,6 @@ fn a_submission_is_a_block_with_its_changes() {
     assert_eq!(changes[0].0, "identity");
     assert_eq!(changes[0].1.height, height + 1);
     assert!(!changes[0].1.writes.is_empty());
-    assert_eq!(net.seq(&net.key_of(ada)), 1);
     assert_eq!(net.person("ada"), ada, "a name is one account");
     let status = net.status();
     assert_eq!(status.height, height + 1);
