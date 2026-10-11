@@ -21,8 +21,10 @@ fn a_network_is_founded_with_the_boot_set_and_a_signed_in_person() {
         .unwrap();
     assert_eq!(asked, identity::Reply::Number(Some(me)));
     net.found_roster();
-    let module_registry::Reply::Programs(entries) = net
-        .query(module_registry::MODULE, &module_registry::Query::At(0))
+    let module_registry::Reply::Roster {
+        programs: entries, ..
+    } = net
+        .query(module_registry::MODULE, &module_registry::Query::Roster)
         .unwrap()
     else {
         panic!("programs")

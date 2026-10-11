@@ -92,7 +92,7 @@ pub struct Network {
     /// the view-only entries: a name and its view's code, no program behind it
     #[serde(with = "borsh_bytes")]
     pub views: Vec<registry::View>,
-    /// what the registry will fold in at later blocks
+    /// what the registry will change after the height it answered, by height
     #[serde(with = "borsh_bytes")]
     pub changes: Vec<registry::Scheduled>,
 }

@@ -67,6 +67,65 @@ fn a_registry_head_re_reads_the_programs() {
     assert!(cx.has_text("Nothing is scheduled against the registry."));
 }
 
+/// A change lands at its height with no op on the registry after it: no
+/// registry head comes, the chain's head reaching it reads the roster
+/// again, and the registry, which keeps the change in its schedule until
+/// an op folds it, answers it as running.
+#[test]
+fn a_change_reached_by_the_head_is_running_not_scheduled() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(12u64));
+    node(&mut cx, tip.clone());
+    let chess = registry::Scheduled {
+        height: 13,
+        change: registry::Change::Set(entry("chess", 0x11)),
+    };
+    let at = tip.clone();
+    cx.host().handle::<Query<Modules>>(move |query| {
+        let height = *at.borrow();
+        Ok(match query {
+            registry::Query::Roster => {
+                let mut programs = vec![entry("chat", 0xab), entry("identity", 0xcd)];
+                if height >= chess.height {
+                    programs.push(entry("chess", 0x11));
+                }
+                registry::Reply::Roster {
+                    height,
+                    programs,
+                    views: Vec::new(),
+                }
+            }
+            registry::Query::Scheduled { .. } => {
+                registry::Reply::Scheduled(registry::PageResponse {
+                    height,
+                    items: vec![chess.clone()],
+                    next: None,
+                })
+            }
+            other => panic!("unexpected query: {other:?}"),
+        })
+    });
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-programs");
+    cx.run_until_parked();
+    assert!(cx.has_text("2 programs") && cx.has_text("at 13"));
+    *tip.borrow_mut() = 13;
+    heads.send(Head {
+        height: 13,
+        time: T0 + 13_000,
+        id: [113; 32],
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("3 programs") && cx.has_text("chess"),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.has_text("Nothing is scheduled against the registry."));
+}
+
 #[test]
 fn an_empty_registry_says_so() {
     let mut cx = TestAppContext::new();

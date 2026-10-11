@@ -255,8 +255,11 @@ pub(crate) fn registry_with(
 ) {
     cx.host().handle::<Query<Modules>>(move |query| {
         Ok(match query {
-            registry::Query::At(0) => registry::Reply::Programs(programs.clone()),
-            registry::Query::Views(0) => registry::Reply::Views(views.clone()),
+            registry::Query::Roster => registry::Reply::Roster {
+                height: 1,
+                programs: programs.clone(),
+                views: views.clone(),
+            },
             registry::Query::Scheduled { .. } => {
                 registry::Reply::Scheduled(registry::PageResponse {
                     height: 1,

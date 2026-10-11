@@ -24,6 +24,17 @@ impl Explorer {
     /// and draws once) and cost a full render of the page that was up, 74M
     /// fuel on Transactions, every block.
     pub(crate) fn at_head(&mut self, head: Head, cx: &mut Context<Self>) {
+        // a change lands at its height without a write to the registry, so
+        // the registry's live heads say nothing: the head that reaches it
+        // reads the roster again
+        if let Loadable::Ready(network) = &self.network
+            && network
+                .changes
+                .first()
+                .is_some_and(|change| change.height <= head.height)
+        {
+            self.read_network(cx);
+        }
         match &self.status {
             Loadable::Ready(_) | Loadable::Reloading(_, _) => {
                 self.head = self.head.max(head.height);

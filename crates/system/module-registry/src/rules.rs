@@ -158,7 +158,7 @@ pub(crate) fn views_at(ctx: &QueryCtx, height: u64) -> Result<Vec<View>, Error> 
 type Roster = (BTreeMap<ModuleId, Entry>, BTreeMap<ModuleId, View>);
 
 /// Both lists at a height, by name: what is folded, and every change due by then.
-fn roster(ctx: &QueryCtx, height: u64) -> Result<Roster, Error> {
+pub(crate) fn roster(ctx: &QueryCtx, height: u64) -> Result<Roster, Error> {
     let mut programs: BTreeMap<_, _> = PROGRAMS.all(ctx)?.into_iter().collect();
     let mut views: BTreeMap<_, _> = VIEWS.all(ctx)?.into_iter().collect();
     for (_, change) in due(ctx, height)? {
