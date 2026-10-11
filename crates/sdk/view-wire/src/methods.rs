@@ -476,8 +476,10 @@ methods! {
     /// tab (the app words it "N unread").
     HostBadge, "host.badge", i64, ();
     /// `link.open`: the one way out: a `duck://` link, opened in the
-    /// app, or an `https://` one, handed to the system browser. Any other
-    /// scheme is refused (`malformed_request`).
+    /// app, or an `https://` one, opened in the view that declares
+    /// [`Capability::Web`] (as its `host.route`) when the app has one and a
+    /// web view, else handed to the system browser. Any other scheme is
+    /// refused (`malformed_request`).
     LinkOpen, "link.open", String, ();
     /// `host.route`: a subscription, one item per `duck://` link opened into
     /// this view: the path after the view's own segment (`tx/<hash>` of
@@ -487,6 +489,13 @@ methods! {
     /// arrives as `forge:web:3/42`. A segment is nonempty, not `.` or `..`,
     /// and holds no `/` and no control character; the whole route is at most
     /// 256 bytes. A link that mounted the view is its first item.
+    ///
+    /// The view that declares [`Capability::Web`] gets, besides, each http(s)
+    /// link the app opens into it, as the WHOLE address
+    /// (`https://example.com/a?b`), at most 2048 bytes, held to the web
+    /// piece's rule ([`crate::Node::Web`]): `https://`, or `http://` on this
+    /// machine, no user name or password. One waits per view: a second link
+    /// before the view reads the first replaces it.
     HostRoute, "host.route", (), String;
     /// `host.id`: a fresh id under the named prefix.
     HostId, "host.id", String, String;
@@ -544,9 +553,11 @@ pub enum Capability {
     Notify,
     Store,
     /// The view draws web pages ([`crate::Node::Web`]) and opens the
-    /// `https://` links the app's views ask for: the app hands such a link
-    /// to the one view that declares this, as its `host.route`, and to the
-    /// system browser when none does. No method starts with it.
+    /// http(s) links the app opens: the app hands such a link to the view
+    /// that declares this, as its `host.route` (the whole address; see
+    /// [`HostRoute`]), and to the system browser when none does or the app
+    /// has no web view. When more than one installed view declares it, the
+    /// first by module name gets the links. No method starts with it.
     Web,
 }
 
@@ -672,6 +683,7 @@ mod tests {
         known.sort_unstable();
         assert_eq!(prefixes, known);
         assert_eq!(Capability::parse("link"), Some(Capability::Link));
+        assert_eq!(Capability::parse("web"), Some(Capability::Web));
         for name in ["rpc", "chat", "module.query", "", "Chain"] {
             assert_eq!(Capability::parse(name), None, "{name:?}");
         }
