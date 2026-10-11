@@ -106,9 +106,9 @@ impl WebHandle {
         }
     }
 
-    /// Opens `url`. The host loads only what
-    /// [`wire::web::is_loadable`] allows: an `https://` page, or an
-    /// `http://` one on this machine.
+    /// Opens `url`. The host loads only an `https://` page, or an
+    /// `http://` one on this machine (`localhost`, a loopback address),
+    /// with no user name or password in it.
     pub fn load(&self, url: impl Into<String>) {
         self.push(wire::WebCommand::Load(url.into()));
     }

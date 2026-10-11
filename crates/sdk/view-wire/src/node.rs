@@ -288,8 +288,9 @@ pub enum Node {
     /// closed when a frame no longer has it. After that the view moves it
     /// with `commands`, applied once each when `revision` moves (a
     /// [`Node::List`]'s pattern), and `on_state` hears where the page is as
-    /// [`Event::Web`]. A host loads only what [`crate::web::is_loadable`]
-    /// allows, the page's own navigations included.
+    /// [`Event::Web`]. A host loads only an `https://` page, or an
+    /// `http://` one on this machine, with no user name or password in the
+    /// address, and holds the page's own navigations to the same rule.
     Web {
         id: ElementIdWire,
         url: String,
