@@ -1034,19 +1034,6 @@ impl TestAppContext {
             height,
         }]);
     }
-    /// The page of the web piece `name` reports `state`, as the app tells
-    /// it when the page moves (a link followed, a load done, a title set).
-    pub fn simulate_web_state(&mut self, name: &str, state: wire::WebState) {
-        let Node::Web {
-            on_state: Some(handler),
-            ..
-        } = self.node(name)
-        else {
-            panic!("{name:?} is no web piece with a state route");
-        };
-        let handler = *handler;
-        self.run(vec![Event::Web { handler, state }]);
-    }
     /// The resize handle `name` is dragged by `dx`, `dy`.
     pub fn simulate_drag(&mut self, name: &str, dx: f64, dy: f64) {
         let Node::ResizeHandle {
