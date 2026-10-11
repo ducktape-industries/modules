@@ -52,7 +52,7 @@ fn a_founding_validator_enrolling_again_moves_its_address() {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
         let moved = valset::Op::Enroll {
-            address: "elsewhere:1".into(),
+            address: Some("elsewhere:1".into()),
             invite: None,
         };
         net.apply(&public(1), valset::MODULE, &moved).await;
@@ -65,7 +65,7 @@ fn a_founding_validator_enrolling_again_moves_its_address() {
         else {
             panic!()
         };
-        assert_eq!(held.address, "elsewhere:1");
+        assert_eq!(held.address.as_deref(), Some("elsewhere:1"));
         assert_eq!(held.role, valset::Role::Validator);
     });
 }

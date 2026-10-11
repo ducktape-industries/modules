@@ -277,10 +277,7 @@ fn line(
         false => cell(KEY_W, false).child(key),
     };
     let address = address.then(|| {
-        let address = match node.address.is_empty() {
-            true => "—".to_owned(),
-            false => node.address.clone(),
-        };
+        let address = node.address.clone().unwrap_or_else(|| "—".to_owned());
         cell(ADDRESS_W, false)
             .child(design::mono(address).text_color(theme.muted).truncate())
             .children(this.then(|| muted("this node".into())))

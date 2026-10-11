@@ -3,13 +3,10 @@ use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use valset::{Membership, PageRequest, Role, ask};
 
-/// One member of the network, once: its key, the address it is reached at
-/// (empty for a seated key valset holds no membership for), whether it
-/// validates, and its seat, the place the consensus set answers it in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Node {
     pub key: Vec<u8>,
-    pub address: String,
+    pub address: Option<String>,
     pub validator: bool,
     pub seat: Option<u32>,
 }
@@ -39,7 +36,7 @@ pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
         if !nodes.iter().any(|node| &node.key == key) {
             nodes.push(Node {
                 key: key.clone(),
-                address: String::new(),
+                address: None,
                 validator: true,
                 seat: seat(key),
             });

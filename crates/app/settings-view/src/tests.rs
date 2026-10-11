@@ -62,7 +62,7 @@ fn respond(cx: &TestAppContext) {
             valset::Query::Membership { key } => {
                 valset::Reply::Membership(Some(valset::Membership {
                     key,
-                    address: "127.0.0.1:19001".into(),
+                    address: Some("127.0.0.1:19001".into()),
                     role: valset::Role::Validator,
                 }))
             }

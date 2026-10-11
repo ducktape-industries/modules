@@ -15,7 +15,7 @@ fn main() {
             ada,
             valset::MODULE,
             &Op::Enroll {
-                address: "10.0.0.2:4000".into(),
+                address: Some("10.0.0.2:4000".into()),
                 invite: None,
             },
         )

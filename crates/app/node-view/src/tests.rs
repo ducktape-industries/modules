@@ -80,7 +80,7 @@ fn node(cx: &mut TestAppContext) {
 fn membership(key: &[u8], address: &str, role: valset::Role) -> valset::Membership {
     valset::Membership {
         key: key.to_vec(),
-        address: address.into(),
+        address: Some(address.into()),
         role,
     }
 }

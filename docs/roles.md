@@ -112,8 +112,9 @@ the same frame, and a refusal there fails that vote.
 `valset` takes `abi::role::validators::Op`, signed by a node's identity
 key (`env.signer()`); every other origin is refused.
 
-- `Enroll { address, invite }`: a member enrolling again only moves its
-  address. A new key joins as a Resident while the door is open, or with an
+- `Enroll { address, invite }`: `address` is where peers dial the node,
+  or none for a node that only dials out. A member enrolling again only
+  moves its address. A new key joins as a Resident while the door is open, or with an
   `Invite`: a `Grant { network, nonce, expires }` that names this network,
   has not expired, and is signed under `INVITE_NAMESPACE` over
   `grant.preimage()` by a current validator. Each (issuer, nonce) admits
