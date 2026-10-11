@@ -486,19 +486,17 @@ nothing built is committed.
 
 ## 10. Founding
 
-Packing a view and a describe module into their program, and founding a
-network on the result, is the qa repository's job (`./kit`). To add poll to
-its local network:
+`crates/sdk/founding` packs each program with its view and describe module,
+and `make wasm-publish` releases the result as `founding.tar.gz`, which
+`ducktape init` founds once its `founding.toml` is filled. To add poll to it:
 
-1. `founding.toml`: a `[[programs]]` entry, `id = "poll"`,
-   `code = "@PROGRAMS@/poll.wasm"` (and `params = …` if `init` takes any).
-   The three `[roles]` stay bound to the boot set.
-2. `crates/kit/src/main.rs`, `pack()`: `"poll"` among the programs it
-   copies from modules' release dir, `("poll", "poll_view")` among the
-   views it embeds, `"poll"` among the describe modules it embeds.
-3. `kit build NAME && kit up NAME`: modules' `make wasm-modules`, the pack,
-   a fresh network with the program admitted at genesis, its account
-   registered with identity, and the app open on it.
+1. `crates/sdk/founding/src/lib.rs`: `("poll", "poll_view")` in `PROGRAMS`.
+2. `crates/sdk/founding/founding.toml`: a `[[programs]]` entry,
+   `id = "poll"`, `code = "poll.wasm"` (and `params = …` if `init` takes
+   any). The three `[roles]` stay bound to the boot set.
+3. qa's `founding.toml`: the same entry with `code = "@PROGRAMS@/poll.wasm"`.
+   `kit up NAME` founds a fresh network with the program admitted at
+   genesis and its account registered with identity.
 
 A module added to a running network goes through the registry instead
 (`Publish`, then `Schedule` at a height; [roles.md](roles.md), "Updating a

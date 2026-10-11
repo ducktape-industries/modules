@@ -46,6 +46,7 @@ members = [
     "crates/sdk/view-wire",
     "crates/sdk/view-guest",
     "crates/sdk/view-guest-derive",
+    "crates/sdk/founding",
     "crates/system/module-registry",
     "crates/system/valset",
     "crates/system/identity",
