@@ -153,8 +153,7 @@ wasm-describes:
 .PHONY: wasm-modules wasm-reproducible wasm-publish
 
 ## builds every program, its describe module and every view under
-## $(RELEASE)/, unpacked. Packing a view and a describe module into its
-## program is genesis's job: qa's `kit` pack runs view-pack over these outputs.
+## $(RELEASE)/, unpacked.
 wasm-modules: wasm-programs wasm-describes wasm-views
 	@cd $(RELEASE) && ls -l $(ARTIFACTS)
 

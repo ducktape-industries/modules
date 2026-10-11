@@ -233,8 +233,8 @@ $dir/{Cargo.toml,src/{lib,program,rules,tests}.rs}, PROGRAMS, VIEW_LINKABLE, wor
 Next:
   1. write the contract (Op/Query/Reply and describe() in lib.rs, the module in program.rs, its rules in rules.rs); \`make dev P=$name\` builds and tests it
   2. \`make new-view NAME=$name-view\` for its screen
-  3. found it in qa: a [[programs]] entry (id "$name", code "@PROGRAMS@/$snake.wasm") in founding.toml and "$snake" in kit's pack
-     (crates/kit/src/main.rs: the programs it copies, the describe modules it embeds); then \`kit build NAME && kit up NAME\`
+  3. found it: a [[programs]] entry (id "$name", code "$snake.wasm") in crates/sdk/founding/founding.toml, and in qa's founding.toml
+     (code "@PROGRAMS@/$snake.wasm"); its view goes in crates/sdk/founding's PROGRAMS (step 2 prints it)
 EOF
 }
 
@@ -424,7 +424,7 @@ $dir/{Cargo.toml,src/lib.rs,src/tests.rs}, VIEWS and workspace members.
 Next:
   1. replace the screen in src/lib.rs with what the module's Query answers (it asks \`Query::Count\` until then)
   2. \`make dev P=$program V=$name\` tests both natively, then builds them and gates the view (ABI), which needs Binaryen wasm-opt 132, wasm-tools and python3 on PATH
-  3. pack it into its module in qa: ("$program_snake", "$snake") in kit's view list (crates/kit/src/main.rs, \`pack\`); then \`kit build NAME && kit up NAME\`
+  3. pack it into its module: ("$program_snake", "$snake") in PROGRAMS (crates/sdk/founding/src/lib.rs); then in qa \`kit up NAME\`
 EOF
 }
 

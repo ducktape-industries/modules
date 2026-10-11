@@ -34,9 +34,9 @@ desktop loads from a file. The host (runtime, state, blobs, node, consensus,
 the daemon and the CLI) lives in ducktape; the founding suite links it at
 the revision `Cargo.toml` pins, patched to compile against `crates/sdk/abi`,
 so a copy that drifts from the kernel fails to build.
-What is not wasm lives elsewhere: the forge smoke (real git against
-`forge.wasm` on ducktape's runtime) and `view-pack` (a view into its module)
-are in the qa repo, which packs and founds what this repo builds.
+What is not wasm lives elsewhere, except `crates/sdk/founding`, which packs a
+founding out of what this repo builds. The forge smoke (real git against
+`forge.wasm` on ducktape's runtime) is in the qa repo.
 
 The kernel calls the boot modules by role, never by id: genesis binds
 `registry`, `validators` and `identity` to founding modules (the founding's
@@ -139,12 +139,12 @@ The tree vocabulary, manifests, and five-function Wasm ABI are unchanged.
    views (ABI) and runs the native tests of the crates cargo rebuilt.
    `P=forge` / `V=forge-view` narrow it to one.
 3. Push the branch and `make wasm-publish` (below); then in qa,
-   `kit new NAME --modules <branch> && kit up NAME` downloads, packs and
-   founds those artifacts, and `kit app NAME` opens the app on them.
+   `kit new NAME --modules <branch> && kit up NAME` downloads the
+   founding and founds it, and `kit app NAME` opens the app on them.
 4. Where a view's bytes go: `make wasm-why V=members-view` (`twiggy top`, `cargo install twiggy`).
 5. A new module: `make new-module NAME=x`, then `make new-view NAME=x-view`;
-   each prints what to do next, down to the `founding.toml` entry and kit's
-   pack lists in qa ([`docs/modules.md`](docs/modules.md) walks it).
+   each prints what to do next, down to its place in `crates/sdk/founding`
+   ([`docs/modules.md`](docs/modules.md) walks it).
    `make scaffold-check` proves both still build, gate and test. `make test`
    runs everything; the founding suite builds the boot set itself.
 
@@ -157,19 +157,22 @@ wasm-programs` itself), clippy, `make module-wasm-check`,
 
 Every wasm artifact is a build output: `make wasm-modules` builds every
 module and every view under `$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/`;
-nothing built is committed, and nothing is packed here (qa's `make pack` embeds
-each view in its module for a founding). `make wasm-reproducible` proves the
+nothing built is committed. `make wasm-reproducible` proves the
 bytes do not depend on the checkout. They do depend on the host triple (the
 Makefile says why at `WASM_RUSTFLAGS`), and the reference host is Linux x86_64:
 a founding or a release is packed from a build made there, and a Mac's build
 is a development build.
 
 `make wasm-publish` builds every artifact at the checked-out commit and
-publishes them as the GitHub release `wasm-<commit>` (`modules-wasm.tar.gz`,
-with `SHA256SUMS` inside). It runs only on the reference host, from a clean
-checkout whose commit is on origin, and never replaces a published commit.
-A founder downloads these bytes (qa's `kit` does) instead of building them,
-so only the machine that publishes needs the wasm tools below and `gh`. Each
+publishes them as the GitHub release `wasm-<commit>`, in two archives, each
+with its `SHA256SUMS`. `modules-wasm.tar.gz` holds every artifact unpacked.
+`founding.tar.gz` holds a founding: each program with its view and describe
+module embedded (`crates/sdk/founding`), `forge.params`, and a
+`founding.toml` that `ducktape init` reads once its network, time, key and
+address are filled. It runs only on the reference host, from a clean checkout
+whose commit is on origin, and never replaces a published commit. A founder
+downloads these bytes instead of building them, so only the machine that
+publishes needs the wasm tools below and `gh`. Each
 time `main` moves, the self-hosted runner fabrics-1 publishes it
 (`.github/workflows/release.yml`).
 
