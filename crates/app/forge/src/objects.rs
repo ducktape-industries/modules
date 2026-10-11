@@ -81,9 +81,10 @@ fn get(sandbox: &QueryCtx, id: &Oid) -> gitcore::Result<Option<Object>> {
     Ok(Some(Object::new(kind, blob.body)))
 }
 
-/// The object store a push writes into. Objects wait here until the push
-/// is accepted ([`ObjectWriter::flush`]), so a refused push stores nothing.
-// ponytail: holds a push's objects in memory until accepted; the pack is
+/// The object store a push or a stage writes into. Objects wait here until
+/// the whole pack is admitted ([`ObjectWriter::flush`]), so a pack that
+/// does not unpack, and an op that is refused, store nothing.
+// ponytail: holds a pack's objects in memory until admitted; the pack is
 // in memory already and `Bounds.max_objects`/`max_object_size` cap both.
 pub struct ObjectWriter<'a> {
     sandbox: &'a ExecCtx,
@@ -100,7 +101,7 @@ impl<'a> ObjectWriter<'a> {
         }
     }
 
-    /// Stores every object the accepted push brought.
+    /// Stores every object the admitted pack brought.
     pub fn flush(self) -> Result<(), Error> {
         for (_, (kind, body)) in self.pending {
             self.sandbox

@@ -447,3 +447,216 @@ fn a_log_exclude_spends_its_own_walk_budget() {
     let oids: Vec<_> = page.items.into_iter().map(|c| c.oid).collect();
     assert_eq!(oids, [story.feature, story.root]);
 }
+
+fn stage(sandbox: &MemorySandbox, actor: &[u8], pack: Vec<u8>) -> Result<Vec<u8>, guest::Error> {
+    act(
+        sandbox,
+        actor,
+        &Op::Stage {
+            repo: "project".into(),
+            pack,
+        },
+    )
+}
+
+/// The ids under `commit` that `source` gained for it: its tree and blobs,
+/// the commit itself last.
+fn objects_of(source: &MemoryObjects, commit: Oid) -> (Vec<Oid>, Oid) {
+    let object = source.get(&commit).unwrap().unwrap();
+    let parsed = Commit::parse(&object.body, Hash::Sha1).unwrap();
+    let tree = source.get(&parsed.tree).unwrap().unwrap();
+    let mut ids = vec![parsed.tree];
+    ids.extend(
+        Tree::parse(&tree.body, Hash::Sha1)
+            .unwrap()
+            .entries
+            .iter()
+            .map(|entry| entry.id),
+    );
+    (ids, commit)
+}
+
+#[test]
+fn a_stage_stores_objects_and_moves_no_ref() {
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let tip = file_commit(&mut source, &[], 1, &[("a", b"1"), ("b", b"2")]);
+    let (below, _) = objects_of(&source, tip);
+
+    // a commit whose tree is not held, alone: refused, nothing stored
+    let open = stage(&sandbox, OWNER, pack_of(&source, &[tip]));
+    assert_eq!(open.unwrap_err().code, code::NOT_FOUND);
+    assert_eq!(sandbox.blob_count(), 0);
+
+    stage(&sandbox, OWNER, pack_of(&source, &below)).unwrap();
+    assert_eq!(sandbox.blob_count(), below.len());
+    stage(&sandbox, OWNER, pack_of(&source, &[tip])).unwrap();
+    assert_eq!(sandbox.blob_count(), source.count());
+    assert!(refs_of(&sandbox, "project").is_empty());
+
+    // a pack that is no pack is refused as one
+    let garbage = stage(&sandbox, OWNER, b"PACK not really".to_vec());
+    assert_eq!(garbage.unwrap_err().code, code::INVALID_INPUT);
+}
+
+#[test]
+fn only_the_owner_and_granted_writers_stage() {
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    file_commit(&mut source, &[], 1, &[("a", b"1")]);
+    let everything = pack_of(&source, &all_ids(&source));
+
+    let stranger = stage(&sandbox, STRANGER, everything.clone());
+    assert_eq!(stranger.unwrap_err().code, code::UNAUTHORIZED);
+    assert_eq!(sandbox.blob_count(), 0);
+
+    act(
+        &sandbox,
+        OWNER,
+        &Op::Grant {
+            repo: "project".into(),
+            principal: person(WRITER),
+        },
+    )
+    .unwrap();
+    stage(&sandbox, WRITER, everything).unwrap();
+    assert_eq!(sandbox.blob_count(), source.count());
+}
+
+/// Every object a stage stored had what it names held when it landed, so
+/// the push that moves the ref brings only what is left: the commit alone
+/// (thin, its tree staged), or nothing at all.
+#[test]
+fn a_push_moves_a_ref_onto_staged_objects() {
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let first = file_commit(&mut source, &[], 1, &[("a", b"1")]);
+    let second = file_commit(&mut source, &[first], 2, &[("a", b"2")]);
+    let zero = Hash::Sha1.zero();
+
+    let (below_first, _) = objects_of(&source, first);
+    stage(&sandbox, OWNER, pack_of(&source, &below_first)).unwrap();
+    let thin = push(
+        &sandbox,
+        OWNER,
+        "project",
+        &[(zero, first, "refs/heads/main")],
+        &pack_of(&source, &[first]),
+    )
+    .unwrap();
+    assert_eq!(thin, ["unpack ok", "ok refs/heads/main"]);
+
+    let (mut below_second, _) = objects_of(&source, second);
+    below_second.retain(|id| !below_first.contains(id));
+    below_second.push(second);
+    stage(&sandbox, OWNER, pack_of(&source, &below_second)).unwrap();
+    let empty = push(
+        &sandbox,
+        OWNER,
+        "project",
+        &[(first, second, "refs/heads/main")],
+        b"",
+    )
+    .unwrap();
+    assert_eq!(empty, ["unpack ok", "ok refs/heads/main"]);
+    assert_eq!(
+        refs_of(&sandbox, "project")["refs/heads/main"],
+        second.to_hex()
+    );
+    assert_eq!(sandbox.blob_count(), source.count());
+}
+
+/// A push whose ref is refused keeps the objects it unpacked, as git's
+/// receive-pack does: a push again after the refusal brings none of them.
+#[test]
+fn a_refused_ref_keeps_the_objects_its_pack_brought() {
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let tip = file_commit(&mut source, &[], 1, &[("a", b"1")]);
+    let zero = Hash::Sha1.zero();
+    let stale = push(
+        &sandbox,
+        OWNER,
+        "project",
+        &[(tip, tip, "refs/heads/main")],
+        &pack_of(&source, &all_ids(&source)),
+    )
+    .unwrap();
+    assert_eq!(stale, ["unpack ok", "ng refs/heads/main stale info"]);
+    assert_eq!(sandbox.blob_count(), source.count());
+    let again = push(
+        &sandbox,
+        OWNER,
+        "project",
+        &[(zero, tip, "refs/heads/main")],
+        b"",
+    )
+    .unwrap();
+    assert_eq!(again, ["unpack ok", "ok refs/heads/main"]);
+}
+
+/// Incompressible bytes.
+fn noise(len: usize, seed: u64) -> Vec<u8> {
+    let mut state = seed | 1;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect()
+}
+
+/// A commit like the font bundles in ducktape's history: its own objects
+/// take more than a block carries (16 MiB, core's `node::BLOCK_BYTES`), so
+/// no one push holds it. Staged a blob at a time, it lands, and the push
+/// that moves the ref holds the tree and the commit alone.
+#[test]
+fn a_commit_bigger_than_a_frame_lands_in_parts() {
+    const FRAME: usize = 16 << 20;
+    let sandbox = MemorySandbox::default();
+    Forge::init(
+        &sandbox.exec(1),
+        &abi::encode(&Bounds {
+            max_object_size: 8 << 20,
+            ..bounds()
+        }),
+    )
+    .unwrap();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let fonts: Vec<(String, Vec<u8>)> = (0..3)
+        .map(|n| (format!("font-{n}.ttf"), noise(6 << 20, n * 2 + 1)))
+        .collect();
+    let files: Vec<(&str, &[u8])> = fonts
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    let tip = file_commit(&mut source, &[], 1, &files);
+    let (below, _) = objects_of(&source, tip);
+    let (tree, blobs) = below.split_first().unwrap();
+    assert!(pack_of(&source, &all_ids(&source)).len() > FRAME);
+
+    for blob in blobs {
+        let part = pack_of(&source, &[*blob]);
+        assert!(part.len() < FRAME);
+        stage(&sandbox, OWNER, part).unwrap();
+    }
+    let last = pack_of(&source, &[*tree, tip]);
+    assert!(last.len() < FRAME);
+    let moved = push(
+        &sandbox,
+        OWNER,
+        "project",
+        &[(Hash::Sha1.zero(), tip, "refs/heads/main")],
+        &last,
+    )
+    .unwrap();
+    assert_eq!(moved, ["unpack ok", "ok refs/heads/main"]);
+    assert_eq!(sandbox.blob_count(), source.count());
+}

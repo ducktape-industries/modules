@@ -115,6 +115,17 @@ pub enum Op {
         n: u64,
         review: ReviewDraft,
     },
+    /// A pack's objects, stored without moving a ref: a push bigger than a
+    /// frame sends its objects in parts, then a `Push` moves the refs onto
+    /// them. Each object's references are held when it lands (in the pack
+    /// or already stored), so the parts go in the order git's objects
+    /// reference each other (blobs and trees before the commits naming
+    /// them); a delta may be against an object already stored. The owner
+    /// and its writers stage.
+    Stage {
+        repo: String,
+        pack: Vec<u8>,
+    },
 }
 
 impl Op {
@@ -130,7 +141,8 @@ impl Op {
             | Op::ChangeOpen { repo, .. }
             | Op::ChangeEdit { repo, .. }
             | Op::ChangeClose { repo, .. }
-            | Op::ReviewSubmit { repo, .. } => repo,
+            | Op::ReviewSubmit { repo, .. }
+            | Op::Stage { repo, .. } => repo,
         }
     }
 }
@@ -144,8 +156,9 @@ pub enum Service {
 /// A read. Each variant names the tables it is answered from (`#[reads]`,
 /// [`program::Reads`]), so a view following `module.changes` re-reads it
 /// only for a block that wrote to one of them; a judgment is answered
-/// partly from chat's and names those too. Git objects are not keys: they
-/// reach the store with the push or merge that moves a ref, so a read of
+/// partly from chat's and names those too. Git objects are not keys: a
+/// view reaches one through a ref, and the push or merge that moves the ref
+/// brings it (a stage stores objects no ref reaches yet), so a read of
 /// objects follows `REFS`. The git client's own two questions declare
 /// nothing: no view follows them.
 #[derive(
