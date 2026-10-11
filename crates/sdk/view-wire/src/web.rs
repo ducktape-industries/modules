@@ -48,3 +48,58 @@ pub(crate) fn decode_commands<'de, D: serde::Deserializer<'de>>(
         "more web commands than the host applies",
     )
 }
+
+/// A web piece's address and commands inside the frame's bounds: at most
+/// [`MAX_WEB_COMMANDS`], and an address past [`MAX_URL_BYTES`] emptied,
+/// since one cut short is another address (the host loads nothing for an
+/// empty one).
+pub(crate) fn sanitize(
+    url: &mut String,
+    commands: &mut Vec<WebCommand>,
+    budgets: &mut crate::Budgets,
+) {
+    commands.truncate(MAX_WEB_COMMANDS);
+    let loads = commands.iter_mut().filter_map(|command| match command {
+        WebCommand::Load(url) => Some(url),
+        _ => None,
+    });
+    for url in std::iter::once(url).chain(loads) {
+        if url.len() > MAX_URL_BYTES {
+            url.clear();
+            budgets.cut(|cuts| &mut cuts.strings, 1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ElementIdWire, Node, StyleId};
+
+    /// An address past the bound is emptied, never cut short, and a frame
+    /// carries at most `MAX_WEB_COMMANDS` commands.
+    #[test]
+    fn a_long_address_is_none_and_commands_are_bounded() {
+        let long = format!("https://example.com/{}", "a".repeat(MAX_URL_BYTES));
+        let mut node = Node::Web {
+            id: ElementIdWire::Name("page".into()),
+            url: long.clone(),
+            style: StyleId(0),
+            revision: 1,
+            commands: std::iter::repeat_n(WebCommand::Load(long), MAX_WEB_COMMANDS + 1).collect(),
+            on_state: None,
+        };
+        let report = crate::sanitize_tree(&mut node, &crate::styles::testing::held()).unwrap();
+        let Node::Web { url, commands, .. } = node else {
+            unreachable!()
+        };
+        assert!(url.is_empty());
+        assert_eq!(commands.len(), MAX_WEB_COMMANDS);
+        assert!(
+            commands
+                .iter()
+                .all(|c| *c == WebCommand::Load(String::new()))
+        );
+        assert_eq!(report.strings, MAX_WEB_COMMANDS + 1);
+    }
+}
