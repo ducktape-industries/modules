@@ -27,10 +27,8 @@ mod list;
 mod primitives;
 mod rich_text;
 mod view_element;
-pub use behavior::{
-    ModalOverlay, ResizeHandle, Sensor, Web, WebHandle, WebState, modal_overlay, resize_handle,
-    sensor, web,
-};
+pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
+mod web;
 pub use element::{
     AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, Textarea,
     UniformList, UniformListScrollHandle, div, uniform_list,
@@ -46,6 +44,7 @@ pub use primitives::{
 };
 pub use rich_text::{InteractiveText, StyledText};
 pub use view_element::{AnyView, ViewElement};
+pub use web::{Web, WebHandle, WebState, web};
 
 /// Every SDK name a view file writes, in one import:
 /// `use ducktape_view_guest::prelude::*;`. gpui's names (elements, styles,

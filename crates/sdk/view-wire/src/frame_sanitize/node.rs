@@ -171,21 +171,7 @@ fn sanitize_fields(
             ..
         } => {
             budgets.style(*style)?;
-            // an address cut short is another address: one past the bound
-            // is none, and the host loads nothing for it
-            if url.len() > crate::MAX_URL_BYTES {
-                url.clear();
-                budgets.cut(|cuts| &mut cuts.strings, 1);
-            }
-            commands.truncate(crate::MAX_WEB_COMMANDS);
-            for command in commands {
-                if let crate::WebCommand::Load(url) = command
-                    && url.len() > crate::MAX_URL_BYTES
-                {
-                    url.clear();
-                    budgets.cut(|cuts| &mut cuts.strings, 1);
-                }
-            }
+            crate::web::sanitize(url, commands, budgets);
         }
         Node::Anchored {
             fit,
