@@ -257,16 +257,6 @@ pub fn every_event() -> Vec<Event> {
             dx: 4.0,
             dy: -2.0,
         },
-        Event::Web {
-            handler: 17,
-            state: WebState {
-                url: "https://example.org/".into(),
-                title: "Example".into(),
-                loading: true,
-                can_go_back: true,
-                can_go_forward: true,
-            },
-        },
         Event::ScrollOffset {
             handler: 31,
             x: 24.0,
@@ -360,6 +350,16 @@ pub fn every_event() -> Vec<Event> {
                     character_index: 3,
                 },
             })),
+        },
+        Event::Web {
+            handler: 17,
+            state: WebState {
+                url: "https://example.org/".into(),
+                title: "Example".into(),
+                loading: true,
+                can_go_back: true,
+                can_go_forward: true,
+            },
         },
     ]
 }

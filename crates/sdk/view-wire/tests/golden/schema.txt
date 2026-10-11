@@ -452,12 +452,12 @@ Event enum
     result: TypeName("Result")
     done: Bool
   32 Resync: Unit
-  33 Web struct
-    handler: U32
-    state: TypeName("WebState")
-  34 A11yAction struct
+  33 A11yAction struct
     handler: U32
     data: Option(TypeName("ActionData"))
+  34 Web struct
+    handler: U32
+    state: TypeName("WebState")
 FontFallbacks NewTypeStruct(Seq(Str))
 FontStyle enum
   0 Normal: Unit
