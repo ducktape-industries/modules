@@ -269,6 +269,7 @@ impl<V: View> Driver<V> {
                 None
             }
             wire::Event::A11yAction { handler, data } => self.route(handler, &data),
+            wire::Event::Web { handler, state } => self.route(handler, &state),
         }
     }
 

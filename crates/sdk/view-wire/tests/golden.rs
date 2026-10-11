@@ -32,7 +32,7 @@ use view_wire::{
     KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
     Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
     SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
-    WidgetCommand, click, interactivity, keyboard, mouse,
+    WebCommand, WebState, WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -40,8 +40,8 @@ const MESSAGE: &str =
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 15;
-const EVENT_VARIANTS: usize = 34;
+const NODE_VARIANTS: usize = 16;
+const EVENT_VARIANTS: usize = 35;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

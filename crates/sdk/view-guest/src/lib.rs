@@ -27,7 +27,10 @@ mod list;
 mod primitives;
 mod rich_text;
 mod view_element;
-pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
+pub use behavior::{
+    ModalOverlay, ResizeHandle, Sensor, Web, WebHandle, WebState, modal_overlay, resize_handle,
+    sensor, web,
+};
 pub use element::{
     AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, Textarea,
     UniformList, UniformListScrollHandle, div, uniform_list,
@@ -66,9 +69,9 @@ pub mod prelude {
         MouseUpEvent, ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle,
         ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
         StyledImage, StyledText, Subscription, Task, TextField, Textarea, Theme,
-        UniformListScrollHandle, View, Window, anchored, canvas, deferred, design, div,
-        export_view, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg,
-        uniform_list,
+        UniformListScrollHandle, View, WebHandle, WebState, Window, anchored, canvas, deferred,
+        design, div, export_view, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb,
+        sensor, svg, uniform_list, web,
     };
 }
 mod text;

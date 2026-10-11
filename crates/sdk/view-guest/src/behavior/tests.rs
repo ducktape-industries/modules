@@ -232,3 +232,93 @@ fn an_open_modal_overlay_needs_a_label() {
 fn a_closed_modal_overlay_needs_no_label() {
     let _ = modal_overlay("dialog", "", div(), None::<crate::Div>);
 }
+
+#[derive(Default, serde::Deserialize, serde::Serialize)]
+struct WebView {
+    #[serde(skip)]
+    nav: WebHandle,
+    heard: Vec<String>,
+}
+
+impl View for WebView {
+    const NAME: &'static str = "WebView";
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self::default()
+    }
+}
+
+impl Render for WebView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        web("page", "https://example.com/")
+            .track(&self.nav)
+            .on_state(cx.listener(|view, state: &WebState, _, cx| {
+                view.heard.push(state.url.clone());
+                cx.notify();
+            }))
+            .size_full()
+    }
+}
+
+/// A web piece carries its first address and a state route; a navigation
+/// crosses once, under a revision the host has not seen, and the page's
+/// state reaches the view's listener.
+#[test]
+fn a_web_piece_carries_its_navigations_once_and_hears_its_page() {
+    let mut cx = TestAppContext::new();
+    let view = cx.open::<WebView>();
+    let wire::Node::Web {
+        url,
+        revision,
+        commands,
+        on_state: Some(_),
+        ..
+    } = cx.node("page").clone()
+    else {
+        panic!("no web piece with a state route: {:?}", cx.root());
+    };
+    assert_eq!(url, "https://example.com/");
+    assert!(commands.is_empty());
+    cx.update(&view, |view, _, cx| {
+        view.nav.load("https://example.org/");
+        view.nav.back();
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let wire::Node::Web {
+        revision: moved,
+        commands,
+        ..
+    } = cx.node("page").clone()
+    else {
+        unreachable!()
+    };
+    assert_eq!(moved, revision + 2);
+    assert_eq!(
+        commands,
+        vec![
+            wire::WebCommand::Load("https://example.org/".into()),
+            wire::WebCommand::Back
+        ]
+    );
+    cx.simulate_web_state(
+        "page",
+        WebState {
+            url: "https://example.org/a".into(),
+            ..Default::default()
+        },
+    );
+    // the commands went with the frame that carried them
+    let wire::Node::Web {
+        revision: kept,
+        commands,
+        ..
+    } = cx.node("page").clone()
+    else {
+        unreachable!()
+    };
+    assert_eq!(kept, moved);
+    assert!(commands.is_empty());
+    cx.update(&view, |view, _, _| {
+        assert_eq!(view.heard, ["https://example.org/a"]);
+    });
+}
