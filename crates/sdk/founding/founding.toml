@@ -1,0 +1,38 @@
+network = "NETWORK"           # the network's name; every frame and invite on it carries it
+time = 0                      # the genesis block's time, unix milliseconds: `date +%s000`
+epoch_length = 64
+block_time_ms = 1000
+
+[roles]
+registry = "module-registry"
+validators = "valset"
+identity = "identity"
+
+[[validators]]
+key = "KEY"                   # this node's key: `ducktape identity`
+address = "ADDRESS"           # where peers dial it: tcp://, tls://, ws:// or wss://
+
+[[programs]]
+id = "module-registry"
+code = "module_registry.wasm"
+
+[[programs]]
+id = "valset"
+code = "valset.wasm"
+
+[[programs]]
+id = "identity"
+code = "identity.wasm"
+
+[[programs]]
+id = "chat"
+code = "chat.wasm"
+
+[[programs]]
+id = "forge"
+code = "forge.wasm"
+params = "forge.params"
+
+[[views]]
+name = "explorer"
+code = "explorer_view.wasm"
