@@ -109,7 +109,7 @@ fn respond(cx: &mut TestAppContext) {
         assert!(matches!(query, valset::Query::Memberships { .. }));
         Ok(valset::Reply::Memberships(page(vec![valset::Membership {
             key: EDDY.to_vec(),
-            address: "10.0.0.1:4000".into(),
+            address: Some("10.0.0.1:4000".into()),
             role: valset::Role::Validator,
         }])))
     });
@@ -443,7 +443,7 @@ fn a_valset_block_reaches_the_standing_without_an_identity_bump() {
     cx.host().handle::<Query<Valset>>(|_| {
         Ok(valset::Reply::Memberships(page(vec![valset::Membership {
             key: EDDY.to_vec(),
-            address: "10.0.0.1:4000".into(),
+            address: Some("10.0.0.1:4000".into()),
             role: valset::Role::Resident,
         }])))
     });

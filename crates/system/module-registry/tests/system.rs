@@ -86,14 +86,14 @@ fn public(seed: u64) -> Vec<u8> {
 fn member(seed: u64) -> valset::Member {
     valset::Member {
         key: public(seed),
-        address: format!("v{seed}:1"),
+        address: Some(format!("v{seed}:1")),
     }
 }
 
 fn membership(seed: u64, role: valset::Role) -> valset::Membership {
     valset::Membership {
         key: public(seed),
-        address: format!("v{seed}:1"),
+        address: Some(format!("v{seed}:1")),
         role,
     }
 }
@@ -114,7 +114,7 @@ fn invite(issuer: u64, nonce: u8, expires: u64) -> valset::Invite {
 
 fn enroll(seed: u64, invite: Option<valset::Invite>) -> valset::Op {
     valset::Op::Enroll {
-        address: format!("v{seed}:1"),
+        address: Some(format!("v{seed}:1")),
         invite,
     }
 }

@@ -33,7 +33,7 @@ fn module() -> String {
 fn member(n: u8) -> Member {
     Member {
         key: vec![n; 32],
-        address: format!("node-{n}"),
+        address: Some(format!("node-{n}")),
     }
 }
 

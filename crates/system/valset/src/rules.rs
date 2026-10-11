@@ -58,7 +58,7 @@ pub(crate) fn validators(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
 fn enroll(
     ctx: &ExecCtx,
     key: Vec<u8>,
-    address: String,
+    address: Option<String>,
     invite: Option<Invite>,
 ) -> Result<(), Error> {
     if let Some(held) = MEMBERS.get(ctx, &key)? {

@@ -10,7 +10,7 @@ identity = "identity"
 
 [[validators]]
 key = "KEY"                   # this node's key: `ducktape identity`
-address = "ADDRESS"           # where peers dial it: tcp://, tls://, ws:// or wss://
+address = "ADDRESS"           # where peers dial it: tcp://, tls://, ws:// or wss://; drop the line if none can
 
 [[programs]]
 id = "module-registry"

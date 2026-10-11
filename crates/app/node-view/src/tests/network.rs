@@ -102,6 +102,32 @@ fn a_node_that_is_not_voting_says_so() {
     }
 }
 
+/// The strip's column keeps a 16 px gutter from the column before it:
+/// this node's Address cell fills to its edge (its address cut short, then
+/// "this node"), and the strip drawn on from there read as one with it.
+#[test]
+fn the_strip_keeps_a_gutter_from_this_nodes_address() {
+    use ducktape_view_guest::wire::{ContainerNode, Node};
+    fn column(node: &Node) -> Option<&ContainerNode> {
+        let Node::Container(container) = node else {
+            return None;
+        };
+        let strip = |child: &Node| {
+            matches!(child, Node::Container(marks)
+                if marks.children.len() == crate::recent::WINDOW as usize)
+        };
+        match container.children.iter().any(strip) {
+            true => Some(container),
+            false => container.children.iter().find_map(column),
+        }
+    }
+    let (cx, _) = voting(THIS, seen(4200));
+    assert!(texts_of(&cx, "nodes-row-0").contains(&"this node".to_owned()));
+    let row = cx.find("nodes-row-0").expect("this node's row");
+    let column = column(row).expect("the strip beside the row's cells");
+    assert_eq!(cx.styles()[column.style].padding.left, Some(px(16.).into()));
+}
+
 /// The table's least width, as the wire carries it.
 fn table_min_width(cx: &TestAppContext) -> serde_json::Value {
     serde_json::to_value(cx.style("nodes-table").min_size.width).unwrap()
@@ -148,16 +174,16 @@ fn a_narrow_sheet_moves_the_strip_under_its_row() {
     let (beside, below) = (false, true);
     let gap = |px: &str| serde_json::json!(px);
     assert_eq!(strip_of(&cx, "nodes-row-0"), (beside, gap("3px")));
-    assert_eq!(at(&mut cx, 1057.), (beside, gap("3px")));
-    assert_eq!(at(&mut cx, 1056.), (beside, gap("2px")));
-    assert_eq!(at(&mut cx, 994.), (beside, gap("2px")));
-    assert_eq!(at(&mut cx, 993.), (beside, gap("1px")));
+    assert_eq!(at(&mut cx, 1073.), (beside, gap("3px")));
+    assert_eq!(at(&mut cx, 1072.), (beside, gap("2px")));
+    assert_eq!(at(&mut cx, 1010.), (beside, gap("2px")));
+    assert_eq!(at(&mut cx, 1009.), (beside, gap("1px")));
     // the column is kept as wide as its name, 41 characters of mono caption
-    assert_eq!(at(&mut cx, 943.), (beside, gap("1px")));
+    assert_eq!(at(&mut cx, 959.), (beside, gap("1px")));
     assert_eq!(texts_of(&cx, "nodes-columns")[2], label);
-    assert_eq!(table_min_width(&cx), serde_json::json!("895px"));
+    assert_eq!(table_min_width(&cx), serde_json::json!("911px"));
     // Address stays: under the row, the strip loses nothing
-    assert_eq!(at(&mut cx, 942.), (below, gap("3px")));
+    assert_eq!(at(&mut cx, 958.), (below, gap("3px")));
     assert!(cx.has_text("10.0.0.1:4000") && cx.has_text("since 3,871"));
     assert_eq!(
         texts_of(&cx, "nodes-columns"),
@@ -182,7 +208,7 @@ fn a_narrow_sheet_moves_the_strip_under_its_row() {
     assert_eq!(texts_of(&cx, "nodes-columns").last().unwrap(), label);
     assert!(cx.has_text("since 3,871") && cx.has_text(VOTES));
     assert_eq!(table_min_width(&cx), serde_json::json!("428px"));
-    assert_eq!(at(&mut cx, 1064.), (beside, gap("3px")));
+    assert_eq!(at(&mut cx, 1073.), (beside, gap("3px")));
     assert!(cx.has_text("10.0.0.1:4000"));
 }
 
