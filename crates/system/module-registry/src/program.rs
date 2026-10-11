@@ -4,8 +4,8 @@
 use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
 
 use crate::rules::{
-    BY, GRANTS, SCHEDULE, at, cancel, fold, grant, hooks_at, init, publish, revoke, schedule,
-    views_at,
+    BY, GRANTS, Roster, SCHEDULE, at, cancel, fold, grant, hooks_at, init, publish, revoke, roster,
+    schedule, views_at,
 };
 use crate::{Genesis, Grant, MODULE, Op, PageResponse, Pending, Query, Reply};
 
@@ -76,6 +76,16 @@ impl Module for Modules {
                     .range(ctx, &page)?
                     .map(|(scope, account)| Grant { scope, account }),
             ),
+            Query::Roster => {
+                let Roster {
+                    programs, views, ..
+                } = roster(ctx, height, &[])?;
+                Reply::Roster {
+                    height,
+                    programs: programs.into_values().collect(),
+                    views: views.into_values().collect(),
+                }
+            }
         })
     }
 }

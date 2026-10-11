@@ -97,6 +97,11 @@ the one place that happens.
    stay, and `init` does not run again. Under a new id, the module is
    admitted (its `init` gets `params`) and registered with identity.
 
+A change lands at its height whether or not an op runs on the registry
+after it: the kernel asks `At(height)` for the block it applies, and a
+client (the app's rail, Explorer) asks `Roster`, the programs and views at
+the query's own height, with that height.
+
 `Change::Remove` drops a module; `Cancel` withdraws a scheduled change. A
 role's module updates the same way, under its bound id; the binding itself
 is fixed at genesis.

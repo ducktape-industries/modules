@@ -98,7 +98,7 @@ pub struct Acted {
 }
 
 /// What the registry runs, lists and will change, and who may change it,
-/// as it answers them at the tip.
+/// as it answers them at its own height.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Network {
     #[serde(with = "borsh_bytes")]
@@ -106,8 +106,8 @@ pub struct Network {
     /// the view-only entries: a name and its view's code, no program behind it
     #[serde(with = "borsh_bytes")]
     pub views: Vec<registry::View>,
-    /// what the registry will fold in at later blocks, and whose grant
-    /// made each (`None`: the vote)
+    /// what the registry will change after the height it answered, by
+    /// height, and whose grant made each (`None`: the vote)
     #[serde(with = "borsh_bytes")]
     pub changes: Vec<registry::Pending>,
     /// the programs the kernel tells of every frame
