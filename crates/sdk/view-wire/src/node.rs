@@ -280,6 +280,25 @@ pub enum Node {
         #[serde(deserialize_with = "canvas::decode_parts")]
         commands: Vec<CanvasCommand>,
     },
+    /// A web page, drawn by the host's browser engine in the node's box:
+    /// every press, key and scroll on it is the page's, so it carries no
+    /// listeners. Only a view whose manifest declares the `web` capability
+    /// may send one; a host refuses the frame of any other. The page opens
+    /// on `url` when the host first sees the node (under its path) and is
+    /// closed when a frame no longer has it. After that the view moves it
+    /// with `commands`, applied once each when `revision` moves (a
+    /// [`Node::List`]'s pattern), and `on_state` hears where the page is as
+    /// [`Event::Web`]. A host loads only what [`crate::web::is_loadable`]
+    /// allows, the page's own navigations included.
+    Web {
+        id: ElementIdWire,
+        url: String,
+        style: StyleId,
+        revision: u64,
+        #[serde(deserialize_with = "crate::web::decode_commands")]
+        commands: Vec<crate::web::WebCommand>,
+        on_state: Option<u32>,
+    },
 }
 
 mod impls;

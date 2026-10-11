@@ -524,6 +524,23 @@
             }
           },
           {
+            "Web": {
+              "id": {
+                "Name": "page"
+              },
+              "url": "https://example.com/",
+              "style": 0,
+              "revision": 3,
+              "commands": [
+                {
+                  "Load": "https://example.org/"
+                },
+                "Back"
+              ],
+              "on_state": 17
+            }
+          },
+          {
             "Text": {
               "id": {
                 "Name": "plain"
@@ -2259,6 +2276,18 @@
       }
     },
     {
+      "Web": {
+        "handler": 17,
+        "state": {
+          "url": "https://example.org/",
+          "title": "Example",
+          "loading": true,
+          "can_go_back": true,
+          "can_go_forward": true
+        }
+      }
+    },
+    {
       "ScrollOffset": {
         "handler": 31,
         "x": 24.0,
@@ -3233,6 +3262,12 @@
     "Visibility": [
       "Visible",
       "Hidden"
+    ],
+    "WebCommand": [
+      "Back",
+      "Forward",
+      "Reload",
+      "Stop"
     ],
     "WhiteSpace": [
       "Normal",

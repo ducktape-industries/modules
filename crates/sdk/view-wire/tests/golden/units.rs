@@ -62,6 +62,7 @@ pub struct Units {
     uniform_list_scroll_strategy: Vec<UniformListScrollStrategy>,
     uniform_list_sizing: Vec<UniformListSizing>,
     visibility: Vec<gpui::Visibility>,
+    web_command: Vec<WebCommand>,
     white_space: Vec<gpui::WhiteSpace>,
 }
 

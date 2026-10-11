@@ -528,7 +528,8 @@ methods! {
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
 /// declares, and the only names it may. A method is reached only through the
-/// capability its kind starts with.
+/// capability its kind starts with. One capability gates a node, not a
+/// method: [`Capability::Web`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Capability {
     Chain,
@@ -542,10 +543,15 @@ pub enum Capability {
     Clipboard,
     Notify,
     Store,
+    /// The view draws web pages ([`crate::Node::Web`]) and opens the
+    /// `https://` links the app's views ask for: the app hands such a link
+    /// to the one view that declares this, as its `host.route`, and to the
+    /// system browser when none does. No method starts with it.
+    Web,
 }
 
 impl Capability {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Chain,
         Self::Module,
         Self::Op,
@@ -557,6 +563,7 @@ impl Capability {
         Self::Clipboard,
         Self::Notify,
         Self::Store,
+        Self::Web,
     ];
 
     /// The name a manifest and a kind spell it with.
@@ -573,6 +580,7 @@ impl Capability {
             Self::Clipboard => "clipboard",
             Self::Notify => "notify",
             Self::Store => "store",
+            Self::Web => "web",
         }
     }
 
@@ -655,7 +663,12 @@ mod tests {
             .collect();
         prefixes.sort_unstable();
         prefixes.dedup();
-        let mut known = Capability::ALL.map(Capability::as_str).to_vec();
+        // `web` gates a node (`Node::Web`), not a method
+        let mut known: Vec<&str> = Capability::ALL
+            .into_iter()
+            .filter(|capability| *capability != Capability::Web)
+            .map(Capability::as_str)
+            .collect();
         known.sort_unstable();
         assert_eq!(prefixes, known);
         assert_eq!(Capability::parse("link"), Some(Capability::Link));
