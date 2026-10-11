@@ -169,7 +169,9 @@ publishes them as the GitHub release `wasm-<commit>` (`modules-wasm.tar.gz`,
 with `SHA256SUMS` inside). It runs only on the reference host, from a clean
 checkout whose commit is on origin, and never replaces a published commit.
 A founder downloads these bytes (qa's `kit` does) instead of building them,
-so only the machine that publishes needs the wasm tools below and `gh`.
+so only the machine that publishes needs the wasm tools below and `gh`. Each
+time `main` moves, the self-hosted runner fabrics-1 publishes it
+(`.github/workflows/release.yml`).
 
 `make dev`'s view gate and view releases require `wasm-tools`, Python 3, and
 [Binaryen wasm-opt 132](https://github.com/WebAssembly/binaryen/releases/tag/version_132).

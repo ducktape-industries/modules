@@ -1,0 +1,29 @@
+# Each time `main` moves, the self-hosted runner fabrics-1 (the reference host) runs
+# `make wasm-publish`, so kit can found any commit on `main` from its release wasm-<commit>.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+
+jobs:
+  wasm:
+    runs-on: [self-hosted, fabrics-1]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: make wasm-publish
+        env:
+          GH_TOKEN: ${{ github.token }}
