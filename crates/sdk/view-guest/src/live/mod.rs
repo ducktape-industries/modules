@@ -262,8 +262,7 @@ impl Network {
     }
 
     /// `op` to `program` from the system itself (`Origin::Root`), as one
-    /// block: what genesis and the registry role do (a valset membership,
-    /// a scheduled change).
+    /// block: what genesis and the registry role do.
     pub fn system<O: BorshSerialize>(&self, program: &str, op: &O) -> Result<Vec<u8>, Error> {
         self.applied(self.run(Origin::Root, program.to_owned(), methods::encode(op)))
     }
@@ -537,6 +536,10 @@ impl Network {
     /// The genesis block's id.
     pub(crate) fn genesis(&self) -> [u8; 32] {
         self.0.borrow().blocks[0].id
+    }
+
+    pub(crate) fn roles(&self) -> abi::Roles {
+        self.0.borrow().chain.env(identity::MODULE).roles
     }
 
     pub(crate) fn fresh(&self, body: &wire::Body) -> Result<(), abi::Refusal> {

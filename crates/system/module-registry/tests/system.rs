@@ -71,6 +71,7 @@ const EPOCH_LENGTH: u64 = 4;
 const MEMBER_CAP: u32 = 8;
 const TIME: u64 = 1_700_000_000_000;
 const PROBE_SIGNER: u64 = 9;
+const FOUNDERS: [u64; 2] = [1, 2];
 
 type Ctx = deterministic::Context;
 
@@ -94,6 +95,27 @@ fn membership(seed: u64, role: valset::Role) -> valset::Membership {
         key: public(seed),
         address: format!("v{seed}:1"),
         role,
+    }
+}
+
+fn invite(issuer: u64, nonce: u8, expires: u64) -> valset::Invite {
+    let grant = valset::Grant {
+        network: NETWORK.to_vec(),
+        nonce: [nonce; 16],
+        expires,
+    };
+    let signature = key(issuer).sign(valset::INVITE_NAMESPACE, &grant.preimage());
+    valset::Invite {
+        issuer: public(issuer),
+        grant,
+        signature: signature.as_ref().to_vec(),
+    }
+}
+
+fn enroll(seed: u64, invite: Option<valset::Invite>) -> valset::Op {
+    valset::Op::Enroll {
+        address: format!("v{seed}:1"),
+        invite,
     }
 }
 
@@ -143,7 +165,7 @@ impl Net {
                 validators: valset::MODULE.into(),
                 identity: identity::MODULE.into(),
             },
-            validators: vec![member(1), member(2)],
+            validators: FOUNDERS.iter().map(|seed| member(*seed)).collect(),
             programs: vec![
                 founding(module_registry::MODULE, &program("module_registry")),
                 founding(valset::MODULE, &program("valset")),
@@ -258,6 +280,26 @@ impl Net {
 
     async fn as_anyone<T: BorshSerialize>(&mut self, target: &str, op: &T) -> Receipt {
         self.sent_by("probe", target, op).await
+    }
+
+    async fn pass(&mut self, motion: valset::Motion) -> Receipt {
+        let vote = abi::encode(&valset::Op::Vote(motion));
+        let submissions = FOUNDERS
+            .iter()
+            .map(|seed| self.submission(&public(*seed), valset::MODULE, vote.clone()))
+            .collect();
+        let mut applied = self.block(submissions).await;
+        let enacting = applied.submissions.pop().unwrap();
+        for counted in &applied.submissions {
+            let voted: valset::Voted = abi::decode(output_of(counted)).unwrap();
+            assert!(matches!(voted, valset::Voted::Counted { .. }), "{voted:?}");
+        }
+        enacting
+    }
+
+    async fn govern(&mut self, op: &module_registry::Op) -> Receipt {
+        let op = abi::encode(op);
+        self.pass(valset::Motion::Registry { op }).await
     }
 
     /// A query the module refuses.

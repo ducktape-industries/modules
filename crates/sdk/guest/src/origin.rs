@@ -24,11 +24,18 @@ impl Env {
         }
     }
 
-    /// Who may change the modules and the validators. A stub that admits
-    /// every origin until the chain has an authority to ask; swapping it
-    /// for the real check is this one function.
+    /// Refused unless the program bound to the validators role sent this:
+    /// the validators' vote, enacted.
     pub fn authority(&self) -> Result<(), Error> {
-        Ok(())
+        let by_validators =
+            matches!(&self.origin, Origin::Module(sender) if *sender == self.roles.validators);
+        if by_validators {
+            return Ok(());
+        }
+        Err(unauthorized(format!(
+            "only the validators' vote ({}) may do this, not {:?}",
+            self.roles.validators, self.origin
+        )))
     }
 
     /// Refused unless `module` or the chain itself sent this.
@@ -66,5 +73,28 @@ mod tests {
         assert_eq!(root.sending_module().unwrap_err().code, code::UNAUTHORIZED);
         assert!(module.sent_by("gov").is_ok() && root.sent_by("gov").is_ok());
         assert!(module.sent_by("other").is_err() && signed.sent_by("gov").is_err());
+    }
+
+    #[test]
+    fn authority_admits_only_the_program_bound_to_the_validators_role() {
+        let validators = MockHost::roles().validators;
+        assert!(env(Origin::Module(validators)).authority().is_ok());
+        for origin in [
+            Origin::Signed(vec![1; 32]),
+            Origin::Module("gov".into()),
+            Origin::Module(MockHost::roles().registry),
+            Origin::Root,
+        ] {
+            let refused = env(origin).authority().unwrap_err();
+            assert_eq!(refused.code, code::UNAUTHORIZED);
+        }
+        let rebound = Env {
+            roles: crate::Roles {
+                validators: "gov".into(),
+                ..MockHost::roles()
+            },
+            ..env(Origin::Module("gov".into()))
+        };
+        assert!(rebound.authority().is_ok());
     }
 }

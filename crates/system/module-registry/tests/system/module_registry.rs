@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn a_published_program_is_scheduled_by_anyone_and_seated_at_its_height() {
+fn a_published_program_is_scheduled_by_the_validators_vote_and_seated_at_its_height() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
@@ -21,48 +21,36 @@ fn a_published_program_is_scheduled_by_anyone_and_seated_at_its_height() {
             params: Vec::new(),
         };
         let unpublished = net
-            .as_anyone(
-                module_registry::MODULE,
-                &module_registry::Op::Schedule(module_registry::Scheduled {
-                    height: net.height + 3,
-                    change: module_registry::Change::Set(module_registry::Entry {
-                        program: "ghost".into(),
-                        code: BlobId::Sha256([9; 32]),
-                        params: Vec::new(),
-                    }),
+            .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
+                height: net.height + 3,
+                change: module_registry::Change::Set(module_registry::Entry {
+                    program: "ghost".into(),
+                    code: BlobId::Sha256([9; 32]),
+                    params: Vec::new(),
                 }),
-            )
+            }))
             .await;
         assert_eq!(refusal_of(&unpublished), reason::NOT_FOUND);
         let past = net
-            .as_anyone(
-                module_registry::MODULE,
-                &module_registry::Op::Schedule(module_registry::Scheduled {
-                    height: net.height,
-                    change: module_registry::Change::Set(entry.clone()),
-                }),
-            )
+            .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
+                height: net.height,
+                change: module_registry::Change::Set(entry.clone()),
+            }))
             .await;
         assert_eq!(refusal_of(&past), reason::INVALID_INPUT);
         let lands_at = net.height + 6;
         let scheduled = net
-            .as_anyone(
-                module_registry::MODULE,
-                &module_registry::Op::Schedule(module_registry::Scheduled {
-                    height: lands_at,
-                    change: module_registry::Change::Set(entry.clone()),
-                }),
-            )
+            .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
+                height: lands_at,
+                change: module_registry::Change::Set(entry.clone()),
+            }))
             .await;
         output_of(&scheduled);
         let taken = net
-            .as_anyone(
-                module_registry::MODULE,
-                &module_registry::Op::Schedule(module_registry::Scheduled {
-                    height: lands_at,
-                    change: module_registry::Change::Remove("identity2".into()),
-                }),
-            )
+            .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
+                height: lands_at,
+                change: module_registry::Change::Remove("identity2".into()),
+            }))
             .await;
         assert_eq!(refusal_of(&taken), reason::ALREADY_EXISTS);
         let module_registry::Reply::Scheduled(pending) = net
@@ -135,36 +123,27 @@ fn a_published_program_is_scheduled_by_anyone_and_seated_at_its_height() {
         assert_eq!(seated, entry);
         let removal_at = net.height + 5;
         let removal = net
-            .as_anyone(
-                module_registry::MODULE,
-                &module_registry::Op::Schedule(module_registry::Scheduled {
-                    height: removal_at,
-                    change: module_registry::Change::Remove("identity2".into()),
-                }),
-            )
+            .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
+                height: removal_at,
+                change: module_registry::Change::Remove("identity2".into()),
+            }))
             .await;
         output_of(&removal);
         let cancelled = net
-            .as_anyone(
-                module_registry::MODULE,
-                &module_registry::Op::Cancel {
-                    height: removal_at,
-                    program: "identity2".into(),
-                },
-            )
+            .govern(&module_registry::Op::Cancel {
+                height: removal_at,
+                program: "identity2".into(),
+            })
             .await;
         output_of(&cancelled);
         net.ticks(3).await;
         assert!(net.host.programs().unwrap().contains_key("identity2"));
         let removal_at = net.height + 3;
         let removal = net
-            .as_anyone(
-                module_registry::MODULE,
-                &module_registry::Op::Schedule(module_registry::Scheduled {
-                    height: removal_at,
-                    change: module_registry::Change::Remove("identity2".into()),
-                }),
-            )
+            .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
+                height: removal_at,
+                change: module_registry::Change::Remove("identity2".into()),
+            }))
             .await;
         output_of(&removal);
         net.ticks(2).await;
@@ -189,17 +168,14 @@ fn schedule_pages_and_missing_programs_report_the_answering_height() {
         let code: BlobId = abi::decode(&output).unwrap();
         for program in ["z", "a", "m"] {
             let receipt = net
-                .as_anyone(
-                    module_registry::MODULE,
-                    &module_registry::Op::Schedule(module_registry::Scheduled {
-                        height: 100,
-                        change: module_registry::Change::Set(module_registry::Entry {
-                            program: program.into(),
-                            code,
-                            params: Vec::new(),
-                        }),
+                .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
+                    height: 100,
+                    change: module_registry::Change::Set(module_registry::Entry {
+                        program: program.into(),
+                        code,
+                        params: Vec::new(),
                     }),
-                )
+                }))
                 .await;
             output_of(&receipt);
         }
@@ -245,5 +221,60 @@ fn schedule_pages_and_missing_programs_report_the_answering_height() {
                 entry: None
             }
         );
+    });
+}
+
+#[test]
+fn a_schedule_from_a_key_or_another_module_is_refused() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found(context, dir.path()).await;
+        let output = net
+            .apply(
+                &public(7),
+                module_registry::MODULE,
+                &module_registry::Op::Publish {
+                    body: program("identity"),
+                },
+            )
+            .await;
+        let code: BlobId = abi::decode(&output).unwrap();
+        let schedule = module_registry::Op::Schedule(module_registry::Scheduled {
+            height: net.height + 5,
+            change: module_registry::Change::Set(module_registry::Entry {
+                program: "identity2".into(),
+                code,
+                params: Vec::new(),
+            }),
+        });
+        for signer in [public(1), public(7)] {
+            let refused = net
+                .refuse(&signer, module_registry::MODULE, &schedule)
+                .await;
+            assert_eq!(refused, reason::UNAUTHORIZED);
+        }
+        let by_module = net.as_anyone(module_registry::MODULE, &schedule).await;
+        assert_eq!(refusal_of(&by_module), reason::UNAUTHORIZED);
+        let module_registry::Reply::Scheduled(pending) = net
+            .ask(
+                module_registry::MODULE,
+                &module_registry::Query::Scheduled {
+                    page: PageRequest::default(),
+                },
+            )
+            .await
+        else {
+            panic!()
+        };
+        assert!(pending.items.is_empty());
+        let enacted = net.govern(&schedule).await;
+        let voted: valset::Voted = abi::decode(output_of(&enacted)).unwrap();
+        assert_eq!(voted, valset::Voted::Enacted);
+        let scheduled = enacted
+            .nested
+            .iter()
+            .find(|receipt| receipt.program == module_registry::MODULE)
+            .unwrap();
+        output_of(scheduled);
     });
 }

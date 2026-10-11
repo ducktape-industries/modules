@@ -255,8 +255,10 @@ forge's reviewers. Ask a role at the module genesis bound to it,
 themselves (`abi::role::identity::{Profile, Kind, Standing}`) are what a
 view shows beside a name.
 
-`Env::authority()` is the stub that admits anyone until the chain has an
-authority; valset and the registry call it before a write.
+`Env::authority()` admits only a message from the module bound to the
+validators role, which sends one when its validators' vote passes a
+`Motion::Registry`; the registry calls it before scheduling or cancelling
+a change.
 
 ## 6. Talking to other modules
 
