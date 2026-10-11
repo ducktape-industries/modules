@@ -24,6 +24,10 @@ pub(crate) const INSET: f32 = 16.;
 /// narrows a whole pixel at a time, so every mark keeps its pixels.
 const MARK_W: f32 = 3.;
 const GAPS: [f32; 3] = [3., 2., 1.];
+/// The strip's column's space from the column before it, as Status's
+/// (`pl_4`): Address can fill its cell to the edge (this node's, a long
+/// address cut short and "this node").
+const GUTTER: f32 = 16.;
 /// One character's advance in [`design::fonts::FAMILY_MONO`], in ems: the
 /// font's published metric, since no text measurement reaches a view. The
 /// strip's column is kept as wide as its name.
@@ -50,13 +54,20 @@ fn marks_w(gap: f32) -> f32 {
     WINDOW as f32 * MARK_W + (WINDOW - 1) as f32 * gap + 4.
 }
 
+/// The strip's column, its marks `gap` apart: the marks or its name,
+/// `label` wide, whichever is wider, and its gutter.
+fn column_w(gap: f32, label: f32) -> f32 {
+    GUTTER + marks_w(gap).max(label)
+}
+
 /// The strip's gap where its column fits beside the other columns: the
-/// widest that leaves room for the marks and the column's name, `label`
-/// wide. `None` where not even the narrowest does: the strip then goes on
-/// a line of its own under each row's cells, at the widest gap, rather than
-/// scrolling Status out of sight. With Address, and a four-digit height,
-/// 3 px from 1,057, 2 from 994, 1 from 943. Address gives way only at 672:
-/// the strip moves under its row and loses nothing, Address would be lost.
+/// widest that leaves room for the marks or the column's name, `label`
+/// wide, past its gutter. `None` where not even the narrowest does: the
+/// strip then goes on a line of its own under each row's cells, at the
+/// widest gap, rather than scrolling Status out of sight. With Address, and
+/// a four-digit height, 3 px from 1,073, 2 from 1,010, 1 from 959. Address
+/// gives way only at 672: the strip moves under its row and loses nothing,
+/// Address would be lost.
 fn gap_beside(view: &Nodes, label: f32) -> Option<f32> {
     let address = if address_fits(view) {
         f32::from(ADDRESS_W)
@@ -64,8 +75,7 @@ fn gap_beside(view: &Nodes, label: f32) -> Option<f32> {
         0.
     };
     let room = spare(view) - address;
-    GAPS.into_iter()
-        .find(|gap| marks_w(*gap).max(label) <= room)
+    GAPS.into_iter().find(|gap| column_w(*gap, label) <= room)
 }
 
 pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div> {
@@ -93,7 +103,7 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
         (label.chars().count() as f32 * f32::from(design::text::CAPTION) * MONO_EM).ceil();
     let (address, gap) = (address_fits(view), gap_beside(view, label_w));
     // the strip's column where it fits beside the other columns
-    let column = gap.map(|gap| px(marks_w(gap).max(label_w)));
+    let column = gap.map(|gap| px(column_w(gap, label_w)));
     let rows = |validator: bool| {
         nodes
             .iter()
@@ -213,12 +223,16 @@ fn ruled(id: impl Into<ElementId>, cells: Div, below: Option<Div>, theme: &Theme
         .children(below)
 }
 
-/// The strip's column, `width` wide at the least: the strip, and the
-/// table's spare width after it; only the spare width where the strip goes
-/// under its row.
+/// The strip's column, `width` wide at the least: its gutter, the strip,
+/// and the table's spare width after it; only the spare width where the
+/// strip goes under its row.
 fn stretch(content: Option<(Pixels, impl IntoElement)>) -> Div {
     match content {
-        Some((width, content)) => cell(width, false).flex_1().min_w(width).child(content),
+        Some((width, content)) => cell(width, false)
+            .flex_1()
+            .min_w(width)
+            .pl(px(GUTTER))
+            .child(content),
         None => div().flex_1(),
     }
 }
