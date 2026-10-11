@@ -27,16 +27,46 @@ pub enum WebCommand {
 
 /// The page as the host's browser holds it: what an address bar, a title
 /// and the back, forward and stop buttons show. Sent as [`crate::Event::Web`]
-/// whenever any of it changes.
+/// whenever any of it changes. The page writes the address and the title
+/// (`history.pushState`, `document.title`), so the host bounds both.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebState {
     /// The address the page is at now: a link followed in the page or a
-    /// redirect moves it.
+    /// redirect moves it. At most [`MAX_URL_BYTES`]; a longer one arrives
+    /// empty, since an address cut short is another address.
     pub url: String,
+    /// One line, cleaned as a `host.title` is: no control, bidi embedding,
+    /// override or isolate, line or paragraph separator, no space at either
+    /// end, at most 80 chars.
     pub title: String,
     pub loading: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
+}
+
+/// Whether `frame` carries a web piece: in its tree, in a patch or in a
+/// tooltip's content. A host refuses such a frame from a view whose
+/// manifest does not declare [`Capability::Web`](crate::methods::Capability::Web).
+pub fn carries_web(frame: &crate::Frame) -> bool {
+    fn has_web(node: &crate::Node) -> bool {
+        matches!(node, crate::Node::Web { .. }) || node.children().iter().any(has_web)
+    }
+    let patched = frame.patches.iter().filter_map(|patch| match patch {
+        crate::Patch::Replace { node, .. }
+        | crate::Patch::Props { node, .. }
+        | crate::Patch::Insert { node, .. } => Some(node),
+        crate::Patch::Remove { .. } | crate::Patch::Move { .. } => None,
+    });
+    let tooltips = frame
+        .tooltip_responses
+        .iter()
+        .filter_map(|response| response.content.as_deref());
+    frame
+        .root
+        .iter()
+        .chain(patched)
+        .chain(tooltips)
+        .any(has_web)
 }
 
 pub(crate) fn decode_commands<'de, D: serde::Deserializer<'de>>(
