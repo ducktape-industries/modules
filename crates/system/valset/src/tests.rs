@@ -29,14 +29,14 @@ fn env(origin: Origin) -> Env {
 fn member(n: u8) -> Member {
     Member {
         key: key(n),
-        address: format!("node-{n}"),
+        address: Some(format!("node-{n}")),
     }
 }
 
 fn membership(n: u8, role: Role) -> Membership {
     Membership {
         key: key(n),
-        address: format!("node-{n}"),
+        address: Some(format!("node-{n}")),
         role,
     }
 }
@@ -70,7 +70,7 @@ fn refused(store: &MockHost, signer: u8, op: Op) -> String {
 
 fn enroll(n: u8, invite: Option<Invite>) -> Op {
     Op::Enroll {
-        address: format!("node-{n}"),
+        address: Some(format!("node-{n}")),
         invite,
     }
 }
@@ -234,14 +234,31 @@ fn an_open_door_admits_without_an_invite() {
 fn a_member_enrolling_again_moves_its_address_and_keeps_its_role() {
     let store = founded();
     let moved = Op::Enroll {
-        address: "elsewhere".into(),
+        address: Some("elsewhere".into()),
         invite: None,
     };
     run(&store, 1, moved).unwrap();
     assert_eq!(
         held(&store, 1),
         Some(Membership {
-            address: "elsewhere".into(),
+            address: Some("elsewhere".into()),
+            ..membership(1, Role::Validator)
+        })
+    );
+}
+
+#[test]
+fn a_member_enrolling_without_an_address_is_held_without_one() {
+    let store = founded();
+    let undialed = Op::Enroll {
+        address: None,
+        invite: None,
+    };
+    run(&store, 1, undialed).unwrap();
+    assert_eq!(
+        held(&store, 1),
+        Some(Membership {
+            address: None,
             ..membership(1, Role::Validator)
         })
     );

@@ -9,7 +9,7 @@ use crate::row::{Row, Status, synced};
 fn member(key: u8, role: valset::Role) -> valset::Membership {
     valset::Membership {
         key: vec![key],
-        address: format!("10.0.0.{key}:4000"),
+        address: Some(format!("10.0.0.{key}:4000")),
         role,
     }
 }
@@ -17,7 +17,7 @@ fn member(key: u8, role: valset::Role) -> valset::Membership {
 fn node(key: u8, validator: bool) -> Node {
     Node {
         key: vec![key],
-        address: String::new(),
+        address: None,
         validator,
         seat: None,
     }
@@ -47,7 +47,7 @@ fn the_fold_seats_validators_first_and_keeps_each_key_once() {
             (4, None)
         ]
     );
-    assert!(nodes[2].validator && nodes[2].address.is_empty());
+    assert!(nodes[2].validator && nodes[2].address.is_none());
     assert!(!nodes[3].validator);
 }
 

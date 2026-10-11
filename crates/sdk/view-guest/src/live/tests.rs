@@ -163,7 +163,7 @@ fn the_dev_validator_opens_the_door_alone_and_a_person_enrolls_as_a_resident() {
     assert_eq!(net.roles(), MockHost::roles());
     let ada = net.person("ada");
     let enroll = valset::Op::Enroll {
-        address: "10.0.0.2:4000".into(),
+        address: Some("10.0.0.2:4000".into()),
         invite: None,
     };
     let closed = net.submit(ada, valset::MODULE, &enroll).unwrap_err();

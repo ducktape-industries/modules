@@ -92,8 +92,8 @@ forge = { path = "crates/app/forge" }
 # prebuilt wasm binary, `make probe-fixture`, not a Cargo dependency (its
 # `Step` script type is mirrored in module-registry's test, next to the
 # binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "6cf88b1e9ac5fd098908d767920d48545dd7a7e4" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "6cf88b1e9ac5fd098908d767920d48545dd7a7e4" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "e762b41dc36ed821429a55110af0bb0642a78c21" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "e762b41dc36ed821429a55110af0bb0642a78c21" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 

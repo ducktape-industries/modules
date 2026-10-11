@@ -26,7 +26,7 @@ pub enum Role {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Membership {
     pub key: Vec<u8>,
-    pub address: String,
+    pub address: Option<String>,
     pub role: Role,
 }
 
@@ -76,9 +76,11 @@ pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let (title, fields) = match op {
         Op::Enroll { address, invite } => (
-            format!("Enroll · {address}"),
+            address
+                .as_ref()
+                .map_or("Enroll".into(), |address| format!("Enroll · {address}")),
             vec![
-                field("address", Value::text(address)),
+                field("address", Value::text(address.as_deref().unwrap_or("none"))),
                 field(
                     "invite",
                     invite.as_ref().map_or(Value::text("none"), |invite| {

@@ -158,7 +158,7 @@ impl Network {
                 &Validators {
                     validators: vec![Member {
                         key: dev.public_key().as_ref().to_vec(),
-                        address: "127.0.0.1:1".into(),
+                        address: Some("127.0.0.1:1".into()),
                     }],
                     member_cap: 8,
                 },
