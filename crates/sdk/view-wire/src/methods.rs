@@ -636,7 +636,6 @@ pub mod refusal {
     pub const NEEDS_GESTURE: &str = "needs_gesture";
     /// More links opened by the view in the last minute than the host takes.
     pub const LINK_LIMIT: &str = "link_limit";
-    /// The node does not mint invites.
     pub const INVITE_UNSUPPORTED: &str = "invite_unsupported";
     /// The host closed the request with no answer; written on the view's
     /// side, by the SDK.
