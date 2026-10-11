@@ -69,7 +69,7 @@ fn seen(height: u64) -> NetworkStatus {
 
 /// The node: its status, its blocks, the clock, and the votes it heard.
 /// A node answering every ask, in a sheet with room for every column
-/// (from 1057 px).
+/// (from 1073 px).
 fn node(cx: &mut TestAppContext) {
     cx.simulate_resize(1200., 680.);
     cx.host().handle::<ChainStatus>(|()| Ok(status()));
