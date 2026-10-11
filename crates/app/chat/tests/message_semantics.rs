@@ -62,3 +62,100 @@ fn emphasis_follows_the_flanking_rule() {
         assert_eq!(got, want, "for `{text}`");
     }
 }
+
+/// `(text, [(span text, code?, bold?)])`
+type CodeRow = (&'static str, &'static [(&'static str, bool, bool)]);
+
+const CODE_ROWS: &[CodeRow] = &[
+    (
+        "run `cargo test` now",
+        &[
+            ("run ", false, false),
+            ("cargo test", true, false),
+            (" now", false, false),
+        ],
+    ),
+    ("a ` b", &[("a ` b", false, false)]),
+    (
+        "`**not bold** <@7> https://x`",
+        &[("**not bold** <@7> https://x", true, false)],
+    ),
+    (
+        "**a `b` c**",
+        &[("a ", false, true), ("b", true, true), (" c", false, true)],
+    ),
+    ("`` a`b ``", &[("a`b", true, false)]),
+    ("``x` y``", &[("x` y", true, false)]),
+];
+
+#[test]
+fn a_backtick_run_opens_a_code_span_only_the_same_run_closes() {
+    for (text, expected) in CODE_ROWS {
+        let got: Vec<(String, bool, bool)> = inline_spans(text)
+            .into_iter()
+            .map(|span| {
+                let code = span.marks.contains(&Mark::Code);
+                let bold = span.marks.contains(&Mark::Bold);
+                assert!(
+                    !code
+                        || !span
+                            .marks
+                            .iter()
+                            .any(|m| matches!(m, Mark::Link(_) | Mark::Mention(_))),
+                    "no link or mention inside code, for `{text}`"
+                );
+                (span.text, code, bold)
+            })
+            .collect();
+        let want: Vec<(String, bool, bool)> = expected
+            .iter()
+            .map(|(text, code, bold)| (text.to_string(), *code, *bold))
+            .collect();
+        assert_eq!(got, want, "for `{text}`");
+    }
+}
+
+/// `- `, `* ` and `1. ` open a one-level list item; anything else is a
+/// paragraph as typed, and the wire keeps the marker either way.
+#[test]
+fn a_paragraph_opening_with_a_marker_reads_as_a_list_item() {
+    use chat::{Block, ListMarker, list_item, parse_message};
+    let item = |text: &str| {
+        let blocks = parse_message(text);
+        let [Block::Paragraph(spans)] = blocks.as_slice() else {
+            panic!("`{text}` is one paragraph");
+        };
+        list_item(spans).map(|(marker, spans)| {
+            let text: String = spans.iter().map(|span| span.text.as_str()).collect();
+            (marker, text, spans.len())
+        })
+    };
+    assert_eq!(
+        item("- apples"),
+        Some((ListMarker::Bullet, "apples".into(), 1))
+    );
+    assert_eq!(
+        item("* pears"),
+        Some((ListMarker::Bullet, "pears".into(), 1))
+    );
+    assert_eq!(
+        item("12. twelfth"),
+        Some((ListMarker::Ordered(12), "twelfth".into(), 1))
+    );
+    // the item keeps its marks
+    assert_eq!(
+        item("- **ship** it"),
+        Some((ListMarker::Bullet, "ship it".into(), 2))
+    );
+    for plain in ["-apples", "1.5 litres", ". x", "a - b", "**- x**", "*it*"] {
+        assert_eq!(item(plain), None, "`{plain}` is no list item");
+    }
+    // one block per line: a typed list is a run of items
+    let blocks = parse_message("- a\n- b\n1. c");
+    assert_eq!(blocks.len(), 3);
+    assert!(
+        blocks
+            .iter()
+            .all(|block| matches!(block, Block::Paragraph(spans) if list_item(spans).is_some()))
+    );
+}

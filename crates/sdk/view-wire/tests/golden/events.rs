@@ -1,27 +1,9 @@
-//! One of every `Event`, and the `Frame` around the tree.
+//! Every `Event` variant at least once, and the `Frame` around the tree.
 use super::*;
 
 pub fn every_event() -> Vec<Event> {
-    let modifiers = keyboard::Modifiers::default();
+    let modifiers = gpui::Modifiers::default();
     vec![
-        Event::Observation {
-            event: events::Event::Window(events::Window::FileHovered("a.txt".into())),
-            captured: false,
-        },
-        Event::Mouse {
-            event: mouse::Event::WheelScrolled {
-                delta: mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
-            },
-            captured: true,
-        },
-        Event::Keyboard {
-            event: keyboard::Event::Press {
-                state: key_state(),
-                text: Some("\n".into()),
-                repeat: false,
-            },
-            captured: false,
-        },
         Event::Message(3),
         Event::Click {
             handler: 1,
@@ -31,6 +13,24 @@ pub fn every_event() -> Vec<Event> {
                     origin: at(0.0, 0.0),
                     size: size(px(10.0), px(10.0)),
                 },
+            },
+        },
+        Event::Click {
+            handler: 1,
+            event: click::Click::Mouse {
+                down: click::ButtonEvent {
+                    button: click::MouseButton::Left,
+                    position: at(0.0, 0.0),
+                    modifiers,
+                    click_count: 1,
+                },
+                up: click::ButtonEvent {
+                    button: click::MouseButton::Left,
+                    position: at(0.0, 0.0),
+                    modifiers,
+                    click_count: 1,
+                },
+                first_mouse: true,
             },
         },
         Event::MouseDown {
@@ -101,6 +101,15 @@ pub fn every_event() -> Vec<Event> {
                 modifiers,
             },
         },
+        Event::MouseExit {
+            handler: 8,
+            phase: DispatchPhase::Bubble,
+            event: interactivity::MouseExit {
+                position: at(5.0, 6.0),
+                pressed_button: Some(click::MouseButton::Right),
+                modifiers,
+            },
+        },
         Event::ScrollWheel {
             handler: 9,
             phase: DispatchPhase::Bubble,
@@ -109,6 +118,16 @@ pub fn every_event() -> Vec<Event> {
                 delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -12.0 },
                 modifiers,
                 touch_phase: interactivity::TouchPhase::Moved,
+            },
+        },
+        Event::ScrollWheel {
+            handler: 9,
+            phase: DispatchPhase::Bubble,
+            event: interactivity::ScrollWheel {
+                position: at(5.0, 6.0),
+                delta: mouse::ScrollDelta::Lines { x: 1.0, y: 2.0 },
+                modifiers,
+                touch_phase: interactivity::TouchPhase::Ended,
             },
         },
         Event::Pinch {
@@ -135,6 +154,27 @@ pub fn every_event() -> Vec<Event> {
             phase: DispatchPhase::Capture,
             event: interactivity::KeyUp { state: key_state() },
         },
+        Event::KeyUp {
+            handler: 12,
+            phase: DispatchPhase::Capture,
+            event: interactivity::KeyUp {
+                state: key_state_on(keyboard::NativeCode::Android(1)),
+            },
+        },
+        Event::KeyUp {
+            handler: 12,
+            phase: DispatchPhase::Capture,
+            event: interactivity::KeyUp {
+                state: key_state_on(keyboard::NativeCode::Windows(2)),
+            },
+        },
+        Event::KeyUp {
+            handler: 12,
+            phase: DispatchPhase::Capture,
+            event: interactivity::KeyUp {
+                state: key_state_on(keyboard::NativeCode::Xkb(3)),
+            },
+        },
         Event::ModifiersChanged {
             handler: 13,
             event: interactivity::ModifiersChanged {
@@ -159,62 +199,30 @@ pub fn every_event() -> Vec<Event> {
             request: 17,
             character_index: Some(3),
         },
-        Event::Surface {
-            handler: 18,
-            value: SurfaceValue::List(vec![SurfaceValue::Bool(true), SurfaceValue::Unit]),
-        },
-        Event::Input {
+        Event::Text {
             handler: 19,
-            text: "xy".into(),
-        },
-        Event::EditorDocument {
-            handler: 20,
-            message: EditorDocumentMessage::Transfer(EditorTransfer::Chunk {
-                id: transfer(),
-                index: 0,
-                bytes: b"draft".to_vec(),
-            }),
-        },
-        Event::EditorRequest {
-            handler: 21,
-            request: EditorRequest {
-                id: transaction(),
-                state: document(9),
-                input: EditorRequestInput::Interaction {
-                    action: EditorInteraction::Action { tag: "send".into() },
-                },
-                input_time_ms: 40,
-            },
-        },
-        Event::EditorTransaction {
-            handler: 22,
-            event: EditorTransactionEvent::Commit {
-                id: transaction(),
-                origin: Some(EditorRequestInput::Key {
-                    key: key_state(),
-                    repeat: false,
+            change: TextChange {
+                generation: 2,
+                revision: 4,
+                edit: Some(Edit {
+                    range: TextRange { start: 1, end: 1 },
+                    len: 1,
                 }),
-                before: document(9),
-                after: document(10),
-                patches: vec![EditorPatch {
-                    start_byte: 9,
-                    end_byte: 9,
-                    replacement: "z".into(),
+                text: "xy".into(),
+                cursor: TextRange { start: 2, end: 2 },
+                preedit: Some(TextRange { start: 1, end: 2 }),
+                tokens: vec![TextToken {
+                    range: TextRange { start: 0, end: 1 },
+                    id: "<@1>".into(),
                 }],
-                kind: EditorEditKind::Insert,
-                history: EditorHistoryEffect::ExtendPrevious,
-                input_time_ms: 42,
             },
         },
         Event::Theme { dark: true },
-        Event::Toggle {
-            handler: 23,
-            on: true,
+        Event::Viewport {
+            width: 900.0,
+            height: 501.0,
         },
-        Event::Slide {
-            handler: 24,
-            value: 0.5,
-        },
+        Event::Offset { minutes: 540 },
         Event::Select {
             handler: 25,
             index: 1,
@@ -228,26 +236,26 @@ pub fn every_event() -> Vec<Event> {
                 modifiers: gpui::Modifiers::default(),
             },
         },
-        Event::Size {
+        Event::RichTextHover {
+            handler: 26,
+            event: RichTextHover {
+                index: Some(2),
+                position: at(9.0, 9.0),
+                pressed_button: Some(click::MouseButton::Left),
+                modifiers: gpui::Modifiers::default(),
+            },
+        },
+        Event::Bounds {
             handler: 27,
+            x: 12.0,
+            y: 34.0,
             width: 100.0,
             height: 50.0,
-        },
-        Event::Pointer {
-            handler: 28,
-            x: 12.5,
-            y: 3.0,
         },
         Event::Drag {
             handler: 29,
             dx: 4.0,
             dy: -2.0,
-        },
-        Event::Scroll {
-            handler: 30,
-            dx: 0.0,
-            dy: -1.0,
-            pixels: false,
         },
         Event::ScrollOffset {
             handler: 31,
@@ -261,6 +269,7 @@ pub fn every_event() -> Vec<Event> {
             route: 3,
             start: 0,
             end: 2,
+            item_height: 40.0,
         },
         Event::UniformListState {
             path: vec![id("root"), id("uniform")],
@@ -286,40 +295,73 @@ pub fn every_event() -> Vec<Event> {
         },
         Event::Response {
             id: 1,
-            result: Err(Refusal::new("not_found", "no such room")),
+            result: Err(Error::new("not_found", "no such room")),
             done: true,
         },
+        Event::Response {
+            id: 2,
+            result: Ok(vec![1, 2, 3]),
+            done: false,
+        },
         Event::Resync,
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::CustomAction(3)),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::Value("42".into())),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::NumericValue(3.5)),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::ScrollUnit(accesskit::ScrollUnit::Page)),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::ScrollHint(accesskit::ScrollHint::TopLeft)),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::ScrollToPoint(accesskit::Point {
+                x: 1.0,
+                y: 2.0,
+            })),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::SetScrollOffset(accesskit::Point {
+                x: 3.0,
+                y: 4.0,
+            })),
+        },
+        Event::A11yAction {
+            handler: 11,
+            data: Some(ActionData::SetTextSelection(accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: accesskit::NodeId(1),
+                    character_index: 0,
+                },
+                focus: accesskit::TextPosition {
+                    node: accesskit::NodeId(1),
+                    character_index: 3,
+                },
+            })),
+        },
     ]
 }
 
 pub fn every_frame() -> Frame {
     Frame {
-        upstream_sanitization: Default::default(),
-        editor_decisions: vec![EditorResponse {
-            id: transaction(),
-            decision: EditorDecision::Apply {
-                patches: vec![],
-                cursor: EditorCursor::default(),
-                history: EditorHistoryEffect::NewGroup,
-            },
-        }],
-        editor_documents: vec![EditorDocumentMessage::Failed {
-            id: transfer(),
-            reason: EditorTransferError::Order,
-        }],
         tooltip_responses: vec![TooltipResponse {
             request: 17,
             character_index: Some(3),
             content: Some(boxed("the tip")),
         }],
-        mouse_interest: true,
-        event_interest: events::Interest {
-            focus: true,
-            close: false,
-            files: true,
-            input_method: false,
-        },
+        styles: every_style().iter().map(Style::new).collect(),
         root: Some(every_node()),
         patches: vec![
             Patch::Replace {
@@ -347,8 +389,8 @@ pub fn every_frame() -> Frame {
         ],
         requests: vec![Request {
             id: 1,
-            kind: doors::Log::KIND.into(),
-            payload: doors::Log::encode_request(&"hello".into()),
+            kind: methods::HostLog::KIND.into(),
+            payload: methods::HostLog::encode_request(&"hello".into()),
         }],
         cancels: vec![2],
         unchanged: false,
@@ -358,9 +400,6 @@ pub fn every_frame() -> Frame {
 
 pub fn event_variant(event: &Event) -> &'static str {
     match event {
-        Event::Observation { .. } => "Observation",
-        Event::Mouse { .. } => "Mouse",
-        Event::Keyboard { .. } => "Keyboard",
         Event::Message(_) => "Message",
         Event::Click { .. } => "Click",
         Event::MouseDown { .. } => "MouseDown",
@@ -379,20 +418,14 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::FileDropExit { .. } => "FileDropExit",
         Event::AuxClick { .. } => "AuxClick",
         Event::TooltipRequest { .. } => "TooltipRequest",
-        Event::Surface { .. } => "Surface",
-        Event::Input { .. } => "Input",
-        Event::EditorDocument { .. } => "EditorDocument",
-        Event::EditorRequest { .. } => "EditorRequest",
-        Event::EditorTransaction { .. } => "EditorTransaction",
+        Event::Text { .. } => "Text",
         Event::Theme { .. } => "Theme",
-        Event::Toggle { .. } => "Toggle",
-        Event::Slide { .. } => "Slide",
+        Event::Viewport { .. } => "Viewport",
+        Event::Offset { .. } => "Offset",
         Event::Select { .. } => "Select",
         Event::RichTextHover { .. } => "RichTextHover",
-        Event::Size { .. } => "Size",
-        Event::Pointer { .. } => "Pointer",
+        Event::Bounds { .. } => "Bounds",
         Event::Drag { .. } => "Drag",
-        Event::Scroll { .. } => "Scroll",
         Event::ScrollOffset { .. } => "ScrollOffset",
         Event::UniformListRange { .. } => "UniformListRange",
         Event::UniformListState { .. } => "UniformListState",
@@ -400,5 +433,6 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::ListScroll { .. } => "ListScroll",
         Event::Response { .. } => "Response",
         Event::Resync => "Resync",
+        Event::A11yAction { .. } => "A11yAction",
     }
 }

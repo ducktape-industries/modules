@@ -1,34 +1,59 @@
 //! Message cards and their native GPUI actions.
 
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, ElementId, FontStyle, FontWeight, HighlightStyle,
-    InteractiveText, ParentElement, Styled, StyledText, Theme, UnderlineStyle, Window, div, px,
-    surface, wire,
-};
+use ducktape_view_guest::{FontStyle, FontWeight, HighlightStyle, UnderlineStyle};
 
-use crate::client::{ChatBlock, ChatMessage, SpanStyle};
+use crate::message::{ChatMessage, SpanStyle};
 use crate::ui::badge;
-use crate::{Chat, Mode, Pane};
+use crate::{Chat, Control, Pane};
+use chat::view::Names;
+use chat::{Block, Span};
+mod controls;
 mod rich;
+use controls::{Face, action_button, reaction_button, replies_button};
 use rich::{plain_line, rich_line};
 
+/// The cells of the message row being drawn: the message is cell 0, each
+/// enabled control the next in paint order. `active` is the cell the
+/// pane's arrows are on, when this is their row; the controls are handed
+/// back so Enter knows what the active cell does.
+struct Cells {
+    active: Option<usize>,
+    controls: Vec<Control>,
+}
+
+impl Cells {
+    /// Records `control` as the next cell; whether it is the active one.
+    fn push(&mut self, control: Control) -> bool {
+        self.controls.push(control);
+        self.active == Some(self.controls.len())
+    }
+}
+
+/// A message's row of the pane's grid, and its controls in paint order.
+/// The row is `{id}-row`: its first cell is the message, then one cell
+/// per control, the card's (block link, program link, chips, `+`,
+/// replies) and the action strip's. `active`: the cell the arrows are on,
+/// when this is their row. `set`: the row's place among the pane's
+/// messages, 1-based, and their count — said by the row itself, since the
+/// host positions only a list item's own node, and a message under a day
+/// or unread marker is wrapped.
 pub fn card(
     chat: &Chat,
     message: ChatMessage,
     pane: Pane,
-    _window: &mut Window,
+    active: Option<usize>,
+    set: (usize, usize),
     cx: &mut Context<Chat>,
     theme: &Theme,
-) -> impl IntoElement {
+) -> (AnyElement, Vec<Control>) {
     let id = message.id.clone();
     let seq = message.seq;
-    let press = cx.listener(move |chat, event: &ClickEvent, _window, cx| {
-        cx.notify();
-        let position = event.position();
-        chat.layout.press = (position.x.into(), position.y.into());
-        chat.press_message(pane, seq);
-    });
+    let press = press(pane, seq, cx);
+    let mut cells = Cells {
+        active,
+        controls: Vec::new(),
+    };
     let chosen = !message.deleted
         && seq > 0
         && chat
@@ -37,14 +62,146 @@ pub fn card(
             .is_some_and(|menu| menu.pane == pane && menu.seq == seq);
     let ranged = !message.deleted && chat.copy.is_some_and(|range| range.holds(pane, seq));
     let group: ducktape_view_guest::SharedString = format!("chat-message-{id}").into();
-    let avatar = if message.show_author {
+    // cell 0 of the row: the message, the cell the arrows land on and
+    // claimed while they are on it. It lies under the whole card, as a
+    // cell may not hold the controls' cells drawn over it. The pointer's
+    // click is here; the keys' Enter comes through the grid
+    let message_cell = div()
+        .id(format!("chat-message-{id}"))
+        .absolute()
+        .inset_0()
+        .role(ducktape_view_guest::Role::GridCell)
+        .aria_label(format!("{}: {}", message.author, message.body))
+        .when(cells.active == Some(0), |cell| {
+            cell.aria_active_descendant()
+        })
+        .on_click(press);
+    let card = div()
+        .id(format!("chat-message-{id}-card"))
+        .relative()
+        .flex()
+        .gap(design::space::MD)
+        .px_4()
+        .pt(if message.show_author {
+            design::space::LG
+        } else {
+            design::space::HAIR
+        })
+        .pb(design::space::HAIR)
+        .bg(if chosen {
+            theme.accent_soft
+        } else if ranged {
+            theme.surface_raised
+        } else {
+            theme.background
+        })
+        .hover(|style| style.bg(theme.surface_raised))
+        .child(message_cell)
+        .child(avatar(&message, theme))
+        .child(content(chat, message.clone(), pane, &mut cells, cx, theme));
+    // Controls are siblings of the selection target: their native click must
+    // not also replace the opened menu with the message-selection toolbar.
+    // The row says when the pointer is over it, and only that row (and a
+    // chosen one) carries the action strip: drawn invisible under every
+    // row, the strips were most of each frame the view sends — over half
+    // its bytes in a busy room — and every frame is paid for in fuel.
+    let key = (pane, seq);
+    let row_hover = hovers(key, cx);
+    let mut outer = div()
+        .id(format!("chat-message-{id}-row"))
+        .relative()
+        .w_full()
+        .group(group.clone())
+        .on_hover(row_hover)
+        // a row of the pane's grid; it never claims
+        .role(ducktape_view_guest::Role::Row)
+        .aria_label(format!(
+            "Select message, shows its actions: {}: {}",
+            message.author, message.body
+        ))
+        .aria_position_in_set(set.0)
+        .aria_size_of_set(set.1)
+        .child(card);
+    if !message.pending && !message.deleted && (chosen || chat.hovered == Some(key)) {
+        let strip = action_strip(chat, &message, pane, chosen, &mut cells, cx, theme);
+        outer = outer.child(strip);
+    }
+    (outer.into_any_element(), cells.controls)
+}
+
+/// A control's click: it does what Enter on its cell does
+/// ([`Chat::act`]); the control consumes the press, so the card beneath
+/// does not hear it.
+fn acts(
+    pane: Pane,
+    seq: u64,
+    rev: u32,
+    control: Control,
+    cx: &mut Context<Chat>,
+) -> impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static {
+    cx.listener(move |chat, event: &ClickEvent, window, cx| {
+        let position = event.position();
+        chat.layout.press = (position.x.into(), position.y.into());
+        cx.notify();
+        chat.act(pane, seq, rev, control.clone(), window, cx);
+    })
+}
+
+/// A press on the card selects the message; a control on it consumes its
+/// own press, so the card never hears it.
+fn press(
+    pane: Pane,
+    seq: u64,
+    cx: &mut Context<Chat>,
+) -> impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static {
+    cx.listener(move |chat, event: &ClickEvent, _window, cx| {
+        let position = event.position();
+        let at = (position.x.into(), position.y.into());
+        cx.notify();
+        chat.layout.press = at;
+        chat.press_message(pane, seq);
+    })
+}
+
+/// The row keeps `hovered` on itself while the pointer is over it.
+fn hovers(
+    key: (Pane, u64),
+    cx: &mut Context<Chat>,
+) -> impl Fn(&bool, &mut Window, &mut ducktape_view_guest::App) + 'static {
+    cx.listener(move |chat, over: &bool, _window, cx| {
+        if *over && chat.hovered != Some(key) {
+            chat.hovered = Some(key);
+            cx.notify();
+        } else if !*over && chat.hovered == Some(key) {
+            chat.hovered = None;
+            cx.notify();
+        }
+    })
+}
+
+/// The grid cell of the row that holds `control`, whose id is
+/// `control_id`: `{control_id}-cell`. A disabled control's cell says so,
+/// as the arrows skip it.
+fn cell(control_id: &str, enabled: bool, control: impl IntoElement) -> AnyElement {
+    div()
+        .id(format!("{control_id}-cell"))
+        .role(ducktape_view_guest::Role::GridCell)
+        .when(!enabled, |cell| cell.aria_disabled(true))
+        .child(control)
+        .into_any_element()
+}
+
+/// A run's first message wears its author's initials; the rest keep
+/// the column.
+fn avatar(message: &ChatMessage, theme: &Theme) -> AnyElement {
+    if message.show_author {
         div()
-            .id(format!("chat-message-{id}-avatar"))
+            .id(format!("chat-message-{}-avatar", message.id))
             .size_7()
             .flex()
             .items_center()
             .justify_center()
-            .rounded(px(6.))
+            .rounded(design::space::XS)
             .bg(if message.agent {
                 theme.agent_soft
             } else {
@@ -56,298 +213,420 @@ pub fn card(
                 theme.muted
             })
             .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
-            .text_size(px(11.5))
+            .text_size(design::text::CAPTION)
             .child(message.initial.clone())
             .into_any_element()
     } else {
-        div().w_7().h(px(4.)).flex_shrink_0().into_any_element()
-    };
-    let card = div()
-        .id(format!("chat-message-{id}"))
-        .relative()
-        .flex()
-        .gap(px(10.))
-        .px_4()
-        .pt(px(if message.show_author { 12. } else { 3. }))
-        .pb(px(3.))
-        .bg(if chosen {
-            theme.accent_soft
-        } else if ranged {
-            theme.surface_raised
-        } else {
-            theme.background
-        })
-        .hover(|style| style.bg(theme.surface_raised))
-        .role(ducktape_view_guest::Role::Button)
-        .aria_label(format!(
-            "Select message, shows its actions: {}: {}",
-            message.author, message.body
-        ))
-        .focusable()
-        .on_click(press)
-        .child(avatar)
-        .child(content(chat, message.clone(), pane, cx, theme));
-    // Controls are siblings of the selection target: their native click must
-    // not also replace the opened menu with the message-selection toolbar.
-    let mut outer = div().relative().w_full().group(group.clone()).child(card);
-    if !message.pending && !message.deleted {
-        let rev = message.rev;
-        let writable = chat.may_write();
-        let mut actions = div()
-            .id(format!("chat-message-{id}-actions"))
-            .absolute()
-            .right_2()
-            .top_1()
-            .flex()
-            .gap_1()
-            .bg(theme.background)
-            // GPUI dispatches a click to every interactive element whose
-            // hitbox contains it, not just the topmost one: without this,
-            // a click on a button here also lands on `card`'s row-select
-            // handler beneath it, which clobbers whatever this row just
-            // set (e.g. `open_menu`'s mode) back to `Mode::Toolbar`.
-            .occlude()
-            .invisible()
-            .group_hover(group, |style| style.visible());
-        if chosen {
-            actions = actions.visible();
-        }
-        if pane == Pane::Timeline && message.reply_count == 0 {
-            let open = cx.listener(move |chat, _: &ClickEvent, _, cx| {
-                cx.notify();
-                chat.open_thread(seq, cx);
-            });
-            actions = actions.child(action_button(
-                format!("chat-message-{id}-thread"),
-                "💬",
-                "Open thread",
-                theme,
-                true,
-                open,
-            ));
-        }
-        let thumbs = cx.listener(move |chat, _: &ClickEvent, _, cx| {
-            cx.notify();
-            chat.react(seq, "👍".into(), true, cx);
-        });
-        actions = actions.child(action_button(
-            format!("chat-message-{id}-thumbs-up"),
-            "👍",
-            "React with 👍",
-            theme,
-            writable,
-            thumbs,
-        ));
-        let react = cx.listener(move |chat, event: &ClickEvent, window, cx| {
-            cx.notify();
-            let position = event.position();
-            chat.layout.press = (position.x.into(), position.y.into());
-            chat.open_menu(pane, seq, rev, Mode::Reactions, window, cx);
-        });
-        actions = actions.child(action_button(
-            format!("chat-message-{id}-react"),
-            "😀",
-            "Manage reactions",
-            theme,
-            writable,
-            react,
-        ));
-        let more = cx.listener(move |chat, event: &ClickEvent, window, cx| {
-            cx.notify();
-            let position = event.position();
-            chat.layout.press = (position.x.into(), position.y.into());
-            chat.open_menu(pane, seq, rev, Mode::More, window, cx);
-        });
-        actions = actions.child(action_button(
-            format!("chat-message-{id}-more"),
-            "⋯",
-            "More message actions",
-            theme,
-            true,
-            more,
-        ));
-        outer = outer.child(actions);
+        div()
+            .w_7()
+            .h(design::space::XXS)
+            .flex_shrink_0()
+            .into_any_element()
     }
-    outer
 }
 
+/// The strip over a row the pointer is on (or a chosen one): thread,
+/// 👍, the picker and the "More" menu.
+fn action_strip(
+    chat: &Chat,
+    message: &ChatMessage,
+    pane: Pane,
+    chosen: bool,
+    cells: &mut Cells,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> AnyElement {
+    let (id, seq) = (&message.id, message.seq);
+    // the row's hover group (`card`)
+    let group: ducktape_view_guest::SharedString = format!("chat-message-{id}").into();
+    let rev = message.rev;
+    let writable = chat.may_write();
+    let actions = div()
+        .id(format!("chat-message-{id}-actions"))
+        .absolute()
+        .right_2()
+        // 26px tall at the row's top: its buttons are press targets of 24
+        // and sit inside a compact row (25); only the bar's bottom border
+        // falls into the next row, which paints over it. Lower, the buttons
+        // would hang out of this row's hover (a negative top is clamped)
+        .top_0()
+        .flex()
+        .bg(theme.background)
+        .border_1()
+        .border_color(theme.border)
+        // No occlude: an occluding bar took the row's hover away the
+        // moment the pointer reached it, hid itself, and was never
+        // clickable. Each button consumes its press (`consumes_click`),
+        // so the card beneath does not take it too.
+        .invisible()
+        .group_hover(group, |style| style.visible())
+        .when(chosen, |actions| actions.visible());
+    // each button is a cell of the row, beside the card
+    let cell = |button: AnyElement, key: &str, enabled: bool| {
+        cell(&format!("chat-message-{id}-{key}"), enabled, button)
+    };
+    let thread = (pane == Pane::Timeline && message.reply_count == 0).then(|| {
+        let active = cells.push(Control::Thread);
+        let open = acts(pane, seq, rev, Control::Thread, cx);
+        let id = format!("chat-message-{id}-thread");
+        cell(
+            action_button(id, "💬", "Open thread", theme, true, active, open).into_any_element(),
+            "thread",
+            true,
+        )
+    });
+    // a disabled button's cell is not counted: the arrows skip it
+    let thumbs = writable && cells.push(Control::ThumbsUp);
+    let react = writable && cells.push(Control::React);
+    let more = cells.push(Control::More);
+    actions
+        .children(thread)
+        .child(cell(
+            action_button(
+                format!("chat-message-{id}-thumbs-up"),
+                "👍",
+                "React with 👍",
+                theme,
+                writable,
+                thumbs,
+                acts(pane, seq, rev, Control::ThumbsUp, cx),
+            )
+            .into_any_element(),
+            "thumbs-up",
+            writable,
+        ))
+        .child(cell(
+            action_button(
+                format!("chat-message-{id}-react"),
+                "😀",
+                "Manage reactions",
+                theme,
+                writable,
+                react,
+                acts(pane, seq, rev, Control::React, cx),
+            )
+            .into_any_element(),
+            "react",
+            writable,
+        ))
+        .child(cell(
+            action_button(
+                format!("chat-message-{id}-more"),
+                "⋯",
+                "More message actions",
+                theme,
+                true,
+                more,
+                acts(pane, seq, rev, Control::More, cx),
+            )
+            .into_any_element(),
+            "more",
+            true,
+        ))
+        .into_any_element()
+}
+
+/// The card's content: the header, the blocks, the marks, the reactions and
+/// the way into the thread, in that order (the controls' cell order too).
 fn content(
     chat: &Chat,
     message: ChatMessage,
     pane: Pane,
+    cells: &mut Cells,
     cx: &mut Context<Chat>,
     theme: &Theme,
-) -> impl IntoElement {
-    let mut body = div()
+) -> AnyElement {
+    let header = match message.show_author {
+        true => Some(header(&message, cells, theme)),
+        false => None,
+    };
+    let blocks = blocks(chat, &message, cells, cx, theme);
+    let reactions = match message.reactions.is_empty() {
+        true => None,
+        false => Some(reactions(chat, &message, pane, cells, cx, theme)),
+    };
+    let replies = replies(&message, pane, cells, cx, theme);
+    div()
         .id(format!("chat-message-{}-contents", message.id))
         .flex_1()
         .min_w(px(0.))
         .flex()
         .flex_col()
-        .gap_1();
-    if message.show_author {
-        let mut header = div()
-            .id(format!("chat-message-{}-header", message.id))
-            .flex()
-            .items_center()
-            .gap_1()
-            .child(
-                div()
-                    .text_size(px(13.))
-                    .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
-                    .child(message.author.clone()),
-            );
-        if message.agent {
-            header = header.child(badge(
-                format!("chat-message-{}-agent", message.id),
-                "Agent",
-                theme.agent,
-                theme.agent_soft,
-            ));
-        }
-        if message.height > 0 {
-            header = header.child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(theme.muted)
-                    .font_family("JetBrains Mono")
-                    .child(crate::client::height_label(message.height)),
-            );
-        }
-        body = body.child(header);
-    }
-    for (index, block) in message.blocks.iter().enumerate() {
-        body = body.child(block_view(chat, &message, index, block, cx, theme));
+        .gap_1()
+        .children(header)
+        .children(blocks)
+        .children(marks(&message, theme))
+        .children(reactions)
+        .children(replies)
+        .into_any_element()
+}
+
+/// The message's blocks, or its plain body where it has none.
+fn blocks(
+    chat: &Chat,
+    message: &ChatMessage,
+    cells: &mut Cells,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> Vec<AnyElement> {
+    if let Some((program, code)) = &message.system {
+        return vec![program_post(chat, message, program, code, cells, cx, theme)];
     }
     if message.blocks.is_empty() {
-        body = body.child(
-            div()
-                .id(format!("chat-message-{}-text", message.id))
-                .child(message.body.clone()),
-        );
+        let text = div()
+            .id(format!("chat-message-{}-text", message.id))
+            .child(message.body.clone());
+        return vec![text.into_any_element()];
     }
+    let empty = Names::empty();
+    let names = chat.names.ready().unwrap_or(&empty);
+    let blocks = message.blocks.iter().enumerate();
+    blocks
+        .map(|(index, block)| {
+            block_view(message, index, block, names, cx, theme).into_any_element()
+        })
+        .collect()
+}
+
+/// "edited", and "sending…" while the message is on its way.
+fn marks(message: &ChatMessage, theme: &Theme) -> Vec<AnyElement> {
+    let mark = |text: &'static str| {
+        div()
+            .text_size(design::text::CAPTION)
+            .text_color(theme.muted)
+            .child(text)
+    };
+    let mut marks = Vec::new();
     if message.edited {
-        body = body.child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme.muted)
-                .child("edited"),
-        );
+        marks.push(mark("edited").into_any_element());
     }
     if message.pending {
-        body = body.child(
+        let id = format!("chat-message-{}-pending", message.id);
+        marks.push(mark("sending…").id(id).into_any_element());
+    }
+    marks
+}
+
+/// A root's replies: in the timeline, the button into its thread; atop
+/// the thread pane, the count over a rule.
+fn replies(
+    message: &ChatMessage,
+    pane: Pane,
+    cells: &mut Cells,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> Option<AnyElement> {
+    if message.reply_count == 0 {
+        return None;
+    }
+    if pane == Pane::Timeline {
+        let active = cells.push(Control::Replies);
+        let open = acts(pane, message.seq, message.rev, Control::Replies, cx);
+        let id = format!("chat-message-{}-replies", message.id);
+        let button = replies_button(id.clone(), message.reply_count, theme, active, open);
+        return Some(
             div()
-                .id(format!("chat-message-{}-pending", message.id))
-                .text_size(px(11.))
+                .flex()
+                .pt_1()
+                .child(cell(&id, true, button))
+                .into_any_element(),
+        );
+    }
+    let separator = div()
+        .id(format!("chat-message-{}-reply-separator", message.id))
+        .flex()
+        .items_center()
+        .gap_2()
+        .pt_1()
+        .child(
+            div()
+                .text_size(design::text::CAPTION)
                 .text_color(theme.muted)
-                .child("sending…"),
+                .child(design::plural(message.reply_count, "reply", "replies")),
+        )
+        .child(div().h(px(1.)).flex_1().bg(theme.border));
+    Some(separator.into_any_element())
+}
+
+/// A run's first message names its author, what the author is (an agent
+/// and its manager, a module), when it was posted and its block.
+fn header(message: &ChatMessage, cells: &mut Cells, theme: &Theme) -> AnyElement {
+    let mut header = div()
+        .id(format!("chat-message-{}-header", message.id))
+        .flex()
+        .items_center()
+        .gap_1()
+        .child(
+            div()
+                .text_size(design::text::BODY)
+                .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+                .child(message.author.clone()),
         );
-    }
-    if !message.reactions.is_empty() {
-        let reaction_seq = message.seq;
-        let mut reactions = div()
-            .id(format!("chat-message-{}-reactions", message.id))
-            .flex()
-            .flex_wrap()
-            .gap_1();
-        for reaction in &message.reactions {
-            let emoji = reaction.emoji.clone();
-            let description = emoji.clone();
-            let add = !reaction.reacted_by_me;
-            let mine = reaction.reacted_by_me;
-            let click = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
-                cx.notify();
-                chat.react(reaction_seq, emoji.clone(), add, cx)
-            });
-            let id = format!("chat-message-{}-reaction-{}", message.id, reaction.emoji);
-            let label = format!("{} {}", reaction.emoji, reaction.count);
-            reactions = reactions.child(reaction_button(
-                id,
-                label,
-                description,
-                mine,
-                theme,
-                chat.may_write(),
-                click,
-            ));
-        }
-        let rev = message.rev;
-        let open = cx.listener(move |chat, event: &ClickEvent, window, cx| {
-            let position = event.position();
-            chat.layout.press = (position.x.into(), position.y.into());
-            chat.open_menu(pane, reaction_seq, rev, Mode::Reactions, window, cx);
-            cx.notify();
-        });
-        reactions = reactions.child(action_button(
-            format!("chat-message-{}-reaction-add", message.id),
-            "+",
-            "Add reaction",
-            theme,
-            chat.may_write(),
-            open,
+    if let Some(label) = &message.badge {
+        let (foreground, background) = match message.agent {
+            true => (theme.agent, theme.agent_soft),
+            false => (theme.muted, theme.surface_raised),
+        };
+        header = header.child(badge(
+            format!("chat-message-{}-badge", message.id),
+            label.clone(),
+            foreground,
+            background,
         ));
-        body = body.child(reactions);
     }
-    if message.reply_count > 0 && pane == Pane::Timeline {
-        let root = message.seq;
+    if message.time > 0 {
+        let clock = design::clock(message.time);
+        header = header.child(
+            div()
+                .id(format!("chat-message-{}-time", message.id))
+                .text_size(design::text::CAPTION)
+                .text_color(theme.muted)
+                .whitespace_nowrap()
+                .child(match message.height > 0 {
+                    true => format!("{clock} ·"),
+                    false => clock,
+                }),
+        );
+    }
+    if message.height > 0 {
+        // the link opens Explorer at its block, and the card under it
+        // stays unchosen
+        let href = crate::links::block_link(message.height);
+        let active = cells.push(Control::Height(href.clone()));
+        let id = format!("chat-message-{}-height", message.id);
+        let label = format!("block {}", design::grouped(message.height));
+        let link = design::link(id.clone(), label.clone(), href, theme)
+            .aria_label(format!("Open {label} in Explorer"));
+        header = header.child(cell(
+            &id,
+            true,
+            design::item(link, ducktape_view_guest::Role::Link, active),
+        ));
+    }
+    header.into_any_element()
+}
+
+/// A program's own post: its event code, quiet and mono, and (on the first
+/// of a run) a link to where the program itself shows the room.
+fn program_post(
+    chat: &Chat,
+    message: &ChatMessage,
+    program: &str,
+    code: &str,
+    cells: &mut Cells,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> AnyElement {
+    let mut line = div()
+        .id(format!("chat-message-{}-program", message.id))
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .text_size(design::text::SECONDARY)
+        .text_color(theme.muted)
+        .child(design::mono(code.to_owned()));
+    // one link per run of the program's lines: the room is the same
+    let link = message
+        .show_author
+        .then(|| crate::links::program_link(&chat.session.chain_id, &chat.room_id()))
+        .flatten();
+    if let Some(link) = link {
+        let active = cells.push(Control::ProgramOpen(link.clone()));
         let open = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
-            cx.notify();
-            chat.open_thread(root, cx)
+            chat.open_link(link.clone(), cx);
         });
-        body = body.child(
-            div()
-                .id(format!("chat-message-{}-replies", message.id))
-                .flex()
-                .items_center()
-                .gap_1()
-                .pt_1()
-                .text_size(px(12.))
-                .text_color(theme.accent_foreground)
-                .role(ducktape_view_guest::Role::Button)
-                .focusable()
-                .on_click(open)
-                .child(format!(
-                    "{} · View thread ›",
-                    plural(message.reply_count, "reply", "replies")
-                )),
-        );
-    } else if message.reply_count > 0 {
-        body = body.child(
-            div()
-                .id(format!("chat-message-{}-reply-separator", message.id))
-                .flex()
-                .items_center()
-                .gap_2()
-                .pt_1()
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(theme.muted)
-                        .child(plural(message.reply_count, "reply", "replies")),
-                )
-                .child(div().h(px(1.)).flex_1().bg(theme.border)),
-        );
+        let theme = *theme;
+        let id = format!("chat-message-{}-program-open", message.id);
+        let open = div()
+            .id(id.clone())
+            .text_color(theme.accent)
+            .cursor_pointer()
+            .hover(move |style| style.text_decoration_1())
+            .on_click(open)
+            .consumes_click()
+            .child(format!("Open in {program}"));
+        line = line.child(cell(
+            &id,
+            true,
+            design::item(open, ducktape_view_guest::Role::Link, active),
+        ));
     }
-    body
+    line.into_any_element()
+}
+
+/// The reactions under a message, and the `+` that opens the picker.
+fn reactions(
+    chat: &Chat,
+    message: &ChatMessage,
+    pane: Pane,
+    cells: &mut Cells,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> AnyElement {
+    let (seq, rev) = (message.seq, message.rev);
+    let writable = chat.may_write();
+    let mut reactions = div()
+        .id(format!("chat-message-{}-reactions", message.id))
+        .flex()
+        .flex_wrap()
+        .gap_1();
+    for reaction in &message.reactions {
+        let control = Control::Reaction {
+            emoji: reaction.emoji.clone(),
+            add: !reaction.reacted_by_me,
+        };
+        let active = writable && cells.push(control.clone());
+        let id = format!("chat-message-{}-reaction-{}", message.id, reaction.emoji);
+        let face = Face::Emoji {
+            emoji: &reaction.emoji,
+            count: reaction.count,
+        };
+        let click = acts(pane, seq, rev, control, cx);
+        let chip = reaction_button(
+            id.clone(),
+            face,
+            reaction.reacted_by_me,
+            theme,
+            writable,
+            active,
+            click,
+        );
+        reactions = reactions.child(cell(&id, writable, chip));
+    }
+    // the card under the `+` would otherwise take the same click and put
+    // the row's toolbar over the picker just opened: the `+` consumes it
+    let active = writable && cells.push(Control::AddReaction);
+    let id = format!("chat-message-{}-reaction-add", message.id);
+    let add = reaction_button(
+        id.clone(),
+        Face::Add,
+        false,
+        theme,
+        writable,
+        active,
+        acts(pane, seq, rev, Control::AddReaction, cx),
+    );
+    reactions = reactions.child(cell(&id, writable, add));
+    reactions.into_any_element()
 }
 
 fn block_view(
-    chat: &Chat,
     message: &ChatMessage,
     index: usize,
-    block: &ChatBlock,
+    block: &Block,
+    names: &Names,
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> AnyElement {
     let id = ElementId::from(format!("chat-message-{}-block-{index}", message.id));
-    match block.kind.as_str() {
-        "divider" => div()
+    match block {
+        Block::Divider => div()
             .id(id)
             .h(px(1.))
             .w_full()
             .bg(theme.border)
             .into_any_element(),
-        "code" => {
+        Block::Code { lang, text } => {
             let mut code = div()
                 .id(id)
                 .flex()
@@ -355,195 +634,46 @@ fn block_view(
                 .gap_1()
                 .p_2()
                 .bg(theme.surface);
-            if !block.lang.is_empty() {
+            if let Some(lang) = lang.as_ref().filter(|lang| !lang.is_empty()) {
                 code = code.child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(design::text::CAPTION)
                         .text_color(theme.muted)
-                        .child(block.lang.clone()),
+                        .child(lang.clone()),
                 );
             }
             code.child(plain_line(
                 format!("chat-message-{}-block-{index}-code", message.id).into(),
-                &block.text,
+                text,
                 true,
             ))
             .into_any_element()
         }
-        "quote" => div()
+        Block::Quote(spans) => div()
             .border_l_2()
             .border_color(theme.border_strong)
             .pl_2()
             .text_color(theme.muted)
-            .child(rich_line(id.clone(), block, cx, theme))
+            .child(rich_line(id, spans, names, cx, theme))
             .into_any_element(),
-        "attachment" => {
-            let link = block.link.clone();
-            let open = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
-                cx.notify();
-                chat.open_preview(link.clone(), cx);
-            });
-            let card = div()
-                .id(id)
-                .hover(|s| s.bg(theme.surface_raised))
-                .role(ducktape_view_guest::Role::Button)
-                .aria_label(format!("Open {}", block.text))
-                .focusable()
-                .on_click(open);
-            if let Some(&(width, height)) = chat.pictures.get(&block.link)
-                && width > 0
-                && height > 0
-            {
-                let (width, height) = crate::files::picture_box(width, height);
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(3.))
-                    .child(
-                        div().flex().child(
-                            card.child(
-                                div()
-                                    .w(px(width))
-                                    .h(px(height))
-                                    .overflow_hidden()
-                                    .border_1()
-                                    .border_color(theme.border)
-                                    .child(surface(
-                                        format!(
-                                            "chat-message-{}-block-{index}-picture",
-                                            message.id
-                                        ),
-                                        "picture",
-                                        vec![
-                                            wire::SurfaceValue::Str(
-                                                crate::files::PICTURE_SURFACE.into(),
-                                            ),
-                                            wire::SurfaceValue::Str(
-                                                crate::files::attachment_file_path(&block.link),
-                                            ),
-                                        ],
-                                    )),
-                            ),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme.muted)
-                            .child(block.text.clone()),
-                    )
-                    .into_any_element()
-            } else {
-                div()
-                    .flex()
-                    .child(
-                        card.flex()
-                            .items_center()
-                            .gap(px(12.))
-                            .py(px(8.))
-                            .pl(px(16.))
-                            .pr(px(14.))
-                            .bg(theme.surface)
-                            .border_1()
-                            .border_color(theme.border)
-                            .child("📄")
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(1.))
-                                    .child(
-                                        div()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .child(block.text.clone()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(11.))
-                                            .text_color(theme.muted)
-                                            .child(crate::files::attachment_kind(&block.text)),
-                                    ),
-                            ),
-                    )
-                    .into_any_element()
-            }
-        }
-        _ => rich_line(id, block, cx, theme).into_any_element(),
+        Block::Paragraph(spans) => match chat::list_item(spans) {
+            // a list item: its marker in a hanging gutter, the item beside it
+            Some((marker, item)) => div()
+                .id(format!("chat-message-{}-block-{index}-item", message.id))
+                .flex()
+                .gap_2()
+                .child(
+                    div()
+                        .min_w(px(16.))
+                        .text_color(theme.muted)
+                        .child(match marker {
+                            chat::ListMarker::Bullet => "•".to_owned(),
+                            chat::ListMarker::Ordered(number) => format!("{number}."),
+                        }),
+                )
+                .child(rich_line(id, &item, names, cx, theme))
+                .into_any_element(),
+            None => rich_line(id, spans, names, cx, theme).into_any_element(),
+        },
     }
-}
-
-fn action_button(
-    id: impl Into<ElementId>,
-    label: impl Into<String>,
-    accessible: &str,
-    theme: &Theme,
-    enabled: bool,
-    click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
-) -> impl IntoElement {
-    let control = div()
-        .id(id)
-        .px_1()
-        .py_0p5()
-        .bg(theme.surface)
-        .hover(|s| s.bg(theme.surface_raised))
-        .role(ducktape_view_guest::Role::Button)
-        .aria_label(accessible)
-        .aria_disabled(!enabled)
-        .text_size(px(11.))
-        .child(label.into());
-    if enabled {
-        control.focusable().on_click(click)
-    } else {
-        control
-    }
-}
-
-fn reaction_button(
-    id: impl Into<ElementId>,
-    label: impl Into<String>,
-    emoji: impl Into<String>,
-    mine: bool,
-    theme: &Theme,
-    enabled: bool,
-    click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
-) -> impl IntoElement {
-    let control = div()
-        .id(id)
-        .px_1()
-        .py_0p5()
-        .bg(if mine {
-            theme.accent_soft
-        } else {
-            theme.surface
-        })
-        .text_color(if mine {
-            theme.accent_foreground
-        } else if enabled {
-            theme.foreground
-        } else {
-            theme.muted
-        })
-        .role(ducktape_view_guest::Role::Button)
-        .aria_label(if mine {
-            "Remove reaction"
-        } else {
-            "Add reaction"
-        })
-        .aria_description(emoji.into())
-        .aria_toggled(mine.into())
-        .aria_disabled(!enabled)
-        .text_size(px(11.))
-        .child(label.into());
-    if enabled {
-        control
-            .focusable()
-            .hover(|style| style.bg(theme.surface_raised))
-            .on_click(click)
-    } else {
-        control
-    }
-}
-
-fn plural(count: u64, one: &str, many: &str) -> String {
-    format!("{count} {}", if count == 1 { one } else { many })
 }

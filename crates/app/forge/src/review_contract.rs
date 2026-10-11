@@ -1,13 +1,14 @@
 //! Immutable batched reviews, mutable changes, and the shared per-repo item counter.
 use crate::read_contract::Revision;
 use borsh::{BorshDeserialize, BorshSerialize};
+use guest::Principal;
 
 pub const MAX_REVIEW_COMMENTS: usize = 64;
 pub const MAX_REVIEWERS: usize = 64;
 pub const MAX_TITLE_BYTES: usize = 256;
 pub const MAX_PATH_BYTES: usize = 4096;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ChangeState {
     Open,
     Closed,
@@ -42,7 +43,7 @@ pub struct ReviewDraft {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Review {
     pub id: u64,
-    pub author: Vec<u8>,
+    pub author: Principal,
     pub height: u64,
     pub time: u64,
     pub draft: ReviewDraft,
@@ -56,9 +57,9 @@ pub struct Change {
     pub into: Vec<u8>,
     pub title: String,
     pub body: String,
-    pub author: Vec<u8>,
+    pub author: Principal,
     pub state: ChangeState,
-    pub reviewers: Vec<Vec<u8>>,
+    pub reviewers: Vec<Principal>,
     pub created_height: u64,
     pub updated_height: u64,
     pub created_time: u64,
@@ -67,8 +68,21 @@ pub struct Change {
     pub comment_count: u64,
     pub verdicts: ReviewCounts,
     pub merge_oid: Option<String>,
+    /// Who closed the change; set once, by the close op.
+    pub closed_by: Option<Principal>,
+    /// Who merged the change; set once, by a merge linked to it.
+    pub merged_by: Option<Principal>,
+    /// The source and target heads the merge joined; set once, by a merge
+    /// linked to it. A merged change reads these, not its live refs.
+    pub merged_heads: Option<MergedHeads>,
     pub channel: String,
     pub system_seq: u64,
+}
+/// A merged change's two heads as the merge found them.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct MergedHeads {
+    pub source: String,
+    pub target: String,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ReviewCounts {
@@ -76,11 +90,13 @@ pub struct ReviewCounts {
     pub request_changes: u64,
     pub comment: u64,
 }
-#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize,
+)]
 pub struct ChangeFilter {
     pub state: Option<ChangeState>,
-    pub author: Option<Vec<u8>>,
-    pub involves: Option<Vec<u8>>,
+    pub author: Option<Principal>,
+    pub involves: Option<Principal>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChangeSummary {
@@ -89,7 +105,7 @@ pub struct ChangeSummary {
     pub from: Revision,
     pub into: Vec<u8>,
     pub title: String,
-    pub author: Vec<u8>,
+    pub author: Principal,
     pub state: ChangeState,
     pub updated_height: u64,
     pub review_count: u64,

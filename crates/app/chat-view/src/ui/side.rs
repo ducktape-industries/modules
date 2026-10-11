@@ -1,16 +1,14 @@
 //! Thread and channel-details panes.
 
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    AnyElement, ClickEvent, Context, ElementId, ParentElement, Styled, Theme, div, px,
-};
+use ducktape_view_guest::{Div, Stateful};
 
 use super::timeline;
 use crate::Chat;
 use crate::ui::room;
 use crate::ui::{button, empty_state};
 
-pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Div> {
     let close = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.close_thread();
         cx.notify();
@@ -21,7 +19,9 @@ pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
         .h_full()
         .flex()
         .flex_col()
-        .bg(theme.surface)
+        // one ground under the header, the replies and the field: the
+        // rows are drawn on `background`, so the pane is too
+        .bg(theme.background)
         .child(
             div()
                 .id("chat-thread-header")
@@ -35,7 +35,7 @@ pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
                     div()
                         .id("chat-thread-title")
                         .flex_1()
-                        .text_size(px(13.5))
+                        .text_size(design::text::SECTION)
                         .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
                         .role(Role::Heading)
                         .aria_level(2)
@@ -51,7 +51,7 @@ pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
             pane = pane.child(
                 div()
                     .p_2()
-                    .text_size(px(12.))
+                    .text_size(design::text::SECONDARY)
                     .text_color(theme.muted)
                     .child("Loading replies…"),
             );
@@ -80,47 +80,15 @@ pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
     pane
 }
 
-pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
-    let close = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        chat.toggle_details();
-        cx.notify();
-    });
-    let Some(details) = chat.details.as_ref() else {
-        return div().into_any_element();
+/// The open channel's details: its name, archiving, and its members. A
+/// dm seats its two peers for good: it lists them, with no way to add or
+/// remove one.
+pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Div> {
+    let (Some(details), Some(info)) = (chat.details.as_ref(), chat.room_info()) else {
+        return div().id("chat-details-pane");
     };
-    let Some(info) = chat.room_info() else {
-        return div().into_any_element();
-    };
-    let typed_name = cx.listener(|chat, event: &String, _window, cx| {
-        if let Some(details) = &mut chat.details {
-            details.name_draft = event.clone();
-        }
-        cx.notify();
-    });
-    let rename = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        cx.notify();
-        chat.rename(cx)
-    });
-    let archived = info.channel.archived;
-    let archive = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
-        cx.notify();
-        chat.set_archived(!archived, cx);
-    });
-    let typed_member = cx.listener(|chat, event: &String, _window, cx| {
-        if let Some(details) = &mut chat.details {
-            details.member_draft = event.clone();
-        }
-        cx.notify();
-    });
-    let add_member = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        cx.notify();
-        let text = chat
-            .details
-            .as_ref()
-            .map_or(String::new(), |details| details.member_draft.clone());
-        chat.set_member(&text, true, cx);
-    });
-    let mut content = div()
+    let dm = chat::dm_peers(&info.channel.id).is_some();
+    let pane = div()
         .id("chat-details-pane")
         .w(px(chat.layout.details))
         .h_full()
@@ -129,114 +97,146 @@ pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement
         .flex_col()
         .gap_3()
         .p_3()
-        .bg(theme.surface)
+        .bg(theme.surface);
+    // a dm is its two people alike: nothing to rename, archive or seat
+    let pane = match dm {
+        true => pane
+            .child(details_header("Conversation details", cx, theme))
+            .child(rule(theme))
+            .child(section("People", theme)),
+        false => pane
+            .child(details_header("Channel details", cx, theme))
+            .child(rule(theme))
+            .children(name_section(
+                &details.name_draft,
+                info.channel.archived,
+                cx,
+                theme,
+            ))
+            .child(rule(theme))
+            .child(section("Members", theme))
+            .children(member_adder(&details.member_draft, cx, theme)),
+    };
+    pane.children(members(chat, !dm, cx, theme))
+}
+
+fn details_header(title: &'static str, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+    let close = cx.listener(|chat, _: &ClickEvent, _window, cx| {
+        chat.toggle_details();
+        cx.notify();
+    });
+    div()
+        .id("chat-details-header")
+        .flex()
+        .items_center()
         .child(
             div()
-                .id("chat-details-header")
-                .flex()
-                .items_center()
-                .child(
-                    div()
-                        .id("chat-details-title")
-                        .flex_1()
-                        .text_size(px(13.5))
-                        .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
-                        .role(Role::Heading)
-                        .aria_level(2)
-                        .child("Channel details"),
-                )
-                .child(button("chat-details-close", "Close", theme, close)),
+                .id("chat-details-title")
+                .flex_1()
+                .text_size(design::text::SECTION)
+                .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+                .role(Role::Heading)
+                .aria_level(2)
+                .child(title),
         )
-        .child(div().h(px(1.)).w_full().bg(theme.border))
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(theme.muted)
-                .child("Name"),
-        )
-        .child(
-            Input::new("chat-details-name-input")
-                .h(px(28.))
-                .px_2()
-                .py_1()
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.background)
-                .value(details.name_draft.clone())
-                .label("Channel name")
-                .on_input(typed_name),
-        )
-        .child(button(
-            "chat-details-rename-button",
-            "Rename",
-            theme,
-            rename,
-        ))
-        .child(button(
-            "chat-details-archive",
-            if info.channel.archived {
-                "Unarchive channel"
-            } else {
-                "Archive channel"
-            },
-            theme,
-            archive,
-        ))
-        .child(div().h(px(1.)).w_full().bg(theme.border))
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(theme.muted)
-                .child("Members"),
-        )
-        .child(
-            Input::new("chat-details-member-input")
-                .h(px(28.))
-                .px_2()
-                .py_1()
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.background)
-                .value(details.member_draft.clone())
-                .label("Add member")
-                .on_input(typed_member),
-        )
-        .child(button(
-            "chat-details-add-member",
-            "Add member",
-            theme,
-            add_member,
-        ))
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme.faint)
-                .child("Select a member below to remove it from this channel."),
-        );
-    let roster = chat.members();
+        .child(button("chat-details-close", "Close", theme, close))
+}
+
+/// The name field, Rename, and Archive or Unarchive.
+fn name_section(
+    draft: &TextField,
+    archived: bool,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> Vec<AnyElement> {
+    let rename = cx.listener(|chat, _: &ClickEvent, _window, cx| {
+        cx.notify();
+        chat.rename(cx)
+    });
+    let archive = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
+        cx.notify();
+        chat.set_archived(!archived, cx);
+    });
+    let archive_label = match archived {
+        true => "Unarchive channel",
+        false => "Archive channel",
+    };
+    vec![
+        section("Name", theme).into_any_element(),
+        field("chat-details-name-input", draft, "Channel name", theme).into_any_element(),
+        button("chat-details-rename-button", "Rename", theme, rename).into_any_element(),
+        button("chat-details-archive", archive_label, theme, archive).into_any_element(),
+    ]
+}
+
+/// The field and button that seat a member, and how one is removed.
+fn member_adder(draft: &TextField, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
+    let add_member = cx.listener(|chat, _: &ClickEvent, _window, cx| {
+        cx.notify();
+        chat.add_member(cx);
+    });
+    vec![
+        field("chat-details-member-input", draft, "Add member", theme).into_any_element(),
+        button("chat-details-add-member", "Add member", theme, add_member).into_any_element(),
+        div()
+            .text_size(design::text::CAPTION)
+            .text_color(theme.faint)
+            .child("Select a member below to remove it from this channel.")
+            .into_any_element(),
+    ]
+}
+
+fn rule(theme: &Theme) -> impl IntoElement {
+    div().h(px(1.)).w_full().bg(theme.border)
+}
+
+fn section(name: &'static str, theme: &Theme) -> impl IntoElement {
+    div()
+        .text_size(design::text::SECONDARY)
+        .text_color(theme.muted)
+        .child(name)
+}
+
+fn field(id: &'static str, value: &TextField, label: &'static str, theme: &Theme) -> Input {
+    Input::new(id, value, label)
+        .h(design::size::CONTROL)
+        .px_2()
+        .py_1()
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+}
+
+/// A row per member, each with its way out where the room has one; a word
+/// when there are none.
+fn members(chat: &Chat, removable: bool, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
+    let roster = chat.roster();
     if roster.is_empty() {
-        content = content.child(
-            div()
-                .id("chat-details-no-members")
-                .text_size(px(11.))
-                .text_color(theme.faint)
-                .child("No members added. An open channel needs none."),
-        );
+        let none = div()
+            .id("chat-details-no-members")
+            .text_size(design::text::CAPTION)
+            .text_color(theme.faint)
+            .child("No members added. An open channel needs none.");
+        return vec![none.into_any_element()];
     }
-    for (index, member) in roster.iter().enumerate() {
-        let party = member.key.clone();
+    let mut rows = Vec::new();
+    for (index, (principal, label)) in roster.into_iter().enumerate() {
+        let name = format!("Remove {label}");
         let remove = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
             cx.notify();
-            chat.set_member(&party, false, cx);
+            chat.set_member(principal.clone(), false, cx);
         });
-        let mut remove_button = div()
+        let remove = div()
             .id(ElementId::named_usize("chat-details-remove", index))
             .px_2()
             .py_1()
             .bg(theme.surface)
             .hover(|s| s.bg(theme.surface_raised))
-            .child("Remove");
-        remove_button = remove_button.on_click(remove);
+            .role(Role::Button)
+            .aria_label(name)
+            .focusable()
+            .child("Remove")
+            .on_click(remove);
         let row = div()
             .id(ElementId::named_usize("chat-details-member", index))
             .flex()
@@ -245,11 +245,11 @@ pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement
             .child(
                 div()
                     .flex_1()
-                    .text_size(px(12.))
-                    .child(member.label.clone()),
+                    .text_size(design::text::SECONDARY)
+                    .child(label),
             )
-            .child(remove_button);
-        content = content.child(row);
+            .when(removable, |row| row.child(remove));
+        rows.push(row.into_any_element());
     }
-    content.into_any_element()
+    rows
 }

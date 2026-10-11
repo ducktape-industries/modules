@@ -17,5 +17,10 @@ serde.workspace = true
 serde_json.workspace = true
 ducklink.workspace = true
 chat = { path = "../chat" }
-identity = { workspace = true, features = ["view"] }
-unicode-normalization.workspace = true
+# `role::Identity`: the identity program, followed by role, not linked
+program.workspace = true
+abi.workspace = true
+
+[dev-dependencies]
+# `examples/live.rs` and the chain-backed tests: the fake node
+ducktape-view-guest = { workspace = true, features = ["live"] }

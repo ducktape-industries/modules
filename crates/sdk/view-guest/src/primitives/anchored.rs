@@ -1,4 +1,4 @@
-use crate::{wire, AnyElement, Element, IntoElement, Lowering, ParentElement};
+use crate::{AnyElement, Element, IntoElement, Lowering, ParentElement, wire};
 use gpui::{Anchor, AnchoredPositionMode, Edges, Pixels, Point};
 
 /// A native GPUI anchored element lowered as a bounded host primitive.

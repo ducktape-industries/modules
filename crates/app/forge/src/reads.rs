@@ -1,26 +1,28 @@
-//! Object reads over the existing loose-object store; no pack parsing and no persistent writes.
+//! Object reads over the existing loose-object store; no pack parsing and
+//! no persistent writes.
 use crate::contract::*;
-use crate::ops::{cap, object_not_held, refusal_of};
-use crate::repo::{load_repo, parse_oid, repo_hash, resolve};
-use crate::store::Store;
-use abi::Refusal;
+use crate::objects::{ObjectStore, object_not_held};
+use crate::ops::{cap, refusal_of};
+use crate::state::{load_repo, parse_oid, repo_hash, resolve};
 use gitcore::{Commit, Hash, Kind, Mode, Objects, Oid, Signature, Tag, Tree};
+use guest::Error;
+use guest::{QueryCtx, invalid, not_found};
 use std::collections::BTreeSet;
-use store::{Listing, Reads, invalid, not_found};
+use store::Listing;
 
-pub struct Reading<'a, S: Reads> {
-    pub store: Store<'a, S>,
+pub struct Reading<'a> {
+    pub store: ObjectStore<'a>,
     pub hash: Hash,
     pub bounds: &'a Bounds,
 }
-impl<S: Reads> Reading<'_, S> {
-    pub fn result<T>(&self, r: gitcore::Result<T>) -> Result<T, Refusal> {
+impl Reading<'_> {
+    pub fn result<T>(&self, r: gitcore::Result<T>) -> Result<T, Error> {
         r.map_err(refusal_of)
     }
-    pub fn oid(&self, s: &str) -> Result<Oid, Refusal> {
+    pub fn oid(&self, s: &str) -> Result<Oid, Error> {
         parse_oid(self.hash, s)
     }
-    pub fn commit_id(&self, mut id: Oid) -> Result<Oid, Refusal> {
+    pub fn commit_id(&self, mut id: Oid) -> Result<Oid, Error> {
         loop {
             let object = self
                 .result(self.store.get(&id))?
@@ -32,7 +34,7 @@ impl<S: Reads> Reading<'_, S> {
             }
         }
     }
-    pub fn commit(&self, id: &Oid) -> Result<Commit, Refusal> {
+    pub fn commit(&self, id: &Oid) -> Result<Commit, Error> {
         let object = self
             .result(self.store.get(id))?
             .ok_or_else(|| object_not_held(id))?;
@@ -41,7 +43,7 @@ impl<S: Reads> Reading<'_, S> {
         }
         self.result(Commit::parse(&object.body, self.hash))
     }
-    pub fn tree(&self, id: &Oid) -> Result<Tree, Refusal> {
+    pub fn tree(&self, id: &Oid) -> Result<Tree, Error> {
         let object = self
             .result(self.store.get(id))?
             .ok_or_else(|| object_not_held(id))?;
@@ -50,7 +52,7 @@ impl<S: Reads> Reading<'_, S> {
         }
         self.result(Tree::parse(&object.body, self.hash))
     }
-    pub fn tree_id(&self, at: &str) -> Result<Oid, Refusal> {
+    pub fn tree_id(&self, at: &str) -> Result<Oid, Error> {
         let id = self.oid(at)?;
         let object = self
             .result(self.store.get(&id))?
@@ -61,7 +63,7 @@ impl<S: Reads> Reading<'_, S> {
             _ => Err(invalid("tree endpoint must be a commit or tree")),
         }
     }
-    pub fn blob(&self, id: &Oid, range: Option<ByteRange>) -> Result<BlobView, Refusal> {
+    pub fn blob(&self, id: &Oid, range: Option<ByteRange>) -> Result<BlobView, Error> {
         let header = self.result(self.store.header(id))?;
         if header.kind != "blob" {
             return Err(invalid("expected a blob object"));
@@ -123,110 +125,154 @@ pub fn entry_kind(mode: Mode) -> EntryKind {
         Mode::Gitlink => EntryKind::Gitlink,
     }
 }
-pub fn answer<S: Reads>(
-    s: &S,
-    height: u64,
-    q: &Query,
-    bounds: &Bounds,
-    page: Option<&Listing>,
-) -> Result<Reply, Refusal> {
-    let name = match q {
-        Query::Log { repo, .. }
-        | Query::Tree { repo, .. }
-        | Query::Blob { repo, .. }
-        | Query::Diff { repo, .. }
-        | Query::Compare { repo, .. } => repo,
-        _ => return Err(invalid("not an object query")),
-    };
-    let repo = load_repo(s, name)?;
-    let hash = repo_hash(&repo);
-    let reads = match q {
-        Query::Log { .. } => bounds.log_walk.saturating_mul(2).saturating_add(1),
-        Query::Compare { .. } => bounds
-            .log_walk
-            .saturating_mul(8)
-            .saturating_add(bounds.tree_walk),
-        _ => bounds.tree_walk,
-    };
-    let mut r = Reading {
-        store: Store::querying(s, hash, bounds, reads),
+/// A repository's objects, read within `reads` object reads of `bounds`.
+fn reading<'a>(
+    ctx: &'a QueryCtx,
+    name: &str,
+    bounds: &'a Bounds,
+    reads: u64,
+) -> Result<Reading<'a>, Error> {
+    let hash = repo_hash(&load_repo(ctx, name)?);
+    Ok(Reading {
+        store: ObjectStore::querying(ctx, hash, bounds, reads),
         hash,
         bounds,
-    };
-    let page = || page.expect("this query has pagination");
-    Ok(match q {
-        Query::Log { from, .. } => {
-            let tip = r.commit_id(resolve(s, name, from, hash)?)?;
-            // ponytail: repeat the complete walk up to log_walk; index history if larger repos need it.
-            let ids = r.result(gitcore::walk::commits(
-                &r.store,
-                &[tip],
-                &[],
-                cap(bounds.log_walk),
-            ))?;
-            let page = page().slice(&ids)?.try_map(|id| {
-                let c = r.commit(&id)?;
-                Ok(CommitInfo {
-                    oid: id.to_hex(),
-                    tree: c.tree.to_hex(),
-                    parents: c.parents.iter().map(Oid::to_hex).collect(),
-                    author: signature(c.author),
-                    committer: signature(c.committer),
-                    message: c.message,
-                })
-            })?;
-            Reply::Log {
-                height,
-                tip: tip.to_hex(),
-                page,
-            }
-        }
-        Query::Tree { at, path, .. } => {
-            crate::changes::path(path, true)?;
-            let root = r.tree_id(at)?;
-            let tree = if path.is_empty() {
-                root
-            } else {
-                let entry = r
-                    .result(gitcore::walk::tree_at_path(&r.store, &root, path))?
-                    .ok_or_else(|| not_found("no entry at this path"))?;
-                if entry.mode != Mode::Directory {
-                    return Err(invalid("tree path names a directory"));
-                }
-                entry.id
-            };
-            let entries = r.tree(&tree)?.entries;
-            Reply::Tree {
-                height,
-                tree: tree.to_hex(),
-                page: page().slice(&entries)?.map(|e| TreeInfo {
-                    name: e.name,
-                    oid: e.id.to_hex(),
-                    kind: entry_kind(e.mode),
-                }),
-            }
-        }
-        Query::Blob { oid, range, .. } => Reply::Blob {
-            height,
-            blob: r.blob(&r.oid(oid)?, *range)?,
-        },
-        Query::Diff {
-            base, head, path, ..
-        } => crate::diffs::query(&r, height, base, head, path.as_deref(), page())?,
-        Query::Compare { from, into, .. } => {
-            let from = r.commit_id(resolve(s, name, from, hash)?)?;
-            let into = r.commit_id(resolve(s, name, into, hash)?)?;
-            compare(&mut r, height, from, into)?
-        }
-        _ => unreachable!(),
     })
 }
-fn compare<S: Reads>(
-    r: &mut Reading<'_, S>,
+
+/// A page of the history below `from`, less what `exclude` reaches.
+pub fn log(
+    ctx: &QueryCtx,
     height: u64,
-    from: Oid,
-    into: Oid,
-) -> Result<Reply, Refusal> {
+    bounds: &Bounds,
+    name: &str,
+    from: &Revision,
+    exclude: Option<&Revision>,
+    listing: &Listing,
+) -> Result<Reply, Error> {
+    // a listed commit is one read; an excluded one two (its presence, then
+    // its body), under its own log_walk budget; plus the two revisions
+    let reads = bounds.log_walk.saturating_mul(3).saturating_add(2);
+    let r = reading(ctx, name, bounds, reads)?;
+    let tip = r.commit_id(resolve(ctx, name, from, r.hash)?)?;
+    let hidden = match exclude {
+        Some(exclude) => vec![r.commit_id(resolve(ctx, name, exclude, r.hash)?)?],
+        None => Vec::new(),
+    };
+    // ponytail: repeat the complete walk up to log_walk; index history if larger repos need it.
+    let ids = r.result(gitcore::walk::commits(
+        &r.store,
+        &[tip],
+        &hidden,
+        cap(bounds.log_walk),
+    ))?;
+    let page = listing.slice(&ids)?.try_map(|id| {
+        let c = r.commit(&id)?;
+        Ok(CommitInfo {
+            oid: id.to_hex(),
+            tree: c.tree.to_hex(),
+            parents: c.parents.iter().map(Oid::to_hex).collect(),
+            author: signature(c.author),
+            committer: signature(c.committer),
+            message: c.message,
+        })
+    })?;
+    Ok(Reply::Log {
+        height,
+        tip: tip.to_hex(),
+        page,
+    })
+}
+
+/// A page of the directory at `path` under the commit or tree `at`.
+pub fn tree(
+    ctx: &QueryCtx,
+    height: u64,
+    bounds: &Bounds,
+    name: &str,
+    at: &str,
+    path: &[u8],
+    listing: &Listing,
+) -> Result<Reply, Error> {
+    crate::changes::check_path(path, true)?;
+    let r = reading(ctx, name, bounds, bounds.tree_walk)?;
+    let root = r.tree_id(at)?;
+    let tree = if path.is_empty() {
+        root
+    } else {
+        let entry = r
+            .result(gitcore::walk::tree_at_path(&r.store, &root, path))?
+            .ok_or_else(|| not_found("no entry at this path"))?;
+        if entry.mode != Mode::Directory {
+            return Err(invalid("tree path names a directory"));
+        }
+        entry.id
+    };
+    let entries = r.tree(&tree)?.entries;
+    Ok(Reply::Tree {
+        height,
+        tree: tree.to_hex(),
+        page: listing.slice(&entries)?.map(|e| TreeInfo {
+            name: e.name,
+            oid: e.id.to_hex(),
+            kind: entry_kind(e.mode),
+        }),
+    })
+}
+
+/// One blob, or the asked range of it.
+pub fn blob(
+    ctx: &QueryCtx,
+    height: u64,
+    bounds: &Bounds,
+    name: &str,
+    oid: &str,
+    range: Option<ByteRange>,
+) -> Result<Reply, Error> {
+    let r = reading(ctx, name, bounds, bounds.tree_walk)?;
+    Ok(Reply::Blob {
+        height,
+        blob: r.blob(&r.oid(oid)?, range)?,
+    })
+}
+
+/// A page of the files that differ from `base` (the empty tree if none)
+/// to `head`, under `path` if given.
+#[allow(clippy::too_many_arguments)]
+pub fn diff(
+    ctx: &QueryCtx,
+    height: u64,
+    bounds: &Bounds,
+    name: &str,
+    base: &Option<String>,
+    head: &str,
+    path: Option<&[u8]>,
+    listing: &Listing,
+) -> Result<Reply, Error> {
+    let r = reading(ctx, name, bounds, bounds.tree_walk)?;
+    crate::diffs::query(&r, height, base, head, path, listing)
+}
+
+/// How `from` stands against `into`: ahead, behind, and their base.
+pub fn comparison(
+    ctx: &QueryCtx,
+    height: u64,
+    bounds: &Bounds,
+    name: &str,
+    from: &Revision,
+    into: &Revision,
+) -> Result<Reply, Error> {
+    let reads = bounds
+        .log_walk
+        .saturating_mul(8)
+        .saturating_add(bounds.tree_walk);
+    let r = reading(ctx, name, bounds, reads)?;
+    let from = r.commit_id(resolve(ctx, name, from, r.hash)?)?;
+    let into = r.commit_id(resolve(ctx, name, into, r.hash)?)?;
+    compare(&r, height, from, into)
+}
+
+fn compare(r: &Reading<'_>, height: u64, from: Oid, into: Oid) -> Result<Reply, Error> {
     let source: BTreeSet<_> = r
         .result(gitcore::walk::commits(
             &r.store,

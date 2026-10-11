@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::{blob, commit, file_tree, fixture, oid_list, oid_text, sha1, signature};
+use common::{blob, commit, file_tree, fixture, no_base, oid_list, oid_text, sha1, signature};
 use gitcore::server::{
     Policy, RefUpdate, Refusal, admit_pack, apply_commands, push, valid_ref_name,
 };
@@ -11,10 +11,6 @@ use gitcore::wire::pktline::{self, Pkt, Reader};
 use gitcore::wire::receive::{RefCommand, advertise_refs};
 use gitcore::{Error, Hash, Kind, Limits, MemoryObjects, Object, Objects, Oid, Tag, pack};
 use std::collections::BTreeMap;
-
-fn no_base(_: &Oid) -> gitcore::Result<Option<Object>> {
-    Ok(None)
-}
 
 fn objects_of(pack_bytes: &[u8]) -> Vec<Object> {
     pack::read(pack_bytes, Hash::Sha1, &Limits::generous(), no_base)
@@ -47,7 +43,7 @@ fn admit_stores_a_closed_pack() {
     )
     .unwrap();
     let expected = oid_list(fixture!("base.oids"), Hash::Sha1);
-    let mut sorted = stored.clone();
+    let mut sorted = stored;
     sorted.sort();
     assert_eq!(sorted, expected);
     assert_eq!(store.count(), expected.len());

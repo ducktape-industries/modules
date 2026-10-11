@@ -1,245 +1,222 @@
-use super::*;
+//! One function per [`Query`](crate::Query), each named by [`Chat::query`](crate::Chat)'s
+//! match and each a read of the tables in `state.rs`. Chat's listings only grow, so a page cursor from any height
+//! resumes where it left off.
+use guest::Range;
+use guest::{Error, QueryCtx, capacity, invalid};
+use store::{PageRequest, PageResponse};
 
-// ── query ───────────────────────────────────────────────────────────────────
+use crate::state::{
+    ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS,
+    TAGS, WORDS, message, messages, newest_first,
+};
+use crate::text::tag_label;
+use crate::{
+    ChannelInfo, ChannelRow, MAX_VIEWERS, MessageHits, MsgRow, Principal, Reply,
+    SEARCH_POSTING_CAP, tokens,
+};
 
-type Raw = (Vec<u8>, Vec<u8>);
-
-/// One page of the entries under `prefix`, which is also the listing a
-/// cursor is bound to (chat accepts a cursor from any height: its lists
-/// are append-only).
-fn paged(
-    store: &impl Reads,
-    prefix: impl AsRef<[u8]>,
-    page: &Page,
-    height: u64,
-) -> Result<PageReply<Raw>, Refusal> {
-    let prefix = prefix.as_ref();
-    let listing = page.listing(prefix.to_vec(), height)?;
-    let rows = store
-        .scan(listing.scan_ahead(prefix))
-        .into_iter()
-        .map(|e| (e.key.clone(), (e.key, e.value)));
-    Ok(listing.reply(rows))
+/// `reply` as `viewer` reads it: each reaction learns whether one of
+/// `viewer` chose it.
+pub(crate) fn seen_by(
+    ctx: &QueryCtx,
+    mut reply: Reply,
+    viewer: Vec<Principal>,
+) -> Result<Reply, Error> {
+    if viewer.len() > MAX_VIEWERS {
+        return Err(capacity(format!(
+            "a read names at most {MAX_VIEWERS} viewers, not {}",
+            viewer.len()
+        )));
+    }
+    for row in rows_in(&mut reply) {
+        mark_reacted(ctx, &viewer, row);
+    }
+    Ok(reply)
 }
 
-/// One page of the keys under `prefix`.
-fn keys_page(
-    store: &impl Reads,
-    prefix: impl AsRef<[u8]>,
-    page: &Page,
-    height: u64,
-) -> Result<PageReply<Vec<u8>>, Refusal> {
-    Ok(paged(store, prefix, page, height)?.map(|(key, _)| key))
-}
-
-/// The rows the postings under `prefix` name, one page.
-fn posted_page(
-    store: &impl Reads,
-    prefix: impl AsRef<[u8]>,
-    page: &Page,
-    height: u64,
-) -> Result<PageReply<MsgRow>, Refusal> {
-    paged(store, prefix, page, height)?.try_map(|(_, posting)| {
-        let (ch, seq): (String, u64) = serde_json::from_slice(&posting)
-            .map_err(|e| Refusal::new(reason::CORRUPT, e.to_string()))?;
-        row(store, &ch, seq)
+/// The `Roots` cursor that resumes below `seq`: `PageRequest::after` for the page
+/// of roots older than the one on screen.
+pub fn roots_below(channel_id: &str, seq: u64) -> Vec<u8> {
+    let channel_id = channel_id.to_owned();
+    abi::encode(&store::Cursor {
+        height: 0,
+        scope: ROOTS.key(&channel_id),
+        after: ROOTS.key(&(channel_id.clone(), newest_first(seq))),
     })
 }
 
+fn info(ctx: &QueryCtx, channel: ChannelRow) -> Result<ChannelInfo, Error> {
+    let head_seq = HEADS.get(ctx, &channel.id)?.unwrap_or(0);
+    Ok(ChannelInfo { channel, head_seq })
+}
+
+pub(crate) fn channels(
+    ctx: &QueryCtx,
+    page: &PageRequest,
+) -> Result<PageResponse<ChannelInfo>, Error> {
+    CHANNELS
+        .range(ctx, page)?
+        .try_map(|(_, channel)| info(ctx, channel))
+}
+
+pub(crate) fn channel(ctx: &QueryCtx, id: &String) -> Result<Option<ChannelInfo>, Error> {
+    CHANNELS
+        .get(ctx, id)?
+        .map(|channel| info(ctx, channel))
+        .transpose()
+}
+
+pub(crate) fn by_id(ctx: &QueryCtx, message_id: &String) -> Result<Option<MsgRow>, Error> {
+    MESSAGE_IDS
+        .get(ctx, message_id)?
+        .map(|(channel_id, seq)| message(ctx, &channel_id, seq))
+        .transpose()
+}
+
+/// The root of the author's most recently answered thread.
+pub(crate) fn attention(
+    ctx: &QueryCtx,
+    channel_id: &str,
+    author: Principal,
+) -> Result<Option<MsgRow>, Error> {
+    let channel_id = channel_id.to_owned();
+    let newest = ANSWERED.prefix_of(&(channel_id.clone(), author)).limit(1);
+    ANSWERED
+        .scan(ctx, newest)?
+        .first()
+        .map(|(_, root)| message(ctx, &channel_id, *root))
+        .transpose()
+}
+
+pub(crate) fn roots(
+    ctx: &QueryCtx,
+    channel_id: String,
+    page: &PageRequest,
+) -> Result<PageResponse<MsgRow>, Error> {
+    let keys = ROOTS.range_of(ctx, &channel_id, page)?;
+    rows_at(
+        ctx,
+        keys.map(|(channel_id, newest)| (channel_id, newest_first(newest))),
+    )
+}
+
+pub(crate) fn thread(
+    ctx: &QueryCtx,
+    channel_id: String,
+    root: u64,
+    page: &PageRequest,
+) -> Result<Reply, Error> {
+    let keys = REPLIES.range_of(ctx, &(channel_id.clone(), root), page)?;
+    Ok(Reply::Thread {
+        root: MESSAGES.get(ctx, &(channel_id, root))?,
+        replies: rows_at(ctx, keys.map(|(channel_id, _, reply)| (channel_id, reply)))?,
+    })
+}
+
+/// Up to `page.limit` messages, half before `seq` and half from it.
+pub(crate) fn around(
+    ctx: &QueryCtx,
+    channel_id: String,
+    seq: u64,
+    page: &PageRequest,
+) -> Result<Vec<MsgRow>, Error> {
+    let half = page.limit() / 2;
+    let lo = MESSAGES.key(&(channel_id.clone(), seq.saturating_sub(half)));
+    let hi = MESSAGES.key(&(channel_id, seq.saturating_add(half + 1)));
+    let rows = MESSAGES.scan(ctx, Range::new(lo, Some(hi)))?;
+    Ok(rows.into_iter().map(|(_, row)| row).collect())
+}
+
+/// The messages holding every word of `text`, newest first. The first
+/// word's postings are read (at most [`SEARCH_POSTING_CAP`]) and the rest
+/// checked on each row.
+pub(crate) fn search(
+    ctx: &QueryCtx,
+    text: &str,
+    channel_id: Option<String>,
+    page: &PageRequest,
+) -> Result<MessageHits, Error> {
+    let wanted = tokens(text);
+    let Some(first) = wanted.first().cloned() else {
+        return Err(invalid("nothing to search for"));
+    };
+    // ponytail: one posting list scanned, the rest filtered on the row;
+    // intersect postings if search volume ever matters.
+    let postings = match channel_id {
+        Some(channel_id) => WORDS.prefix_of(&(first, channel_id)),
+        None => WORDS.prefix_of(&first),
+    };
+    let postings = WORDS.scan(ctx, postings.limit(SEARCH_POSTING_CAP as u64 + 1))?;
+    let capped = postings.len() > SEARCH_POSTING_CAP;
+    let at = postings
+        .into_iter()
+        .map(|(_, channel_id, seq)| (channel_id, seq));
+    let mut hits: Vec<MsgRow> = messages(ctx, at)?
+        .into_iter()
+        .filter(|row| wanted.is_subset(&tokens(&row.text)))
+        .collect();
+    hits.sort_by(|a, b| b.time.cmp(&a.time).then(b.seq.cmp(&a.seq)));
+    let limit = page.limit() as usize;
+    let capped = capped || hits.len() > limit;
+    hits.truncate(limit);
+    Ok(MessageHits { hits, capped })
+}
+
+/// One page of the messages tagged `tag`, newest first.
+pub(crate) fn tagged(
+    ctx: &QueryCtx,
+    tag: &str,
+    channel_id: Option<String>,
+    page: &PageRequest,
+) -> Result<PageResponse<MsgRow>, Error> {
+    let label = tag_label(tag);
+    let keys = match channel_id {
+        Some(channel_id) => CHANNEL_TAGS
+            .range_of(ctx, &(channel_id, label), page)?
+            .map(|(channel_id, _, newest)| (channel_id, newest_first(newest))),
+        None => TAGS
+            .range_of(ctx, &label, page)?
+            .map(|(_, _, channel_id, seq)| (channel_id, seq)),
+    };
+    rows_at(ctx, keys)
+}
+
+/// A page of message addresses as the page of rows they name.
 fn rows_at(
-    store: &impl Reads,
-    keys: impl IntoIterator<Item = String>,
-) -> Result<Vec<MsgRow>, Refusal> {
-    keys.into_iter()
-        .filter_map(|k| load(store, &k).transpose())
-        .collect()
+    ctx: &QueryCtx,
+    keys: PageResponse<(String, u64)>,
+) -> Result<PageResponse<MsgRow>, Error> {
+    Ok(PageResponse {
+        height: keys.height,
+        items: messages(ctx, keys.items)?,
+        next: keys.next,
+    })
 }
 
-/// A posting's row, by the `(channel, seq)` it names.
-fn posted(store: &impl Reads, entries: &[Entry]) -> Result<Vec<MsgRow>, Refusal> {
-    let keys = entries
-        .iter()
-        .filter_map(|e| serde_json::from_slice::<(String, u64)>(&e.value).ok())
-        .map(|(ch, seq)| msg_key(&ch, seq));
-    rows_at(store, keys)
-}
-
-fn hydrate(store: &impl Reads, rows: &mut [MsgRow], viewer: &[String]) {
-    for row in rows {
-        for r in &mut row.reactions {
-            r.reacted_by_me = viewer.iter().any(|h| {
-                store
-                    .get(react_key(&row.channel_id, row.seq, &r.emoji, h).as_bytes())
-                    .is_some()
-            });
+/// Every message row a reply carries.
+fn rows_in(reply: &mut Reply) -> Vec<&mut MsgRow> {
+    match reply {
+        Reply::Roots(page) | Reply::TagHits(page) => page.items.iter_mut().collect(),
+        Reply::Messages(rows) | Reply::Hits(MessageHits { hits: rows, .. }) => {
+            rows.iter_mut().collect()
         }
+        Reply::Thread { root, replies } => root.iter_mut().chain(&mut replies.items).collect(),
+        Reply::Message(row) | Reply::Attention(row) => row.iter_mut().collect(),
+        Reply::Channels(_) | Reply::Channel(_) | Reply::Members(_) | Reply::Accounts(_) => vec![],
     }
 }
 
-fn key_tail(key: &[u8]) -> &str {
-    let key = std::str::from_utf8(key).unwrap_or_default();
-    key.rsplit('/').next().unwrap_or_default()
-}
-
-pub fn query(store: &impl Reads, height: u64, q: ChatViewQuery) -> Result<ChatViewReply, Refusal> {
-    Ok(match q {
-        ChatViewQuery::Accounts { .. } => {
-            return Err(Refusal::new(
-                reason::UNSUPPORTED,
-                "accounts are identity's, asked by the program",
-            ));
-        }
-        ChatViewQuery::Channels { page } => ChatViewReply::Channels(
-            paged(store, b"chan/", &page, height)?.try_map(|(_, value)| {
-                let channel: ChannelRow = serde_json::from_slice(&value)
-                    .map_err(|e| Refusal::new(reason::CORRUPT, e.to_string()))?;
-                Ok(ChannelInfo {
-                    head_seq: head_seq(store, &channel.id),
-                    channel,
-                })
-            })?,
-        ),
-        ChatViewQuery::ThreadAttention { channel_id, author } => {
-            let entries = store
-                .scan(Scan::prefix(attention_prefix(&channel_id, &party_handle(&author))).limit(1));
-            let root = entries
-                .first()
-                .map(|e| {
-                    abi::decode::<u64>(&e.value)
-                        .map_err(|e| Refusal::new(reason::CORRUPT, e.to_string()))
-                })
-                .transpose()?;
-            ChatViewReply::Attention(root.map(|seq| row(store, &channel_id, seq)).transpose()?)
-        }
-        ChatViewQuery::MessageById { message_id } => {
-            let address: Option<(String, u64)> = load(store, &msgid_key(&message_id))?;
-            ChatViewReply::Message(match address {
-                Some((ch, seq)) => Some(row(store, &ch, seq)?),
-                None => None,
-            })
-        }
-        ChatViewQuery::Channel { channel_id } => ChatViewReply::Channel(
-            load::<ChannelRow>(store, &chan_key(&channel_id))?.map(|channel| ChannelInfo {
-                head_seq: head_seq(store, &channel_id),
-                channel,
-            }),
-        ),
-        ChatViewQuery::Roots {
-            channel_id,
-            viewer_handles,
-            page,
-        } => {
-            let keyed = keys_page(store, roots_prefix(&channel_id), &page, height)?;
-            let seqs = keyed
-                .items
-                .iter()
-                .filter_map(|key| u64::from_str_radix(key_tail(key), 16).ok())
-                .map(|r| u64::MAX - r);
-            let mut roots = rows_at(store, seqs.map(|s| msg_key(&channel_id, s)))?;
-            hydrate(store, &mut roots, &viewer_handles);
-            ChatViewReply::Roots(PageReply {
-                height,
-                items: roots,
-                next: keyed.next,
-            })
-        }
-        ChatViewQuery::MessagesAround {
-            channel_id,
-            seq,
-            viewer_handles,
-            page,
-        } => {
-            let half = page.limit() / 2;
-            let lo = msg_key(&channel_id, seq.saturating_sub(half));
-            let hi = msg_key(&channel_id, seq.saturating_add(half + 1));
-            let entries = store.scan(Scan::range(lo, Some(hi.into_bytes())));
-            let mut rows: Vec<MsgRow> = entries
-                .iter()
-                .filter_map(|e| serde_json::from_slice(&e.value).ok())
-                .collect();
-            hydrate(store, &mut rows, &viewer_handles);
-            ChatViewReply::Messages(rows)
-        }
-        ChatViewQuery::Thread {
-            channel_id,
-            root_seq,
-            viewer_handles,
-            page,
-        } => {
-            let mut root = load::<MsgRow>(store, &msg_key(&channel_id, root_seq))?;
-            let prefix = format!("thread/{channel_id}/{root_seq:016x}/");
-            let keyed = keys_page(store, prefix, &page, height)?;
-            let seqs = keyed
-                .items
-                .iter()
-                .filter_map(|key| u64::from_str_radix(key_tail(key), 16).ok());
-            let mut replies = rows_at(store, seqs.map(|s| msg_key(&channel_id, s)))?;
-            hydrate(store, &mut replies, &viewer_handles);
-            if let Some(root) = root.as_mut() {
-                hydrate(store, std::slice::from_mut(root), &viewer_handles);
-            }
-            ChatViewReply::Thread {
-                root,
-                replies: PageReply {
-                    height,
-                    items: replies,
-                    next: keyed.next,
-                },
-            }
-        }
-        ChatViewQuery::Members { channel_id, page } => ChatViewReply::Members(
-            paged(store, member_key(&channel_id, ""), &page, height)?.try_map(|(_, value)| {
-                serde_json::from_slice(&value)
-                    .map_err(|e| Refusal::new(reason::CORRUPT, e.to_string()))
-            })?,
-        ),
-        ChatViewQuery::Search {
-            text,
-            viewer_handles,
-            channel_id,
-            page,
-        } => {
-            let wanted = tokens(&text);
-            let Some(first) = wanted.iter().next() else {
-                return Err(invalid("nothing to search for"));
-            };
-            // ponytail: one posting list scanned, the rest filtered on the row;
-            // intersect postings if search volume ever matters.
-            let prefix = match &channel_id {
-                Some(ch) => tok_key(first, ch, 0).replace("0000000000000000", ""),
-                None => format!("tok/{first}/"),
-            };
-            let entries = store.scan(Scan::prefix(prefix).limit(SEARCH_POSTING_CAP as u64 + 1));
-            let capped = entries.len() > SEARCH_POSTING_CAP;
-            let mut hits: Vec<MsgRow> = posted(store, &entries)?
-                .into_iter()
-                .filter(|row| wanted.is_subset(&tokens(&row.text)))
-                .collect();
-            hits.sort_by(|a, b| b.time.cmp(&a.time).then(b.seq.cmp(&a.seq)));
-            let limit = page.limit() as usize;
-            let capped = capped || hits.len() > limit;
-            hits.truncate(limit);
-            hydrate(store, &mut hits, &viewer_handles);
-            ChatViewReply::Hits(MessageHits { hits, capped })
-        }
-        ChatViewQuery::TagSearch {
-            tag,
-            viewer_handles,
-            channel_id,
-            page,
-        } => {
-            let label = tag
-                .trim_start_matches('#')
-                .nfc()
-                .collect::<String>()
-                .to_lowercase();
-            let prefix = match &channel_id {
-                Some(ch) => format!("tagc/{ch}/{label}/"),
-                None => format!("tag/{label}/"),
-            };
-            let mut hits = posted_page(store, &prefix, &page, height)?;
-            hydrate(store, &mut hits.items, &viewer_handles);
-            ChatViewReply::TagHits(hits)
-        }
-    })
+/// Each reaction on `row` learns whether one of `viewer` chose it.
+fn mark_reacted(ctx: &QueryCtx, viewer: &[Principal], row: &mut MsgRow) {
+    for reaction in &mut row.reactions {
+        reaction.reacted_by_me = viewer.iter().any(|principal| {
+            let key = (
+                row.channel_id.clone(),
+                row.seq,
+                reaction.emoji.clone(),
+                principal.clone(),
+            );
+            REACTIONS.has(ctx, &key)
+        });
+    }
 }

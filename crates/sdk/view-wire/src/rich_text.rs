@@ -1,5 +1,6 @@
 //! Lossless serde adapters for GPUI rich text values.
-use super::*;
+use crate::{Budgets, finite, spend_text, style_sanitize};
+use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -112,44 +113,48 @@ fn valid_range(text: &str, range: &Range<usize>) -> bool {
 }
 
 fn sanitize_highlight(value: &mut HighlightStyle) {
-    let mut style = gpui::StyleRefinement::default();
-    style.text.color = value.color;
-    style.text.font_weight = value.font_weight;
-    style.text.font_style = value.font_style;
-    style.text.background_color = value.background_color;
-    style.text.underline = value.underline;
-    style.text.strikethrough = value.strikethrough;
-    style_sanitize::sanitize(&mut style);
-    value.color = style.text.color;
-    value.font_weight = style.text.font_weight;
-    value.font_style = style.text.font_style;
-    value.background_color = style.text.background_color;
-    value.underline = style.text.underline;
-    value.strikethrough = style.text.strikethrough;
+    let mut style = gpui::TextStyleRefinement {
+        color: value.color,
+        font_weight: value.font_weight,
+        font_style: value.font_style,
+        background_color: value.background_color,
+        underline: value.underline,
+        strikethrough: value.strikethrough,
+        ..Default::default()
+    };
+    style_sanitize::sanitize_text(&mut style);
+    value.color = style.color;
+    value.font_weight = style.font_weight;
+    value.font_style = style.font_style;
+    value.background_color = style.background_color;
+    value.underline = style.underline;
+    value.strikethrough = style.strikethrough;
     value.fade_out = value.fade_out.map(|value| finite(value).clamp(0., 1.));
 }
 
 fn sanitize_run(value: &mut TextRun) {
-    let mut style = gpui::StyleRefinement::default();
-    style.text.font_family = Some(value.font_family.clone());
-    style.text.font_features = Some(value.font_features.clone());
-    style.text.font_fallbacks = value.font_fallbacks.clone();
-    style.text.font_weight = Some(value.font_weight);
-    style.text.font_style = Some(value.font_style);
-    style.text.color = Some(value.color);
-    style.text.background_color = value.background_color;
-    style.text.underline = value.underline;
-    style.text.strikethrough = value.strikethrough;
-    style_sanitize::sanitize(&mut style);
-    value.font_family = style.text.font_family.expect("run font family");
-    value.font_features = style.text.font_features.expect("run font features");
-    value.font_fallbacks = style.text.font_fallbacks;
-    value.font_weight = style.text.font_weight.expect("run font weight");
-    value.font_style = style.text.font_style.expect("run font style");
-    value.color = style.text.color.expect("run color");
-    value.background_color = style.text.background_color;
-    value.underline = style.text.underline;
-    value.strikethrough = style.text.strikethrough;
+    let mut style = gpui::TextStyleRefinement {
+        font_family: Some(value.font_family.clone()),
+        font_features: Some(value.font_features.clone()),
+        font_fallbacks: value.font_fallbacks.clone(),
+        font_weight: Some(value.font_weight),
+        font_style: Some(value.font_style),
+        color: Some(value.color),
+        background_color: value.background_color,
+        underline: value.underline,
+        strikethrough: value.strikethrough,
+        ..Default::default()
+    };
+    style_sanitize::sanitize_text(&mut style);
+    value.font_family = style.font_family.expect("run font family");
+    value.font_features = style.font_features.expect("run font features");
+    value.font_fallbacks = style.font_fallbacks;
+    value.font_weight = style.font_weight.expect("run font weight");
+    value.font_style = style.font_style.expect("run font style");
+    value.color = style.color.expect("run color");
+    value.background_color = style.background_color;
+    value.underline = style.underline;
+    value.strikethrough = style.strikethrough;
 }
 
 pub(super) fn sanitize(
@@ -190,10 +195,12 @@ pub(super) fn sanitize(
         let valid = valid_range(text, range) && range.start >= override_end;
         if valid {
             override_end = range.end;
-            let mut style = gpui::StyleRefinement::default();
-            style.text.font_family = Some(family.clone());
-            style_sanitize::sanitize(&mut style);
-            *family = style.text.font_family.expect("font override");
+            let mut style = gpui::TextStyleRefinement {
+                font_family: Some(family.clone()),
+                ..Default::default()
+            };
+            style_sanitize::sanitize_text(&mut style);
+            *family = style.font_family.expect("font override");
         }
         valid
     });
@@ -209,6 +216,8 @@ pub(super) fn sanitize(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::styles::testing::sanitize_plain;
+    use crate::{ElementIdWire, Frame, Node, StyleId};
 
     #[test]
     fn hostile_utf8_ranges_and_run_lengths_never_reach_gpui() {
@@ -219,7 +228,7 @@ mod tests {
         ]);
         let mut overrides = vec![(3..99, "Mono".into()), (1..3, "Mono".into())];
         let mut clicks = vec![1..2, 1..3, 3..4, std::ops::Range { start: 4, end: 3 }];
-        let mut budgets = Budgets::frame();
+        let mut budgets = Budgets::frame(&crate::styles::testing::held());
         sanitize(
             &mut text,
             &mut runs,
@@ -240,16 +249,18 @@ mod tests {
             &mut runs,
             &mut vec![],
             &mut vec![],
-            &mut Budgets::frame(),
+            &mut Budgets::frame(&crate::styles::testing::held()),
         );
         assert_eq!(runs, Runs::Highlights(vec![]));
     }
 
+    /// A rich text's id enters the sibling scope as any node's does (the
+    /// hostile generator builds no rich text, so this is its one pin).
     #[test]
-    fn rich_text_uses_typed_parent_scopes() {
+    fn a_rich_texts_id_is_a_sibling_identity() {
         let rich = || Node::RichText {
             id: Some(ElementIdWire::Integer(1)),
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             text: "text".into(),
             runs: Runs::default(),
             font_family_overrides: vec![],
@@ -261,34 +272,15 @@ mod tests {
         let mut duplicate = Frame {
             root: Some(Node::Container(crate::ContainerNode {
                 id: Some(ElementIdWire::Name("root".into())),
-                style: gpui::StyleRefinement::default(),
-                interactivity: Interactivity::default(),
+                style: StyleId(0),
+                interactivity: Default::default(),
                 children: vec![rich(), rich()],
             })),
             ..Default::default()
         };
-        assert_eq!(
-            crate::sanitize(&mut duplicate),
-            Err("duplicate typed element identity among siblings")
-        );
-
-        let parent = |name: &str| {
-            Node::Container(crate::ContainerNode {
-                id: Some(ElementIdWire::Name(name.into())),
-                style: gpui::StyleRefinement::default(),
-                interactivity: Interactivity::default(),
-                children: vec![rich()],
-            })
-        };
-        let mut separate = Frame {
-            root: Some(Node::Container(crate::ContainerNode {
-                id: Some(ElementIdWire::Name("root".into())),
-                style: gpui::StyleRefinement::default(),
-                interactivity: Interactivity::default(),
-                children: vec![parent("left"), parent("right")],
-            })),
-            ..Default::default()
-        };
-        assert!(crate::sanitize(&mut separate).is_ok());
+        assert!(matches!(
+            sanitize_plain(&mut duplicate),
+            Err(crate::Refused::Duplicate(_))
+        ));
     }
 }

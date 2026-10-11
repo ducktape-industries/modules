@@ -5,10 +5,10 @@
 //! ```text
 //! import ducktape_view.panicked(ptr: u32, len: u32)
 //! export alloc(len: u32) -> u32
-//! export init(macos: u32)
+//! export init()
 //! export tick(ptr: u32, len: u32) -> u64
 //! export snapshot() -> u64
-//! export restore(ptr: u32, len: u32, macos: u32) -> u64
+//! export restore(ptr: u32, len: u32) -> u64
 //! ```
 //!
 //! The host writes an argument into a buffer `alloc` handed it, and the guest

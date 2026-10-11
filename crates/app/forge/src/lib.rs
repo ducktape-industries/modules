@@ -1,20 +1,76 @@
-// forge: a git server as a ducktape program, `gitcore` (objects, packs, walks, diffs, the wire) over `store`: the rules run natively over `store::Memory` (tests, fixtures), and the `program` feature adds the wasm32 program over the host.
+//! forge: a git server as a ducktape module, `gitcore` (objects, packs,
+//! walks, diffs, the wire) over `store`. The [`Forge`] module runs natively
+//! over `guest::MockHost` (tests, fixtures); the `module` feature adds its
+//! wasm exports.
+//!
+//! A write is an [`Op`] run as a [`Principal`] (an account: the signer the
+//! host resolved, [`ExecCtx::sender`](guest::ExecCtx::sender), which refuses a
+//! key that holds none), a read
+//! a [`Query`] answered by a [`Reply`]. The layout, in reading order:
+//!
+//! - `contract.rs`, `read_contract.rs`, `review_contract.rs`: the wire
+//! - `program.rs`: [`Forge`], the module: the signer resolved, then one
+//!   match over every op and one over every query
+//! - `state.rs`: every table and index, declared once
+//! - `ops.rs`: the repository ops; `changes.rs` the change ops
+//! - `queries.rs`, `reads.rs`, `diffs.rs`, `change_queries.rs`: the answers
+//!   to its repository, object and change questions
+//! - `objects.rs`: git objects over the store's blobs
+//! - `discussion.rs`: what forge asks of and posts into chat
+//! - `description.rs`: [`describe()`], an op in a person's words
 
+// The wire, as a view and a git client see it.
+mod contract;
+mod read_contract;
+mod review_contract;
+
+// The state and the rules over it.
 mod change_queries;
 mod changes;
-mod contract;
+mod description;
 mod diffs;
 mod discussion;
+mod objects;
 mod ops;
-#[cfg(feature = "program")]
-mod program;
 mod queries;
-mod read_contract;
 mod reads;
-mod repo;
-mod review_contract;
-mod store;
+mod state;
+
+mod program;
 
 pub use contract::*;
-pub use ops::{execute, init};
-pub use queries::query;
+pub use description::describe;
+pub use ops::MODULE;
+pub use program::Forge;
+
+/// Every table forge keeps, as a block's writes name them: what a follower
+/// of `module.changes` plays back in a test to say which a block touched.
+pub mod tables {
+    pub use crate::state::{
+        ACTIVITY, AUTHORED, BOUNDS, CHANGES, INVOLVED, MESSAGES, NUMBERS, REFS, REPOS, REVIEWS,
+        WRITERS, WRITES,
+    };
+}
+
+/// Old op bytes are described with the current code (`describe`): the op
+/// enum only grows at its end. Append a new variant here; never reorder.
+/// (Grant, Revoke, ChangeOpen and ChangeEdit name principals since the stage
+/// refound that made forge account-keyed; their names and order held.)
+#[test]
+fn op_variants_only_append() {
+    assert_eq!(
+        describe::variants::<Op>(),
+        [
+            "Create",
+            "Configure",
+            "Grant",
+            "Revoke",
+            "Push",
+            "Merge",
+            "ChangeOpen",
+            "ChangeEdit",
+            "ChangeClose",
+            "ReviewSubmit",
+        ]
+    );
+}

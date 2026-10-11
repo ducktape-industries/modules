@@ -1,15 +1,20 @@
-//! One Change: its header and the three tabs a reviewer lives in.
-//! Conversation is chat's hidden channel; Files is the reviewer's home.
+//! One Change: its header, the three tabs a reviewer lives in, and its
+//! details beside them. Conversation is chat's hidden channel; Files is
+//! the reviewer's home.
 use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
 
 use crate::Forge;
-use crate::state::{ChangeTab, Dock, verdict_label};
+use crate::state::{ChangeTab, verdict_label};
 use crate::ui::changes::{revision_name, state_chip};
-use crate::ui::components::{
-    button, chip, empty_state, heading, id, path_text, quiet, ref_label, row, short_oid,
-};
-use crate::ui::{commits, diff, pending, prose, scroller, staged};
-use forge::{ChangeState, Query, Reply, Verdict};
+use crate::ui::components::{badge, button, heading, id, path_text, quiet, ref_label, short_hex};
+use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, scroller, staged};
+use forge::{Change, ChangeState, FileDiff, Query, Reply, Verdict};
+
+/// The Files tab's file list.
+const FILE_LIST_W: Pixels = px(240.);
+/// The finish-review panel.
+const FINISH_W: Pixels = px(380.);
 
 pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let Some(query) = forge.change_query() else {
@@ -37,22 +42,56 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         .flex_1()
         .min_h(px(0.))
         .child(header(forge, cx, theme))
+        .child(tabs(forge, cx, theme))
         .child(pending(forge, &scope, theme));
     if let Some(form) = &forge.form {
         column = column.child(crate::ui::changes::form(form, forge, cx, theme));
     }
-    let body: AnyElement = match forge.nav().change_tab {
-        ChangeTab::Conversation => conversation(forge, cx, theme),
-        ChangeTab::Commits => commits::log(
-            forge,
-            &commits::query(forge, change.from.clone()),
-            "forge-change-log",
-            cx,
-            theme,
-        ),
+    let tab = forge.nav().change_tab;
+    let body: AnyElement = match tab {
+        ChangeTab::Conversation => crate::ui::conversation::render(forge, cx, theme),
+        ChangeTab::Commits => match forge.endpoints() {
+            Some((from, into)) => commits::log(
+                forge,
+                &commits::query(forge, from, Some(into)),
+                "forge-change-log",
+                cx,
+                theme,
+            ),
+            None => div().into_any_element(),
+        },
         ChangeTab::Files => files(forge, cx, theme),
     };
-    column.child(body).into_any_element()
+    // wide, the details stand beside the conversation and the commits (the
+    // files keep their width for the diff); narrow, "Details" lays them
+    // over the whole screen
+    let mut row = div()
+        .id(id("forge-change-body"))
+        .relative()
+        .flex()
+        .flex_1()
+        .min_h(px(0.))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .flex()
+                .flex_col()
+                .min_h(px(0.))
+                .child(body),
+        );
+    if forge.layout.narrow() {
+        if forge.layout.dock_open {
+            row = row.child(design::over(
+                id("forge-details-over"),
+                dock::sidebar(forge, cx, theme).w_full(),
+                theme,
+            ));
+        }
+    } else if tab != ChangeTab::Files {
+        row = row.child(dock::sidebar(forge, cx, theme));
+    }
+    column.child(row).into_any_element()
 }
 
 fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
@@ -60,276 +99,209 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         return div().into_any_element();
     };
     let back = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_change(None, cx));
-    let edit = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_edit(cx));
-    let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.close_change(cx));
-    let merge = cx.listener(|forge, _: &ClickEvent, _, cx| forge.merge(cx));
-    let names = forge.names.ready();
-    let author = names.map_or_else(
-        || crate::state::short(&abi::hex(&change.author)),
-        |names| names.key(&change.author),
+    let author = forge.principal_name(&change.author);
+    let mut meta = format!(
+        "{author} wants {} → {}",
+        ref_label(&revision_name(&change.from)),
+        ref_label(&change.into)
     );
-    let refusal = forge.merge_refusal();
-    let open = change.state == ChangeState::Open;
-    let mine = forge.me_key().is_some_and(|key| key == change.author);
-    let mut top = div()
-        .id(id("forge-change-head"))
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(button(id("forge-change-back"), "← Changes", theme, back))
-        .child(heading(
-            id("forge-change-title"),
-            format!("#{} {}", change.n, change.title),
-            1,
-            theme,
-        ))
-        .child(state_chip(change.state, change.n, theme))
-        .child(quiet(
-            format!(
-                "{} → {} · {author}",
-                ref_label(&revision_name(&change.from)),
-                ref_label(&change.into)
-            ),
-            theme,
-        ))
-        .child(div().flex_1());
     if let Some(head) = source {
-        top = top.child(quiet(format!("head {}", short_oid(head)), theme));
-    }
-    top = top
-        .child(button(id("forge-edit-change"), "Edit", theme, edit).enabled(open && mine))
-        .child(button(id("forge-close-change"), "Close", theme, close).enabled(open))
-        .child(
-            button(id("forge-merge"), "Merge", theme, merge)
-                .primary(true)
-                .enabled(refusal.is_empty() && forge.session.connected),
-        );
-    let mut bar = div().id(id("forge-change-tabs")).flex().gap_1();
-    for tab in ChangeTab::ALL {
-        let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change_tab(tab, cx));
-        bar = bar.child(
-            button(
-                id(format!("forge-change-tab-{}", tab.slug())),
-                tab.label(),
-                theme,
-                pick,
-            )
-            .selected(forge.nav().change_tab == tab),
-        );
-    }
-    bar = bar.child(div().flex_1());
-    for dock in Dock::CHANGE {
-        let toggle = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.toggle_dock(dock, cx));
-        bar = bar.child(
-            button(
-                id(format!("forge-dock-{}", dock.slug())),
-                dock.label(),
-                theme,
-                toggle,
-            )
-            .selected(forge.nav().dock == Some(dock)),
-        );
+        meta = format!("{meta} · head {}", short_hex(head));
     }
     let mut column = div()
         .id(id("forge-change-header"))
         .flex()
         .flex_col()
-        .gap_2()
-        .px_4()
-        .pt_3()
-        .pb_2()
-        .border_b_1()
-        .border_color(theme.border)
-        .child(top);
-    if !refusal.is_empty() {
-        column = column.child(
+        .gap(design::space::XS)
+        .px(PAGE_X)
+        .pt(design::space::LG)
+        .pb(design::space::MD)
+        .child(
             div()
-                .id(id("forge-merge-refusal"))
-                .text_size(px(12.))
+                .id(id("forge-change-back"))
+                .text_size(design::text::SECONDARY)
                 .text_color(theme.muted)
-                .child(refusal),
+                .hover(|style| style.text_color(theme.foreground))
+                .role(Role::Link)
+                .focusable()
+                .on_click(back)
+                .child(format!("← {} · Changes", forge.repo_name())),
+        )
+        .child(title_line(forge, change, cx, theme))
+        .child(
+            design::mono(meta)
+                .text_size(design::text::CAPTION)
+                .text_color(theme.muted),
         );
-    }
-    column.child(bar).into_any_element()
-}
-
-// ------------------------------------------------------------ conversation
-
-fn conversation(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let Some((change, _, _, reviews)) = forge.change() else {
-        return div().into_any_element();
-    };
-    let mut column = scroller("forge-conversation");
-    if !change.body.trim().is_empty() {
+    if closing(forge, change) {
         column = column.child(
             div()
-                .id(id("forge-change-body"))
-                .p_2()
-                .bg(theme.surface)
-                .child(prose("forge-change-body-text", &change.body)),
+                .id(id("forge-close-warning"))
+                .text_size(design::text::SECONDARY)
+                .text_color(theme.danger)
+                .child("Closing is final: a closed change cannot be reopened."),
         );
     }
-    let names = forge.names.ready();
-    for review in &reviews.items {
-        let author = names.map_or_else(
-            || crate::state::short(&abi::hex(&review.author)),
-            |names| names.key(&review.author),
-        );
-        let outdated = forge.outdated(&review.draft.commit_oid);
-        let mut card = div()
-            .id(id(format!("forge-review-{}", review.id)))
-            .flex()
-            .flex_col()
-            .gap_1()
-            .p_2()
-            .border_1()
-            .border_color(theme.border)
-            .child(
+    // why Merge is off: a strip while the change is open, a quiet line
+    // once it has ended
+    match forge.merge_block() {
+        Some(crate::actions::MergeBlock::NotOpen) => {
+            column = column.child(
                 div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(crate::ui::bold(author))
-                    .child(chip(
-                        id(format!("forge-review-verdict-{}", review.id)),
-                        verdict_label(review.draft.verdict),
-                        match review.draft.verdict {
-                            Verdict::Approve => theme.success,
-                            Verdict::RequestChanges => theme.danger,
-                            Verdict::Comment => theme.muted,
-                        },
-                        match review.draft.verdict {
-                            Verdict::Approve => theme.success_soft,
-                            Verdict::RequestChanges => theme.danger_soft,
-                            Verdict::Comment => theme.surface_raised,
-                        },
-                    ))
-                    .child(quiet(
-                        format!("at {}", short_oid(&review.draft.commit_oid)),
-                        theme,
-                    ))
-                    .when(outdated, |element| {
-                        element.child(chip(
-                            id(format!("forge-review-outdated-{}", review.id)),
-                            "outdated",
-                            theme.warning,
-                            theme.warning_soft,
-                        ))
-                    }),
+                    .id(id("forge-merge-refusal"))
+                    .text_size(design::text::SECONDARY)
+                    .text_color(theme.muted)
+                    .child(crate::actions::MergeBlock::NotOpen.sentence()),
             );
-        if !review.draft.body.trim().is_empty() {
-            card = card.child(quiet(review.draft.body.clone(), theme));
         }
-        for (at, comment) in review.draft.comments.iter().enumerate() {
-            card = card.child(quiet(
-                format!(
-                    "{}:{} — {}",
-                    path_text(&comment.path),
-                    comment.line,
-                    comment.body
-                ),
-                theme,
-            ));
-            let _ = at;
+        Some(blocked) => {
+            column = column.child(
+                div()
+                    .id(id("forge-merge-refusal"))
+                    .mt(design::space::SM)
+                    .px(design::space::LG)
+                    .py(design::space::MD)
+                    .bg(theme.warning_soft)
+                    .text_color(theme.warning)
+                    .text_size(design::text::SECONDARY)
+                    .child(blocked.sentence()),
+            );
         }
-        column = column.child(card);
+        None => {}
     }
-    column = column.child(messages(forge, theme));
-    column.child(composer(forge, cx, theme)).into_any_element()
+    column.into_any_element()
 }
 
-/// The hidden chat channel of this change, in chat's row shape.
-fn messages(forge: &Forge, theme: &Theme) -> AnyElement {
-    let Some((change, _, _, _)) = forge.change() else {
-        return div().into_any_element();
-    };
-    let names = forge.names.ready();
-    match forge.messages.get(&change.channel) {
-        None
-        | Some(ducktape_view_guest::view::Loaded::Idle)
-        | Some(ducktape_view_guest::view::Loaded::Loading(_)) => {
-            quiet("Reading the conversation…", theme)
-        }
-        Some(ducktape_view_guest::view::Loaded::Failed(refusal)) => div()
-            .id(id("forge-conversation-refused"))
-            .p_2()
-            .bg(theme.danger_soft)
-            .text_size(px(12.))
-            .child(refusal.sentence.clone())
-            .into_any_element(),
-        Some(ducktape_view_guest::view::Loaded::Ready(rows)) if rows.is_empty() => empty_state(
-            id("forge-conversation-empty"),
-            "No replies yet",
-            "This change's channel is quiet.",
-            theme,
-        )
-        .into_any_element(),
-        Some(ducktape_view_guest::view::Loaded::Ready(rows)) => {
-            let mut column = div()
-                .id(id("forge-conversation-messages"))
-                .flex()
-                .flex_col()
-                .gap_2();
-            for message in rows {
-                let author = names.map_or_else(
-                    || message.author.clone(),
-                    |names| names.handle(&message.author),
-                );
-                column = column.child(
-                    div()
-                        .id(id(format!("forge-message-{}", message.message_id)))
-                        .flex()
-                        .flex_col()
-                        .gap_0p5()
-                        .p_2()
-                        .bg(theme.surface)
-                        .child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .items_center()
-                                .child(crate::ui::bold(author))
-                                .child(quiet(format!("#{}", message.seq), theme)),
-                        )
-                        .child(div().text_size(px(13.)).child(message.text.clone())),
-                );
-            }
-            column.into_any_element()
-        }
-    }
+/// Whether this change's Close waits for its second press.
+fn closing(forge: &Forge, change: &Change) -> bool {
+    forge.closing == Some(crate::state::change_key(&forge.repo_name(), change.n))
 }
 
-fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let typed = cx.listener(|forge, text: &String, _, cx| {
-        forge.reply = text.clone();
-        cx.notify();
-    });
-    let send = cx.listener(|forge, _: &ClickEvent, window, cx| forge.post_reply(window, cx));
-    div()
-        .id(id("forge-composer"))
+/// The change's title, number and state, and what an open change offers:
+/// Edit, Close, and Merge (kept in place, off, while it cannot run).
+fn title_line(
+    forge: &Forge,
+    change: &Change,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let edit = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_edit(cx));
+    let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.close_change(cx));
+    let merge = cx.listener(|forge, _: &ClickEvent, _, cx| forge.merge(cx));
+    let open = change.state == ChangeState::Open;
+    let mine = forge.me_principal().as_ref() == Some(&change.author);
+    let closing = closing(forge, change);
+    let mergeable = forge.merge_block().is_none();
+    let mut top = div()
+        .id(id("forge-change-head"))
         .flex()
-        .gap_2()
+        .flex_wrap()
         .items_center()
+        .gap(design::space::SM)
+        .child(heading(
+            id("forge-change-title"),
+            change.title.clone(),
+            1,
+            theme,
+        ))
         .child(
-            Input::new(id("forge-reply"))
-                .h(px(30.))
-                .flex_1()
-                .px_2()
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.surface)
-                .text_color(theme.foreground)
-                .value(forge.reply.clone())
-                .placeholder("Reply in this change")
-                .label("Reply")
-                .on_input(typed),
+            div()
+                .text_size(design::text::TITLE)
+                .text_color(theme.muted)
+                .child(format!("#{}", change.n)),
         )
-        .child(
-            button(id("forge-reply-send"), "Send", theme, send)
-                .primary(true)
-                .enabled(forge.session.connected && !forge.reply.trim().is_empty()),
-        )
-        .into_any_element()
+        .child(state_chip(change.state, change.n, theme))
+        .child(div().flex_1());
+    // an ended change has nothing left to edit, close or merge
+    if open {
+        top = top
+            .child(
+                button(id("forge-edit-change"), "Edit", theme, edit)
+                    .kind(design::Kind::Quiet)
+                    .enabled(mine),
+            )
+            .child(
+                button(
+                    id("forge-close-change"),
+                    if closing { "Close for good" } else { "Close" },
+                    theme,
+                    close,
+                )
+                .kind(design::Kind::Outline)
+                .enabled(forge.writes_repo()),
+            )
+            .child(
+                button(id("forge-merge"), "Merge", theme, merge)
+                    .kind(design::Kind::Primary)
+                    .enabled(mergeable && forge.writes_repo()),
+            );
+    }
+    top
+}
+
+/// The change's tabs, each with its count once it is known.
+fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
+    // manual: Files reads the whole diff and Commits a log, so the arrows
+    // only move and Enter opens
+    let active = forge.change_tab_cursor.unwrap_or(forge.nav().change_tab);
+    let at = |tab| {
+        ChangeTab::ALL
+            .iter()
+            .position(|it| *it == tab)
+            .unwrap_or_default()
+    };
+    let mut bar = design::composite(id("forge-change-tabs"), Role::TabList, "Change")
+        .orientation(design::Orientation::Horizontal)
+        .wrap()
+        .active(at(active), ChangeTab::ALL.len())
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            forge.change_tab_cursor = Some(ChangeTab::ALL[index]);
+            cx.notify();
+        }))
+        .on_press(cx.processor(|forge, index: usize, _, cx| {
+            forge.open_change_tab(ChangeTab::ALL[index], cx)
+        }))
+        .build()
+        .h(TAB_BAR_H)
+        .flex()
+        .items_center()
+        .gap(design::space::XL)
+        .px(PAGE_X)
+        .border_b_1()
+        .border_color(theme.border);
+    for tab in ChangeTab::ALL {
+        let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change_tab(tab, cx));
+        bar = bar.child(crate::ui::components::tab(
+            id(format!("forge-change-tab-{}", tab.slug())),
+            tab.label(),
+            tab_count(forge, tab),
+            forge.nav().change_tab == tab,
+            active == tab,
+            theme,
+            pick,
+        ));
+    }
+    bar
+}
+
+/// What a change tab holds, where the view has read it: the lines of the
+/// conversation, the commits the target lacks, the files the diff touches.
+fn tab_count(forge: &Forge, tab: ChangeTab) -> Option<u64> {
+    match tab {
+        ChangeTab::Conversation => {
+            let (change, _, _, _) = forge.change()?;
+            match forge.messages.get(&change.channel)? {
+                ducktape_view_guest::Loadable::Ready(rows)
+                | ducktape_view_guest::Loadable::Reloading(rows, _) => Some(rows.len() as u64),
+                _ => None,
+            }
+        }
+        ChangeTab::Commits => forge.compare().map(|comparison| comparison.ahead),
+        ChangeTab::Files => match forge.ready(&forge.diff_query()?)? {
+            Reply::Diff { total_files, .. } => Some(*total_files),
+            _ => None,
+        },
+    }
 }
 
 // ------------------------------------------------------------------ files
@@ -355,210 +327,446 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     columns.child(pane).into_any_element()
 }
 
-/// The reviewer's file list: comment and viewed markers, single-file mode.
+/// The reviewer's file list: how much each file changes, a tick for the
+/// ones read, and a click that shows one file alone.
 fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let all = cx.listener(|forge, _: &ClickEvent, _, cx| forge.single_file(None, cx));
     let column = div()
         .id(id("forge-file-tree"))
-        .w(px(forge.layout.tree))
+        .w(FILE_LIST_W)
+        .flex_none()
         .flex()
         .flex_col()
         .min_h(px(0.))
         .border_r_1()
-        .border_color(theme.border)
-        .child(
-            div()
-                .id(id("forge-file-tree-header"))
-                .flex()
-                .items_center()
-                .gap_2()
-                .p_2()
-                .child(heading(id("forge-files-title"), "Files", 2, theme))
-                .child(div().flex_1())
-                .child(
-                    button(id("forge-files-all"), "All files", theme, all)
-                        .selected(forge.nav().diff_path.is_none()),
-                ),
-        );
-    let Some(Reply::Diff { page, .. }) = forge.ready(query) else {
+        .border_color(theme.border);
+    let Some(Reply::Diff {
+        page, total_files, ..
+    }) = forge.ready(query)
+    else {
         return column
             .child(quiet("Reading the diff…", theme))
             .into_any_element();
     };
-    let review = forge.review();
-    let published = forge.change().map(|(_, _, _, reviews)| reviews);
-    let mut list = scroller("forge-file-tree-list");
+    let (added, deleted) = page.items.iter().fold((0, 0), |(a, d), file| {
+        (a + file.additions, d + file.deletions)
+    });
+    let all = cx.listener(|forge, _: &ClickEvent, _, cx| forge.single_file(None, cx));
+    let header = div()
+        .id(id("forge-file-tree-header"))
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .px(design::space::BLOCK)
+        .h(px(36.))
+        .child(
+            design::mono(format!(
+                "{} · +{added} −{deleted}",
+                design::plural(*total_files, "file", "files")
+            ))
+            .id(id("forge-files-title"))
+            .text_size(design::text::CAPTION)
+            .text_color(theme.muted),
+        )
+        .child(div().flex_1())
+        .when(forge.nav().diff_path.is_some(), |header| {
+            header.child(
+                button(id("forge-files-all"), "All files", theme, all).kind(design::Kind::Quiet),
+            )
+        });
+    let mut list = scroller("forge-file-tree-list").p_0().gap_0();
     for file in &page.items {
-        let Some(path) = diff::path_of(file) else {
-            continue;
-        };
-        let label = path_text(&path);
-        let viewed = forge
-            .file_key(&path)
-            .is_some_and(|key| forge.viewed.contains(&key));
-        let drafts = review
-            .map(|review| {
-                review
-                    .comments
-                    .iter()
-                    .filter(|comment| comment.path == path)
-                    .count()
-            })
-            .unwrap_or(0);
-        let landed = published
-            .map(|reviews| {
-                reviews
-                    .items
-                    .iter()
-                    .flat_map(|review| review.draft.comments.iter())
-                    .filter(|comment| comment.path == path)
-                    .count()
-            })
-            .unwrap_or(0);
-        let pick = cx.listener({
-            let path = path.clone();
-            move |forge, _: &ClickEvent, _, cx| forge.single_file(Some(path.clone()), cx)
-        });
-        let tick = cx.listener({
-            let path = path.clone();
-            move |forge, _: &ClickEvent, _, cx| forge.toggle_viewed(&path, cx)
-        });
-        let mut line = row(id(format!("forge-file-{label}")), theme)
-            .on_click(pick)
-            .selected(forge.nav().diff_path.as_deref() == Some(path.as_slice()))
-            .cell(div().flex_1().truncate().child(label.clone()))
-            .cell(quiet(
-                format!("+{} −{}", file.additions, file.deletions),
-                theme,
-            ));
-        if drafts + landed > 0 {
-            line = line.cell(chip(
-                id(format!("forge-file-comments-{label}")),
-                format!("💬{}", drafts + landed),
-                theme.accent_foreground,
-                theme.accent_soft,
-            ));
-        }
-        list = list.child(line).child(
-            div()
-                .id(id(format!("forge-viewed-{label}")))
-                .px_2()
-                .text_size(px(11.))
-                .text_color(if viewed { theme.success } else { theme.muted })
-                .role(Role::Button)
-                .aria_label("Mark this file viewed")
-                .aria_selected(viewed)
-                .focusable()
-                .on_click(tick)
-                .child(if viewed { "✓ viewed" } else { "mark viewed" }),
-        );
+        list = list.children(file_row(forge, file, cx, theme));
     }
-    column.child(list).into_any_element()
+    list = list.child(
+        div()
+            .px(design::space::BLOCK)
+            .py(design::space::LG)
+            .child(quiet("Tick a file once you have read it.", theme)),
+    );
+    column.child(header).child(list).into_any_element()
 }
 
-/// Start review → staged comments → finish as exactly one operation.
-fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let start = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_review(cx));
-    let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.cancel_review(cx));
-    let finishing = cx.listener(|forge, _: &ClickEvent, _, cx| forge.finishing(true, cx));
-    let Some(review) = forge.review() else {
-        return div()
-            .id(id("forge-review-bar"))
-            .flex()
-            .items_center()
-            .gap_2()
-            .px_2()
-            .py_1()
-            .child(quiet(
-                "Comment on any line by clicking its gutter number.",
-                theme,
-            ))
-            .child(div().flex_1())
-            .child(
-                button(id("forge-start-review"), "Start review", theme, start)
-                    .primary(true)
-                    .enabled(forge.session.connected && forge.me_key().is_some()),
+/// One file of the diff: its viewed tick, its path, its counts and
+/// comments.
+fn file_row(
+    forge: &Forge,
+    file: &FileDiff,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> Option<AnyElement> {
+    let path = diff::path_of(file)?;
+    let label = path_text(&path);
+    let viewed = forge
+        .file_key(&path)
+        .is_some_and(|key| forge.viewed.contains(&key));
+    let comments = file_comments(forge, &path);
+    let selected = forge.nav().diff_path.as_deref() == Some(path.as_slice());
+    let pick = cx.listener({
+        let path = path.clone();
+        move |forge, _: &ClickEvent, _, cx| forge.single_file(Some(path.clone()), cx)
+    });
+    let tick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.toggle_viewed(&path, cx));
+    let theme = *theme;
+    let check = div()
+        .id(id(format!("forge-viewed-{label}")))
+        .size(px(14.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .border_1()
+        .border_color(if viewed {
+            theme.primary
+        } else {
+            theme.border_strong
+        })
+        .when(viewed, |check| {
+            design::focus_shown_on_ink(
+                check.bg(theme.primary).text_color(theme.primary_foreground),
+                &theme,
             )
-            .into_any_element();
-    };
-    let mut bar = div()
+        })
+        .text_size(px(10.))
+        .role(Role::CheckBox)
+        .aria_label(format!("Viewed {label}"))
+        .aria_toggled(viewed.into())
+        .focusable()
+        // a tick is not also a click on the row
+        .occlude()
+        .on_click(tick)
+        .child(if viewed { "✓" } else { "" });
+    let mut press = div()
+        .id(id(format!("forge-file-{label}-open")))
+        .flex_1()
+        .min_w(px(0.))
+        .self_stretch()
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .role(Role::Button)
+        .when(selected, |press| {
+            press.aria_current(ducktape_view_guest::accesskit::AriaCurrent::True)
+        })
+        .focusable()
+        .on_click(pick)
+        .child(
+            design::mono(label.clone())
+                .flex_1()
+                .min_w(px(0.))
+                .truncate()
+                .text_size(design::text::CAPTION)
+                .text_color(if viewed {
+                    theme.muted
+                } else {
+                    theme.foreground
+                }),
+        );
+    if comments > 0 {
+        press = press.child(badge(
+            id(format!("forge-file-comments-{label}")),
+            comments.to_string(),
+            theme.muted,
+            theme.surface_raised,
+        ));
+    }
+    press = press.child(
+        div()
+            .flex()
+            .gap(design::space::XXS)
+            .font_family(design::fonts::FAMILY_MONO)
+            .text_size(design::text::CAPTION)
+            .when(file.additions > 0, |counts| {
+                counts.child(
+                    div()
+                        .text_color(theme.success)
+                        .child(format!("+{}", file.additions)),
+                )
+            })
+            .when(file.deletions > 0, |counts| {
+                counts.child(
+                    div()
+                        .text_color(theme.danger)
+                        .child(format!("−{}", file.deletions)),
+                )
+            }),
+    );
+    // the tick sits beside the row's press, as a button may not hold it
+    let row = div()
+        .id(id(format!("forge-file-{label}")))
+        .h(px(30.))
+        .px(design::space::BLOCK)
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .when(selected, |row| row.bg(theme.surface_raised))
+        .hover(move |style| style.bg(theme.surface))
+        .role(Role::ListItem)
+        .child(check)
+        .child(press);
+    Some(row.into_any_element())
+}
+
+/// The line comments on one file: my review's drafts plus the published.
+fn file_comments(forge: &Forge, path: &[u8]) -> usize {
+    let drafts = forge
+        .review()
+        .map(|review| {
+            review
+                .comments
+                .iter()
+                .filter(|comment| comment.path == path)
+                .count()
+        })
+        .unwrap_or(0);
+    let landed = forge
+        .change()
+        .map(|(_, _, _, reviews)| {
+            reviews
+                .items
+                .iter()
+                .flat_map(|review| review.draft.comments.iter())
+                .filter(|comment| comment.path == path)
+                .count()
+        })
+        .unwrap_or(0);
+    drafts + landed
+}
+
+/// The strip above the diff: what a review is, or where this one stands.
+fn strip(theme: &Theme) -> Stateful<Div> {
+    div()
         .id(id("forge-review-bar"))
         .flex()
-        .flex_col()
-        .gap_1()
-        .px_2()
-        .py_1()
+        .items_center()
+        .gap(design::space::MD)
+        .px(design::space::BLOCK)
+        .h(px(36.))
+        .flex_none()
         .bg(theme.surface)
+        .border_b_1()
+        .border_color(theme.border)
+}
+
+/// No review under way: how to comment, and Start review.
+fn idle_review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+    let start = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_review(cx));
+    strip(theme)
+        .child(quiet(
+            "Comment on any line by clicking its gutter number.",
+            theme,
+        ))
+        .child(div().flex_1())
         .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(quiet(
-                    format!(
-                        "Review pinned at {} · {} pending",
-                        short_oid(&review.commit),
-                        review.comments.len()
-                    ),
-                    theme,
-                ))
-                .child(div().flex_1())
-                .child(button(id("forge-cancel-review"), "Discard", theme, cancel))
-                .child(
-                    button(id("forge-finish-review"), "Finish review", theme, finishing)
-                        .primary(true)
-                        .enabled(!review.finishing),
-                ),
-        );
+            button(id("forge-start-review"), "Start review", theme, start)
+                .kind(design::Kind::Primary)
+                .enabled(forge.may_write()),
+        )
+        .into_any_element()
+}
+
+/// Start review → staged comments → finish as exactly one operation. The
+/// finish form opens as a panel under its button.
+fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+    let Some(review) = forge.review() else {
+        return idle_review_bar(forge, cx, theme);
+    };
+    let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.cancel_review(cx));
+    let finishing = cx.listener(|forge, _: &ClickEvent, _, cx| forge.finishing(true, cx));
+    let pending = match review.comments.len() {
+        1 => "1 line comment pending".to_owned(),
+        n => format!("{n} line comments pending"),
+    };
+    let opener = button(
+        id("forge-finish-review"),
+        "Finish review ⌄",
+        theme,
+        finishing,
+    )
+    .kind(design::Kind::Primary)
+    .enabled(forge.may_write());
+    // the form is a dialog over the button: Tab stays in it, Escape or a
+    // press outside folds it. Its layer puts the form's anchor on the
+    // button's right edge, where it hangs from
+    let panel = review
+        .finishing
+        .then(|| finish_panel(forge, review, cx, theme));
+    let fold = cx.listener(|forge, _: &(), _, cx| forge.finishing(false, cx));
+    let finish = div().relative().flex_none().child(
+        modal_overlay(id("forge-finish"), "Finish your review", opener, panel)
+            .flex_col()
+            .items_end()
+            .on_dismiss(fold),
+    );
+    let bar = strip(theme)
+        .child(badge(
+            id("forge-review-state"),
+            "Reviewing",
+            theme.muted,
+            theme.surface_raised,
+        ))
+        .child(quiet(
+            format!("pinned at {} · {pending}", short_hex(&review.commit)),
+            theme,
+        ))
+        .child(div().flex_1())
+        .child(
+            button(id("forge-cancel-review"), "Discard", theme, cancel).kind(design::Kind::Quiet),
+        )
+        .child(finish);
+    let mut column = div().flex().flex_col().child(bar);
     if !review.error.is_empty() {
-        bar = bar.child(
+        column = column.child(
             div()
                 .id(id("forge-review-error"))
-                .text_size(px(12.))
+                .px(design::space::BLOCK)
+                .py(design::space::XS)
+                .text_size(design::text::SECONDARY)
                 .text_color(theme.danger)
                 .child(review.error.clone()),
         );
     }
-    if !review.finishing {
-        return bar.into_any_element();
-    }
-    let typed =
-        cx.listener(|forge, text: &String, _, cx| forge.typed_review_body(text.clone(), cx));
-    let mut verdicts = div().id(id("forge-verdicts")).flex().gap_2().items_center();
-    for verdict in [Verdict::Approve, Verdict::RequestChanges, Verdict::Comment] {
-        let submit =
-            cx.listener(move |forge, _: &ClickEvent, _, cx| forge.finish_review(verdict, cx));
-        verdicts = verdicts.child(
-            button(
-                id(format!(
-                    "forge-verdict-{}",
-                    match verdict {
-                        Verdict::Approve => "approve",
-                        Verdict::RequestChanges => "request-changes",
-                        Verdict::Comment => "comment",
-                    }
-                )),
-                verdict_label(verdict),
-                theme,
-                submit,
-            )
-            .enabled(forge.session.connected),
+    column.into_any_element()
+}
+
+/// The finish form, over the diff under its button: what the review says,
+/// its verdict, Submit review. A press outside folds it; nothing typed is
+/// lost. It hangs from the point its overlay's layer puts it at.
+fn finish_panel(
+    forge: &Forge,
+    review: &crate::state::ReviewSession,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> AnyElement {
+    let fold = cx.listener(|forge, _: &MouseDownEvent, _, cx| forge.finishing(false, cx));
+    let verdict = review.verdict.unwrap_or(Verdict::Comment);
+    let submit = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.finish_review(verdict, cx));
+    let panel = div()
+        .id(id("forge-finish-panel"))
+        .w(FINISH_W)
+        .flex()
+        .flex_col()
+        .gap(design::space::LG)
+        .p(design::space::BLOCK)
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .shadow_lg()
+        .occlude()
+        .on_mouse_down_out(fold)
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Finish your review"),
+        )
+        .child(review_body(&review.body, theme))
+        .child(verdicts(forge, verdict, cx, theme))
+        .child(
+            div().flex().justify_end().child(
+                button(id("forge-submit-review"), "Submit review", theme, submit)
+                    .kind(design::Kind::Primary)
+                    .enabled(forge.may_write()),
+            ),
         );
-    }
-    bar.child(
-        Input::new(id("forge-review-body"))
-            .h(px(28.))
-            .w_full()
-            .px_2()
-            .border_1()
-            .border_color(theme.border_strong)
-            .bg(theme.background)
-            .text_color(theme.foreground)
-            .value(review.body.clone())
-            .placeholder("What this review says overall")
-            .label("Review body")
-            .on_input(typed),
+    deferred(
+        anchored()
+            .anchor(Anchor::TopRight)
+            .position_mode(AnchoredPositionMode::Local)
+            .position(Point {
+                x: px(0.),
+                y: px(0.),
+            })
+            .offset(Point {
+                x: px(0.),
+                y: design::size::CONTROL + design::space::XXS,
+            })
+            .snap_to_window_with_margin(ducktape_view_guest::Edges::all(design::space::SM))
+            .child(panel),
     )
-    .child(verdicts)
     .into_any_element()
+}
+
+/// What the review says overall, typed while finishing.
+fn review_body(body: &TextField, theme: &Theme) -> impl IntoElement + use<> {
+    Textarea::new(id("forge-review-body"), body, "Review body")
+        .min_h(design::size::CONTROL * 2.5)
+        .w_full()
+        .px_2()
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .text_color(theme.foreground)
+        .placeholder("What this review says overall")
+}
+
+/// The three verdicts as radio rows, each with what it means.
+fn verdicts(
+    forge: &Forge,
+    picked: Verdict,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> Stateful<Div> {
+    const VERDICTS: [(Verdict, &str, &str); 3] = [
+        (Verdict::Comment, "comment", "Feedback without a verdict."),
+        (Verdict::Approve, "approve", "Ready to merge as it is."),
+        (
+            Verdict::RequestChanges,
+            "request-changes",
+            "Needs work before it merges.",
+        ),
+    ];
+    let theme = *theme;
+    let active = VERDICTS
+        .iter()
+        .position(|(verdict, _, _)| *verdict == picked)
+        .unwrap_or_default();
+    // a radio group: one Tab stop, and ↑ ↓ check the next verdict
+    let mut column = design::composite(id("forge-verdicts"), Role::RadioGroup, "Verdict")
+        .active(active, VERDICTS.len())
+        .wrap()
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            if forge.may_write() {
+                forge.pick_verdict(VERDICTS[index].0, cx);
+            }
+        }))
+        .build()
+        .flex()
+        .flex_col()
+        .gap(design::space::SM);
+    for (verdict, slug, about) in VERDICTS {
+        let on = verdict == picked;
+        let pick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.pick_verdict(verdict, cx));
+        let dot = div()
+            .size(px(14.))
+            .mt(px(2.))
+            .flex_none()
+            .rounded_full()
+            .border_1()
+            .border_color(if on {
+                theme.foreground
+            } else {
+                theme.border_strong
+            })
+            .when(on, |dot| dot.bg(theme.foreground));
+        let row = div()
+            .id(id(format!("forge-verdict-{slug}")))
+            .flex()
+            .items_start()
+            .gap(design::space::SM)
+            .aria_toggled(on.into())
+            .map(|row| match forge.may_write() {
+                true => row.on_click(pick),
+                false => row.aria_disabled(true),
+            })
+            .child(dot)
+            .child(
+                div().flex().flex_col().child(verdict_label(verdict)).child(
+                    div()
+                        .text_size(design::text::SECONDARY)
+                        .text_color(theme.muted)
+                        .child(about),
+                ),
+            );
+        column = column.child(design::item(row, Role::RadioButton, on));
+    }
+    column
 }

@@ -1,12 +1,20 @@
-use super::*;
+use crate::context::Callback;
+use crate::{
+    App, Context, Entity, Host, IntoElement, Lowering, Theme, View, executor, px, slots, wire,
+};
 
 const MAX_ROUNDS: usize = 8;
 
-pub struct Driver<V: View> {
+/// One view's run loop: the wasm exports drive it on the host, and
+/// [`TestAppContext`](crate::testing::TestAppContext) drives it in a test.
+pub(crate) struct Driver<V: View> {
     pub(crate) app: App,
     pub(crate) entity: Entity<V>,
     pub(crate) last_root: Option<wire::Node>,
     pub(crate) busy: bool,
+    /// How many times the root rendered: what `TestAppContext::renders`
+    /// reads.
+    pub(crate) renders: u64,
 }
 impl<V: View> Drop for Driver<V> {
     fn drop(&mut self) {
@@ -21,32 +29,32 @@ impl<V: View> Default for Driver<V> {
 }
 impl<V: View> Driver<V> {
     pub fn new() -> Self {
-        Self::initialize(None).expect("view initializes")
+        Self::initialize_in(App::for_driver(), None)
     }
-    pub(crate) fn initialize(restored: Option<V>) -> Result<Self, String> {
-        Self::initialize_in(App::for_driver(), restored)
-    }
-    pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Result<Self, String> {
+    pub(crate) fn initialize_in(mut app: App, restored: Option<V>) -> Self {
         let entity = Entity::reserve(&app);
-        let mut window = app.window();
-        let mut cx = Context {
-            app: &mut app,
-            entity: entity.clone(),
-        };
-        let value = match restored {
-            Some(mut value) => {
-                value.restored(&mut window, &mut cx);
-                value
-            }
-            None => V::new(&mut window, &mut cx),
-        };
-        *entity.value.borrow_mut() = Some(value);
-        Ok(Self {
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        app.inner.root.set(Some((entity.id, encode_root::<V>)));
+        app.update(|app| {
+            let mut window = app.window();
+            let mut cx = Context {
+                app,
+                entity: entity.clone(),
+            };
+            let mut value = match restored {
+                Some(value) => value,
+                None => V::new(&mut window, &mut cx),
+            };
+            value.attach(&mut window, &mut cx);
+            *entity.value.borrow_mut() = Some(value);
+        });
+        Self {
             app,
             entity,
             last_root: None,
             busy: false,
-        })
+            renders: 0,
+        }
     }
     pub fn entity(&self) -> Entity<V> {
         self.entity.clone()
@@ -57,375 +65,260 @@ impl<V: View> Driver<V> {
     pub(crate) fn app_mut(&mut self) -> &mut App {
         &mut self.app
     }
-    /// A frame with the whole tree in it, patched or not: what a test reads.
-    /// The host gets [`Driver::tick_wire`]'s, which leaves the tree out
-    /// when the host can keep or patch its own.
-    pub fn tick(&mut self, events: Vec<wire::Event>) -> wire::Frame {
-        let mut frame = self.tick_wire(events);
-        if frame.root.is_none() {
-            frame.root = self.last_root.clone();
-        }
-        frame
+    /// Runs one tick and hands its frame to `send` — the host's encoder —
+    /// before putting back into the kept tree what the frame carried out of
+    /// it. The tree a frame sends whole, and the subtrees its patches
+    /// carry, are moved there and back rather than copied: the frame is
+    /// gone once it is encoded, and the kept tree is the next frame's base.
+    pub(crate) fn tick_with<R>(
+        &mut self,
+        events: Vec<wire::Event>,
+        send: impl FnOnce(&wire::Frame) -> R,
+    ) -> R {
+        let frame = self.tick_wire(events);
+        let sent = send(&frame);
+        self.put_back(frame);
+        sent
     }
 
-    pub(crate) fn tick_wire(&mut self, events: Vec<wire::Event>) -> wire::Frame {
+    fn put_back(&mut self, frame: wire::Frame) {
+        let kept = match frame.root {
+            Some(root) => self.last_root.insert(root),
+            None if frame.patches.is_empty() => return,
+            None => {
+                let kept = self
+                    .last_root
+                    .as_mut()
+                    .expect("a patch frame has a tree to patch");
+                put_back(kept, frame.patches);
+                kept
+            }
+        };
+        // Remembered without the picture bytes this frame carried: the
+        // next view names those pictures by hash alone, and that is
+        // the same tree — and the tree the host keeps, which drops the
+        // bytes the same way once it has the pictures.
+        kept.for_each_mut(&mut |node| match node {
+            wire::Node::Svg {
+                source: wire::SvgSource::Data { bytes, .. },
+                ..
+            } => *bytes = None,
+            wire::Node::Image { data, .. } => *data = None,
+            _ => {}
+        });
+    }
+
+    fn tick_wire(&mut self, events: Vec<wire::Event>) -> wire::Frame {
         self.busy = false;
+        let owed = slots::start_frame(&self.app.inner.slots);
         self.settle();
         for event in events {
-            let editor_event = matches!(
-                &event,
-                wire::Event::EditorDocument { .. }
-                    | wire::Event::EditorRequest { .. }
-                    | wire::Event::EditorTransaction { .. }
-            );
-            let message = match event {
-                wire::Event::Observation { .. }
-                | wire::Event::Mouse { .. }
-                | wire::Event::Keyboard { .. } => None,
-                wire::Event::Message(index) => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    if slots::run_message_route(&slots, index, &mut window, &mut self.app) {
-                        None
-                    } else {
-                        slots::take_message::<Callback<V>>(&slots, index)
-                    }
-                }
-                wire::Event::Click { handler, event } => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    slots::run_click(&slots, handler, &event.into(), &mut window, &mut self.app);
-                    None
-                }
-                wire::Event::AuxClick { handler, event } => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    slots::run_click(&slots, handler, &event.into(), &mut window, &mut self.app);
-                    None
-                }
-                wire::Event::MouseDown { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::MouseUp { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::MouseDownOut { handler, event } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::MouseUpOut { handler, event } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::MousePressure { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::MouseMove { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::MouseExit { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::ScrollWheel { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::Pinch { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::KeyDown { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::KeyUp { handler, event, .. } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::ModifiersChanged { handler, event } => {
-                    self.run_route(handler, &event.into_gpui());
-                    None
-                }
-                wire::Event::Hover { handler, hovered } => {
-                    self.run_route(handler, &hovered);
-                    None
-                }
-                wire::Event::FileDropExit { handler } => {
-                    self.run_route(handler, &gpui::FileDropEvent::Exited);
-                    None
-                }
-                wire::Event::TooltipRequest {
-                    request,
-                    character_index,
-                } => {
-                    let slots = self.app.inner.slots.clone();
-                    if let Some(build) = slots::tooltip_route(&slots, request) {
-                        let mut window = self.app.window();
-                        let content = build(
-                            character_index.map(|index| index as usize),
-                            &mut window,
-                            &mut self.app,
-                        )
-                        .map(|view| {
-                            Box::new(Lowering::new(&mut window, &mut self.app).lower(view))
-                        });
-                        slots::tooltip_response(
-                            &slots,
-                            wire::TooltipResponse {
-                                request,
-                                character_index,
-                                content,
-                            },
-                        );
-                    }
-                    None
-                }
-                wire::Event::Surface { handler, value } => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    if slots::run_route(&slots, handler, &value, &mut window, &mut self.app) {
-                        None
-                    } else {
-                        slots::run_handler::<wire::SurfaceValue, Callback<V>>(
-                            &slots, handler, value,
-                        )
-                    }
-                }
-                wire::Event::Input { handler, text } => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    if slots::run_route(&slots, handler, &text, &mut window, &mut self.app) {
-                        None
-                    } else {
-                        slots::run_handler::<String, Callback<V>>(&slots, handler, text)
-                    }
-                }
-                wire::Event::EditorDocument { handler, message } => {
-                    use wire::editor_document::EditorDocumentMessage;
-                    if matches!(
-                        message,
-                        EditorDocumentMessage::Acknowledged { .. }
-                            | EditorDocumentMessage::Failed { .. }
-                    ) {
-                        slots::finish_editor_transfer(&self.app.inner.slots, message.id());
-                        continue;
-                    }
-                    slots::run_handler::<wire::editor_document::EditorDocumentMessage, Callback<V>>(
-                        &self.app.inner.slots,
-                        handler,
-                        message,
-                    )
-                }
-                wire::Event::EditorRequest { handler, request } => {
-                    slots::run_handler::<wire::EditorRequest, Callback<V>>(
-                        &self.app.inner.slots,
-                        handler,
-                        request,
-                    )
-                }
-                wire::Event::EditorTransaction { handler, event } => {
-                    if let wire::EditorTransactionEvent::Fault { id, .. }
-                    | wire::EditorTransactionEvent::Cancelled { id, .. } = &event
-                    {
-                        slots::finish_editor_transfer(
-                            &self.app.inner.slots,
-                            &wire::editor_document::EditorTransferId {
-                                instance: id.instance,
-                                document: id.document.clone(),
-                                reset: id.reset,
-                                serial: id.sequence,
-                                attempt: id.attempt,
-                            },
-                        );
-                    }
-                    if let wire::EditorTransactionEvent::Cancelled { id, .. } = &event {
-                        if !slots::editor_matches_pending(&self.app.inner.slots, id) {
-                            continue;
-                        }
-                        slots::editor_acknowledge(&self.app.inner.slots, &event);
-                    }
-                    slots::run_handler::<wire::EditorTransactionEvent, Callback<V>>(
-                        &self.app.inner.slots,
-                        handler,
-                        event,
-                    )
-                }
-                wire::Event::Toggle { handler, on } => {
-                    slots::run_handler::<bool, Callback<V>>(&self.app.inner.slots, handler, on)
-                }
-                wire::Event::Slide { handler, value } => {
-                    slots::run_handler::<f32, Callback<V>>(&self.app.inner.slots, handler, value)
-                }
-                wire::Event::Select { handler, index } => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    if slots::run_route(&slots, handler, &index, &mut window, &mut self.app) {
-                        None
-                    } else {
-                        slots::run_handler::<u32, Callback<V>>(&slots, handler, index)
-                    }
-                }
-                wire::Event::RichTextHover { handler, event } => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    slots::run_route(&slots, handler, &event, &mut window, &mut self.app);
-                    None
-                }
-                wire::Event::Size {
-                    handler,
-                    width,
-                    height,
-                } => {
-                    let slots = self.app.inner.slots.clone();
-                    let route_event = (px(width), px(height));
-                    let mut window = self.app.window();
-                    if slots::run_route(&slots, handler, &route_event, &mut window, &mut self.app) {
-                        None
-                    } else {
-                        let event = (width, height);
-                        slots::run_handler::<(f32, f32), Callback<V>>(&slots, handler, event)
-                    }
-                }
-                wire::Event::Drag { handler, dx, dy } => {
-                    let slots = self.app.inner.slots.clone();
-                    let route_event = (px(dx as f32), px(dy as f32));
-                    let mut window = self.app.window();
-                    if slots::run_route(&slots, handler, &route_event, &mut window, &mut self.app) {
-                        None
-                    } else {
-                        let event = (dx, dy);
-                        slots::run_handler::<(f64, f64), Callback<V>>(&slots, handler, event)
-                    }
-                }
-                wire::Event::Pointer { handler, x, y } => slots::run_handler::<
-                    (f32, f32),
-                    Callback<V>,
-                >(
-                    &self.app.inner.slots, handler, (x, y)
-                ),
-                wire::Event::Scroll {
-                    handler,
-                    dx,
-                    dy,
-                    pixels,
-                } => slots::run_handler::<(f32, f32, bool), Callback<V>>(
-                    &self.app.inner.slots,
-                    handler,
-                    (dx, dy, pixels),
-                ),
-                wire::Event::ScrollOffset {
-                    handler,
-                    x,
-                    y,
-                    relative_x,
-                    relative_y,
-                } => slots::run_handler::<(f32, f32, f32, f32), Callback<V>>(
-                    &self.app.inner.slots,
-                    handler,
-                    (x, y, relative_x, relative_y),
-                ),
-                wire::Event::UniformListRange {
-                    path,
-                    route,
-                    start,
-                    end,
-                } => {
-                    if self.app.request_uniform_list_range(
-                        path,
-                        route,
-                        start as usize,
-                        end as usize,
-                    ) {
-                        self.app.notify();
-                    }
-                    None
-                }
-                wire::Event::UniformListState {
-                    path,
-                    route,
-                    top_index,
-                    scrollable,
-                    scrolled_to_end,
-                } => {
-                    self.app.update_uniform_list_state(
-                        &path,
-                        route,
-                        top_index as usize,
-                        scrollable,
-                        scrolled_to_end,
-                    );
-                    None
-                }
-                wire::Event::ListRequest { handler, request } => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    slots::run_route(&slots, handler, &request, &mut window, &mut self.app);
-                    self.app.notify();
-                    None
-                }
-                wire::Event::ListScroll { handler, event } => {
-                    let slots = self.app.inner.slots.clone();
-                    let mut window = self.app.window();
-                    slots::run_route(&slots, handler, &event, &mut window, &mut self.app);
-                    None
-                }
-                wire::Event::Theme { dark } => {
-                    self.app
-                        .set_global(if dark { Theme::dark() } else { Theme::light() });
-                    self.app.notify();
-                    None
-                }
-                wire::Event::Response { id, result, done } => {
-                    self.app.host().fulfill(id, result, done);
-                    // Response order is semantic: queued hidden data must be
-                    // applied before a later visibility notification.
-                    self.settle();
-                    None
-                }
-                // The host dropped the tree the patches build on.
-                wire::Event::Resync => {
-                    self.last_root = None;
-                    slots::clear_pictures(&self.app.inner.slots);
-                    self.app.notify();
-                    None
-                }
-            };
-            if let Some(callback) = message {
-                self.entity.clone().update_app(&mut self.app, |v, w, cx| {
-                    callback(v, w, cx);
-                    if editor_event {
-                        cx.notify();
-                    }
-                });
+            if let Some(callback) = self.dispatch(event) {
+                let mut window = self.app.window();
+                self.entity
+                    .update_in_window(&mut self.app, &mut window, |v, w, cx| {
+                        callback(v, w, cx);
+                    });
                 self.settle();
             }
         }
         self.settle();
+        self.frame(owed)
+    }
+
+    /// Runs one event: its route or its handler. A handler's message comes
+    /// back for the view to run; everything else has already happened.
+    fn dispatch(&mut self, event: wire::Event) -> Option<Callback<V>> {
+        match event {
+            wire::Event::Message(handler) => self.route(handler, &()),
+            wire::Event::Click { handler, event } | wire::Event::AuxClick { handler, event } => {
+                self.route(handler, &gpui::ClickEvent::from(event))
+            }
+            wire::Event::MouseDown { handler, event, .. } => {
+                self.route(handler, &event.into_gpui())
+            }
+            wire::Event::MouseUp { handler, event, .. } => self.route(handler, &event.into_gpui()),
+            wire::Event::MouseDownOut { handler, event } => self.route(handler, &event.into_gpui()),
+            wire::Event::MouseUpOut { handler, event } => self.route(handler, &event.into_gpui()),
+            wire::Event::MousePressure { handler, event, .. } => {
+                self.route(handler, &event.into_gpui())
+            }
+            wire::Event::MouseMove { handler, event, .. } => {
+                self.route(handler, &event.into_gpui())
+            }
+            wire::Event::MouseExit { handler, event, .. } => {
+                self.route(handler, &event.into_gpui())
+            }
+            wire::Event::ScrollWheel { handler, event, .. } => {
+                self.route(handler, &event.into_gpui())
+            }
+            wire::Event::Pinch { handler, event, .. } => self.route(handler, &event.into_gpui()),
+            wire::Event::KeyDown { handler, event, .. } => self.route(handler, &event.into_gpui()),
+            wire::Event::KeyUp { handler, event, .. } => self.route(handler, &event.into_gpui()),
+            wire::Event::ModifiersChanged { handler, event } => {
+                self.route(handler, &event.into_gpui())
+            }
+            wire::Event::Hover { handler, hovered } => self.route(handler, &hovered),
+            wire::Event::FileDropExit { handler } => {
+                self.route(handler, &gpui::FileDropEvent::Exited)
+            }
+            wire::Event::RichTextHover { handler, event } => self.route(handler, &event),
+            wire::Event::ListScroll { handler, event } => self.route(handler, &event),
+            wire::Event::ListRequest { handler, request } => self.route(handler, &request),
+            wire::Event::TooltipRequest {
+                request,
+                character_index,
+            } => {
+                self.tooltip(request, character_index);
+                None
+            }
+            wire::Event::Select { handler, index } => self.route(handler, &index),
+            wire::Event::Bounds {
+                handler,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let origin = gpui::point(px(x), px(y));
+                let bounds = gpui::Bounds::new(origin, gpui::size(px(width), px(height)));
+                self.route(handler, &bounds)
+            }
+            wire::Event::Drag { handler, dx, dy } => {
+                self.route(handler, &(px(dx as f32), px(dy as f32)))
+            }
+            wire::Event::Text { handler, change } => self.route(handler, &change),
+            wire::Event::ScrollOffset {
+                handler,
+                x,
+                y,
+                relative_x,
+                relative_y,
+            } => self.route(handler, &(x, y, relative_x, relative_y)),
+            wire::Event::UniformListRange {
+                path,
+                route,
+                start,
+                end,
+                item_height,
+            } => {
+                if self.app.inner.uniform_lists.request_range(
+                    path,
+                    route,
+                    start as usize,
+                    end as usize,
+                    item_height,
+                ) {
+                    self.app.notify();
+                }
+                None
+            }
+            wire::Event::UniformListState {
+                path,
+                route,
+                top_index,
+                scrollable,
+                scrolled_to_end,
+            } => {
+                self.app.inner.uniform_lists.update_state(
+                    &path,
+                    route,
+                    top_index as usize,
+                    scrollable,
+                    scrolled_to_end,
+                );
+                None
+            }
+            wire::Event::Theme { dark } => {
+                self.app
+                    .set_global(if dark { Theme::dark() } else { Theme::light() });
+                self.app.notify();
+                None
+            }
+            wire::Event::Viewport { width, height } => {
+                let side = |v: f32| {
+                    px(if v.is_finite() {
+                        v.clamp(0., wire::MAX_PIXELS)
+                    } else {
+                        0.
+                    })
+                };
+                let viewport = gpui::size(side(width), side(height));
+                if self.app.inner.viewport.replace(viewport) != viewport {
+                    self.app.notify();
+                }
+                None
+            }
+            wire::Event::Offset { minutes } => {
+                crate::design::set_utc_offset(minutes);
+                self.app.notify();
+                None
+            }
+            wire::Event::Response { id, result, done } => {
+                self.app.host().fulfill(id, result, done);
+                // Response order is semantic: queued hidden data must be
+                // applied before a later visibility notification.
+                self.settle();
+                None
+            }
+            // The host dropped the tree the patches build on.
+            wire::Event::Resync => {
+                self.last_root = None;
+                slots::clear_pictures(&self.app.inner.slots);
+                self.app.notify();
+                None
+            }
+            wire::Event::A11yAction { handler, data } => self.route(handler, &data),
+        }
+    }
+
+    fn tooltip(&mut self, request: u32, character_index: Option<u32>) {
+        let slots = self.app.inner.slots.clone();
+        let mut window = self.app.window();
+        let built = slots::build_tooltip(
+            &slots,
+            request,
+            character_index.map(|index| index as usize),
+            &mut window,
+            &mut self.app,
+        );
+        if let Some(content) = built {
+            let content = content.map(|view| {
+                Box::new(Lowering::within_tooltip(&mut window, &mut self.app, request).lower(view))
+            });
+            slots::tooltip_response(
+                &slots,
+                wire::TooltipResponse {
+                    request,
+                    character_index,
+                    content,
+                },
+            );
+        }
+    }
+
+    /// The frame after this tick's events: the tree lowered if anything
+    /// changed, or if the last frame owed a picture it drew, then sent whole
+    /// or as patches against the last one. A frame that owes a picture
+    /// asks for the next, until every picture drawn is sent.
+    fn frame(&mut self, owed: bool) -> wire::Frame {
         let render = self.app.inner.dirty.replace(false)
             || self.last_root.is_none()
-            || slots::editor_transferring(&self.app.inner.slots);
-        let mut root = render.then(|| {
-            slots::reset(&self.app.inner.slots);
-            let mut window = self.app.window();
-            let element = {
-                let mut cx = Context {
-                    app: &mut self.app,
-                    entity: self.entity.clone(),
-                };
-                let mut view = self.entity.value.borrow_mut();
-                view.as_mut()
-                    .expect("entity initialized")
-                    .render(&mut window, &mut cx)
-                    .into_element()
-            };
-            Lowering::new(&mut window, &mut self.app).lower_element(element)
-        });
-        self.busy |= self.app.inner.dirty.get() || executor::ready(&self.app.inner.tasks.borrow());
+            || owed
+            || self.styles_outgrown();
+        let mut root = render.then(|| self.render_root());
+        // a table past what the host holds starts over, which a tree sent
+        // whole does: there is no last tree to patch
+        if self.styles_outgrown() {
+            self.last_root = None;
+        }
+        crate::window::send_widgets(
+            &self.app.inner.slots,
+            root.as_ref().or(self.last_root.as_ref()),
+        );
+        self.busy |= self.app.inner.dirty.get()
+            || executor::ready(&self.app.inner.tasks.borrow())
+            || slots::pictures_owed(&self.app.inner.slots);
         // Patches against the last tree, unless there is none — a first
         // frame or a resync. Nothing lowered is nothing changed, and a
         // lowered tree that diffs to no patches is the same tree
@@ -434,21 +327,101 @@ impl<V: View> Driver<V> {
         let unchanged = match (&mut root, &mut self.last_root) {
             (None, _) => true,
             (Some(root), Some(last)) => {
-                patches = wire::diff(last, root);
+                patches = wire::diff_taking(last, root);
                 patches.is_empty()
             }
             (Some(_), None) => false,
         };
         if let Some(tree) = root.take().filter(|_| !unchanged) {
-            // Property changes remain patches even for tiny trees; replacing
-            // their identity would discard native state. Structural edits
-            // use the whole tree when it has no more nodes than the patches
-            // carry (counted, not encoded: sizing both by encoding them was
-            // most of a frame's cost).
-            let only_props = patches
-                .iter()
-                .all(|patch| matches!(patch, wire::Patch::Props { .. }));
-            let carried: usize = patches
+            root = self.keep(tree, &mut patches);
+        }
+        let host = self.app.host();
+        let requests = host.drain_outbox();
+        let cancels = host.drain_cancels();
+        // what one frame cannot carry goes in the next
+        self.busy |= host.outbox_waiting();
+        let mut tooltip_responses = slots::take_tooltip_responses(&self.app.inner.slots);
+        wire::Frame {
+            styles: self.styles(root.as_mut(), &mut tooltip_responses),
+            tooltip_responses,
+            root,
+            patches,
+            requests,
+            cancels,
+            unchanged,
+            busy: self.busy,
+        }
+    }
+
+    /// Whether the style table holds more entries than the host takes.
+    fn styles_outgrown(&self) -> bool {
+        self.app.inner.styles.borrow().len() > wire::MAX_STYLES
+    }
+
+    /// The style entries a frame carries. A tree sent whole starts the
+    /// table over with the styles it and the frame's tooltips name, and
+    /// carries them all; any other frame carries the entries the host does
+    /// not hold yet.
+    fn styles(
+        &mut self,
+        whole: Option<&mut wire::Node>,
+        tooltips: &mut [wire::TooltipResponse],
+    ) -> Vec<wire::Style> {
+        let mut styles = self.app.inner.styles.borrow_mut();
+        if let Some(root) = whole {
+            styles.retain(|visit| {
+                let contents = tooltips
+                    .iter_mut()
+                    .filter_map(|response| response.content.as_deref_mut());
+                for tree in std::iter::once(root).chain(contents) {
+                    tree.for_each_mut(&mut |node| node.styles_mut(visit));
+                }
+            });
+        }
+        styles.unsent()
+    }
+
+    fn render_root(&mut self) -> wire::Node {
+        self.renders += 1;
+        slots::begin_frame(&self.app.inner.slots);
+        self.app.inner.uniform_lists.begin_frame();
+        let entity = &self.entity;
+        let root = self.app.update(|app| {
+            let mut window = app.window();
+            let element = {
+                let mut cx = Context {
+                    app,
+                    entity: entity.clone(),
+                };
+                let mut view = entity.value.borrow_mut();
+                view.as_mut()
+                    .expect("entity initialized")
+                    .render(&mut window, &mut cx)
+                    .into_element()
+            };
+            Lowering::new(&mut window, app).lower_element(element)
+        });
+        slots::end_frame(&self.app.inner.slots);
+        self.app.inner.uniform_lists.end_frame();
+        root
+    }
+
+    /// Keeps a changed tree as the next frame's base and says what to send:
+    /// the tree itself (patches cleared), or nothing beside the patches.
+    /// The diff took the patches' subtrees out of `tree`; a tree sent whole
+    /// gets them back here, a patched one in [`Driver::put_back`] once the
+    /// frame is sent.
+    fn keep(&mut self, mut tree: wire::Node, patches: &mut Vec<wire::Patch>) -> Option<wire::Node> {
+        // Property changes remain patches even for tiny trees; replacing
+        // their identity would discard native state. Structural edits
+        // use the whole tree when it has no more nodes than the patches
+        // carry (counted, not encoded: sizing both by encoding them was
+        // most of a frame's cost).
+        let only_props = patches
+            .iter()
+            .all(|patch| matches!(patch, wire::Patch::Props { .. }));
+        let carried = || -> usize {
+            patches
                 .iter()
                 .map(|patch| match patch {
                     wire::Patch::Replace { node, .. } | wire::Patch::Insert { node, .. } => {
@@ -456,54 +429,46 @@ impl<V: View> Driver<V> {
                     }
                     _ => 1,
                 })
+                .sum()
+        };
+        // The tree's count as rendered: the hollowed tree plus what each
+        // taken subtree holds beyond its stand-in.
+        let nodes = || -> usize {
+            let taken: usize = patches
+                .iter()
+                .map(|patch| match patch {
+                    wire::Patch::Replace { node, .. } | wire::Patch::Insert { node, .. } => {
+                        node.count() - 1
+                    }
+                    _ => 0,
+                })
                 .sum();
-            if patches.len() > wire::MAX_PATCHES || (!only_props && carried >= tree.count()) {
-                patches.clear();
-            }
-            // Remembered without the picture bytes this frame carried: the
-            // next view names those pictures by hash alone, and that is
-            // the same tree — and the tree the host keeps, which drops the
-            // bytes the same way once it has the pictures. A frame that
-            // carries patches sends no tree, so the tree itself is kept.
-            let (mut kept, sent) = match patches.is_empty() {
-                true => (tree.clone(), Some(tree)),
-                false => (tree, None),
-            };
-            kept.for_each_mut(&mut |node| match node {
-                wire::Node::Svg {
-                    source: wire::SvgSource::Data { bytes, .. },
-                    ..
-                } => *bytes = None,
-                wire::Node::Image { data, .. } | wire::Node::ImageViewer { data, .. } => {
-                    *data = None
-                }
-                _ => {}
-            });
-            self.last_root = Some(kept);
-            root = sent;
+            tree.count() + taken
+        };
+        if patches.len() > wire::MAX_PATCHES || (!only_props && carried() >= nodes()) {
+            put_back(&mut tree, std::mem::take(patches));
         }
-        let editor_decisions = slots::take_editor_responses(&self.app.inner.slots);
-        self.busy |= slots::editor_responses_ready(&self.app.inner.slots);
-        wire::Frame {
-            upstream_sanitization: Default::default(),
-            editor_decisions,
-            editor_documents: slots::take_editor_documents(&self.app.inner.slots),
-            tooltip_responses: slots::take_tooltip_responses(&self.app.inner.slots),
-            mouse_interest: slots::mouse_interest(&self.app.inner.slots),
-            event_interest: slots::event_interest(&self.app.inner.slots),
-            root,
-            patches,
-            requests: self.app.host().drain_outbox(),
-            cancels: self.app.host().drain_cancels(),
-            unchanged,
-            busy: self.busy,
+        // A frame that carries patches sends no tree, so the tree itself is
+        // kept; one that sends the tree has nothing to keep until the tree
+        // comes back from the encoder.
+        match patches.is_empty() {
+            true => {
+                self.last_root = None;
+                Some(tree)
+            }
+            false => {
+                self.last_root = Some(tree);
+                None
+            }
         }
     }
 
-    fn run_route<E: 'static>(&mut self, handler: u32, event: &E) {
+    /// Runs a route listener. A routed event carries no message back.
+    fn route<E: 'static>(&mut self, handler: u32, event: &E) -> Option<Callback<V>> {
         let slots = self.app.inner.slots.clone();
         let mut window = self.app.window();
         slots::run_route(&slots, handler, event, &mut window, &mut self.app);
+        None
     }
 
     fn settle(&mut self) {
@@ -520,5 +485,37 @@ impl<V: View> Driver<V> {
             }
         }
         self.busy = true;
+    }
+}
+
+/// The root's snapshot bytes, for the debug check that a change to them
+/// notified. A view whose serde refuses has none, before and after.
+#[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+fn encode_root<V: View>(view: &dyn std::any::Any) -> Vec<u8> {
+    wire::try_encode(view.downcast_ref::<V>().expect("the root view")).unwrap_or_default()
+}
+
+/// Puts the subtrees `patches` carry back into the tree `wire::diff_taking`
+/// took them from, which is `new` as it was: a patch's path and index are
+/// the position of its node in `new`. Each subtree goes into its stand-in's
+/// slot, never inserted, so the patches' order does not matter. Patches
+/// that carry no subtree are skipped.
+pub(crate) fn put_back(new: &mut wire::Node, patches: Vec<wire::Patch>) {
+    for patch in patches {
+        let (path, index, node) = match patch {
+            wire::Patch::Replace { path, node } => (path, None, node),
+            wire::Patch::Insert { path, index, node } => (path, Some(index), node),
+            wire::Patch::Props { .. } | wire::Patch::Remove { .. } | wire::Patch::Move { .. } => {
+                continue;
+            }
+        };
+        let mut target = &mut *new;
+        for index in path {
+            target = &mut target.children_mut()[index as usize];
+        }
+        match index {
+            Some(index) => target.children_mut()[index as usize] = node,
+            None => *target = node,
+        }
     }
 }

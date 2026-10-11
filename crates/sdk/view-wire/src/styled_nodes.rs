@@ -1,34 +1,19 @@
-//! GPUI-styled wire payloads; the host assigns these refinements unchanged
-//! after the frame sanitizer has checked them.
-use crate::{ElementIdWire, Interactivity, Live, Node, decode_children};
-use gpui::{StyleRefinement, Styled};
+//! The two commonest nodes: a container and a run of text.
+use crate::{ElementIdWire, Interactivity, Node, StyleId};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ContainerNode {
     pub id: Option<ElementIdWire>,
-    pub style: StyleRefinement,
-    #[serde(default, skip_serializing_if = "crate::is_default")]
-    pub interactivity: Interactivity,
-    #[serde(deserialize_with = "decode_children")]
+    pub style: StyleId,
+    #[serde(with = "crate::style::optional")]
+    pub interactivity: Option<Box<Interactivity>>,
     pub children: Vec<Node>,
 }
-impl Styled for ContainerNode {
-    fn style(&mut self) -> &mut StyleRefinement {
-        &mut self.style
-    }
-}
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextNode {
     pub id: Option<ElementIdWire>,
-    pub style: StyleRefinement,
+    pub style: StyleId,
     pub content: String,
-    pub heading: Option<u8>,
-    pub live: Option<Live>,
-}
-impl Styled for TextNode {
-    fn style(&mut self) -> &mut StyleRefinement {
-        &mut self.style
-    }
 }

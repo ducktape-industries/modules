@@ -1,78 +1,93 @@
-//! Chat owns conversations. Forge stores review anchors and queues deterministic system lines.
+//! Chat owns conversations: forge opens a change's channel, posts its
+//! system lines into it, and asks chat about the replies a review drew.
+
+use chat::{Block, MsgRow, Op, PostPolicy, Query, Reply};
+use guest::Principal;
+use guest::{Error, ExecCtx, QueryCtx, unexpected_reply};
+
 use crate::Change;
-use crate::ops::storage;
-use abi::Refusal;
-use chat::{Block, ChatMsg, ChatViewQuery, ChatViewReply, PostPolicy};
-use store::{Reads, Writes};
 
-pub const CHAT: &str = "chat";
+/// What a system line marks in a change's timeline. The line carries this
+/// event's code and nothing else: who acted and what they concluded live
+/// on forge's records, which the view words in the reader's language.
+pub enum Event {
+    Opened,
+    Closed,
+    Merged,
+    /// The review of this id; its line is the root its discussion hangs on.
+    Reviewed(u64),
+}
 
-pub fn create<S: Writes>(s: &mut S, repo: &str, change: &Change) {
+impl Event {
+    /// The code a `forge` block carries: `opened`, `closed`, `merged` or
+    /// `review <id>`.
+    fn code(&self) -> String {
+        match self {
+            Event::Opened => "opened".into(),
+            Event::Closed => "closed".into(),
+            Event::Merged => "merged".into(),
+            Event::Reviewed(id) => format!("review {id}"),
+        }
+    }
+}
+
+/// Opens the change's channel: chat creates it in this frame, and its
+/// refusal fails the op.
+pub fn create(ctx: &ExecCtx, repo: &str, change: &Change) {
     emit(
-        s,
-        ChatMsg::CreateChannel {
+        ctx,
+        Op::CreateChannel {
             channel_id: change.channel.clone(),
             name: format!("{repo}#{}", change.n),
             post_policy: PostPolicy::Open,
         },
     );
 }
-fn emit<S: Writes>(s: &mut S, message: ChatMsg) {
-    s.emit(CHAT, abi::encode(&message));
-}
-pub fn message_id<S: Writes>(s: &mut S) -> Result<String, Refusal> {
-    let key = b"system-message-seq";
-    let n: u64 = s
-        .get(key)
-        .map(|b| abi::decode(&b))
-        .transpose()?
-        .unwrap_or(0);
-    let n = n
-        .checked_add(1)
-        .ok_or_else(|| Refusal::new(abi::reason::EXHAUSTED, "system message counter exhausted"))?;
-    s.set(key.to_vec(), abi::encode(&n));
-    Ok(format!("forge:{n:016x}"))
-}
-pub fn post<S: Writes>(s: &mut S, change: &Change, message_id: String, text: String) {
+
+/// Posts one system line into the change's channel, in this frame: the
+/// event's code in a `forge` block, no name and no sentence.
+pub fn post(ctx: &ExecCtx, change: &Change, message_id: String, event: Event) {
     emit(
-        s,
-        ChatMsg::PostMessage {
+        ctx,
+        Op::PostMessage {
             channel_id: change.channel.clone(),
             message_id,
-            blocks: vec![Block::paragraph(text)],
+            blocks: vec![Block::Code {
+                lang: Some(crate::MODULE.into()),
+                text: event.code(),
+            }],
             thread: None,
         },
     );
 }
-pub fn message<S: Reads>(s: &S, id: &str) -> Result<Option<chat::MsgRow>, Refusal> {
-    let request = abi::encode(&ChatViewQuery::MessageById {
+
+fn emit(ctx: &ExecCtx, message: Op) {
+    ctx.emit(chat::MODULE, &message, guest::Reply::None);
+}
+
+/// The chat root a review posted, by its message id.
+pub fn message(ctx: &QueryCtx, id: &str) -> Result<Option<MsgRow>, Error> {
+    let query = Query::MessageById {
         message_id: id.into(),
-    });
-    let bytes = s.query(CHAT, request)?;
-    match abi::decode::<ChatViewReply>(&bytes).map_err(|e| storage(e.sentence))? {
-        ChatViewReply::Message(row) => Ok(row),
-        _ => Err(Refusal::new(
-            abi::reason::UNEXPECTED_REPLY,
-            "chat must answer MessageById with Message",
-        )),
+    };
+    match ctx.query::<Query, Reply>(chat::MODULE, &query)? {
+        Reply::Message(row) => Ok(row),
+        other => Err(unexpected_reply(chat::MODULE, "MessageById", &other)),
     }
 }
 
-pub fn attention<S: Reads>(
-    s: &S,
+/// The newest thread in `channel` that `principal` started and someone answered.
+pub fn attention(
+    ctx: &QueryCtx,
     channel: &str,
-    key: &[u8],
-) -> Result<Option<chat::MsgRow>, Refusal> {
-    let request = abi::encode(&ChatViewQuery::ThreadAttention {
+    principal: &Principal,
+) -> Result<Option<MsgRow>, Error> {
+    let query = Query::ThreadAttention {
         channel_id: channel.into(),
-        author: chat::Party::Key(key.to_vec()),
-    });
-    let bytes = s.query(CHAT, request)?;
-    match abi::decode::<ChatViewReply>(&bytes).map_err(|e| storage(e.sentence))? {
-        ChatViewReply::Attention(row) => Ok(row),
-        _ => Err(Refusal::new(
-            abi::reason::UNEXPECTED_REPLY,
-            "chat must answer ThreadAttention with Attention",
-        )),
+        author: principal.clone(),
+    };
+    match ctx.query::<Query, Reply>(chat::MODULE, &query)? {
+        Reply::Attention(row) => Ok(row),
+        other => Err(unexpected_reply(chat::MODULE, "ThreadAttention", &other)),
     }
 }

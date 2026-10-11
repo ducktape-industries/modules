@@ -6,8 +6,12 @@ pub(crate) mod changes;
 pub(crate) mod code;
 pub(crate) mod commits;
 pub(crate) mod components;
+pub(crate) mod conversation;
 pub(crate) mod diff;
 pub(crate) mod dock;
+pub(crate) mod highlight;
+pub(crate) mod markdown;
+pub(crate) mod readme;
 pub(crate) mod refs;
 pub(crate) mod repos;
 pub(crate) mod settings;
@@ -16,18 +20,21 @@ use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 
 use crate::Forge;
-use crate::state::{Dock, RepoTab};
-use components::{button, chip, heading, id, quiet};
+use crate::state::{Dock, Menu, Progress, RepoTab};
+use components::{button, heading, id, quiet};
 use forge::Reply;
+
+/// The About dock beside a repository.
+const DOCK_W: Pixels = px(300.);
+/// A page's side inset.
+pub(crate) const PAGE_X: Pixels = px(20.);
+/// A tab bar's height.
+pub(crate) const TAB_BAR_H: Pixels = px(38.);
+/// A fact's label column.
+const FACT_LABEL_W: Pixels = px(120.);
 
 pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let resized = cx.listener(|forge, size: &(Pixels, Pixels), _, cx| {
-        forge.measured(f32::from(size.0), f32::from(size.1), cx)
-    });
-    let shown = cx.listener(|forge, size: &(Pixels, Pixels), _, cx| {
-        forge.measured(f32::from(size.0), f32::from(size.1), cx)
-    });
     let mut columns = div()
         .id(id("forge-columns"))
         .flex()
@@ -36,10 +43,26 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
     // The rail switches between repositories; with none open, the list
     // itself is the screen, and a rail beside it would say it twice.
     if forge.layout.tree_visible() && forge.nav().repo.is_some() {
-        columns = columns.child(repos::rail(forge, cx, &theme));
+        columns = columns
+            .child(repos::rail(forge, cx, &theme))
+            .child(design::divider(
+                id("forge-rail-resize"),
+                "Resize the repository list",
+                &theme,
+                cx,
+                |forge: &mut Forge, dx| {
+                    forge.layout.tree += dx;
+                    forge.layout.clamp();
+                },
+            ));
     }
     columns = columns.child(main(forge, cx, &theme));
-    if let Some(dock) = forge.nav().dock.filter(|_| forge.layout.dock_visible()) {
+    // a change carries its own details; the About dock is a repository's
+    if let Some(dock) = forge
+        .nav()
+        .dock
+        .filter(|_| forge.layout.dock_visible() && forge.nav().change.is_none())
+    {
         columns = columns.child(panel(forge, dock, cx, &theme));
     }
     let root = div()
@@ -49,12 +72,25 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
         .size_full()
         .bg(theme.background)
         .text_color(theme.foreground)
-        .text_size(px(13.))
+        .text_size(design::text::BODY)
         .child(columns);
-    ducktape_view_guest::sensor(id("forge-viewport"), root)
-        .size_full()
-        .on_show(shown)
-        .on_resize(resized)
+    // an open dropdown floats in a modal overlay: Tab stays in it and a
+    // press outside closes it
+    let (label, floating) = match forge.menu {
+        None => ("", None),
+        Some(Menu::Ref) => ("Pick a ref", Some(ref_menu(forge, cx, &theme))),
+        Some(Menu::Head) => (
+            "Pick the default head",
+            Some(settings::head_menu(forge, cx, &theme)),
+        ),
+    };
+    let mut root = modal_overlay(id("forge-menu-overlay"), label, root, floating);
+    if let Some(menu) = forge.menu {
+        root = root.on_dismiss(
+            cx.listener(move |forge, _: &(), window, cx| forge.close_dropdown(menu, window, cx)),
+        );
+    }
+    root
 }
 
 fn main(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
@@ -65,7 +101,8 @@ fn main(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .flex()
         .flex_col()
         .min_h(px(0.));
-    if forge.layout.narrow() {
+    // the list itself has no rail to fold, so no bar over it
+    if forge.layout.narrow() && forge.nav().repo.is_some() {
         column = column.child(narrow_bar(forge, cx, theme));
     }
     if !forge.notice.is_empty() {
@@ -76,9 +113,12 @@ fn main(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
                 .p_2()
                 .bg(theme.danger_soft)
                 .text_color(theme.foreground)
-                .text_size(px(12.))
+                .text_size(design::text::SECONDARY)
                 .child(forge.notice.clone()),
         );
+    }
+    if forge.session.connected && forge.me_principal().is_none() {
+        column = column.child(no_account(theme));
     }
     let body: AnyElement = match (forge.nav().repo.clone(), forge.nav().change) {
         (None, _) => repos::overview(forge, cx, theme),
@@ -88,71 +128,85 @@ fn main(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     column.child(body).into_any_element()
 }
 
-/// The repository header: name, the ref picker, its clone address and tabs.
+/// Why every write control is off: the seated key holds no account. The
+/// same rule and wording pattern as chat's `NoAccount`.
+fn no_account(theme: &Theme) -> AnyElement {
+    div()
+        .id(id("forge-no-account"))
+        .m_2()
+        .p_3()
+        .bg(theme.warning_soft)
+        .text_color(theme.muted)
+        .text_size(design::text::SECONDARY)
+        .child(
+            "To create repositories, push, open changes or review, create or join an account in \
+             Account. You can read every repository without an account.",
+        )
+        .into_any_element()
+}
+
+/// The repository header: its name, what it is and its clone address,
+/// then the ref picker and the tabs on one bar.
 fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let name = forge.repo_name();
     let head = forge.head_name();
-    let mut header = div()
-        .id(id("forge-repo-header"))
-        .flex()
-        .flex_col()
-        .gap_2()
-        .px_4()
-        .pt_3()
-        .pb_2()
-        .border_b_1()
-        .border_color(theme.border);
-    let mut title = div()
-        .id(id("forge-repo-title"))
+    let mut tabs = div()
+        .id(id("forge-tabs"))
+        .h(TAB_BAR_H)
         .flex()
         .items_center()
-        .gap_2()
-        .child(heading(id("forge-repo-name"), name.clone(), 1, theme));
-    if let Some((info, _, _)) = forge.repo() {
-        let names = forge.names.ready();
-        let owner = names.map_or_else(
-            || crate::state::short(&abi::hex(&info.repo.owner)),
-            |names| names.key(&info.repo.owner),
-        );
-        title = title
-            .child(chip(
-                id("forge-repo-owner"),
-                format!("owner {owner}"),
-                theme.muted,
-                theme.surface_raised,
-            ))
-            .child(quiet(
-                format!(
-                    "{} · active at block {}",
-                    repos::refs(info.repo.refs_count),
-                    info.repo.last_activity
-                ),
-                theme,
-            ));
-    }
-    title = title
-        .child(div().flex_1())
-        .child(quiet(repo_link(forge, &name), theme));
-    header = header.child(title).child(ref_picker(forge, cx, theme));
-    let mut tabs = div().id(id("forge-tabs")).flex().gap_1();
+        .gap(design::space::XL)
+        .px(PAGE_X)
+        .border_b_1()
+        .border_color(theme.border)
+        .child(ref_picker(forge, cx, theme));
+    // manual: each tab reads on open, so the arrows only move and Enter opens
+    let active = forge.tab_cursor.unwrap_or(forge.nav().tab);
+    let at = |tab| {
+        RepoTab::ALL
+            .iter()
+            .position(|it| *it == tab)
+            .unwrap_or_default()
+    };
+    let mut list = design::composite(id("forge-tab-list"), Role::TabList, "Repository")
+        .orientation(design::Orientation::Horizontal)
+        .wrap()
+        .active(at(active), RepoTab::ALL.len())
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            forge.tab_cursor = Some(RepoTab::ALL[index]);
+            cx.notify();
+        }))
+        .on_press(
+            cx.processor(|forge, index: usize, _, cx| forge.open_tab(RepoTab::ALL[index], cx)),
+        )
+        .build()
+        .h_full()
+        .flex()
+        .items_center()
+        .gap(design::space::XL);
     for tab in RepoTab::ALL {
         let open = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_tab(tab, cx));
-        tabs = tabs.child(
-            button(
-                id(format!("forge-tab-{}", tab.slug())),
-                tab.label(),
-                theme,
-                open,
-            )
-            .selected(forge.nav().tab == tab),
-        );
+        let count = (tab == RepoTab::Changes)
+            .then(|| forge.open_changes())
+            .flatten();
+        list = list.child(components::tab(
+            id(format!("forge-tab-{}", tab.slug())),
+            tab.label(),
+            count,
+            forge.nav().tab == tab,
+            active == tab,
+            theme,
+            open,
+        ));
     }
     let about = cx.listener(|forge, _: &ClickEvent, _, cx| forge.toggle_dock(Dock::About, cx));
-    tabs = tabs.child(div().flex_1()).child(
+    tabs = tabs.child(list).child(div().flex_1()).child(
         button(id("forge-dock-about"), "About", theme, about)
-            .selected(forge.nav().dock == Some(Dock::About)),
+            .selected(forge.nav().dock == Some(Dock::About))
+            .kind(design::Kind::Quiet),
     );
     let body: AnyElement = match forge.nav().tab {
+        RepoTab::Readme => readme::render(forge, cx, theme),
         RepoTab::Code => code::render(forge, cx, theme),
         RepoTab::Commits => commits::render(forge, cx, theme),
         RepoTab::Changes => changes::render(forge, cx, theme),
@@ -165,8 +219,78 @@ fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(header.child(tabs))
+        .child(title(forge, &name, cx, theme))
+        .child(tabs)
         .child(body)
+        .into_any_element()
+}
+
+/// The repository's name, one mono line of what it is (owner, refs, the
+/// block it was last active at), and its address with Copy.
+fn title(forge: &Forge, name: &str, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+    let url = repo_link(forge, name);
+    let copy = cx.listener({
+        let (name, url) = (name.to_owned(), url.clone());
+        move |forge, _: &ClickEvent, _, cx| {
+            cx.host()
+                .notify::<ducktape_view_guest::methods::ClipboardWrite>(url.clone());
+            forge.copied = Some(name.clone());
+            cx.notify();
+        }
+    });
+    let copied = forge.copied.as_deref() == Some(name);
+    let mut title = div()
+        .id(id("forge-repo-header"))
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(design::space::MD)
+        .px(PAGE_X)
+        .pt(design::space::BLOCK)
+        .pb(design::space::XS)
+        .child(heading(id("forge-repo-name"), name.to_owned(), 1, theme));
+    if let Some((info, _, _)) = forge.repo() {
+        let owner = forge.principal_name(&info.repo.owner);
+        title = title.child(
+            div()
+                .id(id("forge-repo-owner"))
+                .flex()
+                .items_center()
+                .gap(design::space::XS)
+                .font_family(design::fonts::FAMILY_MONO)
+                .text_size(design::text::CAPTION)
+                .text_color(theme.muted)
+                .child(format!(
+                    "owner {owner} · {} · active",
+                    design::plural(info.repo.refs_count, "ref", "refs")
+                ))
+                .child(block_link(
+                    id("forge-repo-activity"),
+                    info.repo.last_activity,
+                    theme,
+                )),
+        );
+    }
+    title
+        .child(div().flex_1())
+        .child(
+            div()
+                .min_w(px(0.))
+                .truncate()
+                .font_family(design::fonts::FAMILY_MONO)
+                .text_size(design::text::CAPTION)
+                .text_color(theme.faint)
+                .child(url),
+        )
+        .child(
+            button(
+                id("forge-repo-copy"),
+                if copied { "Copied" } else { "Copy" },
+                theme,
+                copy,
+            )
+            .kind(design::Kind::Quiet),
+        )
         .into_any_element()
 }
 
@@ -174,58 +298,90 @@ fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
 /// minted by ducklink from the session's chain id (`<label>#<salt>`); a
 /// placeholder `duck://<network>/forge/<name>` while no chain is known.
 pub(crate) fn repo_link(forge: &Forge, name: &str) -> String {
-    forge
-        .session
-        .chain
-        .parse::<ducklink::ChainId>()
-        .ok()
-        .and_then(|chain| ducklink::Link::new(chain, "forge", vec![name.to_owned()]).ok())
-        .map(|link| link.to_string())
+    ducklink::mint(&forge.session.chain_id, forge::MODULE, &[name])
         .unwrap_or_else(|| format!("duck://<network>/forge/{name}"))
 }
 
-/// Branches and tags, default first; the picked one steers every screen.
-fn ref_picker(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let head = forge.head_name();
-    let default = forge.default_head();
-    let Some(refs) = forge.refs() else {
-        return quiet("Reading refs…", theme);
-    };
-    let mut ordered: Vec<&forge::RefInfo> = refs.iter().collect();
-    ordered.sort_by_key(|info| (info.name != default, info.name.clone()));
-    let mut picker = div()
-        .id(id("forge-ref-picker"))
-        .flex()
-        .flex_wrap()
-        .gap_1()
-        .items_center()
-        .child(quiet("Ref", theme));
-    for info in ordered.into_iter().take(24) {
-        let name = info.name.clone();
-        let pick = cx.listener({
-            let name = name.clone();
-            move |forge, _: &ClickEvent, _, cx| forge.pick_ref(name.clone(), cx)
-        });
-        picker = picker.child(
-            button(
-                id(format!("forge-ref-{}", components::path_text(&name))),
-                components::ref_label(&name),
-                theme,
-                pick,
-            )
-            .selected(name == head),
-        );
-    }
-    picker.into_any_element()
+/// `duck://explorer/block/<height>`: the host's short link to a view on
+/// this connection, Explorer at that block.
+pub(crate) fn block_href(height: u64) -> String {
+    format!("duck://explorer/block/{height}")
 }
 
-/// On a narrow window the rail and the dock become toggles.
+/// `block 1,024`, opening Explorer at that block.
+pub(crate) fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -> Stateful<Div> {
+    let label = format!("block {}", design::grouped(height));
+    design::link(id, label.clone(), block_href(height), theme)
+        .aria_label(format!("Open {label} in Explorer"))
+}
+
+/// The picked ref as a dropdown at the head of the tab bar: branches, the
+/// default first, then tags. The pick steers every tab.
+fn ref_picker(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+    let head = forge.head_name();
+    let label = match forge.refs() {
+        Some([]) => "no refs".to_owned(),
+        _ => components::ref_label(&head),
+    };
+    components::dropdown(
+        Menu::Ref.key(),
+        label,
+        forge.menu == Some(Menu::Ref),
+        theme,
+        cx.listener(|forge, event: &ClickEvent, window, cx| {
+            forge.open_dropdown(Menu::Ref, event, window, cx)
+        }),
+    )
+}
+
+/// The ref picker's menu: branches, the default first, then tags.
+fn ref_menu(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+    let head = forge.head_name();
+    let default = forge.default_head();
+    let mut items = Vec::new();
+    let mut ordered: Vec<&forge::RefInfo> = forge.refs().unwrap_or_default().iter().collect();
+    ordered.sort_by_key(|info| (info.name != default, info.name.clone()));
+    let (tags, branches): (Vec<_>, Vec<_>) = ordered
+        .into_iter()
+        .partition(|info| info.name.starts_with(b"refs/tags/"));
+    for (label, group) in [("Branches", branches), ("Tags", tags)] {
+        if group.is_empty() {
+            continue;
+        }
+        items.push(components::menu_label(label, theme));
+        for info in group {
+            let name = info.name.clone();
+            let pick = cx.processor({
+                let name = name.clone();
+                move |forge, (): (), window, cx| {
+                    forge.pick_ref(name.clone(), cx);
+                    forge.close_dropdown(Menu::Ref, window, cx);
+                }
+            });
+            items.push(components::menu_item(
+                id(format!("forge-ref-{}", components::path_text(&name))),
+                components::ref_label(&name),
+                (name == default).then_some("default"),
+                name == head,
+                theme,
+                move |window, app| pick((), window, app),
+            ));
+        }
+    }
+    if items.is_empty() {
+        items.push(components::menu_label("Reading refs…", theme));
+    }
+    components::menu(Menu::Ref, "Refs", items, forge, cx, theme)
+}
+
+/// On a narrow window an open repository's rail and a change's details
+/// fold into toggles.
 fn narrow_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let tree = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.layout.tree_open = !forge.layout.tree_open;
         cx.notify();
     });
-    let dock = cx.listener(|forge, _: &ClickEvent, _, cx| {
+    let details = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.layout.dock_open = !forge.layout.dock_open;
         cx.notify();
     });
@@ -239,11 +395,16 @@ fn narrow_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
         .border_color(theme.border)
         .child(
             button(id("forge-toggle-rail"), "Repositories", theme, tree)
+                .kind(design::Kind::Outline)
                 .selected(forge.layout.tree_open),
         )
-        .child(
-            button(id("forge-toggle-dock"), "Panel", theme, dock).selected(forge.layout.dock_open),
-        )
+        .when(forge.nav().change.is_some(), |bar| {
+            bar.child(
+                button(id("forge-toggle-dock"), "Details", theme, details)
+                    .kind(design::Kind::Outline)
+                    .selected(forge.layout.dock_open),
+            )
+        })
         .into_any_element()
 }
 
@@ -252,13 +413,10 @@ fn panel(forge: &Forge, dock: Dock, cx: &mut Context<Forge>, theme: &Theme) -> A
     let close = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.toggle_dock(dock, cx));
     let body: AnyElement = match dock {
         Dock::About => about(forge, theme),
-        Dock::Overview => dock::overview(forge, theme),
-        Dock::Comments => dock::comments(forge, cx, theme),
-        Dock::MergeStatus => dock::merge_status(forge, theme),
     };
     div()
         .id(id("forge-dock"))
-        .w(px(300.))
+        .w(DOCK_W)
         .flex()
         .flex_col()
         .min_h(px(0.))
@@ -294,7 +452,6 @@ fn about(forge: &Forge, theme: &Theme) -> AnyElement {
     let Some((info, bounds, writers)) = forge.repo() else {
         return quiet("Reading this repository…", theme);
     };
-    let names = forge.names.ready();
     let mut column = div()
         .id(id("forge-about"))
         .flex()
@@ -313,14 +470,7 @@ fn about(forge: &Forge, theme: &Theme) -> AnyElement {
             },
             theme,
         ))
-        .child(fact(
-            "Owner",
-            names.map_or_else(
-                || crate::state::short(&abi::hex(&info.repo.owner)),
-                |names| names.key(&info.repo.owner),
-            ),
-            theme,
-        ))
+        .child(fact("Owner", forge.principal_name(&info.repo.owner), theme))
         .child(fact("Page size", bounds.page_size.to_string(), theme))
         .child(fact(
             "Inline blob bound",
@@ -332,13 +482,7 @@ fn about(forge: &Forge, theme: &Theme) -> AnyElement {
         column = column.child(quiet("Only the owner writes here.", theme));
     }
     for key in &writers.items {
-        column = column.child(quiet(
-            names.map_or_else(
-                || crate::state::short(&abi::hex(key)),
-                |names| names.key(key),
-            ),
-            theme,
-        ));
+        column = column.child(quiet(forge.principal_name(key), theme));
     }
     column.into_any_element()
 }
@@ -347,10 +491,10 @@ pub(crate) fn fact(label: &str, value: impl Into<String>, theme: &Theme) -> AnyE
     div()
         .flex()
         .gap_2()
-        .text_size(px(12.))
+        .text_size(design::text::SECONDARY)
         .child(
             div()
-                .w(px(120.))
+                .w(FACT_LABEL_W)
                 .text_color(theme.muted)
                 .child(label.to_owned()),
         )
@@ -372,7 +516,14 @@ pub(crate) fn pending(forge: &Forge, scope: &str, theme: &Theme) -> AnyElement {
         .px_2()
         .py_1();
     for op in ops {
-        let failed = !op.error.is_empty();
+        let (tone, status) = match &op.progress {
+            Progress::Submitting => (theme.surface_raised, "Submitting…".to_owned()),
+            Progress::Accepted => (
+                theme.surface_raised,
+                "Waiting for the next block…".to_owned(),
+            ),
+            Progress::Refused(sentence) => (theme.danger_soft, format!("Refused: {sentence}")),
+        };
         column = column.child(
             div()
                 .id(id(format!("forge-pending-{}", op.id)))
@@ -380,23 +531,10 @@ pub(crate) fn pending(forge: &Forge, scope: &str, theme: &Theme) -> AnyElement {
                 .items_center()
                 .gap_2()
                 .p_1()
-                .bg(if failed {
-                    theme.danger_soft
-                } else {
-                    theme.surface_raised
-                })
-                .text_size(px(12.))
+                .bg(tone)
+                .text_size(design::text::SECONDARY)
                 .child(op.label.clone())
-                .child(quiet(
-                    if failed {
-                        format!("Refused: {}", op.error)
-                    } else if op.accepted {
-                        "Waiting for the next block…".to_owned()
-                    } else {
-                        "Submitting…".to_owned()
-                    },
-                    theme,
-                )),
+                .child(quiet(status, theme)),
         );
     }
     column.into_any_element()
@@ -413,24 +551,29 @@ pub(crate) fn staged<'a>(
 ) -> Result<&'a Reply, AnyElement> {
     match forge.stage(query) {
         crate::Stage::Ready(reply) => Ok(reply),
-        crate::Stage::Loading => Err(components::loading(
-            id(format!("{element_id}-loading")),
-            loading_text,
-            theme,
-        )),
-        crate::Stage::Failed(refusal) => {
-            let query = query.clone();
-            let retry =
-                cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
-            Err(components::refused(
-                id(element_id.to_owned()),
-                refusal.sentence.clone(),
-                theme,
-                retry,
-            )
-            .into_any_element())
-        }
+        crate::Stage::Loading => Err(reading(element_id, loading_text, theme)),
+        crate::Stage::Failed(refusal) => Err(refused(query, element_id, refusal, cx, theme)),
     }
+}
+
+/// The line a read shows until it lands.
+pub(crate) fn reading(element_id: &str, text: &str, theme: &Theme) -> AnyElement {
+    components::loading(id(format!("{element_id}-loading")), text, theme)
+}
+
+/// A refused read: the program's sentence, and a Retry that asks again.
+pub(crate) fn refused(
+    query: &forge::Query,
+    element_id: &str,
+    refusal: &ducktape_view_guest::host::Error,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> AnyElement {
+    let query = query.clone();
+    let retry = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
+    ducktape_view_guest::design::refused(element_id, refusal.message.clone(), theme, retry)
+        .m_2()
+        .into_any_element()
 }
 
 /// A scrolling content column, the shape every screen body uses.
@@ -451,29 +594,4 @@ pub(crate) fn bold(text: impl Into<String>) -> AnyElement {
         .font_weight(FontWeight::MEDIUM)
         .child(text.into())
         .into_any_element()
-}
-
-/// A prose body — README, change bodies, change overview. The host paints no
-/// markdown surface (forge-view.asks.md), so the source is shown as it was
-/// written: paragraphs split on blank lines, nothing swallowed.
-pub(crate) fn prose(name: &str, text: &str) -> AnyElement {
-    let mut column = div()
-        .id(id(name.to_owned()))
-        .flex()
-        .flex_col()
-        .gap_2()
-        .text_size(px(13.));
-    for (at, paragraph) in text
-        .split("\n\n")
-        .map(str::trim)
-        .filter(|paragraph| !paragraph.is_empty())
-        .enumerate()
-    {
-        column = column.child(
-            div()
-                .id(id(format!("{name}-{at}")))
-                .child(paragraph.to_owned()),
-        );
-    }
-    column.into_any_element()
 }

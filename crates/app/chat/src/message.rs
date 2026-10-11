@@ -2,107 +2,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use std::collections::BTreeMap;
-
-pub type AccountNumber = u64;
-
-/// Reconstruct a committed body from the original payload and its assigned
-/// key resolutions. Every distinct key consumes one account, in appearance
-/// order; repeated keys reuse that resolution. This never consults identity,
-/// whose current key ownership may differ from the committed operation's.
-pub fn resolve_assigned_mentions(
-    mut blocks: Vec<Block>,
-    key_mentions: &[AccountNumber],
-) -> Result<Vec<Block>, String> {
-    let mut accounts = key_mentions.iter();
-    let mut resolved = BTreeMap::new();
-    for block in &mut blocks {
-        let spans = match block {
-            Block::Paragraph(spans) | Block::Quote(spans) => spans,
-            Block::Code { .. } | Block::Divider => continue,
-        };
-        for span in spans {
-            for mark in &mut span.marks {
-                let Mark::Mention(Party::Key(key)) = mark else {
-                    continue;
-                };
-                let account = match resolved.get(key) {
-                    Some(account) => *account,
-                    None => {
-                        let account = *accounts.next().ok_or("missing assigned mention account")?;
-                        if account == 0 {
-                            return Err("assigned mention account is zero".into());
-                        }
-                        resolved.insert(key.clone(), account);
-                        account
-                    }
-                };
-                *mark = Mark::Mention(Party::Account(account));
-            }
-        }
-    }
-    if accounts.next().is_some() {
-        return Err("unused assigned mention accounts".into());
-    }
-    Ok(blocks)
-}
-
-/// who acts on chat state — the ONE party shape every author, owner, member,
-/// huddle participant, reactor and mention target takes.
-///
-/// the module derives the acting party from `Env.origin` at write time, never
-/// from a payload: a member key resolves through identity to the account
-/// holding it, a program origin IS its account, a signed key that identity
-/// does not know stays a key (a node operating a channel under its own key
-/// holds no account and is never spelled as one), a module is itself. an
-/// account is the stable identity a person's many keys and a keyless program
-/// share, so it is what relations and rosters name whenever one exists.
-#[derive(
-    Serialize,
-    Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum Party {
-    /// an identity account: a resolved member key, or the program account the
-    /// host ran the write as.
-    Account(AccountNumber),
-    /// an authenticated signing key that holds no account (non-empty).
-    Key(Vec<u8>),
-    /// a module that emitted the write as a follow-up.
-    Module(String),
-    /// genesis / system-internal.
-    System,
-}
-
-impl Party {
-    /// the account this party is, if it is one — the recipient an attribution
-    /// relation can name. a key, a module and the system are not accounts.
-    pub fn account(&self) -> Option<AccountNumber> {
-        match self {
-            Party::Account(account) => Some(*account),
-            Party::Key(_) | Party::Module(_) | Party::System => None,
-        }
-    }
-
-    /// a person's party — an account or a key — as opposed to trusted code.
-    /// post policy, the `:` channel namespace, creation caps and huddles all
-    /// distinguish people from modules and the system on exactly this line.
-    pub fn is_person(&self) -> bool {
-        match self {
-            Party::Account(_) | Party::Key(_) => true,
-            Party::Module(_) | Party::System => false,
-        }
-    }
-}
+use crate::Principal;
 
 /// inline formatting applied to a [`Span`]. mentions are structured so
 /// hook parsing stays deterministic.
@@ -112,11 +12,11 @@ pub enum Mark {
     Bold,
     Italic,
     Link(String),
-    /// a mention NAMES AN ACCOUNT: `Party::Account` names it directly and must
-    /// exist; `Party::Key` names the account holding that key and is resolved
-    /// at write time; a module or system mention is rejected. a write whose
-    /// mention resolves to no account is rejected whole.
-    Mention(Party),
+    /// a mention names a principal: `<@7>` an account.
+    /// chat keeps it as typed; a view names it at render time.
+    Mention(Principal),
+    /// an inline code span: rendered mono, never parsed further.
+    Code,
 }
 
 /// a run of text with uniform marks.
@@ -154,9 +54,47 @@ impl Block {
     }
 }
 
+/// A one-level list item's marker: `- ` / `* ` bullets and `1. ` numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListMarker {
+    Bullet,
+    Ordered(u64),
+}
+
+/// A paragraph that opens with a list marker, read at display time: the
+/// marker and the item's spans without it. Chat keeps the line as typed —
+/// a list item is a [`Block::Paragraph`] on the wire — so a view reads it
+/// here. One level: no nesting, no checkboxes; a marker inside a mark
+/// (`**- x**`) is text.
+pub fn list_item(spans: &[Span]) -> Option<(ListMarker, Vec<Span>)> {
+    let first = spans.first().filter(|span| span.marks.is_empty())?;
+    let (marker, rest) = if let Some(rest) = first
+        .text
+        .strip_prefix("- ")
+        .or_else(|| first.text.strip_prefix("* "))
+    {
+        (ListMarker::Bullet, rest)
+    } else {
+        let digits = first.text.bytes().take_while(u8::is_ascii_digit).count();
+        let rest = first.text[digits..].strip_prefix(". ")?;
+        (
+            ListMarker::Ordered(first.text[..digits].parse().ok()?),
+            rest,
+        )
+    };
+    let rest = rest.trim_start();
+    let mut item: Vec<Span> = (!rest.is_empty())
+        .then(|| Span::plain(rest))
+        .into_iter()
+        .collect();
+    item.extend(spans[1..].iter().cloned());
+    (!item.is_empty()).then_some((marker, item))
+}
+
 /// Parse composer text into wire `Block`s: fenced ```code``` (optional language),
 /// `>` quotes, `---`/`***` dividers, and paragraphs with inline `**bold**` /
-/// `__bold__`, `*italic*` / `_italic_`, and bare `http(s)` links. Everything the
+/// `__bold__`, `*italic*` / `_italic_`, `` `code` ``, `<@7>` mentions,
+/// `[label](url)` references and bare `http(s)`/`duck` links. Everything the
 /// `chat` wire enums can round-trip — nothing client-only.
 ///
 /// A SINGLE NEWLINE IS A HARD BREAK, not CommonMark's soft break. The composer
@@ -167,8 +105,6 @@ impl Block {
 /// A rendered break has to be a block boundary rather than a `\n` inside one:
 /// a marked-up line renders as a single rich-text paragraph (`run_spans`),
 /// one paragraph widget per typed line.
-/// Parse canonical `<@account>` and `<@key:hex>` tokens into mention marks.
-/// Display names are never interpreted as recipient identities.
 pub fn parse_message(input: &str) -> Vec<Block> {
     let lines: Vec<&str> = input.lines().collect();
     let mut blocks = Vec::new();
@@ -246,7 +182,9 @@ fn push_paragraph_block(lines: &[&str], start: usize, blocks: &mut Vec<Block>) -
 /// Scan a single line of text for inline marks, preserving mention identity
 /// inside emphasis. Bare `http(s)://` and `duck://`
 /// runs become `Link`s, as does a `[label](url)` reference — one span whose
-/// text is the label and whose mark carries the target.
+/// text is the label and whose mark carries the target. A backtick run opens
+/// a code span that only a run of the same length closes; nothing inside it
+/// is a mark, and an unclosed run stays the plain text it was typed as.
 pub fn inline_spans(text: &str) -> Vec<Span> {
     let chars: Vec<char> = text.chars().collect();
     let mut spans: Vec<Span> = Vec::new();
@@ -257,7 +195,14 @@ pub fn inline_spans(text: &str) -> Vec<Span> {
         let reference = reference_at(&chars, index);
         let bold = fenced(&chars, index, "**").or_else(|| fenced(&chars, index, "__"));
         let italic = fenced(&chars, index, "*").or_else(|| fenced(&chars, index, "_"));
-        if let Some((target, len)) = mention_at(&chars, index) {
+        if let Some((inner, len)) = code_at(&chars, index) {
+            flush_plain(&mut plain, &mut spans);
+            spans.push(Span {
+                text: inner,
+                marks: vec![Mark::Code],
+            });
+            index += len;
+        } else if let Some((target, len)) = mention_at(&chars, index) {
             flush_plain(&mut plain, &mut spans);
             let handle: String = chars[index..index + len].iter().collect();
             spans.push(Span {
@@ -320,8 +265,10 @@ fn flush_plain(plain: &mut String, spans: &mut Vec<Span>) {
 /// (`backend/duck_uri.rs`) and refuses what it cannot open, so the tokenizer
 /// marks the run and decides nothing about where it points.
 fn url_len(chars: &[char], at: usize) -> Option<usize> {
-    let rest: String = chars[at..].iter().collect();
-    let starts_link = LINK_SCHEMES.iter().any(|scheme| rest.starts_with(scheme));
+    let starts_link = LINK_SCHEMES.iter().any(|scheme| {
+        let mut rest = chars[at..].iter();
+        scheme.chars().all(|c| rest.next() == Some(&c))
+    });
     if !starts_link {
         return None;
     }
@@ -379,24 +326,50 @@ fn reference_at(chars: &[char], at: usize) -> Option<(String, String, usize)> {
     linkable.then(|| (label, target, url_end + 1 - at))
 }
 
-pub fn mention_at(chars: &[char], at: usize) -> Option<(Party, usize)> {
+/// A canonical `<@account>` token at `at` as a mention mark, and its length.
+/// Display names are never interpreted as recipient identities.
+pub fn mention_at(chars: &[char], at: usize) -> Option<(Principal, usize)> {
     let opens = chars.get(at) == Some(&'<') && chars.get(at + 1) == Some(&'@');
     if !opens {
         return None;
     }
     let end = chars[at + 2..].iter().position(|c| *c == '>')? + at + 2;
     let id: String = chars[at + 2..end].iter().collect();
-    let party = match id.strip_prefix("key:") {
-        Some(key) => Party::Key(hex_bytes(key)?),
-        None => {
-            let decimal = !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit());
-            if !decimal {
-                return None;
-            }
-            Party::Account(id.parse().ok()?)
+    let decimal = !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit());
+    if !decimal {
+        return None;
+    }
+    Some((Principal::Account(id.parse().ok()?), end + 1 - at))
+}
+
+/// If `chars[at..]` opens a backtick run that a later run of exactly the same
+/// length closes (CommonMark's code span), the enclosed text and the total
+/// consumed length. One space is stripped from both ends when both are there,
+/// so ``` `` `a` `` ``` is `` `a` ``.
+fn code_at(chars: &[char], at: usize) -> Option<(String, usize)> {
+    let open = chars[at..].iter().take_while(|&&c| c == '`').count();
+    if open == 0 {
+        return None;
+    }
+    let mut cursor = at + open;
+    while cursor < chars.len() {
+        let run = chars[cursor..].iter().take_while(|&&c| c == '`').count();
+        if run == open {
+            let inner: String = chars[at + open..cursor].iter().collect();
+            let padded = inner.len() > 1
+                && inner.starts_with(' ')
+                && inner.ends_with(' ')
+                && !inner.trim().is_empty();
+            let inner = if padded {
+                inner[1..inner.len() - 1].to_owned()
+            } else {
+                inner
+            };
+            return Some((inner, cursor + run - at));
         }
-    };
-    Some((party, end + 1 - at))
+        cursor += run.max(1);
+    }
+    None
 }
 
 /// If `chars[at..]` opens with `marker` and has a later closing `marker`, the
@@ -449,71 +422,4 @@ fn fenced(chars: &[char], at: usize, marker: &str) -> Option<(String, usize)> {
     None
 }
 
-/// An even-length all-hex string back to its bytes; anything else is not hex.
-fn hex_bytes(hex: &str) -> Option<Vec<u8>> {
-    let looks_hex = !hex.is_empty()
-        && hex.len().is_multiple_of(2)
-        && hex.bytes().all(|b| b.is_ascii_hexdigit());
-    if !looks_hex {
-        return None;
-    }
-    (0..hex.len())
-        .step_by(2)
-        .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).ok())
-        .collect()
-}
-
 const LINK_SCHEMES: [&str; 3] = ["http://", "https://", "duck://"];
-
-/// Resolve display labels for mention tokens while preserving fenced code and byte ranges.
-pub fn draft_mentions(
-    text: &str,
-    label: impl Fn(&Party) -> String,
-) -> (String, Vec<(std::ops::Range<usize>, Party)>) {
-    let chars: Vec<char> = text.chars().collect();
-    let mut display = String::new();
-    let mut mentions = Vec::new();
-    let mut index = 0;
-    while index < chars.len() {
-        if let Some(consumed) = code_fence_len(&chars, index) {
-            display.extend(&chars[index..index + consumed]);
-            index += consumed;
-            continue;
-        }
-        if let Some((party, consumed)) = mention_at(&chars, index) {
-            let start = display.len();
-            display.push_str(&label(&party));
-            mentions.push((start..display.len(), party));
-            index += consumed;
-        } else {
-            display.push(chars[index]);
-            index += 1;
-        }
-    }
-    (display, mentions)
-}
-
-/// Fenced code is literal, including token-shaped text inside it.
-fn code_fence_len(chars: &[char], at: usize) -> Option<usize> {
-    let line_start = at == 0 || chars[at - 1] == '\n';
-    if !line_start {
-        return None;
-    }
-    let mut lines = chars[at..].split_inclusive(|ch| *ch == '\n');
-    let opener = lines.next()?;
-    let opener_text: String = opener.iter().collect();
-    let opens_fence = opener_text.trim().starts_with("```");
-    if !opens_fence {
-        return None;
-    }
-    let mut consumed = opener.len();
-    for line in lines {
-        consumed += line.len();
-        let line_text: String = line.iter().collect();
-        let closes_fence = line_text.trim() == "```";
-        if closes_fence {
-            break;
-        }
-    }
-    Some(consumed)
-}

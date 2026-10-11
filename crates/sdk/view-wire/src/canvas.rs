@@ -1,5 +1,6 @@
 //! Declarative geometry. Commands contain copied values, never host callbacks.
-use crate::Budgets;
+use crate::style_sanitize::{clamp_finite, sanitize_hsla};
+use crate::{Budgets, MAX_PIXELS};
 use gpui::Hsla;
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
@@ -143,7 +144,11 @@ pub(super) fn decode_parts<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>
     deserializer.deserialize_seq(Parts(std::marker::PhantomData))
 }
 
+/// Bounds a canvas's numbers and spends its parts from the frame's canvas
+/// budget. What does not fit, and what is drawn inside a group past 32
+/// deep, is not drawn: the canvas reports one cut.
 pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets) {
+    let mut cut = commands.len() > budgets.canvas_parts;
     commands.truncate(budgets.canvas_parts.min(MAX_CANVAS_PARTS));
     let mut scales = vec![1.0_f32];
     let mut skipped = 0usize;
@@ -152,11 +157,12 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
             match command {
                 CanvasCommand::Push { .. } => skipped += 1,
                 CanvasCommand::Pop => skipped -= 1,
-                _ => {}
+                CanvasCommand::Draw { .. } => cut = true,
             }
             return false;
         }
         if budgets.canvas_parts == 0 {
+            cut = true;
             return false;
         }
         budgets.canvas_parts -= 1;
@@ -175,7 +181,8 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 angle(rotate);
                 let parent = *scales.last().unwrap();
                 for value in scale.iter_mut() {
-                    *value = finite(*value).clamp(0.0, (8192.0 / parent).min(8192.0));
+                    *value =
+                        finite_or_zero(*value).clamp(0.0, (MAX_PIXELS / parent).min(MAX_PIXELS));
                 }
                 scales.push(if clip.is_some() {
                     1.0
@@ -202,15 +209,17 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 ..
             } => {
                 if let Some(color) = fill {
-                    hsla(color);
+                    sanitize_hsla(color);
                 }
                 if let Some(stroke) = stroke {
-                    hsla(&mut stroke.color);
+                    sanitize_hsla(&mut stroke.color);
                     size(&mut stroke.width);
-                    stroke.dash.truncate(budgets.canvas_parts.min(256));
+                    let dashes = budgets.canvas_parts.min(256);
+                    cut |= stroke.dash.len() > dashes;
+                    stroke.dash.truncate(dashes);
                     budgets.canvas_parts -= stroke.dash.len();
                     for value in &mut stroke.dash {
-                        *value = finite(*value).clamp(0.01, 8192.0);
+                        *value = finite_or_zero(*value).clamp(0.01, MAX_PIXELS);
                     }
                     if !stroke.dash.is_empty() {
                         stroke.dash_offset %= stroke.dash.len() as u32;
@@ -235,6 +244,7 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                         point(to);
                     }
                     CanvasShape::Path(segments) => {
+                        cut |= segments.len() > budgets.canvas_parts;
                         segments.truncate(budgets.canvas_parts);
                         budgets.canvas_parts -= segments.len();
                         for segment in segments {
@@ -300,38 +310,34 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
         }
         true
     });
+    budgets.cut(|cuts| &mut cuts.canvases, usize::from(cut));
 }
-fn finite(value: f32) -> f32 {
+fn finite_or_zero(value: f32) -> f32 {
     if value.is_finite() { value } else { 0.0 }
 }
 fn coordinate(value: &mut f32) {
-    *value = finite(*value).clamp(-8192.0, 8192.0);
+    *value = finite_or_zero(*value).clamp(-MAX_PIXELS, MAX_PIXELS);
 }
 fn size(value: &mut f32) {
-    *value = finite(*value).clamp(0.0, 8192.0);
+    clamp_finite(value, 0.0, MAX_PIXELS);
 }
 fn angle(value: &mut f32) {
-    *value = finite(*value).clamp(-std::f32::consts::TAU * 16.0, std::f32::consts::TAU * 16.0);
+    *value =
+        finite_or_zero(*value).clamp(-std::f32::consts::TAU * 16.0, std::f32::consts::TAU * 16.0);
 }
 fn point(value: &mut [f32; 2]) {
     value.iter_mut().for_each(coordinate);
-}
-fn hsla(value: &mut Hsla) {
-    value.h = finite(value.h).clamp(0.0, 1.0);
-    value.s = finite(value.s).clamp(0.0, 1.0);
-    value.l = finite(value.l).clamp(0.0, 1.0);
-    value.a = finite(value.a).clamp(0.0, 1.0);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Budgets, Node, decode, encode};
+    use crate::{Budgets, Node, StyleId, decode, encode};
 
     fn node(commands: Vec<CanvasCommand>) -> Node {
         Node::Canvas {
             commands,
-            style: Default::default(),
+            style: StyleId(0),
         }
     }
     fn path(parts: usize) -> CanvasCommand {
@@ -356,7 +362,7 @@ mod tests {
             CanvasCommand::Pop,
         ];
         let original = commands.clone();
-        let mut budget = Budgets::frame();
+        let mut budget = Budgets::frame(&crate::styles::testing::held());
         sanitize(&mut commands, &mut budget);
         assert_eq!(
             commands, original,
@@ -385,7 +391,7 @@ mod tests {
 
     #[test]
     fn sanitizer_shares_parts_budget_and_bounds_numbers() {
-        let mut budget = Budgets::frame();
+        let mut budget = Budgets::frame(&crate::styles::testing::held());
         let mut first = vec![path(MAX_CANVAS_PARTS - 2)];
         sanitize(&mut first, &mut budget);
         let mut second = vec![
@@ -407,6 +413,7 @@ mod tests {
         ];
         sanitize(&mut second, &mut budget);
         assert_eq!(budget.canvas_parts, 0);
+        assert_eq!(budget.cuts.canvases, 1, "the second canvas lost its path");
         assert_eq!(
             second,
             vec![CanvasCommand::Draw {
@@ -439,7 +446,10 @@ mod tests {
         commands.push(path(1));
         commands.extend(vec![CanvasCommand::Pop; 40]);
         commands.push(path(1));
-        sanitize(&mut commands, &mut Budgets::frame());
+        sanitize(
+            &mut commands,
+            &mut Budgets::frame(&crate::styles::testing::held()),
+        );
         let mut depth = 0;
         let mut scale = 1.0;
         for command in &commands {
@@ -462,7 +472,10 @@ mod tests {
         assert_eq!(depth, 0);
         assert!(matches!(commands.last(), Some(CanvasCommand::Draw { .. })));
         let mut again = commands.clone();
-        sanitize(&mut again, &mut Budgets::frame());
+        sanitize(
+            &mut again,
+            &mut Budgets::frame(&crate::styles::testing::held()),
+        );
         assert_eq!(commands, again);
     }
 }

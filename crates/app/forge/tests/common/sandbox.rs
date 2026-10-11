@@ -1,95 +1,127 @@
-// forge's store with chat beside it: the sibling forge queries, and where its emissions land when a block delivers them.
+//! forge and chat on one [`MockChain`]: chat is the sibling forge queries,
+//! and where its emissions land, in the frame that emitted them. The
+//! chain's roster is identity's: each key the account it holds, the
+//! harness keys ([`HOLDERS`](super::HOLDERS)) from the start, each module
+//! its account ([`MODULES`]) and each agent its standing ([`agent`](MemorySandbox::agent)).
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use abi::{BlobId, HashKind, HostOp, HostReply, ItemRef, ProgramId, Refusal, reason};
-use store::{Memory, Reads, Writes};
+use abi::role::identity::{Category, Kind, Profile, Standing};
+use guest::{Env, Error, MockChain, Origin, Principal};
+use guest::{ExecCtx, MockHost, QueryCtx};
 
 pub struct MemorySandbox {
-    pub forge: Memory,
-    pub chat: Rc<RefCell<Memory>>,
+    pub chain: MockChain,
+    pub forge: MockHost,
+    pub chat: MockHost,
+}
+
+/// The person every agent of the roster is managed by.
+pub const AGENT_MANAGER: u64 = 11;
+
+/// The account identity registered for each module.
+pub const MODULES: [(&str, u64); 2] = [("forge", 900), ("chat", 901)];
+
+/// The module whose account `number` is.
+pub fn module_of(number: u64) -> Option<&'static str> {
+    MODULES
+        .iter()
+        .find(|(_, account)| *account == number)
+        .map(|(module, _)| *module)
 }
 
 impl Default for MemorySandbox {
     fn default() -> Self {
-        let chat = Rc::new(RefCell::new(Memory::default()));
-        let sibling = chat.clone();
-        let mut forge = Memory::default();
-        forge.siblings.insert(
-            "chat".into(),
-            Box::new(move |request| {
-                let reply = chat::query(&*sibling.borrow(), 0, abi::decode(request)?)?;
-                Ok(abi::encode(&reply))
-            }),
-        );
-        MemorySandbox { forge, chat }
+        let mut chain = MockChain::default();
+        let forge = chain.seat::<forge::Forge>("forge");
+        let chat = chain.seat::<chat::Chat>("chat");
+        for (key, account) in super::HOLDERS {
+            chain.hold(key, account);
+        }
+        for (module, number) in MODULES {
+            chain.register(module, number);
+        }
+        MemorySandbox { chain, forge, chat }
     }
 }
 
 impl MemorySandbox {
-    /// Runs one chat message directly, as a key or module would in its own block.
-    pub fn chat_execute(&self, frame: &chat::Frame, msg: chat::ChatMsg) -> Result<(), Refusal> {
-        chat::execute(&mut *self.chat.borrow_mut(), frame, msg)
+    /// Seats `key` in `account`, as identity would.
+    pub fn hold(&self, key: &[u8], account: u64) {
+        self.chain.hold(key, account);
     }
 
-    pub fn chat_query(&self, q: chat::ChatViewQuery) -> Result<chat::ChatViewReply, Refusal> {
-        chat::query(&*self.chat.borrow(), 0, q)
+    /// An agent [`AGENT_MANAGER`] manages, with its standing.
+    pub fn agent(&self, number: u64, standing: Standing) {
+        self.chain.profile(Profile {
+            number,
+            name: format!("account {number}"),
+            kind: Kind::Managed {
+                manager: AGENT_MANAGER,
+                category: Category::Agent,
+                standing,
+            },
+        });
     }
 
-    /// Delivers what forge emitted so far to chat, the way the kernel delivers
-    /// the previous block's queue: as forge, at the delivering height.
-    pub fn deliver(&mut self, height: u64, time: u64) -> Vec<Result<(), Refusal>> {
-        let frame = chat::Frame {
-            party: chat::Party::Module("forge".into()),
+    /// forge's env in a block at `height`, called by the chain itself.
+    fn env(&self, height: u64) -> Env {
+        Env {
             height,
-            time,
-        };
-        self.forge
-            .take_emissions()
-            .into_iter()
-            .map(|m| {
-                if m.target != "chat" {
-                    return Err(Refusal::new(reason::UNKNOWN_PROGRAM, m.target));
-                }
-                self.chat_execute(&frame, abi::decode(&m.payload)?)
-            })
-            .collect()
+            time: super::TIME,
+            ..MockHost::env("forge")
+        }
+    }
+
+    /// A write to forge's host at `height`, signed by the system.
+    pub fn exec(&self, height: u64) -> ExecCtx {
+        self.forge.exec(self.env(height))
+    }
+
+    /// A read of forge's host at `height`.
+    pub fn reads(&self, height: u64) -> QueryCtx {
+        self.forge.query(Env {
+            sender: None,
+            ..self.env(height)
+        })
+    }
+
+    /// Who `key` signs as: the account it holds, if any.
+    pub fn principal(&self, key: &[u8]) -> Option<Principal> {
+        let account = self.chain.roster().keys.get(key).copied();
+        account.map(Principal::Account)
+    }
+
+    /// Runs one chat message as a frame of its own, signed by `origin`.
+    pub fn chat_execute(
+        &self,
+        origin: Origin,
+        height: u64,
+        time: u64,
+        msg: chat::Op,
+    ) -> Result<(), Error> {
+        self.chain.at(height, time);
+        self.chain.submit(origin, "chat", &msg)?;
+        Ok(())
+    }
+
+    pub fn chat_query(&self, q: chat::Query) -> Result<chat::Reply, Error> {
+        self.chain.query("chat", &q)
+    }
+
+    /// forge's op signed by `origin` in a block at `height`, and what it
+    /// emitted, in one frame as the kernel runs it: forge's output, or the
+    /// refusal that failed the frame (which left every host as it was).
+    pub fn frame(
+        &self,
+        origin: Origin,
+        height: u64,
+        time: u64,
+        op: &forge::Op,
+    ) -> Result<Vec<u8>, Error> {
+        self.chain.at(height, time);
+        self.chain.submit(origin, "forge", op)
     }
 
     pub fn blob_count(&self) -> usize {
-        self.forge.blobs.len()
-    }
-}
-
-impl Reads for MemorySandbox {
-    fn host(&self, op: &HostOp) -> HostReply {
-        self.forge.host(op)
-    }
-}
-
-impl Writes for MemorySandbox {
-    fn set(&mut self, key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) {
-        self.forge.set(key, value)
-    }
-    fn delete(&mut self, key: impl Into<Vec<u8>>) {
-        self.forge.delete(key)
-    }
-    fn blob_put(
-        &mut self,
-        hash: HashKind,
-        kind: impl Into<String>,
-        body: impl Into<Vec<u8>>,
-    ) -> Result<BlobId, Refusal> {
-        self.forge.blob_put(hash, kind, body)
-    }
-    fn emit(&mut self, target: impl Into<ProgramId>, payload: impl Into<Vec<u8>>) -> ItemRef {
-        self.forge.emit(target, payload)
-    }
-    fn event(&mut self, payload: impl Into<Vec<u8>>) {
-        self.forge.event(payload)
-    }
-    fn output(&mut self, bytes: impl Into<Vec<u8>>) {
-        self.forge.output(bytes)
+        self.forge.borrow().blobs.len()
     }
 }

@@ -1,16 +1,17 @@
 #![allow(dead_code, unused_imports)]
-// The forge program end to end over MemorySandbox: founding, access, pushes in steps, advertisement, fetch, merge, sha256.
+//! The forge module end to end over MemorySandbox: founding, access,
+//! pushes in steps, advertisement, fetch, merge, sha256.
 
 pub use std::collections::{BTreeMap, BTreeSet};
 
-pub use abi::{Cause, Env, HashKind, Origin, reason};
-pub use forge::{Bounds, Op, Page, Query, Reply, Service, Settings};
+pub use forge::{Bounds, Forge, Op, PageRequest, Principal, Query, Reply, Service, Settings};
 pub use gitcore::wire::pktline::{self, Pkt, Reader};
 pub use gitcore::{
     Commit, Hash, Kind, Limits, MemoryObjects, Mode, Object, Objects, Oid, Signature, Tree,
     TreeEntry, pack,
 };
-pub use store::{Memory, Reads, Writes};
+pub use guest::{Cause, Env, HashKind, Origin, code};
+pub use guest::{MockHost, Module};
 
 pub mod sandbox;
 pub mod story;
@@ -20,17 +21,6 @@ pub const OWNER: &[u8] = b"owner-key";
 pub const WRITER: &[u8] = b"writer-key";
 pub const STRANGER: &[u8] = b"stranger-key";
 pub const TIME: u64 = 1_700_000_000;
-
-pub fn env(actor: &[u8]) -> Env {
-    Env {
-        network: b"net".to_vec(),
-        height: 1,
-        time: TIME,
-        me: "forge".into(),
-        origin: Origin::External(actor.to_vec()),
-        cause: Cause::Direct,
-    }
-}
 
 pub fn bounds() -> Bounds {
     Bounds {
@@ -50,21 +40,53 @@ pub fn bounds() -> Bounds {
 }
 
 pub fn founded() -> MemorySandbox {
-    let mut sandbox = MemorySandbox::default();
-    forge::init(&mut sandbox, &abi::encode(&bounds())).unwrap();
+    let sandbox = MemorySandbox::default();
+    sandbox.chain.init("forge", &bounds()).unwrap();
     sandbox
 }
 
-pub fn act(sandbox: &mut MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, abi::Refusal> {
-    forge::execute(sandbox, &env(actor), &abi::encode(op))?;
-    Ok(sandbox.forge.take_output())
+/// The accounts the harness keys hold, as identity would seat them: every
+/// writer is a person, and a key that holds none writes nothing.
+pub const HOLDERS: [(&[u8], u64); 3] = [(OWNER, 11), (WRITER, 12), (STRANGER, 13)];
+
+/// The person a harness key signs as: the account it holds.
+pub fn person(key: &[u8]) -> Principal {
+    let (_, account) = HOLDERS
+        .iter()
+        .find(|(held, _)| *held == key)
+        .expect("a harness key");
+    Principal::Account(*account)
 }
 
-pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, abi::Refusal> {
-    forge::query(sandbox, &env(OWNER), &abi::encode(query))
+/// `actor`'s op at `height`, run as the wasm module runs it: the signer
+/// resolved to its account, then the typed execute and what it emitted, in
+/// one frame. forge's output.
+pub fn signed_op(
+    sandbox: &MemorySandbox,
+    actor: &[u8],
+    height: u64,
+    op: &Op,
+) -> Result<Vec<u8>, guest::Error> {
+    sandbox.frame(Origin::Signed(actor.to_vec()), height, TIME, op)
 }
 
-pub fn create(sandbox: &mut MemorySandbox, name: &str, hash: HashKind) {
+/// `actor`'s op; a refusal left forge's store as it was.
+#[track_caller]
+pub fn act(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, guest::Error> {
+    sandbox.forge.attempt(|| signed_op(sandbox, actor, 1, op))
+}
+
+/// The refusal of `actor`'s op, which left forge's store as it was.
+#[track_caller]
+pub fn refused(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> guest::Error {
+    sandbox.forge.refused(|| signed_op(sandbox, actor, 1, op))
+}
+
+pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, guest::Error> {
+    Forge::answer(&sandbox.reads(1), query.clone())
+}
+
+pub fn create(sandbox: &MemorySandbox, name: &str, hash: HashKind) {
     act(
         sandbox,
         OWNER,
@@ -164,12 +186,12 @@ pub fn push_request(commands: &[(Oid, Oid, &str)], pack_bytes: &[u8]) -> Vec<u8>
 }
 
 pub fn push(
-    sandbox: &mut MemorySandbox,
+    sandbox: &MemorySandbox,
     actor: &[u8],
     repo: &str,
     commands: &[(Oid, Oid, &str)],
     pack_bytes: &[u8],
-) -> Result<Vec<String>, abi::Refusal> {
+) -> Result<Vec<String>, guest::Error> {
     let report = act(
         sandbox,
         actor,
@@ -203,7 +225,7 @@ pub fn refs_of(sandbox: &MemorySandbox, repo: &str) -> BTreeMap<String, String> 
             sandbox,
             &Query::Refs {
                 repo: repo.into(),
-                page: Page::first(128),
+                page: PageRequest::first(128),
             },
         )
         .unwrap(),

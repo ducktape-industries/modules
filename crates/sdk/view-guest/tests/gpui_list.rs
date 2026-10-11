@@ -1,17 +1,19 @@
-use std::ops::Range;
-use view_guest::{
-    div, list, px, AnyElement, App, FollowMode, IntoElement, List, ListAlignment, ListOffset,
-    ListScrollEvent, ListSizingBehavior, ListState, Pixels, Styled, Window,
+use ducktape_view_guest::{
+    AnyElement, App, FollowMode, IntoElement, List, ListAlignment, ListOffset, ListScrollEvent,
+    ListSizingBehavior, ListState, Pixels, Styled, Window, div, list, px,
 };
+use std::ops::Range;
 
 fn renderer(_: usize, _: &mut Window, _: &mut App) -> AnyElement {
     div().into_any_element()
 }
 
+/// gpui's names and signatures, but for `list`'s id: the host files a
+/// list's state and its rows by path, so the SDK's list is born with one.
 #[test]
 fn variable_list_api_keeps_pinned_gpui_names_and_signatures() {
     let state = ListState::new(8, ListAlignment::Bottom, px(160.));
-    let _: List = list(state.clone(), renderer)
+    let _: List = list("rows", state.clone(), renderer)
         .with_sizing_behavior(ListSizingBehavior::Auto)
         .w_full();
     state.splice(0..0, 2);

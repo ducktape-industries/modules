@@ -95,45 +95,13 @@ pub struct ListScroll {
 pub(super) fn decode_commands<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<ListCommand>, D::Error> {
-    bounded_vec(deserializer, MAX_LIST_COMMANDS, "too many list commands")
+    crate::bounded_vec(deserializer, MAX_LIST_COMMANDS, "too many list commands")
 }
 
 pub(super) fn decode_path<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<crate::ElementIdWire>, D::Error> {
-    bounded_vec(deserializer, crate::MAX_DEPTH, "list ancestry is too deep")
-}
-
-fn bounded_vec<'de, D, T>(
-    deserializer: D,
-    limit: usize,
-    message: &'static str,
-) -> Result<Vec<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    struct Values<T>(usize, &'static str, std::marker::PhantomData<T>);
-    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Values<T> {
-        type Value = Vec<T>;
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str(self.1)
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut values = Vec::new();
-            while let Some(value) = seq.next_element()? {
-                if values.len() == self.0 {
-                    return Err(serde::de::Error::custom(self.1));
-                }
-                values.push(value);
-            }
-            Ok(values)
-        }
-    }
-    deserializer.deserialize_seq(Values(limit, message, std::marker::PhantomData))
+    crate::bounded_vec(deserializer, crate::MAX_DEPTH, "list ancestry is too deep")
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -183,42 +151,28 @@ impl PartialEq for ListKey {
 pub(super) fn decode_indices<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<u32>, D::Error> {
-    struct Indices;
-    impl<'de> serde::de::Visitor<'de> for Indices {
-        type Value = Vec<u32>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("bounded uniform-list row indices")
-        }
-
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut indices = Vec::new();
-            while let Some(index) = seq.next_element()? {
-                if indices.len() == super::MAX_UNIFORM_LIST_ROWS {
-                    return Err(serde::de::Error::custom(
-                        "too many uniform-list row indices",
-                    ));
-                }
-                indices.push(index);
-            }
-            Ok(indices)
-        }
-    }
-    deserializer.deserialize_seq(Indices)
+    crate::bounded_vec(
+        deserializer,
+        crate::MAX_UNIFORM_LIST_ROWS,
+        "too many uniform-list row indices",
+    )
 }
 
 #[cfg(test)]
 mod variable_tests {
     use super::*;
-    use crate::{Frame, Node, decode, encode, sanitize};
+    use crate::styles::testing::sanitize_plain;
+    use crate::{Frame, Node, StyleId, decode, encode};
 
     fn node(commands: Vec<ListCommand>, children: usize) -> Node {
+        list("rows", commands, children)
+    }
+
+    fn list(id: &'static str, commands: Vec<ListCommand>, children: usize) -> Node {
+        let id = crate::ElementIdWire::Name(id.into());
         Node::List {
-            state: 7,
-            path: Vec::new(),
+            path: vec![id.clone()],
+            id,
             item_count: usize::MAX,
             alignment: ListAlignment::Bottom,
             overdraw: f32::INFINITY,
@@ -229,12 +183,9 @@ mod variable_tests {
             request_handler: 1,
             scroll_handler: Some(2),
             range_start: 99_990,
-            style: gpui::StyleRefinement::default(),
-            children: (0..children)
-                .map(|_| Node::Space {
-                    style: gpui::StyleRefinement::default(),
-                })
-                .collect(),
+            style: StyleId(0),
+            interactivity: Default::default(),
+            children: (0..children).map(|_| Node::Space).collect(),
         }
     }
 
@@ -254,7 +205,7 @@ mod variable_tests {
             )),
             ..Frame::default()
         };
-        sanitize(&mut frame).unwrap();
+        sanitize_plain(&mut frame).unwrap();
         let Node::List {
             item_count,
             overdraw,
@@ -283,13 +234,13 @@ mod variable_tests {
         let mut frame = Frame {
             root: Some(Node::Container(crate::ContainerNode {
                 id: None,
-                style: Default::default(),
+                style: StyleId(0),
                 interactivity: Default::default(),
-                children: vec![node(Vec::new(), 0), node(Vec::new(), 0)],
+                children: vec![list("first", Vec::new(), 0), list("second", Vec::new(), 0)],
             })),
             ..Default::default()
         };
-        sanitize(&mut frame).unwrap();
+        sanitize_plain(&mut frame).unwrap();
         let counts: Vec<_> = frame
             .root
             .unwrap()
@@ -316,7 +267,53 @@ mod variable_tests {
             root: Some(root),
             ..Default::default()
         };
-        assert_eq!(sanitize(&mut frame), Err("list authored path is invalid"));
+        assert_eq!(
+            sanitize_plain(&mut frame),
+            Err(crate::Refused::Invalid("list authored path is invalid"))
+        );
+    }
+
+    /// A list is a scope of its own: the id-less rows of two lists under
+    /// one parent, each filed under its index, do not meet. Two lists
+    /// written with one id in one scope are one id twice, as any two
+    /// siblings are.
+    #[test]
+    fn sibling_lists_file_their_rows_apart() {
+        let pair = |first: &'static str, second: &'static str| Frame {
+            root: Some(Node::Container(crate::ContainerNode {
+                id: Some(crate::ElementIdWire::Name("page".into())),
+                style: StyleId(0),
+                interactivity: Default::default(),
+                children: [first, second]
+                    .into_iter()
+                    .map(|id| {
+                        let mut list = list(id, Vec::new(), 2);
+                        let Node::List {
+                            path,
+                            item_count,
+                            range_start,
+                            ..
+                        } = &mut list
+                        else {
+                            unreachable!()
+                        };
+                        path.insert(0, crate::ElementIdWire::Name("page".into()));
+                        (*item_count, *range_start) = (2, 0);
+                        list
+                    })
+                    .collect(),
+            })),
+            ..Default::default()
+        };
+        assert!(sanitize_plain(&mut pair("timeline", "thread")).is_ok());
+        let Err(crate::Refused::Duplicate(duplicate)) = sanitize_plain(&mut pair("rows", "rows"))
+        else {
+            panic!("one id on two lists in a scope is refused")
+        };
+        assert_eq!(
+            duplicate.to_string(),
+            "duplicate typed element identity among siblings: rows twice under page"
+        );
     }
 
     #[test]

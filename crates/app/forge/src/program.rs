@@ -1,24 +1,204 @@
-// The wasm entry: guest contexts as the store, the Program the runtime dispatches into.
+//! The module: the signer resolved to its principal, then every op and
+//! every query, each handed to its function (`ops.rs`, `changes.rs`,
+//! `queries.rs`, `reads.rs`, `change_queries.rs`).
 
-use abi::{Env, Refusal};
-use guest::{Execute, Program, Query};
+use guest::{Error, ExecCtx, Module, Program, QueryCtx};
 
-struct Forge;
+use crate::change_queries::{change, changes, judgment};
+use crate::changes::{Draft, Edit, MergeRequest, close, edit, merge_heads, open, submit_review};
+use crate::contract::*;
+use crate::ops::{configure, create, grant, init, push, revoke, signed_account, touch};
+use crate::queries::{advertise, listing, refs, repos, upload};
+use crate::reads::{blob, comparison, diff, log, tree};
+use crate::state::{WRITERS, load_bounds, load_repo};
+
+pub struct Forge;
 
 impl Program for Forge {
-    fn init(ctx: &mut Execute, _env: &Env, params: &[u8]) -> Result<(), Refusal> {
-        crate::init(ctx, params)
+    const NAME: &'static str = crate::MODULE;
+    type Op = Op;
+    type Query = Query;
+    type Reply = Reply;
+}
+
+impl Module for Forge {
+    fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
+        init(ctx, params)
     }
 
-    fn execute(ctx: &mut Execute, env: &Env, payload: &[u8]) -> Result<(), Refusal> {
-        crate::execute(ctx, env, payload)
+    /// Runs one op as the signer's account (`ctx.sender()`).
+    /// Every op names its repository; an accepted one marks it active.
+    fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
+        let actor = &signed_account(ctx)?;
+        let repo = op.repo().to_owned();
+        let reply = match op {
+            Op::Create { repo, hash } => create(ctx, actor, &repo, hash).map(|()| None),
+            Op::Configure { repo, settings } => {
+                configure(ctx, actor, &repo, settings).map(|()| None)
+            }
+            Op::Grant { repo, principal } => grant(ctx, actor, &repo, principal).map(|()| None),
+            Op::Revoke { repo, principal } => revoke(ctx, actor, &repo, principal).map(|()| None),
+            Op::Push { repo, request } => push(ctx, actor, &repo, &request).map(|()| None),
+            Op::Merge {
+                repo,
+                into,
+                from,
+                expected_into,
+                expected_from,
+                result,
+                change,
+            } => {
+                let merge = MergeRequest {
+                    into,
+                    from,
+                    expected_into,
+                    expected_from,
+                    result,
+                    change,
+                };
+                merge_heads(ctx, actor, &repo, merge).map(Some)
+            }
+            Op::ChangeOpen {
+                repo,
+                from,
+                into,
+                title,
+                body,
+                reviewers,
+            } => {
+                let draft = Draft {
+                    from,
+                    into,
+                    title,
+                    body,
+                    reviewers,
+                };
+                open(ctx, actor, &repo, draft).map(Some)
+            }
+            Op::ChangeEdit {
+                repo,
+                n,
+                title,
+                body,
+                reviewers,
+            } => {
+                let fields = Edit {
+                    title,
+                    body,
+                    reviewers,
+                };
+                edit(ctx, actor, &repo, n, fields).map(Some)
+            }
+            Op::ChangeClose { repo, n } => close(ctx, actor, &repo, n).map(Some),
+            Op::ReviewSubmit { repo, n, review } => {
+                submit_review(ctx, actor, &repo, n, review).map(Some)
+            }
+        }?;
+        if let Some(reply) = reply {
+            ctx.set_return_data(abi::encode(&reply));
+        }
+        touch(ctx, &repo, ctx.env().height)
     }
 
-    fn query(ctx: &mut Query, env: &Env, request: &[u8]) -> Result<(), Refusal> {
-        let response = crate::query(ctx, env, request)?;
-        ctx.respond(response);
-        Ok(())
+    /// Git's own wire: the ref advertisement and upload-pack answer with
+    /// git's bytes, unframed, so a git client reads them off the node as is.
+    /// Every other query is one height-bearing [`Reply`], as borsh.
+    fn answer(ctx: &QueryCtx, query: Query) -> Result<Vec<u8>, Error> {
+        match &query {
+            Query::Advertise { repo, service } => advertise(ctx, repo, *service),
+            Query::Upload { repo, request } => upload(ctx, repo, request),
+            _ => Ok(abi::encode(&Self::query(ctx, query)?)),
+        }
+    }
+
+    fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
+        let height = ctx.env().height;
+        let bounds = load_bounds(ctx)?;
+        let scope = query.scope();
+        let listing =
+            |page: &PageRequest| listing(ctx, page.bounded(bounds.page_size as u64), scope.clone());
+        Ok(match &query {
+            // `answer` takes git's two queries before `query` sees them
+            Query::Advertise { .. } | Query::Upload { .. } => {
+                return Err(guest::invalid(
+                    "a git-wire query answers git's bytes, not a Reply",
+                ));
+            }
+            Query::Repos { page } => Reply::Repos {
+                height,
+                page: repos(ctx, &listing(page)?)?,
+            },
+            Query::Repo { repo, page } => Reply::Repo {
+                height,
+                repo: RepoInfo {
+                    name: repo.clone(),
+                    repo: load_repo(ctx, repo)?,
+                },
+                bounds,
+                writers: WRITERS
+                    .page_of(ctx, repo, &listing(page)?)?
+                    .map(|(_, principal)| principal),
+            },
+            Query::Refs { repo, page } => Reply::Refs {
+                height,
+                page: refs(ctx, repo, &listing(page)?)?,
+            },
+            Query::Activity { repo } => Reply::Activity {
+                height,
+                last_height: load_repo(ctx, repo)?.last_activity,
+            },
+            Query::Log {
+                repo,
+                from,
+                exclude,
+                page,
+            } => log(
+                ctx,
+                height,
+                &bounds,
+                repo,
+                from,
+                exclude.as_ref(),
+                &listing(page)?,
+            )?,
+            Query::Tree {
+                repo,
+                at,
+                path,
+                page,
+            } => tree(ctx, height, &bounds, repo, at, path, &listing(page)?)?,
+            Query::Blob { repo, oid, range } => blob(ctx, height, &bounds, repo, oid, *range)?,
+            Query::Diff {
+                repo,
+                base,
+                head,
+                path,
+                page,
+            } => diff(
+                ctx,
+                height,
+                &bounds,
+                repo,
+                base,
+                head,
+                path.as_deref(),
+                &listing(page)?,
+            )?,
+            Query::Compare { repo, from, into } => {
+                comparison(ctx, height, &bounds, repo, from, into)?
+            }
+            Query::Changes { repo, filter, page } => Reply::Changes {
+                height,
+                page: changes(ctx, repo, filter, &listing(page)?)?,
+            },
+            Query::Change { repo, n, page } => change(ctx, height, repo, *n, &listing(page)?)?,
+            Query::Judgment { principal, page } => Reply::Judgment {
+                height,
+                page: judgment(ctx, principal, &listing(page)?)?,
+            },
+        })
     }
 }
 
-guest::program!(Forge);
+#[cfg(feature = "module")]
+guest::export!(Forge);

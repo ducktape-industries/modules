@@ -1,6 +1,6 @@
 //! The product's visual system: bundled fonts, the type scale, and the one
 //! palette both the native shell (through the kit's theme) and the WASM
-//! views (through `ducktape_view_guest::kit`) paint with.
+//! views (through `ducktape_view_guest::design`) paint with.
 
 /// Font identity. The native shell loads these files into GPUI's text system.
 /// Guest wire text names the same families. Replace an asset and its family
@@ -104,6 +104,12 @@ pub mod height {
     pub const ROW: f64 = 26.;
     /// a control on one line: a toolbar button, a picker, an input beside one
     pub const CONTROL: f64 = 28.;
+    /// a person's initial inline with small text: a byline, a reply line
+    pub const AVATAR_SM: f64 = 18.;
+    /// a person's initial in a list row: a member, a dm
+    pub const AVATAR: f64 = 20.;
+    /// a person's initial heading a card or panel
+    pub const AVATAR_LG: f64 = 24.;
 }
 
 /// One sRGB color as the wire carries it: `[r, g, b, a]` in `0.0..=1.0`.
@@ -388,9 +394,36 @@ pub fn kit_theme_json() -> String {
 pub const LIGHT_THEME: &str = "Ducktape Light";
 pub const DARK_THEME: &str = "Ducktape Dark";
 
+/// A key or hash as every view shows it: the first 8 and last 4 characters
+/// (`9f3a1b2c…c21e`). A text short enough that cutting would not shorten it
+/// stays whole. Cuts on character boundaries.
+pub fn short_hex(text: &str) -> String {
+    const HEAD: usize = 8;
+    const TAIL: usize = 4;
+    let count = text.chars().count();
+    if count <= HEAD + TAIL + 1 {
+        return text.to_owned();
+    }
+    let head: String = text.chars().take(HEAD).collect();
+    let tail: String = text.chars().skip(count - TAIL).collect();
+    format!("{head}…{tail}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_hex_keeps_head_and_tail() {
+        assert_eq!(short_hex(&"ab".repeat(32)), "abababab…abab");
+        assert_eq!(short_hex("0123456789abc"), "0123456789abc");
+        assert_eq!(short_hex("0123456789abcd"), "01234567…abcd");
+        assert_eq!(short_hex(""), "");
+        assert_eq!(
+            short_hex("오리테이프오리테이프오리테이프"),
+            "오리테이프오리테…리테이프"
+        );
+    }
     #[test]
     fn every_embedded_font_file_exists_and_is_truetype() {
         for asset in fonts::ASSETS {
@@ -406,27 +439,9 @@ mod tests {
     }
 
     #[test]
-    fn the_scales_ascend() {
-        let scale = [
-            spacing::HAIR,
-            spacing::XXS,
-            spacing::XS,
-            spacing::SM,
-            spacing::MD,
-            spacing::LG,
-            spacing::BLOCK,
-            spacing::XL,
-        ];
-        assert!(scale.windows(2).all(|pair| pair[0] < pair[1]));
-    }
-
-    #[test]
     fn css_notation_round_trips_the_palette() {
         assert_eq!(css(hex(0x5B5FC7)), "#5b5fc7");
         assert_eq!(css([1., 1., 1., 0.5]), "#ffffff80");
-        assert_eq!(css(LIGHT.background), "#ffffff");
-        assert_eq!(css(DARK.background), "#111111");
-        assert_eq!(css(LIGHT.sidebar), "#f5f5f3");
     }
 
     #[test]

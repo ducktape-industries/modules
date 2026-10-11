@@ -1,5 +1,8 @@
 use crate::*;
 
+/// The most bytes one encoded frame may be: a host refuses a longer one
+/// before decoding it, and no raster payload may claim more.
+pub const MAX_FRAME_BYTES: usize = 8 << 20;
 /// A tree deeper than this is cut off: a guest cannot make the host's
 /// layout recurse without bound.
 pub const MAX_DEPTH: usize = 64;
@@ -9,8 +12,10 @@ pub const MAX_NODES: usize = 8_192;
 /// The longest string a single node may carry (text, placeholder, key).
 pub const MAX_STRING_BYTES: usize = 64 << 10;
 /// The most SHAPED text one frame may carry in total — every [`Node::Text`]
-/// content, input or editor value and placeholder, and plain button label
-/// together.
+/// content, field placeholder and label, and plain button label together.
+/// A field's `value` is the host engine's copy to adopt, bounded by
+/// [`MAX_FIELD_BYTES`](crate::MAX_FIELD_BYTES) alone, and never shaped from
+/// the frame.
 ///
 /// The per-string and per-node caps do not bound this: 128 strings of
 /// [`MAX_STRING_BYTES`] are a legal 8 MiB frame, and the host reshapes all
@@ -33,22 +38,16 @@ pub const MAX_TEXT_BYTES_PER_FRAME: usize = MAX_STRING_BYTES;
 /// picture once, so this bounds what a frame can make the host parse, not
 /// what an app can show over its life; an icon is a few kilobytes.
 pub const MAX_PICTURE_BYTES_PER_FRAME: usize = 1 << 20;
-/// The most options one [`Node::PickList`] may offer: a menu, not a table.
-/// Each option is shaped text and spends the frame's text budget too.
-pub const MAX_OPTIONS: usize = 256;
-
 /// A uniform list may describe a large logical list without allocating rows.
 pub const MAX_UNIFORM_LIST_COUNT: usize = 65_536;
 /// A frame and one host range request carry at most this many uniform rows.
 pub const MAX_UNIFORM_LIST_ROWS: usize = 256;
 
-/// Maximum positional values supplied to one host surface.
-pub const MAX_SURFACE_ARGS: usize = 256;
 /// Text and spacing sizes are pixels; nothing on a screen needs more.
-pub(crate) const MAX_PIXELS: f32 = 8192.0;
+pub const MAX_PIXELS: f32 = 8192.0;
 /// A text size, which is not a length: every glyph at it is rasterized and
 /// cached, so a screenful of 8192 px text is an atlas no screen asked for.
-pub(crate) const MAX_TEXT_PIXELS: f32 = 512.0;
+pub const MAX_TEXT_PIXELS: f32 = 512.0;
 
 /// Pulls a frame from an untrusted module into what the host is willing to
 /// lay out: the tree is truncated past [`MAX_DEPTH`] and [`MAX_NODES`],
@@ -56,247 +55,157 @@ pub(crate) const MAX_TEXT_PIXELS: f32 = 512.0;
 /// [`MAX_TEXT_BYTES_PER_FRAME`] in total, picture bytes past
 /// [`MAX_PICTURE_BYTES_PER_FRAME`] in total, text sizes to [`MAX_TEXT_PIXELS`],
 /// every other size, colour and spacing clamped to a finite range, and typed
-/// identity collisions refused. A frame from a well-behaved guest passes
-/// through unchanged.
+/// identity collisions refused ([`crate::identity`]). A frame from a
+/// well-behaved guest passes through unchanged. It answers what it cut and
+/// where ([`SanitizeReport`]); a clamp is no cut.
+///
+/// The frame's style entries go into `styles`, the table the host holds
+/// beside the tree: each is read and bounded once, here, and the frame is
+/// left without them. A whole tree's entries replace the table. A node that
+/// names a style the table does not hold refuses the frame, and a refused
+/// frame leaves the table as it was: it is still the table of the tree the
+/// host holds.
 ///
 /// A frame that arrived as bytes has passed [`decode`] first, which refuses
 /// one nested deeper than this walk goes. A frame that carries `patches`
 /// instead of a tree is bounded by [`apply`], since every bound is on the
 /// tree the patches make and only the host holds it.
-pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, &'static str> {
-    let mut budgets = Budgets::frame();
-    let mut report = if let Some(root) = &mut frame.root {
-        sanitize_tree_with(root, &mut budgets)?
-    } else {
-        SanitizeReport::default()
-    };
+pub fn sanitize(frame: &mut Frame, styles: &mut Styles) -> Result<SanitizeReport, Refused> {
+    let entries = std::mem::take(&mut frame.styles);
+    if frame.root.is_some() {
+        let mut table = Styles::default();
+        table.extend(entries)?;
+        let report = sanitize_against(frame, &table)?;
+        *styles = table;
+        return Ok(report);
+    }
+    let held = styles.len();
+    let taken = styles
+        .extend(entries)
+        .map_err(Refused::from)
+        .and_then(|()| sanitize_against(frame, styles));
+    if taken.is_err() {
+        styles.truncate(held);
+    }
+    taken
+}
+
+/// [`sanitize`] of a frame whose style entries `styles` already holds.
+fn sanitize_against(frame: &mut Frame, styles: &Styles) -> Result<SanitizeReport, Refused> {
+    let mut budgets = Budgets::frame(styles);
+    if let Some(root) = &mut frame.root {
+        sanitize_tree_with(root, &mut budgets)?;
+    }
     frame.tooltip_responses.truncate(MAX_PATCHES);
     let mut responses = Vec::with_capacity(frame.tooltip_responses.len());
     for mut response in frame.tooltip_responses.drain(..) {
         if let Some(content) = &mut response.content {
             if budgets.nodes == 0 {
+                budgets.cut(|cuts| &mut cuts.nodes, content.count());
                 continue;
             }
-            report.merge(sanitize_tree_with(content, &mut budgets)?);
+            sanitize_tree_with(content, &mut budgets)?;
         }
         responses.push(response);
     }
     frame.tooltip_responses = responses;
-    frame.upstream_sanitization.merge(report);
     for request in &mut frame.requests {
         truncate_string(&mut request.kind);
     }
-    Ok(report)
+    Ok(budgets.cuts)
 }
 
-// Sanitization may shorten display text, but never an authoritative document.
-pub(crate) fn text_amounts(root: &Node) -> Result<(usize, usize), &'static str> {
-    let mut pending = vec![root];
-    let mut surface_values = Vec::new();
-    let mut references = Vec::new();
-    let mut display = 0usize;
-    while let Some(node) = pending.pop() {
-        let mut add = |text: &str| display = display.saturating_add(text.len());
-        match node {
-            Node::Text(crate::TextNode { content, .. }) => add(content),
-            Node::RichText { text, .. } => add(text),
-            Node::Input {
-                value,
-                placeholder,
-                options,
-                ..
-            } => {
-                add(value);
-                add(placeholder);
-                add(&options.label);
-                if let Some(description) = &options.description {
-                    add(description);
-                }
-            }
-            Node::Editor {
-                placeholder,
-                label,
-                options,
-                ..
-            } => {
-                add(placeholder);
-                if let Some(label) = label {
-                    add(label);
-                }
-                if let Some(rich) = &options.rich {
-                    for item in &rich.toolbar {
-                        add(&item.label);
-                    }
-                }
-            }
-            Node::Image { label, .. }
-            | Node::ImageViewer { label, .. }
-            | Node::Svg { label, .. }
-            | Node::MouseArea { label, .. }
-            | Node::Slider { label, .. }
-            | Node::Overlay { label, .. } => {
-                if let Some(label) = label {
-                    add(label);
-                }
-            }
-            // Unknown surfaces display their name in the native placeholder.
-            Node::Surface { name, args, .. } => {
-                add(name);
-                surface_values.extend(args);
-            }
-            Node::Button {
-                content,
-                label,
-                description,
-                ..
-            } => {
-                if let ButtonContent::Label(text) = content {
-                    add(text);
-                }
-                if let Some(label) = label {
-                    add(label);
-                }
-                if let Some(description) = description {
-                    add(description);
-                }
-            }
-            Node::Toggle { label, .. } | Node::Radio { label, .. } => add(label),
-            Node::ComboBox {
-                options,
-                placeholder,
-                label,
-                ..
-            } => {
-                for option in options {
-                    add(option);
-                }
-                add(placeholder);
-                if let Some(label) = label {
-                    add(label);
-                }
-            }
-            Node::PickList {
-                options,
-                placeholder,
-                label,
-                ..
-            } => {
-                for option in options {
-                    add(option);
-                }
-                if let Some(placeholder) = placeholder {
-                    add(placeholder);
-                }
-                if let Some(label) = label {
-                    add(label);
-                }
-            }
-            _ => {}
-        }
-        if let Node::Editor {
-            document, options, ..
-        } = node
-        {
-            if let Some(rich) = &options.rich {
-                rich.document.validate()?;
-                if rich.toolbar.len() > editor_presentation::MAX_EDITOR_MENU_ITEMS {
-                    return Err("rich toolbar limit");
-                }
-            }
-            references.push(document);
-        }
-        pending.extend(node.children());
+pub(crate) fn sanitize_tree(root: &mut Node, styles: &Styles) -> Result<SanitizeReport, Refused> {
+    let mut budgets = Budgets::frame(styles);
+    sanitize_tree_with(root, &mut budgets)?;
+    Ok(budgets.cuts)
+}
+
+fn sanitize_tree_with(root: &mut Node, budgets: &mut Budgets) -> Result<(), Refused> {
+    sanitize_node(root, 0, budgets, &mut identity::Scopes::default(), None)
+}
+
+/// Why the host refuses a frame or a patch: a bound or a shape it breaks,
+/// or one typed id claimed twice, with the site that claimed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refused {
+    Invalid(&'static str),
+    Duplicate(identity::DuplicateIdentity),
+}
+
+impl From<&'static str> for Refused {
+    fn from(reason: &'static str) -> Self {
+        Self::Invalid(reason)
     }
-    // Surface strings share the display budget (for example a code preview).
-    // Record/type names are routing metadata, not the textual payload itself.
-    while let Some(value) = surface_values.pop() {
-        match value {
-            SurfaceValue::Str(text) => display = display.saturating_add(text.len()),
-            SurfaceValue::List(items) => surface_values.extend(items),
-            SurfaceValue::Option(Some(item)) => surface_values.push(item.as_ref()),
-            SurfaceValue::Record { fields, .. } => {
-                surface_values.extend(fields.iter().map(|(_, value)| value));
-            }
-            SurfaceValue::Unit
-            | SurfaceValue::Bool(_)
-            | SurfaceValue::I64(_)
-            | SurfaceValue::F64(_)
-            | SurfaceValue::Option(None) => {}
+}
+
+impl From<identity::DuplicateIdentity> for Refused {
+    fn from(duplicate: identity::DuplicateIdentity) -> Self {
+        Self::Duplicate(duplicate)
+    }
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(reason) => f.write_str(reason),
+            Self::Duplicate(duplicate) => duplicate.fmt(f),
         }
     }
-    editor_document::validate_editor_document_refs(references.iter().copied())
-        .map_err(|_| "invalid editor document references or budget")?;
-    Ok((references.len(), display))
 }
 
-pub(crate) fn sanitize_tree(root: &mut Node) -> Result<SanitizeReport, &'static str> {
-    sanitize_tree_with(root, &mut Budgets::frame())
-}
-
-fn sanitize_tree_with(
-    root: &mut Node,
-    budgets: &mut Budgets,
-) -> Result<SanitizeReport, &'static str> {
-    let (documents, before) = text_amounts(root)?;
-    let mut identity_scopes = vec![std::collections::HashSet::new()];
-    let mut authored_path = Vec::new();
-    sanitize_node(root, 0, budgets, &mut identity_scopes, &mut authored_path)?;
-
-    let (after_documents, after) = text_amounts(root)?;
-    if after_documents != documents {
-        return Err("frame budget would remove an editor document projection");
-    }
-    Ok(SanitizeReport {
-        display_text_truncated: after < before,
-    })
-}
-
-/// Typed IDs are unique among the children of the first containing element
-/// with an ID. An id-less wrapper is transparent to that GPUI scope; an
-/// identified node starts a fresh scope for its descendants.
-type IdentityScopes = Vec<std::collections::HashSet<ElementIdWire>>;
-
-fn claim_typed_scope(node: &Node, scopes: &mut IdentityScopes) -> Result<bool, &'static str> {
-    let Some(id) = node.identity() else {
-        return Ok(false);
-    };
-    let scope = scopes
-        .last_mut()
-        .expect("the root identity scope is always present");
-    if !scope.insert(id.clone()) {
-        return Err("duplicate typed element identity among siblings");
-    }
-    scopes.push(std::collections::HashSet::new());
-    Ok(true)
-}
-
-fn finish_typed_scope(scopes: &mut IdentityScopes, started: bool) {
-    if started {
-        scopes.pop();
-    }
-}
+impl std::error::Error for Refused {}
 
 /// What is left of a frame's per-frame budgets while its tree is walked.
 pub(crate) struct Budgets {
     pub(crate) nodes: usize,
-    pub(crate) qr_codes: usize,
     pub(crate) canvas_parts: usize,
-    pub(crate) surface_values: usize,
     pub(crate) text: usize,
     pub(crate) pictures: usize,
     pub(crate) list_items: usize,
+    /// How many styles the tree's table holds: the ids a node may name.
+    styles: usize,
+    /// A node already claimed the active descendant.
+    pub(crate) active_descendant: bool,
+    /// The child indices from the root to the node being walked.
+    pub(crate) at: Vec<u32>,
+    /// What the walk has cut so far.
+    pub(crate) cuts: SanitizeReport,
 }
 
 impl Budgets {
-    pub(crate) fn frame() -> Self {
+    pub(crate) fn frame(styles: &Styles) -> Self {
         Self {
+            styles: styles.len(),
             nodes: MAX_NODES,
             text: MAX_TEXT_BYTES_PER_FRAME,
             pictures: MAX_PICTURE_BYTES_PER_FRAME,
             list_items: MAX_LIST_ITEMS,
-            surface_values: MAX_SURFACE_VALUES,
             canvas_parts: MAX_CANVAS_PARTS,
-            qr_codes: MAX_QR_CODES,
+            active_descendant: false,
+            at: Vec::new(),
+            cuts: SanitizeReport::default(),
+        }
+    }
+
+    /// A style a node names is one the table holds, or the frame is
+    /// refused: there is no style to draw it with, and a default one is a
+    /// look the view never wrote.
+    pub(crate) fn style(&self, id: StyleId) -> Result<(), &'static str> {
+        match (id.0 as usize) < self.styles {
+            true => Ok(()),
+            false => Err("a node names a style its table does not hold"),
+        }
+    }
+
+    /// Counts `count` cuts of one kind, and where the first one fell.
+    pub(crate) fn cut(&mut self, kind: fn(&mut SanitizeReport) -> &mut usize, count: usize) {
+        if count == 0 {
+            return;
+        }
+        *kind(&mut self.cuts) += count;
+        if self.cuts.first.is_none() {
+            self.cuts.first = Some(self.at.clone());
         }
     }
 }
@@ -305,8 +214,22 @@ impl Budgets {
 /// and spends what survives. Nodes are walked in tree order, so a frame past
 /// the budget keeps its head and loses its tail.
 pub(crate) fn spend_text(text: &mut String, budgets: &mut Budgets) {
+    let before = text.len();
     truncate_to(text, budgets.text.min(MAX_STRING_BYTES));
+    if text.len() < before {
+        match before > MAX_STRING_BYTES {
+            true => budgets.cut(|cuts| &mut cuts.strings, 1),
+            false => budgets.cut(|cuts| &mut cuts.text, 1),
+        }
+    }
     budgets.text -= text.len();
+}
+
+/// Cuts a node's string at [`MAX_STRING_BYTES`], and says so.
+pub(crate) fn cut_string(text: &mut String, budgets: &mut Budgets) {
+    let before = text.len();
+    truncate_string(text);
+    budgets.cut(|cuts| &mut cuts.strings, usize::from(text.len() < before));
 }
 
 /// Spends a picture's bytes from the frame's picture budget, or drops them
@@ -314,7 +237,11 @@ pub(crate) fn spend_text(text: &mut String, budgets: &mut Budgets) {
 fn spend_svg(bytes: &mut Option<Vec<u8>>, budgets: &mut Budgets) {
     match bytes {
         Some(picture) if picture.len() <= budgets.pictures => budgets.pictures -= picture.len(),
-        _ => *bytes = None,
+        Some(_) => {
+            *bytes = None;
+            budgets.cut(|cuts| &mut cuts.pictures, 1);
+        }
+        None => {}
     }
 }
 
@@ -323,8 +250,7 @@ use node::sanitize_node;
 
 mod numbers;
 pub use numbers::truncate_string;
-use numbers::truncate_to;
-pub(crate) use numbers::{bound_optional, bounded, finite, signed_bounded};
+pub(crate) use numbers::{bounded, finite, signed_bounded, truncate_to};
 
 mod interactivity;
 use interactivity::sanitize_interactivity;

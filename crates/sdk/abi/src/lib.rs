@@ -73,11 +73,57 @@ pub fn hex(bytes: &[u8]) -> String {
         })
 }
 
+/// [`hex`] read back: `None` for an odd length or a non-hex digit.
+pub fn unhex(text: &str) -> Option<Vec<u8>> {
+    let digit = |byte: u8| (byte as char).to_digit(16).map(|d| d as u8);
+    let text = text.as_bytes();
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    text.chunks(2)
+        .map(|pair| Some(digit(pair[0])? << 4 | digit(pair[1])?))
+        .collect()
+}
+
+/// Bytes as a person reads them: a key or hash up to 32 bytes as
+/// [`design::short_hex`], else their count and the same short form.
+pub fn preview(bytes: &[u8]) -> String {
+    match bytes.len() {
+        0 => "0 bytes".into(),
+        1..=32 => design::short_hex(&hex(bytes)),
+        // the head and tail short_hex keeps, without hexing the whole payload
+        len => format!(
+            "{len} bytes · {}",
+            design::short_hex(&(hex(&bytes[..8]) + &hex(&bytes[len - 2..])))
+        ),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
 pub enum Origin {
     External(Vec<u8>),
     Program(ProgramId),
     System,
+}
+
+/// Who a frame acts as, resolved by the host once per frame through the
+/// identity role: an account (the one a signer's key holds, or the account
+/// of the program that sent a message), or the chain itself.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
+pub enum Principal {
+    Account(role::identity::AccountNumber),
+    System,
+}
+
+/// The founding program that fills each role the kernel calls, as genesis
+/// bound them. Every frame's env carries them, so a program asks a role by
+/// its binding, never by a name it assumes.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Roles {
+    pub registry: ProgramId,
+    pub validators: ProgramId,
+    /// Asked, once per frame, which account the frame acts as.
+    pub identity: ProgramId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
@@ -119,8 +165,8 @@ pub mod reason {
     pub const TRAP: &str = "trap";
     /// the host: bytes that do not decode, or an op the call's kind refuses.
     pub const PROTOCOL: &str = "protocol";
-    /// the host: the frame's sequence is not the signer's next.
-    pub const SEQUENCE: &str = "sequence";
+    pub const ANCHOR: &str = "anchor";
+    pub const DUPLICATE: &str = "duplicate";
     /// naming a thing that exists (id, key, path, account, sibling program).
     pub const NOT_FOUND: &str = "not_found";
     /// creating under a different id, or treating the create as done.
@@ -154,9 +200,12 @@ pub enum Outcome {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// Why a frame runs: a submission, a message another program emitted in
+/// this frame, or the outcome of a message this program emitted with a
+/// reply wanted.
 pub enum Cause {
     Direct,
-    Delivery(ItemRef),
+    Message(ItemRef),
     Completion { item: ItemRef, outcome: Outcome },
 }
 
@@ -167,9 +216,16 @@ pub struct Env {
     pub time: u64,
     pub me: ProgramId,
     pub origin: Origin,
+    /// `None` for a query, and for a frame whose key or program holds no
+    /// account.
+    pub sender: Option<Principal>,
+    pub roles: Roles,
     pub cause: Cause,
 }
 
+/// What a program emits: `target` runs `payload` in the same frame once
+/// the emitting handler returns, and with `reply` its outcome comes back
+/// as a [`Cause::Completion`].
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Message {
     pub target: ProgramId,
@@ -328,69 +384,216 @@ pub enum GuestCall {
 
 pub type GuestReply = Result<(), Refusal>;
 
-pub mod module_registry {
-    use super::{BlobId, BorshDeserialize, BorshSerialize, ProgramId};
+/// The kernel calls programs by role, never by id: genesis binds each role
+/// (registry, validators, identity) to a founding program. Each module here is
+/// the interface the kernel speaks to the program in that role.
+pub mod role {
+    /// Which code runs at a height.
+    pub mod registry {
+        use crate::{BlobId, BorshDeserialize, BorshSerialize, ProgramId};
 
-    pub const PROGRAM: &str = "module-registry";
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct Entry {
+            pub program: ProgramId,
+            pub code: BlobId,
+            pub params: Vec<u8>,
+        }
 
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub struct Entry {
-        pub program: ProgramId,
-        pub code: BlobId,
-        pub params: Vec<u8>,
+        /// A view with no program behind it: its name on the rail and the blob
+        /// that is the view itself.
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct View {
+            pub name: ProgramId,
+            pub view: BlobId,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Query {
+            At(u64),
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Reply {
+            Programs(Vec<Entry>),
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct Genesis {
+            pub programs: Vec<Entry>,
+            pub views: Vec<View>,
+        }
     }
 
-    /// A view with no program behind it: its name on the rail and the blob
-    /// that is the view itself.
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub struct View {
-        pub name: ProgramId,
-        pub view: BlobId,
+    /// The consensus set.
+    pub mod validators {
+        use crate::{BorshDeserialize, BorshSerialize};
+
+        /// The most members a network's cap can name.
+        pub const MAX_MEMBERS: u32 = 128;
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct Member {
+            pub key: Vec<u8>,
+            pub address: String,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Query {
+            Validators,
+            Members,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Reply {
+            Validators(Vec<Vec<u8>>),
+            Members(Vec<Member>),
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct Genesis {
+            pub validators: Vec<Member>,
+            /// How many members (validators and residents) the network ever holds
+            /// at once: 1..=MAX_MEMBERS, fixed at founding.
+            pub member_cap: u32,
+        }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub enum Query {
-        At(u64),
-    }
+    /// Who holds a key or runs as a program (the account a frame acts as),
+    /// and how each account reads to the programs and views that name it.
+    /// The kernel writes `RegisterModule` and asks `Account` and `OfModule`
+    /// alone; `Profile` and `Profiles` are for the modules and views that
+    /// name accounts.
+    pub mod identity {
+        use crate::{BorshDeserialize, BorshSerialize, ProgramId};
 
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub enum Reply {
-        Programs(Vec<Entry>),
-    }
+        pub type AccountNumber = u64;
 
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub struct Genesis {
-        pub programs: Vec<Entry>,
-        pub views: Vec<View>,
+        /// What an account is, in one field, so no account is two things
+        /// at once: a person holds their own keys; a managed account holds
+        /// the keys its `manager`, a person, gives it and acts only while
+        /// its `standing` is `Active`; a module's account is its program's
+        /// and holds no keys.
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Kind {
+            Person,
+            Managed {
+                manager: AccountNumber,
+                category: Category,
+                standing: Standing,
+            },
+            Module(ProgramId),
+        }
+
+        /// What a manager declares a managed account to be. The enum only
+        /// grows at its end.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Category {
+            Agent,
+        }
+
+        /// Whether a managed account acts. Its manager alone changes it;
+        /// `Revoked` is final.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Standing {
+            Active,
+            Suspended,
+            Revoked,
+        }
+
+        /// An account as others show it: its name and what it is.
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct Profile {
+            pub number: AccountNumber,
+            pub name: String,
+            pub kind: Kind,
+        }
+
+        /// The one write the kernel makes: as it admits a program, with the
+        /// `System` origin, it gives the program its account. Registering a
+        /// program that has one changes nothing.
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Op {
+            RegisterModule { module: ProgramId },
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Query {
+            /// The kernel's: the account a frame signed by this key acts
+            /// as, `None` for a key that holds none. Refused while that
+            /// account does not act (a managed one whose [`Standing`] is
+            /// not `Active`). The host rejects a frame whose key is
+            /// refused.
+            Account(Vec<u8>),
+            /// The kernel's: the account of a program, answered as
+            /// `Account`.
+            OfModule(ProgramId),
+            /// One account's profile, `None` for a number no account has.
+            Profile(AccountNumber),
+            /// Every account's profile, ascending by number from past
+            /// `after`, at most `limit` of them (the program may cap it).
+            Profiles {
+                after: Option<AccountNumber>,
+                limit: u32,
+            },
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Reply {
+            Account(Option<AccountNumber>),
+            Profile(Option<Profile>),
+            /// `next` is the `after` of the following page; `None` at the end.
+            Profiles {
+                profiles: Vec<Profile>,
+                next: Option<AccountNumber>,
+            },
+        }
     }
 }
 
-pub mod valset {
-    use super::{BorshDeserialize, BorshSerialize};
-
-    pub const PROGRAM: &str = "valset";
-
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub struct Member {
-        pub key: Vec<u8>,
-        pub address: String,
+/// What an account is beside its name, as every view shows it: the one
+/// place a [`Kind`](role::identity::Kind) turns into a badge and a note, so
+/// chat's, forge's and identity's screens agree. Not in ducktape's copy of
+/// this crate: the kernel shows no one anything.
+impl role::identity::Kind {
+    /// The badge beside an account's name: `"Agent · managed by <name>"` or
+    /// `"Module · <program>"`. A person wears none. `name_of` names the
+    /// manager.
+    pub fn badge(
+        &self,
+        name_of: impl FnOnce(role::identity::AccountNumber) -> String,
+    ) -> Option<String> {
+        use role::identity::{Category, Kind};
+        match self {
+            Kind::Person => None,
+            Kind::Managed {
+                manager,
+                category: Category::Agent,
+                ..
+            } => Some(format!("Agent · managed by {}", name_of(*manager))),
+            Kind::Module(module) => Some(format!("Module · {module}")),
+        }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub enum Query {
-        Validators,
-        Members,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub enum Reply {
-        Validators(Vec<Vec<u8>>),
-        Members(Vec<Member>),
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-    pub struct Genesis {
-        pub validators: Vec<Member>,
+    /// Why an account does not act, noted beside its name: "suspended" or
+    /// "revoked". `None` while it acts.
+    pub fn note(&self) -> Option<&'static str> {
+        use role::identity::{Kind, Standing};
+        match self {
+            Kind::Managed {
+                standing: Standing::Suspended,
+                ..
+            } => Some("suspended"),
+            Kind::Managed {
+                standing: Standing::Revoked,
+                ..
+            } => Some("revoked"),
+            Kind::Person
+            | Kind::Module(_)
+            | Kind::Managed {
+                standing: Standing::Active,
+                ..
+            } => None,
+        }
     }
 }
 
@@ -405,6 +608,17 @@ pub fn decode<T: BorshDeserialize>(bytes: &[u8]) -> Result<T, Refusal> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unhex_reads_hex_back() {
+        for bytes in [&[][..], &[0], &[0xab, 0x01, 0xff]] {
+            assert_eq!(unhex(&hex(bytes)).as_deref(), Some(bytes));
+        }
+        assert_eq!(unhex("ABff"), Some(vec![0xab, 0xff]));
+        for bad in ["a", "zz", "é1", "0x00"] {
+            assert_eq!(unhex(bad), None, "{bad}");
+        }
+    }
 
     #[test]
     fn prefix_end_is_the_first_key_past_every_extension() {
@@ -435,6 +649,12 @@ mod tests {
             time: 9,
             me: "a".into(),
             origin: Origin::Program("b".into()),
+            sender: Some(Principal::Account(4)),
+            roles: Roles {
+                registry: "r".into(),
+                validators: "v".into(),
+                identity: "i".into(),
+            },
             cause: Cause::Completion {
                 item: ItemRef {
                     source: "a".into(),

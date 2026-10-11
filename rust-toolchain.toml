@@ -1,7 +1,8 @@
 # The one toolchain this tree builds with, pinned exactly: `make
 # wasm-reproducible` proves two builds of every program and view hash the
 # same, and that only holds for one rustc. Nothing built is committed; the
-# pin is what makes two operators' builds agree.
+# pin is what makes two operators' builds agree, on one host triple (see
+# `WASM_RUSTFLAGS` in the Makefile for why a Mac and a Linux box differ).
 #
 # `targets`: wasm32-unknown-unknown, the only triple anything here is built
 # for. No WASI guest exists, so no wasm32-wasip1.

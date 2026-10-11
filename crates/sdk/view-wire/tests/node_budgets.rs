@@ -1,92 +1,93 @@
-//! Every node kind shares the frame's one node and text budget: tooltip
-//! content, anchored children, image state children and picture labels
-//! cannot buy more than the tree they sit in.
+//! Every node kind shares the frame's one node and text budget: a tooltip
+//! response's content, anchored children, image state children and picture
+//! labels cannot buy more than the tree they come with, and a tooltip's
+//! content is bounded like the tree.
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::*;
+
+mod common;
+use common::{PLAIN, sanitize, table};
 
 fn container(interactivity: Interactivity, children: Vec<Node>) -> Node {
     Node::Container(view_wire::ContainerNode {
         id: None,
-        style: StyleRefinement::default(),
-        interactivity,
+        style: PLAIN,
+        interactivity: Some(Box::new(interactivity)),
         children,
     })
 }
 
 #[test]
-fn window_controls_and_focus_refinements_are_bounded_inside_tooltips() {
-    for area in [
-        WindowControlArea::Drag,
-        WindowControlArea::Close,
-        WindowControlArea::Max,
-        WindowControlArea::Min,
-    ] {
-        let hostile = Interactivity {
-            window_control_area: Some(area),
-            focus: Some(StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.)),
-            in_focus: Some(StyleRefinement::default().m(px(-100.))),
-            focus_visible: Some(StyleRefinement::default().text_size(px(1e20))),
-            ..Default::default()
-        };
-        let root = container(
-            Interactivity {
-                tooltip: Some(Tooltip {
-                    request: 1,
-                    content: Some(Box::new(container(hostile.clone(), vec![]))),
-                    hoverable: true,
-                    delay_ms: u64::MAX,
-                }),
-                ..hostile
-            },
-            vec![],
-        );
-        let mut frame = Frame {
-            root: Some(root),
-            ..Default::default()
-        };
-        view_wire::sanitize(&mut frame).unwrap();
-        let Node::Container(view_wire::ContainerNode { interactivity, .. }) = frame.root.unwrap()
-        else {
-            unreachable!()
-        };
-        let tooltip = interactivity.tooltip.as_ref().unwrap();
-        assert_eq!(tooltip.delay_ms, 60_000);
-        let Node::Container(view_wire::ContainerNode {
-            interactivity: nested,
-            ..
-        }) = tooltip.content.as_deref().unwrap()
-        else {
-            unreachable!()
-        };
-        for interaction in [&interactivity, nested] {
-            assert_eq!(interaction.window_control_area, None);
-            assert_eq!(
-                interaction.focus.as_ref().unwrap().size.width,
-                Some(px(0.).into())
-            );
-            assert_eq!(interaction.focus.as_ref().unwrap().opacity, Some(1.));
-            assert_eq!(
-                interaction.in_focus.as_ref().unwrap().margin.left,
-                Some(px(0.).into())
-            );
-            assert_eq!(
-                interaction.focus_visible.as_ref().unwrap().text.font_size,
-                Some(px(512.).into())
-            );
-        }
-    }
-}
-
-#[test]
-fn tooltip_content_and_regular_children_share_one_node_budget() {
+fn focus_refinements_are_bounded_inside_tooltip_responses() {
+    let hostile = Interactivity {
+        focus: Some(StyleId(1)),
+        in_focus: Some(StyleId(2)),
+        focus_visible: Some(StyleId(3)),
+        ..Default::default()
+    };
     let root = container(
         Interactivity {
             tooltip: Some(Tooltip {
                 request: 1,
-                content: Some(Box::new(container(
-                    Interactivity::default(),
-                    (0..view_wire::MAX_NODES).map(|_| Node::empty()).collect(),
-                ))),
+                hoverable: true,
+                delay_ms: u64::MAX,
+            }),
+            ..hostile.clone()
+        },
+        vec![],
+    );
+    let mut frame = Frame {
+        root: Some(root),
+        tooltip_responses: vec![TooltipResponse {
+            request: 1,
+            character_index: None,
+            content: Some(Box::new(container(hostile, vec![]))),
+        }],
+        styles: table(&[
+            StyleRefinement::default().w(px(f32::INFINITY)).opacity(10.),
+            StyleRefinement::default().m(px(-1e9)),
+            StyleRefinement::default().text_size(px(1e20)),
+        ]),
+        ..Default::default()
+    };
+    let mut styles = Styles::default();
+    view_wire::sanitize(&mut frame, &mut styles).unwrap();
+    let Node::Container(view_wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    }) = frame.root.unwrap()
+    else {
+        unreachable!()
+    };
+    assert_eq!(interactivity.tooltip.as_ref().unwrap().delay_ms, 60_000);
+    let Node::Container(view_wire::ContainerNode {
+        interactivity: Some(nested),
+        ..
+    }) = frame.tooltip_responses[0].content.as_deref().unwrap()
+    else {
+        unreachable!()
+    };
+    for interaction in [&interactivity, nested] {
+        let style = |id: Option<StyleId>| &styles[id.unwrap()];
+        assert_eq!(style(interaction.focus).size.width, Some(px(0.).into()));
+        assert_eq!(style(interaction.focus).opacity, Some(1.));
+        assert_eq!(
+            style(interaction.in_focus).margin.left,
+            Some(px(-8192.).into())
+        );
+        assert_eq!(
+            style(interaction.focus_visible).text.font_size,
+            Some(px(512.).into())
+        );
+    }
+}
+
+#[test]
+fn a_tooltip_responses_content_and_the_tree_share_one_node_budget() {
+    let root = container(
+        Interactivity {
+            tooltip: Some(Tooltip {
+                request: 1,
                 hoverable: false,
                 delay_ms: 0,
             }),
@@ -96,31 +97,26 @@ fn tooltip_content_and_regular_children_share_one_node_budget() {
     );
     let mut frame = Frame {
         root: Some(root),
+        tooltip_responses: vec![TooltipResponse {
+            request: 1,
+            character_index: None,
+            content: Some(Box::new(container(
+                Interactivity::default(),
+                (0..view_wire::MAX_NODES).map(|_| Node::empty()).collect(),
+            ))),
+        }],
         ..Default::default()
     };
-    view_wire::sanitize(&mut frame).unwrap();
-    let root = frame.root.unwrap();
-    let Node::Container(view_wire::ContainerNode { interactivity, .. }) = &root else {
-        unreachable!()
-    };
-    let tooltip_nodes = interactivity
-        .tooltip
-        .as_ref()
-        .unwrap()
-        .content
-        .as_ref()
-        .unwrap()
-        .count();
-    assert!(root.count() + tooltip_nodes <= view_wire::MAX_NODES);
+    sanitize(&mut frame).unwrap();
+    let tooltip_nodes = frame.tooltip_responses[0].content.as_ref().unwrap().count();
+    assert!(frame.root.unwrap().count() + tooltip_nodes <= view_wire::MAX_NODES);
 }
 
 fn text() -> Node {
     Node::Text(view_wire::TextNode {
         id: None,
-        style: Default::default(),
+        style: PLAIN,
         content: "row".into(),
-        heading: None,
-        live: None,
     })
 }
 fn anchored(children: Vec<Node>) -> Node {
@@ -146,7 +142,7 @@ fn image(label: String, state_children: Vec<Node>) -> Node {
         loading: !state_children.is_empty(),
         fallback: state_children.len() > 1,
         state_children,
-        style: Default::default(),
+        style: PLAIN,
         interactivity: Default::default(),
     }
 }
@@ -201,7 +197,7 @@ fn picture_labels_share_the_frame_text_budget() {
                     rotate: 0.,
                 },
                 label: Some("b".repeat(MAX_STRING_BYTES)),
-                style: Default::default(),
+                style: PLAIN,
                 interactivity: Default::default(),
             },
         ])),

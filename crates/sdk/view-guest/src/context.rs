@@ -1,25 +1,26 @@
-//! Contexts and handles for the single root entity.
-use crate::{executor, slots, FocusHandle, Host, Task, View, Window};
+//! Contexts and handles for the entity graph: the root view and the child
+//! entities built with [`App::new`] (`cx.new`). The root is the one entity
+//! the snapshot carries; whoever builds a child builds it again on a
+//! restore.
+use crate::{FocusHandle, Host, Task, Window, executor, slots};
+use gpui::{EventEmitter, Subscription};
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
-use std::ops::Range;
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
-pub(crate) type Callback<V> = Rc<dyn Fn(&mut V, &mut Window, &mut Context<V>)>;
+mod events;
+
+/// A step to run on the view: an editor route hands one back, and the
+/// driver runs it after the event.
+pub type Callback<V> = Rc<dyn Fn(&mut V, &mut Window, &mut Context<V>)>;
 
 pub(crate) type Globals = std::collections::HashMap<TypeId, Rc<dyn Any>>;
 
-const MAX_UNIFORM_LISTS: usize = 128;
-
-struct UniformListRoute {
-    route: u32,
-    count: usize,
-    measure_index: usize,
-    ranges: Vec<Range<usize>>,
-    scroll: Option<std::rc::Weak<RefCell<crate::element::UniformListScrollState>>>,
-}
+/// The root view's id and how its snapshot encodes: the debug check that a
+/// change to the snapshot notified.
+#[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+pub(crate) type Root = (u64, fn(&dyn Any) -> Vec<u8>);
 
 pub struct App {
     pub(crate) inner: Rc<AppState>,
@@ -28,16 +29,35 @@ pub struct App {
 pub(crate) struct AppState {
     pub host: Host,
     pub slots: slots::Context,
+    /// Every distinct style the view's trees name, by the id a node
+    /// carries: the guest's half of the frame's style table.
+    pub styles: RefCell<crate::wire::Interner>,
     pub tasks: RefCell<Vec<executor::Running>>,
     pub generation: Cell<u64>,
     pub next_focus_id: Cell<u64>,
+    pub next_entity_id: Cell<u64>,
+    pub events: events::Events,
     pub dirty: Cell<bool>,
     pub alive: Cell<bool>,
     pub globals: RefCell<Rc<Globals>>,
-    uniform_lists: RefCell<HashMap<Vec<crate::wire::ElementIdWire>, UniformListRoute>>,
-    next_uniform_route: Cell<u32>,
+    pub uniform_lists: crate::element::UniformLists,
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+    pub root: Cell<Option<Root>>,
+    /// The size the view is laid out in, as the host last said
+    /// (`Event::Viewport`): what [`Window::viewport_size`] reads.
+    pub viewport: Cell<gpui::Size<gpui::Pixels>>,
 }
 impl App {
+    /// The style table a host holds after the trees lowered so far, for a
+    /// test that lowers by hand and reads what a node's style id names.
+    pub(crate) fn styles(&self) -> crate::wire::Styles {
+        let mut styles = crate::wire::Styles::default();
+        styles
+            .extend(self.inner.styles.borrow_mut().unsent())
+            .expect("the host takes the styles");
+        styles
+    }
+
     pub(crate) fn for_driver() -> Self {
         let host = Host::default();
         let slots = slots::Context::with_host(host.clone());
@@ -52,14 +72,19 @@ impl App {
             inner: Rc::new(AppState {
                 host,
                 slots,
+                styles: RefCell::default(),
                 tasks: RefCell::default(),
                 generation: Cell::new(0),
                 next_focus_id: Cell::new(0),
+                next_entity_id: Cell::new(0),
+                events: Default::default(),
                 dirty: Cell::new(true),
                 alive: Cell::new(true),
                 globals: RefCell::new(globals),
-                uniform_lists: RefCell::default(),
-                next_uniform_route: Cell::new(1),
+                uniform_lists: Default::default(),
+                #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+                root: Cell::new(None),
+                viewport: Cell::default(),
             }),
         }
     }
@@ -75,7 +100,7 @@ impl App {
         task
     }
     pub(crate) fn window(&self) -> Window {
-        Window::new(self.inner.slots.clone())
+        Window::new(self.inner.clone())
     }
     pub(crate) fn notify(&self) {
         self.inner.dirty.set(true);
@@ -105,111 +130,6 @@ impl App {
             .expect("global is not initialized")
     }
 
-    pub(crate) fn uniform_list_route(
-        &self,
-        path: &[crate::wire::ElementIdWire],
-        count: usize,
-        measure_index: usize,
-        scroll: Option<&Rc<RefCell<crate::element::UniformListScrollState>>>,
-    ) -> (u32, Vec<Range<usize>>) {
-        let count = count.min(crate::wire::MAX_UNIFORM_LIST_COUNT);
-        let mut lists = self.inner.uniform_lists.borrow_mut();
-        if !lists.contains_key(path) {
-            if lists.len() == MAX_UNIFORM_LISTS {
-                if let Some(old) = lists.keys().next().cloned() {
-                    lists.remove(&old);
-                }
-            }
-            let route = self.inner.next_uniform_route.get();
-            self.inner
-                .next_uniform_route
-                .set(route.wrapping_add(1).max(1));
-            let measure_index = measure_index.min(count.saturating_sub(1));
-            lists.insert(
-                path.to_vec(),
-                UniformListRoute {
-                    route,
-                    count,
-                    measure_index,
-                    ranges: (count > 0)
-                        .then_some(measure_index..measure_index + 1)
-                        .into_iter()
-                        .collect(),
-                    scroll: scroll.map(Rc::downgrade),
-                },
-            );
-        }
-        let state = lists.get_mut(path).expect("uniform-list route inserted");
-        state.count = count;
-        let previous_measure_index = state.measure_index;
-        state.measure_index = measure_index.min(count.saturating_sub(1));
-        state.scroll = scroll.map(Rc::downgrade);
-        state.ranges.retain_mut(|range| {
-            range.start = range.start.min(count);
-            range.end = range.end.min(count);
-            range.start < range.end
-        });
-        if previous_measure_index != state.measure_index {
-            let previous = previous_measure_index..previous_measure_index.saturating_add(1);
-            state.ranges.retain(|range| range != &previous);
-        }
-        let measurement = state.measure_index..state.measure_index.saturating_add(1).min(count);
-        if count > 0 && !state.ranges.iter().any(|range| range == &measurement) {
-            state.ranges.insert(0, measurement);
-        }
-        (state.route, state.ranges.clone())
-    }
-
-    pub(crate) fn request_uniform_list_range(
-        &self,
-        path: Vec<crate::wire::ElementIdWire>,
-        route: u32,
-        start: usize,
-        end: usize,
-    ) -> bool {
-        let mut lists = self.inner.uniform_lists.borrow_mut();
-        let Some(state) = lists.get_mut(&path) else {
-            return false;
-        };
-        if state.route != route || start >= end || start >= state.count {
-            return false;
-        }
-        let end = end
-            .min(state.count)
-            .min(start.saturating_add(crate::wire::MAX_UNIFORM_LIST_ROWS));
-        if end <= start {
-            return false;
-        }
-        let next = if start == 0 { 0..end } else { start..end };
-        let changed = !state.ranges.iter().any(|range| range == &next);
-        if changed {
-            let measurement = state.measure_index..state.measure_index + 1;
-            state.ranges.retain(|range| range == &measurement);
-            state.ranges.push(next);
-        }
-        changed
-    }
-
-    pub(crate) fn update_uniform_list_state(
-        &self,
-        path: &[crate::wire::ElementIdWire],
-        route: u32,
-        top_index: usize,
-        scrollable: bool,
-        scrolled_to_end: Option<bool>,
-    ) {
-        let lists = self.inner.uniform_lists.borrow();
-        let Some(state) = lists.get(path).filter(|state| state.route == route) else {
-            return;
-        };
-        if let Some(scroll) = state.scroll.as_ref().and_then(std::rc::Weak::upgrade) {
-            let mut scroll = scroll.borrow_mut();
-            scroll.top_index = top_index;
-            scroll.scrollable = scrollable;
-            scroll.scrolled_to_end = scrolled_to_end;
-        }
-    }
-
     pub fn focus_handle(&mut self) -> FocusHandle {
         let id = self.inner.next_focus_id.get();
         self.inner
@@ -218,17 +138,95 @@ impl App {
         FocusHandle::new(id)
     }
 
+    /// A child entity: any `'static` state, rendered where its handle is a
+    /// child (`.child(entity.clone())`) when it implements [`Render`], and
+    /// updated through the handle (`entity.update(cx, |state, cx| ..)`).
+    /// The snapshot carries only the root view, so whoever builds a child
+    /// builds it in [`View::attach`](crate::View::attach), which runs on a
+    /// first mount and on a restore alike.
+    ///
+    /// ```
+    /// # use serde::{Deserialize, Serialize};
+    /// use ducktape_view_guest::{View, prelude::*, testing::TestAppContext};
+    ///
+    /// struct Counter {
+    ///     count: usize,
+    /// }
+    /// impl Render for Counter {
+    ///     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    ///         div().id("count").child(self.count.to_string())
+    ///     }
+    /// }
+    ///
+    /// #[derive(Default, Serialize, Deserialize)]
+    /// struct Page {
+    ///     #[serde(skip)]
+    ///     counter: Option<Entity<Counter>>,
+    /// }
+    /// impl View for Page {
+    ///     const NAME: &'static str = "Page";
+    ///     fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    ///         self.counter = Some(cx.new(|_| Counter { count: 0 }));
+    ///     }
+    /// }
+    /// impl Render for Page {
+    ///     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    ///         let counter = self.counter.clone().expect("attach built it");
+    ///         let bump = div().id("bump").role(Role::Button).focusable().child("Bump");
+    ///         div().child(counter.clone()).child(bump.on_click(move |_, _, cx| {
+    ///             counter.update(cx, |counter, cx| {
+    ///                 counter.count += 1;
+    ///                 cx.notify();
+    ///             })
+    ///         }))
+    ///     }
+    /// }
+    ///
+    /// let mut cx = TestAppContext::new();
+    /// cx.open::<Page>();
+    /// cx.simulate_click("Bump");
+    /// assert!(cx.has_text("1"));
+    /// ```
+    ///
+    /// [`Render`]: crate::Render
     #[expect(clippy::new_ret_no_self, reason = "matches GPUI's App::new entity API")]
-    pub fn new<V: View>(&mut self, build: impl FnOnce(&mut Context<V>) -> V) -> Entity<V> {
+    pub fn new<T: 'static>(&mut self, build: impl FnOnce(&mut Context<T>) -> T) -> Entity<T> {
         let entity = Entity::reserve(self);
-        let value = build(&mut Context {
-            app: self,
-            entity: entity.clone(),
+        self.update(|app| {
+            let value = build(&mut Context {
+                app,
+                entity: entity.clone(),
+            });
+            *entity.value.borrow_mut() = Some(value);
         });
-        *entity.value.borrow_mut() = Some(value);
         entity
     }
 }
+
+/// What an entity is reached through, as in gpui: the [`App`] a listener
+/// gets, an entity's [`Context`], or a task's [`AsyncApp`].
+pub trait AppContext {
+    /// Runs `f` on the app; [`Released`] once the view is gone, which only
+    /// a task's context outlives.
+    fn with_app<R>(&mut self, f: impl FnOnce(&mut App) -> R) -> Result<R, Released>;
+}
+impl AppContext for App {
+    fn with_app<R>(&mut self, f: impl FnOnce(&mut App) -> R) -> Result<R, Released> {
+        Ok(f(self))
+    }
+}
+impl<T> AppContext for Context<'_, T> {
+    fn with_app<R>(&mut self, f: impl FnOnce(&mut App) -> R) -> Result<R, Released> {
+        Ok(f(self.app))
+    }
+}
+impl AppContext for AsyncApp {
+    fn with_app<R>(&mut self, f: impl FnOnce(&mut App) -> R) -> Result<R, Released> {
+        let state = self.inner.upgrade().ok_or(Released)?;
+        Ok(f(&mut App::from_state(state)))
+    }
+}
+
 #[derive(Clone)]
 pub struct AsyncApp {
     inner: Weak<AppState>,
@@ -247,121 +245,140 @@ impl std::fmt::Display for Released {
 }
 impl std::error::Error for Released {}
 
-pub struct Entity<V> {
-    pub(crate) value: Rc<RefCell<Option<V>>>,
+/// A handle to an entity: the root view, or a child built with
+/// [`App::new`]. Clones share the state; it lives while a handle does.
+pub struct Entity<T> {
+    pub(crate) value: Rc<RefCell<Option<T>>>,
+    pub(crate) id: u64,
     app: Weak<AppState>,
 }
-pub struct WeakEntity<V> {
-    value: Weak<RefCell<Option<V>>>,
+pub struct WeakEntity<T> {
+    value: Weak<RefCell<Option<T>>>,
+    id: u64,
     app: Weak<AppState>,
 }
-impl<V> Clone for Entity<V> {
+impl<T> Clone for Entity<T> {
     fn clone(&self) -> Self {
         Self {
             value: self.value.clone(),
+            id: self.id,
             app: self.app.clone(),
         }
     }
 }
-impl<V> Clone for WeakEntity<V> {
+impl<T> Clone for WeakEntity<T> {
     fn clone(&self) -> Self {
         Self {
             value: self.value.clone(),
+            id: self.id,
             app: self.app.clone(),
         }
     }
 }
-impl<V> Entity<V> {
+impl<T> Entity<T> {
     pub(crate) fn reserve(app: &App) -> Self {
+        let id = app.inner.next_entity_id.get();
+        app.inner.next_entity_id.set(id + 1);
         Self {
             value: Rc::default(),
+            id,
             app: Rc::downgrade(&app.inner),
         }
     }
-    pub fn downgrade(&self) -> WeakEntity<V> {
+    pub fn downgrade(&self) -> WeakEntity<T> {
         WeakEntity {
             value: Rc::downgrade(&self.value),
+            id: self.id,
             app: self.app.clone(),
         }
     }
-    pub fn read<R>(&self, f: impl FnOnce(&V) -> R) -> R {
+    pub fn read<R>(&self, f: impl FnOnce(&T) -> R) -> R {
         f(self.value.borrow().as_ref().expect("entity initialized"))
     }
 }
-impl<V: View> Entity<V> {
-    pub fn update<R>(
+impl<T: 'static> Entity<T> {
+    /// Runs `f` on the entity's state: from a listener (`cx` is its `App`
+    /// or an entity's `Context`) or a task (its `AsyncApp`). What `f`
+    /// changes renders once it calls `cx.notify()`.
+    pub fn update<C: AppContext, R>(
         &self,
-        cx: &mut crate::testing::TestAppContext,
-        f: impl FnOnce(&mut V, &mut Window, &mut Context<V>) -> R,
+        cx: &mut C,
+        f: impl FnOnce(&mut T, &mut Context<T>) -> R,
     ) -> R {
-        self.update_app(cx.app_mut(), f)
-    }
-    pub(crate) fn update_app<R>(
-        &self,
-        app: &mut App,
-        f: impl FnOnce(&mut V, &mut Window, &mut Context<V>) -> R,
-    ) -> R {
-        let mut window = app.window();
-        self.update_in_window(app, &mut window, f)
+        cx.with_app(|app| {
+            let mut window = app.window();
+            self.update_in_window(app, &mut window, |state, _, cx| f(state, cx))
+        })
+        .expect("the view this entity belongs to is gone")
     }
     pub(crate) fn update_in_window<R>(
         &self,
         app: &mut App,
         window: &mut Window,
-        f: impl FnOnce(&mut V, &mut Window, &mut Context<V>) -> R,
+        f: impl FnOnce(&mut T, &mut Window, &mut Context<T>) -> R,
     ) -> R {
-        app.refresh_globals();
         assert!(
             self.app.ptr_eq(&Rc::downgrade(&app.inner)),
             "entity belongs to another app"
         );
-        let mut value = self.value.borrow_mut();
-        let view = value.as_mut().expect("entity initialized");
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        let before = serde_json::to_vec(view).ok();
-        let notified = app.inner.generation.get();
-        let mut cx = Context {
-            app,
-            entity: self.clone(),
-        };
-        let result = f(view, window, &mut cx);
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        if let (Some(before), Ok(after)) = (before, serde_json::to_vec(view)) {
-            assert!(
-                before == after || notified != cx.app.inner.generation.get(),
-                "state changed without cx.notify()"
-            );
-        }
-        #[cfg(not(all(debug_assertions, not(target_arch = "wasm32"))))]
-        let _ = notified;
-        result
+        app.update(|app| {
+            app.refresh_globals();
+            let mut value = self.value.borrow_mut();
+            let state = value.as_mut().expect("entity initialized");
+            // The root's snapshot is what a test can compare; a child's
+            // state is no part of it.
+            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+            let check = app
+                .inner
+                .root
+                .get()
+                .filter(|(root, _)| *root == self.id)
+                .map(|(_, encode)| (encode, encode(&*state), app.inner.generation.get()));
+            let mut cx = Context {
+                app,
+                entity: self.clone(),
+            };
+            let result = f(state, window, &mut cx);
+            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+            if let Some((encode, before, notified)) = check {
+                assert!(
+                    before == encode(&*state) || notified != cx.app.inner.generation.get(),
+                    "state changed without cx.notify()"
+                );
+            }
+            result
+        })
     }
 }
-impl<V: View> WeakEntity<V> {
-    pub fn upgrade(&self) -> Option<Entity<V>> {
+impl<T: 'static> WeakEntity<T> {
+    pub fn upgrade(&self) -> Option<Entity<T>> {
         if !self.app.upgrade()?.alive.get() {
             return None;
         }
         Some(Entity {
             value: self.value.upgrade()?,
+            id: self.id,
             app: self.app.clone(),
         })
     }
-    pub fn update<R>(
+    /// [`Entity::update`], or [`Released`] once the entity is gone.
+    pub fn update<C: AppContext, R>(
         &self,
-        cx: &mut AsyncApp,
-        f: impl FnOnce(&mut V, &mut Context<V>) -> R,
+        cx: &mut C,
+        f: impl FnOnce(&mut T, &mut Context<T>) -> R,
     ) -> Result<R, Released> {
-        self.update_in(cx, |view, _, cx| f(view, cx))
+        self.update_in(cx, |state, _, cx| f(state, cx))
     }
-    pub fn update_in<R>(
+    pub fn update_in<C: AppContext, R>(
         &self,
-        cx: &mut AsyncApp,
-        f: impl FnOnce(&mut V, &mut Window, &mut Context<V>) -> R,
+        cx: &mut C,
+        f: impl FnOnce(&mut T, &mut Window, &mut Context<T>) -> R,
     ) -> Result<R, Released> {
         let entity = self.upgrade().ok_or(Released)?;
-        let mut app = App::from_state(cx.inner.upgrade().ok_or(Released)?);
-        Ok(entity.update_app(&mut app, f))
+        cx.with_app(|app| {
+            let mut window = app.window();
+            entity.update_in_window(app, &mut window, f)
+        })
     }
 }
 pub struct Context<'a, V> {
@@ -380,9 +397,6 @@ impl<V> DerefMut for Context<'_, V> {
     }
 }
 impl<V> Context<'_, V> {
-    pub fn notify(&mut self) {
-        self.app.notify();
-    }
     pub fn entity(&self) -> Entity<V> {
         self.entity.clone()
     }
@@ -390,11 +404,78 @@ impl<V> Context<'_, V> {
         self.entity.downgrade()
     }
 }
-impl<V: View + 'static> Context<'_, V> {
-    pub fn listener<E: ?Sized>(
+impl<V: 'static> Context<'_, V> {
+    /// The view renders on the next tick, whichever entity notified; and
+    /// what [`observe`](Self::observe)s this entity hears it.
+    pub fn notify(&mut self) {
+        self.app.notify();
+        self.app
+            .inner
+            .events
+            .raise(self.entity.id, None, || Box::new(()));
+    }
+    /// Tells what [`subscribe`](Self::subscribe)s to this entity, once the
+    /// update that emits is done.
+    pub fn emit<E: 'static>(&mut self, event: E)
+    where
+        V: EventEmitter<E>,
+    {
+        let kind = Some(TypeId::of::<E>());
+        self.app
+            .inner
+            .events
+            .raise(self.entity.id, kind, || Box::new(event));
+    }
+    /// Runs `on_event` on this entity for each `E` that `entity` emits,
+    /// while the subscription is kept: store it, or `detach` it.
+    pub fn subscribe<W: EventEmitter<E>, E: 'static>(
+        &mut self,
+        entity: &Entity<W>,
+        mut on_event: impl FnMut(&mut V, Entity<W>, &E, &mut Context<V>) + 'static,
+    ) -> Subscription {
+        let (this, emitter) = (self.weak_entity(), entity.downgrade());
+        let kind = Some(TypeId::of::<E>());
+        self.listen(entity.id, kind, move |event, app| {
+            let (Some(this), Some(emitter)) = (this.upgrade(), emitter.upgrade()) else {
+                return;
+            };
+            let event = event.downcast_ref::<E>().expect("raised as an E");
+            this.update(app, |this, cx| on_event(this, emitter, event, cx));
+        })
+    }
+    /// Runs `on_notify` on this entity each time `entity` calls
+    /// `cx.notify()`, while the subscription is kept.
+    pub fn observe<W: 'static>(
+        &mut self,
+        entity: &Entity<W>,
+        mut on_notify: impl FnMut(&mut V, Entity<W>, &mut Context<V>) + 'static,
+    ) -> Subscription {
+        let (this, observed) = (self.weak_entity(), entity.downgrade());
+        self.listen(entity.id, None, move |_, app| {
+            let (Some(this), Some(observed)) = (this.upgrade(), observed.upgrade()) else {
+                return;
+            };
+            this.update(app, |this, cx| on_notify(this, observed, cx));
+        })
+    }
+    fn listen(
         &self,
-        f: impl Fn(&mut V, &E, &mut Window, &mut Context<V>) + 'static,
-    ) -> impl Fn(&E, &mut Window, &mut App) + 'static {
+        emitter: u64,
+        kind: events::Kind,
+        hear: impl FnMut(&dyn Any, &mut App) + 'static,
+    ) -> Subscription {
+        let id = self.app.inner.events.listen(emitter, kind, hear);
+        let app = Rc::downgrade(&self.app.inner);
+        Subscription::new(move || {
+            if let Some(app) = app.upgrade() {
+                app.events.forget(id);
+            }
+        })
+    }
+    pub fn listener<E: ?Sized, F: Fn(&mut V, &E, &mut Window, &mut Context<V>) + 'static>(
+        &self,
+        f: F,
+    ) -> impl Fn(&E, &mut Window, &mut App) + 'static + use<E, F, V> {
         let entity = self.weak_entity();
         move |event, window, app| {
             if let Some(entity) = entity.upgrade() {
@@ -402,10 +483,10 @@ impl<V: View + 'static> Context<'_, V> {
             }
         }
     }
-    pub fn processor<E, R>(
+    pub fn processor<E, R, F: Fn(&mut V, E, &mut Window, &mut Context<V>) -> R + 'static>(
         &self,
-        f: impl Fn(&mut V, E, &mut Window, &mut Context<V>) -> R + 'static,
-    ) -> impl Fn(E, &mut Window, &mut App) -> R + 'static {
+        f: F,
+    ) -> impl Fn(E, &mut Window, &mut App) -> R + 'static + use<E, F, R, V> {
         let entity = self.entity();
         move |event, window, app| {
             entity.update_in_window(app, window, |view, window, cx| f(view, event, window, cx))

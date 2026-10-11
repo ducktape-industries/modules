@@ -1,7 +1,6 @@
 //! Native GPUI composition for Chat. State and module operations stay in the
 //! root view; this module only builds the element tree and installs listeners.
 
-mod components;
 pub mod dialogs;
 pub mod menu;
 pub mod message;
@@ -10,24 +9,21 @@ pub mod side;
 pub mod sidebar;
 mod timeline;
 
-pub(crate) use components::{badge, button, empty_state, quiet};
-use ducktape_view_guest::{
-    Context, InteractiveElement, IntoElement, ParentElement, Pixels, Styled, Theme, div, hsla,
-    modal_overlay, px, resize_handle, sensor,
-};
+pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, quiet};
+use ducktape_view_guest::prelude::*;
 
 use crate::Chat;
 
 pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let mut screen = div()
+    let screen = div()
         .id("chat-root")
         .relative()
         .flex()
         .size_full()
         .bg(theme.background)
         .text_color(theme.foreground)
-        .text_size(px(13.))
+        .text_size(design::text::BODY)
         .child(if chat.session.connected {
             connected(chat, cx, &theme).into_any_element()
         } else {
@@ -40,101 +36,113 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
             .into_any_element()
         })
         .into_any_element();
+    let screen = with_menu(chat, screen, cx, &theme);
+    with_create(chat, screen, cx, &theme)
+}
 
-    if let Some(menu) = menu::floating(chat, cx, &theme) {
-        let dismiss = cx.listener(|chat, _: &(), _window, cx| {
-            chat.close_menu();
-            cx.notify();
-        });
-        screen = modal_overlay("chat-menu-overlay", screen, menu)
-            .label("Message menu")
-            .on_dismiss(dismiss)
-            .into_any_element();
-    }
-    if let Some(preview) = dialogs::preview(chat, cx, &theme) {
-        let dismiss = cx.listener(|chat, _: &(), _window, cx| {
-            chat.preview = None;
-            cx.notify();
-        });
-        screen = modal_overlay("chat-preview-overlay", screen, preview)
-            .label("Attachment preview")
-            .flex()
-            .items_center()
-            .justify_center()
-            .backdrop(hsla(0., 0., 0., 0.55))
-            .on_dismiss(dismiss)
-            .into_any_element();
-    }
-    if let Some(create) = dialogs::channel_create(chat, cx, &theme) {
-        let dismiss = cx.listener(|chat, _: &(), _window, cx| {
-            chat.create = None;
-            cx.notify();
-        });
-        let overlay = modal_overlay("chat-create-overlay", screen, create)
-            .label("Create channel")
-            .flex()
-            .items_center()
-            .justify_center()
-            .p_6()
-            .backdrop(hsla(0., 0., 0., 0.55));
-        screen = if chat.create.as_ref().is_some_and(|create| create.busy) {
-            overlay.into_any_element()
-        } else {
-            overlay.on_dismiss(dismiss).into_any_element()
-        };
-    }
-    let shown = cx.listener(|chat, size: &(Pixels, Pixels), _window, cx| {
-        chat.layout.viewport = (size.0.into(), size.1.into());
-        chat.layout.clamp();
+/// The screen under the open message menu, if any.
+fn with_menu(chat: &Chat, screen: AnyElement, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+    let dismiss = cx.listener(|chat, _: &(), _window, cx| {
+        chat.close_menu();
         cx.notify();
     });
-    let resized = cx.listener(|chat, size: &(Pixels, Pixels), _window, cx| {
-        chat.layout.viewport = (size.0.into(), size.1.into());
-        chat.layout.clamp();
+    let mode = chat.menu.as_ref().map(|menu| menu.mode);
+    // the picker is named by the host's modal layer, the one dialog the
+    // audit knows is modal; its frame inside carries no dialog of its own
+    let label = match mode {
+        Some(crate::Mode::Reactions) => "Add reaction",
+        _ => "Message menu",
+    };
+    let overlay = modal_overlay(
+        "chat-menu-overlay",
+        label,
+        screen,
+        menu::floating(chat, cx, theme),
+    )
+    .on_dismiss(dismiss);
+    // a confirm asks before anything else happens: it dims the room
+    let confirming = mode == Some(crate::Mode::Delete);
+    match confirming {
+        true => overlay.backdrop(hsla(0., 0., 0., 0.35)).into_any_element(),
+        false => overlay.into_any_element(),
+    }
+}
+
+/// The screen under the create-channel dialog, if it is open; a busy
+/// dialog is not dismissed.
+fn with_create(
+    chat: &Chat,
+    screen: AnyElement,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> AnyElement {
+    let dismiss = cx.listener(|chat, _: &(), _window, cx| {
+        chat.create = None;
         cx.notify();
     });
-    sensor("chat-viewport", screen)
-        .size_full()
-        .on_show(shown)
-        .on_resize(resized)
+    let create = dialogs::channel_create(chat, cx, theme);
+    let overlay = modal_overlay("chat-create-overlay", "Create channel", screen, create)
+        .flex()
+        .items_center()
+        .justify_center()
+        .p_6()
+        .backdrop(hsla(0., 0., 0., 0.55));
+    match chat.create.as_ref().is_some_and(|create| create.busy) {
+        true => overlay.into_any_element(),
+        false => overlay.on_dismiss(dismiss).into_any_element(),
+    }
 }
 
 fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
-    let mut panes = div()
+    let panes = div()
         .id("chat-panes")
+        .relative()
         .flex()
         .size_full()
         .child(sidebar::render(chat, cx, theme))
-        .child(divider("chat-sidebar-resize", theme, cx, |chat, dx| {
-            chat.layout.sidebar += dx;
-        }))
+        .child(design::divider(
+            "chat-sidebar-resize",
+            "Resize the room list",
+            theme,
+            cx,
+            |chat, dx| {
+                chat.layout.sidebar += dx;
+                chat.layout.clamp();
+            },
+        ))
         .child(room::render(chat, cx, theme));
-    if chat.details.is_some() && chat.room.is_some() {
-        panes = panes
-            .child(divider("chat-details-resize", theme, cx, |chat, dx| {
-                chat.layout.details -= dx;
-            }))
-            .child(side::details(chat, cx, theme));
-    } else if chat.room.as_ref().is_some_and(|room| room.thread.is_some()) {
-        panes = panes
-            .child(divider("chat-thread-resize", theme, cx, |chat, dx| {
-                chat.layout.thread -= dx;
-            }))
-            .child(side::thread(chat, cx, theme));
+    let details = chat.details.is_some() && chat.room.is_some();
+    let thread = chat.room.as_ref().is_some_and(|room| room.thread.is_some());
+    let (pane, width) = match (details, thread) {
+        (true, _) => (side::details(chat, cx, theme), chat.layout.details),
+        (false, true) => (side::thread(chat, cx, theme), chat.layout.thread),
+        (false, false) => return panes,
+    };
+    // too narrow for the room beside it: the pane covers the whole screen
+    if !chat.layout.docks(width) {
+        return panes.child(design::over("chat-side-over", pane, theme));
     }
-    panes
-}
-
-fn divider(
-    id: &'static str,
-    theme: &Theme,
-    cx: &mut Context<Chat>,
-    drag: impl Fn(&mut Chat, f32) + 'static,
-) -> impl IntoElement {
-    let dragged = cx.listener(move |chat, delta: &(Pixels, Pixels), _window, cx| {
-        drag(chat, delta.0.into());
-        chat.layout.clamp();
-        cx.notify();
-    });
-    resize_handle(id, div().w(px(1.)).h_full().bg(theme.border)).on_drag(dragged)
+    let divider = match details {
+        true => design::divider(
+            "chat-details-resize",
+            "Resize channel details",
+            theme,
+            cx,
+            |chat, dx| {
+                chat.layout.details -= dx;
+                chat.layout.clamp();
+            },
+        ),
+        false => design::divider(
+            "chat-thread-resize",
+            "Resize the thread",
+            theme,
+            cx,
+            |chat, dx| {
+                chat.layout.thread -= dx;
+                chat.layout.clamp();
+            },
+        ),
+    };
+    panes.child(divider).child(pane)
 }

@@ -1,137 +1,127 @@
-// The wasm32 program over the rules: guest contexts as the store, the origin resolved through identity, the huddle node proof checked, then `execute`/`query`.
+//! The module: the signer resolved to its principal, then every op and
+//! every query, each handed to its function in `ops.rs` or `queries.rs`.
 
-use crate::{
-    AccountRow, ChatMsg, ChatViewQuery, ChatViewReply, Frame, HUDDLE_JOIN_NS, MsgRow, Party,
+use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+
+use crate::ops::{
+    create_channel, delete, edit, open_dm, post, react, rename, set_archived, set_membership,
 };
-use abi::{Env, Origin, Refusal, Scheme, reason};
-use guest::{Execute, Program, Query};
-use store::{Page, Reads, decoded, invalid};
+use crate::queries::{
+    around, attention, by_id, channel, channels, roots, search, seen_by, tagged, thread,
+};
+use crate::state::MEMBERS;
+use crate::{Op, Query, Reply};
 
-const PROGRAM: &str = "chat";
-
-fn bad(e: impl ToString) -> Refusal {
-    invalid(e.to_string())
-}
-
-fn party_of(ctx: &impl Reads, origin: &Origin) -> Result<Party, Refusal> {
-    Ok(match origin {
-        Origin::External(key) if key.is_empty() => {
-            return Err(bad("an external origin carries a key"));
-        }
-        Origin::External(key) => match identity::account_of(ctx, key) {
-            Ok(Some(number)) => Party::Account(number),
-            Ok(None) => Party::Key(key.clone()),
-            Err(r) if r.reason == reason::UNKNOWN_PROGRAM => Party::Key(key.clone()),
-            Err(r) => return Err(r),
-        },
-        Origin::Program(id) => Party::Module(id.clone()),
-        Origin::System => Party::System,
-    })
-}
-
-fn node_joins(ctx: &impl Reads, env: &Env, msg: &ChatMsg) -> Result<(), Refusal> {
-    let ChatMsg::JoinHuddle {
-        channel_id,
-        node,
-        node_proof,
-    } = msg
-    else {
-        return Ok(());
-    };
-    let Origin::External(key) = &env.origin else {
-        return Err(Refusal::new(
-            reason::UNAUTHORIZED,
-            "only a key joins a huddle",
-        ));
-    };
-    let node_consents = ctx.verify(
-        Scheme::Ed25519,
-        node.clone(),
-        HUDDLE_JOIN_NS,
-        [channel_id.as_bytes(), key].concat(),
-        node_proof.clone(),
-    )?;
-    if !node_consents {
-        return Err(bad("the node proof does not verify"));
-    }
-    Ok(())
-}
-
-/// Identity's roster as the view reads it: one door, chat's.
-fn accounts(ctx: &impl Reads, page: Page) -> Result<ChatViewReply, Refusal> {
-    let identity::Reply::Accounts(accounts) = ctx.ask::<identity::Query, identity::Reply>(
-        identity::PROGRAM,
-        &identity::Query::List { page },
-    )?
-    else {
-        return Err(Refusal::new(
-            reason::UNEXPECTED_REPLY,
-            "identity answered List with something else",
-        ));
-    };
-    Ok(ChatViewReply::Accounts(
-        accounts
-            .items
-            .into_iter()
-            .map(|a| AccountRow {
-                number: a.number,
-                program: matches!(a.control, identity::Control::Program { .. }),
-                keys: a.keys().iter().map(|k| crate::hex(&k.key)).collect(),
-                name: a.name,
-            })
-            .collect(),
-    ))
-}
-
-struct Chat;
+pub struct Chat;
 
 impl Program for Chat {
-    fn execute(ctx: &mut Execute, env: &Env, payload: &[u8]) -> Result<(), Refusal> {
-        let msg: ChatMsg = decoded(PROGRAM, "ChatMsg", payload)?;
-        node_joins(ctx, env, &msg)?;
-        let frame = Frame {
-            party: party_of(ctx, &env.origin)?,
-            height: env.height,
-            time: env.time,
-        };
-        crate::execute(ctx, &frame, msg)
+    const NAME: &'static str = crate::MODULE;
+    type Op = Op;
+    type Query = Query;
+    type Reply = Reply;
+}
+
+impl Module for Chat {
+    fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
+        let sender = ctx.sender()?;
+        match op {
+            Op::CreateChannel {
+                channel_id,
+                name,
+                post_policy,
+            } => create_channel(ctx, &sender, channel_id, name, post_policy),
+            Op::CreateDmChannel { counterpart, name } => open_dm(ctx, &sender, counterpart, name),
+            Op::RenameChannel { channel_id, name } => rename(ctx, &sender, &channel_id, name),
+            Op::SetChannelArchived {
+                channel_id,
+                archived,
+            } => set_archived(ctx, &sender, &channel_id, archived),
+            Op::PostMessage {
+                channel_id,
+                message_id,
+                blocks,
+                thread,
+            } => post(ctx, &sender, channel_id, message_id, blocks, thread),
+            Op::EditMessage {
+                channel_id,
+                seq,
+                blocks,
+                base_rev,
+            } => edit(ctx, &sender, &channel_id, seq, blocks, base_rev),
+            Op::DeleteMessage { channel_id, seq } => delete(ctx, &sender, &channel_id, seq),
+            Op::AddReaction {
+                channel_id,
+                seq,
+                emoji,
+            } => react(ctx, &sender, &channel_id, seq, &emoji, true),
+            Op::RemoveReaction {
+                channel_id,
+                seq,
+                emoji,
+            } => react(ctx, &sender, &channel_id, seq, &emoji, false),
+            Op::SetMembership {
+                channel_id,
+                principal,
+                member,
+            } => set_membership(ctx, &sender, &channel_id, principal, member),
+        }
     }
 
-    fn query(ctx: &mut Query, env: &Env, request: &[u8]) -> Result<(), Refusal> {
-        let q: ChatViewQuery = decoded(PROGRAM, "ChatViewQuery", request)?;
-        let reply = match q {
-            ChatViewQuery::Accounts { page } => accounts(ctx, page)?,
-            ChatViewQuery::ThreadAttention {
+    fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
+        let (reply, viewer) = match query {
+            Query::Channels { page } => (Reply::Channels(channels(ctx, &page)?), vec![]),
+            Query::Channel { channel_id } => (Reply::Channel(channel(ctx, &channel_id)?), vec![]),
+            Query::MessageById { message_id } => (Reply::Message(by_id(ctx, &message_id)?), vec![]),
+            Query::ThreadAttention { channel_id, author } => (
+                Reply::Attention(attention(ctx, &channel_id, author)?),
+                vec![],
+            ),
+            Query::Roots {
                 channel_id,
-                author: Party::Key(key),
-            } => {
-                // A key may have posted before or after acquiring an account.
-                let resolved = party_of(ctx, &Origin::External(key.clone()))?;
-                let mut newest = None;
-                for author in [Party::Key(key), resolved] {
-                    let reply = crate::query(
-                        ctx,
-                        env.height,
-                        ChatViewQuery::ThreadAttention {
-                            channel_id: channel_id.clone(),
-                            author,
-                        },
-                    )?;
-                    if let ChatViewReply::Attention(Some(row)) = reply
-                        && newest
-                            .as_ref()
-                            .is_none_or(|old: &MsgRow| old.last_reply_seq < row.last_reply_seq)
-                    {
-                        newest = Some(row);
-                    }
-                }
-                ChatViewReply::Attention(newest)
+                viewer,
+                page,
+            } => (Reply::Roots(roots(ctx, channel_id, &page)?), viewer),
+            Query::MessagesAround {
+                channel_id,
+                seq,
+                viewer,
+                page,
+            } => (
+                Reply::Messages(around(ctx, channel_id, seq, &page)?),
+                viewer,
+            ),
+            Query::Thread {
+                channel_id,
+                root_seq,
+                viewer,
+                page,
+            } => (thread(ctx, channel_id, root_seq, &page)?, viewer),
+            Query::Members { channel_id, page } => {
+                let members = MEMBERS.range_of(ctx, &channel_id, &page)?;
+                (Reply::Members(members.map(|(_, member)| member)), vec![])
             }
-            q => crate::query(ctx, env.height, q)?,
+            Query::Search {
+                text,
+                viewer,
+                channel_id,
+                page,
+            } => (Reply::Hits(search(ctx, &text, channel_id, &page)?), viewer),
+            Query::TagSearch {
+                tag,
+                viewer,
+                channel_id,
+                page,
+            } => (
+                Reply::TagHits(tagged(ctx, &tag, channel_id, &page)?),
+                viewer,
+            ),
+            Query::Accounts { page } => {
+                (Reply::Accounts(crate::origin::accounts(ctx, page)?), vec![])
+            }
         };
-        ctx.reply(&reply);
-        Ok(())
+        seen_by(ctx, reply, viewer)
     }
 }
 
-guest::program!(Chat);
+#[cfg(feature = "module")]
+guest::export!(Chat);

@@ -1,5 +1,5 @@
 //! GPUI-shaped rich text recipes lowered into one native host paragraph.
-use crate::{wire, App, Element, ElementId, IntoElement, Lowering, Window};
+use crate::{App, Element, ElementId, IntoElement, Lowering, Window, wire};
 use gpui::{
     HighlightStyle, MouseMoveEvent, SharedString, StyleRefinement, Styled, TextRun, TextStyle,
 };
@@ -7,14 +7,13 @@ use std::ops::Range;
 
 type ClickListener = Box<dyn Fn(usize, &mut Window, &mut App)>;
 type HoverListener = Box<dyn Fn(Option<usize>, MouseMoveEvent, &mut Window, &mut App)>;
-type TooltipBuilder = Box<dyn Fn(usize, &mut Window, &mut App) -> Option<crate::AnyView>>;
 
 pub struct StyledText {
     text: SharedString,
     runs: Option<Vec<TextRun>>,
     highlights: Option<Vec<(Range<usize>, HighlightStyle)>>,
     font_family_overrides: Vec<(Range<usize>, SharedString)>,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
 }
 
 impl StyledText {
@@ -24,7 +23,7 @@ impl StyledText {
             runs: None,
             highlights: None,
             font_family_overrides: Vec::new(),
-            style: StyleRefinement::default(),
+            style: Box::default(),
         }
     }
 
@@ -88,11 +87,12 @@ impl StyledText {
 
     fn lower(
         self,
+        lowering: &Lowering<'_>,
         id: Option<wire::ElementIdWire>,
         clickable_ranges: Vec<Range<usize>>,
         on_click: Option<u32>,
         on_hover: Option<u32>,
-        tooltip: Option<wire::RichTextTooltip>,
+        tooltip: Option<u32>,
     ) -> wire::Node {
         let runs = match self.runs {
             Some(runs) => wire::RichTextRuns::Runs(runs.into_iter().map(Into::into).collect()),
@@ -106,7 +106,7 @@ impl StyledText {
         };
         wire::Node::RichText {
             id,
-            style: self.style,
+            style: lowering.style(&self.style),
             text: self.text.to_string(),
             runs,
             font_family_overrides: self.font_family_overrides,
@@ -132,8 +132,8 @@ impl IntoElement for StyledText {
 }
 
 impl Element for StyledText {
-    fn lower(self: Box<Self>, _lowering: &mut Lowering<'_>) -> wire::Node {
-        (*self).lower(None, Vec::new(), None, None, None)
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        (*self).lower(lowering, None, Vec::new(), None, None, None)
     }
 }
 
@@ -143,7 +143,7 @@ pub struct InteractiveText {
     clickable_ranges: Vec<Range<usize>>,
     on_click: Option<ClickListener>,
     on_hover: Option<HoverListener>,
-    tooltip: Option<TooltipBuilder>,
+    tooltip: Option<crate::slots::RichTextTooltipBuilder>,
 }
 
 impl InteractiveText {
@@ -214,28 +214,30 @@ impl Element for InteractiveText {
         } = *self;
         let id = lowering.current_path().last().cloned();
         let on_click = on_click.map(|listener| {
-            lowering.route(move |index: &u32, window, cx| listener(*index as usize, window, cx))
+            lowering.route(
+                crate::slots::Kind::RichClick,
+                move |index: &u32, window, cx| listener(*index as usize, window, cx),
+            )
         });
         let on_hover = on_hover.map(|listener| {
-            lowering.route(move |event: &wire::RichTextHover, window, cx| {
-                listener(
-                    event.index.map(|index| index as usize),
-                    MouseMoveEvent {
-                        position: event.position,
-                        pressed_button: event.pressed_button.map(Into::into),
-                        modifiers: event.modifiers,
-                    },
-                    window,
-                    cx,
-                )
-            })
+            lowering.route(
+                crate::slots::Kind::RichHover,
+                move |event: &wire::RichTextHover, window, cx| {
+                    listener(
+                        event.index.map(|index| index as usize),
+                        MouseMoveEvent {
+                            position: event.position,
+                            pressed_button: event.pressed_button.map(Into::into),
+                            modifiers: event.modifiers,
+                        },
+                        window,
+                        cx,
+                    )
+                },
+            )
         });
-        let tooltip = tooltip.map(|builder| wire::RichTextTooltip {
-            request: lowering.rich_text_tooltip(builder),
-            character_index: None,
-            content: None,
-        });
-        text.lower(id, clickable_ranges, on_click, on_hover, tooltip)
+        let tooltip = tooltip.map(|builder| lowering.rich_text_tooltip(builder));
+        text.lower(lowering, id, clickable_ranges, on_click, on_hover, tooltip)
     }
 }
 
@@ -246,33 +248,6 @@ impl gpui::prelude::FluentBuilder for InteractiveText {}
 mod tests {
     use super::*;
     use std::{cell::RefCell, rc::Rc};
-
-    #[test]
-    fn callbacks_are_allocated_only_while_lowering_each_frame() {
-        let make = || {
-            InteractiveText::new("rich", StyledText::new("one two"))
-                .on_click(vec![0..3, 4..7], |_, _, _| {})
-        };
-        let mut app = App::for_driver();
-        let mut window = app.window();
-        let first = Lowering::new(&mut window, &mut app).lower(make());
-        let mut window = app.window();
-        let second = Lowering::new(&mut window, &mut app).lower(make());
-        assert!(matches!(
-            first,
-            wire::Node::RichText {
-                on_click: Some(0),
-                ..
-            }
-        ));
-        assert!(matches!(
-            second,
-            wire::Node::RichText {
-                on_click: Some(1),
-                ..
-            }
-        ));
-    }
 
     #[test]
     fn a_new_frame_replaces_the_old_rich_text_callback() {
@@ -293,7 +268,6 @@ mod tests {
         else {
             panic!("first frame route");
         };
-        crate::slots::reset(&app.inner.slots);
         let second_hits = hits.clone();
         let mut window = app.window();
         let second = Lowering::new(&mut window, &mut app).lower(

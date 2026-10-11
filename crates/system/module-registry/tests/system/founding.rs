@@ -6,23 +6,29 @@ fn founding_seats_the_validators_and_every_program_answers() {
         let dir = tempfile::tempdir().unwrap();
         let net = Net::found(context, dir.path()).await;
         let programs = net.host.programs().unwrap();
-        for program in [
-            module_registry::PROGRAM,
-            valset::PROGRAM,
-            identity::PROGRAM,
-            AUTHORITY,
-        ] {
+        for program in [module_registry::MODULE, valset::MODULE, identity::MODULE] {
             assert!(programs.contains_key(program), "{program} is not rostered");
         }
         assert!(!programs.contains_key("lens"), "a view is never admitted");
         let module_registry::Reply::Views(views) = net
-            .ask(module_registry::PROGRAM, &module_registry::Query::Views(0))
+            .ask(module_registry::MODULE, &module_registry::Query::Views(0))
             .await
         else {
             panic!()
         };
         let names: Vec<&str> = views.iter().map(|view| view.name.as_str()).collect();
         assert_eq!(names, ["lens"]);
+        // the host fills a query's env with the genesis bindings
+        let module_registry::Reply::Roles(roles) = net
+            .ask(module_registry::MODULE, &module_registry::Query::Roles)
+            .await
+        else {
+            panic!()
+        };
+        assert_eq!(
+            [roles.registry, roles.validators, roles.identity],
+            [module_registry::MODULE, valset::MODULE, identity::MODULE]
+        );
         assert_eq!(
             net.host.blob(&views[0].view).unwrap().as_deref(),
             Some(&b"program 6\0a view"[..]),
@@ -33,7 +39,7 @@ fn founding_seats_the_validators_and_every_program_answers() {
         assert!(
             memberships
                 .iter()
-                .all(|membership| membership.standing == valset::Standing::Validator)
+                .all(|membership| membership.role == valset::Role::Validator)
         );
         let seated = net.host.epoch_members(0).unwrap().unwrap();
         assert_eq!(seated.len(), 2);
@@ -41,9 +47,9 @@ fn founding_seats_the_validators_and_every_program_answers() {
         assert!(seated.contains(&member(2)));
         let identity::Reply::Accounts(accounts) = net
             .ask(
-                identity::PROGRAM,
+                identity::MODULE,
                 &identity::Query::List {
-                    page: Page::default(),
+                    page: PageRequest::default(),
                 },
             )
             .await
@@ -52,6 +58,21 @@ fn founding_seats_the_validators_and_every_program_answers() {
         };
         assert_eq!(accounts.height, net.height);
         assert_eq!(accounts.next, None);
-        assert!(accounts.items.is_empty());
+        // every founding program, and only they: each has its account
+        let modules: Vec<_> = accounts
+            .items
+            .iter()
+            .map(|account| account.kind())
+            .collect();
+        let module = |module: &str| identity::Kind::Module(module.into());
+        assert_eq!(
+            modules,
+            [
+                module(module_registry::MODULE),
+                module(valset::MODULE),
+                module(identity::MODULE),
+                module("probe"),
+            ]
+        );
     });
 }

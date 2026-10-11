@@ -1,42 +1,47 @@
-//! The wire's bytes, committed. One `Frame` holding every `Node` variant,
-//! one of every `Event`, and one request and reply through every door in
-//! `doors::ALL`, encoded into `tests/golden/{frame,doors}.bin` with a JSON
-//! twin beside each for readable diffs. Any byte that moves — a field, a
-//! variant, a `gpui::StyleRefinement` change from a fork bump — fails here,
-//! and the fix is to bump `WIRE_EPOCH` in the same commit and regenerate
-//! with `WIRE_GOLDEN_WRITE=1`.
-use std::collections::BTreeSet;
+//! The wire, committed: its bytes and its shape. `frame.bin` holds a
+//! `Frame` with every `Node` variant in its tree and every style field in
+//! its table, then every `Event`, every
+//! `WidgetCommand`, and every unit variant those leave out
+//! (`golden/units.rs`); `methods.bin` holds at least one request and reply
+//! through every method in `methods::ALL`; each has a JSON twin beside it
+//! for readable diffs. `tests/golden/schema.txt` (`golden/schema.rs`) holds
+//! the shape of every type that crosses. The bytes fail on any sampled byte
+//! that moves. The shape holds every field and variant, sampled or not, and
+//! `golden/coverage.rs` fails when a sample leaves one out: on the tree side
+//! every variant, and every struct field seen present, that `Frame`,
+//! `Event` or `WidgetCommand` reaches; on the borsh side every variant,
+//! `Option`'s `None` and `Some` included, that a method with no target
+//! reaches. A failure means the wire changed; if that was intended,
+//! regenerate with `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID` (`build.rs`
+//! hashes all three files).
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
 
 use gpui::{Bounds, Pixels, StyleRefinement, point, px, size};
-use view_wire::doors::{self, Door, Program};
-use view_wire::editor_document::{
-    EditorDocumentMessage, EditorDocumentRef, EditorTransfer, EditorTransferError, EditorTransferId,
-};
-use view_wire::editor_presentation::EditorInteraction;
 use view_wire::list::{
     ListCommand, UniformListHorizontalSizing, UniformListScrollRequest, UniformListScrollStrategy,
     UniformListSizing,
 };
+use view_wire::methods::{self, Method, Program};
 use view_wire::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, Axis, ButtonContent, CanvasCommand, CanvasShape,
-    ContainerNode, ContentFit, DispatchPhase, EditorCursor, EditorDecision, EditorEditKind,
-    EditorHistoryEffect, EditorPatch, EditorRequest, EditorRequestInput, EditorResponse,
-    EditorTransactionEvent, EditorTransactionId, ElementIdWire, Event, Frame, ImageData,
-    ImageObjectFit, ImageStyle, Interactivity, ListAlignment, ListOffset, ListRequest, ListScroll,
-    ListSizingBehavior, Live, Node, Patch, Qr, Refusal, Request, RichTextHighlightStyle,
-    RichTextHover, RichTextRuns, Role, ScrollAnchor, ScrollDirection, SurfaceValue, SvgSource,
-    SvgTransformation, TextNode, ToggleKind, TooltipResponse, WidgetCommand, click, events,
-    interactivity, keyboard, mouse,
+    Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
+    CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
+    ContainerNode, DispatchPhase, Edit, ElementIdAtom, ElementIdWire, Error, Event, Frame,
+    GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
+    KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
+    Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
+    SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
+    WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
-const MESSAGE: &str = "the wire changed: bump WIRE_EPOCH and regenerate with WIRE_GOLDEN_WRITE=1";
+const MESSAGE: &str =
+    "the wire changed: if intended, regenerate with WIRE_GOLDEN_WRITE=1 (this changes WIRE_ID)";
 
-/// Bumped by hand with the enum: `variant` below fails to compile until
+/// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 34;
-const EVENT_VARIANTS: usize = 42;
+const NODE_VARIANTS: usize = 15;
+const EVENT_VARIANTS: usize = 34;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -74,8 +79,10 @@ fn id(name: &str) -> ElementIdWire {
     ElementIdWire::Name(name.into())
 }
 
-fn style() -> StyleRefinement {
-    StyleRefinement::default()
+/// The style of a sample node whose style is not what it samples: the
+/// empty one, the first entry of the frame's table (`nodes::every_style`).
+fn style() -> StyleId {
+    StyleId(0)
 }
 
 fn text(content: &str) -> Node {
@@ -83,46 +90,11 @@ fn text(content: &str) -> Node {
         id: Some(id(content)),
         style: style(),
         content: content.into(),
-        heading: Some(2),
-        live: Some(Live::Polite),
     })
 }
 
 fn boxed(content: &str) -> Box<Node> {
     Box::new(text(content))
-}
-
-fn document(byte_len: u32) -> EditorDocumentRef {
-    EditorDocumentRef {
-        document: "app:draft".into(),
-        reset: 3,
-        text_revision: 5,
-        revision: 7,
-        cursor: EditorCursor::default(),
-        byte_len,
-    }
-}
-
-fn transaction() -> EditorTransactionId {
-    EditorTransactionId {
-        instance: 1,
-        document: "app:draft".into(),
-        reset: 0,
-        sequence: 2,
-        attempt: 0,
-        text_revision: 1,
-        revision: 3,
-    }
-}
-
-fn transfer() -> EditorTransferId {
-    EditorTransferId {
-        instance: 1,
-        document: "app:draft".into(),
-        reset: 0,
-        serial: 4,
-        attempt: 1,
-    }
 }
 
 fn key_state() -> keyboard::KeyState {
@@ -131,10 +103,20 @@ fn key_state() -> keyboard::KeyState {
         modified_key: keyboard::Key::Character("\n".into()),
         physical_key: keyboard::Physical::Unidentified(keyboard::NativeCode::MacOS(36)),
         location: keyboard::Location::Standard,
-        modifiers: keyboard::Modifiers {
+        modifiers: gpui::Modifiers {
             shift: true,
             ..Default::default()
         },
+    }
+}
+
+/// [`key_state`] on a different native platform: every [`keyboard::NativeCode`]
+/// variant besides `MacOS` (already [`key_state`]'s) and `Unidentified`
+/// (a unit variant, sampled in `golden/units.rs`).
+fn key_state_on(physical: keyboard::NativeCode) -> keyboard::KeyState {
+    keyboard::KeyState {
+        physical_key: keyboard::Physical::Unidentified(physical),
+        ..key_state()
     }
 }
 
@@ -142,47 +124,70 @@ fn at(x: f32, y: f32) -> gpui::Point<Pixels> {
     point(px(x), px(y))
 }
 
+/// The mechanical completeness gate: every field and variant `schema.rs`
+/// says the wire reaches, checked against what the samples show.
+#[path = "golden/coverage.rs"]
+mod coverage;
 #[path = "golden/events.rs"]
 mod events_fixture;
-/// Every `Node` variant once, in one tree. Exhaustive by construction: a
-/// variant added to `Node` must be added here, or `variant` will not build.
+/// Every `Node` variant at least once, in one tree. Exhaustive by
+/// construction: a variant added to `Node` must be added here, or
+/// `node_variant` will not build.
 #[path = "golden/nodes.rs"]
 mod nodes;
+/// The wire's shape, hashed into `WIRE_ID` beside the bytes.
+#[path = "golden/schema.rs"]
+mod schema;
+/// Every unit variant the samples in place leave out: the fourth value
+/// `frame.bin` pins.
+#[path = "golden/units.rs"]
+mod units_fixture;
+/// Every `WidgetCommand` variant once: the third value `frame.bin` pins,
+/// tree-side like `Frame` and `Event` but never nested under either.
+#[path = "golden/widget.rs"]
+mod widget_fixture;
 use events_fixture::{event_variant, every_event, every_frame};
-use nodes::{every_node, node_variant};
+use nodes::{every_node, every_style, node_variant};
+use units_fixture::{Units, every_unit};
+use widget_fixture::every_widget_command;
 
 #[test]
 fn frame_and_events_are_the_committed_bytes() {
     let frame = every_frame();
     let events = every_event();
+    let widget_commands = every_widget_command();
+    let units = every_unit(&schema::wire());
     let root = frame.root.as_ref().unwrap();
     let Node::Container(ContainerNode { children, .. }) = root else {
         unreachable!()
     };
     let nodes: BTreeSet<_> = children.iter().chain([root]).map(node_variant).collect();
-    assert_eq!(
-        nodes.len(),
-        NODE_VARIANTS,
-        "every Node variant once: {nodes:?}"
-    );
+    assert_eq!(nodes.len(), NODE_VARIANTS, "every Node variant: {nodes:?}");
     let kinds: BTreeSet<_> = events.iter().map(event_variant).collect();
     assert_eq!(
         kinds.len(),
         EVENT_VARIANTS,
-        "every Event variant once: {kinds:?}"
+        "every Event variant: {kinds:?}"
     );
 
-    let value = (frame, events);
+    // every style field survives the table: an entry reads back as the
+    // style it was written from, and `coverage.rs` holds the samples to
+    // setting every field
+    for (entry, style) in frame.styles.iter().zip(every_style()) {
+        assert_eq!(entry.read(), Ok(style));
+    }
+
+    let value = (frame, events, widget_commands, units);
     let bytes = view_wire::encode(&value);
     let json = serde_json::to_string_pretty(&value).unwrap();
     check("frame", &bytes, &json);
     assert_eq!(
-        view_wire::decode::<(Frame, Vec<Event>)>(&bytes).unwrap(),
+        view_wire::decode::<(Frame, Vec<Event>, Vec<WidgetCommand>, Units)>(&bytes).unwrap(),
         value
     );
 }
 
-/// The program a golden `rpc.query`/`op.submit` addresses.
+/// The program a golden `module.query`/`op.submit`/`module.changes` addresses.
 struct Golden;
 impl Program for Golden {
     const NAME: &'static str = "golden";
@@ -195,7 +200,7 @@ impl Program for Golden {
 type Exchange = (String, Vec<u8>, Vec<u8>);
 
 /// One exchange, plus the values as JSON for the readable twin.
-fn exchange<D: Door>(request: D::Request, reply: D::Reply) -> (Exchange, serde_json::Value)
+fn exchange<D: Method>(request: D::Request, reply: D::Reply) -> (Exchange, serde_json::Value)
 where
     D::Request: serde::Serialize,
     D::Reply: serde::Serialize,
@@ -211,20 +216,15 @@ where
     )
 }
 
-fn every_door() -> Vec<(Exchange, serde_json::Value)> {
-    use doors::*;
-    let file = SelectedFile {
-        token: "t1".into(),
-        name: "a.txt".into(),
-        bytes: 5,
-    };
+fn every_method() -> Vec<(Exchange, serde_json::Value)> {
+    use methods::*;
     vec![
         exchange::<Query<Golden>>((7, "q".into()), vec![1, 2, 3]),
         exchange::<Submit<Golden>>("op".into(), b"receipt".to_vec()),
-        exchange::<Status>(
+        exchange::<ChainStatus>(
             (),
             NodeStatus {
-                network: "local#1".into(),
+                chain_id: "local#1".into(),
                 time: 1,
                 block_time_ms: 500,
                 epoch_length: 100,
@@ -236,18 +236,41 @@ fn every_door() -> Vec<(Exchange, serde_json::Value)> {
                 contract: 1,
             },
         ),
-        exchange::<Invite>(
-            Mint { ttl_days: 7 },
-            Minted {
+        exchange::<ChainNetwork>(
+            (),
+            NetworkStatus {
+                height: 9,
+                members: vec![
+                    Peer {
+                        key: vec![3; 32],
+                        signed: Some(9),
+                    },
+                    Peer {
+                        key: vec![4; 32],
+                        signed: None,
+                    },
+                ],
+            },
+        ),
+        exchange::<InviteCreate>(
+            CreateInvite { ttl_days: 7 },
+            Invite {
                 invite: "duck://invite/x".into(),
-                notes: vec![Note {
-                    reason: "not_yet".into(),
-                    sentence: "the invite is not indexed yet".into(),
+                notes: vec![Error {
+                    code: "not_yet".into(),
+                    message: "the invite is not indexed yet".into(),
                 }],
             },
         ),
-        exchange::<Live>("chat".into(), Some(9)),
-        exchange::<Blocks>(
+        exchange::<methods::Changes<Golden>>(
+            (),
+            Some(methods::Change {
+                height: 9,
+                keys: vec![b"a/1".to_vec(), b"b".to_vec()],
+            }),
+        ),
+        exchange::<methods::Changes<Golden>>((), None),
+        exchange::<ChainBlocks>(
             BlockPage {
                 before: Some(10),
                 limit: 2,
@@ -262,167 +285,211 @@ fn every_door() -> Vec<(Exchange, serde_json::Value)> {
                 txs: vec![Tx {
                     hash: [7; 32],
                     signer: vec![8; 32],
-                    seq: 1,
+                    anchor: Tip {
+                        height: 8,
+                        id: [3; 32],
+                    },
                     target: "chat".into(),
                     payload: vec![9],
+                    receipt: Some(Receipt {
+                        program: "chat".into(),
+                        outcome: Outcome::Rejected(Error {
+                            code: "unauthorized".into(),
+                            message: "not a member".into(),
+                        }),
+                        events: vec![vec![1]],
+                        nested: vec![Receipt {
+                            program: "identity".into(),
+                            outcome: Outcome::Applied { output: vec![2] },
+                            events: Vec::new(),
+                            nested: Vec::new(),
+                        }],
+                    }),
                 }],
             }],
         ),
-        exchange::<BlockGet>(BlockRef::Id([4; 32]), None),
-        exchange::<BlobGet>("sha256:00".into(), b"blob".to_vec()),
-        exchange::<Props>(
+        exchange::<ChainBlock>(BlockRef::Id([4; 32]), None),
+        exchange::<ChainBlock>(
+            BlockRef::Height(9),
+            Some(Block {
+                height: 9,
+                id: [4; 32],
+                parent: [5; 32],
+                time: 1,
+                epoch: 0,
+                proposer: None,
+                txs: vec![Tx {
+                    hash: [7; 32],
+                    signer: vec![8; 32],
+                    anchor: Tip {
+                        height: 7,
+                        id: [2; 32],
+                    },
+                    target: "chat".into(),
+                    payload: vec![9],
+                    receipt: None,
+                }],
+            }),
+        ),
+        exchange::<BlobGet>("sha256:00".into(), Some(b"blob".to_vec())),
+        exchange::<HostSession>(
             (),
             Session {
                 connected: true,
-                dark: false,
-                chain: "local#1".into(),
-                account: "alice".into(),
+                chain_id: "local#1".into(),
+                signer: "ab01".into(),
+                account: Some(3),
                 endpoint: "http://127.0.0.1:1".into(),
             },
         ),
-        exchange::<Visible>((), true),
-        exchange::<Badge>(3, ()),
-        exchange::<OpenLink>("duck://chat/room".into(), ()),
-        exchange::<Route>((), "tx/00ff".into()),
-        exchange::<Chord>("cmd-k".into(), ()),
-        exchange::<Id>("msg".into(), "msg-1".into()),
-        exchange::<Ticks>(1000, ()),
-        exchange::<Log>("hello".into(), ()),
-        exchange::<Widget>(
+        exchange::<HostVisible>((), true),
+        exchange::<HostBadge>(3, ()),
+        exchange::<HostTitle>("general".into(), ()),
+        exchange::<LinkOpen>("duck://chat/room".into(), ()),
+        exchange::<HostRoute>((), "tx/00ff".into()),
+        exchange::<HostId>("msg".into(), "msg-1".into()),
+        exchange::<ClockTicks>(1000, ()),
+        exchange::<HostLog>("hello".into(), ()),
+        exchange::<HostWidget>(
             WidgetCommand::Focus {
                 target: vec![id("input")],
             },
             (),
         ),
-        exchange::<Pick>((), vec![file.clone()]),
-        exchange::<Drops>((), vec![file.clone()]),
-        exchange::<FsRead>(
-            ReadRequest {
-                token: "t1".into(),
-                offset: 0,
-                len: 5,
-            },
-            b"hello".to_vec(),
-        ),
-        exchange::<Release>("t1".into(), ()),
         exchange::<ClipboardRead>(
             (),
             Clipboard {
                 text: "copied".into(),
-                files: vec![file],
             },
         ),
         exchange::<ClipboardWrite>("copied".into(), ()),
-        exchange::<Devices>(
+        exchange::<NotifyPost>(notification(), Delivery::Banner),
+        exchange::<NotifyPost>(notification(), Delivery::Logged),
+        exchange::<NotifyPost>(notification(), Delivery::Blocked),
+        exchange::<StoreGet>("reads/alice".into(), Some(vec![1, 2])),
+        exchange::<StoreSet>(("reads/alice".into(), None), ()),
+        exchange::<StoreSet>(("reads/alice".into(), Some(vec![1, 2])), ()),
+        exchange::<NotifySeen>("#design".into(), ()),
+        exchange::<ChainHeads>(
             (),
-            vec![Device {
-                id: "mic0".into(),
-                kind: "microphone".into(),
-                name: "Built-in".into(),
-            }],
-        ),
-        exchange::<AudioCapture>(
-            Listen {
-                device: Some("mic0".into()),
-                rate: Some(48_000),
-                channels: Some(1),
+            Head {
+                height: 9,
+                time: 1,
+                id: [4; 32],
             },
-            AudioItem::Samples(vec![0, 1]),
         ),
-        exchange::<VideoCapture>(
-            Watch {
-                device: None,
-                width: Some(640),
-                height: Some(480),
-                fps: Some(30),
-            },
-            VideoItem::Opened(Framing {
-                width: 640,
-                height: 480,
-                fps: 30,
-                format: "rgba8".into(),
+        exchange::<ModuleDescribe>(
+            ("chat".into(), vec![1, 2]),
+            Some(Description {
+                title: "Post in #design".into(),
+                fields: vec![Field {
+                    label: "from".into(),
+                    value: Value::List(vec![Value::Account(3), Value::bytes(&[7; 40])]),
+                }],
             }),
         ),
-        exchange::<AudioPlay>(
-            AudioMode {
-                rate: 48_000,
-                channels: 2,
-            },
-            AudioMode {
-                rate: 48_000,
-                channels: 2,
-            },
+        exchange::<ModuleDescribe>(
+            ("chat".into(), vec![1, 2]),
+            Some(Description {
+                title: "Post in #design".into(),
+                fields: vec![
+                    Field {
+                        label: "from".into(),
+                        value: Value::List(vec![Value::Account(3), Value::bytes(&[7; 40])]),
+                    },
+                    Field {
+                        label: "text".into(),
+                        value: Value::text("hi"),
+                    },
+                    Field {
+                        label: "signer".into(),
+                        value: Value::Key(vec![1; 32]),
+                    },
+                    Field {
+                        label: "program".into(),
+                        value: Value::Module("chat".into()),
+                    },
+                    Field {
+                        label: "commit".into(),
+                        value: Value::Hash(vec![2; 32]),
+                    },
+                    Field {
+                        label: "sent".into(),
+                        value: Value::Time(1_700_000_000_000),
+                    },
+                    Field {
+                        label: "quantity".into(),
+                        value: Value::Amount {
+                            value: 1_000,
+                            decimals: 2,
+                        },
+                    },
+                ],
+            }),
         ),
-        exchange::<AudioWrite>(vec![0, 1, 2, 3], ()),
-        exchange::<AudioStop>((), ()),
-        exchange::<NotifyShow>(
-            Notice {
-                title: "Chat".into(),
-                body: "alice: hi".into(),
-                tag: "room".into(),
-            },
-            true,
-        ),
+        exchange::<ModuleDescribe>(("chat".into(), vec![3]), None),
     ]
 }
 
-#[test]
-fn every_door_carries_the_committed_bytes() {
-    let (exchanges, json): (Vec<_>, Vec<_>) = every_door().into_iter().unzip();
-    let kinds: Vec<&str> = exchanges.iter().map(|(kind, ..)| kind.as_str()).collect();
-    assert_eq!(kinds, doors::ALL, "one exchange per door in ALL, in order");
-    let bytes = doors::encode(&exchanges);
-    check(
-        "doors",
-        &bytes,
-        &serde_json::to_string_pretty(&json).unwrap(),
-    );
-    assert_eq!(
-        doors::decode::<Vec<(String, Vec<u8>, Vec<u8>)>>(&bytes).unwrap(),
-        exchanges
-    );
-}
-
-/// The kinds the app host routes, read from its source (`("<cap>", "<op>")`
-/// match arms under `src/runtime`), must be exactly `ALL`. Runs when
-/// `DUCKTAPE_APP` names the app checkout; the app decodes `doors::*`
-/// generically once its follow-up lands, and this reads its arms until then.
-#[test]
-fn the_app_host_serves_every_door_and_nothing_else() {
-    let Some(app) = std::env::var_os("DUCKTAPE_APP") else {
-        eprintln!("DUCKTAPE_APP unset: skipping the app-host coverage check");
-        return;
-    };
-    let mut served = BTreeSet::new();
-    let mut stack = vec![PathBuf::from(app).join("src/runtime")];
-    while let Some(dir) = stack.pop() {
-        for entry in
-            std::fs::read_dir(&dir).unwrap_or_else(|error| panic!("{}: {error}", dir.display()))
-        {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|ext| ext == "rs") {
-                for line in std::fs::read_to_string(&path).unwrap().lines() {
-                    served.extend(served_kind(line));
-                }
-            }
-        }
+fn notification() -> methods::Notification {
+    methods::Notification {
+        title: "alice mentioned you".into(),
+        body: "@bob hi".into(),
+        tag: "room".into(),
+        link: "duck://chat/room".into(),
     }
-    let all: BTreeSet<String> = doors::ALL.iter().map(|kind| (*kind).to_owned()).collect();
-    let unserved: Vec<_> = all.difference(&served).collect();
-    let unknown: Vec<_> = served.difference(&all).collect();
-    assert!(
-        unserved.is_empty() && unknown.is_empty(),
-        "doors the app does not serve: {unserved:?}; kinds the app serves that are not doors: {unknown:?}"
-    );
 }
 
-/// `("host", "badge")` on a line → `host.badge`.
-fn served_kind(line: &str) -> Option<String> {
-    let (_, rest) = line.split_once("(\"")?;
-    let (capability, rest) = rest.split_once("\", \"")?;
-    let (operation, _) = rest.split_once("\")")?;
-    let word = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'_');
-    (word(capability) && word(operation)).then(|| format!("{capability}.{operation}"))
+/// The request and reply bytes of each exchange, by kind.
+type Methods = BTreeMap<String, Vec<(Vec<u8>, Vec<u8>)>>;
+
+#[test]
+fn every_method_carries_the_committed_bytes() {
+    let (exchanges, json): (Vec<_>, Vec<_>) = every_method().into_iter().unzip();
+    let mut built = Methods::new();
+    for (kind, request, reply) in exchanges {
+        built.entry(kind).or_default().push((request, reply));
+    }
+    let kinds: BTreeSet<&str> = built.keys().map(String::as_str).collect();
+    let all: BTreeSet<&str> = methods::ALL.iter().copied().collect();
+    assert_eq!(kinds, all, "an exchange per method in ALL");
+    let bin = golden("methods.bin");
+    if std::env::var_os("WIRE_GOLDEN_WRITE").is_some() {
+        std::fs::write(&bin, methods::encode(&built)).unwrap();
+        std::fs::write(
+            golden("methods.json"),
+            serde_json::to_string_pretty(&json).unwrap(),
+        )
+        .unwrap();
+        return;
+    }
+    let committed: Methods = methods::decode(
+        &std::fs::read(&bin)
+            .unwrap_or_else(|error| panic!("{}: {error}; {MESSAGE}", bin.display())),
+    )
+    .unwrap();
+    assert_eq!(moved(&committed, &built), Vec::<String>::new(), "{MESSAGE}");
+}
+
+/// The committed kinds whose bytes `built` changed or dropped. A kind only
+/// `built` has is new, and passes here: the shape names every kind, so
+/// `schema.txt` fails for it instead.
+fn moved(committed: &Methods, built: &Methods) -> Vec<String> {
+    committed
+        .iter()
+        .filter(|(kind, bytes)| built.get(*kind) != Some(bytes))
+        .map(|(kind, _)| kind.clone())
+        .collect()
+}
+
+#[test]
+fn a_new_method_passes_and_a_moved_or_dropped_one_fails() {
+    let method = |kind: &str, byte: u8| (kind.to_string(), vec![(vec![byte], vec![])]);
+    let committed: Methods = [method("a.one", 1), method("a.two", 2)].into();
+    let grown: Methods = [method("a.one", 1), method("a.two", 2), method("a.new", 3)].into();
+    assert!(moved(&committed, &grown).is_empty());
+    let changed: Methods = [method("a.one", 9), method("a.two", 2)].into();
+    assert_eq!(moved(&committed, &changed), ["a.one"]);
+    let dropped: Methods = [method("a.one", 1)].into();
+    assert_eq!(moved(&committed, &dropped), ["a.two"]);
 }

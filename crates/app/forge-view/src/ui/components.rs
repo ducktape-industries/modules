@@ -1,136 +1,55 @@
-//! The repeated shapes of this view, in chat's visual language: the same
-//! Theme tokens, the same row height, the same button, chip and empty state.
-//! They live here because the crate boundary forbids reaching into chat-view.
+//! The repeated shapes of this view; the ones every view shares (button,
+//! empty state, heading, quiet line) come from `ducktape_view_guest::design`.
 use std::ops::Range;
+use std::rc::Rc;
 
+use crate::Forge;
+use crate::state::Menu;
+pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, heading, short_hex};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{FontWeight, Hsla, UniformListScrollHandle};
+use ducktape_view_guest::{AnchoredPositionMode, Div, Edges, Point, Stateful, accesskit};
+
+/// The smallest box a pointer presses, each way (the door's AX-017).
+pub(crate) const PRESS_TARGET: Pixels = px(24.);
 
 pub(crate) fn id(text: impl Into<String>) -> ElementId {
     ElementId::Name(text.into().into())
 }
 
-/// A button. Disabled keeps the row visible, drops the route and says so.
-#[derive(IntoElement)]
-pub(crate) struct Button<F>
-where
-    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-{
-    id: ElementId,
-    label: String,
-    theme: Theme,
-    enabled: bool,
-    primary: bool,
-    selected: bool,
-    click: F,
-}
-
-pub(crate) fn button<F>(
-    id: impl Into<ElementId>,
-    label: impl Into<String>,
-    theme: &Theme,
-    click: F,
-) -> Button<F>
-where
-    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-{
-    Button {
-        id: id.into(),
-        label: label.into(),
-        theme: *theme,
-        enabled: true,
-        primary: false,
-        selected: false,
-        click,
-    }
-}
-
-impl<F> Button<F>
-where
-    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-{
-    pub fn enabled(mut self, enabled: bool) -> Self {
-        self.enabled = enabled;
-        self
-    }
-    pub fn primary(mut self, primary: bool) -> Self {
-        self.primary = primary;
-        self
-    }
-    pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-}
-
-impl<F> RenderOnce for Button<F>
-where
-    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-{
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let theme = self.theme;
-        let background = if self.primary {
-            theme.primary
-        } else if self.selected {
-            theme.accent_soft
-        } else {
-            theme.surface
-        };
-        let foreground = if self.primary {
-            theme.primary_foreground
-        } else {
-            theme.foreground
-        };
-        let mut element = div()
-            .id(self.id)
-            .px_2()
-            .py_1()
-            .bg(background)
-            .text_color(foreground)
-            .text_size(px(12.))
-            .role(Role::Button)
-            .child(self.label);
-        if self.enabled {
-            element = element
-                .hover(|style| style.bg(theme.surface_raised))
-                .active(|style| style.bg(theme.accent_soft))
-                .focusable()
-                .on_click(self.click);
-        } else {
-            element = element.text_color(theme.muted).aria_disabled(true);
-        }
-        if self.selected {
-            element = element.aria_selected(true);
-        }
-        element
-    }
-}
-
-/// A list row: the one interactive line every list of this view uses.
+/// A list row: the one interactive line every list of this view uses. A
+/// row that acts is a list item holding a button of its cells, its
+/// controls beside that button.
 #[derive(IntoElement)]
 pub(crate) struct Row<F>
 where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 {
-    id: ElementId,
+    key: String,
     theme: Theme,
     selected: bool,
-    /// on the ink rail a row wears the sidebar tones, not the surface ones
-    sidebar: bool,
+    /// `Some(cell)`: the arrows are on this row, at that cell
+    active: Option<usize>,
+    /// a row of a [`grid`]: a `Row` of cells even with no control
+    in_grid: bool,
     children: Vec<AnyElement>,
+    controls: Vec<AnyElement>,
     click: Option<F>,
 }
 
-pub(crate) fn row<F>(id: impl Into<ElementId>, theme: &Theme) -> Row<F>
+/// A row keyed `key` of a [`list`] or a [`grid`]; its press, when it has
+/// one, is `{key}-open`.
+pub(crate) fn row<F>(key: impl Into<String>, theme: &Theme) -> Row<F>
 where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 {
     Row {
-        id: id.into(),
+        key: key.into(),
         theme: *theme,
         selected: false,
-        sidebar: false,
+        active: None,
+        in_grid: false,
         children: Vec::new(),
+        controls: Vec::new(),
         click: None,
     }
 }
@@ -147,12 +66,27 @@ where
         self.selected = selected;
         self
     }
-    pub fn sidebar(mut self, sidebar: bool) -> Self {
-        self.sidebar = sidebar;
+    /// The arrows are on this row, at `cell`: 0 is its press, then each
+    /// control in order. A control claims for itself when it is the cell.
+    pub fn active(mut self, cell: Option<usize>) -> Self {
+        self.active = cell;
+        self
+    }
+    /// A row of a [`grid`]: its press is the first cell of a `Row` even
+    /// when no control sits beside it (the default head's ref, a tag), as
+    /// a grid holds rows of cells and never a list box's option.
+    pub fn in_grid(mut self) -> Self {
+        self.in_grid = true;
         self
     }
     pub fn cell(mut self, child: impl IntoElement) -> Self {
         self.children.push(child.into_any_element());
+        self
+    }
+    /// A control of its own at the row's end (a ref's Compare), beside
+    /// the row's press rather than inside it: a cell of the grid row.
+    pub fn control(mut self, child: impl IntoElement) -> Self {
+        self.controls.push(child.into_any_element());
         self
     }
 }
@@ -163,230 +97,169 @@ where
 {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let theme = self.theme;
-        let mut element = div()
-            .id(self.id)
+        let (chosen, hovered) = (theme.accent_soft, theme.hover);
+        let item = div()
+            .id(id(self.key.clone()))
             .w_full()
             .flex()
             .items_center()
             .gap_2()
-            .min_h(px(28.))
+            .min_h(design::size::CONTROL)
             .px_2()
-            .children(self.children);
-        let (chosen, hovered) = if self.sidebar {
-            (theme.sidebar_raised, theme.sidebar_raised)
-        } else {
-            (theme.accent_soft, theme.hover)
+            .when(self.selected, |item| item.bg(chosen))
+            .when(self.active.is_some() && !self.selected, |item| {
+                item.bg(hovered)
+            });
+        let Some(click) = self.click else {
+            return item
+                .role(Role::ListItem)
+                .children(self.children)
+                .children(self.controls);
         };
-        if self.selected {
-            element = element.bg(chosen).aria_selected(true);
-        }
-        if let Some(click) = self.click {
-            element = element
+        // no controls, in a list: the row is the option, and its press
+        if self.controls.is_empty() && !self.in_grid {
+            let option = item
                 .hover(move |style| style.bg(hovered))
-                .role(Role::Button)
-                .focusable()
-                .on_click(click);
+                .aria_selected(self.selected)
+                .on_click(click)
+                .children(self.children);
+            return design::item(option, Role::ListBoxOption, self.active.is_some());
         }
-        element
-    }
-}
-
-#[derive(IntoElement)]
-pub(crate) struct EmptyState {
-    id: ElementId,
-    title: String,
-    detail: String,
-    muted: Hsla,
-}
-
-pub(crate) fn empty_state(
-    id: impl Into<ElementId>,
-    title: impl Into<String>,
-    detail: impl Into<String>,
-    theme: &Theme,
-) -> EmptyState {
-    EmptyState {
-        id: id.into(),
-        title: title.into(),
-        detail: detail.into(),
-        muted: theme.muted,
-    }
-}
-
-impl RenderOnce for EmptyState {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        div()
-            .id(self.id)
+        // a grid row whose first cell is the press
+        let press = div()
+            .id(id(format!("{}-open", self.key)))
+            .size_full()
             .flex()
-            .flex_col()
-            .gap_1()
-            .p_6()
-            .max_w(px(420.))
-            .child(
-                div()
-                    .text_size(px(13.5))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(self.title),
+            .items_center()
+            .gap_2()
+            .when(self.selected, |press| {
+                press.aria_current(accesskit::AriaCurrent::True)
+            })
+            .on_click(click)
+            .children(self.children);
+        let press = div()
+            .id(id(format!("{}-open-cell", self.key)))
+            .flex_1()
+            .min_w(px(0.))
+            .self_stretch()
+            .role(Role::GridCell)
+            .child(design::item(press, Role::Button, self.active == Some(0)));
+        let key = self.key.clone();
+        item.role(Role::Row)
+            .hover(move |style| style.bg(hovered))
+            .child(press)
+            .children(
+                self.controls
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, control)| {
+                        div()
+                            .id(id(format!("{key}-control-{index}")))
+                            .role(Role::GridCell)
+                            .child(control)
+                    }),
             )
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(self.muted)
-                    .child(self.detail),
-            )
     }
 }
 
-#[derive(IntoElement)]
-pub(crate) struct Chip {
-    id: ElementId,
-    label: String,
-    foreground: Hsla,
-    background: Hsla,
-}
-
-pub(crate) fn chip(
-    id: impl Into<ElementId>,
-    label: impl Into<String>,
-    foreground: Hsla,
-    background: Hsla,
-) -> Chip {
-    Chip {
-        id: id.into(),
-        label: label.into(),
-        foreground,
-        background,
+/// Which row of the list `id` the arrows are on, and which of its cells:
+/// the view's cursor there, else the first row.
+pub(crate) fn cursor(forge: &Forge, id: &'static str) -> (usize, usize) {
+    match forge.list_cursor {
+        Some((list, row, cell)) if list == id => (row, cell),
+        _ => (0, 0),
     }
 }
 
-impl RenderOnce for Chip {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        div()
-            .id(self.id)
-            .px_1()
-            .py_0p5()
-            .bg(self.background)
-            .text_color(self.foreground)
-            .text_size(px(11.))
-            .child(self.label)
+/// A list of [`row`]s as one Tab stop: ↑ ↓ walk the rows (a virtual list
+/// tracking `scroll` is scrolled to the active one before it claims), Enter
+/// presses the active one (`on_press`). The rows go in as the list's
+/// children: drawn whole (no `scroll`) they scroll here; a virtual list
+/// scrolls itself, and the one bar and its gutter are that list's.
+pub(crate) fn list(
+    id_: &'static str,
+    label: &str,
+    count: usize,
+    scroll: Option<&UniformListScrollHandle>,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    on_press: impl Fn(&mut Forge, usize, &mut Window, &mut Context<Forge>) + 'static,
+) -> Stateful<Div> {
+    let (at, _) = cursor(forge, id_);
+    let mut list = design::composite(id(id_), Role::ListBox, label.to_owned())
+        .active(at.min(count.saturating_sub(1)), count);
+    if let Some(scroll) = scroll {
+        list = list.track_scroll(scroll);
     }
+    let list = list
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.list_cursor = Some((id_, index, 0));
+            cx.notify();
+        }))
+        .on_press(
+            cx.processor(move |forge, index: usize, window, cx| on_press(forge, index, window, cx)),
+        )
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col();
+    match scroll {
+        Some(_) => list,
+        None => list.overflow_y_scroll(),
+    }
+}
+
+/// A grid of [`row`]s (each [`Row::in_grid`]) as one Tab stop: ↑ ↓ walk the rows,
+/// ← → a row's cells (its press, then each control), Enter presses the
+/// active cell (`on_press(row, cell)`). `cells` is the active row's count.
+/// The rows are drawn whole and scroll here.
+pub(crate) fn grid(
+    id_: &'static str,
+    label: &str,
+    count: usize,
+    cells: usize,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    on_press: impl Fn(&mut Forge, usize, usize, &mut Window, &mut Context<Forge>) + 'static,
+) -> Stateful<Div> {
+    let (at, cell) = cursor(forge, id_);
+    let at = at.min(count.saturating_sub(1));
+    let cell = cell.min(cells.saturating_sub(1));
+    design::composite(id(id_), Role::Grid, label.to_owned())
+        .active(at, count)
+        .cells(cell, cells)
+        .on_move(cx.processor(move |forge, index: usize, _, cx| {
+            forge.list_cursor = Some((id_, index, 0));
+            cx.notify();
+        }))
+        .on_move_cell(cx.processor(move |forge, cell: usize, _, cx| {
+            forge.list_cursor = Some((id_, at, cell));
+            cx.notify();
+        }))
+        .on_press(cx.processor(move |forge, index: usize, window, cx| {
+            let (_, cell) = cursor(forge, id_);
+            on_press(forge, index, cell, window, cx)
+        }))
+        .build()
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
 }
 
 pub(crate) fn loading(id: impl Into<ElementId>, text: &str, theme: &Theme) -> AnyElement {
     div()
         .id(id.into())
         .p_3()
-        .text_size(px(12.))
+        .text_size(design::text::SECONDARY)
         .text_color(theme.muted)
         .child(text.to_owned())
         .into_any_element()
 }
 
-/// A refused read, with the reason and the one thing to do about it.
-#[derive(IntoElement)]
-pub(crate) struct Refused<F>
-where
-    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-{
-    id: ElementId,
-    sentence: String,
-    theme: Theme,
-    retry: F,
-}
-
-pub(crate) fn refused<F>(
-    id: impl Into<ElementId>,
-    sentence: impl Into<String>,
-    theme: &Theme,
-    retry: F,
-) -> Refused<F>
-where
-    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-{
-    Refused {
-        id: id.into(),
-        sentence: sentence.into(),
-        theme: *theme,
-        retry,
-    }
-}
-
-impl<F> RenderOnce for Refused<F>
-where
-    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-{
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let theme = self.theme;
-        let retry_id = match &self.id {
-            ElementId::Name(name) => id(format!("{name}-retry")),
-            _ => id("forge-retry"),
-        };
-        div()
-            .id(self.id)
-            .flex()
-            .flex_col()
-            .gap_2()
-            .p_3()
-            .m_2()
-            .border_1()
-            .border_color(theme.danger)
-            .bg(theme.danger_soft)
-            .text_size(px(12.))
-            .child(self.sentence)
-            .child(
-                div()
-                    .id(retry_id)
-                    .px_2()
-                    .py_1()
-                    .w(px(64.))
-                    .bg(theme.surface)
-                    .hover(|style| style.bg(theme.surface_raised))
-                    .role(Role::Button)
-                    .focusable()
-                    .on_click(self.retry)
-                    .child("Retry"),
-            )
-    }
-}
-
-/// A section heading, the same weight everywhere.
-pub(crate) fn heading(
-    element_id: impl Into<ElementId>,
-    text: impl Into<String>,
-    level: usize,
-    theme: &Theme,
-) -> AnyElement {
-    heading_in(element_id, text, level, theme.foreground)
-}
-
-/// The same heading in a chosen tone — the ink rail reads its own.
-pub(crate) fn heading_in(
-    element_id: impl Into<ElementId>,
-    text: impl Into<String>,
-    level: usize,
-    color: Hsla,
-) -> AnyElement {
-    div()
-        .id(element_id.into())
-        .text_size(px(if level == 1 { 16. } else { 13. }))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(color)
-        .role(Role::Heading)
-        .aria_level(level)
-        .child(text.into())
-        .into_any_element()
-}
-
-/// Under this many rows a list is drawn whole. Virtualization buys nothing
-/// at that size, and a renderer that has not sent a visible range yet — a
-/// headless screenshot, a first frame — still gets the screen.
-pub(crate) const VIRTUALIZE_ABOVE: usize = 200;
-
-/// A scrolling list of `count` rows. Over [`VIRTUALIZE_ABOVE`] it is virtual;
-/// at or under it the rows are drawn whole, because virtualization buys
-/// nothing at that size and a renderer that has not asked for a visible range
-/// yet — a first frame, a headless screenshot — would otherwise be handed the
-/// single measured row instead of the screen.
+/// A scrolling virtual list of `count` rows.
 pub(crate) fn rows(
     element_id: &str,
     count: usize,
@@ -394,50 +267,31 @@ pub(crate) fn rows(
     scroll: Option<&UniformListScrollHandle>,
     paint: impl Fn(usize) -> AnyElement + 'static,
 ) -> AnyElement {
-    if count <= VIRTUALIZE_ABOVE {
-        let mut column = div()
-            .id(id(element_id.to_owned()))
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .overflow_y_scroll();
-        for index in 0..count {
-            column = column.child(paint(index));
-        }
-        return column.into_any_element();
-    }
-    let mut list = uniform_list(
-        id(element_id.to_owned()),
-        count,
-        move |range: Range<usize>, _, _| range.map(&paint).collect::<Vec<_>>(),
-    )
-    .with_width_from_item(widest);
+    window(element_id, count, widest, scroll, move |range, _, _| {
+        range.map(&paint).collect()
+    })
+}
+
+/// [`rows`], painted a window at a time: `paint` is handed the rows the
+/// list lowers, so a list that reads on as it is scrolled hears how far.
+pub(crate) fn window(
+    element_id: &str,
+    count: usize,
+    widest: Option<usize>,
+    scroll: Option<&UniformListScrollHandle>,
+    paint: impl Fn(Range<usize>, &mut Window, &mut App) -> Vec<AnyElement> + 'static,
+) -> AnyElement {
+    let mut list =
+        uniform_list(id(element_id.to_owned()), count, paint).with_width_from_item(widest);
     if let Some(scroll) = scroll {
         list = list.track_scroll(scroll);
     }
     list.flex_1().min_h(px(0.)).into_any_element()
 }
 
-pub(crate) fn quiet(text: impl Into<String>, theme: &Theme) -> AnyElement {
-    div()
-        .text_size(px(12.))
-        .text_color(theme.muted)
-        .child(text.into())
-        .into_any_element()
-}
-
-/// One monospaced source line, as the code and diff screens draw it.
-pub(crate) fn mono(text: impl Into<String>, color: Hsla) -> AnyElement {
-    div()
-        .flex_1()
-        .min_w(px(0.))
-        .font_family("monospace")
-        .text_size(px(12.))
-        .text_color(color)
-        .whitespace_nowrap()
-        .child(text.into())
-        .into_any_element()
+/// [`design::quiet`], as the screens that return it hand it on.
+pub(crate) fn quiet(text: impl Into<SharedString>, theme: &Theme) -> AnyElement {
+    design::quiet(text, theme).into_any_element()
 }
 
 /// A path's bytes as something a screen can say out loud.
@@ -454,6 +308,195 @@ pub(crate) fn ref_label(name: &[u8]) -> String {
         .to_owned()
 }
 
-pub(crate) fn short_oid(oid: &str) -> String {
-    oid.chars().take(8).collect()
+/// A dropdown's width.
+const MENU_W: Pixels = px(220.);
+
+/// A button that names what is picked (`main ⌄`) and says whether its
+/// menu is open; the menu itself ([`menu`]) floats in the view's modal
+/// overlay while it is.
+pub(crate) fn dropdown(
+    key: &str,
+    label: String,
+    open: bool,
+    theme: &Theme,
+    on_open: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let theme = *theme;
+    div()
+        .id(id(key.to_owned()))
+        .h(design::size::ROW)
+        .px(design::space::SM)
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(design::space::XS)
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .font_family(design::fonts::FAMILY_MONO)
+        .text_size(design::text::CAPTION)
+        .whitespace_nowrap()
+        .hover(move |style| style.bg(theme.surface))
+        .role(Role::Button)
+        .aria_expanded(open)
+        .focusable()
+        .on_click(on_open)
+        .child(label)
+        .child(div().text_color(theme.faint).child("⌄"))
+        .into_any_element()
+}
+
+/// What a press on a menu item does.
+type Pick = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// One line of a [`menu`]: a group label, or an item with its pick.
+pub(crate) enum MenuEntry {
+    Label(AnyElement),
+    Item(Box<Stateful<Div>>, Pick),
+}
+
+/// A dropdown's group label: `Branches`, `Tags`.
+pub(crate) fn menu_label(text: &str, theme: &Theme) -> MenuEntry {
+    MenuEntry::Label(
+        div()
+            .px(design::space::LG)
+            .pt(design::space::SM)
+            .pb(design::space::XXS)
+            .font_family(design::fonts::FAMILY_MONO)
+            .text_size(design::text::CAPTION)
+            .text_color(theme.muted)
+            .child(text.to_owned())
+            .into_any_element(),
+    )
+}
+
+/// One pick in a dropdown, mono, the picked one raised and checked;
+/// `note` sits faint on its right.
+pub(crate) fn menu_item(
+    element_id: ElementId,
+    label: String,
+    note: Option<&str>,
+    selected: bool,
+    theme: &Theme,
+    pick: impl Fn(&mut Window, &mut App) + 'static,
+) -> MenuEntry {
+    let theme = *theme;
+    let pick: Pick = Rc::new(pick);
+    let click = pick.clone();
+    let item = div()
+        .id(element_id)
+        .h(design::size::ROW)
+        .px(design::space::LG)
+        .flex()
+        .items_center()
+        .gap(design::space::SM)
+        .font_family(design::fonts::FAMILY_MONO)
+        .text_size(design::text::CAPTION)
+        .when(selected, |item| item.bg(theme.surface_raised))
+        .hover(move |style| style.bg(theme.surface))
+        .aria_toggled(selected.into())
+        .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| click(window, app))
+        .child(div().flex_1().min_w(px(0.)).truncate().child(label))
+        .children(note.map(|note| div().text_color(theme.faint).child(note.to_owned())));
+    MenuEntry::Item(Box::new(item), pick)
+}
+
+/// The open dropdown of `menu`: one Tab stop under the press that opened
+/// it, whose ↑ ↓ walk the items, Enter or Space picks the active one and
+/// Esc closes it, giving the keys back to its button. It floats in the
+/// view's modal overlay, so Tab never leaves it and a press outside
+/// closes it.
+pub(crate) fn menu(
+    menu: Menu,
+    label: &str,
+    entries: Vec<MenuEntry>,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> AnyElement {
+    let key = menu.key();
+    let picks: Vec<Pick> = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            MenuEntry::Item(_, pick) => Some(pick.clone()),
+            MenuEntry::Label(_) => None,
+        })
+        .collect();
+    let active = forge.menu_cursor.min(picks.len().saturating_sub(1));
+    let mut index = 0;
+    let lines: Vec<AnyElement> = entries
+        .into_iter()
+        .map(|entry| match entry {
+            MenuEntry::Label(label) => label,
+            MenuEntry::Item(item, _) => {
+                let line = design::item(*item, Role::MenuItemRadio, index == active);
+                index += 1;
+                line.into_any_element()
+            }
+        })
+        .collect();
+    let escape = cx.listener(move |forge, event: &KeyDownEvent, window, cx| {
+        if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
+            forge.close_dropdown(menu, window, cx);
+        }
+    });
+    let frame = design::composite(id(format!("{key}-menu")), Role::Menu, label.to_owned())
+        .active(active, picks.len())
+        .on_move(cx.processor(|forge, index: usize, _, cx| {
+            forge.menu_cursor = index;
+            cx.notify();
+        }))
+        .on_press(move |index, window, app| picks[index](window, app))
+        .build()
+        // Escape is the menu's: the overlay around it does not close it again
+        .on_key_down(escape)
+        .consumes_keys(["escape"])
+        .w(MENU_W)
+        .py(design::space::XXS)
+        .flex()
+        .flex_col()
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .shadow_lg()
+        .occlude()
+        .children(lines);
+    // the ring would replace the shadow: the frame draws both
+    let frame = design::focus_shown(frame, theme, |style| style.shadow_lg());
+    let (x, y) = forge.menu_at;
+    anchored()
+        .position_mode(AnchoredPositionMode::Window)
+        .position(Point { x: px(x), y: px(y) })
+        .snap_to_window_with_margin(Edges::all(design::space::SM))
+        .child(frame)
+        .into_any_element()
+}
+
+/// A tab with its count beside the label, faint: `Changes 3`. Tabs sit
+/// on a bar's hairline, full height, in a manual tab list: `selected` is
+/// the open one, `active` the one the arrows are on, which Enter opens.
+pub(crate) fn tab(
+    element_id: ElementId,
+    label: &str,
+    count: Option<u64>,
+    selected: bool,
+    active: bool,
+    theme: &Theme,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let tab = design::tab(element_id, label.to_owned(), selected, theme, click)
+        .h_full()
+        .px_0()
+        .gap(design::space::XS)
+        .text_size(design::text::BODY)
+        .font_weight(ducktape_view_guest::FontWeight::NORMAL)
+        // the arrows' tab, not yet open: a quiet fill says where they are
+        .when(active && !selected, |tab| tab.bg(theme.surface_raised))
+        .children(count.map(|count| {
+            div()
+                .text_size(design::text::CAPTION)
+                .text_color(theme.faint)
+                .child(count.to_string())
+        }));
+    design::item(tab, Role::Tab, active).into_any_element()
 }

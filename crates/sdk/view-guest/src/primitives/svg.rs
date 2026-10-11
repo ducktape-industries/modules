@@ -1,7 +1,7 @@
 use crate::interactivity::{InteractiveElement, Interactivity, StatefulInteractiveElement};
-use crate::{wire, Element, IntoElement, Lowering};
+use crate::{Element, IntoElement, Lowering, wire};
 use gpui::{
-    point, px, radians, size, Pixels, Point, Radians, SharedString, Size, StyleRefinement, Styled,
+    Pixels, Point, Radians, SharedString, Size, StyleRefinement, Styled, point, px, radians, size,
 };
 
 enum Source {
@@ -69,15 +69,18 @@ impl Transformation {
 }
 
 pub struct Svg {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     source: Source,
     transformation: Transformation,
 }
 
+/// A one-colour mask: the SVG's shapes are drawn in the element's own text
+/// colour (`text_color`), or else the text colour it inherits from its
+/// parents. Only its shape counts: its own fill and stroke colours are ignored.
 #[track_caller]
 pub fn svg() -> Svg {
     Svg {
-        interactivity: Interactivity::default(),
+        interactivity: Box::default(),
         source: Source::None,
         transformation: Transformation::default(),
     }
@@ -124,13 +127,18 @@ impl Element for Svg {
             source,
             transformation,
         } = *self;
-        let style = interactivity.base_style.clone();
-        let label = interactivity.aria.label.as_ref().map(ToString::to_string);
-        let (id, interactivity) = interactivity.into_wire(lowering);
+        let style = lowering.style(&interactivity.base_style);
+        let label = interactivity
+            .interactions
+            .as_ref()
+            .and_then(|interactions| interactions.aria.label.as_ref())
+            .map(ToString::to_string);
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
+        let interactivity = interactivity.into_wire(lowering);
         let source = match source {
             Source::None => wire::SvgSource::None,
             Source::Data(bytes) => {
-                let (hash, bytes) = lowering.picture(bytes);
+                let (hash, bytes) = lowering.picture(&bytes, bytes.len());
                 wire::SvgSource::Data { hash, bytes }
             }
             Source::Asset(path) => wire::SvgSource::Asset(path.to_string()),

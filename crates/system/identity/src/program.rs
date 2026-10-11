@@ -1,23 +1,73 @@
-// The wasm32 program over the rules: guest contexts as the store, the bytes decoded and answered.
+//! The module: every op and every query, each handed to its rule.
 
-use abi::{Env, Refusal};
-use guest::{Execute, Program, Query as QueryCtx};
-use store::decoded;
+use guest::{Error, ExecCtx, Module, Program, QueryCtx};
 
-use crate::{Op, PROGRAM, Query};
+use crate::rules::{
+    ACCOUNTS, MANAGED, OF_MODULE, account, add_key, create, create_agent, generation, of_key,
+    profiles, register_module, remove_key, resolve, resume, revoke, set_name, set_profile, suspend,
+};
+use crate::{Op, Query, Reply};
 
-struct Identity;
+pub struct Identity;
 
 impl Program for Identity {
-    fn execute(ctx: &mut Execute, env: &Env, payload: &[u8]) -> Result<(), Refusal> {
-        crate::rules::execute(ctx, env, decoded::<Op>(PROGRAM, "Op", payload)?)
+    const NAME: &'static str = crate::MODULE;
+    type Op = Op;
+    type Query = Query;
+    type Reply = Reply;
+}
+
+impl Module for Identity {
+    fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
+        match op {
+            Op::RegisterModule { module } => register_module(ctx, module),
+            Op::Create { name, scheme } => create(ctx, name, scheme),
+            Op::CreateAgent { name } => create_agent(ctx, name),
+            Op::AddKey {
+                scheme,
+                label,
+                consent,
+            } => add_key(ctx, scheme, label, consent),
+            Op::RemoveKey { account, key } => remove_key(ctx, account, &key),
+            Op::SetName { account, name } => set_name(ctx, account, name),
+            Op::SetProfile {
+                account,
+                avatar,
+                bio,
+            } => set_profile(ctx, account, avatar, bio),
+            Op::Suspend { account } => suspend(ctx, account),
+            Op::Resume { account } => resume(ctx, account),
+            Op::Revoke { account } => revoke(ctx, account),
+        }
     }
 
-    fn query(ctx: &mut QueryCtx, env: &Env, request: &[u8]) -> Result<(), Refusal> {
-        let reply = crate::rules::query(ctx, env, decoded::<Query>(PROGRAM, "Query", request)?)?;
-        ctx.reply(&reply);
-        Ok(())
+    fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
+        Ok(match query {
+            Query::OfKey { key } => Reply::Number(of_key(ctx, &key)?),
+            Query::OfModule { module } => Reply::Number(OF_MODULE.get(ctx, &module)?),
+            Query::Profile { number } => {
+                Reply::Profile(ACCOUNTS.get(ctx, &number)?.map(|account| account.profile()))
+            }
+            Query::Profiles { after, limit } => profiles(ctx, after, limit)?,
+            Query::Get { number } => Reply::Account(ACCOUNTS.get(ctx, &number)?),
+            Query::Generation { key } => Reply::Generation(generation(ctx, &key)?),
+            Query::Resolve { references } => Reply::Resolved(
+                references
+                    .iter()
+                    .map(|reference| resolve(ctx, reference))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            Query::List { page } => {
+                Reply::Accounts(ACCOUNTS.range(ctx, &page)?.map(|(_, account)| account))
+            }
+            Query::Managed { by, page } => Reply::Accounts(
+                MANAGED
+                    .range_of(ctx, &by, &page)?
+                    .try_map(|(_, number)| account(ctx, number))?,
+            ),
+        })
     }
 }
 
-guest::program!(Identity);
+#[cfg(feature = "module")]
+guest::export!(Identity);

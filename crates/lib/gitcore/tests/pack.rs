@@ -3,14 +3,10 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::{fixture, oid_list, oid_text};
+use common::{fixture, git_binary, no_base, oid_list, oid_text, temp_dir};
 use gitcore::pack::{self, PackWriter};
 use gitcore::{Commit, Error, Hash, Kind, Limits, MemoryObjects, Object, Objects, Oid};
 use std::collections::BTreeSet;
-
-fn no_base(_: &Oid) -> gitcore::Result<Option<Object>> {
-    Ok(None)
-}
 
 fn ids(objects: &[(Oid, Object)]) -> BTreeSet<Oid> {
     objects.iter().map(|(id, _)| *id).collect()
@@ -288,30 +284,4 @@ fn git_accepts_a_pack_we_wrote() {
         .unwrap();
     assert_eq!(body.stdout, expected.1.body);
     std::fs::remove_dir_all(&dir).ok();
-}
-
-fn git_binary() -> Option<std::path::PathBuf> {
-    let output = std::process::Command::new("which")
-        .arg("git")
-        .output()
-        .ok()?;
-    let found = output.status.success();
-    if !found {
-        return None;
-    }
-    Some(std::path::PathBuf::from(
-        String::from_utf8_lossy(&output.stdout).trim(),
-    ))
-}
-
-fn temp_dir(prefix: &str) -> std::path::PathBuf {
-    let unique = format!(
-        "{prefix}-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    );
-    let dir = std::env::temp_dir().join(unique);
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }

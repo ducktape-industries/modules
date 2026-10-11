@@ -3,29 +3,7 @@ use super::*;
 impl Node {
     /// The node an empty view renders as.
     pub fn empty() -> Self {
-        Self::Space {
-            style: gpui::StyleRefinement::default(),
-        }
-    }
-
-    /// Hashes the current copied subtree without allocating an encoded buffer.
-    /// A host uses this after sanitization: shared frame budgets may change
-    /// content even when a guest memo generation stays the same.
-    pub fn fingerprint(&self) -> u64 {
-        use std::hash::Hasher;
-        struct Sink(std::hash::DefaultHasher);
-        impl std::io::Write for Sink {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                self.0.write(bytes);
-                Ok(bytes.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        let mut sink = Sink(std::hash::DefaultHasher::new());
-        crate::codec::write(self, &mut sink);
-        sink.0.finish()
+        Self::Space
     }
 
     pub fn key(&self) -> Option<&str> {
@@ -40,35 +18,107 @@ impl Node {
             | Self::Image { id, .. }
             | Self::Svg { id, .. }
             | Self::RichText { id, .. } => id.as_ref(),
-            Self::Input { id, .. }
-            | Self::Editor { id, .. }
+            Self::Field { id, .. }
             | Self::UniformList { id, .. }
+            | Self::List { id, .. }
             | Self::ResizeHandle { id, .. }
-            | Self::MouseArea { id, .. }
             | Self::Sensor { id, .. }
-            | Self::Responsive { id, .. }
-            | Self::Scroll { id, .. }
-            | Self::Overlay { id, .. }
-            | Self::ImageViewer { id, .. }
-            | Self::Slider { id, .. }
-            | Self::PickList { id, .. }
-            | Self::ComboBox { id, .. }
-            | Self::Surface { id, .. }
-            | Self::Float { id, .. }
-            | Self::Lazy { id, .. }
-            | Self::When { id, .. }
-            | Self::Qr { id, .. }
-            | Self::Button { id, .. }
-            | Self::Rule { id, .. }
-            | Self::Toggle { id, .. }
-            | Self::Radio { id, .. }
-            | Self::Progress { id, .. }
-            | Self::Tooltip { id, .. } => Some(id),
-            Self::List { .. }
-            | Self::Space { .. }
-            | Self::Anchored { .. }
-            | Self::Deferred { .. }
-            | Self::Canvas { .. } => None,
+            | Self::Overlay { id, .. } => Some(id),
+            Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
+                None
+            }
+        }
+    }
+
+    /// The listener routes, focus and aria of the six variants that carry
+    /// them.
+    pub fn interactivity(&self) -> Option<&crate::Interactivity> {
+        match self {
+            Self::Container(crate::ContainerNode { interactivity, .. })
+            | Self::UniformList { interactivity, .. }
+            | Self::List { interactivity, .. }
+            | Self::ResizeHandle { interactivity, .. }
+            | Self::Image { interactivity, .. }
+            | Self::Svg { interactivity, .. } => interactivity.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The style the node was authored with, by its id in the tree's
+    /// table; `Anchored`, `Deferred` and `Space` carry none.
+    pub fn style(&self) -> Option<StyleId> {
+        match self {
+            Self::Container(crate::ContainerNode { style, .. })
+            | Self::Text(crate::TextNode { style, .. })
+            | Self::RichText { style, .. }
+            | Self::UniformList { style, .. }
+            | Self::List { style, .. }
+            | Self::ResizeHandle { style, .. }
+            | Self::Sensor { style, .. }
+            | Self::Image { style, .. }
+            | Self::Svg { style, .. }
+            | Self::Field { style, .. }
+            | Self::Overlay { style, .. }
+            | Self::Canvas { style, .. } => Some(*style),
+            Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
+        }
+    }
+
+    /// Hands `visit` every style id the node itself names, its own and its
+    /// conditional ones, to read or to renumber
+    /// ([`Interner::retain`](crate::Interner::retain)).
+    pub fn styles_mut(&mut self, visit: &mut dyn FnMut(&mut StyleId)) {
+        match self {
+            Self::Container(crate::ContainerNode { style, .. })
+            | Self::Text(crate::TextNode { style, .. })
+            | Self::RichText { style, .. }
+            | Self::UniformList { style, .. }
+            | Self::List { style, .. }
+            | Self::ResizeHandle { style, .. }
+            | Self::Sensor { style, .. }
+            | Self::Image { style, .. }
+            | Self::Svg { style, .. }
+            | Self::Field { style, .. }
+            | Self::Overlay { style, .. }
+            | Self::Canvas { style, .. } => visit(style),
+            Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
+        }
+        if let Self::Container(crate::ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        })
+        | Self::UniformList {
+            interactivity: Some(interactivity),
+            ..
+        }
+        | Self::List {
+            interactivity: Some(interactivity),
+            ..
+        }
+        | Self::ResizeHandle {
+            interactivity: Some(interactivity),
+            ..
+        }
+        | Self::Image {
+            interactivity: Some(interactivity),
+            ..
+        }
+        | Self::Svg {
+            interactivity: Some(interactivity),
+            ..
+        } = self
+        {
+            interactivity.style_slots().for_each(visit);
+        }
+    }
+
+    /// The text the node itself draws: a text's content, a rich text's
+    /// text. A field's text is the host engine's.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Self::Text(crate::TextNode { content, .. }) => Some(content),
+            Self::RichText { text, .. } => Some(text),
+            _ => None,
         }
     }
 
@@ -79,46 +129,23 @@ impl Node {
     pub fn children(&self) -> &[Node] {
         match self {
             Self::Container(crate::ContainerNode { children, .. })
-            | Self::Tooltip { children, .. }
             | Self::Overlay { children, .. }
             | Self::List { children, .. }
             | Self::UniformList { children, .. }
-            | Self::When { children, .. }
             | Self::Anchored { children, .. }
             | Self::Image {
                 state_children: children,
                 ..
             } => children,
-            Self::Float { content, .. }
-            | Self::Responsive { content, .. }
-            | Self::Lazy { content, .. }
-            | Self::Deferred { content, .. }
+            Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
-            | Self::ResizeHandle { content, .. }
-            | Self::MouseArea { content, .. }
-            | Self::Scroll { content, .. } => std::slice::from_ref(content),
-            Self::Button {
-                content: ButtonContent::Child(child),
-                ..
-            } => std::slice::from_ref(child),
-            Self::Button { .. }
-            | Self::Qr { .. }
-            | Self::RichText { .. }
+            | Self::ResizeHandle { content, .. } => std::slice::from_ref(content),
+            Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
             | Self::Svg { .. }
-            | Self::ImageViewer { .. }
-            | Self::Input { .. }
-            | Self::Editor { .. }
-            | Self::Space { .. }
-            | Self::Rule { .. }
-            | Self::Toggle { .. }
-            | Self::Radio { .. }
-            | Self::Slider { .. }
-            | Self::PickList { .. }
-            | Self::ComboBox { .. }
-            | Self::Progress { .. }
-            | Self::Canvas { .. }
-            | Self::Surface { .. } => &[],
+            | Self::Field { .. }
+            | Self::Space
+            | Self::Canvas { .. } => &[],
         }
     }
 
@@ -133,46 +160,23 @@ impl Node {
     pub fn children_mut(&mut self) -> &mut [Node] {
         match self {
             Self::Container(crate::ContainerNode { children, .. })
-            | Self::Tooltip { children, .. }
             | Self::Overlay { children, .. }
             | Self::List { children, .. }
             | Self::UniformList { children, .. }
-            | Self::When { children, .. }
             | Self::Anchored { children, .. }
             | Self::Image {
                 state_children: children,
                 ..
             } => children,
-            Self::Float { content, .. }
-            | Self::Responsive { content, .. }
-            | Self::Lazy { content, .. }
-            | Self::Deferred { content, .. }
+            Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
-            | Self::ResizeHandle { content, .. }
-            | Self::MouseArea { content, .. }
-            | Self::Scroll { content, .. } => std::slice::from_mut(content),
-            Self::Button {
-                content: ButtonContent::Child(child),
-                ..
-            } => std::slice::from_mut(child),
-            Self::Button { .. }
-            | Self::Qr { .. }
-            | Self::RichText { .. }
+            | Self::ResizeHandle { content, .. } => std::slice::from_mut(content),
+            Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
-            | Self::Input { .. }
-            | Self::Editor { .. }
-            | Self::Space { .. }
-            | Self::Rule { .. }
-            | Self::Toggle { .. }
-            | Self::Radio { .. }
-            | Self::Slider { .. }
-            | Self::PickList { .. }
-            | Self::ComboBox { .. }
-            | Self::Progress { .. }
+            | Self::Field { .. }
+            | Self::Space
             | Self::Svg { .. }
-            | Self::ImageViewer { .. }
-            | Self::Canvas { .. }
-            | Self::Surface { .. } => &mut [],
+            | Self::Canvas { .. } => &mut [],
         }
     }
 
@@ -184,40 +188,21 @@ impl Node {
             Self::Container(crate::ContainerNode { children, .. })
             | Self::List { children, .. }
             | Self::UniformList { children, .. }
-            | Self::When { children, .. }
-            | Self::Tooltip { children, .. }
             | Self::Anchored { children, .. }
             | Self::Image {
                 state_children: children,
                 ..
             }
             | Self::Overlay { children, .. } => Some(children),
-            Self::Float { .. }
-            | Self::Responsive { .. }
-            | Self::Lazy { .. }
-            | Self::Deferred { .. }
+            Self::Deferred { .. }
             | Self::Sensor { .. }
             | Self::ResizeHandle { .. }
-            | Self::MouseArea { .. }
-            | Self::Scroll { .. }
-            | Self::Button { .. }
-            | Self::Qr { .. }
             | Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
-            | Self::Input { .. }
-            | Self::Editor { .. }
-            | Self::Space { .. }
-            | Self::Rule { .. }
-            | Self::Toggle { .. }
-            | Self::Radio { .. }
-            | Self::Slider { .. }
-            | Self::PickList { .. }
-            | Self::ComboBox { .. }
-            | Self::Progress { .. }
+            | Self::Field { .. }
+            | Self::Space
             | Self::Svg { .. }
-            | Self::ImageViewer { .. }
-            | Self::Canvas { .. }
-            | Self::Surface { .. } => None,
+            | Self::Canvas { .. } => None,
         }
     }
 

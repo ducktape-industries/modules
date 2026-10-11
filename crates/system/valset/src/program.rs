@@ -1,27 +1,51 @@
-// The wasm32 program over the rules: guest contexts as the store, the bytes decoded and answered.
+//! The module: every op and every query, each handed to its rule.
 
-use abi::{Env, Refusal};
-use guest::{Execute, Program, Query as QueryCtx};
-use store::decoded;
+use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
 
-use crate::{Genesis, Op, PROGRAM, Query};
+use crate::rules::{MEMBERS, init, memberships, remove, set};
+use crate::{Genesis, MODULE, Membership, Op, Query, Reply, Role};
 
-struct Valset;
+pub struct Valset;
 
 impl Program for Valset {
-    fn init(ctx: &mut Execute, _env: &Env, params: &[u8]) -> Result<(), Refusal> {
-        crate::rules::init(ctx, decoded::<Genesis>(PROGRAM, "Genesis", params)?)
+    const NAME: &'static str = MODULE;
+    type Op = Op;
+    type Query = Query;
+    type Reply = Reply;
+}
+
+impl Module for Valset {
+    fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
+        init(ctx, decoded::<Genesis>(MODULE, "Genesis", params)?)
     }
 
-    fn execute(ctx: &mut Execute, env: &Env, payload: &[u8]) -> Result<(), Refusal> {
-        crate::rules::execute(ctx, env, decoded::<Op>(PROGRAM, "Op", payload)?)
+    fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
+        ctx.env().authority()?;
+        match op {
+            Op::Set(membership) => set(ctx, membership),
+            Op::Remove { key } => remove(ctx, &key),
+        }
     }
 
-    fn query(ctx: &mut QueryCtx, env: &Env, request: &[u8]) -> Result<(), Refusal> {
-        let reply = crate::rules::query(ctx, env, decoded::<Query>(PROGRAM, "Query", request)?)?;
-        ctx.reply(&reply);
-        Ok(())
+    fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
+        Ok(match query {
+            Query::Validators => Reply::Validators(
+                memberships(ctx)?
+                    .into_iter()
+                    .filter(|membership| membership.role == Role::Validator)
+                    .map(|membership| membership.key)
+                    .collect(),
+            ),
+            Query::Members => {
+                Reply::Members(memberships(ctx)?.iter().map(Membership::member).collect())
+            }
+            Query::Memberships { page } => {
+                Reply::Memberships(MEMBERS.range(ctx, &page)?.map(|(_, membership)| membership))
+            }
+            Query::Membership { key } => Reply::Membership(MEMBERS.get(ctx, &key)?),
+        })
     }
 }
 
-guest::program!(Valset);
+#[cfg(feature = "module")]
+guest::export!(Valset);

@@ -1,19 +1,29 @@
 //! Commands applied only to the requesting guest's mounted widget tree.
+use crate::TextRange;
 use serde::{Deserialize, Serialize};
 
 /// Full authored typed ancestry of one mounted element, including the target.
 pub type WidgetTarget = Vec<crate::ElementIdWire>;
 
-/// Payload of `host.widget`. Mutation requests return an encoded unit;
-/// `Focused` returns an encoded bool. Targets are the tree's qualified keys.
+/// Payload of `host.widget`: a mutation of the mounted tree, answered with
+/// an encoded unit. Targets are the tree's qualified keys.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum WidgetCommand {
-    /// Queue a guest-defined action after native edits on this editor settle.
-    /// The host sends EditorInteraction::Action through its transaction lane.
-    EditorAction {
+    /// Replace `range` of a field's text, as the guest read it at the
+    /// host's `revision` of its document `generation`, with `text` — one
+    /// atomic span when `token` names it — and put the cursor at `cursor`.
+    /// Edits the engine made since `revision` are rebased over, never lost,
+    /// and the edit is one the writer can undo. The host holds an ask for a
+    /// generation it has not adopted yet until it has, and an ask for a
+    /// generation the guest has since left edits a document that is gone.
+    Replace {
         target: WidgetTarget,
-        #[serde(deserialize_with = "crate::editor_transaction::decode_document")]
-        tag: String,
+        generation: u64,
+        revision: u64,
+        range: TextRange,
+        text: String,
+        token: Option<String>,
+        cursor: TextRange,
     },
     FocusPrevious,
     FocusNext,
@@ -22,9 +32,6 @@ pub enum WidgetCommand {
     },
     FocusHandle {
         handle: u64,
-    },
-    Focused {
-        target: WidgetTarget,
     },
     CursorFront {
         target: WidgetTarget,
@@ -57,10 +64,6 @@ pub enum WidgetCommand {
         x: f32,
         y: f32,
     },
-    ScrollToKey {
-        target: WidgetTarget,
-        key: u64,
-    },
     ScrollBy {
         target: WidgetTarget,
         x: f32,
@@ -73,9 +76,8 @@ impl WidgetCommand {
     pub fn validate(&mut self) -> Result<(), String> {
         let target = match self {
             Self::FocusPrevious | Self::FocusNext | Self::FocusHandle { .. } => return Ok(()),
-            Self::EditorAction { target, .. }
+            Self::Replace { target, .. }
             | Self::Focus { target }
-            | Self::Focused { target }
             | Self::CursorFront { target }
             | Self::CursorEnd { target }
             | Self::Cursor { target, .. }
@@ -84,8 +86,7 @@ impl WidgetCommand {
             | Self::Snap { target, .. }
             | Self::SnapEnd { target }
             | Self::ScrollTo { target, .. }
-            | Self::ScrollBy { target, .. }
-            | Self::ScrollToKey { target, .. } => target,
+            | Self::ScrollBy { target, .. } => target,
         };
         if target.is_empty() || target.len() > crate::MAX_DEPTH {
             return Err("widget target path is empty or too deep".into());
@@ -93,10 +94,30 @@ impl WidgetCommand {
         for id in target {
             id.validate_host()?;
         }
-        if let Self::EditorAction { tag, .. } = self {
-            let invalid_tag = tag.is_empty() || tag.len() > crate::MAX_STRING_BYTES;
-            if invalid_tag {
-                return Err("editor action tag exceeds bounds".into());
+        if let Self::Replace {
+            range,
+            text,
+            token,
+            cursor,
+            ..
+        } = self
+        {
+            // the range is bytes of a text under the cap; the cursor is bytes
+            // of the text the replace can leave, at most the cap plus its own
+            let off = |range: &TextRange| range.start > range.end;
+            if off(range)
+                || off(cursor)
+                || text.len() > crate::text::MAX_FIELD_BYTES
+                || range.end as usize > crate::text::MAX_FIELD_BYTES
+                || cursor.end as usize > crate::text::MAX_FIELD_BYTES + text.len()
+            {
+                return Err("replace range or text exceeds bounds".into());
+            }
+            if token
+                .as_ref()
+                .is_some_and(|id| id.is_empty() || id.len() > crate::MAX_STRING_BYTES)
+            {
+                return Err("replace token id exceeds bounds".into());
             }
         }
         match self {
@@ -124,21 +145,54 @@ mod tests {
     }
 
     #[test]
-    fn editor_action_keeps_its_target_and_rejects_unbounded_tags() {
-        let mut command = WidgetCommand::EditorAction {
+    fn a_replace_keeps_its_target_and_rejects_unbounded_text() {
+        let mut command = WidgetCommand::Replace {
             target: target(crate::ElementIdWire::Name("Other/body".into())),
-            tag: "send".into(),
+            generation: 1,
+            revision: 3,
+            range: TextRange { start: 0, end: 2 },
+            text: "@alice".into(),
+            token: Some("<@1>".into()),
+            cursor: TextRange::caret(6),
         };
         assert!(command.validate().is_ok());
         assert_eq!(
             crate::decode::<WidgetCommand>(&crate::encode(&command)).unwrap(),
             command
         );
-        let WidgetCommand::EditorAction { tag, .. } = &mut command else {
+        let WidgetCommand::Replace { text, .. } = &mut command else {
             unreachable!()
         };
-        *tag = "x".repeat(crate::MAX_STRING_BYTES + 1);
+        *text = "x".repeat(crate::text::MAX_FIELD_BYTES + 1);
         assert!(command.validate().is_err());
+        let WidgetCommand::Replace { text, range, .. } = &mut command else {
+            unreachable!()
+        };
+        *text = String::new();
+        *range = TextRange { start: 2, end: 0 };
+        assert!(command.validate().is_err());
+        // a range or cursor off any text a field can hold is refused, not
+        // carried into the host's arithmetic
+        let WidgetCommand::Replace { range, .. } = &mut command else {
+            unreachable!()
+        };
+        *range = TextRange::from(0..crate::text::MAX_FIELD_BYTES + 1);
+        assert!(command.validate().is_err());
+        let WidgetCommand::Replace { range, cursor, .. } = &mut command else {
+            unreachable!()
+        };
+        *range = TextRange::from(0..2);
+        *cursor = TextRange::caret(crate::text::MAX_FIELD_BYTES + 1);
+        assert!(command.validate().is_err());
+        let WidgetCommand::Replace { text, cursor, .. } = &mut command else {
+            unreachable!()
+        };
+        *text = "ab".into();
+        *cursor = TextRange::caret(crate::text::MAX_FIELD_BYTES + 2);
+        assert!(
+            command.validate().is_ok(),
+            "the end of the text the replace can leave"
+        );
     }
 
     #[test]

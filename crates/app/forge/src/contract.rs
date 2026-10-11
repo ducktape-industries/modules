@@ -1,10 +1,13 @@
-//! Borsh is the program contract; the view links these types as they are.
-use abi::HashKind;
+//! Borsh is the module contract; the view links these types as they are.
 use borsh::{BorshDeserialize, BorshSerialize};
+use guest::HashKind;
+
+use crate::state::{ACTIVITY, AUTHORED, CHANGES, INVOLVED, REFS, REPOS, REVIEWS, WRITERS};
 
 pub use crate::read_contract::*;
 pub use crate::review_contract::*;
-pub use store::{Page, PageReply};
+pub use guest::Principal;
+pub use store::{PageRequest, PageResponse};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Bounds {
@@ -16,7 +19,8 @@ pub struct Bounds {
     /// Maximum Myers edit distance for one file.
     pub merge_cost: u64,
     pub page_size: u32,
-    /// Maximum commits in a history/compare walk.
+    /// Maximum commits in a history/compare walk; a log's `exclude` side
+    /// walks under its own budget of the same size.
     pub log_walk: u64,
     /// Maximum object reads in a tree/diff/compare query.
     pub tree_walk: u64,
@@ -46,7 +50,8 @@ impl Default for Settings {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Repo {
     pub hash: HashKind,
-    pub owner: Vec<u8>,
+    /// The person who created the repository: an account.
+    pub owner: Principal,
     pub settings: Settings,
     pub refs_count: u64,
     pub last_activity: u64,
@@ -62,13 +67,15 @@ pub enum Op {
         repo: String,
         settings: Settings,
     },
+    /// Lets a person push, merge and close: an account, through any of its
+    /// keys.
     Grant {
         repo: String,
-        key: Vec<u8>,
+        principal: Principal,
     },
     Revoke {
         repo: String,
-        key: Vec<u8>,
+        principal: Principal,
     },
     Push {
         repo: String,
@@ -90,14 +97,14 @@ pub enum Op {
         into: Vec<u8>,
         title: String,
         body: String,
-        reviewers: Vec<Vec<u8>>,
+        reviewers: Vec<Principal>,
     },
     ChangeEdit {
         repo: String,
         n: u64,
         title: Option<String>,
         body: Option<String>,
-        reviewers: Option<Vec<Vec<u8>>>,
+        reviewers: Option<Vec<Principal>>,
     },
     ChangeClose {
         repo: String,
@@ -110,25 +117,57 @@ pub enum Op {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+impl Op {
+    /// The repository every op acts on.
+    pub fn repo(&self) -> &str {
+        match self {
+            Op::Create { repo, .. }
+            | Op::Configure { repo, .. }
+            | Op::Grant { repo, .. }
+            | Op::Revoke { repo, .. }
+            | Op::Push { repo, .. }
+            | Op::Merge { repo, .. }
+            | Op::ChangeOpen { repo, .. }
+            | Op::ChangeEdit { repo, .. }
+            | Op::ChangeClose { repo, .. }
+            | Op::ReviewSubmit { repo, .. } => repo,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Service {
     ReceivePack,
     UploadPack,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// A read. Each variant names the tables it is answered from (`#[reads]`,
+/// [`program::Reads`]), so a view following `module.changes` re-reads it
+/// only for a block that wrote to one of them; a judgment is answered
+/// partly from chat's and names those too. Git objects are not keys: they
+/// reach the store with the push or merge that moves a ref, so a read of
+/// objects follows `REFS`. The git client's own two questions declare
+/// nothing: no view follows them.
+#[derive(
+    Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize, ::program::Ask,
+)]
+#[ask(crate::Forge)]
 pub enum Query {
+    #[reads(ACTIVITY, REPOS)]
     Repos {
-        page: Page,
+        page: PageRequest,
     },
-    /// Settings plus a page of granted keys; the owner is on the repo record.
+    /// Settings plus a page of granted writers; the owner is on the repo
+    /// record.
+    #[reads(REPOS, WRITERS)]
     Repo {
         repo: String,
-        page: Page,
+        page: PageRequest,
     },
+    #[reads(REFS)]
     Refs {
         repo: String,
-        page: Page,
+        page: PageRequest,
     },
     Advertise {
         repo: String,
@@ -138,51 +177,70 @@ pub enum Query {
         repo: String,
         request: Vec<u8>,
     },
+    /// The history `from` reaches, less what `exclude` reaches (`git log
+    /// exclude..from`): a change's own commits exclude its target.
+    #[reads(REFS)]
     Log {
         repo: String,
         from: Revision,
-        page: Page,
+        exclude: Option<Revision>,
+        page: PageRequest,
     },
+    #[reads(REFS)]
     Tree {
         repo: String,
         at: String,
         path: Vec<u8>,
-        page: Page,
+        page: PageRequest,
     },
+    #[reads(REFS)]
     Blob {
         repo: String,
         oid: String,
         range: Option<ByteRange>,
     },
     /// None base means the empty tree, for a root commit's diff.
+    #[reads(REFS)]
     Diff {
         repo: String,
         base: Option<String>,
         head: String,
         path: Option<Vec<u8>>,
-        page: Page,
+        page: PageRequest,
     },
+    #[reads(REFS)]
     Compare {
         repo: String,
         from: Revision,
         into: Revision,
     },
+    #[reads(REPOS)]
     Activity {
         repo: String,
     },
+    #[reads(CHANGES, INVOLVED)]
     Changes {
         repo: String,
         filter: ChangeFilter,
-        page: Page,
+        page: PageRequest,
     },
+    /// The change, its two heads and a page of its reviews.
+    #[reads(CHANGES, REVIEWS, REFS)]
     Change {
         repo: String,
         n: u64,
-        page: Page,
+        page: PageRequest,
     },
+    /// What one person owes across every repository. The threads it waits
+    /// on are chat's (`discussion`): a reply moves the author's `ANSWERED`
+    /// entry and the root row's `last_reply_seq`, in chat's `MESSAGES`, and
+    /// a review's root is found through `MESSAGE_IDS`. The reply rows and
+    /// reactions are not read.
+    #[reads(CHANGES, REVIEWS, AUTHORED, REFS)]
+    #[reads(chat::Chat: chat::tables::ANSWERED, chat::tables::MESSAGE_IDS, chat::tables::MESSAGES)]
     Judgment {
-        key: Vec<u8>,
-        page: Page,
+        principal: Principal,
+        page: PageRequest,
     },
 }
 
@@ -192,13 +250,13 @@ impl Query {
     pub fn scope(&self) -> Vec<u8> {
         let mut scope = self.clone();
         if let Some(page) = scope.page_mut() {
-            *page = Page::default();
+            *page = PageRequest::default();
         }
-        Page::scope_of(&scope)
+        PageRequest::scope_of(&scope)
     }
 
     /// The page a listing asks for; an unpaged query has none.
-    pub fn page(&self) -> Option<&Page> {
+    pub fn page(&self) -> Option<&PageRequest> {
         match self {
             Query::Repos { page }
             | Query::Repo { page, .. }
@@ -217,7 +275,8 @@ impl Query {
         }
     }
 
-    pub fn page_mut(&mut self) -> Option<&mut Page> {
+    /// [`Query::page`], to continue a listing with its `next` cursor.
+    pub fn page_mut(&mut self) -> Option<&mut PageRequest> {
         match self {
             Query::Repos { page }
             | Query::Repo { page, .. }
@@ -248,31 +307,34 @@ pub struct RefInfo {
     pub target: String,
 }
 
+/// One read's answer. A reply is decoded once and read in place, so its
+/// widest variant (a whole change record) is not boxed.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Reply {
     Repos {
         height: u64,
-        page: PageReply<RepoInfo>,
+        page: PageResponse<RepoInfo>,
     },
     Repo {
         height: u64,
         repo: RepoInfo,
         bounds: Bounds,
-        writers: PageReply<Vec<u8>>,
+        writers: PageResponse<Principal>,
     },
     Refs {
         height: u64,
-        page: PageReply<RefInfo>,
+        page: PageResponse<RefInfo>,
     },
     Log {
         height: u64,
         tip: String,
-        page: PageReply<CommitInfo>,
+        page: PageResponse<CommitInfo>,
     },
     Tree {
         height: u64,
         tree: String,
-        page: PageReply<TreeInfo>,
+        page: PageResponse<TreeInfo>,
     },
     Blob {
         height: u64,
@@ -283,7 +345,7 @@ pub enum Reply {
         base: Option<String>,
         head: String,
         total_files: u64,
-        page: PageReply<FileDiff>,
+        page: PageResponse<FileDiff>,
     },
     Compare {
         height: u64,
@@ -295,18 +357,18 @@ pub enum Reply {
     },
     Changes {
         height: u64,
-        page: PageReply<ChangeSummary>,
+        page: PageResponse<ChangeSummary>,
     },
     Change {
         height: u64,
         change: Change,
         source_head: Option<String>,
         target_head: Option<String>,
-        reviews: PageReply<Review>,
+        reviews: PageResponse<Review>,
     },
     Judgment {
         height: u64,
-        page: PageReply<Judgment>,
+        page: PageResponse<Judgment>,
     },
 }
 
@@ -328,7 +390,11 @@ pub enum OpReply {
     },
 }
 
-pub const MAX_REPO_NAME: usize = 37; // forge:<repo>:<u64> fits chat's 64-byte id.
+/// The longest repository name whose change channels fit chat's id limit:
+/// `forge:<repo>:<n>` is the module, two `:` and up to 20 digits of `n`.
+pub const MAX_REPO_NAME: usize =
+    chat::MAX_ID_BYTES - crate::MODULE.len() - 2 - (u64::MAX.ilog10() as usize + 1);
+
 pub fn valid_repo_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= MAX_REPO_NAME

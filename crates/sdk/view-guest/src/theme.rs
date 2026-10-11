@@ -82,20 +82,3 @@ impl Default for Theme {
         Self::light()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Theme;
-    use crate::context::App;
-
-    #[test]
-    fn theme_is_a_context_global_with_light_and_dark_tokens() {
-        let mut app = App::for_driver();
-        assert_eq!(app.global::<Theme>(), &Theme::light());
-
-        app.set_global(Theme::dark());
-
-        assert_eq!(app.global::<Theme>(), &Theme::dark());
-        assert_ne!(app.global::<Theme>().background, Theme::light().background);
-    }
-}

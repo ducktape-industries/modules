@@ -2,9 +2,10 @@ use super::*;
 
 #[test]
 fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct Picture(u32);
     impl View for Picture {
+        const NAME: &'static str = "Picture";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self(0)
         }
@@ -25,7 +26,9 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
         }
     }
     let mut driver = Driver::<Picture>::new();
-    let first = driver.tick(vec![]);
+    let first = driver.tick_with(vec![], wire::Frame::clone);
+    let mut styles = wire::Styles::default();
+    styles.extend(first.styles).unwrap();
     let mut mounted = first.root.unwrap();
     let mut pictures = 0;
     mounted.for_each_mut(&mut |node| {
@@ -37,15 +40,16 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     });
     assert_eq!(pictures, 1);
     assert_eq!(driver.last_root.as_ref(), Some(&mounted));
-    assert!(driver.tick(vec![]).unchanged);
-    driver.entity().update_app(driver.app_mut(), |view, _, cx| {
+    assert!(driver.tick_with(vec![], wire::Frame::clone).unchanged);
+    driver.entity().update(driver.app_mut(), |view, cx| {
         view.0 = 1;
         cx.notify();
     });
-    let frame = driver.tick(vec![]);
+    let frame = driver.tick_with(vec![], wire::Frame::clone);
     assert!(!frame.unchanged);
     assert!(!frame.patches.is_empty());
-    wire::apply(&mut mounted, frame.patches).unwrap();
+    styles.extend(frame.styles).unwrap();
+    wire::apply(&mut mounted, frame.patches, &styles).unwrap();
     // The host stores picture data separately after applying a patch.
     mounted.for_each_mut(&mut |node| {
         if let wire::Node::Image { data, .. } = node {
@@ -54,7 +58,7 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     });
     assert_eq!(driver.last_root.as_ref(), Some(&mounted));
 
-    let resent = driver.tick(vec![wire::Event::Resync]);
+    let resent = driver.tick_with(vec![wire::Event::Resync], wire::Frame::clone);
     assert!(
         resent.root.as_ref().is_some_and(|root| {
             let mut found = false;
@@ -75,11 +79,145 @@ fn patches_reconstruct_the_rendered_tree_and_picture_bytes_are_not_retained() {
     );
 }
 
+/// A page switch is a structural patch frame whose subtrees are moved out
+/// of the rendered tree and back after the frame is encoded: the bytes the
+/// host gets are the bytes a copying diff gives, and the tree the driver
+/// keeps is whole again, so the frames after it still patch to the tree
+/// the view rendered.
+#[test]
+fn a_page_switch_sends_the_bytes_a_copying_diff_sends_and_keeps_the_tree_whole() {
+    #[derive(Default, Serialize, Deserialize)]
+    struct Pages {
+        rows: bool,
+        chrome: bool,
+    }
+    impl View for Pages {
+        const NAME: &'static str = "Pages";
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self {
+                rows: false,
+                chrome: true,
+            }
+        }
+    }
+    impl Render for Pages {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let page = match self.rows {
+                false => div().id("overview").child("nothing here"),
+                true => div().id("rows").children((0..40).map(|row| {
+                    div()
+                        .id(format!("row/{row}"))
+                        .child(format!("row {row}"))
+                        .child("…")
+                })),
+            };
+            // Chrome around the page survives the switch, keyed or not
+            // (matched by position), so the frame is the page's patches; a
+            // page alone in its shell is the whole tree, so its switch
+            // carries the tree whole.
+            match self.chrome {
+                true => div()
+                    .id("shell")
+                    .child(div().id("title").child("title"))
+                    .child(page)
+                    .child("footer"),
+                false => div().id("shell").child(page),
+            }
+        }
+    }
+    // A frame that goes whole puts the taken subtrees back before it is
+    // sent: the host gets the tree the view rendered, without a stand-in.
+    let mut whole = Driver::<Pages>::new();
+    whole.tick_with(vec![], wire::Frame::clone);
+    whole.entity().update(whole.app_mut(), |view, cx| {
+        view.chrome = false;
+        cx.notify();
+    });
+    whole.tick_with(vec![], wire::Frame::clone);
+    let mut rendered = Driver::<Pages>::new();
+    rendered.entity().update(rendered.app_mut(), |view, cx| {
+        *view = Pages {
+            rows: true,
+            chrome: false,
+        };
+        cx.notify();
+    });
+    let rendered = rendered
+        .tick_with(vec![], wire::Frame::clone)
+        .root
+        .expect("the rows tree");
+    whole.entity().update(whole.app_mut(), |view, cx| {
+        view.rows = true;
+        cx.notify();
+    });
+    let frame = whole.tick_with(vec![], wire::Frame::clone);
+    assert!(frame.patches.is_empty(), "{:#?}", frame.patches);
+    assert_eq!(frame.root.as_ref(), Some(&rendered));
+    assert_eq!(whole.last_root.as_ref(), Some(&rendered));
+
+    let show = |driver: &mut Driver<Pages>, rows: bool| {
+        driver.entity().update(driver.app_mut(), |view, cx| {
+            view.rows = rows;
+            cx.notify();
+        });
+    };
+    let mut driver = Driver::<Pages>::new();
+    let first = driver.tick_with(vec![], wire::Frame::clone);
+    let mut styles = wire::Styles::default();
+    styles.extend(first.styles).unwrap();
+    let mut held = first.root.expect("a first tree");
+    let overview = held.clone();
+    // The rows page as a copying diff sees it: against a driver of its own.
+    let mut reference = Driver::<Pages>::new();
+    reference.tick_with(vec![], wire::Frame::clone);
+    show(&mut reference, true);
+    // the styles the rows bring cross with the patches that name them
+    let brought = reference.tick_with(vec![], wire::Frame::clone).styles;
+    let rows = reference.last_root.clone().expect("the rows tree");
+    let expected = wire::Frame {
+        patches: wire::diff(&mut overview.clone(), &mut rows.clone()),
+        styles: brought,
+        ..wire::Frame::default()
+    };
+    assert!(
+        expected.patches.iter().any(|patch| matches!(
+            patch,
+            wire::Patch::Insert { .. } | wire::Patch::Replace { .. }
+        )),
+        "{:#?}",
+        expected.patches
+    );
+
+    show(&mut driver, true);
+    let sent = driver.tick_with(vec![], wire::encode);
+    assert_eq!(sent, wire::encode(&expected), "the bytes the host gets");
+    styles.extend(expected.styles).unwrap();
+    wire::apply(&mut held, expected.patches, &styles).unwrap();
+    assert_eq!(held, rows);
+    assert_eq!(
+        driver.last_root.as_ref(),
+        Some(&rows),
+        "the kept tree is whole again"
+    );
+    assert!(driver.tick_with(vec![], wire::Frame::clone).unchanged);
+
+    show(&mut driver, false);
+    let back = driver.tick_with(vec![], wire::Frame::clone);
+    assert!(!back.unchanged && !back.patches.is_empty());
+    styles.extend(back.styles).unwrap();
+    wire::apply(&mut held, back.patches, &styles).unwrap();
+    assert_eq!(
+        held, overview,
+        "the frame after a switch still patches to the rendered tree"
+    );
+}
+
 #[test]
 fn primitive_sources_fallbacks_transformations_and_typed_ids_survive_lowering() {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct Primitives;
     impl View for Primitives {
+        const NAME: &'static str = "Primitives";
         fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
             Self
         }
@@ -101,8 +239,9 @@ fn primitive_sources_fallbacks_transformations_and_typed_ids_survive_lowering() 
         }
     }
 
-    let frame = Driver::<Primitives>::new().tick(vec![]);
-    let children = frame.root.unwrap().children().to_vec();
+    let mut cx = crate::testing::TestAppContext::new();
+    cx.open::<Primitives>();
+    let children = cx.root().children().to_vec();
     let wire::Node::Image {
         id,
         data,

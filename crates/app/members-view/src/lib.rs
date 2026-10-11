@@ -1,366 +1,310 @@
-//! Members: every account the `identity` program holds — its number, its
-//! name, what controls it and how many keys it carries — with the standing
-//! `valset` gives the keys it holds, where it holds one.
+//! Members: every account the `identity` program holds, as a list beside
+//! one account read in full. The list groups people, then agents, then
+//! modules; the account chosen from it shows its bio, its devices, the
+//! agents it manages and what its keys signed lately.
+//!
+//! The screen is read-only: suspending, revoking, renaming and keys live in
+//! Settings. Nothing here asks a program anything the list does not: one
+//! `identity` list gives every account whole, `valset` the standing of the
+//! keys, and the recent activity is a scan of the chain's recent window
+//! ([`activity`]).
 //!
 //! The contracts are borsh and this view's state is a serde snapshot, so a
 //! reply is folded to [`Row`]s as it lands: nothing the programs speak is
 //! kept across a snapshot, only what the screen shows.
-use ducktape_view_guest::doors::Live;
-use ducktape_view_guest::doors::{Program, Query};
-use ducktape_view_guest::export_view;
-use ducktape_view_guest::host::{Refusal, malformed};
-use ducktape_view_guest::view::Loaded;
-use ducktape_view_guest::{
-    App, ClickEvent, Context, ElementId, Host, Input, InteractiveElement, IntoElement,
-    ParentElement, Render, RenderOnce, StatefulInteractiveElement, Styled, Task, Theme, View,
-    Window, div, px,
-};
-use futures::StreamExt;
-use module_registry::Page;
+mod activity;
+mod ui;
+
+use ducktape_view_guest::prelude::*;
+use module_registry::PageRequest;
 use serde::{Deserialize, Serialize};
 
-/// The identity program's query surface, as this view reads it.
-struct Identity;
-impl Program for Identity {
-    const NAME: &'static str = identity::PROGRAM;
-    type Op = ();
-    type Query = identity::Query;
-    type Reply = identity::Reply;
-}
+use identity::Identity;
+use valset::Valset;
 
-/// The validator set, read for the standing beside a member.
-struct Valset;
-impl Program for Valset {
-    const NAME: &'static str = valset::PROGRAM;
-    type Op = ();
-    type Query = valset::Query;
-    type Reply = valset::Reply;
-}
+pub use activity::Recent;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Members {
-    rows: Loaded<Vec<Row>>,
+    rows: Loadable<Vec<Row>>,
     /// what the reader typed into the filter; the rows are never refetched
     /// for it, since the program has no search
-    filter: String,
+    filter: TextField,
+    /// the kind chip that is on; `None` is All. It and the filter narrow the
+    /// list together and never touch `selected`.
+    only: Option<Group>,
+    /// the account the detail shows, kept while the filter hides its row
+    selected: Option<u64>,
+    /// the reader's own account, from the session
     #[serde(skip)]
-    live: Option<Task<()>>,
+    me: Option<u64>,
+    /// the chain links are minted on, from the session
+    #[serde(skip)]
+    chain: String,
+    /// what the selected account signed lately; read again on restore
+    #[serde(skip)]
+    activity: Loadable<Recent>,
+    /// each account's activity as last read: an account chosen again shows
+    /// it at once (the arrows run down the list and back) while `rereading`
+    /// reads it anew
+    #[serde(skip)]
+    seen: std::collections::HashMap<u64, Recent>,
+    #[serde(skip)]
+    rereading: Option<Task<()>>,
+    /// the roster's re-read while the rows on screen stay
+    #[serde(skip)]
+    rereading_rows: Option<Task<()>>,
+    /// the pane's width, read from the window each render
+    #[serde(skip)]
+    width: f32,
+    /// the list's dragged width; `None` until the first drag
+    #[serde(skip)]
+    list: Option<f32>,
+}
+
+/// The list's three groups, in the order they are drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Group {
+    People,
+    Agents,
+    Modules,
+}
+
+impl Group {
+    pub const ALL: [Group; 3] = [Group::People, Group::Agents, Group::Modules];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Group::People => "People",
+            Group::Agents => "Agents",
+            Group::Modules => "Modules",
+        }
+    }
+
+    fn of(kind: &identity::Kind) -> Group {
+        match kind {
+            identity::Kind::Person => Group::People,
+            identity::Kind::Managed { .. } => Group::Agents,
+            identity::Kind::Module(_) => Group::Modules,
+        }
+    }
 }
 
 /// One account as this screen shows it.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct Row {
     number: u64,
     name: String,
-    /// what holds the account: its own keys, another program, or nothing
-    control: String,
-    keys: usize,
+    bio: Option<String>,
+    /// what the account is; labelled as it is drawn ([`identity::view::kind`])
+    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    kind: identity::Kind,
+    devices: Vec<Device>,
     /// the valset standing of a key this account holds, where it holds one
     standing: Option<String>,
 }
 
-impl View for Members {
-    const PREFERRED_WINDOW_SIZE: &'static str = "720,640";
-
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut view = Self::default();
-        view.restored(window, cx);
-        view
+impl Row {
+    fn group(&self) -> Group {
+        Group::of(&self.kind)
     }
 
-    fn restored(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let mut stream = cx.host().subscribe::<Live>(identity::PROGRAM.into());
-        self.live = Some(cx.spawn(async move |this, cx| {
-            while stream.next().await.is_some() {
-                if this.update(cx, |view, cx| view.read(cx)).is_err() {
-                    break;
+    fn manager(&self) -> Option<u64> {
+        match self.kind {
+            identity::Kind::Managed { manager, .. } => Some(manager),
+            _ => None,
+        }
+    }
+}
+
+/// One key an account acts with.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct Device {
+    label: Option<String>,
+    key: Vec<u8>,
+    /// when it joined, in milliseconds
+    added_at: u64,
+}
+
+impl View for Members {
+    const NAME: &'static str = "Members";
+    const DESCRIPTION: &'static str =
+        "Every account of this network: who it is, what it runs and what it signed lately.";
+    const ICON: &'static str = "icons/users.svg";
+    const CAPABILITIES: &'static [Capability] = &[
+        Capability::Chain,
+        Capability::Module,
+        Capability::Host,
+        Capability::Link,
+    ];
+    const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
+    // the list and the detail fit at 320, the desk's smallest window
+    const MIN_WINDOW_WIDTH: u32 = 320;
+
+    fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        cx.follow::<HostSession>((), |view, session, cx| match session {
+            Ok(session) => {
+                if (view.me, &view.chain) != (session.account, &session.chain_id) {
+                    view.me = session.account;
+                    view.chain = session.chain_id;
+                    cx.notify();
                 }
             }
-        }));
+            Err(refusal) => cx.log_refused("the session", &refusal),
+        })
+        .detach();
+        // the roster joins two programs: a block of either re-reads it
+        cx.follow::<Changes<Identity>>((), |view, bump, cx| match bump {
+            Ok(_) => view.read(cx),
+            Err(refusal) => cx.log_refused("identity's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<Valset>>((), |view, bump, cx| match bump {
+            Ok(_) => view.read(cx),
+            Err(refusal) => cx.log_refused("valset's live heads", &refusal),
+        })
+        .detach();
         self.read(cx);
+        self.read_activity(cx);
     }
 }
 
 impl Render for Members {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = *cx.global::<Theme>();
-        let typed = cx.listener(|view, text: &String, _, cx| {
-            view.filter = text.clone();
-            cx.notify();
-        });
-        let body = self.body(cx, &theme);
-        div()
-            .id("members")
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_5()
-            .size_full()
-            .bg(theme.background)
-            .text_color(theme.foreground)
-            .text_size(px(13.))
-            .child(
-                div()
-                    .id("members-head")
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id("members-title")
-                            .flex_1()
-                            .text_size(px(16.))
-                            .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
-                            .role(ducktape_view_guest::Role::Heading)
-                            .aria_level(1)
-                            .child("Members"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme.muted)
-                            .child(self.count()),
-                    ),
-            )
-            .child(
-                Input::new("members-filter")
-                    .h(px(28.))
-                    .w_full()
-                    .px_2()
-                    .py_1()
-                    .border_1()
-                    .border_color(theme.border_strong)
-                    .bg(theme.surface)
-                    .text_color(theme.foreground)
-                    .value(self.filter.clone())
-                    .placeholder("Filter by name or number")
-                    .label("Filter members")
-                    .on_input(typed),
-            )
-            .child(body)
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // the pane's width, as the host lays the frame out: the detail
+        // docks or floats by it in the frame that shows it
+        self.width = window.viewport_size().width.into();
+        ui::render(self, cx)
     }
 }
 
 impl Members {
     /// One read of both programs — the boot, a retry, a restore, a live
-    /// bump. Rows already on screen stay there while it runs, so a bump
-    /// never blinks the list back to "Loading"; an empty or refused slot
-    /// says it is loading, because it has nothing else to say.
+    /// bump of either. Rows already on screen stay there while it runs, so a bump
+    /// never blinks the list back to "Loading", and a bump that changed no
+    /// row draws nothing; a refused bump is logged and leaves them. A newer
+    /// read cancels the one before.
     fn read(&mut self, cx: &mut Context<Self>) {
+        let task = cx.land(roster(cx.host()), |view, result, cx| {
+            let rescan = view.activity.is_idle();
+            match (result, view.rows.ready()) {
+                (Ok(rows), Some(old)) if *old == rows => {}
+                (Ok(rows), old) => {
+                    let old = old.map_or(&[][..], Vec::as_slice);
+                    let keys_moved = view
+                        .selected
+                        .is_some_and(|number| keys(old, number) != keys(&rows, number));
+                    view.rows = Loadable::Ready(rows);
+                    cx.notify();
+                    if keys_moved {
+                        return view.read_activity(cx);
+                    }
+                }
+                (Err(refusal), Some(_)) => cx.log_refused("a refresh", &refusal),
+                (Err(refusal), None) => {
+                    view.rows = Loadable::Failed(refusal);
+                    cx.notify();
+                }
+            }
+            if rescan {
+                view.read_activity(cx);
+            }
+        });
         match self.rows.ready() {
-            Some(_) => cx.refresh(roster(cx.host()), |view, rows, _| {
-                view.rows = Loaded::Ready(rows)
-            }),
-            None => self.rows = cx.load(roster(cx.host()), |view| &mut view.rows),
+            Some(_) => self.rereading_rows = Some(task),
+            None => {
+                self.rows = Loadable::Loading(task);
+                cx.notify();
+            }
         }
+    }
+
+    /// Shows `number` in the detail and reads what it signed lately.
+    pub fn select(&mut self, number: u64, cx: &mut Context<Self>) {
+        if self.selected == Some(number) {
+            return;
+        }
+        self.selected = Some(number);
+        self.activity = Loadable::Idle;
+        self.read_activity(cx);
         cx.notify();
     }
 
-    fn count(&self) -> String {
-        match self.rows.ready() {
-            Some(rows) => plural(rows.len(), "account", "accounts"),
-            None => String::new(),
-        }
-    }
-
-    /// The four states of the roster: loading, refused, empty, ready.
-    fn body(&self, cx: &mut Context<Self>, theme: &Theme) -> impl IntoElement {
-        match &self.rows {
-            Loaded::Idle | Loaded::Loading(_) => div()
-                .id("members-loading")
-                .text_size(px(12.))
-                .text_color(theme.muted)
-                .child("Reading the roster…")
-                .into_any_element(),
-            Loaded::Failed(refusal) => {
-                let retry = cx.listener(|view, _: &ClickEvent, _, cx| view.read(cx));
-                div()
-                    .id("members-refused")
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .border_1()
-                    .border_color(theme.danger)
-                    .bg(theme.danger_soft)
-                    .child(refusal.sentence.clone())
-                    .child(
-                        div()
-                            .id("members-retry")
-                            .px_2()
-                            .py_1()
-                            .bg(theme.surface)
-                            .hover(|s| s.bg(theme.surface_raised))
-                            .role(ducktape_view_guest::Role::Button)
-                            .focusable()
-                            .on_click(retry)
-                            .child("Retry"),
-                    )
-                    .into_any_element()
+    /// Reads the selected account's recent activity, once its keys are
+    /// known; an account with no keys signs nothing and asks nothing.
+    /// Notifies when the detail's activity changes.
+    fn read_activity(&mut self, cx: &mut Context<Self>) {
+        self.rereading = None;
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        if row.devices.is_empty() {
+            if !self.activity.is_idle() {
+                self.activity = Loadable::Idle;
+                cx.notify();
             }
-            Loaded::Ready(rows) if rows.is_empty() => empty_state(
-                "members-empty",
-                "No accounts",
-                "The identity program of this network holds no accounts yet.",
-                theme,
-            )
-            .into_any_element(),
-            Loaded::Ready(rows) => {
-                let shown: Vec<&Row> = rows.iter().filter(|row| self.matches(row)).collect();
-                if shown.is_empty() {
-                    return empty_state(
-                        "members-no-match",
-                        "Nothing matches",
-                        format!("No account reads like “{}”.", self.filter.trim()),
-                        theme,
-                    )
-                    .into_any_element();
+            return;
+        }
+        let number = row.number;
+        let keys = row
+            .devices
+            .iter()
+            .map(|device| device.key.clone())
+            .collect();
+        let work = activity::recent(cx.host(), keys);
+        // held in `activity` or `rereading`, so choosing someone else drops
+        // it unfinished
+        let task = cx.land(work, move |view, result, cx| {
+            if let Ok(recent) = &result {
+                view.seen.insert(number, recent.clone());
+            }
+            match result {
+                // read anew and the same: nothing to draw
+                Ok(recent) if view.activity.ready() == Some(&recent) => {}
+                result => {
+                    view.activity = Loadable::from(result);
+                    cx.notify();
                 }
-                div()
-                    .id("members-list")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .children(shown.into_iter().map(|row| MemberRow::new(row, theme)))
-                    .into_any_element()
+            }
+        });
+        match self.seen.get(&number) {
+            Some(recent) => {
+                if self.activity.ready() != Some(recent) {
+                    self.activity = Loadable::Ready(recent.clone());
+                    cx.notify();
+                }
+                self.rereading = Some(task);
+            }
+            None => {
+                self.activity = Loadable::Loading(task);
+                cx.notify();
             }
         }
     }
 
-    fn matches(&self, row: &Row) -> bool {
-        let needle = self.filter.trim().to_lowercase();
-        needle.is_empty()
-            || row.name.to_lowercase().contains(&needle)
-            || row.number.to_string().contains(&needle)
+    fn selected_row(&self) -> Option<&Row> {
+        let number = self.selected?;
+        self.rows.ready()?.iter().find(|row| row.number == number)
     }
-}
 
-#[derive(IntoElement)]
-struct MemberRow {
-    row: Row,
-    theme: Theme,
-}
-
-impl MemberRow {
-    fn new(row: &Row, theme: &Theme) -> Self {
-        Self {
-            row: row.clone(),
-            theme: *theme,
-        }
+    /// The rows the filter and the chip let through, grouped and in order.
+    fn shown(&self) -> Vec<&Row> {
+        let Some(rows) = self.rows.ready() else {
+            return Vec::new();
+        };
+        let needle = self.filter.text().trim().to_lowercase();
+        let mut shown: Vec<&Row> = rows
+            .iter()
+            .filter(|row| self.only.is_none_or(|only| row.group() == only))
+            .filter(|row| {
+                needle.is_empty()
+                    || row.name.to_lowercase().contains(&needle)
+                    || row.number.to_string().contains(&needle)
+            })
+            .collect();
+        shown.sort_by_key(|row| (row.group(), row.number));
+        shown
     }
-}
-
-impl RenderOnce for MemberRow {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let row = self.row;
-        let theme = self.theme;
-        let mut element = div()
-            .id(ElementId::named_usize("members-row", row.number as usize))
-            .flex()
-            .items_center()
-            .gap_2()
-            .min_h(px(26.))
-            .px_2()
-            .child(
-                div()
-                    .w(px(56.))
-                    .text_size(px(12.))
-                    .text_color(theme.muted)
-                    .child(format!("#{}", row.number)),
-            )
-            .child(div().flex_1().truncate().child(row.name))
-            .child(Badge::new(row.control, theme.muted, theme.surface_raised))
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme.muted)
-                    .child(plural(row.keys, "key", "keys")),
-            );
-        if let Some(standing) = row.standing {
-            element = element.child(Badge::new(standing, theme.success, theme.success_soft));
-        }
-        element
-    }
-}
-
-#[derive(IntoElement)]
-struct Badge {
-    label: String,
-    foreground: ducktape_view_guest::Hsla,
-    background: ducktape_view_guest::Hsla,
-}
-
-impl Badge {
-    fn new(
-        label: impl Into<String>,
-        foreground: ducktape_view_guest::Hsla,
-        background: ducktape_view_guest::Hsla,
-    ) -> Self {
-        Self {
-            label: label.into(),
-            foreground,
-            background,
-        }
-    }
-}
-
-impl RenderOnce for Badge {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        div()
-            .px_1()
-            .py_0p5()
-            .bg(self.background)
-            .text_color(self.foreground)
-            .text_size(px(11.))
-            .child(self.label)
-    }
-}
-
-#[derive(IntoElement)]
-struct EmptyState {
-    id: ElementId,
-    title: String,
-    detail: String,
-    muted: ducktape_view_guest::Hsla,
-}
-
-fn empty_state(
-    id: &'static str,
-    title: &str,
-    detail: impl Into<String>,
-    theme: &Theme,
-) -> EmptyState {
-    EmptyState {
-        id: id.into(),
-        title: title.to_owned(),
-        detail: detail.into(),
-        muted: theme.muted,
-    }
-}
-
-impl RenderOnce for EmptyState {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        div()
-            .id(self.id)
-            .flex()
-            .flex_col()
-            .gap_1()
-            .p_6()
-            .max_w(px(420.))
-            .child(div().text_size(px(13.)).child(self.title))
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(self.muted)
-                    .child(self.detail),
-            )
-    }
-}
-
-fn plural(count: usize, one: &str, many: &str) -> String {
-    format!("{count} {}", if count == 1 { one } else { many })
 }
 
 /// The roster, with each account's valset standing joined on the keys it
@@ -368,81 +312,55 @@ fn plural(count: usize, one: &str, many: &str) -> String {
 ///
 /// Both programs answer in pages; the roster follows every `next` cursor to
 /// the end, since the screen shows the whole network.
-async fn roster(host: Host) -> Result<Vec<Row>, Refusal> {
-    let mut accounts = Vec::new();
-    let mut after = None;
-    loop {
-        let page = Page { after, limit: None };
-        let reply = match host
-            .ask::<Query<Identity>>(identity::Query::List { page })
-            .await?
-        {
-            identity::Reply::Accounts(reply) => reply,
-            other => return Err(unexpected(identity::PROGRAM, &other)),
-        };
-        accounts.extend(reply.items);
-        match reply.next {
-            Some(next) => after = Some(next),
-            None => break,
-        }
-    }
-    let mut members = Vec::new();
-    let mut after = None;
-    loop {
-        let page = Page { after, limit: None };
-        let reply = match host
-            .ask::<Query<Valset>>(valset::Query::Memberships { page })
-            .await?
-        {
-            valset::Reply::Memberships(reply) => reply,
-            other => return Err(unexpected(valset::PROGRAM, &other)),
-        };
-        members.extend(reply.items);
-        match reply.next {
-            Some(next) => after = Some(next),
-            None => break,
-        }
-    }
+async fn roster(host: Host) -> Result<Vec<Row>, Error> {
+    let page = |after| PageRequest { after, limit: None };
+    let accounts = host
+        .query_all(|after| identity::ask::List { page: page(after) })
+        .await?;
+    let members = host
+        .query_all(|after| valset::ask::Memberships { page: page(after) })
+        .await?;
     Ok(accounts
         .iter()
         .map(|account| row(account, &members))
         .collect())
 }
 
+/// The keys account `number` holds in `rows`, if it is there.
+fn keys(rows: &[Row], number: u64) -> Option<Vec<&[u8]>> {
+    let row = rows.iter().find(|row| row.number == number)?;
+    Some(row.devices.iter().map(|device| &device.key[..]).collect())
+}
+
 fn row(account: &identity::Account, members: &[valset::Membership]) -> Row {
     Row {
         number: account.number,
-        name: account.name.clone(),
-        control: match &account.control {
-            identity::Control::Keys(_) => "Person",
-            identity::Control::Program { .. } => "Program",
-            identity::Control::Revoked { .. } => "Revoked",
-        }
-        .into(),
-        keys: account.keys().len(),
+        name: account.card.name.clone(),
+        bio: account.card.bio.clone(),
+        kind: account.kind(),
+        devices: account
+            .keys()
+            .iter()
+            .map(|key| Device {
+                label: key.label.clone(),
+                key: key.key.clone(),
+                added_at: key.added_at,
+            })
+            .collect(),
         standing: members
             .iter()
             .find(|member| account.holds(&member.key))
             .map(|member| {
-                match member.standing {
-                    valset::Standing::Validator => "Validator",
-                    valset::Standing::Resident => "Resident",
+                match member.role {
+                    valset::Role::Validator => "Validator",
+                    valset::Role::Resident => "Resident",
                 }
                 .into()
             }),
     }
 }
 
-fn unexpected(program: &str, reply: &impl std::fmt::Debug) -> Refusal {
-    malformed(format!("{program} answered {reply:?}"))
-}
-
-export_view!(
-    Members,
-    "Members",
-    "Every account of this network, with the standing of the keys it holds.",
-    ["rpc", "host"]
-);
+export_view!(Members);
 
 #[cfg(test)]
 mod tests;

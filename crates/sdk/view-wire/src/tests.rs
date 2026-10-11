@@ -1,36 +1,31 @@
 use super::*;
+use crate::styles::testing::{held, plain, sanitize_plain};
 
 fn text(content: &str) -> Node {
     Node::Text(crate::TextNode {
         id: None,
-        style: gpui::StyleRefinement::default(),
+        style: StyleId(0),
         content: content.into(),
-        heading: None,
-        live: None,
     })
 }
 
-fn document_reference(document: &str, byte_len: u32) -> editor_document::EditorDocumentRef {
-    editor_document::EditorDocumentRef {
-        document: document.into(),
-        reset: 3,
-        text_revision: 5,
-        revision: 7,
-        cursor: EditorCursor::default(),
-        byte_len,
-    }
-}
-
-fn editor(key: &str, placeholder: &str, document: editor_document::EditorDocumentRef) -> Node {
-    Node::Editor {
-        options: Default::default(),
+fn field(key: &str, value: &str, placeholder: &str) -> Node {
+    Node::Field {
         id: ElementIdWire::Name(key.into()),
-        style: gpui::StyleRefinement::default(),
+        multiline: true,
+        value: value.into(),
+        cursor: TextRange::caret(value.len()),
+        generation: 0,
+        revision: 0,
+        tokens: Default::default(),
+        claims: Default::default(),
+        options: Default::default(),
         placeholder: placeholder.into(),
-        label: None,
-        document,
-        on_document: 1,
-        editable: true,
+        secure: false,
+        on_change: Some(0),
+        on_key: None,
+        on_submit: None,
+        style: StyleId(0),
     }
 }
 
@@ -39,7 +34,7 @@ fn sanitized_root(root: Node) -> Node {
         root: Some(root),
         ..Frame::default()
     };
-    sanitize(&mut frame).unwrap();
+    sanitize_plain(&mut frame).unwrap();
     frame.root.unwrap()
 }
 
@@ -53,8 +48,8 @@ fn sanitized_children(root: Node) -> Vec<Node> {
 fn column(children: Vec<Node>) -> Node {
     Node::Container(crate::ContainerNode {
         id: None,
-        style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        style: StyleId(0),
+        interactivity: Default::default(),
         children,
     })
 }
@@ -73,67 +68,39 @@ fn uniform(path: Vec<ElementIdWire>) -> Node {
         id: ElementIdWire::Name("list".into()),
         path,
         route: 1,
-        style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        style: StyleId(0),
+        interactivity: Default::default(),
         count: 1,
         measure_index: 0,
         sizing: list::UniformListSizing::Auto,
         horizontal_sizing: list::UniformListHorizontalSizing::FitList,
         y_flipped: false,
         scroll_request: None,
+        revision: 0,
         indices: vec![0],
         children: vec![text("row")],
     }
 }
 
-fn button(content: ButtonContent) -> Node {
-    Node::Button {
-        checked: None,
-        expanded: None,
-        selected: None,
-        role: None,
-        description: None,
-        id: ElementIdWire::Name("App/b".into()),
-        content,
-        label: None,
-        on_press: Some(1),
-        style: gpui::StyleRefinement::default(),
-    }
-}
-
-fn mouse_area(key: &str, on_move: Option<u32>, content: Node) -> Node {
-    Node::MouseArea {
+fn sensor(key: &str, on_bounds: Option<u32>, content: Node) -> Node {
+    Node::Sensor {
         id: ElementIdWire::Name(key.into()),
-        role: None,
-        label: None,
-        expanded: None,
-        selected: None,
-        checked: None,
-        on_press: Some(1),
-        on_release: None,
-        on_double_click: None,
-        on_right_press: None,
-        on_right_release: None,
-        on_middle_press: None,
-        on_middle_release: None,
-        on_enter: Some(2),
-        on_exit: None,
-        on_move,
-        on_press_at: None,
-        on_scroll: Some(3),
-        content: Box::new(content),
+        style: StyleId(0),
+        on_bounds,
+        child: Box::new(content),
     }
 }
 
+/// Building and encoding a chain this deep recurses as far as decoding
+/// it would, so the hostile frame is made where there is stack for it.
 fn deep_chain_bytes(depth: usize) -> Vec<u8> {
     std::thread::Builder::new()
         .stack_size(512 << 20)
         .spawn(move || {
             let mut node = Node::empty();
             for _ in 0..depth {
-                node = Node::Lazy {
-                    id: ElementIdWire::Integer(0),
-                    generation: 0,
+                node = Node::Deferred {
+                    priority: 0,
                     content: Box::new(node),
                 };
             }
@@ -162,12 +129,13 @@ fn picture(bytes: Option<Vec<u8>>) -> Node {
             rotate: 0.,
         },
         label: None,
-        style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        style: StyleId(0),
+        interactivity: Default::default(),
     }
 }
 
 mod accessibility_and_decode;
+mod bytes;
 mod patches;
 mod primitives;
 mod roundtrip;

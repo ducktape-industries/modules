@@ -1,59 +1,6 @@
 use super::*;
 
 #[test]
-fn attachment_preview_keeps_host_surfaces_and_markdown_link_events() {
-    let (mut cx, view) = opened();
-    let link = files::file_address("testnet#0a1b2c3d", "/readme.md").unwrap();
-    view.update(&mut cx, |chat, _, cx| {
-        chat.preview = Some(Preview {
-            link,
-            read: Loaded::Ready(files::Preview {
-                text: "[Open](https://example.test)".into(),
-                clipped: false,
-                binary: false,
-            }),
-        });
-        cx.notify();
-    });
-    cx.run_until_parked();
-    assert!(matches!(
-        cx.find("chat-preview-markdown"),
-        Some(wire::Node::Surface {
-            name,
-            on_event: Some(_),
-            ..
-        }) if name == "markdown"
-    ));
-    cx.simulate_surface(
-        "chat-preview-markdown",
-        wire::SurfaceValue::Str("https://example.test".into()),
-    );
-    assert_eq!(
-        cx.host().opened_links(),
-        vec![
-            "duck://testnet-0a1b2c3d/chat/general",
-            "https://example.test"
-        ],
-        "choosing the room informs the host before the preview link opens"
-    );
-}
-
-#[test]
-fn attachment_preview_failure_names_the_failed_operation() {
-    let (mut cx, view) = opened();
-    let link = files::file_address("testnet#0a1b2c3d", "/secret.txt").unwrap();
-    view.update(&mut cx, |chat, _, cx| {
-        chat.preview = Some(Preview {
-            link,
-            read: Loaded::Failed(Refusal::new("denied", "permission denied")),
-        });
-        cx.notify();
-    });
-    cx.run_until_parked();
-    assert!(cx.has_text("Could not read this file: permission denied"));
-}
-
-#[test]
 fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
     let (mut cx, view) = opened();
     let spans = vec![
@@ -71,10 +18,14 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
         },
         chat::Span {
             text: "reviewer".into(),
-            marks: vec![chat::Mark::Mention(chat::Party::Account(8))],
+            marks: vec![chat::Mark::Mention(chat::Principal::Account(8))],
+        },
+        chat::Span {
+            text: " code".into(),
+            marks: vec![chat::Mark::Code],
         },
     ];
-    view.update(&mut cx, |chat, _, cx| {
+    cx.update(&view, |chat, _, cx| {
         chat.room
             .as_mut()
             .unwrap()
@@ -85,7 +36,6 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
                 channel_id: "general".into(),
                 seq: 3,
                 message_id: "rich".into(),
-                author: "acct:7".into(),
                 height: 2,
                 blocks: vec![
                     chat::Block::Paragraph(spans),
@@ -99,7 +49,7 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
                     }]),
                 ],
                 text: "rich".into(),
-                ..MsgRow::default()
+                ..MsgRow::by(Principal::Account(7))
             });
         cx.notify();
     });
@@ -109,115 +59,175 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
         text,
         runs,
         clickable_ranges,
+        font_family_overrides,
         ..
     }) = cx.find(key)
     else {
         panic!("message paragraph is one rich text node");
     };
-    assert_eq!(text, "bold italic first @reviewer");
+    assert_eq!(text, "bold italic first @reviewer code");
     let wire::RichTextRuns::Highlights(highlights) = runs else {
         panic!("chat authors highlight ranges");
     };
-    assert_eq!(highlights.len(), 4);
+    assert_eq!(highlights.len(), 5);
     assert!(highlights[0].1.font_weight.is_some());
     assert!(highlights[1].1.font_style.is_some());
+    // a code span: the fenced block's ground, in the mono face
+    assert!(highlights[4].1.background_color.is_some());
+    assert_eq!(
+        *font_family_overrides,
+        vec![(
+            highlights[4].0.clone(),
+            ducktape_view_guest::design::fonts::FAMILY_MONO.into()
+        )]
+    );
     assert_eq!(clickable_ranges.len(), 2);
     assert!(cx.has_text("rust"));
     assert!(cx.has_text("fn main() {}"));
     assert!(cx.has_text("quoted"));
+    let seq = view.read(|chat| {
+        chat.rows(Pane::Timeline)
+            .iter()
+            .find(|row| row.message_id == "rich")
+            .map(|row| row.seq)
+            .expect("the rich row")
+    });
+    super::message::hover(&mut cx, &view, seq);
     assert!(matches!(
         cx.find("chat-message-rich-more"),
-        Some(wire::Node::Container (ducktape_view_guest::wire::ContainerNode { interactivity, .. }))
+        Some(wire::Node::Container (ducktape_view_guest::wire::ContainerNode { interactivity: Some(interactivity), .. }))
             if interactivity.aria.label.as_deref() == Some("More message actions")
     ));
 
     cx.simulate_rich_click(key, 0);
     cx.simulate_rich_click(key, 1);
+    let opened = cx
+        .host()
+        .requests::<ducktape_view_guest::methods::LinkOpen>();
     assert_eq!(
-        cx.host().opened_links(),
-        vec![
-            "duck://testnet-0a1b2c3d/chat/general",
-            "https://one.example",
-            "duck://testnet-0a1b2c3d/identity/8",
-        ]
+        opened[opened.len().saturating_sub(2)..],
+        ["https://one.example", "duck://testnet-0a1b2c3d/identity/8"]
     );
 }
 
 #[test]
-fn picture_attachment_keeps_scoped_surface_and_respects_attachment_gate() {
+fn a_headers_block_number_opens_explorer_at_that_block() {
     let (mut cx, view) = opened();
-    let link = files::file_address("testnet#0a1b2c3d", "/shared/attachments/picture.png").unwrap();
-    view.update(&mut cx, |chat, _, cx| {
-        chat.pictures.insert(link.clone(), (640, 480));
+    cx.update(&view, |chat, _, cx| {
+        // Start a new author run so the header shows its block number.
+        let mut late = row(3, 7, "late");
+        late.message_id = "late".into();
+        late.height = 12_345;
         chat.room
             .as_mut()
             .unwrap()
             .messages
             .ready_mut()
             .unwrap()
-            .push(MsgRow {
-                channel_id: "general".into(),
-                seq: 3,
-                message_id: "picture".into(),
-                author: "acct:7".into(),
-                height: 2,
-                blocks: vec![chat::Block::Paragraph(vec![chat::Span {
-                    text: "picture.png".into(),
-                    marks: vec![chat::Mark::Link(link.clone())],
-                }])],
-                text: "picture.png".into(),
-                ..MsgRow::default()
-            });
-        cx.notify();
-    });
-    cx.run_until_parked();
-    assert!(matches!(
-        cx.find("chat-message-picture-block-0-picture"),
-        Some(wire::Node::Surface { name, args, .. })
-            if name == "picture"
-                && args.get(1) == Some(&wire::SurfaceValue::Str(
-                    files::attachment_file_path(&link)
-                ))
-    ));
-    cx.simulate_click("chat-message-picture-block-0");
-    view.read(|chat| {
-        assert!(
-            chat.preview.is_none(),
-            "attachment previews remain disabled"
-        )
-    });
-    assert_eq!(
-        cx.host().opened_links(),
-        vec!["duck://testnet-0a1b2c3d/chat/general".to_owned(), link]
-    );
-}
-
-#[test]
-fn file_attachment_keeps_type_caption_and_grouped_block_number() {
-    let (mut cx, view) = opened();
-    let link = files::file_address("testnet#0a1b2c3d", "/shared/attachments/deck.pdf").unwrap();
-    view.update(&mut cx, |chat, _, cx| {
-        // Start a new author run so the original header grouping displays its block number.
-        let mut file = row(3, "acct:7", "deck.pdf");
-        file.message_id = "file".into();
-        file.height = 12_345;
-        file.blocks = vec![chat::Block::Paragraph(vec![chat::Span {
-            text: "deck.pdf".into(),
-            marks: vec![chat::Mark::Link(link)],
-        }])];
-        chat.room
-            .as_mut()
-            .unwrap()
-            .messages
-            .ready_mut()
-            .unwrap()
-            .push(file);
+            .push(late);
         cx.notify();
     });
     cx.run_until_parked();
     assert!(cx.has_text("block 12,345"));
-    assert!(cx.has_text("PDF file"));
-    assert!(matches!(cx.find("chat-message-file-block-0"),
-        Some(wire::Node::Container (ducktape_view_guest::wire::ContainerNode { interactivity, .. }))
-            if interactivity.aria.label.as_deref() == Some("Open deck.pdf")));
+    cx.simulate_click("chat-message-late-height");
+    let opened = cx
+        .host()
+        .requests::<ducktape_view_guest::methods::LinkOpen>();
+    assert_eq!(
+        opened.last().map(String::as_str),
+        Some("duck://explorer/block/12345")
+    );
+}
+
+/// A run's header says when it was posted beside its block, and a new day
+/// opens under a divider naming it.
+#[test]
+fn a_header_tells_the_time_and_a_new_day_opens_under_a_divider() {
+    let (mut cx, view) = opened();
+    // 24 Sep 2026, 15:42 UTC, and the next morning
+    let today = 1_790_264_527_000;
+    let tomorrow = today + 18 * 3_600_000;
+    cx.update(&view, |chat, _, cx| {
+        let messages = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
+        for (seq, time) in [(3, today), (4, tomorrow)] {
+            let mut late = row(seq, 7, "late");
+            late.height = 4_908;
+            late.time = time;
+            messages.push(late);
+        }
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("3:42 PM ·"));
+    assert!(cx.has_text("block 4,908"));
+    assert!(cx.has_text("9:42 AM ·"), "a new day reopens the run");
+    assert!(
+        cx.find("chat-day-m3").is_some(),
+        "the first dated row opens its day"
+    );
+    assert!(cx.has_text("24 Sep 2026"));
+    assert!(cx.find("chat-day-m4").is_some());
+    assert!(cx.has_text("25 Sep 2026"));
+}
+
+/// A line typed as `- x` or `1. x` renders as a list row: its marker in a
+/// gutter and the item, marks and all, beside it.
+#[test]
+fn list_lines_render_as_list_rows() {
+    let (mut cx, view) = opened();
+    cx.update(&view, |chat, _, cx| {
+        let mut list = row(3, 7, "list");
+        list.message_id = "list".into();
+        list.blocks = chat::parse_message("- **apples**\n2. pears\nplain");
+        chat.room
+            .as_mut()
+            .unwrap()
+            .messages
+            .ready_mut()
+            .unwrap()
+            .push(list);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.find("chat-message-list-block-0-item").is_some());
+    assert!(cx.has_text("•"));
+    let Some(wire::Node::RichText { text, .. }) = cx.find("chat-message-list-block-0") else {
+        panic!("the item is one rich text node");
+    };
+    assert_eq!(text, "apples", "the marker leaves the item's text");
+    assert!(cx.find("chat-message-list-block-1-item").is_some());
+    assert!(cx.has_text("2."));
+    assert!(
+        cx.find("chat-message-list-block-2-item").is_none(),
+        "a plain line stays a paragraph"
+    );
+}
+
+/// The reader's offset landing after the rows moves the day dividers onto
+/// the reader's midnights without a refresh.
+#[test]
+fn an_offset_landing_late_moves_the_day_dividers() {
+    let (mut cx, view) = opened();
+    // 24 Sep 2026, 13:00 and 16:00 UTC: one UTC day, two in Seoul
+    let afternoon = 1_790_254_800_000;
+    let evening = afternoon + 3 * 3_600_000;
+    cx.update(&view, |chat, _, cx| {
+        let messages = chat.room.as_mut().unwrap().messages.ready_mut().unwrap();
+        for (seq, time) in [(3, afternoon), (4, evening)] {
+            let mut late = row(seq, 7, "late");
+            late.time = time;
+            messages.push(late);
+        }
+        chat.watch(cx);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.find("chat-day-m3").is_some());
+    assert!(cx.find("chat-day-m4").is_none(), "one UTC day");
+    cx.simulate_offset(540);
+    assert!(
+        cx.find("chat-day-m4").is_some(),
+        "Seoul's midnight falls between"
+    );
+    assert!(cx.has_text("25 Sep 2026"));
 }

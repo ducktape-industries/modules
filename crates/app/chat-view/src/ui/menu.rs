@@ -1,21 +1,35 @@
 //! Message menus at the pointer and the edit composer under its stream.
-use crate::client::reaction_palette;
-use crate::composer::Target;
+use crate::emoji;
 use crate::{Chat, Menu, Mode, Pane};
 use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
-    Anchor, AnchoredPositionMode, AnyElement, App, ClickEvent, Context, Edges, ElementId,
-    ParentElement, Point, RenderOnce, Role, Theme, Window,
-};
+use ducktape_view_guest::{Anchor, AnchoredPositionMode, Edges, Point};
 
-const ROW: f32 = 28.;
-const ROW_GAP: f32 = 2.;
-const MENU_INSET: f32 = 6.;
+// A popup's size is fixed from these, so it never jumps under the pointer.
+const ROW: f32 = design::height::CONTROL as f32;
+const ROW_GAP: f32 = design::spacing::HAIR as f32;
+const MENU_INSET: f32 = design::spacing::XS as f32;
 const CELL: f32 = 32.;
-const PICKER_GAP: f32 = 2.;
-const PICKER_INSET: f32 = 8.;
+const PICKER_GAP: f32 = design::spacing::HAIR as f32;
+const PICKER_INSET: f32 = design::spacing::SM as f32;
 const COLUMNS: u16 = 8;
+/// Rows of the picker's grid: a tab's `emoji::PER_TAB` in rows of
+/// `COLUMNS`.
+const GRID_ROWS: f32 = emoji::PER_TAB.div_ceil(COLUMNS as usize) as f32;
+const SEARCH: f32 = design::height::CONTROL as f32;
+const CAPTION: f32 = 14.;
+/// A menu row's glyph column: one glyph, centred.
+const GLYPH_W: f32 = 20.;
+const TABS: f32 = design::height::CONTROL as f32;
+const STACK_GAP: f32 = design::spacing::XS as f32;
+/// From a press on the action strip to past its edge, either way: the
+/// strip is 26 tall, and a gap keeps the menu off it.
+const STRIP_CLEAR: f32 = 26. + design::spacing::XS as f32;
+/// The delete confirmation's Cancel, the button that takes the keys on open.
+const CANCEL_DELETE: &str = "chat-menu-cancel-delete";
 type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
+mod picker;
+use picker::{picker_size, reactions};
 
 fn prefix(pane: Pane) -> &'static str {
     match pane {
@@ -26,7 +40,9 @@ fn prefix(pane: Pane) -> &'static str {
 pub fn focus_key(pane: Pane, mode: Mode) -> String {
     let suffix = match mode {
         Mode::Reactions => "reaction-focus",
-        Mode::Delete => "delete-focus",
+        // the confirmation's first button, Cancel: a stray Enter on open
+        // keeps the message
+        Mode::Delete => return CANCEL_DELETE.into(),
         _ => "action-focus",
     };
     format!("{}{suffix}", prefix(pane))
@@ -34,14 +50,57 @@ pub fn focus_key(pane: Pane, mode: Mode) -> String {
 
 pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElement> {
     let menu = chat.menu.as_ref()?;
-    let (at, size) = popup_geometry(menu, reaction_palette().len())?;
+    let (at, size) = popup_geometry(menu, more_items(chat, menu).len())?;
+    // a fixed size where the popup must not jump under the pointer; the
+    // delete confirmation sizes to its words and buttons
     let content = message_menu(chat, menu, cx, theme);
-    let frame = div()
-        .id(focus_key(menu.pane, menu.mode))
-        .w(px(size.0))
-        .h(px(size.1))
-        .overflow_hidden()
-        .focusable()
+    // the picker's focus key names its search field, which takes the keys
+    let id = match menu.mode {
+        Mode::Reactions => format!("{}reaction-frame", prefix(menu.pane)),
+        Mode::Delete => format!("{}delete-frame", prefix(menu.pane)),
+        _ => focus_key(menu.pane, menu.mode),
+    };
+    let frame = match menu.mode {
+        // the picker: its search field takes the keys on open (`open_menu`
+        // focuses `focus_key`, the field), so the frame offers no focus of
+        // its own — a focus it offered and no Tab reached was the census's
+        // AX-021 on it. The overlay around it is the dialog, named "Add
+        // reaction": an inner Dialog the wire cannot mark modal held Tab
+        // and read as non-modal (AX-103)
+        Mode::Reactions => div().id(id),
+        // the confirmation's dialog: its first button takes the keys on
+        // open (`open_menu` focuses `focus_key`, Cancel), so the frame
+        // offers no focus either — the same AX-021 as the picker's
+        Mode::Delete => div()
+            .id(id)
+            .role(Role::AlertDialog)
+            .aria_label("Delete this message?"),
+        // the actions are a menu: one stop whose ↑ ↓ walk the items and
+        // Enter runs the active one
+        _ => {
+            let items = more_items(chat, menu);
+            let (pane, seq, rev) = (menu.pane, menu.seq, menu.rev);
+            let run = items.clone();
+            design::composite(id, Role::Menu, "Message actions")
+                .active(
+                    chat.menu_cursor.min(items.len().saturating_sub(1)),
+                    items.len(),
+                )
+                .on_move(cx.processor(|chat, index: usize, _, cx| {
+                    chat.menu_cursor = index;
+                    cx.notify();
+                }))
+                .on_press(cx.processor(move |chat, index: usize, window, cx| {
+                    cx.notify();
+                    act(run[index], pane, seq, rev, chat, window, cx)
+                }))
+                .build()
+        }
+    };
+    let frame = design::focus_shown(frame, theme, |style| style.shadow_lg())
+        .when_some(size, |frame, (w, h)| {
+            frame.w(px(w)).h(px(h)).overflow_hidden()
+        })
         .border_1()
         .border_color(theme.border)
         .bg(theme.background)
@@ -52,77 +111,59 @@ pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<An
         // `self.menu` before this popup's own handler gets to read it.
         .occlude()
         .child(content);
-    Some(
-        anchored()
-            .anchor(Anchor::TopLeft)
-            .position(Point {
-                x: px(at.0),
-                y: px(at.1),
-            })
-            .position_mode(AnchoredPositionMode::Window)
-            .snap_to_window_with_margin(Edges::all(px(8.)))
-            .child(frame)
-            .into_any_element(),
-    )
+    let popup = anchored()
+        .position(Point {
+            x: px(at.0),
+            y: px(at.1),
+        })
+        .position_mode(AnchoredPositionMode::Window)
+        .snap_to_window_with_margin(Edges::all(design::space::SM));
+    let popup = match menu.mode {
+        // More opens from the action strip: below the strip, right-aligned
+        // to the press, or above it where the window ends; never over it
+        Mode::More => popup
+            .anchor(Anchor::TopRight)
+            // the host mirrors the offset when it flips the menu above
+            .offset(Point {
+                x: px(0.),
+                y: px(STRIP_CLEAR),
+            }),
+        _ => popup.anchor(Anchor::TopLeft),
+    };
+    Some(popup.child(frame).into_any_element())
 }
 
-fn popup_geometry(menu: &Menu, reaction_count: usize) -> Option<((f32, f32), (f32, f32))> {
+/// A width and height, or a point, in pixels.
+type Pair = (f32, f32);
+
+fn popup_geometry(menu: &Menu, items: usize) -> Option<(Pair, Option<Pair>)> {
     let size = match menu.mode {
-        Mode::More => menu_size(if menu.pane == Pane::Thread { 4 } else { 5 }),
-        Mode::Reactions => picker_size(reaction_count),
-        Mode::Delete => (280., 96.),
+        Mode::More => Some(menu_size(items)),
+        Mode::Reactions => Some(picker_size()),
+        Mode::Delete => None,
         Mode::Toolbar | Mode::Editing => return None,
     };
     Some((menu.at, size))
 }
 
-pub fn editing(
-    chat: &Chat,
-    pane: Pane,
-    cx: &mut Context<Chat>,
-    theme: &Theme,
-) -> Option<AnyElement> {
-    let menu = chat.menu.as_ref()?;
-    if menu.mode != Mode::Editing || menu.pane != pane {
+pub fn editing(chat: &Chat, pane: Pane, cx: &mut Context<Chat>) -> Option<AnyElement> {
+    let target = chat.editing()?;
+    if chat.menu.as_ref()?.pane != pane {
         return None;
     }
-    let target = Target::Edit {
-        channel: chat.room_id(),
-        seq: menu.seq,
-        base_rev: menu.rev,
-    };
-    let close = cx.listener(|chat, _: &ClickEvent, _, cx| {
-        chat.close_menu();
-        cx.notify();
-    });
+    // laid out as the composer under the stream: Cancel beside Save
     Some(
         div()
             .id("chat-message-editing")
             .px_4()
             .py_1()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.background)
-                    .child(crate::ui::room::composer(
-                        chat,
-                        target,
-                        "Edit message",
-                        true,
-                        cx,
-                    ))
-                    .child(div().flex().justify_end().child(Item::text(
-                        "chat-message-edit-cancel",
-                        "Cancel message edit",
-                        Some(Box::new(close)),
-                        *theme,
-                    ))),
-            )
+            .child(crate::ui::room::composer(
+                chat,
+                target,
+                "Edit message",
+                true,
+                cx,
+            ))
             .into_any_element(),
     )
 }
@@ -136,110 +177,117 @@ fn message_menu(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
     }
 }
 
-fn actions(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
-    let (pane, seq, rev) = (menu.pane, menu.seq, menu.rev);
+/// What the "More" menu offers on this message: only what the reader may
+/// do to it — an edit or a delete the chat module would refuse is not
+/// offered, and "Reply in thread" not for the thread already open.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Action {
+    Reply,
+    React,
+    CopyLink,
+    Edit,
+    Delete,
+}
+
+fn more_items(chat: &Chat, menu: &Menu) -> Vec<Action> {
+    let (pane, seq) = (menu.pane, menu.seq);
     let writable = chat.may_write();
-    let mut list = div()
+    let open = chat
+        .room
+        .as_ref()
+        .and_then(|room| room.thread.as_ref())
+        .is_some_and(|thread| thread.root == seq);
+    [
+        (Action::Reply, pane == Pane::Timeline && !open),
+        (Action::React, writable),
+        (Action::CopyLink, chat.message_link(seq).is_some()),
+        (Action::Edit, writable && chat.wrote(pane, seq)),
+        (Action::Delete, writable && chat.may_delete(pane, seq)),
+    ]
+    .into_iter()
+    .filter_map(|(action, offered)| offered.then_some(action))
+    .collect()
+}
+
+fn actions(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+    let items: Vec<Item> = more_items(chat, menu)
+        .into_iter()
+        .enumerate()
+        .map(|(index, action)| Item {
+            role: Role::MenuItem,
+            active: index == chat.menu_cursor,
+            ..action_item(action, chat, menu, cx, theme)
+        })
+        .collect();
+    div()
         .id("chat-menu-actions")
         .flex()
         .flex_col()
         .gap(px(ROW_GAP))
-        .p(px(MENU_INSET));
-    if pane == Pane::Timeline {
-        let press = cx.listener(move |chat, _: &ClickEvent, _, cx| {
-            cx.notify();
-            chat.open_thread(seq, cx)
-        });
-        list = list.child(Item::new(
-            "chat-menu-reply",
-            "↩",
-            "Reply in thread",
-            Some(Box::new(press)),
-            *theme,
-        ));
-    }
-    let react = writable.then(|| {
-        Box::new(cx.listener(move |chat, _: &ClickEvent, window, cx| {
-            cx.notify();
-            chat.open_menu(pane, seq, rev, Mode::Reactions, window, cx)
-        })) as Press
-    });
-    list = list.child(Item::new(
-        "chat-menu-add-reaction",
-        "😀",
-        "Add reaction",
-        react,
-        *theme,
-    ));
-    let link = chat.message_link(seq);
-    let copy = (!link.is_empty()).then(|| {
-        Box::new(cx.listener(move |chat, _: &ClickEvent, _, cx| {
-            cx.notify();
-            chat.close_menu();
-            chat.copy_text(link.clone(), "Message link copied", cx);
-        })) as Press
-    });
-    list = list.child(Item::new(
-        "chat-menu-copy-link",
-        "🔗",
-        "Copy link",
-        copy,
-        *theme,
-    ));
-    let edit = writable.then(|| {
-        Box::new(cx.listener(move |chat, _: &ClickEvent, window, cx| {
-            cx.notify();
-            chat.open_menu(pane, seq, rev, Mode::Editing, window, cx)
-        })) as Press
-    });
-    list = list.child(Item::new(
-        "chat-menu-edit",
-        "✎",
-        "Edit message",
-        edit,
-        *theme,
-    ));
-    let remove = writable.then(|| {
-        Box::new(cx.listener(move |chat, _: &ClickEvent, window, cx| {
-            cx.notify();
-            chat.open_menu(pane, seq, rev, Mode::Delete, window, cx)
-        })) as Press
-    });
-    list.child(Item::new(
-        "chat-menu-delete",
-        "🗑",
-        "Delete message",
-        remove,
-        *theme,
-    ))
-    .into_any_element()
+        .p(px(MENU_INSET))
+        .children(items)
+        .into_any_element()
 }
 
-fn reactions(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
-    let writable = chat.may_write();
-    let seq = menu.seq;
-    let mut grid = div()
-        .id("chat-reaction-grid")
-        .grid()
-        .grid_cols(COLUMNS)
-        .gap(px(PICKER_GAP))
-        .p(px(PICKER_INSET));
-    for emoji in reaction_palette() {
-        let reaction = emoji.to_owned();
-        let press = writable.then(|| {
-            Box::new(cx.listener(move |chat, _: &ClickEvent, _, cx| {
-                cx.notify();
-                chat.react(seq, reaction.clone(), true, cx)
-            })) as Press
-        });
-        grid = grid.child(Reaction {
-            id: format!("chat-reaction-{emoji}").into(),
-            emoji: emoji.into(),
+/// One row of the "More" menu; pressing it runs its action ([`act`]).
+fn action_item(
+    action: Action,
+    _chat: &Chat,
+    menu: &Menu,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> Item {
+    let (pane, seq, rev) = (menu.pane, menu.seq, menu.rev);
+    let press = Some(
+        Box::new(cx.listener(move |chat, _: &ClickEvent, window, cx| {
+            cx.notify();
+            act(action, pane, seq, rev, chat, window, cx)
+        })) as Press,
+    );
+    match action {
+        Action::Reply => Item::new("chat-menu-reply", "↩", "Reply in thread", press, *theme),
+        Action::React => Item::new(
+            "chat-menu-add-reaction",
+            "😀",
+            "Add reaction",
             press,
-            theme: *theme,
-        });
+            *theme,
+        ),
+        Action::CopyLink => Item::new("chat-menu-copy-link", "🔗", "Copy link", press, *theme),
+        Action::Edit => Item::new("chat-menu-edit", "✎", "Edit message", press, *theme),
+        Action::Delete => {
+            let (fg, bg) = (theme.danger, theme.background);
+            Item::toned("chat-menu-delete", "Delete message", press, *theme, fg, bg).glyph("🗑")
+        }
     }
-    grid.into_any_element()
+}
+
+/// What a "More" action does to the message at `seq`: open its thread,
+/// open the same menu again in another mode, or put the message's link on
+/// the clipboard (the host's log says why when the session names no chain).
+fn act(
+    action: Action,
+    pane: Pane,
+    seq: u64,
+    rev: u32,
+    chat: &mut Chat,
+    window: &mut Window,
+    cx: &mut Context<Chat>,
+) {
+    match action {
+        Action::Reply => chat.open_thread(seq, cx),
+        Action::React => chat.open_menu(pane, seq, rev, Mode::Reactions, window, cx),
+        Action::Edit => chat.open_menu(pane, seq, rev, Mode::Editing, window, cx),
+        Action::Delete => chat.open_menu(pane, seq, rev, Mode::Delete, window, cx),
+        Action::CopyLink => {
+            let link = chat.message_link(seq);
+            chat.close_menu();
+            match link {
+                Some(link) => chat.copy_text(link, "message link", cx),
+                None => cx.host().log("no message link: the session names no chain"),
+            }
+        }
+    }
 }
 
 fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
@@ -258,10 +306,14 @@ fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
         .flex_col()
         .gap_1()
         .p_3()
-        .child(div().text_size(px(13.)).child("Delete this message?"))
         .child(
             div()
-                .text_size(px(12.))
+                .text_size(design::text::BODY)
+                .child("Delete this message?"),
+        )
+        .child(
+            div()
+                .text_size(design::text::SECONDARY)
                 .text_color(theme.muted)
                 .child("It leaves the room for everyone."),
         )
@@ -271,7 +323,7 @@ fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
                 .justify_end()
                 .gap_2()
                 .child(Item::text(
-                    "chat-menu-cancel-delete",
+                    CANCEL_DELETE,
                     "Cancel",
                     Some(Box::new(cancel)),
                     *theme,
@@ -292,18 +344,12 @@ fn menu_size(items: usize) -> (f32, f32) {
     let n = items as f32;
     (220., MENU_INSET * 2. + n * ROW + (n - 1.).max(0.) * ROW_GAP)
 }
-fn picker_size(count: usize) -> (f32, f32) {
-    let columns = COLUMNS as f32;
-    let rows = (count as f32 / columns).ceil();
-    (
-        PICKER_INSET * 2. + columns * CELL + (columns - 1.) * PICKER_GAP,
-        PICKER_INSET * 2. + rows * CELL + (rows - 1.).max(0.) * PICKER_GAP,
-    )
-}
-
 #[derive(IntoElement)]
 struct Item {
     id: ElementId,
+    role: Role,
+    /// a menu item the menu's arrows are on
+    active: bool,
     glyph: Option<String>,
     label: String,
     press: Option<Press>,
@@ -321,13 +367,19 @@ impl Item {
     ) -> Self {
         Self {
             id: id.into(),
+            role: Role::Button,
+            active: false,
             glyph: Some(glyph.into()),
             label: label.into(),
             press,
             fg: theme.foreground,
-            bg: theme.surface,
+            bg: theme.background,
             theme,
         }
+    }
+    fn glyph(mut self, glyph: &str) -> Self {
+        self.glyph = Some(glyph.into());
+        self
     }
     fn text(id: impl Into<ElementId>, label: &str, press: Option<Press>, theme: Theme) -> Self {
         Self::toned(id, label, press, theme, theme.foreground, theme.surface)
@@ -342,6 +394,8 @@ impl Item {
     ) -> Self {
         Self {
             id: id.into(),
+            role: Role::Button,
+            active: false,
             glyph: None,
             label: label.into(),
             press,
@@ -364,66 +418,43 @@ impl RenderOnce for Item {
             .gap_2()
             .bg(self.bg)
             .text_color(if enabled { self.fg } else { self.theme.muted })
-            .role(Role::Button)
+            .role(self.role)
             .aria_label(self.label.clone())
             .aria_disabled(!enabled);
         if let Some(glyph) = self.glyph {
             row = row.child(
                 div()
-                    .w(px(20.))
+                    .w(px(GLYPH_W))
                     .h(px(ROW))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(13.))
+                    .text_size(design::text::BODY)
                     .whitespace_nowrap()
                     .child(glyph),
             );
         }
-        row = row.child(div().whitespace_nowrap().child(self.label));
-        match self.press {
-            Some(press) => row
+        row = row
+            .when(self.active, |row| row.bg(self.theme.surface_raised))
+            .child(div().whitespace_nowrap().child(self.label));
+        match (self.press, self.role) {
+            // the menu holds the focus; its item claims when active
+            (Some(press), Role::MenuItem) => design::item(
+                row.hover(|s| s.bg(self.theme.surface_raised))
+                    .active(|s| s.bg(self.theme.accent_soft))
+                    .on_click(press),
+                Role::MenuItem,
+                self.active,
+            )
+            .into_any_element(),
+            // a dialog's button: a stop of its own
+            (Some(press), _) => row
                 .focusable()
                 .hover(|s| s.bg(self.theme.surface_raised))
                 .active(|s| s.bg(self.theme.accent_soft))
                 .on_click(press)
                 .into_any_element(),
-            None => row.into_any_element(),
-        }
-    }
-}
-
-#[derive(IntoElement)]
-struct Reaction {
-    id: ElementId,
-    emoji: String,
-    press: Option<Press>,
-    theme: Theme,
-}
-impl RenderOnce for Reaction {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let enabled = self.press.is_some();
-        let cell = div()
-            .id(self.id)
-            .w(px(CELL))
-            .h(px(CELL))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_lg()
-            .role(Role::Button)
-            .aria_label("Add reaction")
-            .aria_description(self.emoji.clone())
-            .aria_disabled(!enabled)
-            .child(self.emoji);
-        match self.press {
-            Some(press) => cell
-                .focusable()
-                .hover(|s| s.bg(self.theme.surface_raised))
-                .active(|s| s.bg(self.theme.accent_soft))
-                .on_click(press)
-                .into_any_element(),
-            None => cell.text_color(self.theme.muted).into_any_element(),
+            (None, _) => row.into_any_element(),
         }
     }
 }
@@ -431,22 +462,31 @@ impl RenderOnce for Reaction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A popup opens where its menu says. The message menu is one width
+    /// and grows with its items; the picker keeps one size; the delete
+    /// confirmation sizes to its words (a1b7fbf7); the strip and the edit
+    /// field are no popup.
     #[test]
-    fn original_menu_and_picker_dimensions_are_preserved() {
-        assert_eq!(menu_size(5), (220., 160.));
-        assert_eq!(menu_size(4), (220., 130.));
-        assert_eq!(picker_size(8), (286., 48.));
-        assert_eq!(picker_size(9), (286., 82.));
-        let menu = Menu {
+    fn menu_and_picker_dimensions() {
+        let at = |mode| Menu {
             pane: Pane::Timeline,
             seq: 1,
             rev: 2,
-            mode: Mode::More,
+            mode,
             at: (617., 449.),
         };
-        assert_eq!(
-            popup_geometry(&menu, 16),
-            Some(((617., 449.), (220., 160.)))
-        );
+        let sized = |mode, items| {
+            let (spot, size) = popup_geometry(&at(mode), items).expect("a popup");
+            assert_eq!(spot, (617., 449.));
+            size
+        };
+        let (two, three) = (sized(Mode::More, 2).unwrap(), sized(Mode::More, 3).unwrap());
+        assert_eq!(two.0, three.0, "one width");
+        assert!(three.1 > two.1, "a row more is taller");
+        assert_eq!(sized(Mode::Reactions, 0), Some(picker_size()));
+        assert_eq!(sized(Mode::Delete, 0), None);
+        for mode in [Mode::Toolbar, Mode::Editing] {
+            assert_eq!(popup_geometry(&at(mode), 0), None);
+        }
     }
 }

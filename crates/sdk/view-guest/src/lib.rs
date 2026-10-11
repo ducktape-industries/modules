@@ -1,15 +1,20 @@
-//! Renderer-independent execution of dynamically loaded WASM views.
+//! The guest half of the view wire: gpui-shaped contexts and elements lowered
+//! to `view_wire::Node`, and the host methods a wasm view asks through.
 pub use gpui::prelude::FluentBuilder;
+pub use gpui::{AccessibleAction, accesskit};
+// `#[derive(IntoElement)]` names this crate by its absolute path; this lets
+// that path resolve inside the crate too, so its own components derive.
 extern crate self as ducktape_view_guest;
 
 pub use gpui::{
-    hsla, px, rems, rgb, Anchor, AnchoredFitMode, AnchoredPositionMode, ClickEvent, CursorStyle,
-    Edges, ElementId, FileDropEvent, FontStyle, FontWeight, Global, HighlightStyle,
-    HoverListenerMode, Hsla, KeyDownEvent, KeyUpEvent, ListHorizontalSizingBehavior,
-    ListSizingBehavior, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent,
-    MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point,
-    Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString, StrikethroughStyle,
-    StyleRefinement, Styled, TextRun, TextStyle, UnderlineStyle, WindowControlArea,
+    Anchor, AnchoredPositionMode, Bounds, ClickEvent, CursorStyle, Edges, ElementId, EventEmitter,
+    FileDropEvent, FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode,
+    Hsla, KeyDownEvent, KeyUpEvent, Keystroke, ListAlignment, ListHorizontalSizingBehavior,
+    ListOffset, ListScrollEvent, ListSizingBehavior, Modifiers, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit,
+    PinchEvent, Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
+    StrikethroughStyle, StyleRefinement, Styled, Subscription, TextRun, TextStyle, Toggled,
+    UnderlineStyle, hsla, px, rems, rgb,
 };
 pub use view_guest_derive::IntoElement;
 pub use view_wire as wire;
@@ -21,117 +26,207 @@ mod interactivity;
 mod list;
 mod primitives;
 mod rich_text;
-mod surface;
 mod view_element;
-pub use behavior::{modal_overlay, resize_handle, sensor, ModalOverlay, ResizeHandle, Sensor};
+pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
 pub use element::{
-    div, uniform_list, AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement,
-    RenderOnce, UniformList, UniformListScrollHandle,
+    AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, Textarea,
+    UniformList, UniformListScrollHandle, div, uniform_list,
 };
 pub use interactivity::{
-    FocusHandle, InteractiveElement, Interactivity, Stateful, StatefulInteractiveElement,
+    FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
+    StatefulInteractiveElement,
 };
-pub use list::{list, FollowMode, List, ListAlignment, ListOffset, ListScrollEvent, ListState};
+pub use list::{List, ListState, list};
 pub use primitives::{
-    anchored, canvas, deferred, img, svg, Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img,
-    StyledImage, Svg, Transformation,
+    Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img, StyledImage, Svg, Transformation,
+    anchored, canvas, deferred, img, svg,
 };
 pub use rich_text::{InteractiveText, StyledText};
-pub use surface::{surface, Surface};
 pub use view_element::{AnyView, ViewElement};
 
-/// Traits and primitives used to compose guest GPUI elements.
+/// Every SDK name a view file writes, in one import:
+/// `use ducktape_view_guest::prelude::*;`. gpui's names (elements, styles,
+/// `Render`, `Context`, `Window`), the view's own ([`View`], [`Loadable`],
+/// [`Task`], [`Host`], [`Error`](crate::host::Error), `export_view!`), the
+/// [`design`](crate::design) module, and the [`methods`](crate::methods)
+/// module whole: the method markers (`HostSession`, `Changes`, `Submit`)
+/// and the request and reply types beside them. A program's types come
+/// from the program's crate; an explicit import of a name wins over this
+/// glob (`use forge::Query;`).
 pub mod prelude {
+    pub use crate::host::Error;
+    pub use crate::methods::*;
     pub use crate::{
-        anchored, canvas, deferred, div, hsla, img, list, modal_overlay, px, rems, resize_handle,
-        rgb, sensor, surface, svg, uniform_list, AnyElement, AnyView, App, ClickEvent, Context,
-        Element, ElementId, FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global,
+        AnyElement, AnyView, App, Bounds, ClickEvent, Context, Element, ElementId, Entity,
+        EventEmitter, FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, Host,
         HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText, IntoElement,
         KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
-        ListScrollEvent, ListSizingBehavior, ListState, ModifiersChangedEvent, MouseButton,
-        MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent,
-        ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollStrategy,
-        ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-        StyledText, Theme, UniformListScrollHandle, Window, WindowControlArea,
+        ListScrollEvent, ListSizingBehavior, ListState, Loadable, ModifiersChangedEvent,
+        MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent,
+        MouseUpEvent, ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle,
+        ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
+        StyledImage, StyledText, Subscription, Task, TextField, Textarea, Theme,
+        UniformListScrollHandle, View, Window, anchored, canvas, deferred, design, div,
+        export_view, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, svg,
+        uniform_list,
     };
 }
-mod editor;
-mod editor_binding;
-mod editor_documents;
-mod editor_element;
-pub use editor::Editor;
-pub use editor_binding::{
-    EditorBinding, EditorInteractionRequest, EditorKeyRequest, EditorRichRequest, EditorStateView,
-    EditorTransaction, EditorTransactionEvent,
-};
-pub use editor_documents::EditorDocumentUpdate;
-pub use editor_element::{EditorElement, EditorElementEvent};
-pub mod composer;
+mod text;
+pub use text::TextField;
+pub mod borsh_bytes;
+pub mod design;
 pub mod host;
+#[cfg(feature = "live")]
+pub mod live;
+pub mod store;
 pub mod testing;
-pub mod widget;
-pub mod window;
+mod window;
 
 mod snapshot;
-pub mod view;
-pub use view::{Loaded, Render, View};
-pub use wire::doors;
+mod view;
+pub use view::{Loadable, Render, View};
+mod paged;
+pub use paged::Paged;
+pub use wire::methods;
 mod context;
-pub use context::{App, AsyncApp, Context, Entity, Released, WeakEntity};
+pub use context::{App, AppContext, AsyncApp, Callback, Context, Entity, Released, WeakEntity};
 mod executor;
 pub use executor::Task;
 pub use host::Host;
 pub use window::Window;
-#[cfg(test)]
-mod behavior_tests;
 mod slots;
-use context::Callback;
 
 mod driver;
-pub use driver::Driver;
+pub(crate) use driver::Driver;
 
-/// Appends the preferred window size and current wire epoch at compile time.
-pub const fn manifest_bytes<const N: usize>(text: &str, preferred_size: &str) -> [u8; N] {
-    let bytes = text.as_bytes();
-    let size = preferred_size.as_bytes();
-    assert!(N == bytes.len() + size.len() + 1 + wire::WIRE_EPOCH.ilog10() as usize + 1);
-    let mut out = [0u8; N];
+const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
+
+/// The length of [`manifest_bytes`] for the same view.
+pub const fn manifest_len<V: View>() -> usize {
+    let mut len = MANIFEST_HEADER.len()
+        + V::NAME.len()
+        + 1
+        + V::DESCRIPTION.len()
+        + 1
+        + 1
+        + digits(V::MIN_WINDOW_WIDTH)
+        + 1
+        + wire::WIRE_ID.len();
     let mut i = 0;
-    while i < bytes.len() + size.len() {
-        out[i] = if i < bytes.len() {
-            bytes[i]
-        } else {
-            size[i - bytes.len()]
-        };
+    while i < V::CAPABILITIES.len() {
+        len += V::CAPABILITIES[i].as_str().len() + 1;
         i += 1;
     }
-    out[i] = b'\n';
-    let mut epoch = wire::WIRE_EPOCH;
-    let mut end = N;
-    while end > i + 1 {
-        end -= 1;
-        out[end] = b'0' + (epoch % 10) as u8;
-        epoch /= 10;
+    len += 1;
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        len += V::TARGETS[i].len() + 1;
+        i += 1;
     }
+    len + 1 + V::ICON.len()
+}
+
+// the lines written below, in this order: a line added to the manifest
+// is added here and to `Manifest::parse` together
+const _: () = assert!(wire::manifest::LINES.len() == 8);
+
+/// The manifest text (`view_wire::manifest`: header, [`View::NAME`],
+/// [`View::DESCRIPTION`], [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`],
+/// [`wire::WIRE_ID`], [`View::TARGETS`], [`View::ICON`]), at compile time: a
+/// width outside `1..=8192`, a target that is not a program name, no target
+/// where the capabilities could address a program, or an icon that is not
+/// an asset path ([`wire::manifest::is_icon`]), fails the build.
+pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
+    assert!(
+        V::MIN_WINDOW_WIDTH >= 1 && V::MIN_WINDOW_WIDTH <= wire::MAX_PIXELS as u32,
+        "MIN_WINDOW_WIDTH is 1..=8192"
+    );
+    assert!(
+        !V::TARGETS.is_empty() || !wire::manifest::needs_targets(V::CAPABILITIES),
+        "a view with the op or module capability names its TARGETS"
+    );
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        assert!(
+            program::is_name(V::TARGETS[i]),
+            "a target is a program id: 1..=64 of [a-z0-9_-]"
+        );
+        i += 1;
+    }
+    assert!(
+        wire::manifest::is_icon(V::ICON),
+        "ICON is empty or the path of an asset the app bundles (icons/hammer.svg), at most 64 bytes"
+    );
+    let mut out = [0u8; N];
+    let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
+    at = put(&mut out, at, V::NAME.as_bytes());
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, V::DESCRIPTION.as_bytes());
+    at = put(&mut out, at, b"\n");
+    let mut i = 0;
+    while i < V::CAPABILITIES.len() {
+        at = put(&mut out, at, V::CAPABILITIES[i].as_str().as_bytes());
+        at = put(&mut out, at, b",");
+        i += 1;
+    }
+    at = put(&mut out, at, b"\n");
+    at = put_number(&mut out, at, V::MIN_WINDOW_WIDTH);
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, wire::WIRE_ID.as_bytes());
+    at = put(&mut out, at, b"\n");
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        at = put(&mut out, at, V::TARGETS[i].as_bytes());
+        at = put(&mut out, at, b",");
+        i += 1;
+    }
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, V::ICON.as_bytes());
+    assert!(at == N);
     out
 }
 
-/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view. `export_view!` invokes this internally.
-/// Each capability must be one of [`wire::doors::CAPABILITIES`], the
-/// `<capability>` half of the door kinds the view asks through.
-#[macro_export]
-macro_rules! export_driver {
-    ($app:ty, $name:expr, $description:expr, [$($capability:literal),* $(,)?]) => {
-        $(const _: () = assert!(
-            $crate::wire::doors::is_capability($capability),
-            concat!("`", $capability, "` is not a door capability: see view_wire::doors::CAPABILITIES")
-        );)*
-        const MANIFEST: &str = concat!("ducktape.view.manifest.v1\n", $name, "\n", $description, "\n" $(, $capability, ",")*, "\n");
+const fn put(out: &mut [u8], at: usize, bytes: &[u8]) -> usize {
+    let mut i = 0;
+    while i < bytes.len() {
+        out[at + i] = bytes[i];
+        i += 1;
+    }
+    at + bytes.len()
+}
 
-        #[cfg_attr(target_arch = "wasm32", unsafe(link_section = "ducktape.view.manifest"))]
+const fn digits(number: u32) -> usize {
+    match number.checked_ilog10() {
+        Some(log) => log as usize + 1,
+        None => 1,
+    }
+}
+
+const fn put_number(out: &mut [u8], at: usize, mut number: u32) -> usize {
+    let end = at + digits(number);
+    let mut i = end;
+    while i > at {
+        i -= 1;
+        out[i] = b'0' + (number % 10) as u8;
+        number /= 10;
+    }
+    end
+}
+
+/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view,
+/// from what its [`View`] impl says: `export_view!(Chat);`.
+#[macro_export]
+macro_rules! export_view {
+    ($app:ty) => {
+        const MANIFEST_LEN: usize = $crate::manifest_len::<$app>();
+
+        #[cfg_attr(
+            target_arch = "wasm32",
+            unsafe(link_section = "ducktape.view.manifest")
+        )]
         #[used]
-        static MANIFEST_SECTION: [u8; MANIFEST.len() + <$app as $crate::View>::PREFERRED_WINDOW_SIZE.len() + 2 + $crate::wire::WIRE_EPOCH.ilog10() as usize] =
-            $crate::manifest_bytes(MANIFEST, <$app as $crate::View>::PREFERRED_WINDOW_SIZE);
+        static MANIFEST_SECTION: [u8; MANIFEST_LEN] =
+            $crate::manifest_bytes::<$app, MANIFEST_LEN>();
 
         #[cfg(target_arch = "wasm32")]
         mod wasm_exports {
@@ -143,7 +238,7 @@ macro_rules! export_driver {
             }
 
             #[unsafe(export_name = "init")]
-            extern "C" fn init(_macos: u32) {
+            extern "C" fn init() {
                 $crate::exports::init::<$app>()
             }
 
@@ -158,14 +253,14 @@ macro_rules! export_driver {
             }
 
             #[unsafe(export_name = "restore")]
-            extern "C" fn restore(ptr: u32, len: u32, _macos: u32) -> u64 {
+            extern "C" fn restore(ptr: u32, len: u32) -> u64 {
                 $crate::exports::restore::<$app>(ptr, len)
             }
         }
     };
 }
 
-/// The guest's half of [`wire::abi`]: what `export_driver!` builds the five
+/// The guest's half of [`wire::abi`]: what `export_view!` builds the five
 /// exports from. A module runs one app, so its driver lives here.
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
@@ -173,7 +268,7 @@ pub mod exports {
     use std::any::Any;
     use std::cell::RefCell;
 
-    use crate::{wire, Driver, View};
+    use crate::{Driver, View, wire};
 
     #[link(wasm_import_module = "ducktape_view")]
     unsafe extern "C" {
@@ -225,10 +320,11 @@ pub mod exports {
     pub fn tick<A: View>(ptr: u32, len: u32) -> u64 {
         let events: Vec<wire::Event> =
             wire::decode(&take(ptr, len)).expect("invalid host event frame");
-        let frame = driver::<A, _>(|driver| driver.tick_wire(events));
         // The host keeps the tree it has, or patches it; the whole tree
         // crosses only when neither will do (the driver leaves it out then).
-        answer(wire::encode(&frame))
+        answer(driver::<A, _>(|driver| {
+            driver.tick_with(events, wire::encode)
+        }))
     }
 
     pub fn snapshot<A: View>() -> u64 {
@@ -240,10 +336,11 @@ pub mod exports {
     /// A refused state leaves the driver that was there in place.
     pub fn restore<A: View>(ptr: u32, len: u32) -> u64 {
         install_panic_hook();
-        let restored = Driver::<A>::from_snapshot(&take(ptr, len)).map(|driver| {
-            DRIVER.set(Some(Box::new(driver)));
-            Vec::new()
-        });
+        let restored = Driver::<A>::from_snapshot_in(crate::App::for_driver(), &take(ptr, len))
+            .map(|driver| {
+                DRIVER.set(Some(Box::new(driver)));
+                Vec::new()
+            });
         answer(wire::abi::encode_result(restored))
     }
 
@@ -295,4 +392,7 @@ pub mod exports {
 mod tests;
 
 #[cfg(test)]
-mod lifecycle_tests;
+mod stale_routes_tests;
+
+#[cfg(test)]
+mod row_identity_tests;

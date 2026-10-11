@@ -1,7 +1,7 @@
 use crate::interactivity::{
     InteractiveElement, Interactivity, Stateful, StatefulInteractiveElement,
 };
-use crate::{wire, AnyElement, Element, IntoElement, Lowering};
+use crate::{AnyElement, Element, IntoElement, Lowering, wire};
 use gpui::{
     ImageSource as GpuiImageSource, ObjectFit, RenderImage, Resource, StyleRefinement, Styled,
 };
@@ -48,7 +48,7 @@ pub trait StyledImage: Sized {
 }
 
 pub struct Img {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     source: ImageSource,
     image_style: ImageStyle,
 }
@@ -56,7 +56,7 @@ pub struct Img {
 #[track_caller]
 pub fn img(source: impl Into<ImageSource>) -> Img {
     Img {
-        interactivity: Interactivity::default(),
+        interactivity: Box::default(),
         source: source.into(),
         image_style: ImageStyle::default(),
     }
@@ -104,9 +104,14 @@ impl Element for Img {
             source,
             image_style,
         } = *self;
-        let style = interactivity.base_style.clone();
-        let label = interactivity.aria.label.as_ref().map(ToString::to_string);
-        let (id, interactivity) = interactivity.into_wire(lowering);
+        let style = lowering.style(&interactivity.base_style);
+        let label = interactivity
+            .interactions
+            .as_ref()
+            .and_then(|interactions| interactions.aria.label.as_ref())
+            .map(ToString::to_string);
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
+        let interactivity = interactivity.into_wire(lowering);
         let (hash, data) = image_data(source, lowering);
         let loading = image_style.loading.is_some();
         let fallback = image_style.fallback.is_some();
@@ -152,10 +157,10 @@ fn object_fit(value: ObjectFit) -> wire::ImageObjectFit {
     }
 }
 
-fn image_data(source: ImageSource, lowering: &mut Lowering<'_>) -> (u64, Option<wire::ImageData>) {
+fn image_data(source: ImageSource, lowering: &Lowering<'_>) -> (u64, Option<wire::ImageData>) {
     match source {
         GpuiImageSource::Image(image) => {
-            let (hash, bytes) = lowering.picture(image.bytes());
+            let (hash, bytes) = lowering.picture(image.bytes(), image.bytes().len());
             (hash, bytes.map(wire::ImageData::Encoded))
         }
         GpuiImageSource::Render(image) => render_image_data(&image, lowering),
@@ -172,7 +177,7 @@ fn image_data(source: ImageSource, lowering: &mut Lowering<'_>) -> (u64, Option<
 
 fn render_image_data(
     image: &Arc<RenderImage>,
-    lowering: &mut Lowering<'_>,
+    lowering: &Lowering<'_>,
 ) -> (u64, Option<wire::ImageData>) {
     match image.frame_count() {
         0 => refusal("render image has no frames".into()),
@@ -185,7 +190,7 @@ fn render_image_data(
             content.extend_from_slice(&u32::from(size.width).to_le_bytes());
             content.extend_from_slice(&u32::from(size.height).to_le_bytes());
             content.extend_from_slice(pixels);
-            let (hash, first) = lowering.picture(content);
+            let (hash, first) = lowering.picture(content, pixels.len());
             (
                 hash,
                 first.map(|content| wire::ImageData::Rgba {

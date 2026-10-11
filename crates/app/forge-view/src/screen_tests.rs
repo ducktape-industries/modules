@@ -2,13 +2,13 @@
 //! dark, for the app's renderer (`ducktape-app --render-tree <json>`).
 use super::{accounts, booted, change_screen, opened, refusal};
 use crate::Forge;
-use crate::api::{Ask, ChatApi, Props};
+use crate::api::Ask;
 use crate::state::ChangeTab;
 use ducktape_view_guest::Theme;
-use ducktape_view_guest::doors::{Live, Query, Visible};
+use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::testing::TestAppContext;
 
-/// `FORGE_SCREEN_EXPORT=1` writes each screen's tree for the app's
+/// `FORGE_SCREEN_EXPORT=1` writes each screen's frame for the app's
 /// node-less renderer (`ducktape-app --render-tree <json>`), light and dark.
 #[test]
 fn export_forge_screens() {
@@ -29,7 +29,7 @@ fn export_forge_screens() {
             let name = format!("{:02}-{state}-{theme}", index + 1);
             std::fs::write(
                 out.join(format!("{name}.json")),
-                serde_json::to_vec(cx.root()).unwrap(),
+                serde_json::to_vec(&cx.whole_frame()).unwrap(),
             )
             .unwrap();
             manifest.push(serde_json::json!({
@@ -46,6 +46,15 @@ fn export_forge_screens() {
         serde_json::to_vec_pretty(&manifest).unwrap(),
     )
     .unwrap();
+}
+
+/// The `blob` screen is README.md opened from the Code tab's tree: the
+/// repository opens on its README page, which has no tree to press.
+#[test]
+fn the_blob_screen_opens_readme_from_the_code_tab() {
+    let cx = screen("blob");
+    assert_eq!(cx.interactivity("forge-tab-code").aria.selected, Some(true));
+    assert!(cx.find("forge-blob-markdown").is_some(), "{:?}", cx.texts());
 }
 
 const SCREENS: [&str; 12] = [
@@ -73,23 +82,24 @@ fn screen(state: &str) -> TestAppContext {
             cx.host()
                 .handle::<Ask>(|_| Err(refusal("refused-not-found")));
             cx.host()
-                .handle::<Query<ChatApi>>(|_| Ok(chat::ChatViewReply::Accounts(accounts())));
-            cx.host().never::<Live>();
-            cx.host().never::<Visible>();
-            cx.host().never::<Props>();
+                .handle::<Query<::chat::Chat>>(|_| Ok(chat::Reply::Accounts(accounts())));
             cx.open::<Forge>();
             cx.run_until_parked();
             cx
         }
         "code" => {
             let (mut cx, _) = opened("default");
+            cx.simulate_click("forge-ref-picker");
             cx.simulate_click("forge-ref-refs/heads/clean");
             cx.run_until_parked();
             cx
         }
         "blob" => {
             let (mut cx, _) = opened("default");
+            cx.simulate_click("forge-ref-picker");
             cx.simulate_click("forge-ref-refs/heads/clean");
+            cx.run_until_parked();
+            cx.simulate_click("forge-tab-code");
             cx.run_until_parked();
             cx.simulate_click("forge-tree-README.md");
             cx.run_until_parked();

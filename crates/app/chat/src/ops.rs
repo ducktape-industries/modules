@@ -1,333 +1,333 @@
-use super::*;
+//! One function per [`Op`](crate::Op), each named by [`Chat::execute`](crate::Chat)'s
+//! match. Each checks first (`rules`), then writes, so a refused op leaves
+//! the store as it found it.
+use guest::{Error, ExecCtx, Origin, already_exists, capacity, invalid, unauthorized, wrong_state};
 
-// ── execute ─────────────────────────────────────────────────────────────────
+use crate::rules;
+use crate::state::{
+    ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
+    fits, message, newest_first, replace_message, toggle,
+};
+use crate::{
+    AccountNumber, Block, ChannelRow, MAX_REACTION_EMOJIS, MAX_REVISIONS, MAX_THREAD_REPLIES,
+    MemberRow, MsgRow, PostPolicy, Principal, Reaction, dm_channel_id, plain_text, tags,
+};
 
-pub fn execute(store: &mut impl Writes, frame: &Frame, msg: ChatMsg) -> Result<(), Refusal> {
-    let actor = party_handle(&frame.party);
-    match msg {
-        ChatMsg::CreateChannel {
-            channel_id,
-            name,
-            post_policy,
-        } => create_channel(store, frame, channel_id, name, post_policy, false),
-        ChatMsg::CreateVoiceChannel { channel_id, name } => {
-            create_channel(store, frame, channel_id, name, PostPolicy::Open, true)
-        }
-        ChatMsg::CreateDmChannel { counterpart, name } => {
-            let Party::Account(me) = frame.party else {
-                return Err(unauthorized("only an account opens a dm"));
-            };
-            if me == counterpart {
-                return Err(invalid("a dm needs two accounts"));
-            }
-            let id = dm_channel_id(me, counterpart);
-            if load::<ChannelRow>(store, &chan_key(&id))?.is_some() {
-                return Ok(());
-            }
-            create_channel(
-                store,
-                frame,
-                id.clone(),
-                name,
-                PostPolicy::MembersOnly,
-                false,
-            )?;
-            for party in [Party::Account(me), Party::Account(counterpart)] {
-                set_member(store, frame, &id, &party, true);
-            }
-            Ok(())
-        }
-        ChatMsg::RenameChannel { channel_id, name } => {
-            checked_name(&name)?;
-            let mut ch = channel(store, &channel_id)?;
-            owned(&ch, &frame.party)?;
-            ch.name = name;
-            save(store, chan_key(&channel_id), &ch);
-            Ok(())
-        }
-        ChatMsg::SetChannelArchived {
-            channel_id,
-            archived,
-        } => {
-            let mut ch = channel(store, &channel_id)?;
-            owned(&ch, &frame.party)?;
-            ch.archived = archived;
-            save(store, chan_key(&channel_id), &ch);
-            Ok(())
-        }
-        ChatMsg::PostMessage {
-            channel_id,
-            message_id,
-            blocks,
-            thread,
-        } => {
-            checked_id("message_id", &message_id)?;
-            reserved_id(&message_id, &frame.party)?;
-            let ch = channel(store, &channel_id)?;
-            writable(store, &ch, &frame.party)?;
-            if store.get(msgid_key(&message_id).as_bytes()).is_some() {
-                return Err(already_exists(format!("message {message_id} exists")));
-            }
-            let seq = head_seq(store, &channel_id) + 1;
-            if let Some(root_seq) = thread {
-                let mut root = row(store, &channel_id, root_seq)?;
-                if root.thread.is_some() {
-                    return Err(invalid("a reply cannot be a thread root"));
-                }
-                if root.reply_count >= MAX_THREAD_REPLIES {
-                    return Err(capacity("this thread is full"));
-                }
-                if let Some(last) = root.last_reply_seq {
-                    store.delete(attention_key(&channel_id, &root.author, last).as_bytes());
-                }
-                store.set(
-                    attention_key(&channel_id, &root.author, seq).into_bytes(),
-                    abi::encode(&root_seq),
-                );
-                root.reply_count += 1;
-                root.last_reply_seq = Some(seq);
-                put_row(store, &root)?;
-                mark(store, thread_key(&channel_id, root_seq, seq));
-            } else {
-                mark(store, root_key(&channel_id, seq));
-            }
-            let text = plain_text(&blocks);
-            let row = MsgRow {
-                channel_id: channel_id.clone(),
-                seq,
-                message_id: message_id.clone(),
-                author: actor,
-                height: frame.height,
-                time: frame.time,
-                tags: tags(&blocks),
-                blocks,
-                text,
-                thread,
-                ..MsgRow::default()
-            };
-            put_row(store, &row)?;
-            index(store, &row, true);
-            save(store, msgid_key(&message_id), &(&channel_id, seq));
-            save(store, seq_key(&channel_id), &seq);
-            Ok(())
-        }
-        ChatMsg::EditMessage {
-            channel_id,
-            seq,
-            blocks,
-            base_rev,
-        } => {
-            let ch = channel(store, &channel_id)?;
-            writable(store, &ch, &frame.party)?;
-            let mut row = row(store, &channel_id, seq)?;
-            if row.author != actor {
-                return Err(unauthorized("only the author edits"));
-            }
-            if row.deleted {
-                return Err(wrong_state("the message is deleted"));
-            }
-            if row.rev >= MAX_REVISIONS {
-                return Err(capacity("the message has no revisions left"));
-            }
-            index(store, &row, false);
-            row.text = plain_text(&blocks);
-            row.tags = tags(&blocks);
-            row.blocks = blocks;
-            row.rev += 1;
-            row.edited = true;
-            row.edited_at = Some(frame.time);
-            row.base_rev = base_rev;
-            put_row(store, &row)?;
-            index(store, &row, true);
-            Ok(())
-        }
-        ChatMsg::DeleteMessage { channel_id, seq } => {
-            let ch = channel(store, &channel_id)?;
-            let mut row = row(store, &channel_id, seq)?;
-            if row.author != actor && ch.owner != actor {
-                return Err(unauthorized("only the author or the owner deletes"));
-            }
-            if row.deleted {
-                return Ok(());
-            }
-            index(store, &row, false);
-            if let Some(last) = row.last_reply_seq {
-                store.delete(attention_key(&channel_id, &row.author, last).as_bytes());
-            }
-            for entry in store.scan(Scan::prefix(react_key(&channel_id, seq, "", ""))) {
-                store.delete(entry.key);
-            }
-            row = MsgRow {
-                blocks: Vec::new(),
-                text: String::new(),
-                tags: Vec::new(),
-                reactions: Vec::new(),
-                deleted: true,
-                ..row
-            };
-            put_row(store, &row)
-        }
-        ChatMsg::AddReaction {
-            channel_id,
-            seq,
-            emoji,
-        } => react(store, frame, &channel_id, seq, &emoji, true),
-        ChatMsg::RemoveReaction {
-            channel_id,
-            seq,
-            emoji,
-        } => react(store, frame, &channel_id, seq, &emoji, false),
-        ChatMsg::SetMembership {
-            channel_id,
-            party,
-            member,
-        } => {
-            let ch = channel(store, &channel_id)?;
-            owned(&ch, &frame.party)?;
-            set_member(store, frame, &channel_id, &party, member);
-            Ok(())
-        }
-        ChatMsg::JoinHuddle {
-            channel_id, node, ..
-        } => {
-            if !frame.party.is_person() {
-                return Err(unauthorized("only people join a huddle"));
-            }
-            if node.len() != HUDDLE_NODE_KEY_BYTES {
-                return Err(invalid(format!(
-                    "a node key is {HUDDLE_NODE_KEY_BYTES} bytes"
-                )));
-            }
-            let mut ch = channel(store, &channel_id)?;
-            writable(store, &ch, &frame.party)?;
-            let entry = HuddleEntry {
-                party: actor.clone(),
-                node: hex(&node),
-                joined_at: frame.time,
-            };
-            match ch.huddle.iter().position(|e| e.party == actor) {
-                Some(seat) => ch.huddle[seat] = entry,
-                None if ch.huddle.len() >= MAX_HUDDLE_MEMBERS => {
-                    return Err(capacity("the huddle is full"));
-                }
-                None => ch.huddle.push(entry),
-            }
-            save(store, chan_key(&channel_id), &ch);
-            Ok(())
-        }
-        ChatMsg::LeaveHuddle { channel_id } => {
-            let mut ch = channel(store, &channel_id)?;
-            ch.huddle.retain(|e| e.party != actor);
-            save(store, chan_key(&channel_id), &ch);
-            Ok(())
-        }
-    }
-}
+// ── channels ────────────────────────────────────────────────────────────────
 
-// A program owns only its exact prefix, including the colon boundary.
-fn reserved_id(id: &str, party: &Party) -> Result<(), Refusal> {
-    if let Some((prefix, _)) = id.split_once(':') {
-        let allowed = match party {
-            Party::Module(program) => prefix == program,
-            Party::System => true,
-            Party::Account(_) | Party::Key(_) => false,
-        };
-        if !allowed {
-            return Err(unauthorized("colon ids belong to their program namespace"));
-        }
-    }
-    Ok(())
-}
-
-fn create_channel(
-    store: &mut impl Writes,
-    frame: &Frame,
+pub(crate) fn create_channel(
+    ctx: &ExecCtx,
+    sender: &Principal,
     id: String,
     name: String,
     post_policy: PostPolicy,
-    voice: bool,
-) -> Result<(), Refusal> {
-    checked_id("channel_id", &id)?;
-    reserved_id(&id, &frame.party)?;
-    checked_name(&name)?;
-    if load::<ChannelRow>(store, &chan_key(&id))?.is_some() {
+) -> Result<(), Error> {
+    rules::channel_id(&id, ctx.env())?;
+    rules::name(&name)?;
+    if CHANNELS.has(ctx, &id) {
         return Err(already_exists(format!("channel {id} exists")));
     }
-    let ch = ChannelRow {
-        id: id.clone(),
-        name,
-        created_at: frame.time,
-        post_policy,
-        owner: party_handle(&frame.party),
-        archived: false,
-        huddle: Vec::new(),
-        voice,
-    };
-    save(store, chan_key(&id), &ch);
+    CHANNELS.put(ctx, &id, &room(ctx, sender, &id, name, post_policy));
     Ok(())
 }
 
-fn set_member(store: &mut impl Writes, frame: &Frame, ch: &str, party: &Party, member: bool) {
-    let key = member_key(ch, &party_handle(party));
-    if member {
-        let row = MemberRow {
-            party: party_handle(party),
-            height: frame.height,
-            time: frame.time,
-        };
-        save(store, key, &row);
-    } else {
-        store.delete(key.as_bytes());
+/// A new room the actor owns, unarchived.
+fn room(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    id: &str,
+    name: String,
+    post_policy: PostPolicy,
+) -> ChannelRow {
+    ChannelRow {
+        id: id.to_owned(),
+        name,
+        created_at: ctx.env().time,
+        post_policy,
+        owner: sender.clone(),
+        archived: false,
     }
 }
 
-fn react(
-    store: &mut impl Writes,
-    frame: &Frame,
+/// The members-only room of the actor's account and `counterpart`, both
+/// seated; the counterpart a person or an agent that acts. Opening it again
+/// changes nothing, even once the counterpart is suspended.
+pub(crate) fn open_dm(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    counterpart: AccountNumber,
+    name: String,
+) -> Result<(), Error> {
+    if !matches!(ctx.env().origin, Origin::Signed(_)) {
+        return Err(unauthorized("only a key opens a dm, not a module"));
+    }
+    let me = ctx.sender_account()?;
+    if me == counterpart {
+        return Err(invalid("a dm needs two accounts"));
+    }
+    let id = dm_channel_id(me, counterpart);
+    if CHANNELS.has(ctx, &id) {
+        return Ok(());
+    }
+    ctx.require_person_or_agent(counterpart)?;
+    rules::name(&name)?;
+    let channel = room(ctx, sender, &id, name, PostPolicy::MembersOnly);
+    CHANNELS.put(ctx, &id, &channel);
+    for peer in [me, counterpart] {
+        seat(ctx, &id, Principal::Account(peer));
+    }
+    Ok(())
+}
+
+pub(crate) fn rename(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    id: &str,
+    name: String,
+) -> Result<(), Error> {
+    rules::name(&name)?;
+    let mut channel = channel(ctx, id)?;
+    rules::not_dm(&channel)?;
+    rules::owned(&channel, sender)?;
+    channel.name = name;
+    CHANNELS.put(ctx, &channel.id, &channel);
+    Ok(())
+}
+
+pub(crate) fn set_archived(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    id: &str,
+    archived: bool,
+) -> Result<(), Error> {
+    let mut channel = channel(ctx, id)?;
+    rules::not_dm(&channel)?;
+    rules::owned(&channel, sender)?;
+    channel.archived = archived;
+    CHANNELS.put(ctx, &channel.id, &channel);
+    Ok(())
+}
+
+pub(crate) fn set_membership(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    id: &str,
+    principal: Principal,
+    member: bool,
+) -> Result<(), Error> {
+    let channel = channel(ctx, id)?;
+    rules::not_dm(&channel)?;
+    rules::owned(&channel, sender)?;
+    if member {
+        seat(ctx, id, principal);
+    } else {
+        MEMBERS.remove(ctx, &(id.to_owned(), principal));
+    }
+    Ok(())
+}
+
+fn seat(ctx: &ExecCtx, id: &str, principal: Principal) {
+    let row = MemberRow {
+        principal: principal.clone(),
+        height: ctx.env().height,
+        time: ctx.env().time,
+    };
+    MEMBERS.put(ctx, &(id.to_owned(), principal), &row);
+}
+
+// ── messages ────────────────────────────────────────────────────────────────
+
+pub(crate) fn post(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    channel_id: String,
+    message_id: String,
+    blocks: Vec<Block>,
+    thread: Option<u64>,
+) -> Result<(), Error> {
+    rules::id("message_id", &message_id)?;
+    rules::namespace(&message_id, ctx.env())?;
+    rules::writable(ctx, &channel(ctx, &channel_id)?, sender)?;
+    if MESSAGE_IDS.has(ctx, &message_id) {
+        return Err(already_exists(format!("message {message_id} exists")));
+    }
+    let seq = HEADS.get(ctx, &channel_id)?.unwrap_or(0) + 1;
+    let row = MsgRow {
+        channel_id: channel_id.clone(),
+        seq,
+        message_id: message_id.clone(),
+        height: ctx.env().height,
+        time: ctx.env().time,
+        text: plain_text(&blocks),
+        tags: tags(&blocks),
+        blocks,
+        thread,
+        ..MsgRow::by(sender.clone())
+    };
+    fits(&row)?;
+    match thread {
+        Some(root) => answer(ctx, &channel_id, root, seq)?,
+        None => ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq))),
+    }
+    replace_message(ctx, None, &row);
+    MESSAGE_IDS.put(ctx, &message_id, &(channel_id.clone(), seq));
+    HEADS.put(ctx, &channel_id, &seq);
+    Ok(())
+}
+
+/// Reply `seq` joins the thread under `root`: the root counts it, and its
+/// author's [`ANSWERED`] entry moves to this reply.
+fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Error> {
+    let mut row = message(ctx, channel_id, root)?;
+    if row.thread.is_some() {
+        return Err(invalid("a reply cannot be a thread root"));
+    }
+    if row.reply_count >= MAX_THREAD_REPLIES {
+        return Err(capacity("this thread is full"));
+    }
+    forget_answer(ctx, &row);
+    let channel_id = channel_id.to_owned();
+    let answered = (channel_id.clone(), row.author.clone(), newest_first(seq));
+    ANSWERED.put(ctx, &answered, &root);
+    REPLIES.insert(ctx, &(channel_id.clone(), root, seq));
+    row.reply_count += 1;
+    row.last_reply_seq = Some(seq);
+    MESSAGES.put(ctx, &(channel_id, root), &row);
+    Ok(())
+}
+
+/// Drops the root's [`ANSWERED`] entry, if a reply made one.
+fn forget_answer(ctx: &ExecCtx, root: &MsgRow) {
+    if let Some(last) = root.last_reply_seq {
+        let key = (
+            root.channel_id.clone(),
+            root.author.clone(),
+            newest_first(last),
+        );
+        ANSWERED.remove(ctx, &key);
+    }
+}
+
+pub(crate) fn edit(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    channel_id: &str,
+    seq: u64,
+    blocks: Vec<Block>,
+    base_rev: Option<u32>,
+) -> Result<(), Error> {
+    rules::writable(ctx, &channel(ctx, channel_id)?, sender)?;
+    let old = message(ctx, channel_id, seq)?;
+    rules::editable(&old, sender)?;
+    if old.rev >= MAX_REVISIONS {
+        return Err(capacity("the message has no revisions left"));
+    }
+    let row = MsgRow {
+        text: plain_text(&blocks),
+        tags: tags(&blocks),
+        blocks,
+        rev: old.rev + 1,
+        edited: true,
+        edited_at: Some(ctx.env().time),
+        base_rev,
+        ..old.clone()
+    };
+    fits(&row)?;
+    replace_message(ctx, Some(&old), &row);
+    Ok(())
+}
+
+/// The author or the channel's owner deletes. What stays is a tombstone
+/// holding the message's place in its timeline or thread; its body, its
+/// postings and its reactions go.
+pub(crate) fn delete(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    channel_id: &str,
+    seq: u64,
+) -> Result<(), Error> {
+    let channel = channel(ctx, channel_id)?;
+    let old = message(ctx, channel_id, seq)?;
+    if old.author != *sender && channel.owner != *sender {
+        return Err(unauthorized("only the author or the owner deletes"));
+    }
+    if old.deleted {
+        return Ok(());
+    }
+    forget_answer(ctx, &old);
+    let reacted = REACTIONS.scan(ctx, REACTIONS.prefix_of(&(channel_id.to_owned(), seq)))?;
+    for key in reacted {
+        REACTIONS.remove(ctx, &key);
+    }
+    let tombstone = MsgRow {
+        blocks: Vec::new(),
+        text: String::new(),
+        tags: Vec::new(),
+        reactions: Vec::new(),
+        deleted: true,
+        ..old.clone()
+    };
+    replace_message(ctx, Some(&old), &tombstone);
+    Ok(())
+}
+
+// ── reactions ───────────────────────────────────────────────────────────────
+
+/// Adds or removes the actor's `emoji` on a message. Choosing what is
+/// already chosen, or dropping what is not, changes nothing.
+pub(crate) fn react(
+    ctx: &ExecCtx,
+    sender: &Principal,
     channel_id: &str,
     seq: u64,
     emoji: &str,
     on: bool,
-) -> Result<(), Refusal> {
-    if emoji.is_empty() || emoji.len() > MAX_EMOJI_BYTES || emoji.contains('/') {
-        return Err(invalid("not an emoji"));
-    }
-    let ch = channel(store, channel_id)?;
-    writable(store, &ch, &frame.party)?;
-    let mut row = row(store, channel_id, seq)?;
+) -> Result<(), Error> {
+    rules::emoji(emoji)?;
+    rules::writable(ctx, &channel(ctx, channel_id)?, sender)?;
+    let mut row = message(ctx, channel_id, seq)?;
     if row.deleted {
         return Err(wrong_state("the message is deleted"));
     }
-    let key = react_key(channel_id, seq, emoji, &party_handle(&frame.party));
-    if store.get(key.as_bytes()).is_some() == on {
+    let key = (channel_id.to_owned(), seq, emoji.to_owned(), sender.clone());
+    if REACTIONS.has(ctx, &key) == on {
         return Ok(());
     }
-    let at = row.reactions.iter().position(|r| r.emoji == emoji);
-    match (on, at) {
-        (true, Some(i)) => row.reactions[i].count += 1,
-        (true, None) => {
-            if row.reactions.len() >= MAX_REACTION_EMOJIS {
-                return Err(capacity("no room for another emoji"));
-            }
-            row.reactions.push(ReactionSummary {
-                emoji: emoji.to_string(),
-                count: 1,
-                reacted_by_me: false,
-            });
-            row.reactions.sort_by(|a, b| a.emoji.cmp(&b.emoji));
-        }
-        (false, Some(i)) => {
-            row.reactions[i].count -= 1;
-            if row.reactions[i].count == 0 {
-                row.reactions.remove(i);
-            }
-        }
-        (false, None) => return Ok(()),
-    }
     if on {
-        mark(store, key);
+        count_in(&mut row.reactions, emoji)?;
     } else {
-        store.delete(key.as_bytes());
+        count_out(&mut row.reactions, emoji);
     }
-    put_row(store, &row)
+    fits(&row)?;
+    toggle(ctx, &REACTIONS, &key, on);
+    MESSAGES.put(ctx, &(key.0, seq), &row);
+    Ok(())
+}
+
+/// One more `emoji`: its count grows, or it joins the list in emoji order.
+fn count_in(reactions: &mut Vec<Reaction>, emoji: &str) -> Result<(), Error> {
+    if let Some(reaction) = reactions.iter_mut().find(|r| r.emoji == emoji) {
+        reaction.count += 1;
+        return Ok(());
+    }
+    if reactions.len() >= MAX_REACTION_EMOJIS {
+        return Err(capacity("no room for another emoji"));
+    }
+    reactions.push(Reaction {
+        emoji: emoji.to_owned(),
+        count: 1,
+        reacted_by_me: false,
+    });
+    reactions.sort_by(|a, b| a.emoji.cmp(&b.emoji));
+    Ok(())
+}
+
+/// One fewer `emoji`: at zero it leaves the list.
+fn count_out(reactions: &mut Vec<Reaction>, emoji: &str) {
+    if let Some(at) = reactions.iter().position(|r| r.emoji == emoji) {
+        reactions[at].count -= 1;
+        if reactions[at].count == 0 {
+            reactions.remove(at);
+        }
+    }
 }

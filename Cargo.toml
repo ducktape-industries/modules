@@ -2,39 +2,47 @@
 # one repository.
 #
 #   crates/sdk/     the contracts: `abi` (the borsh bytes ABI a program and the
-#                   host share), `guest` (what a program compiles against),
-#                   `store` (what a program's rules are written over: the
-#                   `Reads`/`Writes` store, typed tables, paging, refusals;
-#                   `Memory` runs them natively), `ducklink` (the `duck://`
-#                   grammar), and the view contract (`view-wire`,
-#                   `view-guest`, `design`)
+#                   host share), `error` (the one `Error` and its codes, below both SDKs),
+#                   `program` (the one `Program` trait a program implements and a
+#                   view names it by, below both SDKs), `guest` (the minimal module SDK: `Module`,
+#                   `ExecCtx`/`QueryCtx`, `export!`, refusals; `MockHost`
+#                   runs a module natively), `store` (optional typed tables
+#                   and paging over guest's contexts), `ducklink` (the `duck://`
+#                   grammar), the view contract (`view-wire`,
+#                   `ducktape-view-guest`, `design`), and `conformance` (the
+#                   role suite a module proves it fills a role with)
 #   crates/system/  the boot set: module-registry, valset and identity, one
 #                   crate each in the same shape as the app programs; the
 #                   suite under module-registry/tests founds ducktape's host
 #                   over the bytes `make wasm-programs` built
 #   crates/app/     the app modules: chat and forge (each one crate: types and
-#                   rules always, the wasm32 program behind the `program`
+#                   rules always, the wasm exports behind the `module`
 #                   feature), chat-view and forge-view (which link their
 #                   program crate with the feature off) and the system views
 #   crates/lib/     libraries a program links: gitcore (git objects, packs,
 #                   walks, diffs, the wire's server side)
 #
 # A view links its module by path and reads its types; a view is a cdylib for
-# wasm32-unknown-unknown on `view-guest`. The host that runs the programs
+# wasm32-unknown-unknown on `ducktape-view-guest`. The host that runs the programs
 # (runtime, state, blobs, host, node, consensus, the daemon) lives in ducktape,
-# and `crates/sdk/abi` and `crates/sdk/guest` are copies of its
-# `crates/kernel/abi` and `crates/kernel/guest`: the `[patch]` below makes the
-# host the suite links compile against the copies, so a copy that drifts from
-# the kernel fails the build here.
+# and `crates/sdk/abi` is a copy of its `crates/kernel/abi`: the `[patch]`
+# below makes the host the suite links compile against the copy, so a copy
+# that drifts from the kernel fails the build here. `guest` is its own
+# module SDK, not a copy of the kernel's guest, so it carries no patch.
 
 [workspace]
 resolver = "2"
 members = [
     "crates/sdk/abi",
+    "crates/sdk/error",
+    "crates/sdk/program",
+    "crates/sdk/program-derive",
     "crates/sdk/guest",
     "crates/sdk/store",
     "crates/sdk/ducklink",
     "crates/sdk/design",
+    "crates/sdk/describe",
+    "crates/sdk/conformance",
     "crates/sdk/view-wire",
     "crates/sdk/view-guest",
     "crates/sdk/view-guest-derive",
@@ -48,6 +56,7 @@ members = [
     "crates/app/node-view",
     "crates/app/explorer-view",
     "crates/app/settings-view",
+    "crates/app/example-view",
     "crates/app/forge",
     "crates/lib/gitcore",
 ]
@@ -59,26 +68,31 @@ version = "0.1.0"
 [workspace.dependencies]
 # ---- the contracts, in tree
 abi = { path = "crates/sdk/abi" }
+error = { path = "crates/sdk/error" }
+program = { path = "crates/sdk/program" }
 guest = { path = "crates/sdk/guest" }
 store = { path = "crates/sdk/store" }
 gitcore = { path = "crates/lib/gitcore" }
 ducklink = { path = "crates/sdk/ducklink" }
 design = { path = "crates/sdk/design" }
 view-wire = { path = "crates/sdk/view-wire" }
-view-guest = { path = "crates/sdk/view-guest" }
-ducktape-view-guest = { path = "crates/sdk/view-guest", package = "view-guest" }
-gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "389089537a3782a5b3cb48a3d6ee72ce2f7e4c26", default-features = false }
+describe = { path = "crates/sdk/describe" }
+conformance = { path = "crates/sdk/conformance" }
+ducktape-view-guest = { path = "crates/sdk/view-guest" }
+gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "da49e2b089cb5bf8f36fef940cf5c0b94df92138", default-features = false }
 module-registry = { path = "crates/system/module-registry" }
 valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
 
-# ---- the host the founding suite runs the boot set on, the probe fixture it
-# seats and the key schemes it signs with (dev-dependencies only)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "d1805fcbe47ce066af109bff2531506c903719f4" }
-fixture-probe = { git = "https://github.com/ducktape-industries/ducktape", rev = "d1805fcbe47ce066af109bff2531506c903719f4" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "d1805fcbe47ce066af109bff2531506c903719f4" }
+# ---- the host the founding suite runs the boot set on and the key schemes
+# it signs with (dev-dependencies only); the probe fixture it seats is a
+# prebuilt wasm binary, `make probe-fixture`, not a Cargo dependency (its
+# `Step` script type is mirrored in module-registry's test, next to the
+# binary it scripts)
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "88d5855f40bd7ea98962aa89440f67d805b29341" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "88d5855f40bd7ea98962aa89440f67d805b29341" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 
@@ -91,13 +105,14 @@ sha2 = "0.10"
 tempfile = "3"
 base64 = "0.22"
 futures = "0.3"
+# Forge's markdown: CommonMark + GFM, no HTML writer and no CLI.
+pulldown-cmark = { version = "0.13", default-features = false }
 # duckfs path normalization: NFC so visually-identical names collide instead
 # of coexisting (a consensus-determinism requirement, not cosmetics).
 unicode-normalization = "0.1"
 
 [patch."https://github.com/ducktape-industries/ducktape"]
 abi = { path = "crates/sdk/abi" }
-guest = { path = "crates/sdk/guest" }
 store = { path = "crates/sdk/store" }
 
 # proc-macro and build-script crates (serde_derive, async-trait, borsh-derive)
@@ -119,6 +134,28 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# A view's redraw is fuel per instruction, and a view redraws on every
+# event: the views and the SDK crates only they link are built for speed.
+# Programs link none of these, so their bytes are the size profile's.
+[profile.release.package.chat-view]
+opt-level = 3
+[profile.release.package.forge-view]
+opt-level = 3
+[profile.release.package.members-view]
+opt-level = 3
+[profile.release.package.node-view]
+opt-level = 3
+[profile.release.package.explorer-view]
+opt-level = 3
+[profile.release.package.settings-view]
+opt-level = 3
+[profile.release.package.ducktape-view-guest]
+opt-level = 3
+[profile.release.package.view-wire]
+opt-level = 3
+[profile.release.package.gpui-pre]
+opt-level = 3
+
 # `make wasm-why`: the release bytes with their names, so twiggy can say
 # whose they are. Its own output dir; nothing ships from it.
 [profile.why]
@@ -126,6 +163,6 @@ inherits = "release"
 strip = "debuginfo"
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "389089537a3782a5b3cb48a3d6ee72ce2f7e4c26" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "389089537a3782a5b3cb48a3d6ee72ce2f7e4c26" }
-gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "389089537a3782a5b3cb48a3d6ee72ce2f7e4c26" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "da49e2b089cb5bf8f36fef940cf5c0b94df92138" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "da49e2b089cb5bf8f36fef940cf5c0b94df92138" }
+gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "da49e2b089cb5bf8f36fef940cf5c0b94df92138" }

@@ -1,34 +1,62 @@
-//! The `chat` program: channels, messages, threads, reactions, memberships,
-//! huddles. The reference program on the kernel abi.
+//! The `chat` module: channels, messages, threads, reactions, and members.
 //!
-//! Writes are a [`ChatMsg`] (borsh), reads a
-//! [`ChatViewQuery`] answered by a [`ChatViewReply`] (borsh) — the same
-//! types `chat-view` links. The acting [`Party`] is the frame's origin: an
-//! external key resolved through the `identity` program to its account.
-//! The rules run over any [`store::Reads`]/[`store::Writes`] store; the
-//! `program` feature adds the wasm32 program over the host (`program.rs`),
-//! which a view never enables.
+//! A write is an [`Op`], a read a [`Query`] answered by a [`Reply`], all
+//! borsh, the same types `chat-view` links. The acting [`Principal`] is the
+//! sender the host resolved (`ctx.sender()`): a signed frame is the account its
+//! key holds (a key that holds none writes nothing). The layout, in reading order:
 //!
-//! Keys: `chan/<id>` → [`ChannelRow`], `seq/<id>` → head seq,
-//! `msg/<ch>/<seq>` → [`MsgRow`], `root/<ch>/<!seq>` timeline roots newest
-//! first, `thread/<ch>/<root>/<reply>`, `msgid/<id>`, `member/<ch>/<handle>`
-//! → [`MemberRow`], `react/<ch>/<seq>/<emoji>/<handle>`, `tok/<token>/<ch>/<seq>`
-//! and `tag/<label>/<!time>/<ch>/<seq>` + `tagc/<ch>/<label>/<!seq>` postings.
-//! `attention/<ch>/<author>/<!last_reply>` stores a Borsh root sequence; one
-//! entry per answered thread lets callers find the latest reply without scanning messages.
+//! - `lib.rs` (here): the types on the wire and the rows they carry
+//! - `program.rs`: [`Chat`], the module: the signer resolved, then one match
+//!   over every op and one over every query
+//! - `state.rs`: every table and index the module keeps, declared once
+//! - `rules.rs`: the checks an op passes before it writes
+//! - `ops.rs`: one short function per op
+//! - `origin.rs`: the identity role's roster
+//! - `queries.rs`: one short function per question
+//! - `text.rs`: what search and tags read out of a message
+//! - `view.rs`: the reads a view makes of chat, folded into [`view::Names`]
+//! - `description.rs`: [`describe()`], an op in a person's words
+//!
+//! The module runs over `guest`'s contexts, so a native test runs it over
+//! [`guest::MockHost`] exactly as the host does. The `module` feature adds
+//! its wasm exports.
+mod description;
 pub mod message;
+mod ops;
+mod origin;
+mod program;
+mod queries;
+mod rules;
+mod state;
+#[cfg(test)]
+mod tests;
+mod text;
+pub mod view;
 
-use std::collections::BTreeSet;
+use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
-use abi::{Entry, Refusal, Scan, reason};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-pub use store::{Cursor, Page, PageReply};
-use store::{
-    Reads, Writes, already_exists, capacity, invalid, not_found, unauthorized, wrong_state,
-};
-use unicode_normalization::UnicodeNormalization;
+pub use abi::hex;
+pub use abi::role::identity::{Category, Kind, Profile, Standing};
+pub use description::describe;
+pub use guest::{AccountNumber, Principal};
+pub use message::{Block, ListMarker, Mark, Span, list_item, parse_message};
+pub use program::Chat;
+pub use queries::roots_below;
+pub use store::{Cursor, PageRequest, PageResponse};
+pub use text::{plain_text, tags, tokens};
 
-pub use message::{AccountNumber, Block, Mark, Party, Span, parse_message};
+/// Every table chat keeps, as a block's writes name them: what a follower
+/// of `module.changes` plays back in a test to say which a block touched.
+pub mod tables {
+    pub use crate::state::{
+        ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS,
+        REPLIES, ROOTS, TAGS, WORDS,
+    };
+}
+
+/// The name this module runs under.
+pub const MODULE: &str = "chat";
 
 pub const MAX_ID_BYTES: usize = 64;
 pub const MAX_NAME_BYTES: usize = 128;
@@ -37,262 +65,387 @@ pub const MAX_REVISIONS: u32 = 256;
 pub const MAX_EMOJI_BYTES: usize = 64;
 pub const MAX_REACTION_EMOJIS: usize = 64;
 pub const MAX_THREAD_REPLIES: u64 = 4096;
-pub const MAX_HUDDLE_MEMBERS: usize = 32;
-pub const HUDDLE_NODE_KEY_BYTES: usize = 32;
-/// The namespace a node key signs under to join a huddle; the message is
-/// the channel id then the joining origin key.
-pub const HUDDLE_JOIN_NS: &[u8] = b"ducktape/huddle-join/v1";
+/// The most principals a read's `viewer` names (a reader is one account).
+pub const MAX_VIEWERS: usize = 8;
 pub const MAX_TAGS_PER_MESSAGE: usize = 16;
 pub const MAX_TAG_CHARS: usize = 64;
 /// How many postings a search reads before it reports `capped`.
 pub const SEARCH_POSTING_CAP: usize = 1024;
 
-// ── keys ────────────────────────────────────────────────────────────────────
-
-fn chan_key(id: &str) -> String {
-    format!("chan/{id}")
-}
-fn seq_key(id: &str) -> String {
-    format!("seq/{id}")
-}
-fn msg_key(ch: &str, seq: u64) -> String {
-    format!("msg/{ch}/{seq:016x}")
-}
-fn root_key(ch: &str, seq: u64) -> String {
-    format!("root/{ch}/{:016x}", u64::MAX - seq)
-}
-/// The `Roots` cursor that resumes below `seq`: `Page::after` for the page
-/// of roots older than the one on screen. Chat's listings are append-only,
-/// so a cursor's height is not checked.
-pub fn roots_below(channel_id: &str, seq: u64) -> Vec<u8> {
-    let scope = roots_prefix(channel_id).into_bytes();
-    abi::encode(&store::Cursor {
-        height: 0,
-        scope,
-        after: root_key(channel_id, seq).into_bytes(),
-    })
-}
-fn roots_prefix(ch: &str) -> String {
-    format!("root/{ch}/")
-}
-fn msgid_key(id: &str) -> String {
-    format!("msgid/{id}")
-}
-fn thread_key(ch: &str, root: u64, reply: u64) -> String {
-    format!("thread/{ch}/{root:016x}/{reply:016x}")
-}
-fn attention_prefix(ch: &str, author: &str) -> String {
-    format!("attention/{ch}/{author}/")
-}
-fn attention_key(ch: &str, author: &str, reply: u64) -> String {
-    format!(
-        "{}{last:016x}",
-        attention_prefix(ch, author),
-        last = u64::MAX - reply
-    )
-}
-fn member_key(ch: &str, handle: &str) -> String {
-    format!("member/{ch}/{handle}")
-}
-fn react_key(ch: &str, seq: u64, emoji: &str, handle: &str) -> String {
-    format!("react/{ch}/{seq:016x}/{emoji}/{handle}")
-}
-fn tok_key(token: &str, ch: &str, seq: u64) -> String {
-    format!("tok/{token}/{ch}/{seq:016x}")
-}
-fn tag_key(label: &str, time: u64, ch: &str, seq: u64) -> String {
-    format!("tag/{label}/{:016x}/{ch}/{seq:016x}", u64::MAX - time)
-}
-fn tagc_key(ch: &str, label: &str, seq: u64) -> String {
-    format!("tagc/{ch}/{label}/{:016x}", u64::MAX - seq)
+/// A write. The enum only grows at its end (see `op_variants_only_append`).
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum Op {
+    CreateChannel {
+        channel_id: String,
+        name: String,
+        post_policy: PostPolicy,
+    },
+    /// A members-only room between the actor's account and `counterpart`,
+    /// id [`dm_channel_id`]; creating it twice is a no-op. The only way a
+    /// dm id opens.
+    CreateDmChannel {
+        counterpart: AccountNumber,
+        name: String,
+    },
+    RenameChannel {
+        channel_id: String,
+        name: String,
+    },
+    SetChannelArchived {
+        channel_id: String,
+        archived: bool,
+    },
+    /// `thread` names the root this message replies to.
+    PostMessage {
+        channel_id: String,
+        message_id: String,
+        blocks: Vec<Block>,
+        thread: Option<u64>,
+    },
+    /// `base_rev` is what the editor started from, recorded, never judged.
+    EditMessage {
+        channel_id: String,
+        seq: u64,
+        blocks: Vec<Block>,
+        base_rev: Option<u32>,
+    },
+    DeleteMessage {
+        channel_id: String,
+        seq: u64,
+    },
+    AddReaction {
+        channel_id: String,
+        seq: u64,
+        emoji: String,
+    },
+    RemoveReaction {
+        channel_id: String,
+        seq: u64,
+        emoji: String,
+    },
+    SetMembership {
+        channel_id: String,
+        principal: Principal,
+        member: bool,
+    },
 }
 
-// ── store helpers ───────────────────────────────────────────────────────────
-
-fn load<T: DeserializeOwned>(store: &impl Reads, key: &str) -> Result<Option<T>, Refusal> {
-    store
-        .get(key.as_bytes())
-        .map(|b| {
-            serde_json::from_slice(&b).map_err(|e| Refusal::new(reason::CORRUPT, e.to_string()))
-        })
-        .transpose()
+/// A read. `viewer` is the reader's principals: they decide
+/// [`Reaction::reacted_by_me`]. Every list takes a [`PageRequest`] and answers a
+/// [`PageResponse`] whose `next` resumes it. Each variant names the tables
+/// it is answered from (`#[reads]`, [`program::Reads`]), so a view following
+/// `module.changes` re-reads it only for a block that wrote to one of them;
+/// a read of message rows follows `REACTIONS` too, since the viewer's own
+/// reactions are read onto the rows.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ::program::Ask)]
+#[ask(Chat)]
+pub enum Query {
+    #[ask(Reply::Channels(PageResponse<ChannelInfo>))]
+    #[reads(state::CHANNELS, state::HEADS)]
+    Channels { page: PageRequest },
+    #[ask(Reply::Channel(Option<ChannelInfo>))]
+    #[reads(state::CHANNELS, state::HEADS)]
+    Channel { channel_id: String },
+    /// The message an emitted id names (forge finds its own posts so).
+    #[ask(Reply::Message(Option<MsgRow>))]
+    #[reads(state::MESSAGE_IDS, state::MESSAGES, state::REACTIONS)]
+    MessageById { message_id: String },
+    /// The author's most recently answered thread in this channel, if any.
+    #[ask(Reply::Attention(Option<MsgRow>))]
+    #[reads(state::ANSWERED, state::MESSAGES, state::REACTIONS)]
+    ThreadAttention {
+        channel_id: String,
+        author: Principal,
+    },
+    /// One page of timeline roots, newest first.
+    #[ask(Reply::Roots(PageResponse<MsgRow>))]
+    #[reads(state::ROOTS, state::MESSAGES, state::REACTIONS)]
+    Roots {
+        channel_id: String,
+        viewer: Vec<Principal>,
+        page: PageRequest,
+    },
+    /// `page.limit` messages centred on `seq`.
+    #[ask(Reply::Messages(Vec<MsgRow>))]
+    #[reads(state::MESSAGES, state::REACTIONS)]
+    MessagesAround {
+        channel_id: String,
+        seq: u64,
+        viewer: Vec<Principal>,
+        page: PageRequest,
+    },
+    /// The root plus one page of replies, in post order.
+    #[ask(Reply::Thread { root: Option<MsgRow>, replies: PageResponse<MsgRow> })]
+    #[reads(state::REPLIES, state::MESSAGES, state::REACTIONS)]
+    Thread {
+        channel_id: String,
+        root_seq: u64,
+        viewer: Vec<Principal>,
+        page: PageRequest,
+    },
+    #[ask(Reply::Members(PageResponse<MemberRow>))]
+    #[reads(state::MEMBERS)]
+    Members {
+        channel_id: String,
+        page: PageRequest,
+    },
+    /// Every token of `text`, newest first, at most `page.limit` hits.
+    #[ask(Reply::Hits(MessageHits))]
+    #[reads(state::WORDS, state::MESSAGES, state::REACTIONS)]
+    Search {
+        text: String,
+        viewer: Vec<Principal>,
+        channel_id: Option<String>,
+        page: PageRequest,
+    },
+    #[ask(Reply::TagHits(PageResponse<MsgRow>))]
+    #[reads(state::TAGS, state::CHANNEL_TAGS, state::MESSAGES, state::REACTIONS)]
+    TagSearch {
+        tag: String,
+        viewer: Vec<Principal>,
+        channel_id: Option<String>,
+        page: PageRequest,
+    },
+    /// Every account's profile, ascending by number, a page at a time:
+    /// the module asks the identity role, so a view links one module. It
+    /// reads nothing of chat's: it moves with identity's blocks, which a
+    /// view follows apart.
+    #[ask(Reply::Accounts(PageResponse<Profile>))]
+    Accounts { page: PageRequest },
 }
 
-fn save<T: Serialize>(store: &mut impl Writes, key: String, value: &T) {
-    store.set(
-        key.into_bytes(),
-        serde_json::to_vec(value).expect("a chat row serializes"),
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum Reply {
+    Channels(PageResponse<ChannelInfo>),
+    Channel(Option<ChannelInfo>),
+    Message(Option<MsgRow>),
+    Attention(Option<MsgRow>),
+    Roots(PageResponse<MsgRow>),
+    Messages(Vec<MsgRow>),
+    Thread {
+        root: Option<MsgRow>,
+        replies: PageResponse<MsgRow>,
+    },
+    Members(PageResponse<MemberRow>),
+    Hits(MessageHits),
+    TagHits(PageResponse<MsgRow>),
+    Accounts(PageResponse<Profile>),
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq,
+)]
+pub enum PostPolicy {
+    Open,
+    MembersOnly,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ChannelRow {
+    pub id: String,
+    pub name: String,
+    pub created_at: u64,
+    pub post_policy: PostPolicy,
+    pub owner: Principal,
+    pub archived: bool,
+}
+
+impl ChannelRow {
+    pub fn members_only(&self) -> bool {
+        self.post_policy == PostPolicy::MembersOnly
+    }
+
+    /// Whether the room lets `principal` post, `seated` saying whether it holds
+    /// a member seat: posting is open, or it owns the room or sits in it.
+    /// Archiving aside; the module and the view ask this one rule.
+    pub fn admits(&self, principal: &Principal, seated: bool) -> bool {
+        !self.members_only() || self.owner == *principal || seated
+    }
+}
+
+/// A channel and the seq of its newest message.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ChannelInfo {
+    pub channel: ChannelRow,
+    pub head_seq: u64,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MemberRow {
+    pub principal: Principal,
+    pub height: u64,
+    pub time: u64,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MsgRow {
+    pub channel_id: String,
+    pub seq: u64,
+    pub message_id: String,
+    pub author: Principal,
+    pub height: u64,
+    pub time: u64,
+    pub blocks: Vec<Block>,
+    /// the flattened text search indexes; a tombstone's is empty
+    pub text: String,
+    pub deleted: bool,
+    pub edited: bool,
+    pub rev: u32,
+    pub edited_at: Option<u64>,
+    /// what the last edit claimed to be based on, recorded, never judged
+    pub base_rev: Option<u32>,
+    /// `Some(root_seq)` marks a thread reply
+    pub thread: Option<u64>,
+    pub reply_count: u64,
+    pub last_reply_seq: Option<u64>,
+    pub reactions: Vec<Reaction>,
+    pub tags: Vec<String>,
+}
+
+impl MsgRow {
+    /// A row with nothing yet but its author: a view's pending post before
+    /// the module serves it, a test's base row.
+    pub fn by(author: Principal) -> MsgRow {
+        MsgRow {
+            channel_id: String::new(),
+            seq: 0,
+            message_id: String::new(),
+            author,
+            height: 0,
+            time: 0,
+            blocks: Vec::new(),
+            text: String::new(),
+            deleted: false,
+            edited: false,
+            rev: 0,
+            edited_at: None,
+            base_rev: None,
+            thread: None,
+            reply_count: 0,
+            last_reply_seq: None,
+            reactions: Vec::new(),
+            tags: Vec::new(),
+        }
+    }
+}
+
+/// One emoji on a message: how many principals chose it.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct Reaction {
+    pub emoji: String,
+    pub count: u64,
+    /// filled per reader from the query's `viewer`
+    pub reacted_by_me: bool,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MessageHits {
+    pub hits: Vec<MsgRow>,
+    pub capped: bool,
+}
+
+/// The room two accounts share: `dm-<lower>-<higher>`.
+pub fn dm_channel_id(a: AccountNumber, b: AccountNumber) -> String {
+    format!("dm-{}-{}", a.min(b), a.max(b))
+}
+
+/// The two accounts of a dm room id, or `None` for any other channel.
+pub fn dm_peers(channel_id: &str) -> Option<(AccountNumber, AccountNumber)> {
+    let (a, b) = channel_id.strip_prefix("dm-")?.split_once('-')?;
+    Some((a.parse().ok()?, b.parse().ok()?))
+}
+
+/// A program's own ids in chat: `<program>:<name>`, a channel (a review
+/// thread, say) or a message. Only that program creates one; a reader
+/// reaches such a room through its program, not the channel list. The
+/// program's view opens the room at the id's own path: `forge:web:3` is
+/// `duck://<chain>/forge/web/3`. Every id is at most [`MAX_ID_BYTES`].
+pub mod namespace {
+    /// `program`'s id `name`: `forge:web:3`.
+    pub fn id(program: &str, name: &str) -> String {
+        format!("{program}:{name}")
+    }
+
+    /// The program an id belongs to, or `None` for one people made.
+    pub fn program(id: &str) -> Option<&str> {
+        id.split_once(':').map(|(program, _)| program)
+    }
+}
+
+/// The program whose own account wrote `row` in that program's own
+/// `<program>:<name>` room (`author_module`: the module the author's
+/// account is, from identity's profiles).
+pub fn program_author<'a>(row: &'a MsgRow, author_module: Option<&str>) -> Option<&'a str> {
+    namespace::program(&row.channel_id).filter(|program| author_module == Some(*program))
+}
+
+/// A program's own post in its own room ([`program_author`]), as one code
+/// block in that program's language (forge's `opened`, `review 7`). The code
+/// is the program's to word; a reader shows it as that program's event and
+/// points to where the program itself shows the room. `(program, code)`.
+pub fn program_post<'a>(
+    row: &'a MsgRow,
+    author_module: Option<&str>,
+) -> Option<(&'a str, &'a str)> {
+    let program = program_author(row, author_module)?;
+    match row.blocks.as_slice() {
+        [
+            Block::Code {
+                lang: Some(lang),
+                text,
+            },
+        ] if lang == program => Some((program, text)),
+        _ => None,
+    }
+}
+
+/// Old op bytes are described with the current code (`describe`): the op
+/// enum only grows at its end. Append a new variant here; never reorder.
+#[test]
+fn op_variants_only_append() {
+    assert_eq!(
+        describe::variants::<Op>(),
+        [
+            "CreateChannel",
+            "CreateDmChannel",
+            "RenameChannel",
+            "SetChannelArchived",
+            "PostMessage",
+            "EditMessage",
+            "DeleteMessage",
+            "AddReaction",
+            "RemoveReaction",
+            "SetMembership",
+        ]
     );
 }
 
-fn mark(store: &mut impl Writes, key: String) {
-    store.set(key.into_bytes(), Vec::new());
-}
-
-fn channel(store: &impl Reads, id: &str) -> Result<ChannelRow, Refusal> {
-    load(store, &chan_key(id))?.ok_or_else(|| not_found(format!("no channel {id}")))
-}
-
-fn head_seq(store: &impl Reads, id: &str) -> u64 {
-    load(store, &seq_key(id)).ok().flatten().unwrap_or(0)
-}
-
-fn row(store: &impl Reads, ch: &str, seq: u64) -> Result<MsgRow, Refusal> {
-    load(store, &msg_key(ch, seq))?.ok_or_else(|| not_found(format!("no message {ch}/{seq}")))
-}
-
-fn checked_id(what: &str, id: &str) -> Result<(), Refusal> {
-    if id.is_empty() || id.len() > MAX_ID_BYTES || id.contains('/') {
-        return Err(invalid(format!(
-            "{what} is 1..={MAX_ID_BYTES} bytes without '/'"
-        )));
-    }
-    Ok(())
-}
-
-fn checked_name(name: &str) -> Result<(), Refusal> {
-    if name.trim().is_empty() || name.len() > MAX_NAME_BYTES {
-        return Err(invalid(format!("a name is 1..={MAX_NAME_BYTES} bytes")));
-    }
-    Ok(())
-}
-
-fn writable(store: &impl Reads, ch: &ChannelRow, party: &Party) -> Result<(), Refusal> {
-    if ch.archived {
-        return Err(wrong_state(format!("{} is archived", ch.id)));
-    }
-    let handle = party_handle(party);
-    let allowed = ch.post_policy == PostPolicy::Open
-        || ch.owner == handle
-        || store.get(member_key(&ch.id, &handle).as_bytes()).is_some();
-    if !allowed {
-        return Err(unauthorized(format!(
-            "{handle} is not a member of {}",
-            ch.id
-        )));
-    }
-    Ok(())
-}
-
-fn owned(ch: &ChannelRow, party: &Party) -> Result<(), Refusal> {
-    if ch.owner != party_handle(party) {
-        return Err(unauthorized(format!("only the owner of {} may", ch.id)));
-    }
-    Ok(())
-}
-
-// ── text: flattening, search tokens, tags ───────────────────────────────────
-
-pub fn plain_text(blocks: &[Block]) -> String {
-    let mut out = String::new();
-    for block in blocks {
-        let piece = match block {
-            Block::Paragraph(spans) | Block::Quote(spans) => spans
-                .iter()
-                .map(|s| s.text.as_str())
-                .collect::<Vec<_>>()
-                .join(" "),
-            Block::Code { text, .. } => text.clone(),
-            Block::Divider => continue,
-        };
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(&piece);
-    }
-    out
-}
-
-/// NFC lowercase alphanumeric runs of two or more chars.
-pub fn tokens(text: &str) -> BTreeSet<String> {
-    text.nfc()
-        .collect::<String>()
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|t| t.chars().count() >= 2)
-        .map(str::to_string)
-        .collect()
-}
-
-/// `#tag` labels in appearance order: NFC lowercase, `[alnum_-]`, opened at
-/// a word boundary (never `##`, `/#`, `&#`), outside code and links.
-pub fn tags(blocks: &[Block]) -> Vec<String> {
-    let mut out = Vec::new();
-    for block in blocks {
-        let spans = match block {
-            Block::Paragraph(spans) | Block::Quote(spans) => spans,
-            Block::Code { .. } | Block::Divider => continue,
-        };
-        for span in spans {
-            if span.marks.iter().any(|m| matches!(m, Mark::Link(_))) {
-                continue;
-            }
-            let mut prev: Option<char> = None;
-            let mut rest = span.text.as_str();
-            while let Some(at) = rest.find('#') {
-                let before = if at == 0 {
-                    prev
-                } else {
-                    rest[..at].chars().next_back()
-                };
-                let opens =
-                    before.is_none_or(|p| !p.is_alphanumeric() && !matches!(p, '#' | '/' | '&'));
-                let body: String = rest[at + 1..]
-                    .chars()
-                    .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-                    .collect();
-                if opens && (1..=MAX_TAG_CHARS).contains(&body.chars().count()) {
-                    let label = body.nfc().collect::<String>().to_lowercase();
-                    if !out.contains(&label) {
-                        out.push(label);
-                    }
-                }
-                prev = Some(body.chars().next_back().unwrap_or('#'));
-                rest = &rest[at + 1 + body.len()..];
-            }
-        }
-    }
-    out.truncate(MAX_TAGS_PER_MESSAGE);
-    out
-}
-
-fn index(store: &mut impl Writes, row: &MsgRow, on: bool) {
-    let posting = serde_json::to_vec(&(&row.channel_id, row.seq)).expect("a posting serializes");
-    let mut keys: Vec<String> = tokens(&row.text)
-        .iter()
-        .map(|t| tok_key(t, &row.channel_id, row.seq))
-        .collect();
-    for label in &row.tags {
-        keys.push(tag_key(label, row.time, &row.channel_id, row.seq));
-        keys.push(tagc_key(&row.channel_id, label, row.seq));
-    }
-    for key in keys {
-        if on {
-            store.set(key.into_bytes(), posting.clone());
-        } else {
-            store.delete(key.as_bytes());
-        }
+#[test]
+fn a_programs_own_code_block_in_its_room_is_its_post() {
+    let code = |lang: &str| Block::Code {
+        lang: Some(lang.into()),
+        text: "review 7".into(),
+    };
+    let row = |channel: &str, author: Principal, blocks| MsgRow {
+        channel_id: channel.into(),
+        blocks,
+        ..MsgRow::by(author)
+    };
+    // forge's account is 9; account 1 is a person's
+    let forge = || Principal::Account(9);
+    let module_of = |row: &MsgRow| (row.author == forge()).then_some("forge");
+    let post = row("forge:web:3", forge(), vec![code("forge")]);
+    assert_eq!(
+        program_post(&post, module_of(&post)),
+        Some(("forge", "review 7"))
+    );
+    for other in [
+        row("forge:web:3", Principal::Account(1), vec![code("forge")]),
+        row("forge:web:3", forge(), vec![code("rust")]),
+        row("forge:web:3", forge(), vec![code("forge"), Block::Divider]),
+        row("general", forge(), vec![code("forge")]),
+        row("chess:1", forge(), vec![code("forge")]),
+    ] {
+        assert_eq!(program_post(&other, module_of(&other)), None, "{other:?}");
     }
 }
-
-fn put_row(store: &mut impl Writes, row: &MsgRow) -> Result<(), Refusal> {
-    let bytes = serde_json::to_vec(row).expect("a chat row serializes");
-    if bytes.len() > MAX_MESSAGE_BYTES {
-        return Err(capacity(format!(
-            "a message is at most {MAX_MESSAGE_BYTES} bytes"
-        )));
-    }
-    store.set(msg_key(&row.channel_id, row.seq).into_bytes(), bytes);
-    Ok(())
-}
-
-mod ops;
-#[cfg(feature = "program")]
-mod program;
-mod queries;
-mod wire;
-pub use ops::execute;
-pub use queries::query;
-pub use wire::*;
-#[cfg(test)]
-mod tests;

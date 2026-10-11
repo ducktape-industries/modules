@@ -1,268 +1,120 @@
-//! The composer's events for one target, run through its draft: sends,
-//! edits, attachments picked, dropped or pasted, and their uploads.
-use ducktape_view_guest::Context;
-use ducktape_view_guest::view::Submit;
-use ducktape_view_guest::wire;
-use futures::StreamExt;
-
-use crate::api::{ChatApi, ClipboardRead, ClipboardWrite, Drops, Id, Pick, Release, SelectedFile};
-use crate::chat::{ChatMsg, MsgRow};
-use crate::composer::Target;
-use crate::composer::{Attachment, AttachmentState, Event, Outcome, Send};
-use crate::{Chat, Mode, draft_key};
+//! The composer's events for one target, run through its draft: the
+//! sends it makes, and which drafts are kept.
+use crate::composer::{Draft, Event, MentionChoice, Outcome, Send, Target, pending_row};
+use crate::names::mention_token;
+use crate::{Chat, Mode};
+use ducktape_view_guest::prelude::*;
 
 impl Chat {
-    /// The target a dropped file lands in: the open thread, else the room.
-    fn drop_target(&self) -> Option<Target> {
-        let room = self.room.as_ref()?;
-        if !crate::ATTACHMENTS || !self.session.connected || !self.may_write() {
-            return None;
-        }
-        Some(Target::Post {
-            channel: room.id.clone(),
-            thread: room.thread.as_ref().map(|t| t.root),
-        })
-    }
-
-    /// Files dropped on the window go to the composer that accepts them.
-    pub(crate) fn watch_drops(&mut self, cx: &mut Context<Self>) {
-        let wants = self.drop_target().is_some();
-        if wants == self.watches.drops.is_some() {
-            return;
-        }
-        self.watches.drops = wants.then(|| {
-            let mut drops = cx.host().subscribe::<Drops>(());
-            cx.spawn(async move |this, cx| {
-                while let Some(files) = drops.next().await {
-                    if this
-                        .update(cx, |chat, cx| {
-                            if let Some(target) = chat.drop_target() {
-                                cx.notify();
-                                chat.picked(target, files.map_err(|r| r.sentence), cx);
-                            }
-                        })
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
+    /// Who the composer offers after `@`: the roster, and the room's members.
+    pub(crate) fn mention_choices(&self) -> Vec<MentionChoice> {
+        let Some(names) = self.names.ready() else {
+            return Vec::new();
+        };
+        let members: Vec<_> = self
+            .roster()
+            .into_iter()
+            .map(|(principal, _)| principal)
+            .collect();
+        crate::names::mention_choices(names, &members)
+            .into_iter()
+            .map(|choice| MentionChoice {
+                token: mention_token(&choice.principal),
+                label: choice.label,
             })
-        });
+            .collect()
     }
 
     pub(crate) fn composer(
         &mut self,
         target: Target,
-        event: Event<Self>,
+        event: Event,
         window: &mut ducktape_view_guest::Window,
         cx: &mut Context<Self>,
     ) {
-        cx.notify();
         let choices = self.mention_choices();
-        let key = draft_key(&target);
-        let draft = self.drafts.entry(key.clone()).or_default();
-        match draft.handle(event, &choices, cx) {
-            Outcome::Updated => {}
-            Outcome::Run(run) => run(self, window, cx),
-            Outcome::Enqueue(tag) => window.dispatch(wire::WidgetCommand::EditorAction {
-                target: vec![wire::ElementIdWire::Name(format!("{key}/editor").into())],
-                tag,
-            }),
-            Outcome::Action(tag) => self.composer_action(target, &key, &tag, cx),
-        }
-    }
-
-    fn composer_action(&mut self, target: Target, key: &str, tag: &str, cx: &mut Context<Self>) {
-        if let Some(token) = tag.strip_prefix("remove:") {
-            self.uploads.remove(token);
-            self.drafts
-                .entry(key.to_owned())
-                .or_default()
-                .attachments
-                .retain(|file| file.token != token);
-            let token = token.to_owned();
-            cx.spawn(async move |_, cx| {
-                let _ = cx.host().ask::<Release>(token).await;
-            })
-            .detach();
+        let key = target.key();
+        // the draft the frame drew; none is an event that came the tick
+        // after its composer left the screen
+        let Some(draft) = self.drafts.get_mut(&key) else {
             return;
-        }
-        if let Some(token) = tag.strip_prefix("retry:") {
-            let draft = self.drafts.entry(key.to_owned()).or_default();
-            let Some(index) = draft.attachments.iter().position(|file| {
-                file.token == token && matches!(file.state, AttachmentState::Failed { .. })
-            }) else {
-                return;
-            };
-            let file = draft.attachments.remove(index);
-            self.picked(
-                target,
-                Ok(vec![SelectedFile {
-                    token: file.token,
-                    name: file.name,
-                    bytes: file.bytes,
-                }]),
-                cx,
-            );
-            return;
-        }
-        match tag {
-            "send" => {
-                let draft = self.drafts.entry(key.to_owned()).or_default();
-                if let Some(send) = draft.submitted.take() {
-                    draft.in_flight.push(send.clone());
-                    self.send(key.to_owned(), send, target, cx);
-                }
-            }
-            "restore" => {
-                let choices = self.mention_choices();
-                let draft = self.drafts.entry(key.to_owned()).or_default();
-                if let Some(send) = draft.failed_send.take() {
-                    draft.seed(&send.body, &choices);
-                }
-            }
-            "attach" if crate::ATTACHMENTS && matches!(target, Target::Post { .. }) => {
-                cx.spawn(async move |this, cx| {
-                    let host = cx.host();
-                    let result = host.ask::<Pick>(()).await;
-                    let _ = this.update(cx, |chat, cx| {
-                        cx.notify();
-                        chat.picked(target, result.map_err(|r| r.sentence), cx)
-                    });
-                })
-                .detach();
-            }
-            "paste" => {
-                let key = key.to_owned();
-                cx.spawn(async move |this, cx| {
-                    let host = cx.host();
-                    let result = host.ask::<ClipboardRead>(()).await;
-                    let _ = this.update_in(cx, |chat, window, cx| {
-                        cx.notify();
-                        match result {
-                            Ok(clipboard) => {
-                                chat.drafts.entry(key.clone()).or_default().paste =
-                                    Some(clipboard.text);
-                                window.dispatch(wire::WidgetCommand::EditorAction {
-                                    target: vec![wire::ElementIdWire::Name(
-                                        format!("{key}/editor").into(),
-                                    )],
-                                    tag: "paste-ready".into(),
-                                });
-                                if crate::ATTACHMENTS
-                                    && matches!(target, Target::Post { .. })
-                                    && !clipboard.files.is_empty()
-                                {
-                                    chat.picked(target, Ok(clipboard.files), cx);
-                                }
-                            }
-                            Err(refusal) => {
-                                chat.drafts.entry(key).or_default().note = refusal.sentence
-                            }
-                        }
-                    });
-                })
-                .detach();
-            }
-            "copy" | "cut" => {
-                let Some(text) = self
-                    .drafts
-                    .entry(key.to_owned())
-                    .or_default()
-                    .clipboard
-                    .take()
-                else {
-                    return;
-                };
-                let key = key.to_owned();
-                cx.spawn(async move |this, cx| {
-                    let host = cx.host();
-                    let result = host.ask::<ClipboardWrite>(text).await;
-                    let _ = this.update(cx, |chat, cx| {
-                        cx.notify();
-                        if let Err(refusal) = result {
-                            chat.drafts.entry(key).or_default().note = refusal.sentence;
-                        }
-                    });
-                })
-                .detach();
-            }
-            _ => {}
-        }
-    }
-
-    /// Files the reader picked, dropped or pasted: each becomes an
-    /// attachment uploading into the files module.
-    pub(crate) fn picked(
-        &mut self,
-        target: Target,
-        result: Result<Vec<SelectedFile>, String>,
-        cx: &mut Context<Self>,
-    ) {
-        let key = draft_key(&target);
-        let draft = self.drafts.entry(key.clone()).or_default();
-        let files = match result {
-            Ok(files) => files,
-            Err(error) => {
-                draft.note = error;
-                return;
-            }
         };
-        let chain = self.session.chain.to_owned();
-        for file in files {
-            draft.attachments.push(Attachment {
-                token: file.token.clone(),
-                name: file.name.clone(),
-                bytes: file.bytes,
-                state: AttachmentState::Uploading,
-            });
-            let (draft_key, token, chain) = (key.clone(), file.token.clone(), chain.clone());
-            let upload_token = token.clone();
-            let handle = cx.spawn(async move |this, cx| {
-                let host = cx.host();
-                let result = crate::files::upload(host, file, chain).await;
-                let _ = this.update(cx, |chat, cx| {
-                    cx.notify();
-                    chat.uploads.remove(&token);
-                    let Some(draft) = chat.drafts.get_mut(&draft_key) else {
-                        return;
-                    };
-                    if let Some(file) = draft.attachments.iter_mut().find(|f| f.token == token) {
-                        file.state = match result {
-                            Ok(uri) => AttachmentState::Ready { uri },
-                            Err(refusal) => AttachmentState::Failed {
-                                reason: refusal.sentence,
-                            },
-                        };
-                    }
-                });
-            });
-            self.uploads.insert(upload_token, handle);
+        cx.notify();
+        if let Outcome::Action(tag) = draft.handle(event, &key, &choices, window)
+            && tag == "send"
+            && let Some(send) = draft.submitted.take()
+        {
+            draft.in_flight.push(send.clone());
+            self.send(key, send, target, cx);
         }
+    }
+
+    /// Makes the drafts agree with the screen, before every frame: each
+    /// composer the frame draws has its stored draft, whatever wrote the
+    /// room, the thread or the menu, so the draft a frame lowers is the one
+    /// that hears what is typed into it. (An edit's is seeded with its
+    /// message where its menu opens.) A draft whose composer is off screen
+    /// stays while it holds something: the map is saved whole, and must
+    /// not grow with every room opened or every edit begun.
+    pub(crate) fn seat_drafts(&mut self) {
+        let mut shown = Vec::new();
+        if let Some(room) = &self.room {
+            let post = |thread| {
+                let channel = room.id.clone();
+                Target::Post { channel, thread }.key()
+            };
+            shown.push(post(None));
+            shown.extend(room.thread.as_ref().map(|thread| post(Some(thread.root))));
+        }
+        shown.extend(self.editing().map(|target| target.key()));
+        self.drafts
+            .retain(|key, draft| shown.contains(key) || !spent(key, draft));
+        for key in shown {
+            self.drafts.entry(key).or_default();
+        }
+    }
+
+    /// The message the open menu edits, as its composer's target.
+    pub(crate) fn editing(&self) -> Option<Target> {
+        let menu = self.menu.as_ref().filter(|m| m.mode == Mode::Editing)?;
+        Some(Target::Edit {
+            channel: self.room_id(),
+            seq: menu.seq,
+            base_rev: menu.rev,
+        })
     }
 
     fn send(&mut self, key: String, send: Send, target: Target, cx: &mut Context<Self>) {
+        let me = self.me();
+        let open_dm = self.dm_to_open(&target);
         cx.spawn(async move |this, cx| {
             let host = cx.host();
             let result = async {
-                let id = host.ask::<Id>("message".into()).await?;
+                if let Some(open) = open_dm {
+                    host.ask::<Submit<::chat::Chat>>(open).await?;
+                }
+                let id = host.ask::<HostId>("message".into()).await?;
                 let op = crate::composer::op(id, &send, &target)?;
-                let pending = pending_row(&op);
-                host.ask::<Submit<ChatApi>>(op).await.map(|_| pending)
+                let pending = me.and_then(|me| pending_row(&op, me));
+                host.ask::<Submit<::chat::Chat>>(op).await.map(|_| pending)
             }
             .await;
             let _ = this.update(cx, |chat, cx| {
                 cx.notify();
+                // kept since the send, in flight; were it gone, a refused
+                // send still needs a draft to wait in
                 let draft = chat.drafts.entry(key).or_default();
                 draft.complete_send(&send);
                 match result {
                     Ok(pending) => {
-                        let me = chat.my_handle();
-                        if let (Some(mut row), Some(room)) = (pending, chat.room.as_mut())
+                        draft.note.clear();
+                        // the room's re-read may have served it already: the
+                        // receipt and the changes come over separate links
+                        if let (Some(row), Some(room)) = (pending, chat.room.as_mut())
                             && room.id == target.channel()
                         {
-                            row.author = me;
                             room.pending.push(row);
+                            room.settle();
                         }
                         if let Target::Edit { seq, .. } = target
                             && chat
@@ -275,7 +127,7 @@ impl Chat {
                         chat.refresh(cx);
                     }
                     Err(refusal) => {
-                        draft.note = refusal.sentence;
+                        draft.note = refusal.message;
                         draft.failed(send);
                     }
                 }
@@ -283,24 +135,38 @@ impl Chat {
         })
         .detach();
     }
+
+    /// A post into a dm room the channel list doesn't hold yet: the op that
+    /// opens it first. A dm id opens only through `CreateDmChannel`, named
+    /// for the other person (a no-op once it is open).
+    pub(crate) fn dm_to_open(&self, target: &Target) -> Option<chat::Op> {
+        let Target::Post { channel, .. } = target else {
+            return None;
+        };
+        if self.info(channel).is_some() {
+            return None;
+        }
+        let peer = crate::names::dm_peer_of(self.my_account()?, channel)?;
+        let name = self
+            .names
+            .ready()
+            .and_then(|names| names.name(&chat::Principal::Account(peer)))
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("account {peer}"));
+        Some(chat::Op::CreateDmChannel {
+            counterpart: peer,
+            name,
+        })
+    }
 }
 
-/// The row a just-accepted post shows as until the index serves it: the
-/// reader as author, seq 0. An edit shows nothing early.
-pub(crate) fn pending_row(op: &ChatMsg) -> Option<MsgRow> {
-    let ChatMsg::PostMessage {
-        message_id,
-        blocks,
-        thread,
-        ..
-    } = op
-    else {
-        return None;
-    };
-    Some(MsgRow {
-        message_id: message_id.clone(),
-        blocks: blocks.clone(),
-        thread: *thread,
-        ..MsgRow::default()
-    })
+/// Nothing a reader would miss in the draft kept under `key`: it holds no
+/// send, and shows what a new one would. For an edit that is whatever it
+/// holds: opening the edit seeds it with the message again.
+fn spent(key: &str, draft: &Draft) -> bool {
+    let unwritten = draft.field.text().is_empty() && draft.note.is_empty();
+    (unwritten || Target::edits(key))
+        && draft.failed_send.is_none()
+        && draft.submitted.is_none()
+        && draft.in_flight.is_empty()
 }

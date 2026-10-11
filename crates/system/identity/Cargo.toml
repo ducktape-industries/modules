@@ -3,24 +3,23 @@ name = "identity"
 version.workspace = true
 edition.workspace = true
 
-# The types, the rules over `store` and the asks another program makes of
-# identity (`account_of`, `account`) are always built; a view links them with
-# `program` off. `program` adds the wasm32 program over the host: `guest`'s
-# contexts, the `alloc`/`call` exports and the `ducktape.*` imports.
-# `view` adds the one ask a view makes of identity directly: the seated key
-# resolved to the account it holds, through `host.rpc.query` — chat-view and
-# forge-view both gate writes on it, so it lives once here.
+# The types and the rules over `store` are always built; a view links them
+# with `module` off. `module` adds its wasm exports (`guest::export!`), which
+# only its own wasm build turns on.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
-program = ["dep:guest", "store/program"]
-view = ["dep:ducktape-view-guest"]
+module = []
+# `describe` makes this crate\'s wasm build the `ducktape.describe` module:
+# the `describe` export alone, no module, no imports.
+describe = []
 
 [dependencies]
 abi = { workspace = true }
+describe = { workspace = true }
 borsh = { workspace = true }
-guest = { workspace = true, optional = true }
-module-registry = { workspace = true }
+serde = { workspace = true }
+guest = { workspace = true }
+program = { workspace = true }
 store = { workspace = true }
-ducktape-view-guest = { workspace = true, optional = true }

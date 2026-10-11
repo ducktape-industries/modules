@@ -1,0 +1,276 @@
+//! Every table forge keeps, declared once: the records, the indexes over
+//! them and the counters. Git objects are not here: an object's blob id is
+//! its oid (`objects`). People are [`Principal`]s: accounts.
+
+use std::collections::BTreeMap;
+
+use gitcore::{Hash, Oid};
+use guest::{Error, code};
+use guest::{ExecCtx, QueryCtx, invalid, not_found};
+use store::{Item, Map, Set};
+
+use crate::contract::{Bounds, Change, Principal, Repo, Review, Revision, valid_repo_name};
+use crate::objects::hash_of;
+
+/// The bounds forge was founded with.
+pub const BOUNDS: Item<Bounds> = Item::new("bounds");
+/// How many ops forge has accepted. Every listing cursor is pinned to it:
+/// only a forge op rewrites a listing, and two ops in one block share a
+/// height but not a count.
+pub const WRITES: Item<u64> = Item::new("writes");
+/// One record per repository, by name.
+pub const REPOS: Map<String, Repo> = Map::new("p/");
+/// Index: every repository by its last activity, newest first.
+pub const ACTIVITY: Set<(u64, String)> = Set::new("a/");
+/// The principals the owner granted writes to, by repository.
+pub const WRITERS: Set<(String, Principal)> = Set::new("w/");
+/// Each repository's refs and the oid bytes each points at.
+pub const REFS: Map<(String, Vec<u8>), Vec<u8>> = Map::new("r/");
+/// The last change number each repository gave out.
+pub const NUMBERS: Map<String, u64> = Map::new("n/");
+/// Changes by repository and number; a scan across repositories lists them
+/// by name (Judgment pages this table whole).
+pub const CHANGES: Map<(String, u64), Change> = Map::new("c/");
+/// Reviews by repository, change number and review id.
+pub const REVIEWS: Map<(String, u64, u64), Review> = Map::new("v/");
+/// Index: the reviews one principal submitted on one change, oldest first.
+pub const AUTHORED: Set<(String, u64, Principal, u64)> = Set::new("u/");
+/// Index: the changes a principal authored, is asked to review, or reviewed.
+pub const INVOLVED: Set<(Principal, String, u64)> = Set::new("i/");
+/// The last system message id forge posted into chat.
+pub const MESSAGES: Item<u64> = Item::new("system-message-seq");
+
+/// Stored state that is not what forge wrote: an operator's problem.
+pub(crate) fn storage(sentence: impl Into<String>) -> Error {
+    Error::new(code::CORRUPT, sentence)
+}
+
+pub fn save_bounds(ctx: &ExecCtx, bounds: &Bounds) {
+    BOUNDS.put(ctx, bounds);
+}
+
+pub fn load_bounds(ctx: &QueryCtx) -> Result<Bounds, Error> {
+    BOUNDS
+        .get(ctx)?
+        .ok_or_else(|| Error::new(code::PROTOCOL, "the program was founded without bounds"))
+}
+
+pub fn repo_exists(ctx: &QueryCtx, name: &str) -> bool {
+    REPOS.has(ctx, &name.to_owned())
+}
+
+pub fn load_repo(ctx: &QueryCtx, name: &str) -> Result<Repo, Error> {
+    if !valid_repo_name(name) {
+        return Err(invalid(format!("{name:?} is not a repository name")));
+    }
+    REPOS
+        .get(ctx, &name.to_owned())?
+        .ok_or_else(|| not_found(format!("no repository named {name}")))
+}
+
+/// Stores the record and moves it in the activity index, so the index
+/// holds exactly one row per repository.
+pub fn save_repo(ctx: &ExecCtx, name: &str, repo: &Repo) -> Result<(), Error> {
+    if let Some(old) = REPOS.get(ctx, &name.to_owned())? {
+        ACTIVITY.remove(ctx, &(newest_first(old.last_activity), name.to_owned()));
+    }
+    ACTIVITY.insert(ctx, &(newest_first(repo.last_activity), name.to_owned()));
+    REPOS.put(ctx, &name.to_owned(), repo);
+    Ok(())
+}
+
+/// How many ops forge has accepted so far (0 before any).
+pub(crate) fn writes(ctx: &QueryCtx) -> Result<u64, Error> {
+    Ok(WRITES.get(ctx)?.unwrap_or(0))
+}
+
+/// Counts an accepted op.
+pub(crate) fn wrote(ctx: &ExecCtx) -> Result<(), Error> {
+    WRITES.put(ctx, &(writes(ctx)? + 1));
+    Ok(())
+}
+
+/// An activity key: a later height sorts first.
+fn newest_first(height: u64) -> u64 {
+    u64::MAX - height
+}
+
+pub fn repo_hash(repo: &Repo) -> Hash {
+    hash_of(repo.hash)
+}
+
+pub fn is_writer(ctx: &QueryCtx, name: &str, principal: &Principal) -> bool {
+    WRITERS.has(ctx, &(name.to_owned(), principal.clone()))
+}
+
+pub fn ref_key(name: &str, reference: &[u8]) -> (String, Vec<u8>) {
+    (name.to_owned(), reference.to_vec())
+}
+
+/// Every ref of a repository: what a push is checked against and git is told.
+pub fn load_refs(ctx: &QueryCtx, name: &str, hash: Hash) -> Result<BTreeMap<Vec<u8>, Oid>, Error> {
+    REFS.scan(ctx, REFS.prefix_of(&name.to_owned()))?
+        .into_iter()
+        .map(|((_, reference), bytes)| {
+            let target = Oid::from_bytes(hash, &bytes).map_err(|error| {
+                Error::new(code::PROTOCOL, format!("ref {reference:?} holds {error}"))
+            })?;
+            Ok((reference, target))
+        })
+        .collect()
+}
+
+pub fn load_ref(
+    ctx: &QueryCtx,
+    name: &str,
+    reference: &[u8],
+    hash: Hash,
+) -> Result<Option<Oid>, Error> {
+    REFS.get(ctx, &ref_key(name, reference))?
+        .map(|bytes| Oid::from_bytes(hash, &bytes).map_err(|e| storage(e.to_string())))
+        .transpose()
+}
+
+pub fn set_ref(ctx: &ExecCtx, name: &str, reference: &[u8], target: &Oid) {
+    REFS.put(ctx, &ref_key(name, reference), &target.as_bytes().to_vec());
+}
+
+pub fn delete_ref(ctx: &ExecCtx, name: &str, reference: &[u8]) {
+    REFS.remove(ctx, &ref_key(name, reference));
+}
+
+/// Resolving an op's endpoint reads consensus refs only, never objects.
+pub fn resolve(ctx: &QueryCtx, name: &str, revision: &Revision, hash: Hash) -> Result<Oid, Error> {
+    match revision {
+        Revision::Oid(hex) => parse_oid(hash, hex),
+        Revision::Ref(reference) => {
+            if !gitcore::server::valid_ref_name(reference) {
+                return Err(invalid("revision must name a full ref"));
+            }
+            load_ref(ctx, name, reference, hash)?.ok_or_else(|| not_found("the ref does not exist"))
+        }
+    }
+}
+
+pub fn parse_oid(hash: Hash, hex: &str) -> Result<Oid, Error> {
+    let oid = Oid::from_hex(hash, hex)
+        .map_err(|_| invalid("oid has the wrong length or hex for this repo"))?;
+    if oid.is_zero() {
+        return Err(invalid("an object id cannot be zero"));
+    }
+    Ok(oid)
+}
+
+/// The number a new change of this repository takes. Issues would share it.
+pub fn next_number(ctx: &QueryCtx, name: &str) -> Result<u64, Error> {
+    next(NUMBERS.get(ctx, &name.to_owned())?.unwrap_or(0))
+}
+
+/// The id the next system line forge posts into chat takes, unclaimed.
+pub fn peek_message(ctx: &QueryCtx) -> Result<String, Error> {
+    Ok(message_id(next_message_number(ctx)?))
+}
+
+/// Claims the next id of a system line forge posts into chat.
+pub fn next_message(ctx: &ExecCtx) -> Result<String, Error> {
+    let n = next_message_number(ctx)?;
+    MESSAGES.put(ctx, &n);
+    Ok(message_id(n))
+}
+
+fn next_message_number(ctx: &QueryCtx) -> Result<u64, Error> {
+    MESSAGES
+        .get(ctx)?
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or_else(|| Error::new(code::EXHAUSTED, "system message counter exhausted"))
+}
+
+fn message_id(n: u64) -> String {
+    chat::namespace::id(crate::MODULE, &format!("{n:016x}"))
+}
+
+/// Change `n`'s hidden chat channel: `forge:<repo>:<n>`.
+pub(crate) fn channel_id(repo: &str, n: u64) -> String {
+    chat::namespace::id(crate::MODULE, &format!("{repo}:{n}"))
+}
+
+/// A counter one step on, refused rather than wrapped.
+pub fn next(n: u64) -> Result<u64, Error> {
+    n.checked_add(1)
+        .ok_or_else(|| Error::new(code::EXHAUSTED, "counter exhausted"))
+}
+
+pub fn load_change(ctx: &QueryCtx, repo: &str, n: u64) -> Result<Change, Error> {
+    CHANGES
+        .get(ctx, &(repo.to_owned(), n))?
+        .ok_or_else(|| not_found(format!("no change {repo}#{n}")))
+}
+
+/// Stores the change and keeps [`INVOLVED`] in step with it: its author and
+/// every requested reviewer are involved; a reviewer taken off the request
+/// stays involved only if they reviewed it. A new change claims its number.
+pub fn save_change(ctx: &ExecCtx, repo: &str, change: &Change) -> Result<(), Error> {
+    let row = (repo.to_owned(), change.n);
+    match CHANGES.get(ctx, &row)? {
+        None => NUMBERS.put(ctx, &repo.to_owned(), &change.n),
+        Some(old) => {
+            let dropped: Vec<Principal> = old
+                .reviewers
+                .into_iter()
+                .filter(|principal| {
+                    !change.reviewers.contains(principal)
+                        && *principal != change.author
+                        && !has_reviewed(ctx, repo, change.n, principal)
+                })
+                .collect();
+            for principal in dropped {
+                INVOLVED.remove(ctx, &(principal, repo.to_owned(), change.n));
+            }
+        }
+    }
+    for principal in std::iter::once(&change.author).chain(&change.reviewers) {
+        involve(ctx, principal, repo, change.n);
+    }
+    CHANGES.put(ctx, &row, change);
+    Ok(())
+}
+
+pub fn involve(ctx: &ExecCtx, principal: &Principal, repo: &str, n: u64) {
+    INVOLVED.insert(ctx, &(principal.clone(), repo.to_owned(), n));
+}
+
+fn has_reviewed(ctx: &QueryCtx, repo: &str, n: u64, principal: &Principal) -> bool {
+    !ctx.scan(
+        AUTHORED
+            .prefix_of(&(repo.to_owned(), n, principal.clone()))
+            .limit(1),
+    )
+    .is_empty()
+}
+
+pub fn save_review(ctx: &ExecCtx, repo: &str, n: u64, review: &Review) {
+    REVIEWS.put(ctx, &(repo.to_owned(), n, review.id), review);
+    AUTHORED.insert(ctx, &(repo.to_owned(), n, review.author.clone(), review.id));
+    involve(ctx, &review.author, repo, n);
+}
+
+pub fn load_review(ctx: &QueryCtx, repo: &str, n: u64, id: u64) -> Result<Review, Error> {
+    REVIEWS
+        .get(ctx, &(repo.to_owned(), n, id))?
+        .ok_or_else(|| storage("authored review missing"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The longest ids forge gives chat fit chat's id limit, and
+    /// [`MAX_REPO_NAME`](crate::MAX_REPO_NAME) is the longest that does.
+    #[test]
+    fn longest_ids_fit_chat() {
+        let repo = "r".repeat(crate::MAX_REPO_NAME);
+        assert_eq!(channel_id(&repo, u64::MAX).len(), chat::MAX_ID_BYTES);
+        assert!(message_id(u64::MAX).len() <= chat::MAX_ID_BYTES);
+    }
+}

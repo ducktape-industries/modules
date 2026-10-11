@@ -3,58 +3,103 @@
 //! navigation and drafts, never wire records.
 use std::collections::{BTreeMap, BTreeSet};
 
-use ducktape_view_guest::view::Loaded;
-use ducktape_view_guest::{Task, UniformListScrollHandle};
+use ducktape_view_guest::Paged;
+use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::api::Session;
-use forge::{LineComment, Query, Reply, Revision, Side, Verdict};
+use forge::{CommitInfo, LineComment, Query, Reply, Revision, Side, Verdict};
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Forge {
     pub(crate) nav: Nav,
     pub(crate) session: Session,
-    /// the account the seated key holds, resolved through identity
-    /// (`None` while unregistered or not yet answered)
-    #[serde(skip)]
-    pub(crate) me: Loaded<Option<u64>>,
     pub(crate) filter: Filter,
-    /// the repo-list / change-list filter box
-    pub(crate) search: String,
+    /// the repo-list filter box
+    pub(crate) search: TextField,
+    /// the change-list search box, apart from the repo filter so a name
+    /// typed to find a repository never hides that repository's changes
+    pub(crate) change_search: TextField,
     /// the file-tree filter box
-    pub(crate) tree_search: String,
+    pub(crate) tree_search: TextField,
     pub(crate) reviews: BTreeMap<String, ReviewSession>,
     /// `<repo>#<n>:<path>` of every file the reader ticked off
     pub(crate) viewed: BTreeSet<String>,
     pub(crate) new_repo: Option<NewRepo>,
     pub(crate) form: Option<ChangeForm>,
     pub(crate) repo_settings: Option<SettingsForm>,
-    /// the conversation composer of the open change
-    pub(crate) reply: String,
+    /// the conversation composer of the open change, multi-line
+    pub(crate) reply: TextField,
     pub(crate) notice: String,
     /// the repository whose address was copied last, so its row says so
     #[serde(skip)]
     pub(crate) copied: Option<String>,
+    /// the window's title last sent
+    #[serde(skip)]
+    pub(crate) title: Option<String>,
     pub(crate) layout: Layout,
     #[serde(skip)]
-    pub(crate) data: BTreeMap<String, Loaded<Reply>>,
-    /// what each cached read asked, so a live bump can ask it again
+    /// every read on screen, keyed by the query that asked it
+    pub(crate) data: BTreeMap<Query, Loadable<Reply>>,
+    /// every log on screen, keyed like `data`: read a page at a time, as
+    /// far as its list is scrolled. Beside each, the view hearing it land.
     #[serde(skip)]
-    pub(crate) requests: BTreeMap<String, Query>,
+    pub(crate) logs: BTreeMap<Query, (Entity<Paged<CommitInfo>>, Subscription)>,
     #[serde(skip)]
-    pub(crate) names: Loaded<Names>,
+    pub(crate) names: Loadable<chat::view::Names>,
     #[serde(skip)]
-    pub(crate) messages: BTreeMap<String, Loaded<Vec<chat::MsgRow>>>,
+    /// each change channel's rows
+    pub(crate) messages: BTreeMap<String, Loadable<Vec<chat::MsgRow>>>,
+    /// a refusal on screen, read again with the block: the read lives
+    /// here because the slot holds the refusal, and a newer block's read
+    /// stored in its place cancels it
+    #[serde(skip)]
+    pub(crate) rereading: BTreeMap<Query, Task<()>>,
+    #[serde(skip)]
+    pub(crate) rereading_messages: BTreeMap<String, Task<()>>,
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
-    #[serde(skip)]
-    pub(crate) watches: Vec<Task<()>>,
     #[serde(skip)]
     pub(crate) diff_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) log_scroll: UniformListScrollHandle,
     #[serde(skip)]
+    pub(crate) tree_scroll: UniformListScrollHandle,
+    #[serde(skip)]
     pub(crate) next_pending: u64,
+    /// the change whose Close waits for a second press: closing is final
+    #[serde(skip)]
+    pub(crate) closing: Option<String>,
+    /// the dropdown open under its button, if any
+    #[serde(skip)]
+    pub(crate) menu: Option<Menu>,
+    /// where the open dropdown sits: under the press that opened it
+    #[serde(skip)]
+    pub(crate) menu_at: (f32, f32),
+    /// the dropdown item the arrows are on
+    #[serde(skip)]
+    pub(crate) menu_cursor: usize,
+    /// the repository the arrows are on in the list, and which of its
+    /// cells: Open, Copy, activity
+    #[serde(skip)]
+    pub(crate) repos_cursor: Option<(String, usize)>,
+    /// the reviewable diff line the arrows are on, and which of its gutters
+    #[serde(skip)]
+    pub(crate) diff_cursor: (usize, usize),
+    /// the repository the arrows are on in the rail
+    #[serde(skip)]
+    pub(crate) rail_cursor: Option<String>,
+    /// the row the arrows are on in a commit, change or ref list, and
+    /// which of its cells: the list's id, the row, the cell
+    #[serde(skip)]
+    pub(crate) list_cursor: Option<(&'static str, usize, usize)>,
+    /// the repository tab the arrows are on but have not opened
+    #[serde(skip)]
+    pub(crate) tab_cursor: Option<RepoTab>,
+    /// the change tab the arrows are on but have not opened
+    #[serde(skip)]
+    pub(crate) change_tab_cursor: Option<ChangeTab>,
+    #[serde(skip)]
+    pub(crate) blob_cache: crate::ui::code::BlobCache,
 }
 
 /// Where the reader is. One flat record: every screen is a projection of it,
@@ -65,10 +110,15 @@ pub(crate) struct Nav {
     pub tab: RepoTab,
     /// the picked ref, a full name such as `refs/heads/main`
     pub rev: Option<Vec<u8>>,
-    /// the directory the code tree is showing
-    pub path: Vec<u8>,
+    /// the directories the code tree has open, by full path
+    pub expanded: BTreeSet<Vec<u8>>,
+    /// the tree row the keyboard is on (a file or a directory)
+    pub cursor: Option<Vec<u8>>,
     /// the open file: its path and blob oid
     pub blob: Option<(Vec<u8>, String)>,
+    /// a file a link named, opened once its folder's tree lands
+    #[serde(skip)]
+    pub goto: Option<Vec<u8>>,
     pub commit: Option<String>,
     pub change: Option<u64>,
     pub change_tab: ChangeTab,
@@ -85,7 +135,9 @@ impl Nav {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum RepoTab {
+    /// the repository's front page: its README, rendered
     #[default]
+    Readme,
     Code,
     Commits,
     Changes,
@@ -94,7 +146,8 @@ pub(crate) enum RepoTab {
 }
 
 impl RepoTab {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
+        Self::Readme,
         Self::Code,
         Self::Commits,
         Self::Changes,
@@ -103,6 +156,7 @@ impl RepoTab {
     ];
     pub fn label(self) -> &'static str {
         match self {
+            Self::Readme => "README",
             Self::Code => "Code",
             Self::Commits => "Commits",
             Self::Changes => "Changes",
@@ -112,6 +166,7 @@ impl RepoTab {
     }
     pub fn slug(self) -> &'static str {
         match self {
+            Self::Readme => "readme",
             Self::Code => "code",
             Self::Commits => "commits",
             Self::Changes => "changes",
@@ -147,31 +202,36 @@ impl ChangeTab {
     }
 }
 
-/// The one docked panel a screen shows at a time.
+/// The panel a repository docks beside its tabs. A change carries its own
+/// details sidebar instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum Dock {
     About,
-    Overview,
-    Comments,
-    MergeStatus,
 }
 
 impl Dock {
-    pub const CHANGE: [Self; 3] = [Self::Overview, Self::Comments, Self::MergeStatus];
     pub fn label(self) -> &'static str {
         match self {
             Self::About => "About",
-            Self::Overview => "Overview",
-            Self::Comments => "Comments",
-            Self::MergeStatus => "Merge status",
         }
     }
-    pub fn slug(self) -> &'static str {
+}
+
+/// A dropdown open under the button that opened it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Menu {
+    /// the ref every repository tab reads
+    Ref,
+    /// the default head in the repository's settings
+    Head,
+}
+
+impl Menu {
+    /// The element that opens it; its menu is `{key}-menu`.
+    pub fn key(self) -> &'static str {
         match self {
-            Self::About => "about",
-            Self::Overview => "overview",
-            Self::Comments => "comments",
-            Self::MergeStatus => "merge-status",
+            Menu::Ref => "forge-ref-picker",
+            Menu::Head => "forge-settings-head",
         }
     }
 }
@@ -190,14 +250,6 @@ pub(crate) enum Filter {
 }
 
 impl Filter {
-    pub const ALL: [Self; 6] = [
-        Self::Judgment,
-        Self::Open,
-        Self::Merged,
-        Self::Closed,
-        Self::Authored,
-        Self::Involves,
-    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Judgment => "Needs my judgment",
@@ -229,7 +281,11 @@ pub(crate) struct ReviewSession {
     pub comments: Vec<PendingComment>,
     /// the anchor whose composer is open
     pub open: Option<PendingComment>,
-    pub body: String,
+    /// what the review says overall, multi-line
+    pub body: TextField,
+    /// the verdict picked in the finish panel; none picked is a comment
+    #[serde(skip)]
+    pub verdict: Option<Verdict>,
     pub finishing: bool,
     pub error: String,
 }
@@ -258,7 +314,7 @@ impl ReviewSession {
                 path: c.path.clone(),
                 side: if c.new_side { Side::New } else { Side::Old },
                 line: c.line,
-                body: c.body.clone(),
+                body: c.body.text().clone(),
             })
             .collect()
     }
@@ -269,7 +325,7 @@ pub(crate) struct PendingComment {
     pub path: Vec<u8>,
     pub new_side: bool,
     pub line: u64,
-    pub body: String,
+    pub body: TextField,
 }
 
 impl PendingComment {
@@ -294,22 +350,33 @@ pub(crate) fn verdict_label(verdict: Verdict) -> &'static str {
     }
 }
 
+/// What a reviewer did, as the conversation says it after their name.
+pub(crate) fn verdict_verb(verdict: Verdict) -> &'static str {
+    match verdict {
+        Verdict::Approve => "approved",
+        Verdict::RequestChanges => "requested changes",
+        Verdict::Comment => "commented",
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct ChangeForm {
     /// `Some(n)` edits that change instead of opening a new one
     pub edit: Option<u64>,
     pub from: Vec<u8>,
     pub into: Vec<u8>,
-    pub title: String,
-    pub body: String,
-    pub reviewers: Vec<Vec<u8>>,
+    pub title: TextField,
+    /// the multi-line body, as the host's editor holds it
+    pub body: TextField,
+    pub reviewers: Vec<forge::Principal>,
     pub error: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct NewRepo {
-    pub name: String,
-    pub sha256: bool,
+    pub name: TextField,
+    /// SHA-256 unless SHA-1 is picked (to push an existing git project)
+    pub sha1: bool,
     pub error: String,
 }
 
@@ -318,10 +385,10 @@ pub(crate) struct SettingsForm {
     pub head: Vec<u8>,
     pub allow_force: bool,
     pub allow_delete: bool,
-    pub grant: String,
+    pub grant: TextField,
 }
 
-/// An operation the reader issued: shown where she issued it until the
+/// An operation the reader issued: shown where they issued it until the
 /// next query reconciles it, or refused with the reason inline.
 #[derive(Clone, Debug)]
 pub(crate) struct Pending {
@@ -329,16 +396,29 @@ pub(crate) struct Pending {
     /// the screen the row belongs to
     pub scope: String,
     pub label: String,
-    pub error: String,
+    pub progress: Progress,
+}
+
+/// Where an issued operation stands.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Progress {
+    Submitting,
     /// accepted by the node, waiting for the block that carries it
-    pub accepted: bool,
+    Accepted,
+    /// refused, with the program's sentence
+    Refused(String),
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub(crate) struct Layout {
+    /// the pane's width, read from the window each render
+    #[serde(skip)]
     pub width: f32,
-    pub height: f32,
+    /// the repositories rail
     pub tree: f32,
+    /// the Code tab's file tree
+    pub files: f32,
     pub tree_open: bool,
     pub dock_open: bool,
 }
@@ -346,18 +426,32 @@ pub(crate) struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            width: 1180.,
-            height: 760.,
-            tree: 248.,
+            width: 0.,
+            tree: 220.,
+            files: 300.,
             tree_open: false,
             dock_open: false,
         }
     }
 }
 
+/// The repositories rail and the Code tab's file tree, dragged, stay
+/// within these widths so the pane beside them stays usable.
+const TREE_MIN: f32 = 160.;
+const TREE_MAX: f32 = 480.;
+const FILES_MIN: f32 = 180.;
+const FILES_MAX: f32 = 640.;
+/// Under this window width the side panes fold away behind toggles.
+const NARROW_BELOW: f32 = 880.;
+
 impl Layout {
+    /// A dragged pane keeps its neighbour usable.
+    pub fn clamp(&mut self) {
+        self.tree = self.tree.clamp(TREE_MIN, TREE_MAX);
+        self.files = self.files.clamp(FILES_MIN, FILES_MAX);
+    }
     pub fn narrow(&self) -> bool {
-        self.width < 880.
+        self.width < NARROW_BELOW
     }
     pub fn tree_visible(&self) -> bool {
         !self.narrow() || self.tree_open
@@ -365,80 +459,6 @@ impl Layout {
     pub fn dock_visible(&self) -> bool {
         !self.narrow() || self.dock_open
     }
-}
-
-/// The identity roster, folded to what a key or handle is called.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Names {
-    rows: Vec<chat::AccountRow>,
-}
-
-impl Names {
-    pub fn new(rows: Vec<chat::AccountRow>) -> Self {
-        Self { rows }
-    }
-    pub fn rows(&self) -> &[chat::AccountRow] {
-        &self.rows
-    }
-    /// What a raw forge key is called, or its short hex.
-    pub fn key(&self, key: &[u8]) -> String {
-        let hex = abi::hex(key);
-        self.rows
-            .iter()
-            .find(|row| row.keys.iter().any(|held| held.eq_ignore_ascii_case(&hex)))
-            .map(|row| row.name.clone())
-            .unwrap_or_else(|| short(&hex))
-    }
-    /// What a chat handle (`acct:7`, `user:<hex>`, `system`) is called.
-    pub fn handle(&self, handle: &str) -> String {
-        if let Some(number) = handle
-            .strip_prefix("acct:")
-            .and_then(|n| n.parse::<u64>().ok())
-        {
-            return self
-                .rows
-                .iter()
-                .find(|row| row.number == number)
-                .map(|row| row.name.clone())
-                .unwrap_or_else(|| handle.to_owned());
-        }
-        if let Some(hex) = handle.strip_prefix("user:") {
-            return self
-                .rows
-                .iter()
-                .find(|row| row.keys.iter().any(|held| held.eq_ignore_ascii_case(hex)))
-                .map(|row| row.name.clone())
-                .unwrap_or_else(|| short(hex));
-        }
-        match handle {
-            "system" => "Forge".into(),
-            other => other.to_owned(),
-        }
-    }
-    /// The signing key of an account number: `host.props` names no key, and
-    /// forge's filters and judgment are keyed by the exact key.
-    pub fn key_of(&self, number: u64) -> Option<Vec<u8>> {
-        let row = self.rows.iter().find(|row| row.number == number)?;
-        unhex(row.keys.first()?)
-    }
-}
-
-pub(crate) fn short(hex: &str) -> String {
-    if hex.len() > 12 {
-        format!("{}…", &hex[..12])
-    } else {
-        hex.to_owned()
-    }
-}
-
-pub(crate) fn unhex(text: &str) -> Option<Vec<u8>> {
-    if text.is_empty() || !text.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..text.len())
-        .step_by(2)
-        .map(|at| u8::from_str_radix(&text[at..at + 2], 16).ok())
-        .collect()
 }
 
 /// The key a change's screens and drafts hang on.

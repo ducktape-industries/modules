@@ -6,8 +6,8 @@
 //! which exists in a wasm guest. Lowering turns this small recipe into wire
 //! data once per frame.
 
-use crate::interactivity::{ClickListener, Interactivity};
-use crate::{slots, wire, App, Window};
+use crate::interactivity::{EventListener, Interactivity};
+use crate::{App, Window, slots, wire};
 use gpui::{
     ElementId, ListHorizontalSizingBehavior, ListSizingBehavior, Overflow, ScrollStrategy,
     SharedString, StyleRefinement, Styled,
@@ -16,8 +16,6 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
-
-type InputListener<T> = Box<dyn Fn(&T, &mut Window, &mut App)>;
 
 /// A guest element that can be lowered by the driver.
 ///
@@ -32,6 +30,13 @@ pub trait Element: 'static + IntoElement {
 
     #[doc(hidden)]
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node;
+
+    /// Whether this element lowers to the node of an element it builds (a
+    /// view's render), rather than to a node of its own.
+    #[doc(hidden)]
+    fn defers(&self) -> bool {
+        false
+    }
 
     #[doc(hidden)]
     fn into_any(self) -> AnyElement {
@@ -52,12 +57,17 @@ pub trait IntoElement: Sized {
 
 trait ElementObject {
     fn id(&self) -> Option<ElementId>;
+    fn defers(&self) -> bool;
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node;
 }
 
 impl<T: Element> ElementObject for T {
     fn id(&self) -> Option<ElementId> {
         Element::id(self)
+    }
+
+    fn defers(&self) -> bool {
+        Element::defers(self)
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
@@ -73,8 +83,16 @@ impl Element for AnyElement {
         self.0.id()
     }
 
+    fn defers(&self) -> bool {
+        self.0.defers()
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         self.0.lower(lowering)
+    }
+
+    fn into_any(self) -> AnyElement {
+        self
     }
 }
 
@@ -90,11 +108,22 @@ impl IntoElement for AnyElement {
     }
 }
 
-/// The explicit lowering context for one driver frame.
+impl gpui::prelude::FluentBuilder for AnyElement {}
+
+/// The explicit lowering context for one driver frame. Every element is
+/// filed by the host's own rule ([`wire::identity`]), so the path a route,
+/// a list or a tooltip is keyed by here is the path the host files the
+/// node under. Lowering claims nothing: whether two ids meet is the host's
+/// to say, and its sanitizer says it of every frame, a test's too.
 pub struct Lowering<'a> {
     window: &'a mut Window,
     app: &'a mut App,
+    /// The path of the element being lowered: its id last, when it has one.
     authored_path: Vec<wire::ElementIdWire>,
+    /// The index of the list row whose root lowers next ([`Self::lower_row`]).
+    row: Option<usize>,
+    /// The state of each list lowered so far, beside that list's path.
+    lists: Vec<(crate::ListState, Vec<wire::ElementIdWire>)>,
 }
 
 /// An authored [`ElementId`] as the wire carries it. Every id a view can
@@ -106,27 +135,53 @@ pub(crate) fn wire_id(id: ElementId) -> wire::ElementIdWire {
 
 impl<'a> Lowering<'a> {
     pub(crate) fn new(window: &'a mut Window, app: &'a mut App) -> Self {
+        slots::begin_lowering(&app.inner.slots, None);
         Self {
             window,
             app,
             authored_path: Vec::new(),
+            row: None,
+            lists: Vec::new(),
         }
     }
 
-    pub fn window(&mut self) -> &mut Window {
-        self.window
+    /// A lowering of the content the tooltip route `request` builds: its
+    /// listeners are keyed inside that tooltip and live as long as it does.
+    pub(crate) fn within_tooltip(window: &'a mut Window, app: &'a mut App, request: u32) -> Self {
+        slots::begin_lowering(&app.inner.slots, Some(request));
+        Self {
+            window,
+            app,
+            authored_path: Vec::new(),
+            row: None,
+            lists: Vec::new(),
+        }
     }
 
-    pub fn app(&mut self) -> &mut App {
-        self.app
+    pub(crate) fn slots(&self) -> &slots::Context {
+        &self.app.inner.slots
+    }
+
+    pub(crate) fn theme(&self) -> crate::Theme {
+        *self.app.global::<crate::Theme>()
+    }
+
+    /// The id `style` crosses under: its entry in the frame's style table,
+    /// one for every node that carries the same style.
+    pub(crate) fn style(&self, style: &StyleRefinement) -> wire::StyleId {
+        self.app.inner.styles.borrow_mut().intern(style)
+    }
+
+    /// The id of the style that sets nothing, which a bare text carries.
+    pub(crate) fn no_style(&self) -> wire::StyleId {
+        self.app.inner.styles.borrow_mut().intern_empty()
     }
 
     pub(crate) fn parts(&mut self) -> (&mut Window, &mut App) {
         (self.window, self.app)
     }
 
-    #[doc(hidden)]
-    pub fn render_once(&mut self, component: impl RenderOnce) -> wire::Node {
+    pub(crate) fn render_once(&mut self, component: impl RenderOnce) -> wire::Node {
         let element = component.render(self.window, self.app).into_element();
         self.lower_element(element)
     }
@@ -135,57 +190,88 @@ impl<'a> Lowering<'a> {
         self.lower_element(element.into_element())
     }
 
+    /// Lowers `element` in its scope: filed under its id (or, as a list
+    /// row's root, its index), and everything it lowers under it.
     pub(crate) fn lower_element<E: Element>(&mut self, element: E) -> wire::Node {
-        let id = element.id().map(wire_id);
-        if let Some(id) = &id {
-            self.authored_path.push(id.clone());
+        // a row's root is the first element under it that lowers to a node
+        // of its own: a deferred view lowers to the one its render returns
+        let defers = element.defers();
+        let row = if defers { None } else { self.row.take() };
+        let segment = wire::identity::segment(element.id().map(wire_id), row);
+        let entered = segment.is_some();
+        if let Some(segment) = segment {
+            slots::enter_scope(&self.app.inner.slots, segment.clone());
+            self.authored_path.push(segment);
         }
-        let node = Element::lower(Box::new(element), self);
-        if id.is_some() {
+        // the box an `AnyElement` already is, or the one box an element gets
+        let node = element.into_any().0.lower(self);
+        debug_assert!(
+            defers
+                || wire::identity::segment(node.identity().cloned(), row).as_ref()
+                    == entered.then(|| self.authored_path.last()).flatten(),
+            "an element is filed as the host files the node it lowers to"
+        );
+        if entered {
             self.authored_path.pop();
+            slots::leave_scope(&self.app.inner.slots);
         }
         node
+    }
+
+    /// Lowers row `index` of a list: filed under its own id, else under
+    /// its index, so the ids inside one row never meet another row's.
+    pub(crate) fn lower_row<E: Element>(&mut self, index: usize, element: E) -> wire::Node {
+        self.row = Some(index);
+        let node = self.lower_element(element);
+        debug_assert!(self.row.is_none(), "a row lowers to a node");
+        node
+    }
+
+    /// The list being lowered draws `state`. A state is one list's (its
+    /// window of rows, the commands waiting for it), so a second list
+    /// drawing it in this frame is refused, naming both.
+    pub(crate) fn draws_list(&mut self, state: &crate::ListState) {
+        if let Some((_, first)) = self.lists.iter().find(|(drawn, _)| drawn.is(state)) {
+            panic!(
+                "one ListState drawn by two lists: {first:?} and {:?}; each list takes a state \
+                 of its own",
+                self.authored_path
+            );
+        }
+        self.lists.push((state.clone(), self.authored_path.clone()));
     }
 
     pub(crate) fn current_path(&self) -> &[wire::ElementIdWire] {
         &self.authored_path
     }
 
-    pub(crate) fn click(&mut self, listener: ClickListener) -> u32 {
-        slots::click(&self.app.inner.slots, listener)
+    /// The id of the identified element being lowered, as the wire carries
+    /// it: the segment it was filed under when its lowering began.
+    pub(crate) fn own_id(&self) -> wire::ElementIdWire {
+        self.authored_path
+            .last()
+            .cloned()
+            .expect("an identified element lowers inside its authored scope")
     }
 
+    /// A route for a listener of `kind` on the element being lowered.
     pub(crate) fn route<A: 'static>(
-        &mut self,
+        &self,
+        kind: slots::Kind,
         listener: impl Fn(&A, &mut Window, &mut App) + 'static,
     ) -> u32 {
-        slots::route(&self.app.inner.slots, listener)
+        slots::route(&self.app.inner.slots, kind, listener)
     }
 
-    pub(crate) fn enter_row(&mut self, key: u64) -> Option<slots::Row> {
-        slots::enter_row(&self.app.inner.slots, key)
+    pub(crate) fn picture(&self, bytes: impl AsRef<[u8]>, cost: usize) -> (u64, Option<Vec<u8>>) {
+        slots::picture(&self.app.inner.slots, bytes, cost)
     }
 
-    pub(crate) fn leave_row(&mut self, outer: Option<slots::Row>) {
-        slots::leave_row(&self.app.inner.slots, outer)
-    }
-
-    pub(crate) fn message_route(
-        &mut self,
-        listener: impl Fn(&(), &mut Window, &mut App) + 'static,
-    ) -> u32 {
-        slots::message_route(&self.app.inner.slots, listener)
-    }
-
-    pub(crate) fn picture(&mut self, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u8>>) {
-        slots::picture(&self.app.inner.slots, bytes)
-    }
-
-    pub(crate) fn tooltip(&mut self, build: slots::TooltipBuilder) -> u32 {
+    pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {
         slots::tooltip(&self.app.inner.slots, build)
     }
 
-    pub(crate) fn rich_text_tooltip(&mut self, build: slots::RichTextTooltipBuilder) -> u32 {
+    pub(crate) fn rich_text_tooltip(&self, build: slots::RichTextTooltipBuilder) -> u32 {
         slots::rich_text_tooltip(&self.app.inner.slots, build)
     }
 }
@@ -193,7 +279,7 @@ impl<'a> Lowering<'a> {
 /// A guest container backed by a real GPUI style refinement.
 #[derive(Default)]
 pub struct Div {
-    pub(crate) interactivity: Interactivity,
+    pub(crate) interactivity: Box<Interactivity>,
     children: Vec<AnyElement>,
 }
 
@@ -210,18 +296,15 @@ impl Element for Div {
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let Self {
-            interactivity,
+            mut interactivity,
             children,
         } = *self;
-        let id = interactivity.id.as_ref().map(|_| {
-            lowering
-                .current_path()
-                .last()
-                .cloned()
-                .expect("identified div must lower inside its authored scope")
-        });
-        let style = interactivity.base_style.clone();
-        let (_, wire_interactivity) = interactivity.into_wire(lowering);
+        let id = interactivity.id.as_ref().map(|_| lowering.own_id());
+        if id.is_some() {
+            bar_gutter(&mut interactivity.base_style);
+        }
+        let style = lowering.style(&interactivity.base_style);
+        let wire_interactivity = interactivity.into_wire(lowering);
         let children = children
             .into_iter()
             .map(|child| lowering.lower_element(child))
@@ -235,6 +318,22 @@ impl Element for Div {
     }
 }
 
+/// A scroller the host gives a vertical bar (one with an id) keeps its
+/// right edge for that bar: the bar paints over the scroller, so content
+/// inset less than its width would sit under it.
+fn bar_gutter(style: &mut StyleRefinement) {
+    use gpui::{AbsoluteLength, DefiniteLength};
+    if style.overflow.y != Some(Overflow::Scroll) {
+        return;
+    }
+    let bar = crate::design::size::SCROLLBAR;
+    let right = &mut style.padding.right;
+    match right {
+        Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(inset))) if *inset >= bar => {}
+        _ => *right = Some(bar.into()),
+    }
+}
+
 impl IntoElement for Div {
     type Element = Self;
 
@@ -243,50 +342,62 @@ impl IntoElement for Div {
     }
 }
 
+impl gpui::prelude::FluentBuilder for Div {}
+
 /// Construct an empty guest container.
 pub fn div() -> Div {
     Div::default()
 }
 
-/// A single-line host text input. GPUI core has no text-input element, so this
-/// recipe carries a typed identity and lowers to the host's native field.
+/// A text field the host's editing engine owns, shown as the host's native
+/// one-line field, bound to a [`TextField`](crate::TextField) of the view:
+/// the host adopts the field's text when its generation moves, and whenever
+/// the host's text moves it lands in the field and the view renders. Its
+/// label is what assistive technology calls it: a field has one from birth.
 pub struct Input {
     id: ElementId,
-    value: String,
+    multiline: bool,
+    field: crate::TextField,
     placeholder: String,
     options: wire::InputOptions,
     secure: bool,
-    style: StyleRefinement,
-    on_input: Option<InputListener<String>>,
-    on_submit: Option<InputListener<()>>,
+    claims: Vec<wire::KeyClaim>,
+    style: Box<StyleRefinement>,
+    on_change: Option<EventListener<wire::TextChange>>,
+    on_key: Option<EventListener<gpui::KeyDownEvent>>,
+    on_submit: Option<EventListener<()>>,
 }
 
 impl Input {
-    pub fn new(id: impl Into<ElementId>) -> Self {
+    /// A field over `field`: `Input::new("name", &self.name, "Your name")`.
+    /// What is typed lands in `field`, read with
+    /// [`text()`](crate::TextField::text), and renders the view, with no
+    /// listener written for it.
+    pub fn new(
+        id: impl Into<ElementId>,
+        field: &crate::TextField,
+        label: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
-            value: String::new(),
+            multiline: false,
+            field: field.clone(),
             placeholder: String::new(),
-            options: wire::InputOptions::default(),
+            options: wire::InputOptions {
+                label: label.into(),
+                ..Default::default()
+            },
             secure: false,
-            style: StyleRefinement::default(),
-            on_input: None,
+            claims: Vec::new(),
+            style: Box::default(),
+            on_change: None,
+            on_key: None,
             on_submit: None,
         }
     }
 
-    pub fn value(mut self, value: impl Into<String>) -> Self {
-        self.value = value.into();
-        self
-    }
-
     pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
         self.placeholder = placeholder.into();
-        self
-    }
-
-    pub fn label(mut self, label: impl Into<String>) -> Self {
-        self.options.label = label.into();
         self
     }
 
@@ -300,16 +411,40 @@ impl Input {
         self
     }
 
+    /// The value is wrong; [`Self::description`] says why.
+    pub fn invalid(mut self, invalid: gpui::accesskit::Invalid) -> Self {
+        self.options.invalid = Some(invalid);
+        self
+    }
+
+    pub fn required(mut self, required: bool) -> Self {
+        self.options.required = required;
+        self
+    }
+
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.options.read_only = read_only;
+        self
+    }
+
     pub fn secure(mut self, secure: bool) -> Self {
         self.secure = secure;
         self
     }
 
-    pub fn on_input(mut self, listener: impl Fn(&String, &mut Window, &mut App) + 'static) -> Self {
-        self.on_input = Some(Box::new(listener));
+    /// Hears the host's text whenever it moves: typed, pasted, undone, or
+    /// an asked-for edit landed. For a view that does more on a change than
+    /// keep the text: the bound field already holds the change, and the
+    /// view already renders, when the listener runs.
+    pub fn on_change(
+        mut self,
+        listener: impl Fn(&wire::TextChange, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_change = Some(Box::new(listener));
         self
     }
 
+    /// Enter in a one-line field.
     pub fn on_submit(mut self, listener: impl Fn(&(), &mut Window, &mut App) + 'static) -> Self {
         self.on_submit = Some(Box::new(listener));
         self
@@ -323,22 +458,55 @@ impl Styled for Input {
 }
 
 impl Element for Input {
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         let this = *self;
         let id = wire_id(this.id);
-        let on_input = this.on_input.map(|listener| lowering.route(listener));
+        let field = this.field.state().clone();
+        crate::text::lowered_generation(field.generation);
+        // the binding: the host's word lands in the view's field, the view
+        // renders, and then the author's own listener hears it, if any
+        let (bound, heard) = (this.field, this.on_change);
+        let on_change = Some(lowering.route(
+            slots::Kind::Change,
+            move |change: &wire::TextChange, window: &mut Window, app: &mut App| {
+                bound.apply(change);
+                app.notify();
+                if let Some(heard) = &heard {
+                    heard(change, window, app);
+                }
+            },
+        ));
+        let on_key = this
+            .on_key
+            .map(|listener| lowering.route(slots::Kind::Key, listener));
         let on_submit = this
             .on_submit
-            .map(|listener| lowering.message_route(listener));
-        wire::Node::Input {
-            options: this.options,
+            .map(|listener| lowering.route(slots::Kind::Submit, listener));
+        let claims = this.claims;
+        debug_assert!(
+            !claims.iter().any(wire::KeyClaim::engine_owned),
+            "Backspace, Delete, Tab and the undo chords are the engine's: the host refuses a claim on them"
+        );
+        wire::Node::Field {
             id,
+            multiline: this.multiline,
+            value: field.text,
+            cursor: field.cursor,
+            generation: field.generation,
+            revision: field.revision,
+            tokens: field.tokens.into(),
+            claims: claims.into(),
+            options: this.options.into(),
             placeholder: this.placeholder,
-            value: this.value,
-            on_input: on_input.unwrap_or(u32::MAX),
-            on_submit,
             secure: this.secure,
-            style: this.style,
+            on_change,
+            on_key,
+            on_submit,
+            style: lowering.style(&this.style),
         }
     }
 }
@@ -350,6 +518,88 @@ impl IntoElement for Input {
         self
     }
 }
+
+impl gpui::prelude::FluentBuilder for Input {}
+
+/// The many-line [`Input`]: the host's native text area over a
+/// [`TextField`](crate::TextField). Enter is a new line unless the view
+/// claims it; a claimed key reaches `on_key` instead of editing.
+pub struct Textarea(Input);
+
+impl Textarea {
+    pub fn new(
+        id: impl Into<ElementId>,
+        field: &crate::TextField,
+        label: impl Into<String>,
+    ) -> Self {
+        let mut input = Input::new(id, field, label);
+        input.multiline = true;
+        Self(input)
+    }
+
+    pub fn placeholder(self, placeholder: impl Into<String>) -> Self {
+        Self(self.0.placeholder(placeholder))
+    }
+
+    pub fn read_only(self, read_only: bool) -> Self {
+        Self(self.0.read_only(read_only))
+    }
+
+    /// A key the view hears on `on_key` instead of the engine. The engine's
+    /// own keys — Backspace, Delete, Tab, undo and redo — cannot be claimed.
+    pub fn claim(mut self, claim: wire::KeyClaim) -> Self {
+        self.0.claims.push(claim);
+        self
+    }
+
+    pub fn claims(mut self, claims: impl IntoIterator<Item = wire::KeyClaim>) -> Self {
+        self.0.claims.extend(claims);
+        self
+    }
+
+    /// See [`Input::on_change`].
+    pub fn on_change(
+        self,
+        listener: impl Fn(&wire::TextChange, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self(self.0.on_change(listener))
+    }
+
+    /// Hears every claimed key as the host receives it, text untouched.
+    pub fn on_key(
+        mut self,
+        listener: impl Fn(&gpui::KeyDownEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.0.on_key = Some(Box::new(listener));
+        self
+    }
+}
+
+impl Styled for Textarea {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.0.style
+    }
+}
+
+impl Element for Textarea {
+    fn id(&self) -> Option<ElementId> {
+        Element::id(&self.0)
+    }
+
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        Element::lower(Box::new(self.0), lowering)
+    }
+}
+
+impl IntoElement for Textarea {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::prelude::FluentBuilder for Textarea {}
 
 /// Add children to an element recipe.
 pub trait ParentElement {
@@ -363,6 +613,13 @@ pub trait ParentElement {
         self
     }
 
+    /// Adds each of `children`, as [`Self::child`] would.
+    ///
+    /// Children are not scopes of their own, as the rows of a `list` or a
+    /// `uniform_list` are under their list's id: an id inside one child
+    /// meets the same id inside the next. A row of data built here carries
+    /// its own id (its item's key), which scopes the ids inside it. Two
+    /// children named by one key are refused, naming the id and its scope.
     fn children(mut self, children: impl IntoIterator<Item = impl IntoElement>) -> Self
     where
         Self: Sized,
@@ -379,13 +636,11 @@ impl ParentElement for Div {
 }
 
 impl Element for SharedString {
-    fn lower(self: Box<Self>, _lowering: &mut Lowering<'_>) -> wire::Node {
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
         wire::Node::Text(crate::wire::TextNode {
             id: None,
-            style: StyleRefinement::default(),
+            style: lowering.no_style(),
             content: self.to_string(),
-            heading: None,
-            live: None,
         })
     }
 }
@@ -434,11 +689,44 @@ pub trait RenderOnce: 'static {
 }
 
 mod uniform_list;
-pub(crate) use uniform_list::UniformListScrollState;
-pub use uniform_list::{uniform_list, UniformList, UniformListScrollHandle};
+pub(crate) use uniform_list::UniformLists;
+pub use uniform_list::{UniformList, UniformListScrollHandle, uniform_list};
 
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod ancestry_tests;
+
+#[cfg(test)]
+mod bar_gutter_tests {
+    use super::*;
+    use crate::prelude::*;
+    use gpui::px;
+
+    #[test]
+    fn a_scroller_keeps_its_right_edge_for_the_bar() {
+        let bar = crate::design::size::SCROLLBAR;
+        let mut inset = crate::div().id("s").overflow_y_scroll().p(px(8.));
+        let mut style = inset.style().clone();
+        bar_gutter(&mut style);
+        assert_eq!(style.padding.right, Some(bar.into()));
+        assert_eq!(
+            style.padding.left,
+            Some(px(8.).into()),
+            "only the bar's edge"
+        );
+        let mut wide = crate::div().id("s").overflow_y_scroll().pr(px(24.));
+        let mut style = wide.style().clone();
+        bar_gutter(&mut style);
+        assert_eq!(style.padding.right, Some(px(24.).into()));
+        let mut still = crate::div().p(px(8.));
+        let mut style = still.style().clone();
+        bar_gutter(&mut style);
+        assert_eq!(
+            style.padding.right,
+            Some(px(8.).into()),
+            "no scroll, no bar"
+        );
+    }
+}

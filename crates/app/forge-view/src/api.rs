@@ -1,23 +1,8 @@
-//! The programs this view speaks to, by the doors in `view_wire::doors`:
+//! The programs this view speaks to, by the methods in `view_wire::methods`:
 //! forge (its own) and chat (the discussion threads).
-use ducktape_view_guest::doors::{Program, Query, Submit};
+use ducktape_view_guest::prelude::*;
 
-pub use ducktape_view_guest::doors::{Props, Session};
-
-pub struct ForgeProgram;
-impl Program for ForgeProgram {
-    const NAME: &'static str = "forge";
-    type Op = forge::Op;
-    type Query = forge::Query;
-    type Reply = forge::Reply;
-}
-pub type Ask = Query<ForgeProgram>;
-pub type SubmitForge = Submit<ForgeProgram>;
-
-pub struct ChatApi;
-impl Program for ChatApi {
-    const NAME: &'static str = "chat";
-    type Op = chat::ChatMsg;
-    type Query = chat::ChatViewQuery;
-    type Reply = chat::ChatViewReply;
-}
+/// The forge program's two methods (`forge::Forge` the program, apart from
+/// this view's `Forge`). Chat is read by its typed asks (`chat::ask`).
+pub type Ask = Query<forge::Forge>;
+pub type SubmitForge = Submit<forge::Forge>;

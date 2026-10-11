@@ -1,4 +1,6 @@
-// The fixture story, natively: the same objects real git built through the harness (Ada, one fixed second, the same files), pushed as one op, then heights that move like the kernel's.
+//! The fixture story, natively: the same objects real git built through
+//! the harness (Ada, one fixed second, the same files), pushed as one op,
+//! then heights that move like the kernel's.
 
 use super::*;
 use forge::{ChangeFilter, Query, ReviewDraft, Revision, Verdict};
@@ -6,10 +8,13 @@ use gitcore::Tag;
 
 pub const REPO: &str = "project";
 pub const TESTER: &[u8] = b"tester";
+/// The story's accounts: the tester is account 1 and the reviewer 2; a
+/// talker in chat is 4. Every other key holds no account.
+pub const HELD: [(&[u8], u64); 3] = [(TESTER, 1), (b"reviewer", 2), (b"talker", 4)];
 
-/// One program over `MemorySandbox` with the kernel's height discipline: an
-/// op lands in a new block, whose queue (forge's chat emissions) is delivered
-/// first; a chat write is a block of its own; a query moves nothing.
+/// forge over `MemorySandbox` with the kernel's height discipline: an
+/// op lands in a new block, and what it emits to chat runs in its frame; a
+/// chat write is a block of its own; a query moves nothing.
 pub struct Rig {
     pub sandbox: MemorySandbox,
     pub height: u64,
@@ -18,8 +23,11 @@ pub struct Rig {
 
 impl Rig {
     pub fn start(bounds: Bounds, hash: HashKind) -> Rig {
-        let mut sandbox = MemorySandbox::default();
-        forge::init(&mut sandbox, &abi::encode(&bounds)).unwrap();
+        let sandbox = MemorySandbox::default();
+        for (key, account) in HELD {
+            sandbox.hold(key, account);
+        }
+        Forge::init(&sandbox.exec(0), &abi::encode(&bounds)).unwrap();
         let mut rig = Rig {
             sandbox,
             height: 0,
@@ -33,44 +41,64 @@ impl Rig {
         rig
     }
 
-    pub fn env(&self) -> Env {
-        Env {
-            network: b"harness".to_vec(),
-            height: self.height,
-            time: TIME,
-            me: "forge".into(),
-            origin: Origin::External(self.actor.clone()),
-            cause: Cause::Direct,
-        }
+    /// Who `key` signs as; it holds an account.
+    pub fn principal(&self, key: &[u8]) -> Principal {
+        self.sandbox
+            .principal(key)
+            .expect("the key holds an account")
     }
 
     pub fn advance(&mut self) {
         self.height += 1;
-        for delivered in self.sandbox.deliver(self.height, TIME) {
-            delivered.unwrap();
-        }
     }
 
-    // ponytail: no rollback on a refused op; the story never refuses one.
-    pub fn execute(&mut self, op: &Op) -> Result<Vec<u8>, abi::Refusal> {
+    /// The actor's op in a new block, and what it emitted run in its frame;
+    /// a refusal left forge's store as it was.
+    #[track_caller]
+    pub fn execute(&mut self, op: &Op) -> Result<Vec<u8>, guest::Error> {
         self.advance();
-        let env = self.env();
-        forge::execute(&mut self.sandbox, &env, &abi::encode(op))?;
-        Ok(self.sandbox.forge.take_output())
+        let (actor, height) = (self.actor.clone(), self.height);
+        self.sandbox
+            .forge
+            .attempt(|| signed_op(&self.sandbox, &actor, height, op))
     }
 
-    pub fn query(&self, query: &Query) -> Result<Vec<u8>, abi::Refusal> {
-        forge::query(&self.sandbox, &self.env(), &abi::encode(query))
-    }
-
-    pub fn chat_execute(&mut self, party: chat::Party, msg: chat::ChatMsg) {
+    /// The refusal of the actor's op, which left forge's store as it was.
+    #[track_caller]
+    pub fn refused(&mut self, op: &Op) -> guest::Error {
         self.advance();
-        let frame = chat::Frame {
-            party,
-            height: self.height,
-            time: TIME,
+        let (actor, height) = (self.actor.clone(), self.height);
+        self.sandbox
+            .forge
+            .refused(|| signed_op(&self.sandbox, &actor, height, op))
+    }
+
+    pub fn query(&self, query: &Query) -> Result<Vec<u8>, guest::Error> {
+        Forge::answer(&self.sandbox.reads(self.height), query.clone())
+    }
+
+    /// `principal`'s chat message in a new block, signed by the key that
+    /// holds its account.
+    pub fn chat_execute(&mut self, principal: Principal, msg: chat::Op) {
+        self.advance();
+        let origin = match principal {
+            Principal::Account(number) => match sandbox::module_of(number) {
+                Some(module) => Origin::Module(module.into()),
+                None => {
+                    let roster = self.sandbox.chain.roster();
+                    let (key, _) = roster
+                        .keys
+                        .iter()
+                        .find(|(_, held)| **held == number)
+                        .expect("a key holds the account");
+                    Origin::Signed(key.clone())
+                }
+            },
+            Principal::Root => Origin::Root,
         };
-        self.sandbox.chat_execute(&frame, msg).unwrap();
+        self.sandbox
+            .chat_execute(origin, self.height, TIME, msg)
+            .unwrap();
     }
 }
 
@@ -254,7 +282,7 @@ impl Story {
             into: b"refs/heads/main".to_vec(),
             title: title.into(),
             body: "The author's body.".into(),
-            reviewers: vec![b"reviewer".to_vec()],
+            reviewers: vec![Principal::Account(2)],
         }
     }
 }
@@ -267,7 +295,7 @@ pub fn change(n: u64) -> Query {
     Query::Change {
         repo: REPO.into(),
         n,
-        page: Page::first(128),
+        page: PageRequest::first(128),
     }
 }
 
@@ -275,7 +303,7 @@ pub fn changes() -> Query {
     Query::Changes {
         repo: REPO.into(),
         filter: ChangeFilter::default(),
-        page: Page::first(128),
+        page: PageRequest::first(128),
     }
 }
 

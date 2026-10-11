@@ -1,172 +1,6 @@
 use super::*;
 
 #[test]
-fn sensor_reset_values_share_the_frame_budget() {
-    let sensor = |key: &str| Node::Sensor {
-        id: ElementIdWire::Name(key.into()),
-        style: Default::default(),
-        reset: Some(SurfaceValue::List(vec![SurfaceValue::Unit; 3000])),
-        on_show: Some(3),
-        on_resize: None,
-        on_hide: None,
-        anticipate: None,
-        delay: None,
-        child: Box::new(text("child")),
-    };
-    // Not `sanitized_children`: the frame itself is asserted on below.
-    let mut frame = Frame {
-        root: Some(column(vec![sensor("first"), sensor("second")])),
-        ..Frame::default()
-    };
-    sanitize(&mut frame).unwrap();
-    let Some(Node::Container(crate::ContainerNode { children, .. })) = &frame.root else {
-        panic!("column retained")
-    };
-    for (index, node) in children.iter().enumerate() {
-        let Node::Sensor {
-            id,
-            reset,
-            on_show,
-            child,
-            ..
-        } = node
-        else {
-            panic!("sensor retained")
-        };
-        assert_eq!(
-            reset.is_some(),
-            index == 0,
-            "individually valid reset values must share one frame budget"
-        );
-        assert_eq!(id.name(), Some(if index == 0 { "first" } else { "second" }));
-        assert_eq!(*on_show, Some(3));
-        assert!(
-            matches!(&**child, Node::Text (crate::TextNode { content, .. }) if content == "child")
-        );
-    }
-    assert!(
-        decode::<Frame>(&encode(&frame)).is_ok(),
-        "sanitized aggregate fits the decoder budget"
-    );
-}
-
-#[test]
-fn a_sensor_is_pulled_into_range_and_keeps_its_child() {
-    let root = sanitized_root(Node::Sensor {
-        id: ElementIdWire::Name("watch".into()),
-        style: Default::default(),
-        reset: None,
-        on_show: Some(0),
-        on_resize: Some(0),
-        on_hide: Some(1),
-        anticipate: Some(f32::INFINITY),
-        delay: Some(-5.0),
-        child: Box::new(text("a")),
-    });
-    let Node::Sensor {
-        anticipate,
-        delay,
-        child,
-        ..
-    } = &root
-    else {
-        panic!("{root:?}")
-    };
-    assert_eq!(*anticipate, Some(MAX_PIXELS));
-    assert_eq!(*delay, Some(0.0));
-    assert_eq!(**child, text("a"));
-    assert_eq!(root.count(), 2);
-}
-
-/// The form controls: a menu is cut to `MAX_OPTIONS` with a selection
-/// past the cut dropped, and a slider's numbers are made finite but not
-/// clamped like a size — a value of a million is the app's to send.
-#[test]
-fn form_controls_are_pulled_into_range() {
-    let children = sanitized_children(column(vec![
-        Node::PickList {
-            settings: Default::default(),
-            id: ElementIdWire::Name("App/pick".into()),
-            options: (0..MAX_OPTIONS + 3).map(|i| i.to_string()).collect(),
-            selected: Some((MAX_OPTIONS + 1) as u32),
-            placeholder: Some("é".repeat(MAX_STRING_BYTES)),
-            label: None,
-            on_select: 0,
-            style: gpui::StyleRefinement::default(),
-        },
-        Node::Slider {
-            id: ElementIdWire::Name("App/slide".into()),
-            label: None,
-            value: f32::NAN,
-            min: f32::NEG_INFINITY,
-            max: 1_000_000.0,
-            step: f32::INFINITY,
-            on_change: 1,
-            on_release: None,
-            axis: Axis::Row,
-            style: gpui::StyleRefinement::default(),
-        },
-        Node::Toggle {
-            id: ElementIdWire::Name("App/toggle".into()),
-            kind: ToggleKind::Switch,
-            label: "x".repeat(MAX_STRING_BYTES + 1),
-            checked: true,
-            on_toggle: None,
-            style: gpui::StyleRefinement::default(),
-        },
-    ]));
-    let Node::PickList {
-        options,
-        selected,
-        placeholder,
-        ..
-    } = &children[0]
-    else {
-        panic!("{:?}", children[0])
-    };
-    assert_eq!(options.len(), MAX_OPTIONS);
-    assert_eq!(*selected, None);
-    assert!(placeholder.as_ref().unwrap().len() <= MAX_STRING_BYTES);
-    let Node::Slider {
-        value,
-        min,
-        max,
-        step,
-        ..
-    } = &children[1]
-    else {
-        panic!("{:?}", children[1])
-    };
-    assert_eq!(
-        (*value, *min, *max, *step),
-        (0.0, f32::MIN, 1_000_000.0, f32::MAX)
-    );
-    let Node::Toggle { id, label, .. } = &children[2] else {
-        panic!("{:?}", children[2])
-    };
-    assert_eq!(id, &ElementIdWire::Name("App/toggle".into()));
-    assert!(label.len() <= MAX_STRING_BYTES);
-}
-
-/// A grid is bounded like a linear layout: its numbers are pulled into
-/// the pixel range and children past the node budget are dropped, not
-/// stood in for.
-#[test]
-fn a_container_is_pulled_into_range_and_cut_like_a_layout() {
-    let root = sanitized_root(Node::Container(crate::ContainerNode {
-        id: Some(ElementIdWire::Name("App/cells".into())),
-        style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
-        children: (0..MAX_NODES + 5).map(|_| text("x")).collect(),
-    }));
-    let Node::Container(crate::ContainerNode { children, .. }) = &root else {
-        panic!()
-    };
-    assert_eq!(children.len(), MAX_NODES - 1);
-    assert_eq!(root.count(), MAX_NODES);
-}
-
-#[test]
 fn svg_and_raster_images_share_the_frame_picture_budget() {
     let image = Node::Image {
         id: Some(ElementIdWire::Name("App/raster".into())),
@@ -183,8 +17,8 @@ fn svg_and_raster_images_share_the_frame_picture_budget() {
         loading: false,
         fallback: false,
         state_children: vec![],
-        style: gpui::StyleRefinement::default(),
-        interactivity: Interactivity::default(),
+        style: StyleId(0),
+        interactivity: Default::default(),
     };
     let mut frame = Frame {
         root: Some(column(vec![
@@ -193,7 +27,7 @@ fn svg_and_raster_images_share_the_frame_picture_budget() {
         ])),
         ..Frame::default()
     };
-    sanitize(&mut frame).unwrap();
+    sanitize_plain(&mut frame).unwrap();
     let children = frame.root.as_ref().unwrap().children();
     assert!(matches!(
         children[0],
@@ -223,7 +57,7 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
         loading: true,
         fallback: true,
         state_children: vec![text("loading"), text("fallback"), text("extra")],
-        style: Default::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
     };
     let svg = Node::Svg {
@@ -235,7 +69,7 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
             rotate: f32::NAN,
         },
         label: None,
-        style: Default::default(),
+        style: StyleId(0),
         interactivity: Default::default(),
     };
     let anchored = Node::Anchored {
@@ -324,14 +158,52 @@ fn a_frame_past_the_picture_budget_drops_whole_pictures_from_its_tail() {
     );
 }
 
+/// An aria field a view did not set costs no bytes: the default is the
+/// empty map, and one field set alone is a map of one.
 #[test]
-fn gpui_text_keeps_style_refinement_on_the_wire() {
-    let text = Node::Text(crate::TextNode {
-        id: Some(ElementIdWire::Name("text".into())),
-        style: gpui::StyleRefinement::default(),
-        content: "huge".into(),
-        heading: None,
-        live: None,
-    });
-    assert_eq!(decode::<Node>(&encode(&text)).unwrap(), text);
+fn an_unset_aria_field_sends_no_bytes() {
+    assert_eq!(encode(&Aria::default()), [0x80]);
+    let one_each = [
+        Aria {
+            live: Some(Live::Polite),
+            ..Default::default()
+        },
+        Aria {
+            busy: true,
+            ..Default::default()
+        },
+        Aria {
+            required: true,
+            ..Default::default()
+        },
+        Aria {
+            read_only: true,
+            ..Default::default()
+        },
+        Aria {
+            invalid: Some(Invalid::True),
+            ..Default::default()
+        },
+        Aria {
+            has_popup: Some(HasPopup::Menu),
+            ..Default::default()
+        },
+        Aria {
+            current: Some(AriaCurrent::False),
+            ..Default::default()
+        },
+        Aria {
+            actions: vec![(Action::Increment, 1)],
+            ..Default::default()
+        },
+        Aria {
+            custom_actions: vec![(1, "Pin".into())],
+            ..Default::default()
+        },
+    ];
+    for aria in one_each {
+        let bytes = encode(&aria);
+        assert_eq!(bytes[0], 0x81, "one key for {aria:?}");
+        assert_eq!(decode::<Aria>(&bytes).unwrap(), aria);
+    }
 }

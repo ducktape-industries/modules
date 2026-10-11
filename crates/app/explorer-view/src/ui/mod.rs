@@ -1,0 +1,724 @@
+//! The explorer's pages. Square corners, rows split by one-pixel rules,
+//! hashes and numbers in the data face.
+use std::ops::Range;
+
+use ducktape_view_guest::prelude::*;
+use ducktape_view_guest::{Div, FontWeight, Stateful};
+
+use crate::decode::{ago, clip, date, grouped, plural, short};
+use crate::{BlockRow, Explorer, Note, Route, TxRow};
+use design::{empty_state, mono};
+
+/// The most rows one list draws; the rest is reached by search.
+const LIST_ROWS: usize = 50;
+/// The rows each Overview panel draws.
+const LATEST: usize = 12;
+
+/// The bar's height, each line of it once the search wraps under the tabs, and a section heading's.
+const BAR_H: Pixels = px(44.);
+/// The search field grows to this; the tabs keep their room first.
+const SEARCH_W: Pixels = px(360.);
+/// The search field keeps this much of the bar: past it, it wraps under the tabs.
+const SEARCH_MIN_W: Pixels = px(160.);
+/// A list row's height, and a detail field's least.
+const ROW_H: Pixels = px(40.);
+/// The smallest box a pointer presses, each way (the door's AX-017).
+const PRESS_TARGET: Pixels = px(24.);
+/// The signer column.
+const SIGNER_W: Pixels = px(180.);
+/// A block list's height column.
+const HEIGHT_W: Pixels = px(72.);
+/// The age column: `59s`, `3h`.
+const AGE_W: Pixels = px(36.);
+/// A transaction row's outcome mark.
+const MARK: Pixels = px(6.);
+/// Each level a nested run steps in.
+const NEST_W: Pixels = px(20.);
+/// A transaction row's short hash.
+const HASH_W: Pixels = px(100.);
+/// A detail page's field labels.
+const LABEL_W: Pixels = px(110.);
+/// An operation's field labels.
+const OP_LABEL_W: Pixels = px(90.);
+/// The Accounts list's device count.
+const DEVICES_W: Pixels = px(90.);
+/// The Accounts list's transaction count.
+const COUNT_W: Pixels = px(60.);
+/// An account page's side column: devices and programs used.
+const SIDE_W: Pixels = px(380.);
+/// The Overview's latest blocks at their widest, beside the latest transactions.
+const LATEST_BLOCKS_W: Pixels = px(420.);
+/// The avatar an account page opens with.
+const PAGE_AVATAR: Pixels = px(40.);
+
+type Cx<'a, 'b> = &'a mut Context<'b, Explorer>;
+
+mod accounts;
+mod blocks;
+mod overview;
+mod programs;
+mod transactions;
+use accounts::{account, accounts};
+use blocks::{block, blocks};
+use overview::overview;
+use programs::programs;
+use transactions::{transactions, tx};
+
+pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
+    let theme = *cx.global::<Theme>();
+    let mut root = div()
+        .id("explorer")
+        .flex()
+        .flex_col()
+        .size_full()
+        .bg(theme.background)
+        .text_color(theme.foreground)
+        .text_size(design::text::BODY)
+        .child(bar(view, cx, &theme));
+    if let Some(note) = &view.note {
+        let note = worded(note);
+        root = root.child(
+            div()
+                .id("explorer-note")
+                .px_5()
+                .py_2()
+                .border_b_1()
+                .border_color(theme.border)
+                .bg(theme.surface)
+                .text_size(design::text::SECONDARY)
+                .text_color(theme.muted)
+                .child(note),
+        );
+    }
+    // A page scrolls, and the SDK keeps its right edge for the bar. The
+    // Transactions page is a heading over a list that scrolls for it
+    // ([`Rows::shown`]): the page is no scroller there, so the list reaches
+    // the pane's edge and the host draws its bar where the other pages' is.
+    let scroller = div().id("explorer-page").flex_1().flex().flex_col();
+    let scroller = match view.route {
+        Route::Transactions(_) => scroller.min_h(px(0.)),
+        _ => scroller.overflow_y_scroll(),
+    };
+    root.child(scroller.child(page(view, cx, &theme)))
+        .into_any_element()
+}
+
+/// The line under the bar, in words.
+fn worded(note: &Note) -> String {
+    match note {
+        Note::NotFound(query) => format!("Nothing here is called “{query}”."),
+        Note::NoSuchHash { blocks } => format!(
+            "No block has this hash, and no transaction in the last {} does.",
+            plural(*blocks, "block", "blocks")
+        ),
+        Note::Unlinked(route) => format!("This link names nothing the Explorer shows: {route}"),
+        Note::Copied => "Copied the link.".into(),
+        Note::Refused(message) => message.clone(),
+    }
+}
+
+fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
+    let tabs = [
+        ("overview", "Overview", Route::Overview),
+        ("blocks", "Blocks", Route::Blocks),
+        ("transactions", "Transactions", Route::Transactions(None)),
+        ("accounts", "Accounts", Route::Accounts),
+        ("programs", "Programs", Route::Programs),
+    ];
+    let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
+    let shown = view.route.tab();
+    let routes: Vec<Route> = tabs.iter().map(|(_, _, route)| route.clone()).collect();
+    let pressed = routes.clone();
+    let tabs = tabs.into_iter().map(|(key, label, route)| {
+        let active = shown == route.tab();
+        let go = cx
+            .listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
+        design::item(
+            design::tab(format!("explorer-tab-{key}"), label, active, theme, go)
+                .h_full()
+                .mx_1(),
+            Role::Tab,
+            active,
+        )
+    });
+    // on a narrow window the search wraps under the tabs, a line of its own
+    div()
+        .id("explorer-bar")
+        .w_full()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_between()
+        .px_3()
+        .border_b_1()
+        .border_color(theme.border)
+        .child(
+            // one Tab stop; ← → open the next tab's page as it was left (a
+            // click, or Enter or Space on the active tab, opens its list)
+            design::composite("explorer-tabs", Role::TabList, "Pages")
+                .orientation(design::Orientation::Horizontal)
+                .wrap()
+                .active(shown, routes.len())
+                .on_move(
+                    cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
+                        let page = view.left[index].clone();
+                        view.go(page.unwrap_or_else(|| routes[index].clone()), cx)
+                    }),
+                )
+                .on_press(
+                    cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
+                        view.go(pressed[index].clone(), cx)
+                    }),
+                )
+                .build()
+                .h(BAR_H)
+                .flex()
+                .items_center()
+                .children(tabs),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(SEARCH_MIN_W)
+                .max_w(SEARCH_W)
+                .h(BAR_H)
+                .flex()
+                .items_center()
+                .child(
+                    Input::new("explorer-search", &view.search, "Search the chain")
+                        .w_full()
+                        .h(design::size::CONTROL)
+                        .px_2()
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.background)
+                        .text_size(design::text::SECONDARY)
+                        .placeholder("Search by height, hash, account or program")
+                        .on_submit(submit),
+                ),
+        )
+}
+
+fn page(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
+    if view.chain.blocks.is_empty() && !matches!(view.route, Route::Programs | Route::Accounts) {
+        return match &view.chain.failed {
+            Some(sentence) => failed(sentence, cx, theme),
+            None => quiet("explorer-loading", "Reading the chain…", theme),
+        };
+    }
+    match view.route.clone() {
+        Route::Overview => overview(view, cx, theme),
+        Route::Blocks => blocks(view, cx, theme),
+        Route::Block(height) => block(view, height, cx, theme),
+        Route::Transactions(program) => transactions(view, program, cx, theme),
+        Route::Tx(hash) => tx(view, &hash, cx, theme),
+        Route::Accounts => accounts(view, cx, theme),
+        Route::Account(number) => account(view, number, cx, theme),
+        Route::Programs => programs(view, cx, theme),
+    }
+}
+
+// ---------- pieces ----------
+
+fn quiet(id: &'static str, text: impl Into<SharedString>, theme: &Theme) -> AnyElement {
+    design::quiet(text, theme)
+        .id(id)
+        .px_5()
+        .py_4()
+        .into_any_element()
+}
+
+fn failed(sentence: &str, cx: Cx, theme: &Theme) -> AnyElement {
+    let retry = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.read_all(cx));
+    design::refused("explorer", sentence.to_owned(), theme, retry)
+        .m_5()
+        .into_any_element()
+}
+
+/// A section's title row: its name, then what sits on its right.
+fn heading(id: &str, title: &str, right: Option<AnyElement>, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(id.to_string()))
+        .flex()
+        .items_center()
+        .gap_3()
+        .h(BAR_H)
+        .px_5()
+        .border_b_1()
+        .border_color(theme.border)
+        .child(design::heading(format!("{id}-title"), title.to_owned(), 2, theme).flex_1())
+        .children(right)
+}
+
+fn caption(text: impl Into<SharedString>, theme: &Theme) -> AnyElement {
+    mono(text)
+        .text_size(design::text::CAPTION)
+        .text_color(theme.muted)
+        .into_any_element()
+}
+
+/// A link that goes somewhere inside the explorer, in a box no smaller
+/// than [`PRESS_TARGET`] with the text centred down it.
+fn link(id: String, text: String, route: Route, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let go =
+        cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
+    div()
+        .id(SharedString::from(id))
+        .min_w(PRESS_TARGET)
+        .min_h(PRESS_TARGET)
+        .flex()
+        .items_center()
+        .text_color(theme.link)
+        .hover(|s| s.underline())
+        .role(Role::Link)
+        .focusable()
+        .on_click(go)
+        .child(text)
+}
+
+/// A clickable row of a list: an option of the [`Rows`] it goes in, which
+/// holds the focus and the arrows; nothing is ever selected, the press
+/// navigates.
+fn row(id: ElementId, label: String, route: Route, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let go =
+        cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap_4()
+        .w_full()
+        .h(ROW_H)
+        .px_5()
+        .border_b_1()
+        .border_color(theme.border)
+        .hover(|s| s.bg(theme.hover))
+        .aria_label(label)
+        .aria_selected(false)
+        .on_click(go)
+}
+
+/// A list of [`row`]s: one Tab stop, ↑ ↓ walk the rows, Home/End reach the
+/// ends, Enter opens the active row. The active row is the view's cursor in
+/// this list, else the first. Rows handed over built ([`Rows::row`]) are
+/// drawn whole, with notes (a run of empty blocks) between them unroled;
+/// rows the list paints when asked ([`Rows::shown`]) are drawn as a
+/// `uniform_list` that scrolls for its page: the screenful the host shows
+/// and a margin, scrolled to the row the arrows move to ahead of the frame
+/// that claims it.
+struct Rows {
+    id: &'static str,
+    label: &'static str,
+    active: usize,
+    scroll: UniformListScrollHandle,
+    routes: Vec<Route>,
+    children: Vec<AnyElement>,
+    paint: Option<Painter>,
+}
+
+/// Paints a range of a list's rows, each a [`row`], off the view they are
+/// read from: the host asks for a window at a time.
+type Painter = Box<dyn Fn(&Explorer, Range<usize>, Cx, &Theme) -> Vec<Stateful<Div>>>;
+
+fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
+    let active = match view.cursor {
+        Some((list, index)) if list == id => index,
+        _ => 0,
+    };
+    Rows {
+        id,
+        label,
+        active,
+        scroll: view.scroll.clone(),
+        routes: Vec::new(),
+        children: Vec::new(),
+        paint: None,
+    }
+}
+
+/// A row as its list's option: roled, and the claim when it is the active
+/// one.
+fn option(row: Stateful<Div>, active: bool, theme: &Theme) -> AnyElement {
+    design::item(row, Role::ListBoxOption, active)
+        .when(active, |row| row.bg(theme.surface_raised))
+        .into_any_element()
+}
+
+impl Rows {
+    fn row(mut self, route: Route, row: Stateful<Div>, theme: &Theme) -> Self {
+        let active = self.routes.len() == self.active;
+        self.routes.push(route);
+        self.children.push(option(row, active, theme));
+        self
+    }
+    fn note(mut self, note: impl IntoElement) -> Self {
+        self.children.push(note.into_any_element());
+        self
+    }
+    /// `routes.len()` rows the host asks for by index, painted as it shows
+    /// them. They scroll for their page, which is no scroller then
+    /// ([`render`]): the list reaches the pane's edge, where the host keeps
+    /// the bar's gutter beside the rows, as a page that scrolls is given
+    /// one.
+    fn shown(
+        mut self,
+        routes: Vec<Route>,
+        paint: impl Fn(&Explorer, Range<usize>, Cx, &Theme) -> Vec<Stateful<Div>> + 'static,
+    ) -> Self {
+        self.routes = routes;
+        self.paint = Some(Box::new(paint));
+        self
+    }
+    /// The painted rows built now, drawn whole: for a list in a page that
+    /// scrolls (the Overview's panels, a block's transactions, an account's
+    /// activity), which is laid out by its rows; a list sized by its box
+    /// has no size of its own to give.
+    fn whole(mut self, view: &Explorer, cx: Cx, theme: &Theme) -> Self {
+        if let Some(paint) = self.paint.take() {
+            let rows = paint(view, 0..self.routes.len(), cx, theme);
+            let active = self.active;
+            self.children.extend(
+                rows.into_iter()
+                    .enumerate()
+                    .map(|(index, row)| option(row, index == active, theme)),
+            );
+        }
+        self
+    }
+    fn build(self, cx: Cx) -> Stateful<Div> {
+        let Self {
+            id,
+            label,
+            active,
+            scroll,
+            routes,
+            children,
+            paint,
+        } = self;
+        let count = routes.len();
+        let active = active.min(count.saturating_sub(1));
+        let mut list = design::composite(id, Role::ListBox, label).active(active, count);
+        if paint.is_some() {
+            list = list.track_scroll(&scroll);
+        }
+        let list = list
+            .on_move(
+                cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
+                    view.cursor = Some((id, index));
+                    cx.notify();
+                }),
+            )
+            .on_press(
+                cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
+                    view.go(routes[index].clone(), cx)
+                }),
+            )
+            .build()
+            .children(children);
+        let Some(paint) = paint else {
+            return list;
+        };
+        let theme = *cx.global::<Theme>();
+        let window = uniform_list(
+            SharedString::from(format!("{id}-rows")),
+            count,
+            cx.processor(move |view: &mut Explorer, range: Range<usize>, _, cx| {
+                paint(view, range.clone(), cx, &theme)
+                    .into_iter()
+                    .zip(range)
+                    .map(|(row, index)| option(row, index == active, &theme))
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&scroll)
+        .flex_1()
+        .min_h(px(0.));
+        list.flex_1().min_h(px(0.)).flex().flex_col().child(window)
+    }
+}
+
+/// Who signed: the account holding the key, or the key itself.
+fn signer(view: &Explorer, key: &[u8], theme: &Theme) -> impl IntoElement {
+    let (name, number) = match view.holder(key) {
+        Some((account, _)) => (account.card.name.clone(), Some(account.number)),
+        None => (short(key), None),
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .w(SIGNER_W)
+        .flex_shrink_0()
+        .child(design::avatar(&name, design::size::AVATAR, theme))
+        .child(div().truncate().child(name))
+        .children(number.map(|number| {
+            mono(format!("#{number}"))
+                .text_size(design::text::CAPTION)
+                .text_color(theme.faint)
+        }))
+}
+
+fn block_row(block: &BlockRow, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let id = SharedString::from(format!("explorer-block-{}", block.height)).into();
+    row(
+        id,
+        format!("Block {}", block.height),
+        Route::Block(block.height),
+        cx,
+        theme,
+    )
+    .when(block.txs == 0, |row| row.text_color(theme.faint))
+    .child(
+        mono(grouped(block.height))
+            .w(HEIGHT_W)
+            .when(block.txs > 0, |height| {
+                height.font_weight(FontWeight::SEMIBOLD)
+            }),
+    )
+    .child(mono(short(&block.id)).flex_1().text_color(theme.muted))
+    .child(
+        div()
+            .text_color(theme.muted)
+            .child(format!("{} tx", block.txs)),
+    )
+    .child(
+        mono(ago(now, block.time))
+            .w(AGE_W)
+            .flex()
+            .justify_end()
+            .text_color(theme.faint),
+    )
+}
+
+/// One line of a block list: a block, or a run of empty ones.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Line<'a> {
+    Block(&'a BlockRow),
+    /// consecutive blocks with no transaction, `oldest..=newest`
+    Empty {
+        newest: u64,
+        oldest: u64,
+    },
+}
+
+/// `blocks` (newest first) as at most `rows` lines, each run of two or more
+/// empty blocks folded into one, so the list reaches back past quiet
+/// stretches as far as the window holds.
+pub(crate) fn lines(blocks: &[BlockRow], rows: usize) -> Vec<Line<'_>> {
+    let mut lines = Vec::new();
+    let mut at = 0;
+    while at < blocks.len() && lines.len() < rows {
+        let run = blocks[at..]
+            .iter()
+            .take_while(|block| block.txs == 0)
+            .count();
+        if run >= 2 {
+            let (newest, oldest) = (blocks[at].height, blocks[at + run - 1].height);
+            lines.push(Line::Empty { newest, oldest });
+            at += run;
+        } else {
+            lines.push(Line::Block(&blocks[at]));
+            at += 1;
+        }
+    }
+    lines
+}
+
+fn block_lines(
+    list: Rows,
+    blocks: &[BlockRow],
+    rows: usize,
+    now: u64,
+    cx: Cx,
+    theme: &Theme,
+) -> Rows {
+    lines(blocks, rows)
+        .into_iter()
+        .fold(list, |list, line| match line {
+            Line::Block(block) => list.row(
+                Route::Block(block.height),
+                block_row(block, now, cx, theme),
+                theme,
+            ),
+            Line::Empty { newest, oldest } => list.note(
+                div()
+                    .id(SharedString::from(format!("explorer-empty-{newest}")))
+                    .flex()
+                    .items_center()
+                    .h(ROW_H)
+                    .px_5()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .text_color(theme.faint)
+                    .child(mono(format!(
+                        "{}–{} · {} empty blocks",
+                        grouped(oldest),
+                        grouped(newest),
+                        grouped(newest - oldest + 1)
+                    ))),
+            ),
+        })
+}
+
+/// `tx_row`s as a [`Rows`] list. `select` picks the transactions, in
+/// order, off the view: once here for their routes, and again for each
+/// window the host asks for, since a row borrows the view it is read from.
+fn tx_rows(
+    list: Rows,
+    view: &Explorer,
+    select: impl Fn(&Explorer) -> Vec<&TxRow> + 'static,
+    height: bool,
+    who: bool,
+) -> Rows {
+    let routes = select(view).iter().map(|tx| Route::Tx(tx.hash)).collect();
+    list.shown(routes, move |view, range, cx, theme| {
+        let txs = select(view);
+        range
+            .map(|index| tx_row(view, txs[index], height, who, cx, theme))
+            .collect()
+    })
+}
+
+/// Its id is its place on the chain, which a frame the node landed again
+/// (the same hash) does not share; `height` adds the block column; `who` the signer column, which an account's own activity leaves
+/// out.
+fn tx_row(
+    view: &Explorer,
+    tx: &TxRow,
+    height: bool,
+    who: bool,
+    cx: Cx,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let id = SharedString::from(format!("explorer-tx-{}-{}", tx.height, tx.index));
+    let now = view.chain.now();
+    view.describe(tx, cx);
+    // empty until the host answers: the program column already says whose
+    let title = tx.op().map(|op| clip(&op.title)).unwrap_or_default();
+    let (word, mark) = match &tx.receipt {
+        Some(run) => {
+            let (word, color, _) = outcome(run, theme);
+            (word, Some(color))
+        }
+        None => ("", None),
+    };
+    // what, where, how it ran, then the short hash drawn first on the row:
+    // the one part two like transactions never share
+    let hash = short(&tx.hash);
+    let label = [title.as_str(), word, &hash]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mark = div().size(MARK).flex_shrink_0().children(mark.map(|color| {
+        div()
+            .id(SharedString::from(format!(
+                "explorer-tx-mark-{}",
+                abi::hex(&tx.hash)
+            )))
+            .size_full()
+            .bg(color)
+    }));
+    row(ElementId::Name(id), label, Route::Tx(tx.hash), cx, theme)
+        .child(mark)
+        .child(mono(hash).w(HASH_W).text_color(theme.muted))
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .gap_2()
+                .overflow_hidden()
+                .child(
+                    mono(tx.target.clone())
+                        .text_size(design::text::CAPTION)
+                        .text_color(theme.muted),
+                )
+                .child(div().truncate().child(title)),
+        )
+        .children(who.then(|| signer(view, &tx.signer, theme)))
+        .children(height.then(|| mono(grouped(tx.height)).text_color(theme.muted)))
+        .child(
+            mono(ago(now, tx.time))
+                .w(AGE_W)
+                .flex()
+                .justify_end()
+                .text_color(theme.faint),
+        )
+}
+
+/// A run's outcome in a word, its colour and its soft background.
+fn outcome(run: &Receipt, theme: &Theme) -> (&'static str, Hsla, Hsla) {
+    match run.outcome {
+        Outcome::Applied { .. } => ("Accepted", theme.success, theme.success_soft),
+        Outcome::Rejected(_) => ("Rejected", theme.danger, theme.danger_soft),
+    }
+}
+
+/// A label and its value, one row of a detail page.
+fn field(label: &str, value: impl IntoElement, theme: &Theme) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .min_h(ROW_H)
+        .px_5()
+        .gap_4()
+        .border_b_1()
+        .border_color(theme.border)
+        .child(
+            mono(label.to_string())
+                .w(LABEL_W)
+                .flex_shrink_0()
+                .text_color(theme.muted),
+        )
+        .child(value)
+}
+
+fn titled(kind: &str, title: String, theme: &Theme) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .px_5()
+        .py_4()
+        .child(
+            mono(kind.to_string())
+                .text_size(design::text::CAPTION)
+                .text_color(theme.muted),
+        )
+        .child(
+            div()
+                .id("explorer-title")
+                .text_size(design::text::TITLE)
+                .role(Role::Heading)
+                .aria_level(1)
+                .child(title),
+        )
+}
+
+/// "Copy link": this page's `duck://<chain>/explorer/…` link, onto the
+/// clipboard. Absent while the session names no chain.
+fn copy_button(view: &Explorer, route: &Route, cx: Cx, theme: &Theme) -> Option<AnyElement> {
+    let link = view.link(route)?;
+    let copy = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
+        view.copy_link(link.clone(), cx)
+    });
+    Some(
+        div()
+            .id("explorer-copy-link")
+            .px_3()
+            .h(design::size::CONTROL)
+            .flex()
+            .items_center()
+            .border_1()
+            .border_color(theme.border)
+            .text_size(design::text::SECONDARY)
+            .text_color(theme.muted)
+            .hover(|s| s.bg(theme.hover).text_color(theme.foreground))
+            .role(Role::Button)
+            .focusable()
+            .on_click(copy)
+            .child("Copy link")
+            .into_any_element(),
+    )
+}

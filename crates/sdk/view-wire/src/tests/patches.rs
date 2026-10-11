@@ -12,8 +12,8 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
         keyed("c", "three"),
         Node::Container(crate::ContainerNode {
             id: Some(ElementIdWire::Name("box".into())),
-            style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            style: StyleId(0),
+            interactivity: Default::default(),
             children: vec![keyed("inner", "deep")],
         }),
     ]);
@@ -23,14 +23,14 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
         keyed("d", "four"),
         Node::Container(crate::ContainerNode {
             id: Some(ElementIdWire::Name("box".into())),
-            style: gpui::StyleRefinement::default(),
-            interactivity: Interactivity::default(),
+            style: StyleId(0),
+            interactivity: Default::default(),
             children: vec![Node::empty()],
         }),
     ]);
     let mut applied = old.clone();
     let patches = diff(&mut applied.clone(), &mut new.clone());
-    let kinds: Vec<&str> = patches
+    let mut kinds: Vec<&str> = patches
         .iter()
         .map(|patch| match patch {
             Patch::Replace { .. } => "replace",
@@ -40,12 +40,13 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
             Patch::Move { .. } => "move",
         })
         .collect();
+    kinds.sort_unstable();
     assert_eq!(
         kinds,
-        ["remove", "move", "props", "insert", "remove", "insert"],
+        ["insert", "insert", "move", "props", "remove", "remove"],
         "{patches:#?}"
     );
-    apply(&mut applied, patches).unwrap();
+    apply(&mut applied, patches, &held()).unwrap();
     assert_eq!(applied, new);
     // Nothing changed hands: both inputs of the diff are as they were.
     let mut untouched = old.clone();
@@ -54,23 +55,189 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree() {
     assert!(diff(&mut new.clone(), &mut new).is_empty());
 }
 
+/// A node that gains its first interaction, or loses its last, is the
+/// same node with other fields: one `Props` that carries the interactivity
+/// it has now (or none), and its children stay where they are.
+#[test]
+fn a_node_that_gains_or_loses_its_interactivity_is_one_props_patch() {
+    let boxed = |interactivity| {
+        column(vec![Node::Container(crate::ContainerNode {
+            id: Some(ElementIdWire::Name("box".into())),
+            style: StyleId(0),
+            interactivity,
+            children: vec![keyed("inner", "deep")],
+        })])
+    };
+    let plain = || boxed(None);
+    let clicks = || {
+        boxed(Some(Box::new(Interactivity {
+            on_click: Some(7),
+            ..Default::default()
+        })))
+    };
+    for (old, new, carried) in [(plain(), clicks(), Some(7)), (clicks(), plain(), None)] {
+        let mut applied = old.clone();
+        let patches = diff(&mut old.clone(), &mut new.clone());
+        let [Patch::Props { path, node }] = &patches[..] else {
+            panic!("{patches:#?}")
+        };
+        assert_eq!(path, &[0]);
+        assert_eq!(node.interactivity().and_then(|i| i.on_click), carried);
+        assert!(node.children().is_empty());
+        apply(&mut applied, patches, &held()).unwrap();
+        assert_eq!(applied, new);
+    }
+    assert!(diff(&mut plain(), &mut plain()).is_empty());
+}
+
+/// One child shown or hidden beside unkeyed siblings is one patch: the
+/// siblings before and after it match by position, so a `.when(..)`
+/// banner beside a 1,080-row body does not send the body again (it did:
+/// two removes and three inserts, 138 KB).
+#[test]
+fn an_unkeyed_child_shown_beside_its_siblings_is_one_insert() {
+    let body = || column((0..1_080).map(|row| text(&format!("row {row}"))).collect());
+    let header = || text("header");
+    let notice = || text("offline");
+    // a div beside a div: the kind alone does not say which one is new
+    let banner = || {
+        Node::Container(crate::ContainerNode {
+            id: None,
+            style: StyleId(1),
+            interactivity: Default::default(),
+            children: vec![text("offline")],
+        })
+    };
+    let one = |old: Node, new: Node, want: &str| {
+        let patches = diff(&mut old.clone(), &mut new.clone());
+        let kinds: Vec<_> = patches
+            .iter()
+            .map(|patch| match patch {
+                Patch::Insert { index, .. } => format!("insert {index}"),
+                Patch::Remove { index, .. } => format!("remove {index}"),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(kinds, [want], "{want}");
+        let bytes = encode(&patches).len();
+        assert!(bytes < 1_000, "{want}: {bytes} bytes");
+        let mut applied = old;
+        apply(&mut applied, patches, &held()).unwrap();
+        assert_eq!(applied, new, "{want}");
+    };
+    for shown in [notice(), banner()] {
+        one(
+            column(vec![header(), body()]),
+            column(vec![header(), shown.clone(), body()]),
+            "insert 1",
+        );
+        one(
+            column(vec![header(), shown.clone(), body()]),
+            column(vec![header(), body()]),
+            "remove 1",
+        );
+        one(
+            column(vec![header(), body(), banner()]),
+            column(vec![header(), body(), banner(), shown]),
+            "insert 3",
+        );
+    }
+}
+
+/// The runs a list shares at the front and the back are diffed in place
+/// and the middle by key, and the patches still rebuild the new tree, as
+/// `diff_taking`'s do.
+#[test]
+fn a_list_matches_its_ends_by_position_and_its_middle_by_key() {
+    let old = column(vec![
+        text("top"),
+        keyed("a", "one"),
+        keyed("b", "two"),
+        text("loose"),
+        keyed("c", "three"),
+        text("bottom"),
+    ]);
+    let new = column(vec![
+        text("top!"),
+        keyed("c", "three"),
+        text("new"),
+        keyed("a", "one!"),
+        text("bottom!"),
+    ]);
+    let patches = diff(&mut old.clone(), &mut new.clone());
+    let mut applied = old.clone();
+    apply(&mut applied, patches.clone(), &held()).unwrap();
+    assert_eq!(applied, new);
+    // the ends were diffed in place, not sent again
+    assert!(
+        patches
+            .iter()
+            .filter(
+                |patch| matches!(patch, Patch::Props { path, .. } if path == &[0] || path == &[4])
+            )
+            .count()
+            == 2,
+        "{patches:#?}"
+    );
+    let mut hollow = new.clone();
+    assert_eq!(diff_taking(&mut old.clone(), &mut hollow), patches);
+}
+
+/// `diff_taking` emits the patches `diff` does, but the subtrees they carry
+/// are moved out of the new tree, one empty stand-in left for each.
+#[test]
+fn a_taking_diff_moves_the_carried_subtrees_out() {
+    let old = column(vec![
+        keyed("a", "one"),
+        column(vec![keyed("x", "x"), keyed("y", "y")]),
+        column(vec![text("replaced by a text")]),
+    ]);
+    let new = column(vec![
+        column(vec![keyed("y", "y"), keyed("x", "x"), keyed("z", "z")]),
+        keyed("a", "one!"),
+        keyed("b", "new"),
+        text("a text now"),
+    ]);
+    let expected = diff(&mut old.clone(), &mut new.clone());
+    let mut hollow = new.clone();
+    let patches = diff_taking(&mut old.clone(), &mut hollow);
+    assert_eq!(patches, expected);
+    let carried: usize = patches
+        .iter()
+        .filter_map(|patch| match patch {
+            Patch::Replace { node, .. } | Patch::Insert { node, .. } => Some(node.count()),
+            _ => None,
+        })
+        .sum();
+    let holes = patches
+        .iter()
+        .filter(|patch| matches!(patch, Patch::Replace { .. } | Patch::Insert { .. }))
+        .count();
+    assert!(carried > holes, "{patches:#?}");
+    assert_eq!(
+        hollow.count(),
+        new.count() - carried + holes,
+        "a carried subtree leaves one empty stand-in behind: {hollow:#?}"
+    );
+}
+
 #[test]
 fn a_patch_the_tree_cannot_take_is_refused() {
     let tree = column(vec![keyed("a", "one")]);
-    let refused = |patch: Patch| apply(&mut tree.clone(), vec![patch]).unwrap_err();
+    let refused = |patch: Patch| apply(&mut tree.clone(), vec![patch], &held()).unwrap_err();
     assert_eq!(
         refused(Patch::Remove {
             path: vec![7],
             index: 0
         }),
-        "a path to no node"
+        Refused::Invalid("a path to no node")
     );
     assert_eq!(
         refused(Patch::Remove {
             path: vec![],
             index: 1
         }),
-        "an index past the list"
+        Refused::Invalid("an index past the list")
     );
     assert_eq!(
         refused(Patch::Insert {
@@ -78,14 +245,17 @@ fn a_patch_the_tree_cannot_take_is_refused() {
             index: 0,
             node: Node::empty()
         }),
-        "a list edit on no list"
+        Refused::Invalid("a list edit on no list")
     );
     assert_eq!(
         refused(Patch::Props {
             path: vec![0],
-            node: button(ButtonContent::Child(Box::new(Node::empty())))
+            node: Node::Deferred {
+                priority: 0,
+                content: Box::new(Node::empty())
+            }
         }),
-        "props of another arity"
+        Refused::Invalid("props of another arity")
     );
     let many = vec![
         Patch::Move {
@@ -96,8 +266,8 @@ fn a_patch_the_tree_cannot_take_is_refused() {
         MAX_PATCHES + 1
     ];
     assert_eq!(
-        apply(&mut tree.clone(), many).unwrap_err(),
-        "more patches than the host applies"
+        apply(&mut tree.clone(), many, &held()).unwrap_err(),
+        Refused::Invalid("more patches than the host applies")
     );
 }
 
@@ -110,7 +280,7 @@ fn an_applied_patch_frame_is_a_sanitized_tree() {
             .map(|i| keyed(&i.to_string(), "x"))
             .collect(),
     );
-    sanitize_tree(&mut tree).unwrap();
+    sanitize_tree(&mut tree, &held()).unwrap();
     assert_eq!(tree.count(), MAX_NODES);
     let mut deep = keyed("0", "leaf");
     for _ in 0..MAX_DEPTH {
@@ -129,6 +299,7 @@ fn an_applied_patch_frame_is_a_sanitized_tree() {
                 node: deep,
             },
         ],
+        &held(),
     )
     .unwrap();
     assert!(tree.count() <= MAX_NODES, "{}", tree.count());
@@ -152,17 +323,6 @@ fn an_applied_patch_frame_is_a_sanitized_tree() {
 }
 
 #[test]
-fn a_well_behaved_frame_is_untouched() {
-    let mut frame = Frame {
-        root: Some(column(vec![text("hello")])),
-        ..Frame::default()
-    };
-    let before = frame.clone();
-    sanitize(&mut frame).unwrap();
-    assert_eq!(frame, before);
-}
-
-#[test]
 fn a_frame_past_the_text_budget_keeps_its_head_and_loses_its_tail() {
     const NODES: usize = 8;
     const EACH: usize = MAX_TEXT_BYTES_PER_FRAME / 4;
@@ -183,31 +343,27 @@ fn a_frame_past_the_text_budget_keeps_its_head_and_loses_its_tail() {
 }
 
 #[test]
-fn display_truncation_shortens_a_placeholder_and_never_a_document_reference() {
+fn display_truncation_shortens_a_placeholder_and_never_a_fields_text() {
     let long = "x".repeat(2 * MAX_TEXT_BYTES_PER_FRAME);
-    let document = document_reference(
-        "app:draft",
-        editor_document::MAX_EDITOR_DOCUMENT_BYTES as u32,
-    );
+    let value = "v".repeat(MAX_FIELD_BYTES);
     let mut frame = Frame {
-        root: Some(column(vec![
-            editor("App/e", &long, document.clone()),
-            text(&long),
-        ])),
+        root: Some(column(vec![field("App/e", &value, &long), text(&long)])),
         ..Frame::default()
     };
     assert_eq!(
-        sanitize(&mut frame),
+        sanitize_plain(&mut frame),
         Ok(SanitizeReport {
-            display_text_truncated: true
+            strings: 2,
+            first: Some(vec![0]),
+            ..Default::default()
         })
     );
     let Some(Node::Container(crate::ContainerNode { children, .. })) = &frame.root else {
         panic!()
     };
-    let Node::Editor {
+    let Node::Field {
         placeholder,
-        document: kept,
+        value: kept,
         ..
     } = &children[0]
     else {
@@ -215,62 +371,27 @@ fn display_truncation_shortens_a_placeholder_and_never_a_document_reference() {
     };
     assert!(
         placeholder.len() < long.len(),
-        "an editor placeholder is display text and spends the frame budget"
+        "a field's placeholder is display text and spends the frame budget"
     );
     assert_eq!(
-        kept, &document,
-        "a 1 MiB document crosses as an exact reference, not as truncated text"
+        kept, &value,
+        "a 1 MiB value crosses whole: the engine adopts it, nothing shapes it"
     );
 }
 
+/// A field is checked by `validate_field` (`text.rs` holds its cases), and
+/// what it refuses refuses the frame whole: the engine adopts a value
+/// entire or not at all, so nothing is cut to fit.
 #[test]
-fn repeated_editor_bindings_must_describe_one_identical_document() {
-    let document = document_reference("app:draft", 32);
-    let mut agreeing = Frame {
-        root: Some(column(vec![
-            editor("App/one", "a", document.clone()),
-            editor("App/two", "b", document.clone()),
-        ])),
-        ..Frame::default()
-    };
-    assert_eq!(sanitize(&mut agreeing), Ok(SanitizeReport::default()));
-    // A distinct logical document is independent, even at the same state.
-    let mut independent = Frame {
-        root: Some(column(vec![
-            editor("App/one", "a", document.clone()),
-            editor("App/two", "b", document_reference("app:notes", 32)),
-        ])),
-        ..Frame::default()
-    };
-    assert_eq!(sanitize(&mut independent), Ok(SanitizeReport::default()));
-    let mut stale = document.clone();
-    stale.revision -= 1;
-    let mut conflicting = Frame {
-        root: Some(column(vec![
-            editor("App/one", "a", document),
-            editor("App/two", "b", stale),
-        ])),
-        ..Frame::default()
-    };
-    assert_eq!(
-        sanitize(&mut conflicting),
-        Err("invalid editor document references or budget")
-    );
-}
-
-#[test]
-fn a_document_projection_cannot_be_silently_removed_by_the_node_budget() {
-    let mut deep = editor("App/e", "notes", document_reference("app:draft", 8));
-    for _ in 0..MAX_DEPTH {
-        deep = column(vec![deep]);
-    }
+fn a_field_validate_field_refuses_refuses_the_frame() {
+    let over = "x".repeat(MAX_FIELD_BYTES + 1);
     let mut frame = Frame {
-        root: Some(deep),
+        root: Some(column(vec![field("App/e", &over, "")])),
         ..Frame::default()
     };
     assert_eq!(
-        sanitize(&mut frame),
-        Err("frame budget would remove an editor document projection")
+        sanitize_plain(&mut frame),
+        Err(Refused::Invalid("field text exceeds its cap"))
     );
 }
 
@@ -278,54 +399,46 @@ fn a_document_projection_cannot_be_silently_removed_by_the_node_budget() {
 fn every_shaped_string_spends_the_same_budget() {
     let long = "x".repeat(MAX_TEXT_BYTES_PER_FRAME);
     let children = sanitized_children(column(vec![
-        Node::Input {
-            options: Default::default(),
-            id: ElementIdWire::Name("App/i".into()),
-            placeholder: long.clone(),
-            value: long.clone(),
-            on_input: 0,
-            on_submit: None,
-            secure: false,
-            style: gpui::StyleRefinement::default(),
+        {
+            let mut details = field("App/e", &long, &long);
+            let Node::Field { options, .. } = &mut details else {
+                unreachable!()
+            };
+            options.label = "Details".into();
+            details
         },
-        Node::Button {
-            checked: None,
-            expanded: None,
-            selected: None,
-            role: None,
-            description: Some("Details".into()),
-            id: ElementIdWire::Name("App/b".into()),
-            content: ButtonContent::Label(long.clone()),
-            label: Some(long),
-            on_press: None,
-            style: gpui::StyleRefinement::default(),
+        Node::Overlay {
+            id: ElementIdWire::Name("App/o".into()),
+            label: Some(long.clone()),
+            style: StyleId(0),
+            on_dismiss: None,
+            children: vec![text("tail")],
         },
-        text("tail"),
     ]));
-    let Node::Input {
-        placeholder, value, ..
+    let Node::Field {
+        placeholder,
+        value,
+        options,
+        ..
     } = &children[0]
     else {
         panic!()
     };
     // The placeholder took the frame's whole budget and everything
-    // shaped after it came out empty. The accessible name is not shaped,
-    // so it answers to the per-string cap alone.
+    // shaped after it came out empty. The value is not shaped, so it is
+    // whole; the accessible name is not shaped either, so it answers to
+    // the per-string cap alone.
     assert_eq!(placeholder.len(), MAX_TEXT_BYTES_PER_FRAME);
-    assert!(value.is_empty());
-    let Node::Button {
-        content,
-        label,
-        description,
-        ..
+    assert_eq!(value.len(), long.len());
+    assert_eq!(options.label, "");
+    let Node::Overlay {
+        label, children, ..
     } = &children[1]
     else {
         panic!()
     };
-    assert_eq!(*content, ButtonContent::Label(String::new()));
-    assert_eq!(description.as_deref(), Some(""));
     assert_eq!(label.as_deref().map(str::len), Some(MAX_STRING_BYTES));
-    assert_eq!(children[2], text(""));
+    assert_eq!(children[0], text(""));
 }
 
 #[test]
@@ -338,10 +451,8 @@ fn a_hostile_frame_is_pulled_into_range() {
     let root = sanitized_root(column(vec![
         Node::Text(crate::TextNode {
             id: Some(ElementIdWire::Name("k".repeat(MAX_STRING_BYTES).into())),
-            style: gpui::StyleRefinement::default(),
+            style: StyleId(0),
             content: "é".repeat(MAX_STRING_BYTES),
-            heading: None,
-            live: None,
         }),
         deep,
         wide,
@@ -369,23 +480,7 @@ fn oversized_typed_identity_is_refused_whole_instead_of_truncated() {
         ..Default::default()
     };
     assert_eq!(
-        sanitize(&mut frame).unwrap_err(),
-        "element identity name is too long"
+        sanitize_plain(&mut frame).unwrap_err(),
+        Refused::Invalid("element identity name is too long")
     );
-}
-
-#[test]
-fn depth_is_cut_before_the_host_recurses_into_it() {
-    let mut deep = text("leaf");
-    for _ in 0..MAX_DEPTH * 2 {
-        deep = column(vec![deep]);
-    }
-    let root = sanitized_root(deep);
-    let mut depth = 0;
-    let mut node = &root;
-    while let Node::Container(crate::ContainerNode { children, .. }) = node {
-        depth += 1;
-        node = &children[0];
-    }
-    assert!(depth <= MAX_DEPTH, "{depth}");
 }

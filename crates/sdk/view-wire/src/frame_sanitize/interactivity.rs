@@ -1,38 +1,38 @@
 use super::*;
 
-pub(super) fn sanitize_interactivity(interactivity: &mut Interactivity) {
-    interactivity.window_control_area = None;
+pub(super) fn sanitize_interactivity(
+    interactivity: &mut Interactivity,
+    budgets: &Budgets,
+) -> Result<(), &'static str> {
     interactivity.aria.sanitize();
-    for style in [
-        &mut interactivity.focus,
-        &mut interactivity.in_focus,
-        &mut interactivity.focus_visible,
-    ]
-    .into_iter()
-    .flatten()
+    interactivity.role = crate::aria::view_role(interactivity.role);
+    let aria = &mut interactivity.aria;
+    if interactivity.role == Some(gpui::Role::Heading)
+        && aria.level.is_some_and(|level| !(1..=6).contains(&level))
     {
-        style_sanitize::sanitize(style);
+        aria.level = None;
     }
-    if let Some(context) = &mut interactivity.key_context {
-        context
-            .entries
-            .truncate(crate::interactivity::MAX_KEY_CONTEXT_ENTRIES);
-        for entry in &mut context.entries {
-            let mut key = entry.key.to_string();
-            truncate_string(&mut key);
-            entry.key = key.into();
-            if let Some(value) = &mut entry.value {
-                let mut bounded = value.to_string();
-                truncate_string(&mut bounded);
-                *value = bounded.into();
-            }
-        }
+    // gpui panics (debug) on an active descendant that is the focused
+    // node, and a tracked focus handle makes a node focusable there.
+    aria.active_descendant &= !interactivity.focusable && interactivity.focus_handle.is_none();
+    for style in interactivity.styles() {
+        budgets.style(style)?;
     }
-    for style in [&mut interactivity.hover, &mut interactivity.active]
-        .into_iter()
-        .flatten()
-    {
-        style_sanitize::sanitize(style);
+    // a key cut short, or one gpui cannot read, would cross and stop nothing
+    let keys = &interactivity.consumes_keys;
+    if keys.len() > crate::interactivity::MAX_CONSUMED_KEYS {
+        return Err("too many consumed keys");
+    }
+    if keys.iter().any(|key| {
+        key.len() > crate::interactivity::MAX_KEYSTROKE_BYTES
+            || gpui::Keystroke::parse(key).is_err()
+    }) {
+        return Err("a consumed key gpui cannot read");
+    }
+    // the host stops a consumed click in the node's click listener; a node
+    // with none would cross and stop nothing
+    if interactivity.consumes_click && interactivity.on_click.is_none() {
+        return Err("consumes a click it does not take");
     }
     for group in [
         &mut interactivity.group_hover,
@@ -41,7 +41,6 @@ pub(super) fn sanitize_interactivity(interactivity: &mut Interactivity) {
     .into_iter()
     .flatten()
     {
-        style_sanitize::sanitize(&mut group.style);
         let mut name = group.group.to_string();
         truncate_string(&mut name);
         group.group = name.into();
@@ -51,4 +50,5 @@ pub(super) fn sanitize_interactivity(interactivity: &mut Interactivity) {
         truncate_string(&mut name);
         *group = name.into();
     }
+    Ok(())
 }

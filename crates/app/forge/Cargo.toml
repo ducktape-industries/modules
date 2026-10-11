@@ -3,23 +3,27 @@ name = "forge"
 edition.workspace = true
 version.workspace = true
 
-# The types and rules are always built and run natively over any `store`;
-# `forge-view` links them with `program` off. `program` adds the wasm32
-# program over the host: `guest`'s contexts, the `alloc`/`call` exports and
-# the `ducktape.*` imports.
+# The types and rules are always built and run natively over `guest::MockHost`;
+# `forge-view` links them with `module` off. `module` adds its wasm exports
+# (`guest::export!`), which only its own wasm build turns on.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
-program = ["dep:guest", "store/program"]
+module = []
+# `describe` makes this crate's wasm build the `ducktape.describe` module:
+# the `describe` export alone, no module, no imports.
+describe = []
 
 [dependencies]
 abi = { workspace = true }
-guest = { workspace = true, optional = true }
+describe = { workspace = true }
+guest = { workspace = true, features = ["serde"] }
 borsh = { workspace = true }
-serde_json = { workspace = true }
 chat = { workspace = true }
 gitcore = { workspace = true }
+# `#[derive(program::Ask)]` on `Query`: which tables each question reads
+program = { workspace = true }
 store = { workspace = true }
 
 [dev-dependencies]

@@ -1,18 +1,15 @@
-use std::collections::BTreeMap;
-
 use abi::reason;
 use abi::{BlobId, HostOp, Message, Origin, Outcome, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
-use fixture_probe::Step;
 use host::{
-    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, Receipt,
-    Submission,
+    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, Receipt, Roles,
+    Submission, Tip,
 };
 use identity::AccountNumber;
 use keyscheme::testkit;
-use module_registry::{AUTHORITY, Page};
+use module_registry::PageRequest;
 
 /// Where `make wasm-programs` left the boot set: the bytes are a build
 /// output, never committed.
@@ -49,11 +46,29 @@ fn program(name: &str) -> Vec<u8> {
 }
 
 /// The kernel's probe fixture, copied from ducktape by `make probe-fixture`
-/// (the probe is a dev-dependency only, which cargo cannot build for wasm32
-/// from here).
+/// (it links the kernel's own `guest` to compile for wasm32, which this
+/// workspace never does; only the built bytes come over).
 const PROBE: &[u8] = include_bytes!("fixture_probe.wasm");
+
+/// `crates/kernel/fixtures/probe`'s script type, mirrored byte-for-byte
+/// (same two borsh derives, same variant order) since the probe is bytes
+/// here, not a Cargo dependency: whoever next runs `make probe-fixture`
+/// checks this against `crates/kernel/fixtures/probe/src/lib.rs` at the
+/// new pin. Only `Op` is scripted by this suite; the rest round-trip
+/// through the derives so the discriminants still match the binary's.
+#[derive(BorshSerialize, BorshDeserialize)]
+enum Step {
+    Op(HostOp),
+    Env,
+    Spin,
+    Grow(u32),
+    Fail(String),
+}
+
 const NETWORK: &[u8] = b"net";
 const EPOCH_LENGTH: u64 = 4;
+/// Room for a resident or two beside the two founding validators.
+const MEMBER_CAP: u32 = 8;
 const TIME: u64 = 1_700_000_000_000;
 const PROBE_SIGNER: u64 = 9;
 
@@ -74,11 +89,11 @@ fn member(seed: u64) -> valset::Member {
     }
 }
 
-fn membership(seed: u64, standing: valset::Standing) -> valset::Membership {
+fn membership(seed: u64, role: valset::Role) -> valset::Membership {
     valset::Membership {
         key: public(seed),
         address: format!("v{seed}:1"),
-        standing,
+        role,
     }
 }
 
@@ -107,21 +122,37 @@ fn block_id(height: u64) -> BlockId {
 struct Net {
     host: Host<Ctx>,
     height: u64,
-    sequences: BTreeMap<Vec<u8>, u64>,
 }
 
 impl Net {
     async fn found(context: Ctx, dir: &std::path::Path) -> Net {
+        Net::found_with(context, dir, Vec::new(), MEMBER_CAP).await
+    }
+
+    /// The system set and the probe, then `apps`, under `member_cap`.
+    async fn found_with(
+        context: Ctx,
+        dir: &std::path::Path,
+        apps: Vec<Founding>,
+        member_cap: u32,
+    ) -> Net {
         let genesis = Genesis {
             network: NETWORK.to_vec(),
-            module_registry: program("module_registry"),
-            valset: program("valset"),
+            roles: Roles {
+                registry: module_registry::MODULE.into(),
+                validators: valset::MODULE.into(),
+                identity: identity::MODULE.into(),
+            },
             validators: vec![member(1), member(2)],
             programs: vec![
-                founding(identity::PROGRAM, &program("identity")),
-                probe(AUTHORITY),
+                founding(module_registry::MODULE, &program("module_registry")),
+                founding(valset::MODULE, &program("valset")),
+                founding(identity::MODULE, &program("identity")),
                 probe("probe"),
-            ],
+            ]
+            .into_iter()
+            .chain(apps)
+            .collect(),
             views: vec![FoundingView {
                 name: "lens".into(),
                 view: b"a view".to_vec(),
@@ -129,6 +160,7 @@ impl Net {
             limits: Limits::default(),
             epoch_length: EPOCH_LENGTH,
             time: TIME,
+            member_cap,
         };
         let (host, applied) = Host::found(context, "net", dir, block_id(0), genesis)
             .await
@@ -141,11 +173,7 @@ impl Net {
                 receipt.outcome
             );
         }
-        Net {
-            host,
-            height: 0,
-            sequences: BTreeMap::new(),
-        }
+        Net { host, height: 0 }
     }
 
     fn time(&self) -> u64 {
@@ -178,24 +206,20 @@ impl Net {
     fn submission(&self, signer: &[u8], target: &str, payload: Vec<u8>) -> Submission {
         Submission {
             signer: signer.to_vec(),
-            seq: self.sequences.get(signer).copied().unwrap_or_default(),
+            anchor: Tip {
+                height: self.height,
+                id: block_id(self.height),
+            },
+            salt: None,
             target: target.to_owned(),
             payload,
-        }
-    }
-
-    fn consumed(&mut self, signer: &[u8], receipt: &Receipt) {
-        if let Outcome::Applied { .. } = receipt.outcome {
-            *self.sequences.entry(signer.to_vec()).or_default() += 1;
         }
     }
 
     async fn submit<T: BorshSerialize>(&mut self, signer: &[u8], target: &str, op: &T) -> Receipt {
         let submission = self.submission(signer, target, abi::encode(op));
         let applied = self.block(vec![submission]).await;
-        let receipt = applied.submissions.into_iter().next().unwrap();
-        self.consumed(signer, &receipt);
-        receipt
+        applied.submissions.into_iter().next().unwrap()
     }
 
     async fn apply<T: BorshSerialize>(&mut self, signer: &[u8], target: &str, op: &T) -> Vec<u8> {
@@ -223,25 +247,20 @@ impl Net {
         let signer = public(PROBE_SIGNER);
         let submission = self.submission(&signer, program, abi::encode(&script));
         let applied = self.block(vec![submission]).await;
-        self.consumed(&signer, &applied.submissions[0]);
-        match &applied.submissions[0].outcome {
-            Outcome::Applied { .. } => {}
-            Outcome::Rejected(refusal) => panic!("{program} rejected the script: {refusal}"),
-        }
-        let applied = self.tick().await;
-        applied
-            .deliveries
-            .into_iter()
-            .map(|delivered| delivered.receipt)
+        // the message ran in the probe's frame; its refusal is the frame's
+        applied.submissions[0]
+            .nested
+            .iter()
             .find(|receipt| receipt.program == target)
+            .cloned()
             .unwrap()
     }
 
-    async fn as_authority<T: BorshSerialize>(&mut self, target: &str, op: &T) -> Receipt {
-        self.sent_by(AUTHORITY, target, op).await
+    async fn as_anyone<T: BorshSerialize>(&mut self, target: &str, op: &T) -> Receipt {
+        self.sent_by("probe", target, op).await
     }
 
-    /// A query the program refuses.
+    /// A query the module refuses.
     async fn refused<Q: BorshSerialize>(&self, program: &str, query: &Q) -> abi::Refusal {
         self.host
             .query(
@@ -275,9 +294,9 @@ impl Net {
     async fn memberships(&self) -> Vec<valset::Membership> {
         match self
             .ask(
-                valset::PROGRAM,
+                valset::MODULE,
                 &valset::Query::Memberships {
-                    page: Page::default(),
+                    page: PageRequest::default(),
                 },
             )
             .await
@@ -288,7 +307,7 @@ impl Net {
     }
 
     async fn validators(&self) -> Vec<Vec<u8>> {
-        match self.ask(valset::PROGRAM, &valset::Query::Validators).await {
+        match self.ask(valset::MODULE, &valset::Query::Validators).await {
             valset::Reply::Validators(validators) => validators,
             other => panic!("{other:?}"),
         }
@@ -309,6 +328,8 @@ fn refusal_of(receipt: &Receipt) -> &str {
     }
 }
 
+#[path = "system/discussion.rs"]
+mod discussion_tests;
 #[path = "system/founding.rs"]
 mod founding_tests;
 #[path = "system/identity.rs"]

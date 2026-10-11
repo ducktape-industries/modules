@@ -1,11 +1,11 @@
 //! The smallest `View` that invokes `export_view!` at a crate root; the
 //! wasm32 probe for the entity-and-listeners shape.
 
-use serde::{Deserialize, Serialize};
-use view_guest::{
-    div, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, View, Window,
+use ducktape_view_guest::{
+    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, View, Window, div,
 };
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Exported {
@@ -13,9 +13,8 @@ pub struct Exported {
 }
 
 impl View for Exported {
-    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
-        Self::default()
-    }
+    const NAME: &'static str = "Exported";
+    const DESCRIPTION: &'static str = "export_view! wasm32 probe";
 }
 
 impl Render for Exported {
@@ -31,4 +30,4 @@ impl Render for Exported {
     }
 }
 
-view_guest::export_view!(Exported, "Exported", "export_view! wasm32 probe", []);
+ducktape_view_guest::export_view!(Exported);

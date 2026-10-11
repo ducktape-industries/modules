@@ -17,7 +17,13 @@ identity.workspace = true
 valset.workspace = true
 module-registry.workspace = true
 serde.workspace = true
+# `dm_channel_id`: the room Open DM opens
+chat.workspace = true
+# mints the `duck://<chain>/chat/<room>` link Open DM opens
+ducklink.workspace = true
 
 # Typed fake-host tests use the program contracts.
 [dev-dependencies]
+# `examples/live.rs`: the view in the real app over the fake node
+ducktape-view-guest = { workspace = true, features = ["live"] }
 abi.workspace = true

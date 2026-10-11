@@ -1,116 +1,70 @@
-//! UI queries produce one height-bearing Borsh reply. Git protocol queries stream Git bytes.
-use crate::contract::*;
-use crate::ops::{PROGRAM, cap, refusal_of, storage};
-use crate::repo::{load_bounds, load_refs, load_repo, refs_prefix, repo_hash, writers_prefix};
-use crate::store::Store;
-use abi::{Env, Refusal};
+//! The repository answers [`Forge::query`](crate::Forge) names, and git's
+//! own bytes for a git client.
+
 use gitcore::wire::receive::advertise_refs;
 use gitcore::wire::smart_http_service_header;
 use gitcore::wire::upload::{
     Command, capability_advertisement, fetch, ls_refs_response, parse_command,
 };
-use store::{Listing, Reads, decoded, stale};
+use guest::Error;
+use guest::{QueryCtx, stale};
+use store::Listing;
+
+use crate::contract::*;
+use crate::objects::ObjectStore;
+use crate::ops::{cap, refusal_of};
+use crate::state::{ACTIVITY, REFS, load_bounds, load_refs, load_repo, repo_hash, storage, writes};
+
 const AGENT: &[u8] = b"ducktape-forge";
 
-/// A UI query's response bytes (one `Reply`), or a git protocol query's raw
-/// git bytes; a refusal is `Err` through the ABI like any program's.
-pub fn query<S: Reads>(sandbox: &S, env: &Env, request: &[u8]) -> Result<Vec<u8>, Refusal> {
-    let query: Query = decoded(PROGRAM, "Query", request)?;
-    match &query {
-        Query::Advertise { repo, service } => advertise(sandbox, repo, *service),
-        Query::Upload { repo, request } => upload(sandbox, repo, request),
-        _ => Ok(abi::encode(&answer(sandbox, env.height, &query)?)),
-    }
-}
-fn answer<S: Reads>(s: &S, height: u64, q: &Query) -> Result<Reply, Refusal> {
-    let bounds = load_bounds(s)?;
-    let paging = q
-        .page()
-        .map(|p| listing(p.bounded(bounds.page_size as u64), q, height))
-        .transpose()?;
-    let p = || paging.as_ref().expect("this query has pagination");
-    Ok(match q {
-        Query::Repos { .. } => {
-            let page = p()
-                .reply(
-                    s.scan(p().scan_ahead(b"a/"))
-                        .into_iter()
-                        .map(|e| (e.key, e.value)),
-                )
-                .try_map(|value| {
-                    let name =
-                        String::from_utf8(value).map_err(|_| storage("bad repo activity index"))?;
-                    Ok(RepoInfo {
-                        repo: load_repo(s, &name)?,
-                        name,
-                    })
-                })?;
-            Reply::Repos { height, page }
-        }
-        Query::Repo { repo, .. } => {
-            let record = load_repo(s, repo)?;
-            let prefix = writers_prefix(repo);
-            let writers = p().reply(
-                s.scan(p().scan_ahead(&prefix))
-                    .into_iter()
-                    .map(|e| (e.key.clone(), e.key[prefix.len()..].to_vec())),
-            );
-            Reply::Repo {
-                height,
-                repo: RepoInfo {
-                    name: repo.clone(),
-                    repo: record,
-                },
-                bounds,
-                writers,
-            }
-        }
-        Query::Refs { repo, .. } => {
-            let record = load_repo(s, repo)?;
-            let prefix = refs_prefix(repo);
-            let page = p()
-                .reply(
-                    s.scan(p().scan_ahead(&prefix))
-                        .into_iter()
-                        .map(|e| (e.key.clone(), e)),
-                )
-                .try_map(|e| {
-                    let oid = gitcore::Oid::from_bytes(repo_hash(&record), &e.value)
-                        .map_err(|e| storage(e.to_string()))?;
-                    Ok(RefInfo {
-                        name: e.key[prefix.len()..].to_vec(),
-                        target: oid.to_hex(),
-                    })
-                })?;
-            Reply::Refs { height, page }
-        }
-        Query::Activity { repo } => Reply::Activity {
-            height,
-            last_height: load_repo(s, repo)?.last_activity,
-        },
-        Query::Changes { .. } | Query::Change { .. } | Query::Judgment { .. } => {
-            crate::change_queries::answer(s, height, q, p())?
-        }
-        _ => crate::reads::answer(s, height, q, &bounds, paging.as_ref())?,
+/// Repositories, the most recently active first.
+pub(crate) fn repos(ctx: &QueryCtx, listing: &Listing) -> Result<PageResponse<RepoInfo>, Error> {
+    ACTIVITY.page_of(ctx, &(), listing)?.try_map(|(_, name)| {
+        Ok(RepoInfo {
+            repo: load_repo(ctx, &name)?,
+            name,
+        })
     })
 }
 
-/// A forge listing can be rewritten by a push, so a cursor is good for the
-/// height that answered it and no other.
-fn listing(page: Page, q: &Query, height: u64) -> Result<Listing, Refusal> {
-    let listing = page.listing(q.scope(), height)?;
-    if listing.cursor_height.is_some_and(|h| h != height) {
-        return Err(stale("cursor height changed; restart the listing"));
+/// A repository's refs in byte-name order.
+pub(crate) fn refs(
+    ctx: &QueryCtx,
+    name: &str,
+    listing: &Listing,
+) -> Result<PageResponse<RefInfo>, Error> {
+    let hash = repo_hash(&load_repo(ctx, name)?);
+    REFS.page_of(ctx, &name.to_owned(), listing)?
+        .try_map(|((_, name), bytes)| {
+            let oid = gitcore::Oid::from_bytes(hash, &bytes).map_err(|e| storage(e.to_string()))?;
+            Ok(RefInfo {
+                name,
+                target: oid.to_hex(),
+            })
+        })
+}
+
+/// A forge listing is rewritten only by a forge op, so a cursor is pinned
+/// to the count of ops accepted when it was answered and is good until
+/// forge next writes: a walk crosses the blocks that wrote nothing here,
+/// and a push mid-walk restarts it, even one in the block that answered
+/// the cursor (the preconfirmed layer answers at the height its ops run
+/// at, so a height alone would not tell).
+pub(crate) fn listing(ctx: &QueryCtx, page: PageRequest, scope: Vec<u8>) -> Result<Listing, Error> {
+    let writes = writes(ctx)?;
+    let listing = page.listing(ctx, scope)?.pinned(writes);
+    if listing.cursor_pin.is_some_and(|pinned| pinned != writes) {
+        return Err(stale("the listing changed; restart it"));
     }
     Ok(listing)
 }
 
-fn advertise<S: Reads>(sandbox: &S, name: &str, service: Service) -> Result<Vec<u8>, Refusal> {
-    let repo = load_repo(sandbox, name)?;
+pub(crate) fn advertise(ctx: &QueryCtx, name: &str, service: Service) -> Result<Vec<u8>, Error> {
+    let repo = load_repo(ctx, name)?;
     let hash = repo_hash(&repo);
     let body = match service {
         Service::ReceivePack => {
-            let refs = load_refs(sandbox, name, hash)?;
+            let refs = load_refs(ctx, name, hash)?;
             let object_format = format!("object-format={}", hash.name());
             let agent = format!("agent={}", String::from_utf8_lossy(AGENT));
             advertise_refs(
@@ -135,19 +89,19 @@ fn advertise<S: Reads>(sandbox: &S, name: &str, service: Service) -> Result<Vec<
     Ok(body)
 }
 
-fn upload<S: Reads>(sandbox: &S, name: &str, request: &[u8]) -> Result<Vec<u8>, Refusal> {
-    let repo = load_repo(sandbox, name)?;
-    let bounds = load_bounds(sandbox)?;
+pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u8>, Error> {
+    let repo = load_repo(ctx, name)?;
+    let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
-    let refs = load_refs(sandbox, name, hash)?;
-    let store = Store::new(sandbox, hash);
+    let refs = load_refs(ctx, name, hash)?;
+    let objects = ObjectStore::new(ctx, hash);
     let Some(command) = parse_command(request, hash).map_err(refusal_of)? else {
         return Ok(Vec::new());
     };
     let mut response = Vec::new();
     let served = match command {
         Command::LsRefs(command) => ls_refs_response(
-            &store,
+            &objects,
             &refs,
             Some(&repo.settings.head),
             &command,
@@ -155,7 +109,7 @@ fn upload<S: Reads>(sandbox: &S, name: &str, request: &[u8]) -> Result<Vec<u8>, 
         )
         .map(|body| response = body),
         Command::Fetch(command) => fetch(
-            &store,
+            &objects,
             &refs,
             &command,
             cap(bounds.fetch_walk),

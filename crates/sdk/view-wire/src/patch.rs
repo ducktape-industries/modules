@@ -70,22 +70,28 @@ pub const MAX_PATCHES: usize = 1024;
 
 /// Applies a patch frame to the tree the host holds, then pulls the result
 /// inside every bound [`sanitize`] promises — a patch is the guest's, so an
-/// inserted subtree can push the tree past [`MAX_NODES`] or [`MAX_DEPTH`]
-/// or reuse a key the tree already has, and the bounds are on the whole.
+/// inserted subtree can push the tree past [`MAX_NODES`] or [`MAX_DEPTH`],
+/// reuse a key the tree already has or name a style `styles` does not hold,
+/// and the bounds are on the whole. `styles` is the table the frame's own
+/// entries have already joined ([`sanitize`]).
 ///
 /// `Err` names a patch the tree cannot take: a path to no node, an index
 /// past a list, a list operation on a node with no list, a [`Patch::Props`]
 /// whose arity is not the node's, or more patches than [`MAX_PATCHES`]. The
 /// tree is then part-way through the sequence and not one the guest ever
 /// sent: the host drops it and asks for a whole one with [`Event::Resync`].
-pub fn apply(root: &mut Node, patches: Vec<Patch>) -> Result<SanitizeReport, &'static str> {
+pub fn apply(
+    root: &mut Node,
+    patches: Vec<Patch>,
+    styles: &Styles,
+) -> Result<SanitizeReport, Refused> {
     if patches.len() > MAX_PATCHES {
-        return Err("more patches than the host applies");
+        return Err("more patches than the host applies".into());
     }
     for patch in patches {
         apply_one(root, patch)?;
     }
-    sanitize_tree(root)
+    sanitize_tree(root, styles)
 }
 
 fn apply_one(root: &mut Node, patch: Patch) -> Result<(), &'static str> {
@@ -149,26 +155,58 @@ enum Edit {
 /// leaves `old == new`. Both are borrowed mutably only to compare a node's
 /// own fields with its children set aside; each is put back as it was.
 ///
-/// A list of children is matched by key — a keyed child that moved is a
-/// [`Patch::Move`], one that left a [`Patch::Remove`], a new one a
-/// [`Patch::Insert`] — and two lists of the same shape are matched by
-/// position. Keys are what [`sanitize`] already makes unique on the host.
+/// A list of children is matched by position over the runs it shares with
+/// the old one at the front and at the back, unkeyed children included,
+/// and by key in between — a keyed child that moved is a [`Patch::Move`],
+/// one that left a [`Patch::Remove`], a new one a [`Patch::Insert`]. Keys
+/// are what [`sanitize`] already makes unique on the host.
 pub fn diff(old: &mut Node, new: &mut Node) -> Vec<Patch> {
     let mut patches = Vec::new();
-    diff_node(old, new, &mut Vec::new(), &mut patches);
+    diff_node(old, new, false, &mut Vec::new(), &mut patches);
     patches
+}
+
+/// [`diff`], except that every subtree a [`Patch::Replace`] or
+/// [`Patch::Insert`] carries is taken out of `new` instead of copied, and an
+/// empty stand-in is left in its place. A guest that sends the patches and
+/// keeps `new` as the next frame's base moves each changed subtree out and
+/// back instead of cloning it: a patch's path and index are the position of
+/// its node in `new`, since removes come first at every level and the
+/// inserts and moves before an index have already been emitted when it is
+/// reached. Plumbing for ducktape-view-guest's driver, not a view's API.
+#[doc(hidden)]
+pub fn diff_taking(old: &mut Node, new: &mut Node) -> Vec<Patch> {
+    let mut patches = Vec::new();
+    diff_node(old, new, true, &mut Vec::new(), &mut patches);
+    patches
+}
+
+/// The subtree a patch carries: `new` itself, moved out behind an empty
+/// stand-in, or a copy of it.
+fn carry(new: &mut Node, take: bool) -> Node {
+    match take {
+        true => std::mem::replace(new, Node::empty()),
+        false => new.clone(),
+    }
 }
 
 /// Each node's own fields are compared once, on the way down: comparing a
 /// whole subtree first at every level compared a deep changed subtree once
-/// per level above it.
-fn diff_node(old: &mut Node, new: &mut Node, path: &mut Vec<u32>, out: &mut Vec<Patch>) {
+/// per level above it. `take` is [`diff_taking`]'s: carry a subtree by
+/// moving it out of `new`, not by copying it.
+fn diff_node(
+    old: &mut Node,
+    new: &mut Node,
+    take: bool,
+    path: &mut Vec<u32>,
+    out: &mut Vec<Patch>,
+) {
     let same_kind = std::mem::discriminant(old) == std::mem::discriminant(new);
     let same_arity = new.child_list_mut().is_some() || old.children().len() == new.children().len();
     if !(same_kind && same_arity) {
         out.push(Patch::Replace {
             path: path.clone(),
-            node: new.clone(),
+            node: carry(new, take),
         });
         return;
     }
@@ -187,14 +225,16 @@ fn diff_node(old: &mut Node, new: &mut Node, path: &mut Vec<u32>, out: &mut Vec<
         _ => None,
     };
     match (old.child_list_mut().is_some(), rows) {
-        (true, Some((a, b))) => diff_rows(&mut old_children, &mut new_children, a, b, path, out),
-        (true, None) => diff_list(&mut old_children, &mut new_children, path, out),
+        (true, Some((a, b))) => {
+            diff_rows(&mut old_children, &mut new_children, a, b, take, path, out)
+        }
+        (true, None) => diff_list(&mut old_children, &mut new_children, take, path, out),
         (false, _) => {
             for (index, (old_child, new_child)) in
                 old_children.iter_mut().zip(&mut new_children).enumerate()
             {
                 path.push(index as u32);
-                diff_node(old_child, new_child, path, out);
+                diff_node(old_child, new_child, take, path, out);
                 path.pop();
             }
         }
@@ -211,6 +251,7 @@ fn diff_rows(
     new: &mut [Node],
     old_start: usize,
     new_start: usize,
+    take: bool,
     path: &mut Vec<u32>,
     out: &mut Vec<Patch>,
 ) {
@@ -218,7 +259,7 @@ fn diff_rows(
     let new_end = new_start + new.len();
     let (start, end) = (old_start.max(new_start), old_end.min(new_end));
     if start >= end {
-        return diff_list(old, new, path, out);
+        return diff_list(old, new, take, path, out);
     }
     let remove = |count: usize, index: usize, out: &mut Vec<Patch>| {
         for _ in 0..count {
@@ -235,39 +276,119 @@ fn diff_rows(
         match (start..end).contains(&item) {
             true => {
                 path.push(index as u32);
-                diff_node(&mut old[item - old_start], row, path, out);
+                diff_node(&mut old[item - old_start], row, take, path, out);
                 path.pop();
             }
             false => out.push(Patch::Insert {
                 path: path.clone(),
                 index: index as u32,
-                node: row.clone(),
+                node: carry(row, take),
             }),
         }
     }
 }
 
-fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut Vec<Patch>) {
-    let positional = old.len() == new.len()
-        && old
-            .iter()
-            .zip(new.iter())
-            .all(|(a, b)| match (a.identity(), b.identity()) {
-                (Some(a), Some(b)) => a == b,
-                (None, None) => std::mem::discriminant(a) == std::mem::discriminant(b),
-                _ => false,
-            });
-    if positional {
-        for (index, (old_child, new_child)) in old.iter_mut().zip(new.iter_mut()).enumerate() {
-            path.push(index as u32);
-            diff_node(old_child, new_child, path, out);
-            path.pop();
-        }
-        return;
+/// A list of children: the runs it shares with the old list at the front
+/// and at the back are diffed in place, matched by position, and only the
+/// middle is matched by key. A child matches the one across from it when
+/// both carry one identity, or neither does and they are the same kind.
+fn diff_list(
+    old: &mut [Node],
+    new: &mut [Node],
+    take: bool,
+    path: &mut Vec<u32>,
+    out: &mut Vec<Patch>,
+) {
+    let shared = old.len().min(new.len());
+    let mut prefix = 0;
+    while prefix < shared && matches(&old[prefix], &new[prefix]) {
+        prefix += 1;
     }
-    // An identity that appears once on each side is a child that survives;
-    // every other child — unkeyed, or a duplicate — is removed and inserted
-    // afresh. Typed GPUI IDs stay typed all the way through this map.
+    // Two lists of one length that match all the way have no back to match
+    // and no run to place: each child is diffed in place, where the front
+    // found it. That is every list of a tree whose shape did not change,
+    // so it is not walked a second and a third time to learn nothing.
+    let whole = prefix == old.len() && prefix == new.len();
+    let mut suffix = 0;
+    while !whole
+        && suffix < shared
+        && matches(&old[old.len() - 1 - suffix], &new[new.len() - 1 - suffix])
+    {
+        suffix += 1;
+    }
+    if prefix + suffix > shared {
+        // Every child of the shorter list matches one across from it, and
+        // the run the longer list has besides may sit anywhere from
+        // `shared - suffix` to `prefix`: it starts where the children stop
+        // being equal, so a banner shown over a body of its own kind is
+        // the one inserted and the body is not sent again.
+        // ponytail: a run whose neighbours both changed lands at the
+        // front, which costs a props patch more than the ideal place.
+        let mut equal = 0;
+        while equal < prefix && own_fields_equal(&mut old[equal], &mut new[equal]) {
+            equal += 1;
+        }
+        prefix = equal.clamp(shared - suffix, prefix);
+        suffix = shared - prefix;
+    }
+    for index in 0..prefix {
+        path.push(index as u32);
+        diff_node(&mut old[index], &mut new[index], take, path, out);
+        path.pop();
+    }
+    let (old_end, new_end) = (old.len() - suffix, new.len() - suffix);
+    diff_keyed(
+        &mut old[prefix..old_end],
+        &mut new[prefix..new_end],
+        prefix,
+        take,
+        path,
+        out,
+    );
+    for back in 0..suffix {
+        path.push((new_end + back) as u32);
+        diff_node(
+            &mut old[old_end + back],
+            &mut new[new_end + back],
+            take,
+            path,
+            out,
+        );
+        path.pop();
+    }
+}
+
+/// Whether `old` and `new` are one child at one position (see
+/// [`diff_list`]).
+fn matches(old: &Node, new: &Node) -> bool {
+    match (old.identity(), new.identity()) {
+        (Some(a), Some(b)) => a == b,
+        (None, None) => std::mem::discriminant(old) == std::mem::discriminant(new),
+        _ => false,
+    }
+}
+
+/// Whether `old` and `new` agree on their own fields, children set aside.
+fn own_fields_equal(old: &mut Node, new: &mut Node) -> bool {
+    let (old_children, new_children) = (old.detach(), new.detach());
+    let same = old == new;
+    old.attach(old_children).expect("its own children");
+    new.attach(new_children).expect("its own children");
+    same
+}
+
+/// The middle of a list, at `offset` in it: an identity that appears
+/// once on each side is a child that survives; every other child, unkeyed
+/// or a duplicate, is removed and inserted afresh. Typed GPUI IDs stay
+/// typed all the way through this map.
+fn diff_keyed(
+    old: &mut [Node],
+    new: &mut [Node],
+    offset: usize,
+    take: bool,
+    path: &mut Vec<u32>,
+    out: &mut Vec<Patch>,
+) {
     let unique = |nodes: &[Node]| -> std::collections::HashMap<ElementIdWire, usize> {
         let mut seen = std::collections::HashMap::new();
         for (index, node) in nodes.iter().enumerate() {
@@ -282,7 +403,7 @@ fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut 
     };
     let old_keys = unique(old);
     let new_keys = unique(new);
-    // The list as the host has it after the patches so far: old indices.
+    // The middle as the host has it after the patches so far: old indices.
     let mut live: Vec<usize> = Vec::with_capacity(new.len());
     for (index, node) in old.iter().enumerate() {
         let survives = node.identity().is_some_and(|identity| {
@@ -293,7 +414,7 @@ fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut 
             true => live.push(index),
             false => out.push(Patch::Remove {
                 path: path.clone(),
-                index: live.len() as u32,
+                index: (offset + live.len()) as u32,
             }),
         }
     }
@@ -308,8 +429,8 @@ fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut 
         let Some(wanted) = wanted else {
             out.push(Patch::Insert {
                 path: path.clone(),
-                index: index as u32,
-                node: new_child.clone(),
+                index: (offset + index) as u32,
+                node: carry(new_child, take),
             });
             live.insert(index, usize::MAX);
             continue;
@@ -322,14 +443,14 @@ fn diff_list(old: &mut [Node], new: &mut [Node], path: &mut Vec<u32>, out: &mut 
         if at != index {
             out.push(Patch::Move {
                 path: path.clone(),
-                from: at as u32,
-                to: index as u32,
+                from: (offset + at) as u32,
+                to: (offset + index) as u32,
             });
             live.remove(at);
             live.insert(index, wanted);
         }
-        path.push(index as u32);
-        diff_node(&mut old[wanted], new_child, path, out);
+        path.push((offset + index) as u32);
+        diff_node(&mut old[wanted], new_child, take, path, out);
         path.pop();
     }
 }

@@ -1,0 +1,72 @@
+//! Reactions: one per principal and emoji, counted on the message.
+use super::channels::archive;
+use super::*;
+use crate::MAX_EMOJI_BYTES;
+
+#[test]
+fn a_reaction_counts_once_per_principal_and_knows_its_reader() {
+    let mut chat = Chat::with_channel(PostPolicy::Open);
+    chat.post(&BO, "m1", "ship it", None);
+    chat.ok(&ADA, react(1, "👍", true));
+    chat.ok(&BO, react(1, "👍", true));
+    let twice = chat.store.borrow().state.clone();
+    chat.ok(&BO, react(1, "👍", true));
+    assert_eq!(
+        chat.store.borrow().state,
+        twice,
+        "choosing it again changes nothing"
+    );
+    let seen_by = |viewer: Vec<Principal>| {
+        let Reply::Roots(page) = chat.ask(Query::Roots {
+            channel_id: "general".into(),
+            viewer,
+            page: PageRequest::default(),
+        }) else {
+            panic!("roots answer roots");
+        };
+        let reaction = page.items[0].reactions[0].clone();
+        (reaction.count, reaction.reacted_by_me)
+    };
+    assert_eq!(seen_by(vec![ADA]), (2, true));
+    assert_eq!(seen_by(vec![CY]), (2, false));
+}
+
+#[test]
+fn removing_a_reaction_uncounts_it_and_the_last_one_leaves() {
+    let mut chat = Chat::with_channel(PostPolicy::Open);
+    chat.post(&BO, "m1", "ship it", None);
+    chat.ok(&ADA, react(1, "👍", true));
+    chat.ok(&BO, react(1, "👍", true));
+    chat.ok(&ADA, react(1, "👍", false));
+    assert_eq!(chat.message(1).reactions[0].count, 1);
+    let unchosen = chat.store.borrow().state.clone();
+    chat.ok(&CY, react(1, "👍", false));
+    assert_eq!(
+        chat.store.borrow().state,
+        unchosen,
+        "dropping what was never chosen"
+    );
+    chat.ok(&BO, react(1, "👍", false));
+    assert!(chat.message(1).reactions.is_empty());
+}
+
+/// Adding and removing are one op with one set of guards.
+#[test]
+fn a_reaction_needs_an_emoji_a_standing_message_and_a_seat() {
+    for on in [true, false] {
+        let mut chat = Chat::with_channel(PostPolicy::MembersOnly);
+        chat.post(&ADA, "m1", "members only", None);
+        chat.ok(&ADA, react(1, "👍", true));
+        let long = "x".repeat(MAX_EMOJI_BYTES + 1);
+        for bad in ["", "a/b", long.as_str()] {
+            assert_eq!(chat.refused(&ADA, react(1, bad, on)), code::INVALID_INPUT);
+        }
+        assert_eq!(chat.refused(&BO, react(1, "👍", on)), code::UNAUTHORIZED);
+        assert_eq!(chat.refused(&ADA, react(9, "👍", on)), code::NOT_FOUND);
+        chat.ok(&ADA, archive(true));
+        assert_eq!(chat.refused(&ADA, react(1, "👍", on)), code::WRONG_STATE);
+        chat.ok(&ADA, archive(false));
+        chat.ok(&ADA, delete(1));
+        assert_eq!(chat.refused(&ADA, react(1, "👍", on)), code::WRONG_STATE);
+    }
+}

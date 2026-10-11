@@ -10,34 +10,27 @@ pub struct RichTextHover {
 }
 
 /// Something the host tells the guest.
+///
+/// A `handler` (a `request` for a tooltip) is a route: the number the guest
+/// gave a listener in the tree it sent. A route is the listener's authored
+/// identity, not its position in the frame: the guest hands a number out
+/// the first time it lowers that listener (the path of the element carrying
+/// it, what the listener is for, and which of that kind under that path) and
+/// keeps it while the element is lowered with it, so an event the host took
+/// from the frame it last painted runs the same listener in the frame after
+/// a structural change. A frame lowered without the listener frees its
+/// route, and a freed route names nothing again.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Event {
-    /// Observation only: widgets already handled this event once.
-    Observation {
-        event: events::Event,
-        captured: bool,
-    },
-    /// A mouse interaction in logical coordinates local to the guest surface.
-    Mouse {
-        event: mouse::Event,
-        captured: bool,
-    },
-    /// A keyboard interaction after the mounted native widgets handled it.
-    Keyboard {
-        event: keyboard::Event,
-        captured: bool,
-    },
-    /// The user activated the widget the guest gave this message index to
-    /// (a button press, an input submit). Indices are per frame: they name
-    /// entries in the table the guest filled while building the tree it
-    /// last sent.
+    /// The user activated the widget the guest gave this message route to
+    /// (a button press, an input submit).
     Message(u32),
     /// A GPUI click, kept distinct from message routes and carrying its input data.
     Click {
         handler: u32,
         event: click::Click,
     },
-    /// GPUI element listener payloads. These routes are allocated per frame.
+    /// GPUI element listener payloads.
     MouseDown {
         handler: u32,
         phase: interactivity::DispatchPhase,
@@ -112,49 +105,35 @@ pub enum Event {
         /// Native InteractiveText byte index; ordinary tooltips use None.
         character_index: Option<u32>,
     },
-    /// A registered host surface emitted its declared result value.
-    Surface {
+    /// A field's text moved under the host's engine (typed, pasted, undone,
+    /// a guest `Replace` landed, a composition advanced): the whole text as
+    /// the host now holds it, at its `revision`.
+    Text {
         handler: u32,
-        value: SurfaceValue,
-    },
-    /// A text field's content changed. `handler` indexes the guest's
-    /// per-frame input-handler table; `text` is the whole value the host now
-    /// holds.
-    Input {
-        handler: u32,
-        text: String,
-    },
-    /// An editor's text or cursor changed. `reset` fences document replacements;
-    /// `revision` orders host observations. Caret-only changes are included.
-    /// Initial assignment, mirror repair and exact transfer acknowledgments.
-    EditorDocument {
-        handler: u32,
-        message: editor_document::EditorDocumentMessage,
-    },
-    EditorRequest {
-        handler: u32,
-        request: EditorRequest,
-    },
-    EditorTransaction {
-        handler: u32,
-        event: EditorTransactionEvent,
+        change: TextChange,
     },
     /// The host theme changed; the guest stores the corresponding `Theme` global.
     Theme {
         dark: bool,
     },
-    /// A checkbox or toggler flipped. `handler` indexes the guest's
-    /// per-frame handler table; `on` is the state it now shows.
-    Toggle {
-        handler: u32,
-        on: bool,
+    /// The view's viewport: the body its root is laid out in, in logical
+    /// pixels, as the host knows it before the frame is drawn. Delivered
+    /// ahead of the first tick, on every change ahead of the draw that
+    /// shows it, and to a replacement before its first tree. The guest
+    /// reads it as `Window::viewport_size()`; a list sizes its first
+    /// window from it.
+    Viewport {
+        width: f32,
+        height: f32,
     },
-    /// A slider moved to `value`.
-    Slide {
-        handler: u32,
-        value: f32,
+    /// The reader's UTC offset in minutes (`540` in Seoul, `-300` in New
+    /// York in winter): ahead of the first tick and on every change, so
+    /// every time a view writes is in the reader's own zone from its first
+    /// frame.
+    Offset {
+        minutes: i32,
     },
-    /// A pick list chose the option at `index` in the node's `options`.
+    /// A rich text's clickable range at `index`.
     Select {
         handler: u32,
         index: u32,
@@ -164,34 +143,27 @@ pub enum Event {
         handler: u32,
         event: RichTextHover,
     },
-    /// A [`Node::Sensor`]'s child was measured: shown at, or resized to,
-    /// `width` by `height` — the child's own laid-out size in logical
-    /// pixels, never where it sits in the window. `handler` is the node's
-    /// `on_show` or `on_resize`.
+    /// A [`Node::Sensor`]'s child was measured: its bounds, `width` by
+    /// `height` with the top left corner at `x`, `y`, in the window's
+    /// logical pixels — the pixels a mouse event's `position` is in, so a
+    /// view places a pointer inside the child by subtracting the corner.
+    /// `handler` is the node's `on_bounds`. Sent when the child comes into
+    /// view, and whenever its bounds, the corner or the size, differ from
+    /// the last sent while it is in view; out of view the host forgets
+    /// them, so the next sight sends them again.
     ///
     /// Delivered after layout, like a DOM `ResizeObserver`: the host lays
-    /// the tree out, the sensor reads its child's size, and the event goes
-    /// to the guest on the next tick. A guest whose answer changes the
-    /// tree so the child measures differently again is measured again;
-    /// a host bounds how many times in a row that may drive a tick before
-    /// it stops delivering and logs `sensor loop limit exceeded`.
-    Size {
-        handler: u32,
-        width: f32,
-        height: f32,
-    },
-    /// The pointer is at (`x`, `y`) inside a [`Node::MouseArea`], in the
-    /// area's own coordinates — the DOM's `offsetX`/`offsetY`, never the
-    /// window's. Carries a move (`on_move`) or a left press (`on_press_at`).
-    ///
-    /// A host sends at most ONE move per handler per redraw frame, the last
-    /// position it saw, as a browser delivers one `pointermove` per frame:
-    /// the pointer crosses a thousand pixels a second and every event is a
-    /// guest tick. A press is never coalesced.
-    Pointer {
+    /// the tree out, the sensor reads its child's bounds, and the event
+    /// goes to the guest on the next tick. A guest whose answer changes the
+    /// tree so the child measures differently again is told again, one tick
+    /// and one frame for each draw, for as long as it does: the host does
+    /// not stop it.
+    Bounds {
         handler: u32,
         x: f32,
         y: f32,
+        width: f32,
+        height: f32,
     },
     /// Accumulated logical-pixel movement of a grabbed resize handle.
     Drag {
@@ -199,17 +171,9 @@ pub enum Event {
         dx: f64,
         dy: f64,
     },
-    /// The wheel turned over a [`Node::MouseArea`] by (`dx`, `dy`), in
-    /// pixels when `pixels` is set and in lines otherwise.
-    Scroll {
-        handler: u32,
-        dx: f32,
-        dy: f32,
-        pixels: bool,
-    },
     /// A scrollable's content offset in logical pixels and anchor-relative
-    /// fractions, emitted only when its native viewport changes. No window
-    /// coordinates cross the wire.
+    /// fractions, emitted only when its native viewport changes. It carries
+    /// no window coordinates.
     ScrollOffset {
         handler: u32,
         x: f32,
@@ -217,13 +181,17 @@ pub enum Event {
         relative_x: f32,
         relative_y: f32,
     },
-    /// The native uniform-list viewport needs these rows on the next guest
-    /// frame. The route fences a stale request from an older list instance.
+    /// The native uniform-list viewport shows rows `start..end` and needs
+    /// them on the next guest frame. The route fences a stale request from
+    /// an older list instance. `item_height` is the row height the host
+    /// measured, in logical pixels: the guest sizes the list's window
+    /// from it and its viewport.
     UniformListRange {
         path: Vec<ElementIdWire>,
         route: u32,
         start: u32,
         end: u32,
+        item_height: f32,
     },
     UniformListState {
         path: Vec<ElementIdWire>,
@@ -246,62 +214,27 @@ pub enum Event {
     /// `done`; a subscription gets many, the last one `done`.
     Response {
         id: u64,
-        #[serde(with = "response")]
-        result: Result<Vec<u8>, Refusal>,
+        #[serde(with = "crate::codec::bin")]
+        result: Result<Vec<u8>, Error>,
         done: bool,
     },
     /// The host no longer holds the tree the guest is patching — a patch it
     /// could not apply, a tree it dropped — and wants the next frame whole.
     Resync,
+    /// An assistive-technology action request on the node that advertised
+    /// `(action, handler)` in [`Aria::actions`](crate::Aria::actions).
+    A11yAction {
+        handler: u32,
+        data: Option<ActionData>,
+    },
 }
 
-/// Why a request failed, as the guest gets it: the program abi's own
-/// [`Refusal`] — a stable snake_case `reason` to branch on and the refusing
-/// module's `sentence`, verbatim — so a refusal a program wrote and one the
-/// host wrote are the same type end to end. `Display` writes
-/// `reason: sentence`; a screen that wants the sentence alone reads it.
-pub use ::abi::Refusal;
-
-/// `Refusal` derives borsh only (it is the program abi's type, a copy of the
-/// kernel's), so the one place it crosses the MessagePack layer,
-/// [`Event::Response`], spells its serde shape here: the same
-/// `{"Ok": bytes} | {"Err": {"reason", "sentence"}}` a derived `Result` writes.
-mod response {
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Serialize, Deserialize)]
-    #[serde(remote = "::abi::Refusal")]
-    struct RefusalDef {
-        reason: String,
-        sentence: String,
-    }
-
-    #[derive(Serialize, Deserialize)]
-    enum ResultDef {
-        Ok(Vec<u8>),
-        Err(#[serde(with = "RefusalDef")] ::abi::Refusal),
-    }
-
-    pub fn serialize<S: serde::Serializer>(
-        result: &Result<Vec<u8>, ::abi::Refusal>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        match result {
-            Ok(bytes) => ResultDef::Ok(bytes.clone()),
-            Err(refusal) => ResultDef::Err(refusal.clone()),
-        }
-        .serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Result<Vec<u8>, ::abi::Refusal>, D::Error> {
-        Ok(match ResultDef::deserialize(deserializer)? {
-            ResultDef::Ok(bytes) => Ok(bytes),
-            ResultDef::Err(refusal) => Err(refusal),
-        })
-    }
-}
+/// Why a request failed, as the guest gets it: the one [`Error`] — a stable
+/// snake_case [`code`] to branch on and the refusing module's `message`,
+/// verbatim — so an error a module wrote and one the host wrote are the same
+/// type end to end. `Display` writes `code: message`; a screen that wants the
+/// message alone reads it.
+pub use ::error::{Error, code};
 
 /// Something the guest asked the host for. The guest never blocks on it: a
 /// future (or stream) inside the guest waits for the matching
@@ -313,7 +246,30 @@ mod response {
 pub struct Request {
     pub id: u64,
     pub kind: String,
+    #[serde(with = "crate::codec::bin")]
     pub payload: Vec<u8>,
+}
+
+/// The most requests one frame may carry: what a host accepts per tick.
+pub const MAX_REQUESTS: usize = 256;
+
+/// The most cancels one frame may carry: a tick may cancel twice what it may
+/// request, so a view dropping many live subscriptions at once is not faulted.
+pub const MAX_CANCELS: usize = 2 * MAX_REQUESTS;
+
+fn decode_patches<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Patch>, D::Error> {
+    crate::bounded_vec(d, MAX_PATCHES, "more patches than the host applies")
+}
+fn decode_tooltip_responses<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<TooltipResponse>, D::Error> {
+    crate::bounded_vec(d, MAX_PATCHES, "too many tooltip responses")
+}
+fn decode_requests<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Request>, D::Error> {
+    crate::bounded_vec(d, MAX_REQUESTS, "too many requests")
+}
+fn decode_cancels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u64>, D::Error> {
+    crate::bounded_vec(d, MAX_CANCELS, "too many cancels")
 }
 
 /// What one tick of the guest produced.
@@ -323,30 +279,28 @@ pub struct Request {
 /// `root` empty and `unchanged` clear.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Frame {
-    /// Advisory producer report, sticky when a producer sanitizes before encoding.
-    /// Receivers must independently sanitize the received whole/applied tree.
-    pub upstream_sanitization: SanitizeReport,
-    #[serde(deserialize_with = "editor_transaction::decode_responses")]
-    pub editor_decisions: Vec<EditorResponse>,
-    /// One bounded document message, independent of display text budgets.
-    #[serde(deserialize_with = "editor_document::decode_messages")]
-    pub editor_documents: Vec<editor_document::EditorDocumentMessage>,
     /// Tooltip subtrees built only after a native hover request.
+    #[serde(deserialize_with = "decode_tooltip_responses")]
     pub tooltip_responses: Vec<TooltipResponse>,
-    /// The current subscription requests guest-local mouse observations.
-    pub mouse_interest: bool,
-    /// Live subscriptions opt into each copied event category.
-    pub event_interest: events::Interest,
+    /// The style table's entries this frame brings: all of them beside a
+    /// `root`, which replaces the host's table with its tree, and otherwise
+    /// the ones the host does not hold yet, in id order after the ones it
+    /// does.
+    #[serde(deserialize_with = "crate::styles::decode_table")]
+    pub styles: Vec<Style>,
     /// The tree to show. `None` with `unchanged` set means "what you have";
     /// `None` otherwise means "what you have, with `patches` applied".
     pub root: Option<Node>,
     /// Edits to the tree the host holds, in order, when `root` is `None`
     /// and `unchanged` is clear. The host applies them with [`apply`].
+    #[serde(deserialize_with = "decode_patches")]
     pub patches: Vec<Patch>,
     /// What the guest asked for while producing this frame.
+    #[serde(deserialize_with = "decode_requests")]
     pub requests: Vec<Request>,
     /// Requests the guest stopped waiting on — a dropped future or stream.
     /// The host frees whatever it kept for them and sends no more answers.
+    #[serde(deserialize_with = "decode_cancels")]
     pub cancels: Vec<u64>,
     /// `root` is `None` because the tree is the one the guest sent last:
     /// the host keeps what it has instead of decoding it again. Requests and
@@ -358,56 +312,14 @@ pub struct Frame {
     pub busy: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Axis {
-    Column,
-    Row,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ScrollDirection {
-    Vertical,
-    Horizontal,
-    Both,
-}
-
 /// Copied input accessibility and native layout options.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InputOptions {
     pub label: String,
     pub description: Option<String>,
     pub disabled: bool,
-}
-
-/// Copied native multiline editor presentation; state faces share input semantics.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct EditorOptions {
-    pub rich: Option<Box<editor_rich::RichPresentation>>,
-    pub binding: Option<Box<EditorBinding>>,
-    pub presentation: Option<Box<editor_presentation::EditorPresentation>>,
-}
-
-/// Where a scroll's offset is measured from. `Keep` rests at the start and
-/// holds the visible rows still when content lands above them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub enum ScrollAnchor {
-    #[default]
-    Start,
-    End,
-    Keep,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ContentFit {
-    Contain,
-    Cover,
-    Fill,
-    None,
-    ScaleDown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ToggleKind {
-    Checkbox,
-    Switch,
+    /// The value is wrong; `description` says why (AX-108).
+    pub invalid: Option<Invalid>,
+    pub required: bool,
+    pub read_only: bool,
 }

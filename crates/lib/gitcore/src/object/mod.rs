@@ -9,7 +9,7 @@ pub use tag::Tag;
 pub use tree::{Mode, Tree, TreeEntry};
 
 use crate::error::{Error, Result};
-use crate::oid::{Hash, Oid, object_header};
+use crate::oid::{Hash, Oid};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -49,12 +49,6 @@ pub struct Object {
 impl Object {
     pub fn new(kind: Kind, body: Vec<u8>) -> Object {
         Object { kind, body }
-    }
-
-    pub fn frame(&self) -> Vec<u8> {
-        let mut out = object_header(self.kind, self.body.len());
-        out.extend_from_slice(&self.body);
-        out
     }
 
     pub fn id(&self, hash: Hash) -> Result<Oid> {

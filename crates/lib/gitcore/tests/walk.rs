@@ -139,7 +139,7 @@ fn reachable_trees_and_blobs() {
         set.insert(blob(&mut scratch, b"g\n"));
         set
     };
-    let mut expected = t3_blobs.clone();
+    let mut expected = t3_blobs;
     expected.insert(d.trees[3]);
     assert_eq!(objects, expected);
 

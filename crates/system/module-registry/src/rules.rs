@@ -1,61 +1,38 @@
-// The rules over any store: the schedule folded at each block, then the ops and queries.
+// The rules: the schedule folded at each block, then the ops and queries.
 
-use abi::{Env, HashKind, ProgramId, Refusal};
-use store::{Item, Map, Reads, Writes, already_exists, invalid, not_found};
+use std::collections::BTreeMap;
 
-use crate::{AUTHORITY, CODE_KIND, Change, Entry, Genesis, Op, Query, Reply, Scheduled, View};
+use guest::{Error, ExecCtx, QueryCtx, already_exists, invalid, not_found};
+use guest::{HashKind, ModuleId};
+use store::{Item, Map};
 
-const PROGRAMS: Map<ProgramId, Entry> = Map::new("p/");
-const VIEWS: Map<ProgramId, View> = Map::new("v/");
-type At = (u64, ProgramId);
-const SCHEDULE: Map<At, Change> = Map::new("s/");
+use crate::{CODE_KIND, Change, Entry, Genesis, Scheduled, View};
+
+const PROGRAMS: Map<ModuleId, Entry> = Map::new("p/");
+const VIEWS: Map<ModuleId, View> = Map::new("v/");
+type At = (u64, ModuleId);
+pub(crate) const SCHEDULE: Map<At, Change> = Map::new("s/");
 const FOLDED: Item<u64> = Item::new("folded");
 
-pub fn init(store: &mut impl Writes, genesis: Genesis) {
+pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) {
     for entry in genesis.programs {
-        PROGRAMS.put(store, &entry.program, &entry);
+        PROGRAMS.put(ctx, &entry.program, &entry);
     }
     for view in genesis.views {
-        VIEWS.put(store, &view.name, &view);
+        VIEWS.put(ctx, &view.name, &view);
     }
-    FOLDED.put(store, &0);
+    FOLDED.put(ctx, &0);
 }
 
-pub fn execute(store: &mut impl Writes, env: &Env, op: Op) -> Result<(), Refusal> {
-    fold(store, env.height)?;
-    match op {
-        Op::Publish { body } => publish(store, body),
-        Op::Schedule(scheduled) => schedule(store, env, scheduled),
-        Op::Cancel { height, program } => cancel(store, env, height, program),
-    }
-}
-
-pub fn query(store: &impl Reads, env: &Env, query: Query) -> Result<Reply, Refusal> {
-    Ok(match query {
-        Query::At(height) => Reply::Programs(at(store, height)?),
-        Query::Views(height) => Reply::Views(views_at(store, height)?),
-        Query::Scheduled { page } => Reply::Scheduled(
-            SCHEDULE
-                .range(store, &page, env.height)?
-                .map(|((height, _), change)| Scheduled { height, change }),
-        ),
-        Query::Program(program) => Reply::Program {
-            height: env.height,
-            entry: at(store, env.height)?
-                .into_iter()
-                .find(|entry| entry.program == program),
-        },
-    })
-}
-
-fn publish(store: &mut impl Writes, body: Vec<u8>) -> Result<(), Refusal> {
-    let id = store.blob_put(HashKind::Sha256, CODE_KIND, body)?;
-    store.output(abi::encode(&id));
+pub(crate) fn publish(ctx: &ExecCtx, body: Vec<u8>) -> Result<(), Error> {
+    let id = ctx.blob_put(HashKind::Sha256, CODE_KIND, body)?;
+    ctx.set_return_data(abi::encode(&id));
     Ok(())
 }
 
-fn schedule(store: &mut impl Writes, env: &Env, scheduled: Scheduled) -> Result<(), Refusal> {
-    crate::helpers::from(env, AUTHORITY)?;
+pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error> {
+    let env = ctx.env();
+    env.authority()?;
     let in_the_future = scheduled.height > env.height;
     if !in_the_future {
         return Err(invalid(format!(
@@ -63,116 +40,162 @@ fn schedule(store: &mut impl Writes, env: &Env, scheduled: Scheduled) -> Result<
             env.height
         )));
     }
-    let blob = match &scheduled.change {
-        Change::Set(entry) => Some(entry.code),
-        Change::SetView(view) => Some(view.view),
-        Change::Remove(_) | Change::RemoveView(_) => None,
-    };
-    if let Some(blob) = blob
-        && store.blob_stat(blob).is_none()
+    if let Some(blob) = scheduled.change.code()
+        && ctx.blob_stat(blob).is_none()
     {
         return Err(not_found(format!("code {blob:?} is not published")));
     }
     let name = scheduled.change.program();
-    let taken = match &scheduled.change {
-        Change::Set(_) => views_at(store, scheduled.height)?
-            .iter()
-            .any(|view| view.name == name),
-        Change::SetView(_) => at(store, scheduled.height)?
-            .iter()
-            .any(|entry| entry.program == name),
+    // an id lands in its one spelling (`program::is_name`), so no id reads
+    // as another's; a removal names what is there, however it is spelled
+    let lands = matches!(scheduled.change, Change::Set(_) | Change::SetView(_));
+    if lands && !program::is_name(name) {
+        return Err(invalid(format!(
+            "{name:?} is not a program id: 1..=64 of [a-z0-9_-]"
+        )));
+    }
+    // the kernel calls these by their genesis binding: with one gone every
+    // frame is refused (identity) or the chain halts (validators), and no
+    // change could land to bring it back
+    let roles = &env.roles;
+    let bound = [&roles.registry, &roles.validators, &roles.identity]
+        .iter()
+        .any(|role| role.as_str() == name);
+    if matches!(scheduled.change, Change::Remove(_)) && bound {
+        return Err(invalid(format!("{name} fills a role the kernel calls")));
+    }
+    let (programs, views) = roster(ctx, scheduled.height)?;
+    let clash = match &scheduled.change {
+        Change::Set(_) => views.contains_key(name) || pending(ctx, name, Kind::View)?,
+        Change::SetView(_) => programs.contains_key(name) || pending(ctx, name, Kind::Program)?,
+        Change::Remove(_) if !programs.contains_key(name) => {
+            return Err(not_found(format!(
+                "no program {name} runs at {}",
+                scheduled.height
+            )));
+        }
+        Change::RemoveView(_) if !views.contains_key(name) => {
+            return Err(not_found(format!(
+                "no view {name} is listed at {}",
+                scheduled.height
+            )));
+        }
         Change::Remove(_) | Change::RemoveView(_) => false,
     };
-    if taken {
+    if clash {
         return Err(already_exists(format!(
             "{name} already names a program or a view"
         )));
     }
     let key = (scheduled.height, scheduled.change.program().to_owned());
-    if SCHEDULE.has(store, &key) {
+    if SCHEDULE.has(ctx, &key) {
         return Err(already_exists(format!(
             "{} already changes at {}",
             key.1, key.0
         )));
     }
-    SCHEDULE.put(store, &key, &scheduled.change);
+    SCHEDULE.put(ctx, &key, &scheduled.change);
     Ok(())
 }
 
-fn cancel(
-    store: &mut impl Writes,
-    env: &Env,
-    height: u64,
-    program: ProgramId,
-) -> Result<(), Refusal> {
-    crate::helpers::from(env, AUTHORITY)?;
+pub(crate) fn cancel(ctx: &ExecCtx, height: u64, program: ModuleId) -> Result<(), Error> {
+    let env = ctx.env();
+    env.authority()?;
     let key = (height, program);
-    if !SCHEDULE.has(store, &key) {
+    let Some(change) = SCHEDULE.get(ctx, &key)? else {
         return Err(not_found(format!("{} does not change at {height}", key.1)));
+    };
+    // A removal cancelled keeps its name held, which a pending set of the
+    // other kind may since have claimed.
+    let reinstated = match change {
+        Change::Remove(_) => Some(Kind::View),
+        Change::RemoveView(_) => Some(Kind::Program),
+        Change::Set(_) | Change::SetView(_) => None,
+    };
+    if let Some(other) = reinstated
+        && pending(ctx, &key.1, other)?
+    {
+        return Err(already_exists(format!(
+            "{} is claimed by a pending change of the other kind",
+            key.1
+        )));
     }
-    SCHEDULE.remove(store, &key);
+    SCHEDULE.remove(ctx, &key);
     Ok(())
 }
 
-fn fold(store: &mut impl Writes, height: u64) -> Result<(), Refusal> {
-    let folded = FOLDED.get(store)?.unwrap_or(0);
+pub(crate) fn fold(ctx: &ExecCtx, height: u64) -> Result<(), Error> {
+    let folded = FOLDED.get(ctx)?.unwrap_or(0);
     let nothing_new = folded >= height;
     if nothing_new {
         return Ok(());
     }
-    for (key, change) in due(store, height)? {
+    for (key, change) in due(ctx, height)? {
         match &change {
-            Change::Set(entry) => PROGRAMS.put(store, &entry.program, entry),
-            Change::Remove(program) => PROGRAMS.remove(store, program),
-            Change::SetView(view) => VIEWS.put(store, &view.name, view),
-            Change::RemoveView(name) => VIEWS.remove(store, name),
+            Change::Set(entry) => PROGRAMS.put(ctx, &entry.program, entry),
+            Change::Remove(program) => PROGRAMS.remove(ctx, program),
+            Change::SetView(view) => VIEWS.put(ctx, &view.name, view),
+            Change::RemoveView(name) => VIEWS.remove(ctx, name),
         }
-        SCHEDULE.remove(store, &key);
+        SCHEDULE.remove(ctx, &key);
     }
-    FOLDED.put(store, &height);
+    FOLDED.put(ctx, &height);
     Ok(())
 }
 
-fn due(store: &impl Reads, height: u64) -> Result<Vec<(At, Change)>, Refusal> {
-    SCHEDULE.scan(store, SCHEDULE.below(&(height + 1)))
+fn due(ctx: &QueryCtx, height: u64) -> Result<Vec<(At, Change)>, Error> {
+    SCHEDULE.scan(ctx, SCHEDULE.below(&(height + 1)))
 }
 
-fn at(store: &impl Reads, height: u64) -> Result<Vec<Entry>, Refusal> {
-    let mut entries: Vec<Entry> = PROGRAMS
-        .all(store)?
-        .into_iter()
-        .map(|(_, entry)| entry)
-        .collect();
-    for (_, change) in due(store, height)? {
+pub(crate) fn at(ctx: &QueryCtx, height: u64) -> Result<Vec<Entry>, Error> {
+    Ok(roster(ctx, height)?.0.into_values().collect())
+}
+
+pub(crate) fn views_at(ctx: &QueryCtx, height: u64) -> Result<Vec<View>, Error> {
+    Ok(roster(ctx, height)?.1.into_values().collect())
+}
+
+type Roster = (BTreeMap<ModuleId, Entry>, BTreeMap<ModuleId, View>);
+
+/// Both lists at a height, by name: what is folded, and every change due by then.
+fn roster(ctx: &QueryCtx, height: u64) -> Result<Roster, Error> {
+    let mut programs: BTreeMap<_, _> = PROGRAMS.all(ctx)?.into_iter().collect();
+    let mut views: BTreeMap<_, _> = VIEWS.all(ctx)?.into_iter().collect();
+    for (_, change) in due(ctx, height)? {
         match change {
             Change::Set(entry) => {
-                entries.retain(|running| running.program != entry.program);
-                entries.push(entry);
+                programs.insert(entry.program.clone(), entry);
             }
-            Change::Remove(program) => entries.retain(|running| running.program != program),
-            Change::SetView(_) | Change::RemoveView(_) => {}
+            Change::Remove(program) => {
+                programs.remove(&program);
+            }
+            Change::SetView(view) => {
+                views.insert(view.name.clone(), view);
+            }
+            Change::RemoveView(name) => {
+                views.remove(&name);
+            }
         }
     }
-    entries.sort_by(|a, b| a.program.cmp(&b.program));
-    Ok(entries)
+    Ok((programs, views))
 }
 
-fn views_at(store: &impl Reads, height: u64) -> Result<Vec<View>, Refusal> {
-    let mut views: Vec<View> = VIEWS
-        .all(store)?
+#[derive(Clone, Copy)]
+enum Kind {
+    Program,
+    View,
+}
+
+/// Whether a set of `kind` under `name` waits anywhere in the schedule, at any height.
+fn pending(ctx: &QueryCtx, name: &str, kind: Kind) -> Result<bool, Error> {
+    Ok(SCHEDULE
+        .all(ctx)?
         .into_iter()
-        .map(|(_, view)| view)
-        .collect();
-    for (_, change) in due(store, height)? {
-        match change {
-            Change::SetView(view) => {
-                views.retain(|listed| listed.name != view.name);
-                views.push(view);
-            }
-            Change::RemoveView(name) => views.retain(|listed| listed.name != name),
-            Change::Set(_) | Change::Remove(_) => {}
-        }
-    }
-    views.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(views)
+        .any(|((_, program), change)| {
+            program == name
+                && matches!(
+                    (kind, change),
+                    (Kind::Program, Change::Set(_)) | (Kind::View, Change::SetView(_))
+                )
+        }))
 }
