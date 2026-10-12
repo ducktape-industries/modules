@@ -1,0 +1,16 @@
+# What the app and an inbox say to each other at `<rpc>/inbox/v1/`: the
+# login message a device key signs and every JSON request, reply and live
+# push. The shapes alone; the inbox service (its own repo) and the app's
+# client both link this one copy.
+[package]
+name = "inbox-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+borsh = { workspace = true }
+notices = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

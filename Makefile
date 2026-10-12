@@ -6,8 +6,8 @@ WASM_OPT ?= wasm-opt
 # What a program links: abi, program, guest, store and notices build for wasm32 with nothing else.
 PROGRAM_LINKABLE := abi program guest store notices
 # What a client of a node links, built for wasm32 too: node-wire's read
-# types (its `frame` feature is a native client's).
-CLIENT_LINKABLE := node-wire
+# types (its `frame` feature is a native client's) and the inbox's API.
+CLIENT_LINKABLE := node-wire inbox-api
 
 # The ducktape checkout the probe fixture the founding suite seats is copied
 # from (crates/kernel/fixtures, `make kernel-fixtures` there). The probe
@@ -120,12 +120,12 @@ new-view:
 scaffold-check:
 	@tools/scaffold-check.sh
 
-## builds abi, program, guest, store, notices and node-wire for wasm32-unknown-unknown.
+## builds abi, program, guest, store, notices, node-wire and inbox-api for wasm32-unknown-unknown.
 module-wasm-check:
 	@for crate in $(PROGRAM_LINKABLE) $(CLIENT_LINKABLE); do \
 	  $(CARGO) build --target wasm32-unknown-unknown -p $$crate || exit 1; \
 	done; \
-	echo "abi, program, guest, store, notices and node-wire build for wasm32"
+	echo "abi, program, guest, store, notices, node-wire and inbox-api build for wasm32"
 
 ## builds every program (with `module` on) into $(RELEASE)/<name>.wasm. The
 ## founding suite reads the boot set from there.
