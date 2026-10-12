@@ -1,20 +1,43 @@
 //! What search and tags read out of a message: its flat text, the words
-//! search indexes, and its `#tags`.
+//! search indexes, and its `#tags`; and the same line as a person reads it.
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 
 use unicode_normalization::UnicodeNormalization;
 
-use crate::{Block, MAX_TAG_CHARS, MAX_TAGS_PER_MESSAGE, Mark};
+use crate::view::Names;
+use crate::{Block, MAX_TAG_CHARS, MAX_TAGS_PER_MESSAGE, Mark, Span};
 
 /// The message as one line of text, blocks joined by a space. A block's
 /// spans are runs of one text split where a mark starts or ends, so they
-/// join as they are.
+/// join as they are. A mention is its `<@7>` token: this is what search
+/// indexes, not what a person reads ([`read_text`]).
 pub fn plain_text(blocks: &[Block]) -> String {
+    line(blocks, |span| Cow::Borrowed(&span.text))
+}
+
+/// [`plain_text`] as a person reads it: a mention spelled as `names` calls
+/// the account (`@Ada`, or `@account-7` for one it does not name).
+pub fn read_text(blocks: &[Block], names: &Names) -> String {
+    line(blocks, |span| {
+        let mention = span.marks.iter().find_map(|mark| match mark {
+            Mark::Mention(principal) => Some(principal),
+            _ => None,
+        });
+        match mention {
+            Some(principal) => Cow::Owned(names.mention(principal)),
+            None => Cow::Borrowed(&span.text),
+        }
+    })
+}
+
+/// The blocks on one line, each span as `span_text` spells it.
+fn line<'a>(blocks: &'a [Block], span_text: impl Fn(&'a Span) -> Cow<'a, str>) -> String {
     let mut out = String::new();
     for block in blocks {
         let piece = match block {
             Block::Paragraph(spans) | Block::Quote(spans) => {
-                spans.iter().map(|s| s.text.as_str()).collect::<String>()
+                spans.iter().map(&span_text).collect::<String>()
             }
             Block::Code { text, .. } => text.clone(),
             Block::Divider => continue,

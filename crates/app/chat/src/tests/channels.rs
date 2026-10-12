@@ -268,7 +268,7 @@ pub(super) fn archive(archived: bool) -> Op {
     }
 }
 
-fn membership(principal: Principal, member: bool) -> Op {
+pub(super) fn membership(principal: Principal, member: bool) -> Op {
     Op::SetMembership {
         channel_id: "general".into(),
         principal,

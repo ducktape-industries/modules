@@ -9,6 +9,7 @@ use crate::{Op, PageRequest, PostPolicy, Principal, Query, Reply, parse_message}
 
 mod channels;
 mod messages;
+mod notify;
 mod origin;
 mod properties;
 mod reactions;

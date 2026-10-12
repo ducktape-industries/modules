@@ -3,7 +3,6 @@
 //! the store as it found it.
 use guest::{Error, ExecCtx, Origin, already_exists, capacity, invalid, unauthorized, wrong_state};
 
-use crate::rules;
 use crate::state::{
     ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
     fits, message, newest_first, replace_message, toggle,
@@ -12,6 +11,7 @@ use crate::{
     AccountNumber, Block, ChannelRow, MAX_REACTION_EMOJIS, MAX_REVISIONS, MAX_THREAD_REPLIES,
     MemberRow, MsgRow, PostPolicy, Principal, Reaction, dm_channel_id, plain_text, tags,
 };
+use crate::{notify, rules};
 
 // ── channels ────────────────────────────────────────────────────────────────
 
@@ -147,7 +147,9 @@ pub(crate) fn post(
 ) -> Result<(), Error> {
     rules::id("message_id", &message_id)?;
     rules::namespace(&message_id, ctx.env())?;
-    rules::writable(ctx, &channel(ctx, &channel_id)?, sender)?;
+    let channel = channel(ctx, &channel_id)?;
+    rules::writable(ctx, &channel, sender)?;
+    let named = notify::named(&blocks)?;
     if MESSAGE_IDS.has(ctx, &message_id) {
         return Err(already_exists(format!("message {message_id} exists")));
     }
@@ -165,19 +167,24 @@ pub(crate) fn post(
         ..MsgRow::by(sender.clone())
     };
     fits(&row)?;
-    match thread {
-        Some(root) => answer(ctx, &channel_id, root, seq)?,
-        None => ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq))),
-    }
+    let root_author = match thread {
+        Some(root) => Some(answer(ctx, &channel_id, root, seq)?),
+        None => {
+            ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq)));
+            None
+        }
+    };
     replace_message(ctx, None, &row);
     MESSAGE_IDS.put(ctx, &message_id, &(channel_id.clone(), seq));
     HEADS.put(ctx, &channel_id, &seq);
+    notify::posted(ctx, &channel, &row, root_author.as_ref(), &named);
     Ok(())
 }
 
 /// Reply `seq` joins the thread under `root`: the root counts it, and its
-/// author's [`ANSWERED`] entry moves to this reply.
-fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Error> {
+/// author's [`ANSWERED`] entry moves to this reply. Answers the root's
+/// author.
+fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<Principal, Error> {
     let mut row = message(ctx, channel_id, root)?;
     if row.thread.is_some() {
         return Err(invalid("a reply cannot be a thread root"));
@@ -193,7 +200,7 @@ fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Er
     row.reply_count += 1;
     row.last_reply_seq = Some(seq);
     MESSAGES.put(ctx, &(channel_id, root), &row);
-    Ok(())
+    Ok(row.author)
 }
 
 /// Drops the root's [`ANSWERED`] entry, if a reply made one.
@@ -239,7 +246,7 @@ pub(crate) fn edit(
 
 /// The author or the channel's owner deletes. What stays is a tombstone
 /// holding the message's place in its timeline or thread; its body, its
-/// postings and its reactions go.
+/// postings and its reactions go, and its notices are withdrawn.
 pub(crate) fn delete(
     ctx: &ExecCtx,
     sender: &Principal,
@@ -268,6 +275,7 @@ pub(crate) fn delete(
         ..old.clone()
     };
     replace_message(ctx, Some(&old), &tombstone);
+    notify::deleted(ctx, channel_id, seq);
     Ok(())
 }
 

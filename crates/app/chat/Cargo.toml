@@ -19,6 +19,8 @@ describe = []
 abi = { workspace = true }
 describe = { workspace = true }
 borsh = { workspace = true }
+# what a post tells the people it concerns (`notify.rs`)
+notices = { workspace = true }
 guest = { workspace = true, features = ["serde"] }
 # `#[derive(program::Ask)]` on `Query`
 program = { workspace = true }

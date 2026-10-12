@@ -673,6 +673,7 @@ dependencies = [
  "borsh",
  "describe",
  "guest",
+ "notices",
  "program",
  "serde",
  "store",

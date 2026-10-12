@@ -11,6 +11,8 @@
 //! - `state.rs`: every table and index the module keeps, declared once
 //! - `rules.rs`: the checks an op passes before it writes
 //! - `ops.rs`: one short function per op
+//! - `notify.rs`: what a post tells the people it concerns, as finished
+//!   notices ([`notices`]) in the post's receipt
 //! - `origin.rs`: the identity role's roster
 //! - `queries.rs`: one short function per question
 //! - `text.rs`: what search and tags read out of a message
@@ -22,6 +24,7 @@
 //! its wasm exports.
 mod description;
 pub mod message;
+mod notify;
 mod ops;
 mod origin;
 mod program;
@@ -44,7 +47,7 @@ pub use message::{Block, ListMarker, Mark, Span, list_item, parse_message};
 pub use program::Chat;
 pub use queries::roots_below;
 pub use store::{Cursor, PageRequest, PageResponse};
-pub use text::{plain_text, tags, tokens};
+pub use text::{plain_text, read_text, tags, tokens};
 
 /// Every table chat keeps, as a block's writes name them: what a follower
 /// of `module.changes` plays back in a test to say which a block touched.
@@ -69,6 +72,9 @@ pub const MAX_THREAD_REPLIES: u64 = 4096;
 pub const MAX_VIEWERS: usize = 8;
 pub const MAX_TAGS_PER_MESSAGE: usize = 16;
 pub const MAX_TAG_CHARS: usize = 64;
+/// The most accounts one message names: a post naming more is refused, so
+/// its notice reaches everyone it names.
+pub const MAX_NAMED: usize = notices::MAX_RECIPIENTS;
 /// How many postings a search reads before it reports `capped`.
 pub const SEARCH_POSTING_CAP: usize = 1024;
 
@@ -369,6 +375,13 @@ pub mod namespace {
     /// The program an id belongs to, or `None` for one people made.
     pub fn program(id: &str) -> Option<&str> {
         id.split_once(':').map(|(program, _)| program)
+    }
+
+    /// The program an id belongs to and the id's own path there, where
+    /// that program shows it: `forge:web:3` is forge's `["web", "3"]`.
+    pub fn path(id: &str) -> Option<(&str, Vec<&str>)> {
+        let (program, rest) = id.split_once(':')?;
+        Some((program, rest.split(':').collect()))
     }
 }
 
