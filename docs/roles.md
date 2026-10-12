@@ -121,12 +121,29 @@ the block goes on. `activity` (`crates/app/activity`) is the hook this
 repo founds: it indexes who signed what, by key and by account, and keeps
 the newest 1,000 frames of each.
 
-Who may schedule is `Env::authority()` in `guest`, which `module-registry`
-calls before scheduling or cancelling a change (publishing a blob is open to
-anyone). It admits only a message from the program bound to the validators
-role, and `valset` sends one only when the validators' vote passes a
-`Motion::Registry { op }`: the enacting vote emits `op` to the registry in
-the same frame, and a refusal there fails that vote.
+Who may schedule or cancel (publishing a blob is open to anyone):
+
+- The validators' vote, any change: `Env::authority()` in `guest` admits
+  only a message from the program bound to the validators role, and
+  `valset` sends one only when the vote passes a `Motion::Registry { op }`:
+  the enacting vote emits `op` to the registry in the same frame, and a
+  refusal there fails that vote.
+- A maintainer: a signed frame whose account holds a `Grant` of the id
+  (`Scope::Module(id)`, which may run nothing yet) or of every module
+  (`Scope::All`). It sets, removes and cancels changes of the ids it
+  covers, never a role's id or a hook (`SetHook`, `RemoveHook`, `Remove`
+  of a hook), and its change lands at least `NOTICE` (600) blocks after
+  the block it is made in, so the vote can cancel it first. It may not
+  change an id the vote has a change waiting on, keeps at most
+  `MAX_PENDING` (8) changes waiting, and cancels only a grant's change.
+  `Scheduled` answers who made each change (`Pending.by`, `None` for the
+  vote).
+
+Only the vote grants (`Op::Grant`, to a person or an agent identity
+profiles, never a program's account); `Op::Revoke` is the vote's or the
+holder's own, and drops every change the account made that it no longer
+covers. The vote's removal of an id takes the id's `Module` grants and
+their changes with it.
 
 ## Membership
 

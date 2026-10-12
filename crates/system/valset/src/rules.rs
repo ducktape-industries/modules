@@ -252,7 +252,7 @@ pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply
         let motion: Motion =
             abi::decode(&record).map_err(|refusal| corrupt("votes/", &record, refusal.sentence))?;
         if let Motion::Registry { op } = &motion
-            && timely(ctx, op).is_err()
+            && registry_op(op).and_then(|op| timely(ctx, &op)).is_err()
         {
             continue;
         }
@@ -271,24 +271,32 @@ fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
         Motion::Demote { key } => demotable(ctx, key),
         Motion::Remove { key } => removable(ctx, key),
         Motion::Door { open } => door_moves(ctx, *open),
-        Motion::Registry { op } => timely(ctx, op),
+        Motion::Registry { op } => {
+            let op = registry_op(op)?;
+            timely(ctx, &op)?;
+            grantable(ctx, &op)
+        }
     }
 }
 
-/// A registry motion carries an op the registry reads, and a `Schedule`
-/// or `Cancel` names a later block than this one: a change lands at a
-/// later block (module-registry's `schedule`), and one whose block has
-/// come has landed, so there is nothing left to cancel. Refused at the
-/// first vote: refused only at enactment, the vote that reached the
-/// quorum would fail inside the registry, and the motion would sit one
-/// vote short for good.
-fn timely(ctx: &QueryCtx, op: &[u8]) -> Result<(), Error> {
-    let op: module_registry::Op = abi::decode(op)
-        .map_err(|refusal| invalid(format!("not a registry op: {}", refusal.sentence)))?;
+/// A registry motion's op, as the registry reads it.
+fn registry_op(op: &[u8]) -> Result<module_registry::Op, Error> {
+    abi::decode(op).map_err(|refusal| invalid(format!("not a registry op: {}", refusal.sentence)))
+}
+
+/// A registry motion's `Schedule` or `Cancel` names a later block than
+/// this one: a change lands at a later block (module-registry's
+/// `schedule`), and one whose block has come has landed, so there is
+/// nothing left to cancel. Refused at the first vote: refused only at
+/// enactment, the vote that reached the quorum would fail inside the
+/// registry, and the motion would sit one vote short for good.
+fn timely(ctx: &QueryCtx, op: &module_registry::Op) -> Result<(), Error> {
     let at = match op {
-        module_registry::Op::Publish { .. } => return Ok(()),
+        module_registry::Op::Publish { .. }
+        | module_registry::Op::Grant(_)
+        | module_registry::Op::Revoke(_) => return Ok(()),
         module_registry::Op::Schedule(scheduled) => scheduled.height,
-        module_registry::Op::Cancel { height, .. } => height,
+        module_registry::Op::Cancel { height, .. } => *height,
     };
     let height = ctx.env().height;
     if at <= height {
@@ -297,6 +305,17 @@ fn timely(ctx: &QueryCtx, op: &[u8]) -> Result<(), Error> {
         )));
     }
     Ok(())
+}
+
+/// A `Grant` the registry would refuse (`module_registry::grantable`: a
+/// bad id, a role, no such account, a program's), refused at the first
+/// vote for `timely`'s reason. Asked here, not in `timely`, so reading the
+/// motions asks identity nothing: what it checks never changes once true.
+fn grantable(ctx: &QueryCtx, op: &module_registry::Op) -> Result<(), Error> {
+    match op {
+        module_registry::Op::Grant(grant) => module_registry::grantable(ctx, grant),
+        _ => Ok(()),
+    }
 }
 
 fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {

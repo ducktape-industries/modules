@@ -3,8 +3,11 @@
 
 use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
 
-use crate::rules::{SCHEDULE, at, cancel, fold, hooks_at, init, publish, schedule, views_at};
-use crate::{Genesis, MODULE, Op, Query, Reply, Scheduled};
+use crate::rules::{
+    BY, GRANTS, SCHEDULE, at, cancel, fold, grant, hooks_at, init, publish, revoke, schedule,
+    views_at,
+};
+use crate::{Genesis, Grant, MODULE, Op, PageResponse, Pending, Query, Reply};
 
 pub struct Modules;
 
@@ -27,6 +30,8 @@ impl Module for Modules {
             Op::Publish { body } => publish(ctx, body),
             Op::Schedule(scheduled) => schedule(ctx, scheduled),
             Op::Cancel { height, program } => cancel(ctx, height, program),
+            Op::Grant(granted) => grant(ctx, granted),
+            Op::Revoke(granted) => revoke(ctx, granted),
         }
     }
 
@@ -35,11 +40,29 @@ impl Module for Modules {
         Ok(match query {
             Query::At(height) => Reply::Programs(at(ctx, height)?),
             Query::Views(height) => Reply::Views(views_at(ctx, height)?),
-            Query::Scheduled { page } => Reply::Scheduled(
-                SCHEDULE
-                    .range(ctx, &page)?
-                    .map(|((height, _), change)| Scheduled { height, change }),
-            ),
+            Query::Scheduled { page } => {
+                let PageResponse {
+                    height,
+                    items,
+                    next,
+                } = SCHEDULE.range(ctx, &page)?;
+                let items = items
+                    .into_iter()
+                    .map(|(at, change)| {
+                        let by = BY.get(ctx, &at)?;
+                        Ok(Pending {
+                            height: at.0,
+                            change,
+                            by,
+                        })
+                    })
+                    .collect::<Result<_, Error>>()?;
+                Reply::Scheduled(PageResponse {
+                    height,
+                    items,
+                    next,
+                })
+            }
             Query::Program(program) => Reply::Program {
                 height,
                 entry: at(ctx, height)?
@@ -48,6 +71,11 @@ impl Module for Modules {
             },
             Query::Roles => Reply::Roles(ctx.env().roles.clone()),
             Query::Hooks(height) => Reply::Hooks(hooks_at(ctx, height)?),
+            Query::Grants { page } => Reply::Grants(
+                GRANTS
+                    .range(ctx, &page)?
+                    .map(|(scope, account)| Grant { scope, account }),
+            ),
         })
     }
 }

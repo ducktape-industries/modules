@@ -1,4 +1,7 @@
 // The module natively over `guest::MockHost`: what the founding suite checks on the host, without the host.
+// Who may change the registry is `tests/access.rs`.
+
+mod access;
 
 use guest::{BlobId, Env, MockHost, Module, Origin, code};
 use store::PageRequest;
