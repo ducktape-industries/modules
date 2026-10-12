@@ -137,6 +137,10 @@ pub fn unread_seq(messages: &[ChatMessage], boundary: Option<u64>) -> Option<u64
 
 const DAY_MS: u64 = 86_400_000;
 
+pub fn zone() -> u64 {
+    design::local(DAY_MS)
+}
+
 /// The day message `index` opens, when it is the first of its day: a
 /// served row whose day differs from the served row above it (or that has
 /// none above). Pending rows carry no time and open nothing.

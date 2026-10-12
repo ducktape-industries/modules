@@ -4,7 +4,7 @@ use chat::view::Names;
 use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
 use ducktape_view_guest::prelude::*;
 
-use crate::{PAGE, WINDOW};
+use crate::{PAGE, SPAN, WINDOW};
 
 fn page(after: Option<Vec<u8>>, limit: usize) -> PageRequest {
     PageRequest {
@@ -55,6 +55,57 @@ pub(crate) async fn around(
         })
         .await?;
     Ok(sorted(rows))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Side {
+    Older,
+    Newer,
+}
+
+pub(crate) async fn beside(
+    host: Host,
+    channel_id: String,
+    seq: u64,
+    side: Side,
+    viewer: Vec<Principal>,
+) -> Result<Vec<MsgRow>, Error> {
+    let half = PAGE as u64 / 2;
+    let centre = match side {
+        Side::Older => seq.saturating_sub(half + 1),
+        Side::Newer => seq.saturating_add(half + 1),
+    };
+    let rows = host
+        .query(ask::MessagesAround {
+            channel_id,
+            seq: centre,
+            viewer,
+            page: page(None, PAGE),
+        })
+        .await?;
+    let past = |row: &MsgRow| match side {
+        Side::Older => row.seq < seq,
+        Side::Newer => row.seq > seq,
+    };
+    Ok(sorted(rows.into_iter().filter(past).collect()))
+}
+
+pub(crate) async fn span(
+    host: Host,
+    channel_id: String,
+    (first, last): (u64, u64),
+    viewer: Vec<Principal>,
+) -> Result<Vec<MsgRow>, Error> {
+    let rows = host
+        .query(ask::MessagesAround {
+            channel_id,
+            seq: first.midpoint(last),
+            viewer,
+            page: page(None, SPAN),
+        })
+        .await?;
+    let held = |row: &MsgRow| (first..=last).contains(&row.seq);
+    Ok(sorted(rows.into_iter().filter(held).collect()))
 }
 
 pub(crate) fn sorted(mut rows: Vec<MsgRow>) -> Vec<MsgRow> {

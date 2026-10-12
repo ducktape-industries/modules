@@ -139,6 +139,8 @@ impl ListState {
             item_ix: scroll_top.item_ix.min(inner.item_count),
             offset_in_item: px(f32::from(scroll_top.offset_in_item).max(0.)),
         };
+        let shown = offset.item_ix..offset.item_ix.saturating_add(INITIAL_ROWS);
+        inner.hold(shown);
         inner.logical_scroll_top = offset;
         inner.push(wire::ListCommand::ScrollTo(to_wire_offset(offset)));
     }
@@ -195,17 +197,8 @@ impl ListState {
     /// Answers whether the window moved: a request inside it changes no row.
     fn request(&self, request: &wire::ListRequest) -> bool {
         let mut inner = self.0.inner.borrow_mut();
-        let count = inner.item_count;
-        let asked = bounded_range(request.start..request.end, count);
         let held = inner.requested.clone();
-        let touches = asked.start <= held.end && held.start <= asked.end;
-        let (start, end) = (held.start.min(asked.start), held.end.max(asked.end));
-        inner.requested = match (touches, end - start <= wire::MAX_LIST_ROWS) {
-            (false, _) => bounded_window(asked.start, asked.end, count),
-            (true, true) => start..end,
-            (true, false) if asked.start < held.start => bounded_window(start, end, count),
-            (true, false) => end - wire::MAX_LIST_ROWS..end,
-        };
+        inner.hold(request.start..request.end);
         inner.requested != held
     }
     fn observe(&self, event: &wire::ListScroll, window: &mut Window, app: &mut App) {
@@ -216,8 +209,9 @@ impl ListState {
             // Rows well off screen leave the window, so scrolling through a
             // long list keeps its tick near a screenful rather than growing
             // to the cap. The margin outreaches the host's overdraw.
-            let keep = event.visible_start.saturating_sub(MARGIN_ROWS)
-                ..event.visible_end.saturating_add(MARGIN_ROWS);
+            let margin = margin_rows(inner.overdraw);
+            let keep = event.visible_start.saturating_sub(margin)
+                ..event.visible_end.saturating_add(margin);
             let held = inner.requested.clone();
             let trimmed = held.start.max(keep.start)..held.end.min(keep.end);
             if !trimmed.is_empty() && event.visible_start < event.visible_end {
@@ -241,6 +235,19 @@ impl ListState {
     }
 }
 impl Inner {
+    fn hold(&mut self, asked: Range<usize>) {
+        let count = self.item_count;
+        let asked = bounded_range(asked, count);
+        let held = self.requested.clone();
+        let touches = asked.start <= held.end && held.start <= asked.end;
+        let (start, end) = (held.start.min(asked.start), held.end.max(asked.end));
+        self.requested = match (touches, end - start <= wire::MAX_LIST_ROWS) {
+            (false, _) => bounded_window(asked.start, asked.end, count),
+            (true, true) => start..end,
+            (true, false) if asked.start < held.start => bounded_window(start, end, count),
+            (true, false) => end - wire::MAX_LIST_ROWS..end,
+        };
+    }
     fn push(&mut self, command: wire::ListCommand) {
         self.revision = self.revision.wrapping_add(1);
         if self.commands.len() < wire::MAX_LIST_COMMANDS {
@@ -411,6 +418,12 @@ const INITIAL_ROWS: usize = 24;
 /// Rows kept past each edge of what the host shows, in both lists: a
 /// scroll of fewer rows than this changes no row the guest lowers.
 pub(crate) const MARGIN_ROWS: usize = 12;
+const SHORTEST_ROW: f32 = 24.;
+
+fn margin_rows(overdraw: Pixels) -> usize {
+    let covered = (f32::from(overdraw) / SHORTEST_ROW).ceil() as usize;
+    MARGIN_ROWS.max(covered)
+}
 
 fn initial_range(count: usize, alignment: ListAlignment) -> Range<usize> {
     match alignment {
@@ -661,6 +674,72 @@ mod tests {
         cx.app_mut().notify();
         cx.tick(vec![]);
         assert_eq!(window(&cx), 100..100 + wire::MAX_LIST_ROWS);
+    }
+
+    #[test]
+    fn a_scroll_to_a_row_brings_its_rows_in_the_frame_that_carries_it() {
+        let (mut cx, view) = opened();
+        let state = view.read(|view| view.state.clone());
+        let window = |cx: &TestAppContext| match cx.root() {
+            wire::Node::List {
+                range_start,
+                children,
+                ..
+            } => *range_start..*range_start + children.len(),
+            other => panic!("expected list, got {other:?}"),
+        };
+        let to = |cx: &mut TestAppContext, item_ix: usize| {
+            state.scroll_to(ListOffset {
+                item_ix,
+                offset_in_item: px(0.),
+            });
+            cx.app_mut().notify();
+            cx.tick(vec![]);
+            window(cx)
+        };
+        assert_eq!(to(&mut cx, 100), 100..100 + INITIAL_ROWS);
+        assert_eq!(to(&mut cx, 110), 100..110 + INITIAL_ROWS);
+    }
+
+    #[test]
+    fn a_scroll_keeps_every_row_the_host_lays_out_past_the_screen() {
+        let (mut cx, view) = opened();
+        cx.update(&view, |view, _, cx| {
+            view.state = ListState::new(2_000, ListAlignment::Bottom, px(600.));
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let wire::Node::List {
+            request_handler,
+            scroll_handler: Some(scroll_handler),
+            ..
+        } = *cx.root()
+        else {
+            panic!("expected list")
+        };
+        cx.tick(vec![wire::Event::ListRequest {
+            handler: request_handler,
+            request: wire::ListRequest {
+                start: 1_936,
+                end: 2_000,
+            },
+        }]);
+        cx.tick(vec![wire::Event::ListScroll {
+            handler: scroll_handler,
+            event: wire::ListScroll {
+                visible_start: 1_970,
+                visible_end: 1_990,
+                count: 2_000,
+                is_scrolled: true,
+                is_following_tail: false,
+                offset: wire::ListOffset {
+                    item_ix: 1_970,
+                    offset_in_item: 0.,
+                },
+            },
+        }]);
+        let kept = view.read(|view| view.state.0.inner.borrow().requested.clone());
+        assert_eq!(kept, 1_970 - 25..2_000, "600px of one-line rows each way");
     }
 
     /// An empty list has no row to reveal: the window stays empty, and
