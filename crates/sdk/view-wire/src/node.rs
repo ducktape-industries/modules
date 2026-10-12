@@ -280,6 +280,36 @@ pub enum Node {
         #[serde(deserialize_with = "canvas::decode_parts")]
         commands: Vec<CanvasCommand>,
     },
+    /// A web page, drawn by the host's browser engine in the node's box.
+    /// Every press, key and scroll on it is the page's, so it carries no
+    /// listeners, and no label or role: the page is its own content
+    /// (deliberate; an accessible name can come later with the page's own
+    /// accessibility tree). Only a view whose manifest declares the `web`
+    /// capability may send one; a host refuses the frame of any other
+    /// ([`crate::web::carries_web`]).
+    ///
+    /// The page opens on `url` when the host first sees the node (under its
+    /// path) and is closed when a frame no longer has it. The view moves it
+    /// with `commands`, applied in order, once, when `revision` moves (a
+    /// [`Node::List`]'s pattern); in the frame that first carries the node
+    /// they apply after the page is asked to open `url` (a `Load` there
+    /// opens its address instead). `on_state` hears where the page is as
+    /// [`Event::Web`].
+    ///
+    /// A host loads only an `https://` page, or an `http://` one on this
+    /// machine, with no user name or password in the address: every
+    /// `url`, every `Load`, and every top-level navigation the page makes
+    /// itself (a link, a script, a redirect). Frames inside the page are
+    /// the page's own and are not held to the rule.
+    Web {
+        id: ElementIdWire,
+        url: String,
+        style: StyleId,
+        revision: u64,
+        #[serde(deserialize_with = "crate::web::decode_commands")]
+        commands: Vec<crate::web::WebCommand>,
+        on_state: Option<u32>,
+    },
 }
 
 mod impls;

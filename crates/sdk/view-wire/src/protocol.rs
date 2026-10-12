@@ -227,6 +227,14 @@ pub enum Event {
         handler: u32,
         data: Option<ActionData>,
     },
+    /// Where a [`Node::Web`]'s page is now (its address, title, whether it
+    /// loads, whether it can go back or forward), to the node's
+    /// `on_state`: sent when the page first reports, and whenever any of it
+    /// changes after.
+    Web {
+        handler: u32,
+        state: crate::WebState,
+    },
 }
 
 /// Why a request failed, as the guest gets it: the one [`Error`] — a stable
