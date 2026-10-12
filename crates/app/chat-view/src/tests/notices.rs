@@ -100,6 +100,41 @@ fn the_thread_marks_its_tag_through_its_newest_reply() {
     );
 }
 
+/// A room opened around a landing holds every message near it, replies
+/// too: nothing is marked while it may not reach the head, and once read
+/// down to the head the timeline marks `<channel>` through its newest root,
+/// never a thread's tag through a reply it does not show.
+#[test]
+fn a_landed_room_read_to_its_head_marks_its_newest_root() {
+    let (mut cx, _) = opened();
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
+        Ok(match query {
+            Query::Channels { .. } => Reply::Channels(page(vec![
+                channel("general", "General", 3),
+                channel("dm-7-8", "dm", 1),
+            ])),
+            Query::MessagesAround { .. } => Reply::Messages(vec![
+                row(1, 7, "hello"),
+                at(5, row(2, 8, "later")),
+                reply(3, 7),
+            ]),
+            Query::Members { .. } => Reply::Members(page(Vec::new())),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+    cx.host()
+        .stream::<ducktape_view_guest::methods::HostRoute>()
+        .send("general/2".into());
+    cx.run_until_parked();
+    assert_eq!(cx.host().requests::<NotifySeen>(), [seen("general", 1)]);
+    cx.simulate_range("chat-message-list", 0..2);
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<NotifySeen>(),
+        [seen("general", 1), seen("general", 5)]
+    );
+}
+
 /// A room that is not on screen tells the host nothing, however its rows
 /// move; brought back in front, it marks what it shows.
 #[test]

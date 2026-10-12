@@ -114,15 +114,21 @@ impl Chat {
         let Some(room) = self.room.as_ref().filter(|_| self.reads.visible) else {
             return;
         };
-        let timeline = room.messages.ready().filter(|_| !room.landed);
+        // a window opened around a landing holds replies too: the timeline
+        // shows only the roots among them
+        let timeline = room
+            .messages
+            .ready()
+            .filter(|_| !room.landed)
+            .and_then(|rows| rows.iter().rev().find(|row| row.thread.is_none()));
         let thread = room
             .thread
             .as_ref()
             .filter(|thread| !thread.has_more)
-            .and_then(|thread| thread.replies.ready());
+            .and_then(|thread| thread.replies.ready()?.last());
         let shown: Vec<(String, u64)> = [timeline, thread]
             .into_iter()
-            .filter_map(|rows| rows?.last())
+            .flatten()
             .map(|row| (chat::notify::tag(row), row.height))
             .collect();
         for (tag, through_height) in shown {
