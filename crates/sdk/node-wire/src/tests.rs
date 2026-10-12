@@ -1,12 +1,15 @@
 //! The wire's golden: each shape against the bytes core encodes it to,
 //! written out by hand in core's field order. A field core adds, drops or
-//! moves fails here once the workspace's core rev moves past it.
+//! moves fails here once the workspace's core rev moves past it. Each
+//! vector names the core lines it was read from, at core origin/main
+//! 8d076bc40 (`crates/` omitted); recheck them when the core rev moves.
 use super::*;
 
 fn text(text: &str) -> Vec<u8> {
     [&(text.len() as u32).to_le_bytes()[..], text.as_bytes()].concat()
 }
 
+/// `kernel/host/src/lib.rs:76` (`BlockId = [u8; 32]`), `:117-120` (`Tip`).
 fn tip() -> (Tip, Vec<u8>) {
     let tip = Tip {
         height: 3,
@@ -15,6 +18,8 @@ fn tip() -> (Tip, Vec<u8>) {
     (tip, [&3u64.to_le_bytes()[..], &[4; 32]].concat())
 }
 
+/// `noded/src/wire.rs:5` (`NODE_CONTRACT`), `:30-45` (`Status`);
+/// `kernel/abi/src/lib.rs:6` (`Root`), `:96-101` (`Roles`).
 #[test]
 fn a_status_decodes_the_nodes_field_order_ending_in_the_roles() {
     let mut bytes = text("n");
@@ -60,7 +65,8 @@ fn a_status_decodes_the_nodes_field_order_ending_in_the_roles() {
 
 /// The bytes `host::Receipt` encodes a submission with one nested run
 /// to: program "a", Applied [7], no events, nested [program "b",
-/// Applied [], no events, nested []].
+/// Applied [], no events, nested []]. `kernel/host/src/lib.rs:146-155`
+/// (`Receipt`); `kernel/abi/src/lib.rs:171-174` (`Outcome`).
 #[test]
 fn receipt_decodes_the_hosts_nested_runs() {
     let bytes = [
@@ -75,7 +81,11 @@ fn receipt_decodes_the_hosts_nested_runs() {
 }
 
 /// A block of one tx whose receipt carries one event, and the reads that
-/// ask for blocks and stream changes.
+/// ask for blocks and stream changes. `noded/src/wire.rs:139-147`
+/// (`Finalized`), `:124-131` (`Tx`), `:89-93` (`Change`), `:96` and
+/// `:103-106` (`MAX_BLOCKS`, `Blocks`), `:110-113` (`BlockRef`), `:57-60`
+/// (`Query`); `kernel/host/src/lib.rs:167-170` (`Layer`), `:146-155`
+/// (`Receipt`).
 #[test]
 fn a_finalized_block_and_the_reads_around_it_are_the_nodes_bytes() {
     let (anchor, anchor_bytes) = tip();
@@ -169,6 +179,7 @@ fn a_finalized_block_and_the_reads_around_it_are_the_nodes_bytes() {
     assert_eq!(abi::encode(&query), [1, 1, 0, 0, 0, 1]);
 }
 
+/// `noded/src/wire.rs:124-131` (`Tx`, `receipt: None`).
 #[test]
 fn a_tx_without_a_receipt_decodes_the_nodes_field_order() {
     let (anchor, anchor_bytes) = tip();
@@ -187,8 +198,9 @@ fn a_tx_without_a_receipt_decodes_the_nodes_field_order() {
     assert_eq!(abi::decode::<Tx>(&bytes).unwrap(), tx);
 }
 
-/// The bytes noded's own test pins `Network` to (noded/src/network.rs,
-/// `the_route_is_borsh_in_declaration_order`).
+/// The bytes noded's own test pins `Network` to: `noded/src/network.rs:90`
+/// (`the_route_is_borsh_in_declaration_order`); the types at
+/// `noded/src/wire.rs:153-157` (`Network`), `:170-173` (`PeerStatus`).
 #[test]
 fn network_decodes_the_nodes_bytes() {
     let mut bytes = Vec::new();
@@ -223,6 +235,7 @@ mod frame {
     use crate::keyscheme::KeyScheme;
     use crate::{Body, FRAME_NAMESPACE, Frame};
 
+    /// `kernel/node/src/frame.rs:7` (`NAMESPACE`), `:43-62` (`Frame::sign`).
     #[test]
     fn a_frame_signs_its_body_and_names_the_signer() {
         let key = ed25519::PrivateKey::from_seed(7);
@@ -241,6 +254,8 @@ mod frame {
         ));
     }
 
+    /// `kernel/node/src/frame.rs:10-18` (`Body`), `:27-29` (`preimage`);
+    /// `kernel/keyscheme/src/lib.rs:50` (`KeyScheme`).
     #[test]
     fn a_body_encodes_in_the_nodes_field_order() {
         let (anchor, anchor_bytes) = tip();

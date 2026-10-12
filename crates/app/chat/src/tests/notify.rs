@@ -109,6 +109,28 @@ fn naming_yourself_tells_no_one() {
     assert_eq!(chat.notices(), []);
 }
 
+/// A program's account has no reader: naming forge's tells no one.
+#[test]
+fn naming_a_programs_account_tells_no_one() {
+    let mut chat = Chat::with_channel(PostPolicy::Open);
+    chat.post(&BO, "m1", "ping <@900>", None);
+    assert_eq!(chat.notices(), []);
+}
+
+/// D5 holds for a Reply too: a root's author unseated from a members-only
+/// room hears no more of its thread.
+#[test]
+fn a_reply_reaches_a_members_only_rooms_members_alone() {
+    let mut chat = Chat::with_channel(PostPolicy::MembersOnly);
+    chat.ok(&ADA, membership(BO, true));
+    chat.post(&BO, "m1", "question", None);
+    chat.post(&ADA, "m2", "first", Some(1));
+    assert_eq!(chat.notice().to, [2]);
+    chat.ok(&ADA, membership(BO, false));
+    chat.post(&ADA, "m3", "second", Some(1));
+    assert_eq!(chat.notices(), []);
+}
+
 /// A post that concerns no one, an edit, and a reaction emit nothing.
 #[test]
 fn a_post_for_no_one_emits_nothing() {
@@ -178,11 +200,10 @@ fn a_reply_under_a_programs_root_tells_no_one() {
     assert_eq!(chat.notices(), []);
 }
 
-/// What forge posts into its room, a message forge's own frame runs in
-/// chat (a nested run on the host), follows the same rules: its system
-/// line names no one and tells no one; a line naming an account would
-/// tell it, from forge's account. A notice from a program's room opens
-/// where the program shows it.
+/// Chat applies the same rules when the poster is a module's account
+/// (forge posting into its own room): its system line names no one and
+/// tells no one; a line naming an account tells it, from forge's account.
+/// A notice from a program's room opens where the program shows it.
 #[test]
 fn a_forge_discussion_post_tells_as_any_post_does() {
     let mut chat = Chat::default();
@@ -265,6 +286,14 @@ fn a_profile_identity_refuses_falls_back_to_the_number() {
     assert_eq!(
         (notice.title.as_str(), notice.body.as_str()),
         ("account 2 mentioned you in #general", "hi @account-3")
+    );
+    // a root's author identity says nothing of is taken for a person
+    chat.post(&ADA, "m2", "question", None);
+    chat.post(&BO, "m3", "answer", Some(2));
+    let notice = chat.notice();
+    assert_eq!(
+        (notice.kind, notice.to, notice.title.as_str()),
+        (Kind::Reply, vec![1], "account 2 replied in #general")
     );
 }
 

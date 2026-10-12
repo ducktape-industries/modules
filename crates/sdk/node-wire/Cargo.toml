@@ -14,6 +14,9 @@ edition.workspace = true
 # native client's: the app and the inbox turn it on. The read types build
 # for wasm32 without it.
 frame = ["dep:keyscheme", "dep:commonware-cryptography"]
+# keyscheme's own test-only signing helpers, for a consumer's dev-dependencies
+# (it links keyscheme through the re-export, never its own pin).
+testkit = ["frame", "keyscheme/testkit"]
 
 [dependencies]
 abi = { workspace = true }

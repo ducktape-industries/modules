@@ -4,13 +4,14 @@
 //! without knowing chat.
 //!
 //! Who: in a dm room, the other peer (`Direct`); each account the message
-//! names, in a members-only room only its owner and seated members
-//! (`Mention`); the author of the thread's root, when that is an account
-//! and not a program's (`Reply`). Never the author. A person a post reaches
-//! twice is told once, by the first of Direct, Mention, Reply. A notice
-//! carries one kind and one title, so a post emits one notice per kind it
-//! has recipients for, all under its one key: a reply that names someone
-//! is a Mention to them and a Reply to the root's author.
+//! names (`Mention`); the author of the thread's root (`Reply`). Never the
+//! author, never a program's account (no one reads its notices), and in a
+//! members-only room only its owner and seated members (decision D5). A
+//! person a post reaches twice is told once, by the first of Direct,
+//! Mention, Reply. A notice carries one kind and one title, so a post
+//! emits one notice per kind it has recipients for, all under its one key:
+//! a reply that names someone is a Mention to them and a Reply to the
+//! root's author.
 //!
 //! The words are frozen at post: the author's and each named account's
 //! name from identity's profiles, asked once each in this frame (one
@@ -81,7 +82,7 @@ pub(crate) fn posted(
         .collect();
     let reply: Vec<u64> = root
         .and_then(Principal::account)
-        .filter(|account| fresh(account, &[&direct, &mention]))
+        .filter(|account| fresh(account, &[&direct, &mention]) && reaches(ctx, channel, *account))
         .into_iter()
         .collect();
     if direct.is_empty() && mention.is_empty() && reply.is_empty() {
@@ -94,11 +95,14 @@ pub(crate) fn posted(
             .chain(named.iter().copied())
             .chain(reply.iter().copied()),
     );
-    // a root a program posted (forge's review line) has no reader to tell
-    let reply: Vec<u64> = reply
-        .into_iter()
-        .filter(|account| names.module(&Principal::Account(*account)).is_none())
-        .collect();
+    // a program's account (forge's, whose review line roots a thread) has
+    // no reader to tell
+    let read = |to: Vec<u64>| -> Vec<u64> {
+        to.into_iter()
+            .filter(|account| names.module(&Principal::Account(*account)).is_none())
+            .collect()
+    };
+    let (mention, reply) = (read(mention), read(reply));
     let who = names.author(&row.author);
     let room = room(channel);
     let body = notices::cut(&read_text(&row.blocks, &names));
@@ -135,7 +139,7 @@ pub(crate) fn deleted(ctx: &ExecCtx, channel: &str, seq: u64) {
     ctx.event(notices::encode(&NoticeEvent::Retract { key }));
 }
 
-/// Whether naming `account` in `channel` reaches it: anyone in an open
+/// Whether a notice from `channel` reaches `account`: anyone in an open
 /// room; in a members-only room, its owner and seated members (decision
 /// D5).
 fn reaches(ctx: &ExecCtx, channel: &ChannelRow, account: u64) -> bool {

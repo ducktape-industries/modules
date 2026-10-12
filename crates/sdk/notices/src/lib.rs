@@ -183,6 +183,37 @@ mod tests {
         assert_eq!(describe::variants::<Kind>(), ["Mention", "Direct", "Reply"]);
     }
 
+    /// The bytes on chain, written out by hand in field order: a field
+    /// added to or moved inside `Notice` or `Link` breaks every reader of
+    /// the old ones, so it fails here first.
+    #[test]
+    fn an_event_is_its_committed_bytes() {
+        let text = |text: &str| [&(text.len() as u32).to_le_bytes()[..], text.as_bytes()].concat();
+        let post = [
+            PREFIX,
+            &[0],               // Post
+            &text("general/7"), // key
+            &[2, 0, 0, 0],      // to: 2 accounts
+            &2u64.to_le_bytes(),
+            &3u64.to_le_bytes(),
+            &[1], // from: Some
+            &1u64.to_le_bytes(),
+            &[0],                                   // kind: Mention
+            &text("Ada mentioned you in #general"), // title
+            &text("hi"),                            // body
+            &text("general"),                       // tag
+            &text("chat"),                          // link.program
+            &[2, 0, 0, 0],                          // link.segments
+            &text("general"),
+            &text("7"),
+        ]
+        .concat();
+        assert_eq!(encode(&NoticeEvent::Post(notice(Kind::Mention))), post);
+        let retract = [PREFIX, &[1], &text("general/7")].concat();
+        let key = "general/7".into();
+        assert_eq!(encode(&NoticeEvent::Retract { key }), retract);
+    }
+
     #[test]
     fn an_event_round_trips_behind_its_prefix() {
         for event in [
