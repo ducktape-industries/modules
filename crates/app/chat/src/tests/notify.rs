@@ -36,6 +36,17 @@ impl Chat {
     }
 }
 
+/// Identity holds `numbers` as people too, beside the suite's roster.
+fn people(chat: &Chat, numbers: impl IntoIterator<Item = u64>) {
+    let mut roster = roster();
+    roster.extend(numbers.into_iter().map(|number| crate::Profile {
+        number,
+        name: format!("user{number}"),
+        kind: crate::Kind::Person,
+    }));
+    chat.store.identity(roster);
+}
+
 fn link(program: &str, segments: &[&str]) -> Link {
     Link {
         program: program.into(),
@@ -107,6 +118,17 @@ fn naming_yourself_tells_no_one() {
     let mut chat = Chat::with_channel(PostPolicy::Open);
     chat.post(&BO, "m1", "note to <@2>", None);
     assert_eq!(chat.notices(), []);
+}
+
+/// A number no account holds has no reader: naming it tells no one, and
+/// the others named are still told.
+#[test]
+fn naming_a_number_nobody_holds_tells_no_one() {
+    let mut chat = Chat::with_channel(PostPolicy::Open);
+    chat.post(&BO, "m1", "ping <@4000>", None);
+    assert_eq!(chat.notices(), []);
+    chat.post(&BO, "m2", "<@4000> and <@3>", None);
+    assert_eq!(chat.notice().to, [3]);
 }
 
 /// A program's account has no reader: naming forge's tells no one.
@@ -250,6 +272,7 @@ fn a_message_names_at_most_64_accounts() {
             .collect::<Vec<_>>()
             .join(" ")
     };
+    people(&chat, (8..=9).chain(13..=67));
     let refused = chat.refused(&BO, post("general", "m1", &names(3..=67), None));
     assert_eq!(refused, code::CAPACITY);
     chat.post(&BO, "m1", &format!("{} <@3>", names(3..=66)), None);
@@ -310,6 +333,7 @@ fn a_notice_costs_its_bytes_in_the_receipt() {
         None,
     );
     let typical = ::notices::encode(&NoticeEvent::Post(chat.notice())).len();
+    people(&chat, 1000..1064);
     let names: Vec<String> = (1000..1064).map(|n| format!("<@{n}>")).collect();
     let text = format!("{} {}", names.join(" "), "word ".repeat(200));
     chat.post(&BO, "m2", &text, None);

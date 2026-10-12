@@ -16,6 +16,18 @@ pub const PREFIX: &[u8] = b"ducktape:notice:";
 pub const MAX_TEXT_BYTES: usize = 512;
 /// The most accounts one notice names.
 pub const MAX_RECIPIENTS: usize = 64;
+/// The most bytes a key carries (chat's longest is 85: a 64-byte channel,
+/// `/`, a u64).
+pub const MAX_KEY_BYTES: usize = 256;
+/// The most bytes a tag carries (chat's longest is a key's).
+pub const MAX_TAG_BYTES: usize = 256;
+/// The most bytes a link's program carries (a program id is 1..=64).
+pub const MAX_LINK_PROGRAM_BYTES: usize = 128;
+/// The most segments a link carries (chat's most is 63: a program's room
+/// id of 64 bytes, every other byte a `:`).
+pub const MAX_LINK_SEGMENTS: usize = 128;
+/// The most bytes a link's segments carry in all (chat's most is 84).
+pub const MAX_LINK_BYTES: usize = 512;
 
 /// One event. The enum only grows at its end (`event_variants_only_append`):
 /// the inbox decodes old events with the current code, and stops at a tag it
@@ -74,14 +86,55 @@ pub fn encode(event: &NoticeEvent) -> Vec<u8> {
 }
 
 /// An event's bytes read back: `None` for an event that is not a notice.
+/// A notice over any cap is [`DecodeError::Malformed`], never cut, so every
+/// reader drops the same ones (a cut key or tag would miss its retract or
+/// its fold).
 pub fn decode(bytes: &[u8]) -> Option<Result<NoticeEvent, DecodeError>> {
     let body = bytes.strip_prefix(PREFIX)?;
-    Some(borsh::from_slice(body).map_err(|error| {
-        match error.get_ref().and_then(|inner| inner.downcast_ref()) {
-            Some(Unknown(tag)) => DecodeError::Unknown(*tag),
-            None => DecodeError::Malformed(error.to_string()),
+    let event = match borsh::from_slice(body) {
+        Ok(event) => event,
+        Err(error) => {
+            return Some(Err(
+                match error.get_ref().and_then(|inner| inner.downcast_ref()) {
+                    Some(Unknown(tag)) => DecodeError::Unknown(*tag),
+                    None => DecodeError::Malformed(error.to_string()),
+                },
+            ));
         }
-    }))
+    };
+    Some(match over_cap(&event) {
+        Some(field) => Err(DecodeError::Malformed(format!(
+            "its {field} is over the cap"
+        ))),
+        None => Ok(event),
+    })
+}
+
+/// The first field of `event` over its cap.
+fn over_cap(event: &NoticeEvent) -> Option<&'static str> {
+    let notice = match event {
+        NoticeEvent::Post(notice) => notice,
+        NoticeEvent::Retract { key } => return (key.len() > MAX_KEY_BYTES).then_some("key"),
+    };
+    let link_bytes: usize = notice.link.segments.iter().map(String::len).sum();
+    [
+        (notice.key.len() > MAX_KEY_BYTES, "key"),
+        (notice.to.len() > MAX_RECIPIENTS, "recipient list"),
+        (notice.title.len() > MAX_TEXT_BYTES, "title"),
+        (notice.body.len() > MAX_TEXT_BYTES, "body"),
+        (notice.tag.len() > MAX_TAG_BYTES, "tag"),
+        (
+            notice.link.program.len() > MAX_LINK_PROGRAM_BYTES,
+            "link's program",
+        ),
+        (
+            notice.link.segments.len() > MAX_LINK_SEGMENTS,
+            "link's segment count",
+        ),
+        (link_bytes > MAX_LINK_BYTES, "link's segments"),
+    ]
+    .into_iter()
+    .find_map(|(over, field)| over.then_some(field))
 }
 
 /// Why a notice's bytes did not decode.
@@ -188,6 +241,54 @@ mod tests {
     /// The bytes on chain, written out by hand in field order: a field
     /// added to or moved inside `Notice` or `Link` breaks every reader of
     /// the old ones, so it fails here first.
+    /// Every field at its cap decodes; one byte, segment or recipient past
+    /// it is malformed, whichever field it is.
+    #[test]
+    fn a_notice_over_any_cap_is_malformed() {
+        let at_caps = Notice {
+            key: "k".repeat(MAX_KEY_BYTES),
+            to: vec![2; MAX_RECIPIENTS],
+            title: "t".repeat(MAX_TEXT_BYTES),
+            body: "b".repeat(MAX_TEXT_BYTES),
+            tag: "g".repeat(MAX_TAG_BYTES),
+            link: Link {
+                program: "p".repeat(MAX_LINK_PROGRAM_BYTES),
+                segments: [
+                    vec!["s".repeat(MAX_LINK_BYTES)],
+                    vec![String::new(); MAX_LINK_SEGMENTS - 1],
+                ]
+                .concat(),
+            },
+            ..notice(Kind::Mention)
+        };
+        let fits = NoticeEvent::Post(at_caps.clone());
+        assert_eq!(decode(&encode(&fits)), Some(Ok(fits)));
+        let over: [fn(&mut Notice); 8] = [
+            |n| n.key.push('k'),
+            |n| n.to.push(2),
+            |n| n.title.push('t'),
+            |n| n.body.push('b'),
+            |n| n.tag.push('g'),
+            |n| n.link.program.push('p'),
+            |n| n.link.segments.push(String::new()),
+            |n| n.link.segments[1].push('s'),
+        ];
+        for grow in over {
+            let mut notice = at_caps.clone();
+            grow(&mut notice);
+            let decoded = decode(&encode(&NoticeEvent::Post(notice)));
+            assert!(
+                matches!(decoded, Some(Err(DecodeError::Malformed(_)))),
+                "{decoded:?}"
+            );
+        }
+        let key = "k".repeat(MAX_KEY_BYTES + 1);
+        assert!(matches!(
+            decode(&encode(&NoticeEvent::Retract { key })),
+            Some(Err(DecodeError::Malformed(_)))
+        ));
+    }
+
     #[test]
     fn an_event_is_its_committed_bytes() {
         let text = |text: &str| [&(text.len() as u32).to_le_bytes()[..], text.as_bytes()].concat();
