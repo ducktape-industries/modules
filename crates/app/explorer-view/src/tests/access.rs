@@ -312,6 +312,16 @@ fn a_refusal_shows_in_the_form_in_the_hosts_words() {
     );
     assert!(cx.find("explorer-note").is_none(), "and nothing else does");
     assert!(cx.has_text(refusal), "{:?}", cx.texts());
+    // pressed again, the old refusal goes at the press, not when the
+    // answer lands: the app's confirm card waits over the form meanwhile
+    cx.host().never::<Submit<Modules>>();
+    cx.simulate_click("explorer-form-submit");
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-form-problem").is_none(),
+        "{:?}",
+        cx.texts()
+    );
 }
 
 #[test]

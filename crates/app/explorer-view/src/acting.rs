@@ -239,6 +239,9 @@ impl Explorer {
                 cx.land(ask, landed).detach();
             }
         }
+        // the cleared problem and note go now: the app's card may wait over
+        // the form long before the answer lands
+        cx.notify();
     }
 
     /// An op landed: the form closes and the line says what it did, or
