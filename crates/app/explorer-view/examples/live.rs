@@ -2,8 +2,9 @@
 //! over a fake node whose blocks carry a few people and chat posts, and
 //! whose registry holds grants: the dev account maintains every module
 //! and, as the one validator, votes; ada maintains chat and has a change
-//! of it waiting, beside one the vote made. `READER=none` shows the same
-//! network to a reader with no grant and no vote.
+//! of it waiting, beside the vote's adding trade, which bob maintains.
+//! `READER=none` shows the same network to a reader with no grant and no
+//! vote.
 use chat::{Block, Op, PostPolicy};
 use ducktape_view_guest::live;
 use ducktape_view_guest::methods::Query;
@@ -65,16 +66,17 @@ fn main() {
         let at = |height: u64, change: Change| {
             module_registry::Op::Schedule(Scheduled { height, change })
         };
-        let set = |code| {
+        let set = |program: &str| {
             Change::Set(module_registry::Entry {
-                program: chat::MODULE.into(),
+                program: program.into(),
                 code,
                 params: Vec::new(),
             })
         };
-        // ada's change by her grant, then the vote's
-        net.submit(ada, module_registry::MODULE, &at(700, set(code)))?;
-        vote(&at(900, set(code)))?;
+        // ada's change by her grant; the vote's on another name, since the
+        // vote's change to chat would take hers along
+        net.submit(ada, module_registry::MODULE, &at(700, set(chat::MODULE)))?;
+        vote(&at(900, set("trade")))?;
         if unprivileged {
             // the view hears the dev key vote for no one
             let validators: valset::Reply =
