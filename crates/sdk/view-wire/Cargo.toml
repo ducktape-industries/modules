@@ -26,7 +26,7 @@ gpui.workspace = true
 # No code use: enables serde on gpui's re-exported accesskit types (Role,
 # Toggled, Live, Action, ActionData, ...), which `Interactivity`, `Aria` and
 # `Event::A11yAction` serialize.
-accesskit = { version = "0.24.0", features = ["serde"] }
+accesskit = { version = "0.25.1", features = ["serde"] }
 rmp-serde = "1"
 borsh.workspace = true
 slotmap = "1.0.6"
