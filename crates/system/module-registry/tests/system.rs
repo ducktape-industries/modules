@@ -148,14 +148,15 @@ struct Net {
 
 impl Net {
     async fn found(context: Ctx, dir: &std::path::Path) -> Net {
-        Net::found_with(context, dir, Vec::new(), MEMBER_CAP).await
+        Net::found_with(context, dir, Vec::new(), Vec::new(), MEMBER_CAP).await
     }
 
-    /// The system set and the probe, then `apps`, under `member_cap`.
+    /// The system set and the probe, then `apps`, with `hooks`, under `member_cap`.
     async fn found_with(
         context: Ctx,
         dir: &std::path::Path,
         apps: Vec<Founding>,
+        hooks: Vec<&str>,
         member_cap: u32,
     ) -> Net {
         let genesis = Genesis {
@@ -179,6 +180,7 @@ impl Net {
                 name: "lens".into(),
                 view: b"a view".to_vec(),
             }],
+            hooks: hooks.into_iter().map(str::to_owned).collect(),
             limits: Limits::default(),
             epoch_length: EPOCH_LENGTH,
             time: TIME,
@@ -370,6 +372,8 @@ fn refusal_of(receipt: &Receipt) -> &str {
     }
 }
 
+#[path = "system/activity.rs"]
+mod activity_tests;
 #[path = "system/discussion.rs"]
 mod discussion_tests;
 #[path = "system/founding.rs"]

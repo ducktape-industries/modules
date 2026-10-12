@@ -1,15 +1,16 @@
 // The rules: the schedule folded at each block, then the ops and queries.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use guest::{Error, ExecCtx, QueryCtx, already_exists, invalid, not_found};
 use guest::{HashKind, ModuleId};
-use store::{Item, Map};
+use store::{Item, Map, Set};
 
 use crate::{CODE_KIND, Change, Entry, Genesis, Scheduled, View};
 
 const PROGRAMS: Map<ModuleId, Entry> = Map::new("p/");
 const VIEWS: Map<ModuleId, View> = Map::new("v/");
+const HOOKS: Set<ModuleId> = Set::new("h/");
 type At = (u64, ModuleId);
 pub(crate) const SCHEDULE: Map<At, Change> = Map::new("s/");
 const FOLDED: Item<u64> = Item::new("folded");
@@ -20,6 +21,9 @@ pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) {
     }
     for view in genesis.views {
         VIEWS.put(ctx, &view.name, &view);
+    }
+    for hook in genesis.hooks {
+        HOOKS.insert(ctx, &hook);
     }
     FOLDED.put(ctx, &0);
 }
@@ -64,11 +68,15 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
     if matches!(scheduled.change, Change::Remove(_)) && bound {
         return Err(invalid(format!("{name} fills a role the kernel calls")));
     }
-    let (programs, views) = roster(ctx, scheduled.height)?;
+    let Roster {
+        programs,
+        views,
+        hooks,
+    } = roster(ctx, scheduled.height)?;
     let clash = match &scheduled.change {
         Change::Set(_) => views.contains_key(name) || pending(ctx, name, Kind::View)?,
         Change::SetView(_) => programs.contains_key(name) || pending(ctx, name, Kind::Program)?,
-        Change::Remove(_) if !programs.contains_key(name) => {
+        Change::Remove(_) | Change::SetHook(_) if !programs.contains_key(name) => {
             return Err(not_found(format!(
                 "no program {name} runs at {}",
                 scheduled.height
@@ -80,7 +88,15 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
                 scheduled.height
             )));
         }
-        Change::Remove(_) | Change::RemoveView(_) => false,
+        Change::RemoveHook(_) if !hooks.contains(name) => {
+            return Err(not_found(format!(
+                "{name} is no hook at {}",
+                scheduled.height
+            )));
+        }
+        Change::Remove(_) | Change::RemoveView(_) | Change::SetHook(_) | Change::RemoveHook(_) => {
+            false
+        }
     };
     if clash {
         return Err(already_exists(format!(
@@ -110,7 +126,7 @@ pub(crate) fn cancel(ctx: &ExecCtx, height: u64, program: ModuleId) -> Result<()
     let reinstated = match change {
         Change::Remove(_) => Some(Kind::View),
         Change::RemoveView(_) => Some(Kind::Program),
-        Change::Set(_) | Change::SetView(_) => None,
+        Change::Set(_) | Change::SetView(_) | Change::SetHook(_) | Change::RemoveHook(_) => None,
     };
     if let Some(other) = reinstated
         && pending(ctx, &key.1, other)?
@@ -133,9 +149,18 @@ pub(crate) fn fold(ctx: &ExecCtx, height: u64) -> Result<(), Error> {
     for (key, change) in due(ctx, height)? {
         match &change {
             Change::Set(entry) => PROGRAMS.put(ctx, &entry.program, entry),
-            Change::Remove(program) => PROGRAMS.remove(ctx, program),
+            Change::Remove(program) => {
+                PROGRAMS.remove(ctx, program);
+                HOOKS.remove(ctx, program);
+            }
             Change::SetView(view) => VIEWS.put(ctx, &view.name, view),
             Change::RemoveView(name) => VIEWS.remove(ctx, name),
+            Change::SetHook(program) => {
+                if PROGRAMS.has(ctx, program) {
+                    HOOKS.insert(ctx, program);
+                }
+            }
+            Change::RemoveHook(program) => HOOKS.remove(ctx, program),
         }
         SCHEDULE.remove(ctx, &key);
     }
@@ -148,19 +173,28 @@ fn due(ctx: &QueryCtx, height: u64) -> Result<Vec<(At, Change)>, Error> {
 }
 
 pub(crate) fn at(ctx: &QueryCtx, height: u64) -> Result<Vec<Entry>, Error> {
-    Ok(roster(ctx, height)?.0.into_values().collect())
+    Ok(roster(ctx, height)?.programs.into_values().collect())
 }
 
 pub(crate) fn views_at(ctx: &QueryCtx, height: u64) -> Result<Vec<View>, Error> {
-    Ok(roster(ctx, height)?.1.into_values().collect())
+    Ok(roster(ctx, height)?.views.into_values().collect())
 }
 
-type Roster = (BTreeMap<ModuleId, Entry>, BTreeMap<ModuleId, View>);
+pub(crate) fn hooks_at(ctx: &QueryCtx, height: u64) -> Result<Vec<ModuleId>, Error> {
+    Ok(roster(ctx, height)?.hooks.into_iter().collect())
+}
 
-/// Both lists at a height, by name: what is folded, and every change due by then.
+struct Roster {
+    programs: BTreeMap<ModuleId, Entry>,
+    views: BTreeMap<ModuleId, View>,
+    hooks: BTreeSet<ModuleId>,
+}
+
+/// Every list at a height, by name: what is folded, and every change due by then.
 fn roster(ctx: &QueryCtx, height: u64) -> Result<Roster, Error> {
     let mut programs: BTreeMap<_, _> = PROGRAMS.all(ctx)?.into_iter().collect();
     let mut views: BTreeMap<_, _> = VIEWS.all(ctx)?.into_iter().collect();
+    let mut hooks: BTreeSet<_> = HOOKS.all(ctx)?.into_iter().collect();
     for (_, change) in due(ctx, height)? {
         match change {
             Change::Set(entry) => {
@@ -168,6 +202,7 @@ fn roster(ctx: &QueryCtx, height: u64) -> Result<Roster, Error> {
             }
             Change::Remove(program) => {
                 programs.remove(&program);
+                hooks.remove(&program);
             }
             Change::SetView(view) => {
                 views.insert(view.name.clone(), view);
@@ -175,9 +210,21 @@ fn roster(ctx: &QueryCtx, height: u64) -> Result<Roster, Error> {
             Change::RemoveView(name) => {
                 views.remove(&name);
             }
+            Change::SetHook(program) => {
+                if programs.contains_key(&program) {
+                    hooks.insert(program);
+                }
+            }
+            Change::RemoveHook(program) => {
+                hooks.remove(&program);
+            }
         }
     }
-    Ok((programs, views))
+    Ok(Roster {
+        programs,
+        views,
+        hooks,
+    })
 }
 
 #[derive(Clone, Copy)]

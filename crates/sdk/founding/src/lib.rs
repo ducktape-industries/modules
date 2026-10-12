@@ -1,5 +1,5 @@
-//! Packs what `make wasm-modules` builds into a founding: each program with its view and
-//! describe module embedded, forge's params, and a founding file `ducktape init` reads.
+//! Packs what `make wasm-modules` builds into a founding: each program with its describe module
+//! and any view embedded, forge's params, and a founding file `ducktape init` reads.
 
 use std::borrow::Cow;
 use std::fs;
@@ -21,6 +21,7 @@ pub const PROGRAMS: [(&str, &str); 5] = [
     ("chat", "chat_view"),
     ("forge", "forge_view"),
 ];
+pub const UNVIEWED: [&str; 1] = ["activity"];
 pub const VIEWS: [&str; 1] = ["explorer_view"];
 
 pub fn forge_bounds() -> forge::Bounds {
@@ -49,6 +50,10 @@ pub fn bundle(release: &Path, out: &Path) -> Result<()> {
     for (program, view) in PROGRAMS {
         let packed = embed(&read(program)?, &read(view)?)?;
         let packed = embed_describe(&packed, &read(&format!("{program}.describe"))?)?;
+        fs::write(out.join(format!("{program}.wasm")), packed)?;
+    }
+    for program in UNVIEWED {
+        let packed = embed_describe(&read(program)?, &read(&format!("{program}.describe"))?)?;
         fs::write(out.join(format!("{program}.wasm")), packed)?;
     }
     for view in VIEWS {

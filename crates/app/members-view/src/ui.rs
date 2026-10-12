@@ -6,7 +6,6 @@ use ducktape_view_guest::design::{size, space, text};
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight, Stateful};
 
-use crate::activity::WINDOW;
 use crate::{Group, Members, Row};
 
 /// The list pane's width until it is dragged.
@@ -812,14 +811,13 @@ fn manages(managed: &[&Row], cx: &mut Context<Members>, theme: &Theme) -> impl I
 }
 
 fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
-    let window = design::plural(WINDOW, "block", "blocks");
     let body = match &view.activity {
         Loadable::Idle | Loadable::Loading(_) => vec![
             div()
                 .id("members-activity-loading")
                 .px(px(20.))
                 .pb(space::SM)
-                .child(design::quiet(format!("Reading the last {window}…"), theme))
+                .child(design::quiet("Reading its activity…", theme))
                 .into_any_element(),
         ],
         Loadable::Failed(refusal) => vec![
@@ -835,10 +833,7 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
                     .id("members-no-activity")
                     .px(px(20.))
                     .pb(space::SM)
-                    .child(design::quiet(
-                        format!("Nothing signed in the last {window}."),
-                        theme,
-                    ))
+                    .child(design::quiet("No activity recorded.", theme))
                     .into_any_element(),
             ]
         }
@@ -881,7 +876,7 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
     section(
         "members-activity",
         "Recent activity",
-        format!("last {window}"),
+        "newest first".to_owned(),
         body,
         theme,
     )

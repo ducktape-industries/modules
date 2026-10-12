@@ -1,14 +1,14 @@
 //! Explorer: the chain as this node keeps it. Finalized blocks and the
 //! transactions they carry come from the node's block archive
 //! (`chain.blocks`, `chain.block`); who signed them from `identity`; the
-//! validators from `valset`; the programs from `module-registry`.
+//! validators from `valset`; the programs from `module-registry`; what each
+//! account did from `activity`, whose frames are read from their blocks.
 //!
 //! What the node does not keep is not shown: there are no receipts, so a
-//! transaction is "in block N", never applied or rejected; there is no
-//! per-block state root or write set; and nothing indexes an account's
-//! history, so an account's activity is what a scan of the recent window
-//! finds. The window is the last [`WINDOW`] blocks, read a page at a time
-//! and then followed at the head as `chain.heads` pushes it.
+//! transaction is "in block N", never applied or rejected; and there is no
+//! per-block state root or write set. The block and transaction lists are
+//! the last [`WINDOW`] blocks, read a page at a time and then followed at
+//! the head as `chain.heads` pushes it.
 //!
 //! The state is one struct (`state.rs`) and the window (`chain.rs`). Reads
 //! are typed (`queries.rs`) and loaded in `load.rs`, re-read on the live
@@ -28,8 +28,6 @@ pub use state::{Accounts, Explorer, Network, Note, Route};
 
 use ducktape_view_guest::prelude::*;
 
-/// The recent window the explorer reads: activity, search by transaction
-/// hash and the transaction list reach this far back and no further.
 pub const WINDOW: usize = 1_000;
 /// Blocks per `chain.blocks` page (the node caps a page at 100). Small, so
 /// one reply's decoding stays well inside a tick's fuel.
@@ -47,8 +45,12 @@ impl View for Explorer {
         Capability::Clock,
         Capability::Clipboard,
     ];
-    const TARGETS: &'static [&'static str] =
-        &[identity::MODULE, valset::MODULE, module_registry::MODULE];
+    const TARGETS: &'static [&'static str] = &[
+        identity::MODULE,
+        valset::MODULE,
+        module_registry::MODULE,
+        activity::MODULE,
+    ];
     // at 560 a block's hash is cut at the right edge
     const MIN_WINDOW_WIDTH: u32 = 640;
 

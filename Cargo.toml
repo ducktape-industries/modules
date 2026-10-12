@@ -59,6 +59,7 @@ members = [
     "crates/app/settings-view",
     "crates/app/example-view",
     "crates/app/forge",
+    "crates/app/activity",
     "crates/lib/gitcore",
 ]
 
@@ -86,14 +87,15 @@ valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
+activity = { path = "crates/app/activity" }
 
 # ---- the host the founding suite runs the boot set on and the key schemes
 # it signs with (dev-dependencies only); the probe fixture it seats is a
 # prebuilt wasm binary, `make probe-fixture`, not a Cargo dependency (its
 # `Step` script type is mirrored in module-registry's test, next to the
 # binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "e762b41dc36ed821429a55110af0bb0642a78c21" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "e762b41dc36ed821429a55110af0bb0642a78c21" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffafbbaf988bda7236541113de3a12bdbb40fb3b" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffafbbaf988bda7236541113de3a12bdbb40fb3b" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 

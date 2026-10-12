@@ -6,7 +6,7 @@
 //! speaks the role's bytes alone: it encodes `abi::role` values, hands
 //! them to the module's own decoding (`guest::execute`, `guest::query`)
 //! over a [`MockHost`], and decodes the answer as the role's reply, so a
-//! module whose first variants drift from the role fails here as it would
+//! module whose variants drift from the role's tags fails here as it would
 //! under the kernel. What the role leaves to the module (how an account
 //! comes to hold a key, how a validator is seated, how code is scheduled)
 //! the fixture does with the module's own ops.
@@ -68,9 +68,6 @@ fn ask<M: Module, R: BorshDeserialize + std::fmt::Debug>(
     }))
 }
 
-/// The role's value decodes as the module's `T` and encodes back to the
-/// same bytes: the role's variants are the module's first, in order, with
-/// the same fields.
 #[track_caller]
 fn same_bytes<T: BorshSerialize + BorshDeserialize>(
     module: &str,
@@ -85,6 +82,6 @@ fn same_bytes<T: BorshSerialize + BorshDeserialize>(
         abi::encode(&ours),
         bytes,
         "{module}: the role's {role:?} is not the module's {what} byte for byte: \
-         the role's variants come first, in order, with the same fields"
+         each role variant is the module's at the role's tag, with the same fields"
     );
 }

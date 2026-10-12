@@ -2,7 +2,9 @@
 //! invocation and answer it, and [`export!`](crate::export), which only
 //! points the two wasm exports at them.
 
-use crate::{Cause, Error, ExecCtx, MessageId, Outcome, QueryCtx, decoded};
+use abi::hook::Record;
+
+use crate::{Cause, Error, ExecCtx, MessageId, Outcome, QueryCtx, code, decoded};
 pub use program::Program;
 
 /// A module: what a [`Program`] does with each op and query. The types it
@@ -32,6 +34,10 @@ pub trait Module: Program {
 
     fn query(ctx: &QueryCtx, query: Self::Query) -> Result<Self::Reply, Error>;
 
+    fn hook(_ctx: &ExecCtx, _record: Record) -> Result<(), Error> {
+        Err(Error::new(code::UNSUPPORTED, "this module is no hook"))
+    }
+
     /// The bytes a query is answered with: [`Module::query`]'s `Reply` as
     /// borsh. Override only for a query whose answer is not a `Reply` at
     /// all (forge serves git's own wire through two of its queries); every
@@ -52,6 +58,11 @@ pub fn execute<M: Module>(ctx: &ExecCtx, payload: &[u8]) -> Result<(), Error> {
     M::execute(ctx, op)
 }
 
+pub fn hook<M: Module>(ctx: &ExecCtx, record: Record) -> Result<(), Error> {
+    ctx.env().kernel()?;
+    M::hook(ctx, record)
+}
+
 /// A query's request decoded as `M::Query`, and its [`Module::answer`]
 /// handed to the host.
 pub fn query<M: Module>(ctx: &QueryCtx, request: &[u8]) -> Result<(), Error> {
@@ -67,7 +78,7 @@ pub fn query<M: Module>(ctx: &QueryCtx, request: &[u8]) -> Result<(), Error> {
 pub mod exports {
     use abi::{GuestCall, GuestReply, Invocation, Refusal, reason};
 
-    use super::{Module, execute, query};
+    use super::{Module, execute, hook, query};
     use crate::{ExecCtx, QueryCtx};
 
     pub fn alloc(len: u32) -> u32 {
@@ -92,6 +103,7 @@ pub mod exports {
             GuestCall::Init(params) => M::init(&ExecCtx::new(env), &params),
             GuestCall::Execute(payload) => execute::<M>(&ExecCtx::new(env), &payload),
             GuestCall::Query(request) => query::<M>(&QueryCtx::new(env), &request),
+            GuestCall::Hook(record) => hook::<M>(&ExecCtx::new(env), record),
         };
         reply.map_err(crate::kernel::refusal_from)
     }
@@ -233,6 +245,54 @@ mod tests {
         assert_eq!(host.take_response(), b"git's own bytes");
         query::<Silent>(&host.query(MockHost::env("silent")), &request).unwrap();
         assert_eq!(host.take_response(), abi::encode(&()));
+    }
+
+    struct Tap;
+    impl Program for Tap {
+        const NAME: &'static str = "tap";
+        type Op = ();
+        type Query = ();
+        type Reply = ();
+    }
+    impl Module for Tap {
+        fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn query(_: &QueryCtx, (): ()) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn hook(ctx: &ExecCtx, record: Record) -> Result<(), Error> {
+            ctx.put("told", &record);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn only_the_kernel_calls_a_hook_and_a_module_is_none_unless_it_says() {
+        let record = Record {
+            height: 4,
+            position: 1,
+            signer: vec![1; 32],
+            account: Some(1),
+            target: "chat".into(),
+            applied: true,
+        };
+        let host = MockHost::default();
+        for env in [
+            MockHost::env("tap"),
+            MockHost::env("tap").from_module("chat", Some(8)),
+        ] {
+            let refused = host.refused(|| hook::<Tap>(&host.exec(env), record.clone()));
+            assert_eq!(refused.code, code::UNAUTHORIZED);
+        }
+        hook::<Tap>(&host.exec(MockHost::env("tap").root()), record.clone()).unwrap();
+        let told: Option<Record> = host.query(MockHost::env("tap")).record("told").unwrap();
+        assert_eq!(told, Some(record.clone()));
+        let silent =
+            host.refused(|| hook::<Silent>(&host.exec(MockHost::env("silent").root()), record));
+        assert_eq!(silent.code, code::UNSUPPORTED);
     }
 
     /// Keeps [`Module::reply`]'s default.

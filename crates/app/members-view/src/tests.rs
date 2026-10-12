@@ -1,8 +1,10 @@
 use super::*;
+use ::activity::Activity;
 use abi::Scheme;
 use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::methods::{
-    Block, BlockPage, ChainBlocks, Change, Description, ModuleDescribe, Session, Tx,
+    Block, BlockPage, BlockRef, ChainBlock, ChainBlocks, Change, Description, ModuleDescribe,
+    Session, Tx,
 };
 use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire::{ContainerNode, Node};
@@ -85,6 +87,70 @@ fn page<T>(items: Vec<T>) -> module_registry::PageResponse<T> {
 const EDDY: &[u8] = b"\x01\x02";
 const SCOUT: &[u8] = b"\x09\x09";
 
+fn tx(signer: &[u8], n: u8) -> Tx {
+    Tx {
+        signer: signer.to_vec(),
+        target: "chat".into(),
+        payload: vec![n],
+        ..Tx::default()
+    }
+}
+
+fn block(height: u64, txs: Vec<Tx>) -> Block {
+    Block {
+        height,
+        time: height * 60_000,
+        txs,
+        ..Block::default()
+    }
+}
+
+fn account_of(signer: &[u8]) -> Option<u64> {
+    match signer {
+        EDDY => Some(7),
+        SCOUT => Some(9),
+        _ => None,
+    }
+}
+
+/// `blocks`, oldest first, as the node serves them and the `activity`
+/// program indexes them.
+fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
+    let tip = blocks.last().cloned();
+    cx.host().handle::<ChainBlocks>(move |page: BlockPage| {
+        assert_eq!((page.before, page.limit), (None, 1), "only the tip is read");
+        Ok(tip.clone().into_iter().collect())
+    });
+    let held = blocks.clone();
+    cx.host().handle::<ChainBlock>(move |by| {
+        let BlockRef::Height(height) = by else {
+            panic!("a frame's block is read by its height")
+        };
+        Ok(held.iter().find(|block| block.height == height).cloned())
+    });
+    cx.host().handle::<Query<Activity>>(move |query| {
+        let ::activity::Query::Acted { account, .. } = query else {
+            panic!("{query:?}")
+        };
+        let frames = blocks
+            .iter()
+            .rev()
+            .flat_map(|block| {
+                let txs = block.txs.iter().enumerate().rev();
+                txs.filter(move |(_, tx)| account_of(&tx.signer) == Some(account))
+                    .map(move |(position, tx)| ::activity::Frame {
+                        height: block.height,
+                        position: position as u32,
+                        time: block.time,
+                        target: tx.target.clone(),
+                        applied: true,
+                    })
+            })
+            .collect();
+        Ok(::activity::Reply::Frames(page(frames)))
+    });
+}
+
 /// eddy (#7, the reader, a validator) manages scout (#9, active) and relay
 /// (#10, revoked); chat (#8) is a module; ada (#11) is another person.
 fn respond(cx: &mut TestAppContext) {
@@ -114,27 +180,13 @@ fn respond(cx: &mut TestAppContext) {
         }])))
     });
     // two blocks: scout posted at 12, eddy at 11 and 12
-    cx.host().handle::<ChainBlocks>(|page: BlockPage| {
-        let tx = |signer: &[u8], n: u8| Tx {
-            signer: signer.to_vec(),
-            target: "chat".into(),
-            payload: vec![n],
-            ..Tx::default()
-        };
-        let block = |height, txs| Block {
-            height,
-            time: height * 60_000,
-            txs,
-            ..Block::default()
-        };
-        Ok(match page.before {
-            None => vec![
-                block(12, vec![tx(EDDY, 2), tx(SCOUT, 5)]),
-                block(11, vec![tx(EDDY, 1)]),
-            ],
-            Some(_) => Vec::new(),
-        })
-    });
+    chain(
+        cx,
+        vec![
+            block(11, vec![tx(EDDY, 1)]),
+            block(12, vec![tx(EDDY, 2), tx(SCOUT, 5)]),
+        ],
+    );
     cx.host().handle::<ModuleDescribe>(|(target, payload)| {
         Ok(Some(Description {
             title: format!("Post {} in {target}", payload[0]),
@@ -198,7 +250,7 @@ fn the_list_groups_people_then_agents_then_modules_and_chooses_no_one() {
         assert!(cx.has_text(text), "{text}: {texts:?}");
     }
     // nothing chosen, nothing read of the chain
-    assert!(cx.host().requests::<ChainBlocks>().is_empty());
+    assert!(cx.host().requests::<Query<Activity>>().is_empty());
     assert_eq!(cx.host().requests::<Changes<Identity>>().len(), 1);
 }
 
@@ -220,7 +272,7 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
         "active",
         "revoked",
         "Recent activity",
-        "last 1,000 blocks",
+        "newest first",
         "Post 2 in chat",
         "Post 1 in chat",
         "block 12",
@@ -294,7 +346,7 @@ fn a_module_has_no_devices_and_no_one_to_dm() {
     assert!(!cx.has_text("Recent activity") && !cx.has_text("1 device"));
     assert!(cx.find("members-open-dm").is_none());
     assert!(cx.find("members-explorer").is_some());
-    assert!(cx.host().requests::<ChainBlocks>().is_empty());
+    assert!(cx.host().requests::<Query<Activity>>().is_empty());
 }
 
 #[test]
@@ -466,11 +518,12 @@ fn an_activity_read_anew_that_lands_the_same_draws_nothing() {
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
     assert!(cx.has_text("block 12"), "{:?}", cx.texts());
-    let (asked, renders) = (cx.host().requests::<ChainBlocks>().len(), cx.renders());
+    let asked = cx.host().requests::<Query<Activity>>().len();
+    let renders = cx.renders();
     cx.update(&view, |members, _, cx| members.read_activity(cx));
     cx.run_until_parked();
     assert!(
-        cx.host().requests::<ChainBlocks>().len() > asked,
+        cx.host().requests::<Query<Activity>>().len() > asked,
         "read anew"
     );
     assert_eq!(cx.renders(), renders, "the same activity drew nothing");
@@ -557,24 +610,8 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
     assert!(cx.has_text("block 12"), "{:?}", cx.texts());
-    // eddy signs again at 13
-    cx.host().handle::<ChainBlocks>(|page: BlockPage| {
-        let tx = Tx {
-            signer: EDDY.to_vec(),
-            target: "chat".into(),
-            payload: vec![3],
-            ..Tx::default()
-        };
-        Ok(match page.before {
-            None => vec![Block {
-                height: 13,
-                time: 13 * 60_000,
-                txs: vec![tx],
-                ..Block::default()
-            }],
-            Some(_) => Vec::new(),
-        })
-    });
+    // eddy signs again at 13, and the index holds only that
+    chain(&mut cx, vec![block(13, vec![tx(EDDY, 3)])]);
     // ↓ ↑: read anew, the new read shows
     cx.simulate_key_down("members-list", "down");
     cx.simulate_key_down("members-list", "up");
@@ -588,7 +625,7 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     cx.simulate_key_down("members-list", "up");
     cx.run_until_parked();
     assert!(cx.has_text("eddy's bio"));
-    assert!(!cx.has_text("Reading the last 1,000 blocks…"));
+    assert!(!cx.has_text("Reading its activity…"));
     assert!(
         cx.has_text("block 13") && cx.find("members-block-0").is_some(),
         "{:?}",

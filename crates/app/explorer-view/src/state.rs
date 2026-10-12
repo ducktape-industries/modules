@@ -84,6 +84,18 @@ pub struct Accounts {
     pub list: Vec<identity::Account>,
 }
 
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Used {
+    #[serde(with = "borsh_bytes")]
+    pub list: Vec<activity::Used>,
+}
+
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Acted {
+    pub account: u64,
+    pub rows: Vec<TxRow>,
+}
+
 /// What the registry runs, lists and will change, as it answers them.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Network {
@@ -127,6 +139,8 @@ pub struct Explorer {
     pub(crate) accounts: Loadable<Accounts>,
     pub(crate) validators: Loadable<Vec<Vec<u8>>>,
     pub(crate) network: Loadable<Network>,
+    pub(crate) used: Loadable<Used>,
+    pub(crate) acted: Loadable<Acted>,
     /// a block opened outside the window
     pub(crate) opened: Loadable<Option<(BlockRow, Vec<TxRow>)>>,
     /// a `chain.blocks` page is in flight
@@ -175,6 +189,22 @@ impl Explorer {
             let at = account.keys().iter().position(|held| held.key == key)?;
             Some((account, at))
         })
+    }
+
+    pub(crate) fn used_by(&self, number: u64) -> Option<Vec<&activity::Used>> {
+        let used = self.used.ready()?;
+        Some(
+            used.list
+                .iter()
+                .filter(|used| used.account == number)
+                .collect(),
+        )
+    }
+
+    pub(crate) fn acted(&self, number: u64) -> Option<&[TxRow]> {
+        let acted = self.acted.ready()?;
+        let this_account = acted.account == number;
+        this_account.then_some(acted.rows.as_slice())
     }
 
     /// Whether the registry runs `program`.

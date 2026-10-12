@@ -6,7 +6,7 @@ repository. Only what compiles to wasm lives here:
 ```
 crates/sdk/     abi error program guest store conformance describe ducklink view-wire view-guest view-guest-derive design
 crates/system/  module-registry valset identity
-crates/app/     chat chat-view forge forge-view members-view node-view explorer-view settings-view
+crates/app/     chat chat-view forge forge-view activity members-view node-view explorer-view settings-view
 crates/lib/     gitcore
 ```
 
@@ -25,6 +25,7 @@ crates/lib/     gitcore
 | `crates/system/valset`, `identity` | the other two boot modules, the same shape: types always built, the wasm exports behind `module`. valset holds the members and runs their rules: enroll (by invite or an open door), leave, and the validators' vote on members, the door and registry changes. identity holds every account that acts, `Account { number, card, control }`: a person's, an agent's (managed by a person, who suspends, resumes and revokes it) and each module's (registered by the kernel as it admits the module) |
 | `crates/app/chat`, `chat-view` | the reference app module: `chat` is one crate whose types, rules and `Chat` module are always built (native, tested over `MockHost`), and whose wasm exports sit behind its `module` feature. `chat-view` links `chat` with the feature off: the types, no host import, no module export |
 | `crates/app/forge`, `forge-view` | the git server as a module, the same shape as `chat`: a push is one op whose input is the receive-pack body a client sent, a merge is an op that lands the commit the client built, fetch and the ref advertisement are queries; a git object's blob id is its oid. it links `gitcore` for the git; merging is the client's. The module runs natively over `MemorySandbox` (forge and chat seated on a `MockChain`), which is where `fixtures/` comes from; `forge-view` links `forge` with `module` off |
+| `crates/app/activity` | the hook the kernel tells of every frame a block carries ([roles.md](docs/roles.md), "Hooks"): it indexes each frame by the key that signed it and the account it acted as, keeping the newest `KEPT` (1,000) of each, and counts each account's frames by program. It takes no op; members-view and explorer-view read it, then fetch each frame's block for its payload |
 | `crates/app/members-view`, `node-view`, `explorer-view`, `settings-view` | the system views, which link the system crates with `module` off |
 | `crates/lib/gitcore` | git as a library over one `Objects` trait: objects, packs (read, delta, write), walks, diffs, and the server side of the wire (receive-pack verification, upload-pack); no merging, that is the git client's. `forge` links it into its wasm |
 
@@ -166,8 +167,8 @@ is a development build.
 `make wasm-publish` builds every artifact at the checked-out commit and
 publishes them as the GitHub release `wasm-<commit>`, in two archives, each
 with its `SHA256SUMS`. `modules-wasm.tar.gz` holds every artifact unpacked.
-`founding.tar.gz` holds a founding: each program with its view and describe
-module embedded (`crates/sdk/founding`), `forge.params`, and a
+`founding.tar.gz` holds a founding: each program with its describe module
+and any view embedded (`crates/sdk/founding`), `forge.params`, and a
 `founding.toml` that `ducktape init` reads once its network, time, key and
 address are filled. It runs only on the reference host, from a clean checkout
 whose commit is on origin, and never replaces a published commit. A founder
