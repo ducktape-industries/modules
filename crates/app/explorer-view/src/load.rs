@@ -31,6 +31,16 @@ impl Explorer {
             }
             _ => self.read_head(cx),
         }
+        if self.change_came_due(head.height) {
+            self.read_network(cx);
+        }
+    }
+
+    fn change_came_due(&self, height: u64) -> bool {
+        let Loadable::Ready(network) = &self.network else {
+            return false;
+        };
+        network.changes.iter().any(|change| change.height <= height)
     }
 
     /// The node's status, and the window it moves. A status on screen stays

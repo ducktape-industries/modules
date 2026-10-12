@@ -2039,6 +2039,7 @@ dependencies = [
  "ducklink",
  "ducktape-view-guest",
  "forge",
+ "guest",
  "identity",
  "module-registry",
  "serde",

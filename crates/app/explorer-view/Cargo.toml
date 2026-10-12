@@ -34,3 +34,4 @@ ducktape-view-guest = { workspace = true, features = ["live"] }
 borsh.workspace = true
 chat.workspace = true
 forge.workspace = true
+guest.workspace = true
