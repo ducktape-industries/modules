@@ -204,12 +204,11 @@ fn yours(cast: usize, voices: usize) -> String {
 /// The registry's changes still to land, each with who made it and, for
 /// one a maintainer's grant made, how long the vote has to cancel it; and
 /// Propose cancel. One at or below the tip has landed and is not listed.
+/// Until the node's status is read, no wait is told.
 fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
     let voting = &view.voting;
-    let (tip, block_ms) = view
-        .status
-        .ready()
-        .map_or((0, 0), |status| (status.height, status.block_time_ms));
+    let status = view.status.ready();
+    let tip = status.map_or(0, |status| status.height);
     let entries = voting.roster.ready().map_or(&[][..], Vec::as_slice);
     let lines: Vec<AnyElement> = match &voting.scheduled {
         Loadable::Ready(schedule) | Loadable::Reloading(schedule, _) => {
@@ -231,14 +230,18 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
                     .map(|(index, change)| {
                         let motion = voting::cancel(change);
                         let blocks = change.height - tip;
-                        let caption = match change.by {
-                            Some(account) => format!(
-                                "by {} · validators can cancel for {} min",
-                                voting::named(&schedule.names, account),
-                                (blocks * block_ms).div_ceil(60_000)
+                        let by = match change.by {
+                            Some(account) => voting::named(&schedule.names, account),
+                            None => "vote".into(),
+                        };
+                        let caption = match (change.by, status) {
+                            (_, None) => format!("by {by}"),
+                            (Some(_), Some(status)) => format!(
+                                "by {by} · validators can cancel for {} min",
+                                (blocks * status.block_time_ms).div_ceil(60_000)
                             ),
-                            None => format!(
-                                "by vote · in {}",
+                            (None, Some(_)) => format!(
+                                "by {by} · in {}",
                                 design::plural(blocks, "block", "blocks")
                             ),
                         };

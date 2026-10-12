@@ -164,7 +164,8 @@ fn listed(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Vec<AnyE
 }
 
 /// A name and who changes it: the validators' vote for a role's program,
-/// else its maintainers (an agent marked so), and a hook marked so.
+/// else its maintainers (an agent marked so) and, when any account holds
+/// every module, those too; a hook marked so.
 fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Div {
     let bound = network
         .roles
@@ -178,14 +179,13 @@ fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Div {
         .map(|grant| grant.account)
         .collect();
     let every = network.grants.iter().any(|grant| grant.scope == Scope::All);
-    let who: Vec<AnyElement> = match (bound, maintainers.is_empty(), every) {
-        (true, _, _) => vec![muted("validators' vote", theme)],
-        (false, false, _) => maintainers
+    let who: Vec<AnyElement> = match bound {
+        true => vec![muted("validators' vote", theme)],
+        false => maintainers
             .iter()
             .map(|number| holder(view, *number, theme))
+            .chain(every.then(|| muted("every-module maintainers", theme)))
             .collect(),
-        (false, true, true) => vec![muted("every-module maintainers", theme)],
-        (false, true, false) => Vec::new(),
     };
     div()
         .flex_1()
@@ -236,7 +236,7 @@ fn holder(view: &Explorer, number: u64, theme: &Theme) -> AnyElement {
 
 /// Upgrade and Remove on the reader's path to `name`: straight to the
 /// registry by grant, proposed by vote, or none. A role's program is never
-/// removed, nor a hook by grant.
+/// removed; a hook only by vote, which a maintainer with voices proposes.
 fn presses(
     view: &Explorer,
     network: &Network,
@@ -253,11 +253,7 @@ fn presses(
         .as_ref()
         .is_none_or(|roles| registry::role_bound(roles, name));
     let hook = network.hooks.iter().any(|hook| hook == name);
-    let (upgrade, remove) = match path {
-        Path::Grant => ("Upgrade", "Remove"),
-        Path::Vote => ("Propose upgrade", "Propose remove"),
-    };
-    let edit = |remove: bool| {
+    let edit = |remove: bool, path: Path| {
         let name = name.to_owned();
         move |view: &mut Explorer, cx: &mut Context<Explorer>| {
             let edit = match remove {
@@ -273,21 +269,32 @@ fn presses(
             view.open_form(edit, path, cx)
         }
     };
+    let upgrade = match path {
+        Path::Grant => "Upgrade",
+        Path::Vote => "Propose upgrade",
+    };
     let mut out = vec![press(
         format!("explorer-upgrade-{name}"),
         upgrade,
         cx,
         theme,
-        edit(false),
+        edit(false, path),
     )];
-    let unhooks_by_grant = hook && path == Path::Grant;
-    if !bound && !unhooks_by_grant {
+    let removes = match path {
+        Path::Grant if hook => view.acting.votes().then_some(Path::Vote),
+        path => Some(path),
+    };
+    if let Some(path) = removes.filter(|_| !bound) {
+        let remove = match path {
+            Path::Grant => "Remove",
+            Path::Vote => "Propose remove",
+        };
         out.push(press(
             format!("explorer-remove-{name}"),
             remove,
             cx,
             theme,
-            edit(true),
+            edit(true, path),
         ));
     }
     out
@@ -314,8 +321,10 @@ fn scheduled(
     };
     let window = pending.by.and(view.status.ready()).map(|status| {
         let blocks = pending.height.saturating_sub(status.height);
-        let minutes = (blocks * status.block_time_ms).div_ceil(60_000);
-        format!("validators can cancel for {minutes} min")
+        format!(
+            "validators can cancel for {} min",
+            minutes(blocks, status.block_time_ms)
+        )
     });
     let program = change.program();
     let path = match pending.by {
@@ -368,6 +377,11 @@ fn scheduled(
         .into_any_element()
 }
 
+/// How long `blocks` take at the node's block time, in whole minutes.
+fn minutes(blocks: u64, block_time_ms: u64) -> u64 {
+    (blocks * block_time_ms).div_ceil(60_000)
+}
+
 fn name_of(view: &Explorer, number: u64) -> String {
     view.account(number)
         .map_or_else(|| format!("account {number}"), |a| a.card.name.clone())
@@ -376,8 +390,11 @@ fn name_of(view: &Explorer, number: u64) -> String {
 /// Every grant: what it covers, who holds it. The reader's own steps down
 /// by grant; a reader with voices proposes a grant or a revoke.
 fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Div {
+    let about = view.status.ready().map_or_else(String::new, |status| {
+        format!(" (about {} min)", minutes(NOTICE, status.block_time_ms))
+    });
     let notice = caption(
-        format!("changes by a maintainer wait {NOTICE} blocks (about 10 min)"),
+        format!("changes by a maintainer wait {NOTICE} blocks{about}"),
         theme,
     );
     let propose = view.acting.votes().then(|| {
@@ -635,7 +652,7 @@ fn form(
                             .enabled(!view.acting.busy),
                     )
                     .child(
-                        design::button("explorer-form-close", "Cancel", theme, close)
+                        design::button("explorer-form-close", "Close", theme, close)
                             .kind(design::Kind::Outline),
                     ),
             )

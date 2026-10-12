@@ -344,6 +344,30 @@ fn a_scheduled_change_says_who_made_it_and_is_cancelled_by_a_vote() {
     );
 }
 
+/// While the node's status is unread, a scheduled change tells who made it
+/// and no wait: no "0 min", no count from block 0.
+#[test]
+fn a_scheduled_change_tells_no_wait_before_the_status_is_read() {
+    let changes = vec![
+        module_registry::Pending {
+            height: 4300,
+            change: Change::Set(entry("valset", CODE)),
+            by: None,
+        },
+        module_registry::Pending {
+            height: 4800,
+            change: Change::Set(entry("chat", CODE)),
+            by: Some(12),
+        },
+    ];
+    let mut cx = TestAppContext::new();
+    node(&mut cx);
+    cx.host().never::<ChainStatus>();
+    let cx = sheet_over(cx, &THIS, 2, Vec::new(), changes);
+    assert_eq!(texts_of(&cx, "nodes-scheduled-0")[1], "by vote");
+    assert_eq!(texts_of(&cx, "nodes-scheduled-1")[1], "by account 12");
+}
+
 /// A grant to vote on reads with its account's name, as identity says it.
 #[test]
 fn a_grant_motion_names_its_account() {

@@ -52,8 +52,28 @@ fn reader(
     grants: Vec<Grant>,
     scheduled: Vec<Pending>,
 ) -> TestAppContext {
+    reader_on(account, signer, votes, grants, scheduled, Vec::new(), 1000)
+}
+
+/// [`reader`] on a node whose blocks come every `block_ms`, the registry
+/// listing `hooks`.
+fn reader_on(
+    account: Option<u64>,
+    signer: [u8; 32],
+    votes: bool,
+    grants: Vec<Grant>,
+    scheduled: Vec<Pending>,
+    hooks: Vec<String>,
+    block_ms: u64,
+) -> TestAppContext {
     let mut cx = TestAppContext::new();
     node(&mut cx, Rc::new(RefCell::new(12)));
+    cx.host().handle::<ChainStatus>(move |()| {
+        Ok(NodeStatus {
+            block_time_ms: block_ms,
+            ..status(12)
+        })
+    });
     registry_granting(
         &cx,
         vec![entry("chat", 0xab), entry("identity", 0xcd)],
@@ -63,7 +83,7 @@ fn reader(
         }],
         scheduled,
         grants,
-        Vec::new(),
+        hooks,
     );
     cx.host().handle::<Query<Valset>>(move |query| {
         Ok(match query {
@@ -122,6 +142,7 @@ fn a_maintainers_upgrade_goes_to_the_registry_as_it_was_typed() {
         "the press opened no transactions"
     );
     assert!(cx.has_text("Upgrade chat"), "{:?}", cx.texts());
+    assert!(cx.has_text("Close"), "the form closes; Cancel is a row's");
     assert!(cx.has_text("Params kept: 3 bytes, as chat runs now."));
     let earliest = 12 + 1 + registry::NOTICE;
     assert!(cx.has_text(&format!(
@@ -191,9 +212,14 @@ fn access_lists_every_grant_by_name_and_the_reader_steps_down_from_its_own() {
     assert!(cx.has_text("every module") && cx.has_text("Scout"));
     assert!(cx.has_text("agent"), "Scout is an agent");
     assert!(cx.has_text("Ada (you)"));
-    assert!(
-        cx.has_text("every-module maintainers"),
-        "explorer has none of its own"
+    let every = cx
+        .texts()
+        .iter()
+        .filter(|text| *text == "every-module maintainers")
+        .count();
+    assert_eq!(
+        every, 2,
+        "beside chat's own maintainer, and explorer's none"
     );
     cx.simulate_click("explorer-revoke-0");
     cx.run_until_parked();
@@ -201,6 +227,46 @@ fn access_lists_every_grant_by_name_and_the_reader_steps_down_from_its_own() {
         cx.host().requests::<Submit<Modules>>(),
         [registry::Op::Revoke(grants()[0].clone())]
     );
+}
+
+/// Minutes are the node's: 600 blocks at 2 s are about 20 min.
+#[test]
+fn the_waits_read_in_minutes_at_the_nodes_block_time() {
+    let cx = reader_on(Some(3), ADA, false, grants(), waiting(), Vec::new(), 2000);
+    assert!(
+        cx.has_text("changes by a maintainer wait 600 blocks (about 20 min)"),
+        "{:?}",
+        cx.texts()
+    );
+    // 688 blocks at 2 s
+    assert!(cx.has_text("validators can cancel for 23 min"));
+}
+
+/// A hook's code changes by grant; its removal is the vote's, which a
+/// maintainer with voices proposes and one without never sees.
+#[test]
+fn a_hook_is_upgraded_by_its_maintainer_and_removed_only_by_vote() {
+    let hooked = || vec!["chat".to_owned()];
+    let cx = reader_on(Some(3), ADA, false, grants(), waiting(), hooked(), 1000);
+    assert!(cx.find("explorer-hook-chat").is_some());
+    assert!(cx.find("explorer-upgrade-chat").is_some());
+    assert!(cx.find("explorer-remove-chat").is_none());
+    let mut cx = reader_on(Some(3), ADA, true, grants(), waiting(), hooked(), 1000);
+    assert!(cx.has_text("Upgrade") && cx.has_text("Propose remove"));
+    cx.simulate_click("explorer-remove-chat");
+    cx.run_until_parked();
+    assert!(cx.has_text("Propose remove · chat"), "{:?}", cx.texts());
+    cx.simulate_click("explorer-form-submit");
+    cx.run_until_parked();
+    let op = abi::encode(&registry::Op::Schedule(registry::Scheduled {
+        height: 12 + 600,
+        change: Change::Remove("chat".into()),
+    }));
+    assert_eq!(
+        cx.host().requests::<Submit<Valset>>(),
+        [valset::Op::Vote(Motion::Registry { op })]
+    );
+    assert!(cx.host().requests::<Submit<Modules>>().is_empty());
 }
 
 #[test]
