@@ -390,7 +390,9 @@ fn a_member_leaves_and_a_stranger_cannot() {
 #[test]
 fn a_registry_motion_emits_its_op_to_the_registry_once_enacted() {
     let store = founded();
-    let op = b"a registry op".to_vec();
+    let op = abi::encode(&module_registry::Op::Publish {
+        body: b"code".to_vec(),
+    });
     let motion = Motion::Registry { op: op.clone() };
     vote(&store, 1, motion.clone()).unwrap();
     assert!(store.take_emissions().is_empty());
@@ -627,18 +629,100 @@ fn a_key_taken_off_the_agent_casts_no_new_votes_and_its_votes_stand() {
     assert_eq!(vote(&store, 2, open).unwrap(), counted(2));
 }
 
+/// A registry op cancelling chat's change at `height`.
+fn cancel(height: u64) -> Motion {
+    let op = module_registry::Op::Cancel {
+        height,
+        program: "chat".into(),
+    };
+    Motion::Registry {
+        op: abi::encode(&op),
+    }
+}
+
 #[test]
-fn a_registry_schedule_too_late_to_land_is_refused_at_the_first_vote() {
+fn a_registry_op_that_cannot_land_is_refused_at_the_first_vote() {
     let store = delegated();
     // the block is at height 3
-    assert_eq!(
-        refused(&store, 1, Op::Vote(schedule(3))),
-        code::INVALID_INPUT
-    );
+    for late in [schedule(3), schedule(2), cancel(3), cancel(1)] {
+        assert_eq!(refused(&store, 1, Op::Vote(late)), code::INVALID_INPUT);
+    }
     let late = device(&store, 20, ADA, schedule(2)).unwrap_err();
     assert_eq!(late.code, code::INVALID_INPUT);
+    let garbage = Motion::Registry {
+        op: b"not an op".to_vec(),
+    };
+    assert_eq!(refused(&store, 1, Op::Vote(garbage)), code::INVALID_INPUT);
     assert!(motions(&store, 3).1.is_empty());
     assert_eq!(vote(&store, 1, schedule(4)).unwrap(), counted(1));
+    assert_eq!(vote(&store, 1, cancel(4)).unwrap(), counted(1));
+    // checked before whom the frame votes for: no identity is seated
+    // here, so asking it would be refused another way
+    let store = founded();
+    let unread = device(&store, 20, ADA, cancel(2)).unwrap_err();
+    assert_eq!(unread.code, code::INVALID_INPUT);
+}
+
+#[test]
+fn an_identity_that_answers_the_account_but_refuses_its_profile_fails_the_vote() {
+    let store = found(&[1, 2, 3, 4], 8).unwrap();
+    let roster = roster(&[(1, 11)], vec![agent(11, Standing::Active)]);
+    store.borrow_mut().siblings.insert(
+        MockHost::roles().identity,
+        Box::new(move |_, request| match abi::decode(request) {
+            Ok(abi::role::identity::Query::Profile(_)) => {
+                Err(Error::new(code::UNSUPPORTED, "no profiles here"))
+            }
+            _ => guest::identity_role(&roster, request),
+        }),
+    );
+    let open = Motion::Door { open: true };
+    let refused = device(&store, 20, ADA, open).unwrap_err();
+    assert_eq!(refused.code, code::UNSUPPORTED);
+    assert!(motions(&store, 3).1.is_empty());
+}
+
+#[test]
+fn motions_too_late_to_land_take_no_slot_of_a_page() {
+    let store = delegated();
+    for height in [4, 5, 9] {
+        vote(&store, 1, schedule(height)).unwrap();
+    }
+    let at = Env {
+        height: 6,
+        ..env(Origin::Root)
+    };
+    let first = Query::Motions {
+        page: PageRequest::first(1),
+    };
+    let Reply::Motions { page, .. } = Valset::query(&store.query(at.clone()), first).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].motion, schedule(9));
+    assert_eq!(page.next, None);
+    // a page cut short resumes past what it answered
+    let at = Env { height: 3, ..at };
+    let first = Query::Motions {
+        page: PageRequest::first(2),
+    };
+    let Reply::Motions { page, .. } = Valset::query(&store.query(at.clone()), first).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(page.items.len(), 2);
+    let rest = Query::Motions {
+        page: PageRequest {
+            after: page.next,
+            limit: Some(2),
+        },
+    };
+    let Reply::Motions { page, .. } = Valset::query(&store.query(at), rest).unwrap() else {
+        panic!()
+    };
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.next, None);
 }
 
 #[test]

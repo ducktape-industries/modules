@@ -12,7 +12,8 @@ pub struct Node {
     pub address: Option<String>,
     pub validator: bool,
     pub seat: Option<u32>,
-    /// "operated by <manager> (<agent>)" for a key on an agent
+    /// "operated by <manager> (<agent>)" for a key on an agent, or why
+    /// identity would not say
     pub operator: Option<String>,
 }
 
@@ -63,8 +64,11 @@ pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
         })
         .await?;
     let mut nodes = fold(&validators, members);
+    // one row's operator unread is that row's line: the list stands
     for node in &mut nodes {
-        node.operator = operator(&host, &node.key).await?;
+        node.operator = operator(&host, &node.key)
+            .await
+            .unwrap_or_else(|refusal| Some(format!("operator unreadable: {}", refusal.message)));
     }
     Ok(nodes)
 }
@@ -73,7 +77,7 @@ pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
 /// valset's vote reads it (`Account`, then `Profile`): "operated by
 /// <manager> (<agent>)" for a key on an agent. `None` for a key on a
 /// person or on no account, and for an agent that does not act now
-/// (refused `unauthorized`); any other refusal fails the read.
+/// (refused `unauthorized`); any other refusal is the caller's.
 pub(crate) async fn operator(host: &Host, key: &[u8]) -> Result<Option<String>, Error> {
     let account = match host.query(identity::ask::OfKey { key: key.to_vec() }).await {
         Ok(account) => account,

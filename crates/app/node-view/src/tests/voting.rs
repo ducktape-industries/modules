@@ -152,6 +152,33 @@ fn a_row_says_who_operates_a_node_on_an_agent() {
     assert!(cx.has_text("10.0.0.1:4000"));
 }
 
+/// Identity refusing one row's operator is that row's line, with the
+/// reason; the list stands.
+#[test]
+fn a_refused_operator_read_marks_its_row_and_keeps_the_list() {
+    let mut cx = TestAppContext::new();
+    node(&mut cx);
+    respond(&mut cx);
+    cx.host()
+        .handle::<Query<identity::Identity>>(|query| match query {
+            identity::Query::OfKey { key } if key == OTHER => {
+                Err(Error::new("unavailable", "identity is restarting"))
+            }
+            identity::Query::OfKey { .. } => Ok(identity::Reply::Number(None)),
+            other => panic!("unexpected query: {other:?}"),
+        });
+    cx.open::<Nodes>();
+    cx.run_until_parked();
+    assert_eq!(
+        texts_of(&cx, "nodes-operator-1"),
+        ["operator unreadable: identity is restarting"]
+    );
+    for row in [0, 2, 3] {
+        assert!(cx.find(&format!("nodes-operator-{row}")).is_none(), "{row}");
+    }
+    assert!(cx.has_text("10.0.0.1:4000"));
+}
+
 #[test]
 fn a_reader_who_does_not_vote_gets_no_controls() {
     let cx = sheet(&RESIDENT, 2, Vec::new(), Vec::new());

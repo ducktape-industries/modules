@@ -102,8 +102,9 @@ fn a_member_cannot_promote_itself_and_a_module_cannot_write() {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
         let promote = valset::Op::Vote(valset::Motion::Promote { key: public(3) });
+        // the motion is read before its voter: no member 3 to promote yet
         let stranger = net.refuse(&public(3), valset::MODULE, &promote).await;
-        assert_eq!(stranger, reason::UNAUTHORIZED);
+        assert_eq!(stranger, reason::NOT_FOUND);
         let ticket = invite(1, 1, net.time() + 3_600_000);
         net.apply(&public(3), valset::MODULE, &enroll(3, Some(ticket)))
             .await;

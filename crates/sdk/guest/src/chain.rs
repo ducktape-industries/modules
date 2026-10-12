@@ -98,7 +98,10 @@ impl Roster {
     }
 }
 
-/// Profiles alone: a roster that holds no key.
+/// Profiles alone: a roster that holds no key. Its `Account` answers
+/// `None` for every key, as for a key on no account, so a test whose code
+/// wrongly asks `Account` here passes silently: put the keys a test reads
+/// in [`Roster::keys`].
 impl From<Vec<Profile>> for Roster {
     fn from(profiles: Vec<Profile>) -> Roster {
         Roster {

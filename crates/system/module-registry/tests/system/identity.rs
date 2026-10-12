@@ -558,3 +558,55 @@ fn account_lists_resume_with_the_answering_height() {
         assert_eq!(other_listing.reason, abi::reason::STALE);
     });
 }
+
+/// The manager path on the real programs: a node key put on an agent with
+/// its consent lets the manager's device vote for that validator, until
+/// the agent is suspended.
+#[test]
+fn a_managers_device_votes_for_the_validator_on_its_agent_until_suspended() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found(context, dir.path()).await;
+        // Alice's device is key 3; founder 1's node key goes on her agent
+        net.create(3, "Alice").await;
+        let output = net
+            .apply(
+                &public(3),
+                identity::MODULE,
+                &identity::Op::CreateAgent {
+                    name: "validator 1".into(),
+                },
+            )
+            .await;
+        let agent: AccountNumber = abi::decode(&output).unwrap();
+        let node = identity::Op::AddKey {
+            scheme: Scheme::Ed25519,
+            label: Some("node".into()),
+            consent: consent(&key(1), agent, &public(1), 0, TIME + 600_000),
+        };
+        net.apply(&public(3), identity::MODULE, &node).await;
+        let valset::Reply::Voices(voices) = net
+            .ask(valset::MODULE, &valset::Query::Voices { key: public(3) })
+            .await
+        else {
+            panic!()
+        };
+        assert_eq!(voices, [public(1)]);
+
+        let open = valset::Op::Vote(valset::Motion::Door { open: true });
+        let receipt = net.submit(&public(3), valset::MODULE, &open).await;
+        let voted: valset::Voted = abi::decode(output_of(&receipt)).unwrap();
+        assert_eq!(
+            voted,
+            valset::Voted::Counted {
+                votes: 1,
+                needed: 2
+            }
+        );
+
+        let suspend = identity::Op::Suspend { account: agent };
+        net.apply(&public(3), identity::MODULE, &suspend).await;
+        let refused = net.refuse(&public(3), valset::MODULE, &open).await;
+        assert_eq!(refused, reason::UNAUTHORIZED);
+    });
+}

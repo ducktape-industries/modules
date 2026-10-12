@@ -139,6 +139,8 @@ fn leave(ctx: &ExecCtx, key: Vec<u8>) -> Result<(), Error> {
 }
 
 fn vote(ctx: &ExecCtx, signer: Vec<u8>, motion: Motion) -> Result<(), Error> {
+    // first, so a motion that cannot pass asks identity nothing
+    admissible(ctx, &motion)?;
     let validators = validators(ctx)?;
     let sender = ctx.env().sender.as_ref().and_then(Principal::account);
     let voices = voices(ctx, &validators, &signer, || Ok(sender))?;
@@ -147,7 +149,6 @@ fn vote(ctx: &ExecCtx, signer: Vec<u8>, motion: Motion) -> Result<(), Error> {
             "only a validator, or the manager of one, votes",
         ));
     }
-    admissible(ctx, &motion)?;
     let record = abi::encode(&motion);
     let mut voters = VOTES.get(ctx, &record)?.unwrap_or_default();
     voters.retain(|held| validators.contains(held));
@@ -234,21 +235,33 @@ pub(crate) fn account_of(ctx: &QueryCtx, key: &[u8]) -> Result<Option<AccountNum
 }
 
 /// A page of the motions waiting for votes, each with its voters still
-/// seated, as [`vote`] tallies them; a registry change too late to land
-/// (what [`timely`] refuses) is left out.
+/// seated, as [`vote`] tallies them. A registry op too late to land (what
+/// [`timely`] refuses) is left out before the page is cut, so it takes no
+/// slot of the page; a vote can never clear it, since a refused frame
+/// writes nothing.
 pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply, Error> {
     let validators = validators(ctx)?;
-    let mut page = VOTES.range(ctx, page)?.try_map(|(record, mut voters)| {
-        let motion =
+    let prefix = VOTES.key(&());
+    let listing = page.listing(ctx, prefix.clone())?;
+    let mut scan = listing.scan(&prefix);
+    // ponytail: reads every motion past the cursor to fill one page; a
+    // handful wait at once (each needs a validator's vote to be stored)
+    scan.limit = None;
+    let mut rows = Vec::new();
+    for (record, mut voters) in VOTES.scan(ctx, scan)? {
+        let motion: Motion =
             abi::decode(&record).map_err(|refusal| corrupt("votes/", &record, refusal.sentence))?;
+        if let Motion::Registry { op } = &motion
+            && timely(ctx, op).is_err()
+        {
+            continue;
+        }
         voters.retain(|voter| validators.contains(voter));
-        Ok(Pending { motion, voters })
-    })?;
-    page.items
-        .retain(|pending| timely(ctx, &pending.motion).is_ok());
+        rows.push((VOTES.key(&record), Pending { motion, voters }));
+    }
     Ok(crate::Reply::Motions {
         needed: quorum(validators.len()) as u64,
-        page,
+        page: listing.reply(rows),
     })
 }
 
@@ -258,26 +271,29 @@ fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
         Motion::Demote { key } => demotable(ctx, key),
         Motion::Remove { key } => removable(ctx, key),
         Motion::Door { open } => door_moves(ctx, *open),
-        Motion::Registry { .. } => timely(ctx, motion),
+        Motion::Registry { op } => timely(ctx, op),
     }
 }
 
-/// A registry `Schedule` lands at a later block than this one, as the
-/// registry itself requires (module-registry's `schedule`). Refused at the
-/// first vote: refused only at enactment, the vote that reached the quorum
-/// would fail inside the registry, and the motion would sit one vote short.
-fn timely(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
-    let Motion::Registry { op } = motion else {
-        return Ok(());
-    };
-    let Ok(module_registry::Op::Schedule(scheduled)) = abi::decode(op) else {
-        return Ok(());
+/// A registry motion carries an op the registry reads, and a `Schedule`
+/// or `Cancel` names a later block than this one: a change lands at a
+/// later block (module-registry's `schedule`), and one whose block has
+/// come has landed, so there is nothing left to cancel. Refused at the
+/// first vote: refused only at enactment, the vote that reached the
+/// quorum would fail inside the registry, and the motion would sit one
+/// vote short for good.
+fn timely(ctx: &QueryCtx, op: &[u8]) -> Result<(), Error> {
+    let op: module_registry::Op = abi::decode(op)
+        .map_err(|refusal| invalid(format!("not a registry op: {}", refusal.sentence)))?;
+    let at = match op {
+        module_registry::Op::Publish { .. } => return Ok(()),
+        module_registry::Op::Schedule(scheduled) => scheduled.height,
+        module_registry::Op::Cancel { height, .. } => height,
     };
     let height = ctx.env().height;
-    if scheduled.height <= height {
+    if at <= height {
         return Err(invalid(format!(
-            "too late: block {} is not past block {height}: propose again at a later height",
-            scheduled.height
+            "too late: block {at} is not past block {height}"
         )));
     }
     Ok(())
