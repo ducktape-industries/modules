@@ -238,9 +238,6 @@ mod tests {
         assert_eq!(describe::variants::<Kind>(), ["Mention", "Direct", "Reply"]);
     }
 
-    /// The bytes on chain, written out by hand in field order: a field
-    /// added to or moved inside `Notice` or `Link` breaks every reader of
-    /// the old ones, so it fails here first.
     /// Every field at its cap decodes; one byte, segment or recipient past
     /// it is malformed, whichever field it is.
     #[test]
@@ -289,6 +286,9 @@ mod tests {
         ));
     }
 
+    /// The bytes on chain, written out by hand in field order: a field
+    /// added to or moved inside `Notice` or `Link` breaks every reader of
+    /// the old ones, so it fails here first.
     #[test]
     fn an_event_is_its_committed_bytes() {
         let text = |text: &str| [&(text.len() as u32).to_le_bytes()[..], text.as_bytes()].concat();

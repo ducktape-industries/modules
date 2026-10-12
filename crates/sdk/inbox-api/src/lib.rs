@@ -184,9 +184,15 @@ pub struct Changed {
     pub ids: Vec<i64>,
 }
 
+/// The most names one [`Mutes`] list holds: a `PUT` over it is refused.
+pub const MAX_MUTES: usize = 1_000;
+
 /// `GET`/`PUT prefs`: what an account keeps out. A muted entry is stored but
 /// never pushed, listed or counted. A `PUT` replaces the whole set and
-/// applies to every stored entry: muting hides, unmuting shows again.
+/// applies to every stored entry: muting hides, unmuting shows again. Each
+/// list holds at most [`MAX_MUTES`]; the inbox answers them sorted, without
+/// repeats, and pushes them to every socket of the account
+/// ([`Push::Prefs`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Mutes {
@@ -216,6 +222,9 @@ pub enum Push {
     Gone { ids: Vec<i64> },
     /// Hidden, on any device.
     Hidden { ids: Vec<i64> },
+    /// The account's mutes changed, on any device: what `entries` lists
+    /// changed with them, so the app reads it again.
+    Prefs { mutes: Mutes },
 }
 
 #[cfg(test)]
@@ -457,6 +466,18 @@ mod tests {
         golden(
             Push::Hidden { ids: vec![3] },
             json!({"type": "hidden", "ids": [3]}),
+        );
+        golden(
+            Push::Prefs {
+                mutes: Mutes {
+                    senders: vec![9],
+                    ..Mutes::default()
+                },
+            },
+            json!({
+                "type": "prefs",
+                "mutes": {"programs": [], "kinds": [], "tags": [], "senders": [9]},
+            }),
         );
     }
 }
