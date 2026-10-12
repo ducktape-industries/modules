@@ -86,6 +86,11 @@ fn release(dir: &Path) {
         let describe = format!("{program}.describe");
         fs::write(dir.join(format!("{describe}.wasm")), module(&describe)).unwrap();
     }
+    for program in founding::UNVIEWED {
+        fs::write(dir.join(format!("{program}.wasm")), module(program)).unwrap();
+        let describe = format!("{program}.describe");
+        fs::write(dir.join(format!("{describe}.wasm")), module(&describe)).unwrap();
+    }
     for view in founding::VIEWS {
         fs::write(dir.join(format!("{view}.wasm")), module(view)).unwrap();
     }
@@ -105,6 +110,13 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         let describe = module(&format!("{program}.describe"));
         assert_eq!(section(&packed, founding::DESCRIBE_SECTION), [describe]);
     }
+    for program in founding::UNVIEWED {
+        let packed = fs::read(out.path().join(format!("{program}.wasm"))).unwrap();
+        assert_eq!(section(&packed, "tag"), [program.as_bytes().to_vec()]);
+        assert!(section(&packed, founding::VIEW_SECTION).is_empty());
+        let describe = module(&format!("{program}.describe"));
+        assert_eq!(section(&packed, founding::DESCRIBE_SECTION), [describe]);
+    }
     let params = fs::read(out.path().join("forge.params")).unwrap();
     assert_eq!(
         abi::decode::<forge::Bounds>(&params).unwrap(),
@@ -121,6 +133,16 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         .map(|path| path.as_str().unwrap().to_string())
         .collect();
     named.push("founding.toml".into());
+    let founded: Vec<&str> = file["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|program| program["id"].as_str().unwrap())
+        .collect();
+    for hook in file["hooks"].as_array().unwrap() {
+        let hook = hook.as_str().unwrap();
+        assert!(founded.contains(&hook), "{hook} hooks but is not founded");
+    }
     named.sort();
     let mut held: Vec<String> = fs::read_dir(out.path())
         .unwrap()

@@ -10,7 +10,7 @@ modules in `crates/system/` are one implementation of each.
 
 | Role | Bound here to | What the kernel does with it |
 |---|---|---|
-| `registry` | `module-registry` | at founding, writes its params (`role::registry::Genesis`: every founding module and view); at each block, before any frame, asks `At(height)` and admits, swaps or drops modules to match the answer |
+| `registry` | `module-registry` | at founding, writes its params (`role::registry::Genesis`: every founding module and view, and the founding hooks); at each block, before any frame, asks `At(height)` and admits, swaps or drops modules to match the answer, then asks `Hooks(height)` for the modules it tells of each frame the block carries ("Hooks", below) |
 | `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there. The node (`ducktape join`, `invite`, `vote`, `leave`) signs the role's `Op` with its identity key |
 | `identity` | `identity` | as it admits a module (at founding, and later off the registry), executes `RegisterModule { module }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfModule(sender)` |
 
@@ -99,6 +99,27 @@ the one place that happens.
 `Change::Remove` drops a module; `Cancel` withdraws a scheduled change. A
 role's module updates the same way, under its bound id; the binding itself
 is fixed at genesis.
+
+## Hooks
+
+A hook is a module the kernel tells of every frame a block carries. The
+registry lists the hooks: the founding file's top-level `hooks = [...]`
+seeds them, `Change::SetHook(id)` makes a running module one from its
+height, and `Change::RemoveHook(id)` stops it there. `Change::Remove` of a
+module drops its hook with it. At each block the kernel asks
+`Hooks(height)`; a registry that refuses or answers something else names
+no hooks.
+
+After each frame runs, the kernel calls each hook with a `hook::Record`:
+the block height, the frame's place in the block, its signer, the account
+it acted as, its target and whether it applied. A refused frame is told
+too. The call's origin is the kernel itself (`Origin::Root`, from
+`Env::kernel()` in `guest`), and `guest::hook` refuses any other. A hook
+never changes a frame: its receipt stays as it ran, a hook that refuses,
+traps, runs out of fuel or emits a message keeps none of its writes, and
+the block goes on. `activity` (`crates/app/activity`) is the hook this
+repo founds: it indexes who signed what, by key and by account, and keeps
+the newest 1,000 frames of each.
 
 Who may schedule is `Env::authority()` in `guest`, which `module-registry`
 calls before scheduling or cancelling a change (publishing a blob is open to

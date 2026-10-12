@@ -227,6 +227,22 @@ impl conformance::registry::Fixture for Registry {
         Self::schedule(host, height, at, change)
     }
 
+    fn set_hook(&self, host: &MockHost, height: u64, at: u64, program: &str) -> Result<(), Error> {
+        let change = module_registry::Change::SetHook(program.into());
+        Self::schedule(host, height, at, change)
+    }
+
+    fn remove_hook(
+        &self,
+        host: &MockHost,
+        height: u64,
+        at: u64,
+        program: &str,
+    ) -> Result<(), Error> {
+        let change = module_registry::Change::RemoveHook(program.into());
+        Self::schedule(host, height, at, change)
+    }
+
     fn views(&self, host: &MockHost, height: u64) -> Vec<View> {
         let env = env("module-registry", height, Origin::Root, None);
         let query = module_registry::Query::Views(height);

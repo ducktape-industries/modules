@@ -86,8 +86,6 @@ pub fn op(id: String, send: &Send, target: &Target) -> Result<Op, Error> {
     })
 }
 
-/// The row a just-accepted post by `author` shows as until the program
-/// serves it: seq 0. An edit shows nothing early.
 pub fn pending_row(op: &Op, author: Principal) -> Option<MsgRow> {
     let Op::PostMessage {
         message_id,

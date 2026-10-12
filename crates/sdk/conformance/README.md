@@ -78,10 +78,13 @@ init with the role's `Genesis` seats exactly its validators, each a member
 at its address; every key is 32 bytes and every validator a member;
 seating and unseating (the fixture's `seat`/`unseat`) change the answers.
 
-**registry**: `Query::At` and `Reply::Programs` are the first variants;
+**registry**: `Query::At` and `Reply::Programs` are the module's at tag
+0, and `Query::Hooks` and `Reply::Hooks` at tag 5;
 `At` answers the founding programs as founded and no view, which the
 module lists apart (the fixture's `views`); published code scheduled for a
 height (the fixture's `publish`/`set`) runs from that height and not
 before, admitting a new program or swapping a running one's code; a
 program scheduled to stop (`remove`) runs until its height and not from
-it, and stays dropped once the module has run past it.
+it, and stays dropped once the module has run past it; `Hooks` answers the
+founding hooks, a hook set (`set_hook`) from its height, a hook removed
+(`remove_hook`) from its height, and no hook for a program removed.

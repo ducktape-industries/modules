@@ -2,6 +2,7 @@ network = "NETWORK"           # the network's name; every frame and invite on it
 time = 0                      # the genesis block's time, unix milliseconds: `date +%s000`
 epoch_length = 64
 block_time_ms = 1000
+hooks = ["activity"]
 
 [roles]
 registry = "module-registry"
@@ -32,6 +33,10 @@ code = "chat.wasm"
 id = "forge"
 code = "forge.wasm"
 params = "forge.params"
+
+[[programs]]
+id = "activity"
+code = "activity.wasm"
 
 [[views]]
 name = "explorer"

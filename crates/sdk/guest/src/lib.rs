@@ -57,6 +57,7 @@ mod origin;
 pub mod refuse;
 
 pub use abi;
+pub use abi::hook;
 pub use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, Message, Root, Scheme,
 };
@@ -71,7 +72,7 @@ pub use kernel::{
 pub use mock::{MockHost, MockState, Sibling, Verifier, blob_id, identity_role};
 #[cfg(target_arch = "wasm32")]
 pub use module::exports;
-pub use module::{Module, Program, execute, query};
+pub use module::{Module, Program, execute, hook, query};
 pub use refuse::{
     already_exists, capacity, corrupt, decoded, invalid, not_found, stale, unauthorized,
     unexpected_reply, wrong_state,

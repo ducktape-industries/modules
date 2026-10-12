@@ -20,5 +20,5 @@ rm -rf "$out" && mkdir -p "$out"
 tar czf "$out/founding.tar.gz" -C "$out" founding
 gh release create "$tag" "$out/modules-wasm.tar.gz" "$out/founding.tar.gz" --target "$commit" --latest=false \
   --title "wasm $(git rev-parse --short HEAD)" \
-  --notes "Every program, describe module and view at $commit, built by \`make wasm-publish\` on x86_64-unknown-linux-gnu (wasm-opt 132). modules-wasm.tar.gz holds them unpacked; founding.tar.gz holds a founding: each program with its view and describe module, forge.params and founding.toml. Each archive carries its SHA256SUMS."
+  --notes "Every program, describe module and view at $commit, built by \`make wasm-publish\` on x86_64-unknown-linux-gnu (wasm-opt 132). modules-wasm.tar.gz holds them unpacked; founding.tar.gz holds a founding: each program with its describe module and any view, forge.params and founding.toml. Each archive carries its SHA256SUMS."
 echo "published $tag"

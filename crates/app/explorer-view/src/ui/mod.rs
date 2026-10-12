@@ -10,7 +10,7 @@ use crate::{BlockRow, Explorer, Note, Route, TxRow};
 use design::{empty_state, mono};
 
 /// The most rows one list draws; the rest is reached by search.
-const LIST_ROWS: usize = 50;
+pub(crate) const LIST_ROWS: usize = 50;
 /// The rows each Overview panel draws.
 const LATEST: usize = 12;
 

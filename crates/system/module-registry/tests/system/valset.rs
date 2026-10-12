@@ -156,7 +156,7 @@ fn the_validators_vote_promotes_a_resident_and_the_next_epoch_seats_it() {
 fn a_newcomer_past_the_cap_is_refused_on_the_host() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
-        let mut net = Net::found_with(context, dir.path(), Vec::new(), 2).await;
+        let mut net = Net::found_with(context, dir.path(), Vec::new(), Vec::new(), 2).await;
         let ticket = invite(1, 1, net.time() + 3_600_000);
         let refused = net
             .refuse(&public(3), valset::MODULE, &enroll(3, Some(ticket)))
