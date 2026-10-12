@@ -20,6 +20,7 @@ fn node(key: u8, validator: bool) -> Node {
         address: None,
         validator,
         seat: None,
+        operator: None,
     }
 }
 

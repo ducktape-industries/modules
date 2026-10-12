@@ -19,7 +19,7 @@ use sha1::Digest as _;
 
 use crate::{
     AccountNumber, Cause, Env, Error, ExecCtx, Module, ModuleId, Order, Origin, Principal,
-    QueryCtx, Range, Roles, code,
+    QueryCtx, Range, Roles, Roster, code,
 };
 
 /// A module another one queries: the env the host hands the answering
@@ -28,23 +28,22 @@ use crate::{
 pub type Sibling = Box<dyn Fn(Env, &[u8]) -> Result<Vec<u8>, Error>>;
 
 /// The identity role over a fixed roster, for a native test of a module
-/// that names accounts: `Profile` and `Profiles` (paged by number) out of
-/// `profiles`, in any order given. `Account` and `OfModule` are the
-/// kernel's to ask, so a module asking them is refused, as a sibling
-/// answers only what its role says.
-pub fn identity_role(profiles: &[Profile], request: &[u8]) -> Result<Vec<u8>, Error> {
+/// that names accounts, answered as identity answers any asker: `Account`
+/// and `OfModule` from the roster's keys and modules ([`Roster`]; refused
+/// `unauthorized` while a managed account does not act), `Profile` and
+/// `Profiles` (paged by number) from its profiles.
+pub fn identity_role(roster: &Roster, request: &[u8]) -> Result<Vec<u8>, Error> {
     use abi::role::identity::{Query, Reply};
     let reply = match abi::decode(request).map_err(crate::kernel::error_from)? {
-        Query::Profile(number) => {
-            Reply::Profile(profiles.iter().find(|p| p.number == number).cloned())
-        }
+        asked @ (Query::Account(_) | Query::OfModule(_)) => Reply::Account(roster.account(&asked)?),
+        Query::Profile(number) => Reply::Profile(roster.profiles.get(&number).cloned()),
         Query::Profiles { after, limit } => {
-            let mut page: Vec<Profile> = profiles
-                .iter()
+            let mut page: Vec<Profile> = roster
+                .profiles
+                .values()
                 .filter(|p| after.is_none_or(|after| p.number > after))
                 .cloned()
                 .collect();
-            page.sort_by_key(|p| p.number);
             let limit = limit.max(1) as usize;
             let more = page.len() > limit;
             page.truncate(limit);
@@ -53,12 +52,6 @@ pub fn identity_role(profiles: &[Profile], request: &[u8]) -> Result<Vec<u8>, Er
                 profiles: page,
                 next,
             }
-        }
-        Query::Account(_) | Query::OfModule(_) => {
-            return Err(Error::new(
-                code::UNSUPPORTED,
-                "the kernel alone asks identity who holds a key or a module",
-            ));
         }
     };
     Ok(abi::encode(&reply))
@@ -125,9 +118,11 @@ impl MockHost {
     }
 
     /// Seats the identity role over a fixed roster ([`identity_role`]), as
-    /// the sibling at [`roles`](MockHost::roles)`().identity`.
-    pub fn identity(&self, profiles: Vec<Profile>) {
-        let answer: Sibling = Box::new(move |_, request| identity_role(&profiles, request));
+    /// the sibling at [`roles`](MockHost::roles)`().identity`: profiles
+    /// alone (`Vec<Profile>`), or a [`Roster`] that holds keys too.
+    pub fn identity(&self, roster: impl Into<Roster>) {
+        let roster = roster.into();
+        let answer: Sibling = Box::new(move |_, request| identity_role(&roster, request));
         self.borrow_mut()
             .siblings
             .insert(MockHost::roles().identity, answer);

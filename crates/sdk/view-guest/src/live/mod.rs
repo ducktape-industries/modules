@@ -8,7 +8,8 @@
 //!
 //! The chain is founded with the boot set seated (`identity`, `valset`,
 //! `module-registry`, the owner's kept system-program exception) and a dev
-//! key holding an account through identity's own `Create`; every
+//! key holding an account through identity's own `Create`; identity checks
+//! a consent's signature as a node does ([`agent`](Network::agent)); every
 //! [`submit`](Network::submit) is one block of the archive, and the keys it
 //! wrote are what `module.changes` carries. One entry,
 //! [`answer`](Network::answer), serves both fronts at the view-wire level:
@@ -113,6 +114,13 @@ fn key_from_seed(seed: u64) -> ed25519::PrivateKey {
     ed25519::PrivateKey::from_seed(seed)
 }
 
+/// A signature as a node checks it: an ed25519 key's, under its namespace.
+/// No other scheme signs on this chain.
+fn verify(scheme: abi::Scheme, key: &[u8], namespace: &[u8], message: &[u8], proof: &[u8]) -> bool {
+    scheme == abi::Scheme::Ed25519
+        && wire::KeyScheme::Ed25519.verify(key, namespace, message, proof)
+}
+
 impl Network {
     /// A chain with the boot set seated and the dev key holding account
     /// `me`, at its genesis block.
@@ -146,7 +154,8 @@ impl Network {
             invites: 0,
             founded_roster: false,
         })));
-        net.seat::<identity::Identity>(identity::MODULE);
+        let identity = net.seat::<identity::Identity>(identity::MODULE);
+        identity.borrow_mut().verifier = Some(Box::new(verify));
         net.seat::<valset::Valset>(valset::MODULE);
         net.seat::<module_registry::Modules>(module_registry::MODULE);
         let dev = key_from_seed(DEV_SEED);
@@ -221,6 +230,57 @@ impl Network {
         state.keys.insert(number, key);
         state.names.insert(name.to_owned(), number);
         number
+    }
+
+    /// Agent `name`, made by `manager` through identity's `CreateAgent` on
+    /// its first mention, holding a key of its own through `AddKey`: its
+    /// consent signed by that key, as a node's or a bot's is.
+    pub fn agent(&self, manager: AccountNumber, name: &str) -> Result<AccountNumber, Error> {
+        if let Some(number) = self.0.borrow().names.get(name) {
+            return Ok(*number);
+        }
+        let made = self.submit(
+            manager,
+            identity::MODULE,
+            &identity::Op::CreateAgent {
+                name: name.to_owned(),
+            },
+        )?;
+        let number: AccountNumber = methods::decode(&made).expect("an account number");
+        let seed = u64::from_le_bytes(
+            digest(&[b"live-agent", name.as_bytes()])[..8]
+                .try_into()
+                .unwrap(),
+        );
+        let key = key_from_seed(seed);
+        let public = key.public_key().as_ref().to_vec();
+        let expires_at = now_ms() + 15 * 60 * 1000;
+        let admission = identity::Admission {
+            network: self.0.borrow().chain.env(identity::MODULE).chain_id,
+            scheme: abi::Scheme::Ed25519,
+            key: public.clone(),
+            // a fresh key: none of its consents was spent before
+            generation: 0,
+            account: number,
+            expires_at,
+        };
+        let proof = key.sign(identity::CONSENT_NAMESPACE, &admission.preimage());
+        let consent = identity::Consent {
+            key: public,
+            account: number,
+            expires_at,
+            proof: proof.as_ref().to_vec(),
+        };
+        let add = identity::Op::AddKey {
+            scheme: abi::Scheme::Ed25519,
+            label: Some(name.to_owned()),
+            consent,
+        };
+        self.submit(manager, identity::MODULE, &add)?;
+        let mut state = self.0.borrow_mut();
+        state.keys.insert(number, key);
+        state.names.insert(name.to_owned(), number);
+        Ok(number)
     }
 
     /// The dev account: the one the app signs in as.

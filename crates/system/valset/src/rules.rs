@@ -1,13 +1,15 @@
-// The rules: who enrolls and leaves, what a validators' vote enacts, the last validator kept
-// seated, and no more members than the cap the network was founded with.
+// The rules: who enrolls and leaves, who votes for which validator, what a validators' vote
+// enacts, the last validator kept seated, and no more members than the cap the network was
+// founded with.
 
+use abi::role::identity::{self, Kind, Standing};
 use guest::{
-    Error, ExecCtx, QueryCtx, Reply, Scheme, capacity, corrupt, invalid, not_found, unauthorized,
-    wrong_state,
+    AccountNumber, Error, ExecCtx, Principal, QueryCtx, Reply, Scheme, capacity, code, corrupt,
+    invalid, not_found, unauthorized, unexpected_reply, wrong_state,
 };
-use store::{Item, Map, Set};
+use store::{Item, Map, PageRequest, Set};
 
-use crate::{Genesis, INVITE_NAMESPACE, Invite, Membership, Motion, Op, Role, Voted};
+use crate::{Genesis, INVITE_NAMESPACE, Invite, Membership, Motion, Op, Pending, Role, Voted};
 
 pub(crate) const MEMBERS: Map<Vec<u8>, Membership> = Map::new("m/");
 const CAP: Item<u32> = Item::new("cap");
@@ -136,18 +138,24 @@ fn leave(ctx: &ExecCtx, key: Vec<u8>) -> Result<(), Error> {
     Ok(())
 }
 
-fn vote(ctx: &ExecCtx, voter: Vec<u8>, motion: Motion) -> Result<(), Error> {
-    let validators = validators(ctx)?;
-    let is_validator = validators.contains(&voter);
-    if !is_validator {
-        return Err(unauthorized("only a validator votes"));
-    }
+fn vote(ctx: &ExecCtx, signer: Vec<u8>, motion: Motion) -> Result<(), Error> {
+    // first, so a motion that cannot pass asks identity nothing
     admissible(ctx, &motion)?;
+    let validators = validators(ctx)?;
+    let sender = ctx.env().sender.as_ref().and_then(Principal::account);
+    let voices = voices(ctx, &validators, &signer, || Ok(sender))?;
+    if voices.is_empty() {
+        return Err(unauthorized(
+            "only a validator, or the manager of one, votes",
+        ));
+    }
     let record = abi::encode(&motion);
     let mut voters = VOTES.get(ctx, &record)?.unwrap_or_default();
     voters.retain(|held| validators.contains(held));
-    if !voters.contains(&voter) {
-        voters.push(voter);
+    for voice in voices {
+        if !voters.contains(&voice) {
+            voters.push(voice);
+        }
     }
     let needed = quorum(validators.len());
     let passed = voters.len() >= needed;
@@ -166,14 +174,129 @@ fn vote(ctx: &ExecCtx, voter: Vec<u8>, motion: Motion) -> Result<(), Error> {
     Ok(())
 }
 
+/// The validators a frame signed by `signer` votes for: itself when it is
+/// one, asking identity nothing; else each validator whose node key acts
+/// as an agent that `me` (the frame's account, asked only here) manages
+/// and keeps active. A node key sits on an agent, never on its operator's
+/// own account, so the operator's devices vote through the agent.
+pub(crate) fn voices(
+    ctx: &QueryCtx,
+    validators: &[Vec<u8>],
+    signer: &[u8],
+    me: impl FnOnce() -> Result<Option<AccountNumber>, Error>,
+) -> Result<Vec<Vec<u8>>, Error> {
+    let seated = validators.iter().any(|validator| validator == signer);
+    if seated {
+        return Ok(vec![signer.to_vec()]);
+    }
+    let Some(me) = me()? else {
+        return Ok(Vec::new());
+    };
+    let mut voices = Vec::new();
+    for validator in validators {
+        if managed_by(ctx, validator, me)? {
+            voices.push(validator.clone());
+        }
+    }
+    Ok(voices)
+}
+
+/// Whether `key` acts as an agent `manager` manages and keeps active, as
+/// the identity role says.
+fn managed_by(ctx: &QueryCtx, key: &[u8], manager: AccountNumber) -> Result<bool, Error> {
+    let Some(account) = account_of(ctx, key)? else {
+        return Ok(false);
+    };
+    let bound = &ctx.env().roles.identity;
+    let profile = match ctx.query(bound, &identity::Query::Profile(account))? {
+        identity::Reply::Profile(profile) => profile,
+        other => return Err(unexpected_reply(bound, "Profile", &other)),
+    };
+    Ok(profile.is_some_and(|profile| {
+        matches!(
+            profile.kind,
+            Kind::Managed { manager: by, standing: Standing::Active, .. } if by == manager
+        )
+    }))
+}
+
+/// The account `key` acts as, as the identity role answers it: `None` for
+/// a key that holds none, or whose account does not act now (identity
+/// refuses it `unauthorized`). Any other refusal fails the caller, so an
+/// identity that misanswers drops no one's voice quietly.
+pub(crate) fn account_of(ctx: &QueryCtx, key: &[u8]) -> Result<Option<AccountNumber>, Error> {
+    let bound = &ctx.env().roles.identity;
+    match ctx.query(bound, &identity::Query::Account(key.to_vec())) {
+        Ok(identity::Reply::Account(account)) => Ok(account),
+        Ok(other) => Err(unexpected_reply(bound, "Account", &other)),
+        Err(refusal) if refusal.code == code::UNAUTHORIZED => Ok(None),
+        Err(refusal) => Err(refusal),
+    }
+}
+
+/// A page of the motions waiting for votes, each with its voters still
+/// seated, as [`vote`] tallies them. A registry op too late to land (what
+/// [`timely`] refuses) is left out before the page is cut, so it takes no
+/// slot of the page; a vote can never clear it, since a refused frame
+/// writes nothing.
+pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply, Error> {
+    let validators = validators(ctx)?;
+    let prefix = VOTES.key(&());
+    let listing = page.listing(ctx, prefix.clone())?;
+    let mut scan = listing.scan(&prefix);
+    // ponytail: reads every motion past the cursor to fill one page; a
+    // handful wait at once (each needs a validator's vote to be stored)
+    scan.limit = None;
+    let mut rows = Vec::new();
+    for (record, mut voters) in VOTES.scan(ctx, scan)? {
+        let motion: Motion =
+            abi::decode(&record).map_err(|refusal| corrupt("votes/", &record, refusal.sentence))?;
+        if let Motion::Registry { op } = &motion
+            && timely(ctx, op).is_err()
+        {
+            continue;
+        }
+        voters.retain(|voter| validators.contains(voter));
+        rows.push((VOTES.key(&record), Pending { motion, voters }));
+    }
+    Ok(crate::Reply::Motions {
+        needed: quorum(validators.len()) as u64,
+        page: listing.reply(rows),
+    })
+}
+
 fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
     match motion {
         Motion::Promote { key } => promotable(ctx, key),
         Motion::Demote { key } => demotable(ctx, key),
         Motion::Remove { key } => removable(ctx, key),
         Motion::Door { open } => door_moves(ctx, *open),
-        Motion::Registry { .. } => Ok(()),
+        Motion::Registry { op } => timely(ctx, op),
     }
+}
+
+/// A registry motion carries an op the registry reads, and a `Schedule`
+/// or `Cancel` names a later block than this one: a change lands at a
+/// later block (module-registry's `schedule`), and one whose block has
+/// come has landed, so there is nothing left to cancel. Refused at the
+/// first vote: refused only at enactment, the vote that reached the
+/// quorum would fail inside the registry, and the motion would sit one
+/// vote short for good.
+fn timely(ctx: &QueryCtx, op: &[u8]) -> Result<(), Error> {
+    let op: module_registry::Op = abi::decode(op)
+        .map_err(|refusal| invalid(format!("not a registry op: {}", refusal.sentence)))?;
+    let at = match op {
+        module_registry::Op::Publish { .. } => return Ok(()),
+        module_registry::Op::Schedule(scheduled) => scheduled.height,
+        module_registry::Op::Cancel { height, .. } => height,
+    };
+    let height = ctx.env().height;
+    if at <= height {
+        return Err(invalid(format!(
+            "too late: block {at} is not past block {height}"
+        )));
+    }
+    Ok(())
 }
 
 fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {

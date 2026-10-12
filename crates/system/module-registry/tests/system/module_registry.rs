@@ -31,13 +31,19 @@ fn a_published_program_is_scheduled_by_the_validators_vote_and_seated_at_its_hei
             }))
             .await;
         assert_eq!(refusal_of(&unpublished), reason::NOT_FOUND);
-        let past = net
-            .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
-                height: net.height,
-                change: module_registry::Change::Set(entry.clone()),
-            }))
+        // a change at or below the block is refused at the first vote, as
+        // the registry would refuse it at enactment
+        let past = module_registry::Op::Schedule(module_registry::Scheduled {
+            height: net.height,
+            change: module_registry::Change::Set(entry.clone()),
+        });
+        let vote = valset::Op::Vote(valset::Motion::Registry {
+            op: abi::encode(&past),
+        });
+        let refused = net
+            .refuse(&public(FOUNDERS[0]), valset::MODULE, &vote)
             .await;
-        assert_eq!(refusal_of(&past), reason::INVALID_INPUT);
+        assert_eq!(refused, reason::INVALID_INPUT);
         let lands_at = net.height + 6;
         let scheduled = net
             .govern(&module_registry::Op::Schedule(module_registry::Scheduled {

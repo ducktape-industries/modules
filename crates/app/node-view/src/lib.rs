@@ -9,22 +9,30 @@
 //! reported either. A node that does not serve `chain.network` says so in
 //! one line, and the validators' cells stay empty.
 //!
-//! The members are valset's (`queries.rs`), re-read on its live heads; the
-//! status, the network and the strip's blocks (`recent.rs`) follow the
-//! clock, one ask of each in flight at a time.
+//! The members are valset's (`queries.rs`), each with who operates it as
+//! identity says, re-read on its live heads; the status, the network and
+//! the strip's blocks (`recent.rs`) follow the clock, one ask of each in
+//! flight at a time. A reader whose seated key votes for a validator gets
+//! the vote (`voting.rs`, drawn by `motions.rs`): motions on each row and
+//! the door, the motions that wait, Change a module and the scheduled
+//! changes.
 use ducktape_view_guest::methods;
 use ducktape_view_guest::prelude::*;
+use module_registry::Modules;
 use serde::{Deserialize, Serialize};
 use valset::Valset;
 
+mod motions;
 mod queries;
 mod recent;
 mod row;
 mod table;
 mod ui;
+mod voting;
 
 use queries::Node;
 use recent::Recent;
+use voting::Voting;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Nodes {
@@ -49,6 +57,9 @@ pub struct Nodes {
     /// the asks in flight: the clock asks again only once one lands
     #[serde(skip)]
     pub(crate) asking: Asking,
+    /// the vote, read again on every open
+    #[serde(skip)]
+    pub(crate) voting: Voting,
 }
 
 #[derive(Default)]
@@ -65,22 +76,38 @@ pub(crate) const SILENT_TICKS: u64 = 3;
 
 impl View for Nodes {
     const NAME: &'static str = "Nodes";
-    const DESCRIPTION: &'static str = "The network this app talks to: its height and epoch, and every member, with how far each validator's signature is from the tip.";
+    const DESCRIPTION: &'static str = "The network this app talks to: its height and epoch, every member, with how far each validator's signature is from the tip, and the validators' vote.";
     const ICON: &'static str = "icons/server.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
         Capability::Module,
+        Capability::Op,
         Capability::Host,
         Capability::Clock,
     ];
-    const TARGETS: &'static [&'static str] = &[valset::MODULE];
+    const TARGETS: &'static [&'static str] =
+        &[valset::MODULE, module_registry::MODULE, identity::MODULE];
     // the set's table fits from 480 up
     const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         cx.follow::<Changes<Valset>>((), |view, head, cx| match head {
-            Ok(_) => view.read(cx),
+            Ok(_) => {
+                view.read(cx);
+                view.read_voices(cx);
+            }
             Err(refusal) => cx.log_refused("valset's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<HostSession>((), |view, session, cx| match session {
+            Ok(session) => view.session_changed(session, cx),
+            Err(refusal) => cx.log_refused("the session", &refusal),
+        })
+        .detach();
+        // a change scheduled, cancelled or landed
+        cx.follow::<Changes<Modules>>((), |view, head, cx| match head {
+            Ok(_) => view.read_registry(cx),
+            Err(refusal) => cx.log_refused("the registry's live heads", &refusal),
         })
         .detach();
         // the header's age is drawn from the ticks

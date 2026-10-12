@@ -36,6 +36,36 @@ fn a_network_is_founded_with_the_boot_set_and_a_signed_in_person() {
     assert_eq!(net.session().account, Some(me));
 }
 
+/// An agent holds a key of its own, put there by its manager with the
+/// key's own consent, which identity checks; the agent signs as itself.
+#[test]
+fn an_agent_holds_a_key_its_consent_put_there() {
+    let net = Network::new();
+    let me = net.me();
+    let vps = net.agent(me, "validator vps").unwrap();
+    assert_eq!(
+        net.agent(me, "validator vps").unwrap(),
+        vps,
+        "a name is one agent"
+    );
+    let asked: identity::Reply = net
+        .query(
+            identity::MODULE,
+            &identity::Query::OfKey {
+                key: net.key_of(vps),
+            },
+        )
+        .unwrap();
+    assert_eq!(asked, identity::Reply::Number(Some(vps)));
+    let rename = identity::Op::SetName {
+        account: vps,
+        name: "renamed".into(),
+    };
+    // the agent signs; only its manager renames it
+    let refused = net.submit(vps, identity::MODULE, &rename).unwrap_err();
+    assert_eq!(refused.code, "unauthorized");
+}
+
 /// A submission is one block: the archive grows, and the keys the program
 /// wrote are the block's changes.
 #[test]

@@ -15,6 +15,9 @@ futures.workspace = true
 # `abi::hex` is how a key reaches the screen.
 abi.workspace = true
 ducktape-view-guest.workspace = true
+# who operates a node (an agent's manager) and the roster a change names
+identity.workspace = true
+module-registry.workspace = true
 valset.workspace = true
 serde.workspace = true
 
