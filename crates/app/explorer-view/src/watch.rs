@@ -1,6 +1,7 @@
 //! What Explorer follows while it is open: the chain's heads, the session,
 //! links opened into it, and the live heads of the programs whose lists it
 //! shows. Every follower says what a refusal means to it; none ends on one.
+use activity::Activity;
 use ducktape_view_guest::prelude::*;
 use identity::Identity;
 use module_registry::Modules;
@@ -50,6 +51,14 @@ impl Explorer {
         cx.follow::<Changes<Modules>>((), |view, head, cx| match head {
             Ok(_) => view.read_network(cx),
             Err(refusal) => cx.log_refused("the registry's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<Activity>>((), |view, head, cx| match head {
+            Ok(_) => {
+                view.read_used(cx);
+                view.read_acted(cx);
+            }
+            Err(refusal) => cx.log_refused("activity's live heads", &refusal),
         })
         .detach();
     }

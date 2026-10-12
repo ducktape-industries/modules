@@ -31,6 +31,8 @@ pub enum Change {
     /// A view with no module behind it, listed under its name.
     SetView(View),
     RemoveView(ModuleId),
+    SetHook(ModuleId),
+    RemoveHook(ModuleId),
 }
 
 impl Change {
@@ -41,6 +43,8 @@ impl Change {
             Change::Remove(_) => "Remove",
             Change::SetView(_) => "Set view",
             Change::RemoveView(_) => "Remove view",
+            Change::SetHook(_) => "Set hook",
+            Change::RemoveHook(_) => "Remove hook",
         }
     }
 
@@ -49,7 +53,10 @@ impl Change {
         match self {
             Change::Set(entry) => Some(entry.code),
             Change::SetView(view) => Some(view.view),
-            Change::Remove(_) | Change::RemoveView(_) => None,
+            Change::Remove(_)
+            | Change::RemoveView(_)
+            | Change::SetHook(_)
+            | Change::RemoveHook(_) => None,
         }
     }
 
@@ -57,7 +64,10 @@ impl Change {
         match self {
             Change::Set(entry) => &entry.program,
             Change::SetView(view) => &view.name,
-            Change::Remove(program) | Change::RemoveView(program) => program,
+            Change::Remove(program)
+            | Change::RemoveView(program)
+            | Change::SetHook(program)
+            | Change::RemoveHook(program) => program,
         }
     }
 }
@@ -91,6 +101,8 @@ pub enum Query {
     /// kernel hands them to this module (`Env::roles`).
     #[ask(Reply::Roles(abi::Roles))]
     Roles,
+    #[ask(Reply::Hooks(Vec<ModuleId>))]
+    Hooks(u64),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -100,6 +112,7 @@ pub enum Reply {
     Program { height: u64, entry: Option<Entry> },
     Views(Vec<View>),
     Roles(abi::Roles),
+    Hooks(Vec<ModuleId>),
 }
 
 /// An op as a person reads it: a title and its fields. The source of the

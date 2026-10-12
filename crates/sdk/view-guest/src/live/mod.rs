@@ -641,7 +641,14 @@ impl Network {
             .collect();
         state
             .chain
-            .init(module_registry::MODULE, &Roster { programs, views })
+            .init(
+                module_registry::MODULE,
+                &Roster {
+                    programs,
+                    views,
+                    hooks: Vec::new(),
+                },
+            )
             .expect("the registry founds with the seated programs");
     }
 

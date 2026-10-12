@@ -37,6 +37,7 @@ fn founded() -> (MockHost, BlobId) {
                 name: "lens".into(),
                 view: BlobId::Sha256([2; 32]),
             }],
+            hooks: vec!["boot".into()],
         },
     );
     Modules::execute(
@@ -53,6 +54,18 @@ fn founded() -> (MockHost, BlobId) {
 fn programs(store: &MockHost, height: u64) -> Vec<String> {
     match Modules::query(&store.query(env(height, Origin::Root)), Query::At(height)).unwrap() {
         Reply::Programs(entries) => entries.into_iter().map(|e| e.program).collect(),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn hooks(store: &MockHost, height: u64) -> Vec<String> {
+    match Modules::query(
+        &store.query(env(height, Origin::Root)),
+        Query::Hooks(height),
+    )
+    .unwrap()
+    {
+        Reply::Hooks(hooks) => hooks,
         other => panic!("{other:?}"),
     }
 }
@@ -396,7 +409,77 @@ fn an_id_lands_only_in_its_one_spelling() {
         Genesis {
             programs: vec![entry("System", code)],
             views: vec![],
+            hooks: vec![],
         },
     );
     schedule(&store, 5, Change::Remove("System".into())).unwrap();
+}
+
+#[test]
+fn the_kernel_asks_its_hooks_in_the_roles_bytes() {
+    use abi::role::registry;
+    for height in [0, 7, u64::MAX] {
+        assert_eq!(
+            abi::encode(&registry::Query::Hooks(height)),
+            abi::encode(&Query::Hooks(height))
+        );
+        assert_eq!(
+            abi::encode(&registry::Query::At(height)),
+            abi::encode(&Query::At(height))
+        );
+    }
+    let hooks = vec!["activity".to_owned()];
+    assert_eq!(
+        abi::encode(&registry::Reply::Hooks(hooks.clone())),
+        abi::encode(&Reply::Hooks(hooks))
+    );
+    let entries = vec![entry("boot", BlobId::Sha256([1; 32]))];
+    assert_eq!(
+        abi::encode(&registry::Reply::Programs(entries.clone())),
+        abi::encode(&Reply::Programs(entries))
+    );
+}
+
+#[test]
+fn a_hook_is_set_and_removed_at_its_height_and_goes_with_its_program() {
+    let (store, code) = founded();
+    assert_eq!(hooks(&store, 1), ["boot"]);
+    assert_eq!(
+        schedule(&store, 5, Change::SetHook("ghost".into()))
+            .unwrap_err()
+            .code,
+        code::NOT_FOUND
+    );
+    assert_eq!(
+        schedule(&store, 5, Change::RemoveHook("lens".into()))
+            .unwrap_err()
+            .code,
+        code::NOT_FOUND
+    );
+    schedule(&store, 5, Change::Set(entry("activity", code))).unwrap();
+    assert_eq!(
+        schedule(&store, 5, Change::SetHook("activity".into()))
+            .unwrap_err()
+            .code,
+        code::ALREADY_EXISTS
+    );
+    schedule(&store, 6, Change::SetHook("activity".into())).unwrap();
+    schedule(&store, 7, Change::RemoveHook("boot".into())).unwrap();
+    schedule(&store, 8, Change::Remove("activity".into())).unwrap();
+    assert_eq!(hooks(&store, 5), ["boot"]);
+    assert_eq!(hooks(&store, 6), ["activity", "boot"]);
+    assert_eq!(hooks(&store, 7), ["activity"]);
+    assert_eq!(hooks(&store, 8), Vec::<String>::new());
+    Modules::execute(
+        &store.exec(env(8, Origin::Signed(vec![9]))),
+        Op::Publish { body: vec![1] },
+    )
+    .unwrap();
+    assert_eq!(hooks(&store, 8), Vec::<String>::new());
+    schedule(&store, 9, Change::Set(entry("activity", code))).unwrap();
+    assert_eq!(
+        hooks(&store, 9),
+        Vec::<String>::new(),
+        "a program set again is no hook again"
+    );
 }

@@ -6,8 +6,8 @@
 //! The screen is read-only: suspending, revoking, renaming and keys live in
 //! Settings. Nothing here asks a program anything the list does not: one
 //! `identity` list gives every account whole, `valset` the standing of the
-//! keys, and the recent activity is a scan of the chain's recent window
-//! ([`activity`]).
+//! keys, and the recent activity is the `activity` program's index of
+//! what the account did ([`activity`]).
 //!
 //! The contracts are borsh and this view's state is a serde snapshot, so a
 //! reply is folded to [`Row`]s as it lands: nothing the programs speak is
@@ -137,7 +137,8 @@ impl View for Members {
         Capability::Host,
         Capability::Link,
     ];
-    const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
+    const TARGETS: &'static [&'static str] =
+        &[identity::MODULE, valset::MODULE, ::activity::MODULE];
     // the list and the detail fit at 320, the desk's smallest window
     const MIN_WINDOW_WIDTH: u32 = 320;
 
@@ -246,12 +247,7 @@ impl Members {
             return;
         }
         let number = row.number;
-        let keys = row
-            .devices
-            .iter()
-            .map(|device| device.key.clone())
-            .collect();
-        let work = activity::recent(cx.host(), keys);
+        let work = activity::recent(cx.host(), number);
         // held in `activity` or `rereading`, so choosing someone else drops
         // it unfinished
         let task = cx.land(work, move |view, result, cx| {

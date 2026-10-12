@@ -28,7 +28,7 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         .take(LIST_ROWS * 4)
         .fold(list, |list, account| {
             let name = &account.card.name;
-            let sent = activity(view, account).count() as u64;
+            let sent = view.used_by(account.number).map(|used| frames(&used));
             let row = row(
                 SharedString::from(format!("explorer-account-{}", account.number)).into(),
                 name.clone(),
@@ -46,7 +46,7 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
                 "devices",
             )))
             .child(
-                mono(plural(sent, "tx", "tx"))
+                mono(sent.map_or_else(|| "–".to_owned(), |sent| plural(sent, "tx", "tx")))
                     .w(COUNT_W)
                     .flex()
                     .justify_end()
@@ -54,11 +54,7 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
             );
             list.row(Route::Account(account.number), row, theme)
         });
-    let caption_text = format!(
-        "{} · tx in the last {}",
-        grouped(listed.list.len() as u64),
-        plural(view.chain.blocks.len() as u64, "block", "blocks")
-    );
+    let caption_text = format!("{} · tx recorded", grouped(listed.list.len() as u64));
     div()
         .id("explorer-accounts")
         .child(heading(
@@ -71,13 +67,34 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-/// What `account`'s keys signed in the window, newest first.
-fn activity<'a>(view: &'a Explorer, account: &'a Account) -> impl Iterator<Item = &'a TxRow> {
-    let keys = account.keys();
-    view.chain
-        .txs
-        .iter()
-        .filter(move |tx| keys.iter().any(|key| key.key == tx.signer))
+fn frames(used: &[&activity::Used]) -> u64 {
+    used.iter().map(|used| used.frames).sum()
+}
+
+fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
+    let Some(acted) = view.acted(number) else {
+        return match &view.acted {
+            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+            _ => quiet("explorer-activity-loading", "Reading its activity…", theme),
+        };
+    };
+    if acted.is_empty() {
+        return quiet("explorer-no-activity", "No activity recorded.", theme);
+    }
+    let list = rows("explorer-activity-list", "Activity", view);
+    tx_rows(
+        list,
+        view,
+        move |view| {
+            view.acted(number)
+                .map_or_else(Vec::new, |rows| rows.iter().collect())
+        },
+        true,
+        false,
+    )
+    .whole(view, cx, theme)
+    .build(cx)
+    .into_any_element()
 }
 
 pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
@@ -96,30 +113,10 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
             }
         };
     };
-    let window = plural(view.chain.blocks.len() as u64, "block", "blocks");
-    let sent: Vec<&TxRow> = activity(view, account).collect();
-    let list = rows("explorer-activity-list", "Activity", view);
-    let rows = (!sent.is_empty()).then(|| {
-        tx_rows(
-            list,
-            view,
-            move |view| {
-                view.account(number).map_or_else(Vec::new, |account| {
-                    activity(view, account).take(LIST_ROWS).collect()
-                })
-            },
-            true,
-            false,
-        )
-        .whole(view, cx, theme)
-        .build(cx)
-    });
-    let empty = sent.is_empty().then(|| {
-        quiet(
-            "explorer-no-activity",
-            format!("Nothing signed in the last {window}."),
-            theme,
-        )
+    let total = view.used_by(number).map(|used| frames(&used));
+    let recorded = total.map(|total| {
+        let total = plural(total, "transaction", "transactions");
+        caption(format!("{total} recorded"), theme)
     });
     let activity = div()
         .id("explorer-activity")
@@ -129,17 +126,10 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
         .child(heading(
             "explorer-activity-heading",
             "Activity",
-            Some(caption(
-                format!(
-                    "{} in the last {window}",
-                    plural(sent.len() as u64, "transaction", "transactions")
-                ),
-                theme,
-            )),
+            recorded,
             theme,
         ))
-        .children(rows)
-        .children(empty);
+        .child(acted(view, number, cx, theme));
     div()
         .id("explorer-account")
         .flex()
@@ -153,7 +143,7 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
                 .border_t_1()
                 .border_color(theme.border)
                 .child(activity)
-                .child(side(view, account, &sent, theme)),
+                .child(side(view, account, theme)),
         )
         .into_any_element()
 }
@@ -202,10 +192,9 @@ fn title(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> impl Into
         ))
 }
 
-/// The account's devices, each with when it last signed, and the programs
-/// its transactions in the window went to.
-fn side(view: &Explorer, account: &Account, sent: &[&TxRow], theme: &Theme) -> impl IntoElement {
+fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
     let now = view.chain.now();
+    let sent = view.acted(account.number).unwrap_or_default();
     let devices = account.keys().iter().enumerate().map(|(index, key)| {
         let last = sent.iter().find(|tx| tx.signer == key.key);
         let label = key
@@ -236,13 +225,12 @@ fn side(view: &Explorer, account: &Account, sent: &[&TxRow], theme: &Theme) -> i
                 .text_color(theme.muted),
             )
     });
-    let mut used: Vec<(&str, u64)> = Vec::new();
-    for tx in sent {
-        match used.iter_mut().find(|(program, _)| *program == tx.target) {
-            Some((_, count)) => *count += 1,
-            None => used.push((&tx.target, 1)),
-        }
-    }
+    let mut used: Vec<(&str, u64)> = view
+        .used_by(account.number)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|used| (used.program.as_str(), used.frames))
+        .collect();
     used.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
     // a heading over nothing says nothing: it comes with its rows
     let used_heading =

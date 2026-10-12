@@ -38,6 +38,16 @@ impl Env {
         )))
     }
 
+    pub fn kernel(&self) -> Result<(), Error> {
+        if self.origin == Origin::Root {
+            return Ok(());
+        }
+        Err(unauthorized(format!(
+            "only the kernel may do this, not {:?}",
+            self.origin
+        )))
+    }
+
     /// Refused unless `module` or the chain itself sent this.
     pub fn sent_by(&self, module: &str) -> Result<(), Error> {
         let by_module = matches!(&self.origin, Origin::Module(sender) if sender == module);

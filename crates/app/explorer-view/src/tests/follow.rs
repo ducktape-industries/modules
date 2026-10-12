@@ -67,6 +67,96 @@ fn a_registry_head_re_reads_the_programs() {
     assert!(cx.has_text("Nothing is scheduled against the registry."));
 }
 
+fn registry_env(height: u64, origin: guest::Origin) -> guest::Env {
+    guest::Env {
+        height,
+        origin,
+        sender: None,
+        ..guest::MockHost::env(registry::MODULE)
+    }
+}
+
+fn registry_swapping(program: &str, at: u64) -> (guest::MockHost, BlobId, BlobId) {
+    use guest::{MockHost, Module as _, Origin};
+    let store = MockHost::default();
+    let entry = |code| registry::Entry {
+        program: program.into(),
+        code,
+        params: Vec::new(),
+    };
+    let running = BlobId::Sha256([0xab; 32]);
+    let genesis = registry::Genesis {
+        programs: vec![entry(running)],
+        views: Vec::new(),
+        hooks: Vec::new(),
+    };
+    Modules::init(
+        &store.exec(registry_env(0, Origin::Root)),
+        &abi::encode(&genesis),
+    )
+    .unwrap();
+    let publish = registry::Op::Publish {
+        body: b"scheduled code".to_vec(),
+    };
+    Modules::execute(
+        &store.exec(registry_env(1, Origin::Signed(ADA.to_vec()))),
+        publish,
+    )
+    .unwrap();
+    let scheduled: BlobId = abi::decode(&store.take_output()).unwrap();
+    let swap = registry::Op::Schedule(registry::Scheduled {
+        height: at,
+        change: registry::Change::Set(entry(scheduled)),
+    });
+    let validators = Origin::Module(MockHost::roles().validators);
+    Modules::execute(&store.exec(registry_env(1, validators)), swap).unwrap();
+    (store, running, scheduled)
+}
+
+#[test]
+fn a_scheduled_swap_shows_once_a_head_reaches_its_height() {
+    use guest::Module as _;
+    let mut cx = TestAppContext::new();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    let heads = cx.host().stream::<ChainHeads>();
+    let (store, running, scheduled) = registry_swapping("chat", 14);
+    let asked_at = tip.clone();
+    cx.host().handle::<Query<Modules>>(move |query| {
+        let env = registry_env(*asked_at.borrow() + 1, guest::Origin::Root);
+        Ok(Modules::query(&store.query(env), query).unwrap())
+    });
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-programs");
+    cx.run_until_parked();
+    let running = crate::decode::short(running.digest());
+    let scheduled = crate::decode::short(scheduled.digest());
+    assert!(
+        cx.has_text(&running) && cx.has_text("at 14"),
+        "{:?}",
+        cx.texts()
+    );
+    let mut reach = |height: u64| {
+        *tip.borrow_mut() = height;
+        heads.send(Head {
+            height,
+            time: T0 + height * 1000,
+            id: [(height as u8).wrapping_add(100); 32],
+        });
+        cx.run_until_parked();
+        cx.has_text(&running) && cx.has_text("at 14")
+    };
+    assert!(reach(13), "before its height");
+    assert!(!reach(14), "at its height");
+    assert!(
+        cx.has_text(&scheduled) && !cx.has_text(&running),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.has_text("Nothing is scheduled against the registry."));
+}
+
 #[test]
 fn an_empty_registry_says_so() {
     let mut cx = TestAppContext::new();
@@ -159,4 +249,76 @@ fn a_pushed_head_asks_for_the_blocks_since_the_top() {
         "{:?}",
         cx.texts()
     );
+}
+
+#[test]
+fn an_accounts_activity_past_the_window_is_read_from_its_blocks_and_follows_the_index() {
+    let mut cx = TestAppContext::new();
+    let tip = Rc::new(RefCell::new(WINDOW as u64 + 100));
+    node(&mut cx, tip.clone());
+    let heads = cx.host().stream::<Changes<Activity>>();
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-accounts");
+    cx.run_until_parked();
+    assert!(cx.has_text("3 · tx recorded"), "{:?}", cx.texts());
+    assert!(cx.has_text("2 tx"), "Ada's two, long out of the window");
+    cx.simulate_click("explorer-account-3");
+    cx.run_until_parked();
+    for text in [
+        "2 transactions recorded",
+        "Post in #design",
+        "Direct message",
+    ] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    assert_eq!(
+        cx.host().requests::<ChainBlock>(),
+        [BlockRef::Height(11)],
+        "both frames are in one block, read once"
+    );
+    let asked = cx.host().requests::<Query<Activity>>().len();
+    heads.send(Some(ducktape_view_guest::methods::Change {
+        height: *tip.borrow() + 1,
+        keys: Vec::new(),
+    }));
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<Query<Activity>>().len(),
+        asked + 2,
+        "the counts and the open account are read again"
+    );
+    assert_eq!(
+        cx.host().requests::<ChainBlock>().len(),
+        1,
+        "a row already read is not read again"
+    );
+    cx.simulate_click("explorer-tx-11-0");
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("In block 11") && cx.has_text("hello there"),
+        "a row of the account's activity opens though the window has no such hash: {:?}",
+        cx.texts()
+    );
+}
+
+#[test]
+fn without_the_activity_program_the_accounts_list_and_the_account_says_why() {
+    let mut cx = TestAppContext::new();
+    node(&mut cx, Rc::new(RefCell::new(12)));
+    cx.host()
+        .refuse::<Query<Activity>>("not_found", "no program is called activity");
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-accounts");
+    cx.run_until_parked();
+    assert!(cx.has_text("Ada") && cx.has_text("–"), "{:?}", cx.texts());
+    cx.simulate_click("explorer-account-3");
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("no program is called activity") && cx.has_text("laptop"),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(!cx.has_text("Programs used"));
 }

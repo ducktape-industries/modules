@@ -6,6 +6,8 @@
 use ducktape_view_guest::prelude::*;
 
 use crate::chain::{BlockRow, TxRow};
+use crate::state::Route;
+use crate::ui::LIST_ROWS;
 use crate::{Explorer, PAGE, WINDOW, decode, queries};
 
 impl Explorer {
@@ -15,6 +17,8 @@ impl Explorer {
         self.read_accounts(cx);
         self.read_validators(cx);
         self.read_network(cx);
+        self.read_used(cx);
+        self.read_acted(cx);
         self.pull(cx);
     }
 
@@ -31,6 +35,16 @@ impl Explorer {
             }
             _ => self.read_head(cx),
         }
+        if self.change_came_due(head.height) {
+            self.read_network(cx);
+        }
+    }
+
+    fn change_came_due(&self, height: u64) -> bool {
+        let Loadable::Ready(network) = &self.network else {
+            return false;
+        };
+        network.changes.iter().any(|change| change.height <= height)
     }
 
     /// The node's status, and the window it moves. A status on screen stays
@@ -70,6 +84,32 @@ impl Explorer {
     pub(crate) fn read_network(&mut self, cx: &mut Context<Self>) {
         let work = queries::network(cx.host());
         cx.load(self, work, |view| &mut view.network);
+    }
+
+    pub(crate) fn read_used(&mut self, cx: &mut Context<Self>) {
+        let work = queries::used(cx.host());
+        cx.load(self, work, |view| &mut view.used);
+    }
+
+    pub(crate) fn read_acted(&mut self, cx: &mut Context<Self>) {
+        let Route::Account(number) = self.route else {
+            return;
+        };
+        let mut known = match self.acted(number) {
+            Some(rows) => rows.to_vec(),
+            None => {
+                self.acted = Loadable::Idle;
+                Vec::new()
+            }
+        };
+        let keys = self
+            .account(number)
+            .map_or(&[][..], |account| account.keys());
+        let signed = |tx: &&TxRow| keys.iter().any(|key| key.key == tx.signer);
+        let windowed = self.chain.txs.iter().filter(signed).take(LIST_ROWS);
+        known.extend(windowed.cloned());
+        let work = queries::acted(cx.host(), number, known);
+        cx.load(self, work, |view| &mut view.acted);
     }
 
     /// Reads the next page the window wants, if any: the blocks since the
@@ -151,7 +191,12 @@ impl Explorer {
             };
             // every row of the hash: a frame the node landed again is
             // the same op, drawn once per landing
-            let rows = view.chain.txs.iter().chain(view.opened_txs());
+            let rows = view
+                .chain
+                .txs
+                .iter()
+                .chain(view.opened_txs())
+                .chain(view.acted_txs());
             for tx in rows.filter(|tx| tx.hash == hash) {
                 let _ = tx.op.set(op.clone());
             }
@@ -160,13 +205,17 @@ impl Explorer {
         .detach();
     }
 
-    /// A transaction by hash, in the window or the block opened outside it.
     pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
         self.chain
             .txs
             .iter()
             .find(|tx| &tx.hash == hash)
             .or_else(|| self.opened_tx(hash))
+            .or_else(|| self.acted_txs().iter().find(|tx| &tx.hash == hash))
+    }
+
+    fn acted_txs(&self) -> &[TxRow] {
+        self.acted.ready().map_or(&[], |acted| &acted.rows)
     }
 
     pub(crate) fn opened_tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {

@@ -3,7 +3,7 @@
 
 use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
 
-use crate::rules::{SCHEDULE, at, cancel, fold, init, publish, schedule, views_at};
+use crate::rules::{SCHEDULE, at, cancel, fold, hooks_at, init, publish, schedule, views_at};
 use crate::{Genesis, MODULE, Op, Query, Reply, Scheduled};
 
 pub struct Modules;
@@ -47,6 +47,7 @@ impl Module for Modules {
                     .find(|entry| entry.program == program),
             },
             Query::Roles => Reply::Roles(ctx.env().roles.clone()),
+            Query::Hooks(height) => Reply::Hooks(hooks_at(ctx, height)?),
         })
     }
 }
