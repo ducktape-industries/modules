@@ -82,7 +82,8 @@ pub struct Stopped {
     pub reason: String,
 }
 
-/// `POST challenge`: single use.
+/// `POST challenge`: single use. The inbox keeps nothing when it issues
+/// one: the nonce carries its own proof, so the login hands both back.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Challenge {
     /// 32 bytes, hex.
@@ -100,6 +101,8 @@ pub struct LoginRequest {
     pub signature: String,
     /// The [`Challenge`]'s.
     pub nonce: String,
+    /// The [`Challenge`]'s.
+    pub expires: u64,
     /// The device, as a session list would name it.
     pub label: String,
 }
@@ -342,9 +345,16 @@ mod tests {
                 pubkey: "aa".into(),
                 signature: "bb".into(),
                 nonce: "07".into(),
+                expires: 3,
                 label: "Desktop".into(),
             },
-            json!({"pubkey": "aa", "signature": "bb", "nonce": "07", "label": "Desktop"}),
+            json!({
+                "pubkey": "aa",
+                "signature": "bb",
+                "nonce": "07",
+                "expires": 3,
+                "label": "Desktop",
+            }),
         );
         golden(
             LoginReply {
