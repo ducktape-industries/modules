@@ -1,7 +1,10 @@
-//! Typed reads of valset, folded into one row per key.
+//! Typed reads of valset, folded into one row per key; who operates each
+//! node, as identity says; and what the vote needs of the registry.
 use ducktape_view_guest::prelude::*;
+use identity::Kind;
+use module_registry::{Entry, Scheduled};
 use serde::{Deserialize, Serialize};
-use valset::{Membership, PageRequest, Role, ask};
+use valset::{Membership, PageRequest, Pending, Role, ask};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Node {
@@ -9,6 +12,8 @@ pub struct Node {
     pub address: Option<String>,
     pub validator: bool,
     pub seat: Option<u32>,
+    /// "operated by <manager> (<agent>)" for a key on an agent
+    pub operator: Option<String>,
 }
 
 /// The consensus keys and the memberships, as one list: validators in seat
@@ -30,6 +35,7 @@ pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
             validator: member.role == Role::Validator,
             key: member.key,
             address: member.address,
+            operator: None,
         });
     }
     for key in validators {
@@ -39,6 +45,7 @@ pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
                 address: None,
                 validator: true,
                 seat: seat(key),
+                operator: None,
             });
         }
     }
@@ -47,7 +54,7 @@ pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
 }
 
 /// The set, read twice: the consensus keys the program answers, then every
-/// membership behind them.
+/// membership behind them; then who operates each node.
 pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
     let validators = host.query(ask::Validators).await?;
     let members = host
@@ -55,5 +62,83 @@ pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
             page: PageRequest { after, limit: None },
         })
         .await?;
-    Ok(fold(&validators, members))
+    let mut nodes = fold(&validators, members);
+    for node in &mut nodes {
+        node.operator = operator(&host, &node.key).await?;
+    }
+    Ok(nodes)
+}
+
+/// Who operates the node whose key is `key`, through the identity role as
+/// valset's vote reads it (`Account`, then `Profile`): "operated by
+/// <manager> (<agent>)" for a key on an agent. `None` for a key on a
+/// person or on no account, and for an agent that does not act now
+/// (refused `unauthorized`); any other refusal fails the read.
+pub(crate) async fn operator(host: &Host, key: &[u8]) -> Result<Option<String>, Error> {
+    let account = match host.query(identity::ask::OfKey { key: key.to_vec() }).await {
+        Ok(account) => account,
+        Err(refusal) if refusal.code == abi::reason::UNAUTHORIZED => return Ok(None),
+        Err(refusal) => return Err(refusal),
+    };
+    let Some(number) = account else {
+        return Ok(None);
+    };
+    let Some(agent) = host.query(identity::ask::Profile { number }).await? else {
+        return Ok(None);
+    };
+    let Kind::Managed { manager, .. } = agent.kind else {
+        return Ok(None);
+    };
+    let manager = host
+        .query(identity::ask::Profile { number: manager })
+        .await?
+        .map_or_else(|| format!("account {manager}"), |profile| profile.name);
+    Ok(Some(format!("operated by {manager} ({})", agent.name)))
+}
+
+/// The motions waiting for votes, and how many votes pass one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Motions {
+    pub(crate) needed: u64,
+    pub(crate) pending: Vec<Pending>,
+}
+
+/// The validators the seated key votes for: empty, it does not vote.
+pub(crate) async fn voices(host: Host, key: Vec<u8>) -> Result<Vec<Vec<u8>>, Error> {
+    host.query(ask::Voices { key }).await
+}
+
+/// The motions waiting. ponytail: one page (256 motions); page on when a
+/// network keeps more open at once.
+pub(crate) async fn motions(host: Host) -> Result<Motions, Error> {
+    let (needed, page) = host
+        .query(ask::Motions {
+            page: PageRequest {
+                after: None,
+                limit: None,
+            },
+        })
+        .await?;
+    Ok(Motions {
+        needed,
+        pending: page.items,
+    })
+}
+
+/// The programs the registry runs now, each with its code and params.
+pub(crate) async fn roster(host: Host) -> Result<Vec<Entry>, Error> {
+    let (height, _) = host
+        .query(module_registry::ask::Program(
+            module_registry::MODULE.into(),
+        ))
+        .await?;
+    host.query(module_registry::ask::At(height)).await
+}
+
+/// Every change the registry holds scheduled, by height.
+pub(crate) async fn scheduled(host: Host) -> Result<Vec<Scheduled>, Error> {
+    host.query_all(|after| module_registry::ask::Scheduled {
+        page: PageRequest { after, limit: None },
+    })
+    .await
 }

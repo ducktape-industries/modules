@@ -1,6 +1,7 @@
 //! The members table: one row per key, validators then residents, each
 //! with the blocks it led of the strip and its Height, Behind and Status
-//! cells (`row.rs`), then a line on where those come from.
+//! cells (`row.rs`), who operates it, and, for a reader who votes, the
+//! motions on it; then a line on where those come from.
 use abi::hex;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, Stateful};
@@ -9,6 +10,7 @@ use crate::queries::Node;
 use crate::recent::{Recent, WINDOW};
 use crate::row::{self, QUIET, Row, Status};
 use crate::{Nodes, ui};
+use valset::Motion;
 
 const KEY_W: Pixels = px(104.);
 const ADDRESS_W: Pixels = px(196.);
@@ -78,7 +80,12 @@ fn gap_beside(view: &Nodes, label: f32) -> Option<f32> {
     GAPS.into_iter().find(|gap| column_w(*gap, label) <= room)
 }
 
-pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div> {
+pub(crate) fn table(
+    view: &Nodes,
+    nodes: &[Node],
+    cx: &Context<Nodes>,
+    theme: &Theme,
+) -> Stateful<Div> {
     let head = view.status.ready().map_or(0, |status| status.height);
     let this = view.status.ready().map(|status| status.identity.as_slice());
     let validators = nodes.iter().filter(|node| node.validator).count() as u64;
@@ -114,6 +121,7 @@ pub(crate) fn table(view: &Nodes, nodes: &[Node], theme: &Theme) -> Stateful<Div
                 let cells = heard.map_or(row::BLANK, |network| row::synced(node, network));
                 let marks = strip(node, head, gap.unwrap_or(GAPS[0]), &view.recent, theme);
                 line(index, node, this, cells, place(marks, column), view, theme)
+                    .children(under(index, node, view, cx, theme))
             })
     };
     let residents = nodes.len() as u64 - validators;
@@ -262,7 +270,7 @@ fn line(
     (beside, below): (Option<(Pixels, Div)>, Option<Div>),
     view: &Nodes,
     theme: &Theme,
-) -> impl IntoElement {
+) -> Stateful<Div> {
     let muted = |text: String| div().text_color(theme.muted).child(text);
     let address = address_fits(view);
     // without the Address column, this node's mark goes under its key
@@ -310,6 +318,58 @@ fn line(
         )));
     let id = ElementId::Name(format!("nodes-row-{index}").into());
     ruled(id, cells, below, theme).text_size(design::text::SECONDARY)
+}
+
+/// Under a row's cells: who operates the node, and, for a reader who
+/// votes, the motions on it (Promote for a resident, Demote and Remove for
+/// a validator). Nothing for a row with neither.
+fn under(
+    index: usize,
+    node: &Node,
+    view: &Nodes,
+    cx: &Context<Nodes>,
+    theme: &Theme,
+) -> Option<Div> {
+    let operator = node.operator.clone().map(|operator| {
+        div()
+            .id(ElementId::Name(format!("nodes-operator-{index}").into()))
+            .text_color(theme.muted)
+            .child(operator)
+    });
+    let motions = view.voting.votes().then(|| {
+        let key = node.key.clone();
+        let motions = match node.validator {
+            true => vec![
+                ("demote", "Demote", Motion::Demote { key: key.clone() }),
+                ("remove", "Remove", Motion::Remove { key }),
+            ],
+            false => vec![("promote", "Promote", Motion::Promote { key })],
+        };
+        motions.into_iter().map(|(name, label, motion)| {
+            let press = cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {
+                view.press(motion.clone(), cx)
+            });
+            let id = ElementId::Name(format!("nodes-{name}-{index}").into());
+            design::button(id, label, theme, press)
+                .kind(design::Kind::Quiet)
+                .enabled(!view.voting.busy)
+        })
+    });
+    if operator.is_none() && motions.is_none() {
+        return None;
+    }
+    Some(
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .pb_1()
+            .text_size(design::text::CAPTION)
+            .children(operator)
+            .child(div().flex_1())
+            .children(motions.into_iter().flatten()),
+    )
 }
 
 /// The last blocks, one mark each `gap` apart, oldest first: ink where

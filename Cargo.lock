@@ -3824,6 +3824,8 @@ dependencies = [
  "abi",
  "ducktape-view-guest",
  "futures",
+ "identity",
+ "module-registry",
  "serde",
  "serde_json",
  "valset",

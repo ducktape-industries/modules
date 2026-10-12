@@ -1,12 +1,13 @@
 //! The Nodes sheet: the network's name and this node's pulse, its numbers
 //! (height, last block, block time, the epoch), then the members table
-//! (`table.rs`) in one of its four states. `render` reads the state and
-//! changes nothing.
+//! (`table.rs`) in one of its four states, and for a reader who votes the
+//! vote (`motions.rs`). `render` reads the state and changes nothing.
 use abi::hex;
 use ducktape_view_guest::prelude::*;
 use ducktape_view_guest::{Div, FontWeight};
 
-use crate::{Nodes, table};
+use crate::{Nodes, motions, table};
+use valset::Motion;
 
 pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
@@ -20,23 +21,48 @@ pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement 
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_size(design::text::BODY)
-        .child(head(view, &theme))
+        .child(head(view, cx, &theme))
         .child(numbers(view, cx, &theme))
+        .children(motions::confirm(view, cx, &theme))
+        .children(motions::outcome(view, cx, &theme))
         .child(
             div()
                 .id("nodes-scroll")
                 .flex_1()
                 .min_h(px(0.))
                 .overflow_scroll()
-                .child(body(view, cx, &theme)),
+                .child(body(view, cx, &theme))
+                .children(motions::sections(view, cx, &theme)),
         )
 }
 
 /// The network's name, and whether this node answers, with its key; the
-/// latter on a row of its own where both do not fit.
-fn head(view: &Nodes, theme: &Theme) -> impl IntoElement {
+/// latter on a row of its own where both do not fit. For a reader who
+/// votes, the door's two motions.
+fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> impl IntoElement {
     let status = view.status.ready();
     let title = status.map_or("Nodes".into(), |status| status.chain_id.clone());
+    let door = view.voting.votes().then(|| {
+        let press = |open: bool| {
+            cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {
+                view.press(Motion::Door { open }, cx)
+            })
+        };
+        div()
+            .id("nodes-door")
+            .flex()
+            .gap_1()
+            .child(
+                design::button("nodes-door-open", "Open the door", theme, press(true))
+                    .kind(design::Kind::Outline)
+                    .enabled(!view.voting.busy),
+            )
+            .child(
+                design::button("nodes-door-close", "Close the door", theme, press(false))
+                    .kind(design::Kind::Outline)
+                    .enabled(!view.voting.busy),
+            )
+    });
     div()
         .id("nodes-head")
         .flex()
@@ -45,6 +71,7 @@ fn head(view: &Nodes, theme: &Theme) -> impl IntoElement {
         .gap_2()
         .child(design::heading("nodes-title", title, 1, theme).flex_1())
         .children(status.map(|status| pulse(view.answering(), status, theme)))
+        .children(door)
 }
 
 /// A dot and the word: In sync or Not answering, then this node's key.
@@ -204,7 +231,7 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
             div().into_any_element()
         }
         Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) => {
-            table::table(view, nodes, theme).into_any_element()
+            table::table(view, nodes, cx, theme).into_any_element()
         }
     }
 }

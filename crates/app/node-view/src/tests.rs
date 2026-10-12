@@ -10,6 +10,7 @@ use ducktape_view_guest::testing::{StreamSender, TestAppContext};
 mod network;
 mod rows;
 mod screens;
+mod voting;
 
 /// This node: a validator in seat 1.
 const THIS: [u8; 2] = [0xab, 0xcd];
@@ -67,7 +68,8 @@ fn seen(height: u64) -> NetworkStatus {
     }
 }
 
-/// The node: its status, its blocks, the clock, and the votes it heard.
+/// The node: its status, its blocks, the clock, and the votes it heard;
+/// identity holding none of the members' keys.
 /// A node answering every ask, in a sheet with room for every column
 /// (from 1073 px).
 fn node(cx: &mut TestAppContext) {
@@ -75,6 +77,27 @@ fn node(cx: &mut TestAppContext) {
     cx.host().handle::<ChainStatus>(|()| Ok(status()));
     cx.host().handle::<ChainBlocks>(|page| Ok(blocks(page)));
     cx.host().handle::<ChainNetwork>(|()| Ok(seen(4200)));
+    serve_identity(cx, Vec::new(), Vec::new());
+}
+
+/// identity answering the role's asks: the account each of `keys` holds,
+/// and `profiles`.
+fn serve_identity(
+    cx: &TestAppContext,
+    keys: Vec<(Vec<u8>, u64)>,
+    profiles: Vec<identity::Profile>,
+) {
+    cx.host().handle::<Query<identity::Identity>>(move |query| {
+        Ok(match query {
+            identity::Query::OfKey { key } => {
+                identity::Reply::Number(keys.iter().find(|(held, _)| *held == key).map(|(_, n)| *n))
+            }
+            identity::Query::Profile { number } => {
+                identity::Reply::Profile(profiles.iter().find(|p| p.number == number).cloned())
+            }
+            other => panic!("unexpected query: {other:?}"),
+        })
+    });
 }
 
 fn membership(key: &[u8], address: &str, role: valset::Role) -> valset::Membership {
