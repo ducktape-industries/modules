@@ -32,6 +32,7 @@ use ducktape_view_guest::prelude::*;
 const PAGE: usize = 64;
 /// Rows a room keeps on screen before paging older.
 const WINDOW: usize = 256;
+const SPAN: usize = chat::PageRequest::MAX_LIMIT as usize;
 
 impl View for Chat {
     const NAME: &'static str = "Chat";

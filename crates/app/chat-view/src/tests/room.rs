@@ -208,20 +208,7 @@ fn unread_rooms_carry_a_dot_and_the_open_room_a_divider() {
 fn a_full_room_renders_inside_the_frame_budget() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
-    let rows: Vec<MsgRow> = (1..=WINDOW as u64)
-        .map(|seq| {
-            let text = format!("row {seq}: **bold**, `code` and a [link](https://x.example/{seq})");
-            let mut row = row(seq, if seq % 2 == 0 { 7 } else { 8 }, &text);
-            row.blocks = chat::parse_message(&text);
-            row.reply_count = seq % 3;
-            row.reactions = vec![::chat::Reaction {
-                emoji: "👍".into(),
-                count: seq,
-                reacted_by_me: seq % 2 == 0,
-            }];
-            row
-        })
-        .collect();
+    let rows: Vec<MsgRow> = (1..=WINDOW as u64).map(marked_row).collect();
     cx.host().handle::<Ask<::chat::Chat>>(move |query| {
         Ok(match query {
             Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
@@ -551,9 +538,13 @@ fn a_landed_room_rereads_its_window() {
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
             Query::MessagesAround {
-                channel_id, seq, ..
+                channel_id,
+                seq,
+                page,
+                ..
             } => {
-                assert_eq!((channel_id.as_str(), seq), ("general", 2), "its middle row");
+                assert_eq!((channel_id.as_str(), seq), ("general", 1), "its middle");
+                assert_eq!(page.limit, Some(SPAN as u64), "as wide as a window grows");
                 Reply::Messages(vec![row(1, 7, "hello"), row(2, 8, "edited since")])
             }
             Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 3)])),
