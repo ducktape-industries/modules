@@ -61,8 +61,7 @@ fn a_send_shows_greyed_then_lands_and_a_refusal_is_a_banner() {
 /// How many timeline rows carry `message_id`.
 fn shown(view: &Entity<Chat>, message_id: &str) -> usize {
     view.read(|chat| {
-        chat.rows(Pane::Timeline)
-            .iter()
+        chat.shown(Pane::Timeline)
             .filter(|row| row.message_id == message_id)
             .count()
     })

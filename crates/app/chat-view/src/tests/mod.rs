@@ -18,6 +18,7 @@ mod notices;
 mod reader;
 mod rich;
 mod room;
+mod scroll;
 mod writing;
 
 fn page<T>(items: Vec<T>) -> ::chat::PageResponse<T> {
@@ -74,6 +75,20 @@ fn row(seq: u64, author: u64, text: &str) -> MsgRow {
         text: text.into(),
         ..MsgRow::by(Principal::Account(author))
     }
+}
+
+fn marked_row(seq: u64) -> MsgRow {
+    let text = format!("row {seq}: **bold**, `code` and a [link](https://x.example/{seq})");
+    let even = seq.is_multiple_of(2);
+    let mut row = row(seq, if even { 7 } else { 8 }, &text);
+    row.blocks = chat::parse_message(&text);
+    row.reply_count = seq % 3;
+    row.reactions = vec![::chat::Reaction {
+        emoji: "👍".into(),
+        count: seq,
+        reacted_by_me: even,
+    }];
+    row
 }
 
 /// The host methods chat only talks to, never hears back from here.

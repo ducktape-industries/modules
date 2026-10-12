@@ -7,7 +7,7 @@ pub mod message;
 pub mod room;
 pub mod side;
 pub mod sidebar;
-mod timeline;
+pub(crate) mod timeline;
 
 pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, quiet};
 use ducktape_view_guest::prelude::*;
