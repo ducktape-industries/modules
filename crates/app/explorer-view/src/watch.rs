@@ -20,13 +20,10 @@ impl Explorer {
             Err(refusal) => cx.log_refused("the chain's heads", &refusal),
         })
         .detach();
+        // the chain links are minted in, and the reader the Programs page
+        // offers its presses to
         cx.follow::<HostSession>((), |view, session, cx| match session {
-            Ok(session) => {
-                if view.session_chain != session.chain_id {
-                    view.session_chain = session.chain_id;
-                    cx.notify();
-                }
-            }
+            Ok(session) => view.session_changed(session, cx),
             Err(refusal) => cx.log_refused("the session", &refusal),
         })
         .detach();
@@ -44,7 +41,10 @@ impl Explorer {
         })
         .detach();
         cx.follow::<Changes<Valset>>((), |view, head, cx| match head {
-            Ok(_) => view.read_validators(cx),
+            Ok(_) => {
+                view.read_validators(cx);
+                view.read_voices(cx);
+            }
             Err(refusal) => cx.log_refused("valset's live heads", &refusal),
         })
         .detach();
