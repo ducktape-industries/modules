@@ -1,10 +1,13 @@
 //! Typed reads of valset, folded into one row per key; who operates each
-//! node, as identity says; and what the vote needs of the registry.
+//! node, as identity says; and what the vote needs of the registry, with
+//! the names of the accounts it shows.
+use std::collections::BTreeMap;
+
 use ducktape_view_guest::prelude::*;
 use identity::Kind;
-use module_registry::{Entry, Scheduled};
+use module_registry::Entry;
 use serde::{Deserialize, Serialize};
-use valset::{Membership, PageRequest, Pending, Role, ask};
+use valset::{Membership, Motion, PageRequest, Pending, Role, ask};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Node {
@@ -100,11 +103,38 @@ pub(crate) async fn operator(host: &Host, key: &[u8]) -> Result<Option<String>, 
     Ok(Some(format!("operated by {manager} ({})", agent.name)))
 }
 
-/// The motions waiting for votes, and how many votes pass one.
+/// The motions waiting for votes, how many votes pass one, and the name of
+/// each account a grant or a revoke among them names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Motions {
     pub(crate) needed: u64,
     pub(crate) pending: Vec<Pending>,
+    pub(crate) names: Names,
+}
+
+/// Accounts by number, as identity names them; one it does not profile
+/// is left out, and reads as `account N`.
+pub(crate) type Names = BTreeMap<u64, String>;
+
+/// The registry's changes still waiting, by height, and the name of each
+/// account whose grant made one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Schedule {
+    pub(crate) changes: Vec<module_registry::Pending>,
+    pub(crate) names: Names,
+}
+
+async fn names(host: &Host, accounts: impl IntoIterator<Item = u64>) -> Result<Names, Error> {
+    let mut names = Names::new();
+    for number in accounts {
+        if names.contains_key(&number) {
+            continue;
+        }
+        if let Some(profile) = host.query(identity::ask::Profile { number }).await? {
+            names.insert(number, profile.name);
+        }
+    }
+    Ok(names)
 }
 
 /// The validators the seated key votes for: empty, it does not vote.
@@ -123,9 +153,23 @@ pub(crate) async fn motions(host: Host) -> Result<Motions, Error> {
             },
         })
         .await?;
+    let named = page
+        .items
+        .iter()
+        .filter_map(|pending| match &pending.motion {
+            Motion::Registry { op } => match abi::decode(op) {
+                Ok(module_registry::Op::Grant(grant) | module_registry::Op::Revoke(grant)) => {
+                    Some(grant.account)
+                }
+                _ => None,
+            },
+            _ => None,
+        });
+    let names = names(&host, named.collect::<Vec<_>>()).await?;
     Ok(Motions {
         needed,
         pending: page.items,
+        names,
     })
 }
 
@@ -139,10 +183,13 @@ pub(crate) async fn roster(host: Host) -> Result<Vec<Entry>, Error> {
     host.query(module_registry::ask::At(height)).await
 }
 
-/// Every change the registry holds scheduled, by height.
-pub(crate) async fn scheduled(host: Host) -> Result<Vec<Scheduled>, Error> {
-    host.query_all(|after| module_registry::ask::Scheduled {
-        page: PageRequest { after, limit: None },
-    })
-    .await
+/// Every change the registry holds scheduled, by height, and who made it.
+pub(crate) async fn scheduled(host: Host) -> Result<Schedule, Error> {
+    let changes: Vec<module_registry::Pending> = host
+        .query_all(|after| module_registry::ask::Scheduled {
+            page: PageRequest { after, limit: None },
+        })
+        .await?;
+    let names = names(&host, changes.iter().filter_map(|change| change.by)).await?;
+    Ok(Schedule { changes, names })
 }
