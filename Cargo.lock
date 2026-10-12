@@ -3851,6 +3851,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "node-wire"
+version = "0.1.0"
+dependencies = [
+ "abi",
+ "borsh",
+ "commonware-cryptography",
+ "keyscheme",
+ "node-wire",
+]
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3880,6 +3891,14 @@ name = "noop_proc_macro"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
+
+[[package]]
+name = "notices"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "describe",
+]
 
 [[package]]
 name = "ntapi"

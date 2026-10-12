@@ -4,7 +4,7 @@ The ducktape contract line and the modules written against it, one
 repository. Only what compiles to wasm lives here:
 
 ```
-crates/sdk/     abi error program guest store conformance describe ducklink view-wire view-guest view-guest-derive design
+crates/sdk/     abi error program guest store conformance describe ducklink notices node-wire view-wire view-guest view-guest-derive design
 crates/system/  module-registry valset identity
 crates/app/     chat chat-view forge forge-view activity members-view node-view explorer-view settings-view
 crates/lib/     gitcore
@@ -20,6 +20,8 @@ crates/lib/     gitcore
 | `crates/sdk/conformance` | proof that a module fills a role the kernel calls (`registry`, `validators`, `identity`), native over `MockHost`: a module takes it as a dev-dependency, implements the role's `Fixture` and calls its `run` in a test; see its [README](crates/sdk/conformance/README.md) |
 | `crates/sdk/describe` | what an op means to a person: the pure wasm module a program ships in its `ducktape.describe` section, and the sandbox that runs it |
 | `crates/sdk/ducklink` | the `duck://` link: `duck://<chain>/<program>/<tail…>`, one spelling per name, no program names known here |
+| `crates/sdk/notices` | a notice as a module emits it, finished: `NoticeEvent { Post(Notice), Retract { key } }`, `encode` (`ducktape:notice:` + borsh) for `ctx.event`, `decode` for the inbox that reads receipts. The shape only: what becomes a notice, for whom and in what words is each module's program code. Borsh alone, no `guest` |
+| `crates/sdk/node-wire` | the node's `/v1` wire as a client reads it (`Status`, `Finalized`, `Tx`, `Receipt`, `Change`, …), field for field with core's `noded`, and behind its `frame` feature the signed `Frame` and core's `keyscheme`, re-exported so a client links one copy. Types and signing only; the HTTP client is each consumer's. The read types build for wasm32; `frame` does not (blst) |
 | `crates/sdk/view-wire`, `view-guest`, `view-guest-derive`, `design` | the host<->view wire (`view_wire::methods`: every method a view may ask, and in `methods::refusal` every code the host refuses one with), the runtime a wasm view is written against, the palette |
 | `crates/system/module-registry` | the boot set's root: the registry module (its `Op`, `Query`, `Reply`). Its `tests/system.rs` founds ducktape's host over the bytes `make wasm-programs` built and drives every system module |
 | `crates/system/valset`, `identity` | the other two boot modules, the same shape: types always built, the wasm exports behind `module`. valset holds the members and runs their rules: enroll (by invite or an open door), leave, and the validators' vote on members, the door and registry changes. identity holds every account that acts, `Account { number, card, control }`: a person's, an agent's (managed by a person, who suspends, resumes and revokes it) and each module's (registered by the kernel as it admits the module) |

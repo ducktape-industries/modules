@@ -1,0 +1,26 @@
+# The node's `/v1` wire as a client reads it: the borsh types `noded` serves
+# (core `crates/noded/src/wire.rs`, the host types it names) and the signed
+# frame (core `crates/kernel/node/src/frame.rs`). Types and signing only; the
+# HTTP client is each consumer's (the app's, the inbox's).
+[package]
+name = "node-wire"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# `Body`, `Frame`, `Frame::sign` and the `keyscheme` they name. keyscheme
+# links commonware-cryptography with its default features, whose blst does
+# not build for wasm32 (the Makefile's VIEW_FORBIDDEN), so the frame is a
+# native client's: the app and the inbox turn it on. The read types build
+# for wasm32 without it.
+frame = ["dep:keyscheme", "dep:commonware-cryptography"]
+
+[dependencies]
+abi = { workspace = true }
+borsh = { workspace = true }
+keyscheme = { workspace = true, optional = true }
+commonware-cryptography = { workspace = true, optional = true }
+
+[dev-dependencies]
+# the frame's tests run in every workspace test run
+node-wire = { path = ".", features = ["frame"] }

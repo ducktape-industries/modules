@@ -9,8 +9,11 @@
 #                   runs a module natively), `store` (optional typed tables
 #                   and paging over guest's contexts), `ducklink` (the `duck://`
 #                   grammar), the view contract (`view-wire`,
-#                   `ducktape-view-guest`, `design`), and `conformance` (the
-#                   role suite a module proves it fills a role with)
+#                   `ducktape-view-guest`, `design`), `conformance` (the
+#                   role suite a module proves it fills a role with),
+#                   `notices` (the finished notice a module emits as an
+#                   event) and `node-wire` (the node's `/v1` types a client
+#                   reads, one copy for the app and the inbox)
 #   crates/system/  the boot set: module-registry, valset and identity, one
 #                   crate each in the same shape as the app programs; the
 #                   suite under module-registry/tests founds ducktape's host
@@ -47,6 +50,8 @@ members = [
     "crates/sdk/view-guest",
     "crates/sdk/view-guest-derive",
     "crates/sdk/founding",
+    "crates/sdk/notices",
+    "crates/sdk/node-wire",
     "crates/system/module-registry",
     "crates/system/valset",
     "crates/system/identity",
@@ -76,6 +81,7 @@ guest = { path = "crates/sdk/guest" }
 store = { path = "crates/sdk/store" }
 gitcore = { path = "crates/lib/gitcore" }
 ducklink = { path = "crates/sdk/ducklink" }
+notices = { path = "crates/sdk/notices" }
 design = { path = "crates/sdk/design" }
 view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }

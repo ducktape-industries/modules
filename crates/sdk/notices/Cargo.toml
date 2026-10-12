@@ -1,0 +1,15 @@
+# What a module hands the notification inbox: a finished notice, emitted as
+# an event of its own run (`ExecCtx::event`). The shape alone: what becomes
+# a notice, for whom and in what words is each module's own program code.
+# Borsh only, so the inbox reads notices without compiling the program SDK.
+[package]
+name = "notices"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+borsh = { workspace = true }
+
+[dev-dependencies]
+# `variants`: the append-only rule's test
+describe = { workspace = true }
