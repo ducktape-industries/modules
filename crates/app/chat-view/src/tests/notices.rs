@@ -55,7 +55,7 @@ fn answers(cx: &mut TestAppContext, roots: Vec<MsgRow>, replies: Vec<Vec<MsgRow>
     });
 }
 
-/// The timeline at its tail tells the host how far the reader has been
+/// The timeline opened at its head tells the host how far the reader has been
 /// shown the room: its newest root's height under `<channel>`, again each
 /// time a newer root lands, never twice for the same height (a frame drawn
 /// again, the same rows landing again).

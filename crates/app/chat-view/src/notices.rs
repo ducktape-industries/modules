@@ -107,9 +107,9 @@ impl Chat {
     /// (`chat::notify::tag`), the timeline's roots under `<channel>` and an
     /// open thread's replies under `<channel>/<root>`, so reading a room
     /// leaves its threads' notices unread and the reverse. Only while the
-    /// room is on screen, only for a pane that shows its newest rows (the
-    /// timeline at its tail, a thread read to its last page), and only past
-    /// what was sent.
+    /// room is on screen, only for a pane that holds its newest rows (the
+    /// timeline opened at its head, not around a landing; a thread read to
+    /// its last page), and only past what was sent.
     pub(crate) fn settle_seen(&mut self, cx: &mut Context<Self>) {
         let Some(room) = self.room.as_ref().filter(|_| self.reads.visible) else {
             return;
