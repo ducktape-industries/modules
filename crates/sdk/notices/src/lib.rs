@@ -50,6 +50,7 @@ pub struct Notice {
 /// Why it is for them. The enum only grows at its end
 /// (`kind_variants_only_append`).
 #[derive(BorshSerialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Kind {
     Mention,
     Direct,
@@ -60,6 +61,7 @@ pub enum Kind {
 /// `duck://<chain>/<program>/<segments..>` (`ducklink::mint`), as for any
 /// other link; a program does not know the chain id.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Link {
     pub program: String,
     pub segments: Vec<String>,

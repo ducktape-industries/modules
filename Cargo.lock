@@ -3245,6 +3245,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e44b0a4eaa4c82f441d50a963f2d5f05a787240aeee097597033e72accfd22f"
 
 [[package]]
+name = "inbox-api"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "notices",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3899,6 +3909,7 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "describe",
+ "serde",
 ]
 
 [[package]]

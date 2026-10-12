@@ -7,8 +7,14 @@ name = "notices"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# `Kind` and `Link` as JSON (`"Mention"`, `{program, segments}`): what the
+# inbox's API carries (`inbox-api`). A program leaves it off.
+serde = ["dep:serde"]
+
 [dependencies]
 borsh = { workspace = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 # `variants`: the append-only rule's test
