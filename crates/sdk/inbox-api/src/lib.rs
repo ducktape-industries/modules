@@ -71,6 +71,9 @@ pub struct Status {
     /// Set when the inbox stopped following; nothing at or above its
     /// height is indexed until the operator acts.
     pub stopped: Option<Stopped>,
+    /// Set while the inbox's own store fails to keep a block (a full disk,
+    /// say); it tries again on every tick and clears this once it does.
+    pub stalled: Option<Stopped>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,9 +181,9 @@ pub struct Changed {
     pub ids: Vec<i64>,
 }
 
-/// `GET`/`PUT prefs`: what an account keeps out. A muted entry is stored,
-/// never pushed and left out of `entries`. A `PUT` replaces the whole set
-/// and applies to entries that arrive after it.
+/// `GET`/`PUT prefs`: what an account keeps out. A muted entry is stored but
+/// never pushed, listed or counted. A `PUT` replaces the whole set and
+/// applies to every stored entry: muting hides, unmuting shows again.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Mutes {
@@ -206,7 +209,7 @@ pub enum Push {
     Entry { entry: Box<Entry> },
     /// Marked read, on any device.
     Read { ids: Vec<i64> },
-    /// Retracted by its program.
+    /// Retracted by its program, or evicted by the inbox's caps.
     Gone { ids: Vec<i64> },
     /// Hidden, on any device.
     Hidden { ids: Vec<i64> },
@@ -295,8 +298,15 @@ mod tests {
                 indexed_height: 9,
                 tip: 10,
                 stopped: None,
+                stalled: None,
             },
-            json!({"chain": "net#00ff00ff", "indexed_height": 9, "tip": 10, "stopped": null}),
+            json!({
+                "chain": "net#00ff00ff",
+                "indexed_height": 9,
+                "tip": 10,
+                "stopped": null,
+                "stalled": null,
+            }),
         );
         golden(
             Status {
@@ -307,12 +317,17 @@ mod tests {
                     height: 10,
                     reason: "a hole".into(),
                 }),
+                stalled: Some(Stopped {
+                    height: 10,
+                    reason: "disk full".into(),
+                }),
             },
             json!({
                 "chain": "net#00ff00ff",
                 "indexed_height": 9,
                 "tip": 10,
                 "stopped": {"height": 10, "reason": "a hole"},
+                "stalled": {"height": 10, "reason": "disk full"},
             }),
         );
         golden(
