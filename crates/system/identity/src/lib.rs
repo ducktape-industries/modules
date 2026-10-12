@@ -28,6 +28,11 @@ pub use store::{PageRequest, PageResponse};
 pub const MODULE: &str = <::program::role::Identity as ::program::Program>::NAME;
 /// What a key signs to consent to a key joining an account ([`Admission`]).
 pub const CONSENT_NAMESPACE: &[u8] = b"ducktape:identity:consent";
+/// The furthest a consent's `expires_at` may lie past the block that
+/// applies it, in ms. A consent is made for one join and used within
+/// minutes; one that leaked must not stay good for years. Room above the
+/// app's 15 minutes for a device clock that runs ahead.
+pub const CONSENT_MAX_MS: u64 = 30 * 60 * 1000;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Key {

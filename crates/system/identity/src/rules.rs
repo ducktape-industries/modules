@@ -7,8 +7,8 @@ use guest::{
 use store::{Item, Map, PageRequest, Set};
 
 use crate::{
-    Account, AccountNumber, Admission, CONSENT_NAMESPACE, Card, Category, Consent, Control, Key,
-    Life, Reference, Reply,
+    Account, AccountNumber, Admission, CONSENT_MAX_MS, CONSENT_NAMESPACE, Card, Category, Consent,
+    Control, Key, Life, Reference, Reply,
 };
 
 pub(crate) const ACCOUNTS: Map<AccountNumber, Account> = Map::new("a/");
@@ -273,6 +273,9 @@ pub(crate) fn add_key(
     };
     if env.time > consent.expires_at {
         return Err(unauthorized("the consent has expired"));
+    }
+    if consent.expires_at - env.time > CONSENT_MAX_MS {
+        return Err(unauthorized("the consent runs too long"));
     }
     let admission = Admission {
         network: env.chain_id.clone(),

@@ -5,8 +5,8 @@ use guest::{MockHost, Module};
 use store::PageRequest;
 
 use crate::{
-    Account, Admission, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind, Life, Op,
-    Query, Reply, Standing,
+    Account, Admission, CONSENT_MAX_MS, CONSENT_NAMESPACE, Category, Consent, Control, Identity,
+    Kind, Life, Op, Query, Reply, Standing,
 };
 
 const ALICE: &[u8] = b"alice-key";
@@ -244,6 +244,44 @@ fn a_key_joins_by_consent_and_leaves_only_junior_to_its_remover() {
     assert!(!get(&store, 1).holds(SECOND));
     let last = refused(&store, &signed(&store, ALICE), remove(ALICE));
     assert_eq!(last.code, code::WRONG_STATE);
+}
+
+/// A consent runs at most `CONSENT_MAX_MS` past the block that applies it:
+/// one that leaked cannot be kept for later.
+#[test]
+fn a_consent_that_runs_too_long_is_refused() {
+    let at = 1_000;
+    let add = |expires_at: u64| {
+        let store = memory();
+        create(&store, ALICE, "Alice");
+        let admission = Admission {
+            network: b"net".to_vec(),
+            scheme: Scheme::Ed25519,
+            key: SECOND.to_vec(),
+            generation: 0,
+            account: 1,
+            expires_at,
+        };
+        let op = Op::AddKey {
+            scheme: Scheme::Ed25519,
+            label: None,
+            consent: Consent {
+                key: ALICE.to_vec(),
+                account: 1,
+                expires_at,
+                proof: proof(CONSENT_NAMESPACE, &admission.preimage()),
+            },
+        };
+        let signer = signed_at(&store, SECOND, at).unwrap();
+        (store, signer, op)
+    };
+    let (store, signer, op) = add(at + CONSENT_MAX_MS + 1);
+    assert_eq!(refused(&store, &signer, op).code, code::UNAUTHORIZED);
+    let (store, signer, op) = add(u64::MAX);
+    assert_eq!(refused(&store, &signer, op).code, code::UNAUTHORIZED);
+    let (store, signer, op) = add(at + CONSENT_MAX_MS);
+    run(&store, &signer, op).unwrap();
+    assert_eq!(get(&store, 1).keys().len(), 2);
 }
 
 /// A person creates an agent and alone adds and removes its keys; the

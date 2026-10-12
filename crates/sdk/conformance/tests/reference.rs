@@ -32,7 +32,8 @@ impl Identity {
             consent: identity::Consent {
                 key: key.to_vec(),
                 account,
-                expires_at: u64::MAX,
+                // the mock's clock reads 0
+                expires_at: identity::CONSENT_MAX_MS,
                 proof: vec![],
             },
         }
