@@ -218,14 +218,15 @@ fn the_schedule_pages_in_height_order_and_a_cancel_removes_one_change() {
         },
     )
     .unwrap();
-    let gone = Modules::execute(
+    // the vote's cancel of a change already gone is done, not refused
+    Modules::execute(
         &store.exec(authority(2)),
         Op::Cancel {
             height: 30,
             program: "p".into(),
         },
-    );
-    assert_eq!(gone.unwrap_err().code, code::NOT_FOUND);
+    )
+    .unwrap();
     assert_eq!(ask(&store, PageRequest::default()).items.len(), 2);
 }
 
@@ -336,12 +337,19 @@ fn a_name_is_one_kind_whatever_order_the_changes_are_scheduled_in() {
     assert_eq!(programs(&store, 10), ["y"]);
 }
 
+/// A removal of the other kind is refused; the vote's removal of a name
+/// nothing holds has its goal met: done, and nothing waits.
 #[test]
 fn a_removal_names_one_of_its_own_kind() {
     let (store, code) = founded();
+    for change in [
+        Change::Remove("ghost".into()),
+        Change::RemoveView("ghost".into()),
+    ] {
+        schedule(&store, 5, change).unwrap();
+    }
+    assert_eq!(scheduled_heights(&store), Vec::<u64>::new());
     for (change, what) in [
-        (Change::Remove("ghost".into()), "no such program"),
-        (Change::RemoveView("ghost".into()), "no such view"),
         (Change::Remove("lens".into()), "a view is not a program"),
         (Change::RemoveView("boot".into()), "a program is not a view"),
     ] {
@@ -353,13 +361,23 @@ fn a_removal_names_one_of_its_own_kind() {
     }
     schedule(&store, 5, Change::Set(entry("new", code))).unwrap();
     schedule(&store, 6, Change::Remove("new".into())).unwrap();
-    assert_eq!(
-        schedule(&store, 4, Change::Remove("new".into()))
-            .unwrap_err()
-            .code,
-        code::NOT_FOUND,
-        "not yet seated at 4"
-    );
+    // not yet seated at 4
+    schedule(&store, 4, Change::Remove("new".into())).unwrap();
+    assert_eq!(scheduled_heights(&store), [5, 6]);
+}
+
+fn scheduled_heights(store: &MockHost) -> Vec<u64> {
+    match Modules::query(
+        &store.query(env(1, Origin::Root)),
+        Query::Scheduled {
+            page: PageRequest::default(),
+        },
+    )
+    .unwrap()
+    {
+        Reply::Scheduled(page) => page.items.iter().map(|change| change.height).collect(),
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]

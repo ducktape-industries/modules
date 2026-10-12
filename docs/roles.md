@@ -131,19 +131,28 @@ Who may schedule or cancel (publishing a blob is open to anyone):
 - A maintainer: a signed frame whose account holds a `Grant` of the id
   (`Scope::Module(id)`, which may run nothing yet) or of every module
   (`Scope::All`). It sets, removes and cancels changes of the ids it
-  covers, never a role's id or a hook (`SetHook`, `RemoveHook`, `Remove`
-  of a hook), and its change lands at least `NOTICE` (600) blocks after
-  the block it is made in, so the vote can cancel it first. It may not
-  change an id the vote has a change waiting on, keeps at most
+  covers, never a role's id, and its change lands at least `NOTICE` (600)
+  blocks after the block it is made in, so the vote can cancel it first.
+  It may not change an id the vote has a change waiting on, nor claim an
+  id a maintainer's waiting removal frees (a program under a view being
+  removed, or the reverse) before that removal lands; it keeps at most
   `MAX_PENDING` (8) changes waiting, and cancels only a grant's change.
   `Scheduled` answers who made each change (`Pending.by`, `None` for the
   vote).
+- Hooks: a maintainer may replace a hook's code (`Set` of a hooked id).
+  The hook keeps its status: it still cannot emit and runs on the kernel's
+  capped hook fuel. Only the vote sets, unsets or removes a hook
+  (`SetHook`, `RemoveHook`, `Remove` of a hooked id).
 
 Only the vote grants (`Op::Grant`, to a person or an agent identity
 profiles, never a program's account); `Op::Revoke` is the vote's or the
 holder's own, and drops every change the account made that it no longer
-covers. The vote's removal of an id takes the id's `Module` grants and
-their changes with it.
+covers. The vote wins: its change to an id takes every change a grant
+made to that id with it, and its removal of an id the id's `Module`
+grants too. The vote's removal of an id that holds nothing at its height
+takes those along and waits as no entry, and its cancel of a change
+already gone is no error, so a motion never sits one vote short of a
+done thing.
 
 ## Membership
 

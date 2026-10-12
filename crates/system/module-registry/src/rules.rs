@@ -112,7 +112,8 @@ fn maintains(ctx: &QueryCtx, account: AccountNumber, name: &str) -> Result<(), E
 
 /// A maintainer's change, before the checks every change meets: no hook,
 /// a name it maintains, [`NOTICE`] blocks ahead, no change of the vote's
-/// waiting on the name, and fewer than [`MAX_PENDING`] of its own.
+/// waiting on the name, no claim on a name a maintainer's removal frees,
+/// and fewer than [`MAX_PENDING`] of its own.
 fn by_grant(ctx: &QueryCtx, account: AccountNumber, scheduled: &Scheduled) -> Result<(), Error> {
     let name = scheduled.change.program();
     if matches!(scheduled.change, Change::SetHook(_) | Change::RemoveHook(_)) {
@@ -133,7 +134,26 @@ fn by_grant(ctx: &QueryCtx, account: AccountNumber, scheduled: &Scheduled) -> Re
             "the validators' vote changes {name} at {height}: wait until it lands or is cancelled"
         )));
     }
-    let waiting = BY.all(ctx)?.iter().filter(|(_, by)| *by == account).count();
+    // a cascade drops a maintainer's removal with no guard, so a name it
+    // frees is claimed only once it lands: never a program and a view at once
+    let frees: Option<fn(&Change) -> bool> = match scheduled.change {
+        Change::Set(_) => Some(|change| matches!(change, Change::RemoveView(_))),
+        Change::SetView(_) => Some(|change| matches!(change, Change::Remove(_))),
+        _ => None,
+    };
+    if let Some(frees) = frees
+        && waits(ctx, name, &[], frees)?
+    {
+        return Err(wrong_state(format!(
+            "{name} is held until a maintainer's removal lands: wait, or cancel it"
+        )));
+    }
+    // a row with no change behind it (a registry rolled back) holds nothing
+    let waiting = BY
+        .all(ctx)?
+        .iter()
+        .filter(|(at, by)| *by == account && SCHEDULE.has(ctx, at))
+        .count();
     if waiting >= MAX_PENDING {
         return Err(capacity(format!(
             "account {account} has {MAX_PENDING} changes waiting"
@@ -155,9 +175,16 @@ fn voted(ctx: &QueryCtx, name: &str) -> Result<Option<u64>, Error> {
 pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error> {
     let env = ctx.env();
     let by = actor(env, scheduled.change.program())?;
-    if let Some(account) = by {
-        by_grant(ctx, account, &scheduled)?;
-    }
+    // the vote's change on a name takes every change a grant made to it
+    // along, and its removal the name's grants too: the checks below read
+    // the schedule without them, and they go once every check has passed
+    let (grants, changes) = match by {
+        Some(account) => {
+            by_grant(ctx, account, &scheduled)?;
+            (Vec::new(), Vec::new())
+        }
+        None => overruled(ctx, &scheduled.change)?,
+    };
     let in_the_future = scheduled.height > env.height;
     if !in_the_future {
         return Err(invalid(format!(
@@ -190,10 +217,23 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
         programs,
         views,
         hooks,
-    } = roster(ctx, scheduled.height)?;
+    } = roster(ctx, scheduled.height, &changes)?;
+    // the vote's removal of a name nothing holds by then has its goal met:
+    // it takes the name's grants along and waits as no entry
+    let gone = by.is_none()
+        && matches!(scheduled.change, Change::Remove(_) | Change::RemoveView(_))
+        && !programs.contains_key(name)
+        && !views.contains_key(name);
     let clash = match &scheduled.change {
-        Change::Set(_) => views.contains_key(name) || pending(ctx, name, Kind::View)?,
-        Change::SetView(_) => programs.contains_key(name) || pending(ctx, name, Kind::Program)?,
+        Change::Set(_) => {
+            views.contains_key(name)
+                || waits(ctx, name, &changes, |c| matches!(c, Change::SetView(_)))?
+        }
+        Change::SetView(_) => {
+            programs.contains_key(name)
+                || waits(ctx, name, &changes, |c| matches!(c, Change::Set(_)))?
+        }
+        _ if gone => false,
         Change::Remove(_) | Change::SetHook(_) if !programs.contains_key(name) => {
             return Err(not_found(format!(
                 "no program {name} runs at {}",
@@ -231,40 +271,36 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
         )));
     }
     let key = (scheduled.height, scheduled.change.program().to_owned());
-    if SCHEDULE.has(ctx, &key) {
+    if !gone && SCHEDULE.has(ctx, &key) && !changes.contains(&key) {
         return Err(already_exists(format!(
             "{} already changes at {}",
             key.1, key.0
         )));
     }
-    let Some(account) = by else {
-        // the vote removing a name takes its grants and the changes
-        // grants made to it along
-        let overruled = match &scheduled.change {
-            Change::Remove(name) | Change::RemoveView(name) => Some(overruled(ctx, name)?),
-            _ => None,
-        };
-        // first, so a stale maker at this very key takes nothing of the
-        // vote's own entry along
-        if let Some((grants, changes)) = overruled {
-            grants.iter().for_each(|grant| GRANTS.remove(ctx, grant));
-            changes.iter().for_each(|at| drop_change(ctx, at));
-        }
-        SCHEDULE.put(ctx, &key, &scheduled.change);
-        // a stale entry (a registry rolled back) would read as a grant's
-        BY.remove(ctx, &key);
+    grants.iter().for_each(|grant| GRANTS.remove(ctx, grant));
+    // first, so a maker left at this very key (a registry rolled back)
+    // takes nothing of the vote's own entry along
+    changes.iter().for_each(|at| drop_change(ctx, at));
+    if gone {
         return Ok(());
-    };
+    }
     SCHEDULE.put(ctx, &key, &scheduled.change);
-    BY.put(ctx, &key, &account);
+    if let Some(account) = by {
+        BY.put(ctx, &key, &account);
+    }
     Ok(())
 }
 
-/// What the vote's removal of `name` takes along: every `Module(name)`
-/// grant and every change a grant made to `name`. Read before any write.
-fn overruled(ctx: &QueryCtx, name: &str) -> Result<(Vec<Held>, Vec<At>), Error> {
-    let scope = Scope::Module(name.to_owned());
-    let grants = GRANTS.scan(ctx, GRANTS.prefix_of(&scope))?;
+/// What the vote's `change` takes along: every change a grant made to its
+/// name, and for a removal every `Module(name)` grant. Read before any write.
+fn overruled(ctx: &QueryCtx, change: &Change) -> Result<(Vec<Held>, Vec<At>), Error> {
+    let name = change.program();
+    let grants = match change {
+        Change::Remove(_) | Change::RemoveView(_) => {
+            GRANTS.scan(ctx, GRANTS.prefix_of(&Scope::Module(name.to_owned())))?
+        }
+        _ => Vec::new(),
+    };
     let changes = BY
         .all(ctx)?
         .into_iter()
@@ -339,6 +375,10 @@ pub(crate) fn cancel(ctx: &ExecCtx, height: u64, program: ModuleId) -> Result<()
     }
     let key = (height, program);
     let Some(change) = SCHEDULE.get(ctx, &key)? else {
+        // as with Revoke: a vote never sits one short of a done thing
+        if by.is_none() {
+            return Ok(());
+        }
         return Err(not_found(format!("{} does not change at {height}", key.1)));
     };
     if by.is_some() && !BY.has(ctx, &key) {
@@ -349,13 +389,13 @@ pub(crate) fn cancel(ctx: &ExecCtx, height: u64, program: ModuleId) -> Result<()
     }
     // A removal cancelled keeps its name held, which a pending set of the
     // other kind may since have claimed.
-    let reinstated = match change {
-        Change::Remove(_) => Some(Kind::View),
-        Change::RemoveView(_) => Some(Kind::Program),
+    let reinstated: Option<fn(&Change) -> bool> = match change {
+        Change::Remove(_) => Some(|change| matches!(change, Change::SetView(_))),
+        Change::RemoveView(_) => Some(|change| matches!(change, Change::Set(_))),
         Change::Set(_) | Change::SetView(_) | Change::SetHook(_) | Change::RemoveHook(_) => None,
     };
     if let Some(other) = reinstated
-        && pending(ctx, &key.1, other)?
+        && waits(ctx, &key.1, &[], other)?
     {
         return Err(already_exists(format!(
             "{} is claimed by a pending change of the other kind",
@@ -399,15 +439,15 @@ fn due(ctx: &QueryCtx, height: u64) -> Result<Vec<(At, Change)>, Error> {
 }
 
 pub(crate) fn at(ctx: &QueryCtx, height: u64) -> Result<Vec<Entry>, Error> {
-    Ok(roster(ctx, height)?.programs.into_values().collect())
+    Ok(roster(ctx, height, &[])?.programs.into_values().collect())
 }
 
 pub(crate) fn views_at(ctx: &QueryCtx, height: u64) -> Result<Vec<View>, Error> {
-    Ok(roster(ctx, height)?.views.into_values().collect())
+    Ok(roster(ctx, height, &[])?.views.into_values().collect())
 }
 
 pub(crate) fn hooks_at(ctx: &QueryCtx, height: u64) -> Result<Vec<ModuleId>, Error> {
-    Ok(roster(ctx, height)?.hooks.into_iter().collect())
+    Ok(roster(ctx, height, &[])?.hooks.into_iter().collect())
 }
 
 struct Roster {
@@ -416,12 +456,15 @@ struct Roster {
     hooks: BTreeSet<ModuleId>,
 }
 
-/// Every list at a height, by name: what is folded, and every change due by then.
-fn roster(ctx: &QueryCtx, height: u64) -> Result<Roster, Error> {
+/// Every list at a height, by name: what is folded, and every change due
+/// by then but the `overruled` ones.
+fn roster(ctx: &QueryCtx, height: u64, overruled: &[At]) -> Result<Roster, Error> {
     let mut programs: BTreeMap<_, _> = PROGRAMS.all(ctx)?.into_iter().collect();
     let mut views: BTreeMap<_, _> = VIEWS.all(ctx)?.into_iter().collect();
     let mut hooks: BTreeSet<_> = HOOKS.all(ctx)?.into_iter().collect();
-    for (_, change) in due(ctx, height)? {
+    let due = due(ctx, height)?;
+    let due = due.into_iter().filter(|(at, _)| !overruled.contains(at));
+    for (_, change) in due {
         match change {
             Change::Set(entry) => {
                 programs.insert(entry.program.clone(), entry);
@@ -453,22 +496,16 @@ fn roster(ctx: &QueryCtx, height: u64) -> Result<Roster, Error> {
     })
 }
 
-#[derive(Clone, Copy)]
-enum Kind {
-    Program,
-    View,
-}
-
-/// Whether a set of `kind` under `name` waits anywhere in the schedule, at any height.
-fn pending(ctx: &QueryCtx, name: &str, kind: Kind) -> Result<bool, Error> {
+/// Whether a change to `name` that `this` picks waits anywhere in the
+/// schedule, at any height, the `overruled` ones aside.
+fn waits(
+    ctx: &QueryCtx,
+    name: &str,
+    overruled: &[At],
+    this: fn(&Change) -> bool,
+) -> Result<bool, Error> {
     Ok(SCHEDULE
         .all(ctx)?
         .into_iter()
-        .any(|((_, program), change)| {
-            program == name
-                && matches!(
-                    (kind, change),
-                    (Kind::Program, Change::Set(_)) | (Kind::View, Change::SetView(_))
-                )
-        }))
+        .any(|(at, change)| at.1 == name && !overruled.contains(&at) && this(&change)))
 }

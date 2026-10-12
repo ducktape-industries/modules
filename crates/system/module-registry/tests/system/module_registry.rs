@@ -365,3 +365,79 @@ fn a_maintainer_the_vote_granted_upgrades_a_module_with_no_vote() {
         assert_eq!(running(&net), code);
     });
 }
+
+/// Through valset's enactment: the vote's change at the very key a
+/// maintainer's change holds takes that change along instead of failing
+/// the vote, and the vote's cancel of a change already gone is done.
+#[test]
+fn the_vote_overrules_a_maintainers_change_at_its_own_key() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found(context, dir.path()).await;
+        let create = identity::Op::Create {
+            name: "Seven".into(),
+            scheme: Scheme::Ed25519,
+        };
+        let output = net.apply(&public(7), identity::MODULE, &create).await;
+        let seven: AccountNumber = abi::decode(&output).unwrap();
+        let output = net
+            .apply(
+                &public(7),
+                module_registry::MODULE,
+                &module_registry::Op::Publish {
+                    body: program("chat"),
+                },
+            )
+            .await;
+        let code: BlobId = abi::decode(&output).unwrap();
+        let granted = net
+            .govern(&module_registry::Op::Grant(module_registry::Grant {
+                scope: module_registry::Scope::Module("probe".into()),
+                account: seven,
+            }))
+            .await;
+        output_of(&granted);
+        let lands_at = net.height + 1 + module_registry::NOTICE;
+        let change = module_registry::Change::Set(module_registry::Entry {
+            program: "probe".into(),
+            code,
+            params: Vec::new(),
+        });
+        let at = |change: &module_registry::Change| {
+            module_registry::Op::Schedule(module_registry::Scheduled {
+                height: lands_at,
+                change: change.clone(),
+            })
+        };
+        net.apply(&public(7), module_registry::MODULE, &at(&change))
+            .await;
+        let overruled = net.govern(&at(&change)).await;
+        output_of(&overruled);
+        let module_registry::Reply::Scheduled(pending) = net
+            .ask(
+                module_registry::MODULE,
+                &module_registry::Query::Scheduled {
+                    page: PageRequest::default(),
+                },
+            )
+            .await
+        else {
+            panic!()
+        };
+        assert_eq!(
+            pending.items,
+            [module_registry::Pending {
+                height: lands_at,
+                change,
+                by: None,
+            }]
+        );
+        let gone = net
+            .govern(&module_registry::Op::Cancel {
+                height: lands_at + 1,
+                program: "probe".into(),
+            })
+            .await;
+        output_of(&gone);
+    });
+}

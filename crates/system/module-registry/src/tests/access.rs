@@ -167,6 +167,26 @@ fn code_at(store: &MockHost, height: u64, program: &str) -> Option<BlobId> {
     }
 }
 
+/// The views listed at `height`, by name.
+fn views_at(store: &MockHost, height: u64) -> Vec<String> {
+    match Modules::query(
+        &store.query(env(height, Origin::Root)),
+        Query::Views(height),
+    )
+    .unwrap()
+    {
+        Reply::Views(views) => views.into_iter().map(|view| view.name).collect(),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn view_of(name: &str, code: BlobId) -> Change {
+    Change::SetView(View {
+        name: name.into(),
+        view: code,
+    })
+}
+
 /// An op at `height`, which folds every change due by then.
 fn fold_to(store: &MockHost, height: u64) {
     Modules::execute(
@@ -291,8 +311,6 @@ fn the_votes_removal_takes_the_names_grants_and_their_changes_along() {
     granted(&store, Scope::All, EVE);
     run(&store, by(CAROL), at(EARLIEST, set("chat", code))).unwrap();
     run(&store, by(DAN), at(EARLIEST, set("forge", code))).unwrap();
-    // the vote's own changes on chat, made after the grant's
-    run(&store, vote(), at(EARLIEST + 1, set("chat", code))).unwrap();
     run(
         &store,
         vote(),
@@ -303,7 +321,6 @@ fn the_votes_removal_takes_the_names_grants_and_their_changes_along() {
         waiting(&store),
         [
             (EARLIEST, "forge".into(), Some(DAN)),
-            (EARLIEST + 1, "chat".into(), None),
             (EARLIEST + 2, "chat".into(), None),
         ]
     );
@@ -319,6 +336,146 @@ fn the_votes_removal_takes_the_names_grants_and_their_changes_along() {
         ..by(EVE)
     };
     run(&store, later, at(EARLIEST + 3 + NOTICE, set("chat", code))).unwrap();
+}
+
+#[test]
+fn the_votes_view_removal_takes_the_names_grants_along_too() {
+    let (store, code) = seated();
+    granted(&store, module("lens"), CAROL);
+    granted(&store, module("chat"), DAN);
+    run(&store, by(CAROL), at(EARLIEST, view_of("lens", code))).unwrap();
+    run(
+        &store,
+        vote(),
+        at(EARLIEST + 1, Change::RemoveView("lens".into())),
+    )
+    .unwrap();
+    assert_eq!(all_grants(&store), [grant(module("chat"), DAN)]);
+    assert_eq!(waiting(&store), [(EARLIEST + 1, "lens".into(), None)]);
+}
+
+/// The vote wins: its change to a name takes every change a grant made to
+/// the name along, at its own key or another, of any kind, before or
+/// after its own height; only a removal takes the grants.
+#[test]
+fn the_votes_change_takes_every_change_a_grant_made_to_its_name_along() {
+    let (store, code) = seated();
+    granted(&store, module("chat"), CAROL);
+    granted(&store, module("forge"), DAN);
+    granted(&store, module("trade"), EVE);
+    granted(&store, module("board"), EVE);
+    run(&store, by(CAROL), at(EARLIEST + 5, set("chat", code))).unwrap();
+    run(&store, by(CAROL), at(EARLIEST + 9, set("chat", code))).unwrap();
+    run(&store, by(DAN), at(EARLIEST + 5, set("forge", code))).unwrap();
+    run(&store, by(EVE), at(EARLIEST, view_of("trade", code))).unwrap();
+    run(&store, by(EVE), at(EARLIEST, set("board", code))).unwrap();
+    // at a grant's key, and below a grant's change that would undo it
+    run(&store, vote(), at(EARLIEST + 5, set("chat", code))).unwrap();
+    run(
+        &store,
+        vote(),
+        at(EARLIEST + 5, Change::Remove("forge".into())),
+    )
+    .unwrap();
+    // each kind under the name a grant's change of the other would take
+    run(&store, vote(), at(EARLIEST + 1, set("trade", code))).unwrap();
+    run(&store, vote(), at(EARLIEST + 1, view_of("board", code))).unwrap();
+    assert_eq!(
+        waiting(&store),
+        [
+            (EARLIEST + 1, "board".into(), None),
+            (EARLIEST + 1, "trade".into(), None),
+            (EARLIEST + 5, "chat".into(), None),
+            (EARLIEST + 5, "forge".into(), None),
+        ]
+    );
+    assert_eq!(
+        all_grants(&store),
+        [
+            grant(module("board"), EVE),
+            grant(module("chat"), CAROL),
+            grant(module("trade"), EVE)
+        ]
+    );
+}
+
+/// The vote's removal over a grant's removal of the same name holds it
+/// again; a view over a grant's removal of a running program is refused,
+/// and the refusal leaves the grant's change as it was.
+#[test]
+fn the_votes_change_over_a_grants_removal_meets_what_runs() {
+    let (store, code) = seated();
+    granted(&store, Scope::All, CAROL);
+    run(
+        &store,
+        by(CAROL),
+        at(EARLIEST, Change::Remove("chat".into())),
+    )
+    .unwrap();
+    assert_eq!(
+        refused(&store, vote(), at(EARLIEST + 1, view_of("chat", code))),
+        code::ALREADY_EXISTS,
+        "chat runs till the vote removes it"
+    );
+    assert_eq!(waiting(&store), [(EARLIEST, "chat".into(), Some(CAROL))]);
+    run(
+        &store,
+        vote(),
+        at(EARLIEST + 10, Change::Remove("chat".into())),
+    )
+    .unwrap();
+    assert_eq!(waiting(&store), [(EARLIEST + 10, "chat".into(), None)]);
+    assert_eq!(all_grants(&store), [grant(Scope::All, CAROL)]);
+}
+
+/// A name only a grant's change would add: the vote's removal takes the
+/// change and the grants and leaves nothing waiting; a maintainer's
+/// removal of a name nothing holds is refused.
+#[test]
+fn the_votes_removal_of_what_only_a_grant_would_add_leaves_nothing_waiting() {
+    let (store, code) = seated();
+    granted(&store, module("trade"), CAROL);
+    granted(&store, module("board"), DAN);
+    granted(&store, Scope::All, EVE);
+    run(&store, by(CAROL), at(EARLIEST, set("trade", code))).unwrap();
+    run(&store, by(DAN), at(EARLIEST, view_of("board", code))).unwrap();
+    run(
+        &store,
+        vote(),
+        at(EARLIEST + 10, Change::Remove("trade".into())),
+    )
+    .unwrap();
+    run(
+        &store,
+        vote(),
+        at(EARLIEST + 10, Change::RemoveView("board".into())),
+    )
+    .unwrap();
+    assert!(waiting(&store).is_empty());
+    assert_eq!(all_grants(&store), [grant(Scope::All, EVE)]);
+    assert_eq!(
+        refused(
+            &store,
+            by(EVE),
+            at(EARLIEST, Change::Remove("ghost".into()))
+        ),
+        code::NOT_FOUND
+    );
+}
+
+#[test]
+fn the_votes_cancel_of_a_change_already_gone_is_done() {
+    let (store, code) = seated();
+    granted(&store, module("chat"), CAROL);
+    granted(&store, module("chat"), DAN);
+    run(&store, by(CAROL), at(EARLIEST, set("chat", code))).unwrap();
+    run(&store, by(CAROL), Op::Revoke(grant(module("chat"), CAROL))).unwrap();
+    run(&store, vote(), cancel_at(EARLIEST, "chat")).unwrap();
+    assert_eq!(
+        refused(&store, by(DAN), cancel_at(EARLIEST, "chat")),
+        code::NOT_FOUND,
+        "a maintainer's is refused"
+    );
 }
 
 #[test]
@@ -397,7 +554,12 @@ fn an_account_keeps_at_most_max_pending_changes_waiting() {
         refused(&store, by(CAROL), at(EARLIEST + 99, set("lens2", code))),
         code::CAPACITY
     );
-    // another maintainer's count is its own
+    // another maintainer's count is its own, and a row with no change
+    // behind it (a registry rolled back) counts for nothing
+    let ctx = store.exec(env(TIP, Origin::Root));
+    for height in heights {
+        BY.put(&ctx, &(height + 200, "chat".into()), &DAN);
+    }
     run(&store, by(DAN), at(EARLIEST + 99, set("chat", code))).unwrap();
 }
 
@@ -472,29 +634,43 @@ fn a_revoked_account_keeps_only_the_changes_another_of_its_grants_covers() {
     assert_eq!(waiting(&store), [(EARLIEST + 1, "forge".into(), Some(DAN))]);
 }
 
+/// A cascade drops a maintainer's removal with no guard, so no one claims
+/// the name it frees before it lands: not its maker, not another
+/// maintainer; and a Revoke after the removal alone still drops it.
 #[test]
-fn a_revoke_drops_a_removal_and_the_view_that_reclaims_its_name_together() {
+fn a_name_a_maintainers_removal_frees_is_held_until_it_lands() {
     let (store, code) = seated();
     granted(&store, Scope::All, CAROL);
+    granted(&store, module("chat"), DAN);
+    granted(&store, module("lens"), DAN);
     run(
         &store,
         by(CAROL),
         at(EARLIEST, Change::Remove("chat".into())),
     )
     .unwrap();
-    let view = Change::SetView(View {
-        name: "chat".into(),
-        view: code,
-    });
-    run(&store, by(CAROL), at(EARLIEST + 1, view)).unwrap();
-    // one at a time, the removal's cancel would be refused
-    assert_eq!(
-        refused(&store, vote(), cancel_at(EARLIEST, "chat")),
-        code::ALREADY_EXISTS
-    );
+    run(
+        &store,
+        by(CAROL),
+        at(EARLIEST, Change::RemoveView("lens".into())),
+    )
+    .unwrap();
+    for who in [CAROL, DAN] {
+        assert_eq!(
+            refused(&store, by(who), at(EARLIEST + 1, view_of("chat", code))),
+            code::WRONG_STATE,
+            "a view of chat by {who}"
+        );
+        assert_eq!(
+            refused(&store, by(who), at(EARLIEST + 1, set("lens", code))),
+            code::WRONG_STATE,
+            "a program lens by {who}"
+        );
+    }
     run(&store, vote(), Op::Revoke(grant(Scope::All, CAROL))).unwrap();
     assert!(waiting(&store).is_empty());
     assert!(code_at(&store, EARLIEST + 1, "chat").is_some());
+    assert_eq!(views_at(&store, EARLIEST + 1), ["lens"]);
 }
 
 #[test]
