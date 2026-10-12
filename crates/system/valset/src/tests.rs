@@ -758,3 +758,56 @@ fn motions_list_what_vote_stored_and_voices_are_the_set_vote_uses() {
     assert_eq!(voices(&store, 1), [key(1)]);
     assert!(voices(&store, 21).is_empty());
 }
+
+/// A registry op granting `scope` to `account`, or revoking it.
+fn grant(scope: module_registry::Scope, account: AccountNumber, revoke: bool) -> Motion {
+    let grant = module_registry::Grant { scope, account };
+    let op = match revoke {
+        false => module_registry::Op::Grant(grant),
+        true => module_registry::Op::Revoke(grant),
+    };
+    Motion::Registry {
+        op: abi::encode(&op),
+    }
+}
+
+#[test]
+fn a_grant_the_registry_would_refuse_is_refused_at_the_first_vote() {
+    use module_registry::Scope;
+    let store = delegated();
+    for bad in [
+        grant(Scope::All, 99, false),
+        grant(Scope::Module("valset".into()), BOB, false),
+        grant(Scope::Module("Chat".into()), BOB, false),
+    ] {
+        assert_eq!(refused(&store, 1, Op::Vote(bad)), code::INVALID_INPUT);
+    }
+    assert!(motions(&store, 3).1.is_empty());
+    let good = grant(Scope::Module("trade".into()), BOB, false);
+    assert_eq!(vote(&store, 1, good.clone()).unwrap(), counted(1));
+    // a revoke is never refused: its holder may have stepped down first
+    assert_eq!(
+        vote(&store, 1, grant(Scope::All, 99, true)).unwrap(),
+        counted(1)
+    );
+    let waiting = motions(&store, 3).1;
+    assert!(waiting.iter().any(|pending| pending.motion == good));
+    assert_eq!(waiting.len(), 2);
+}
+
+#[test]
+fn a_registry_vote_is_described_in_the_registrys_words() {
+    let Motion::Registry { op } = schedule(9) else {
+        unreachable!()
+    };
+    let registry = module_registry::describe(&abi::decode(&op).unwrap());
+    let described = crate::describe(&Op::Vote(schedule(9)));
+    assert_eq!(described.title, "Vote · Schedule · chat");
+    assert_eq!(described.fields, registry.fields);
+    let garbage = Op::Vote(Motion::Registry {
+        op: b"not an op".to_vec(),
+    });
+    let described = crate::describe(&garbage);
+    assert_eq!(described.title, "Vote · registry");
+    assert_eq!(described.fields[0].label, "op");
+}

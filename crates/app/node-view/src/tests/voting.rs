@@ -1,11 +1,12 @@
 //! The vote on the sheet: who operates a node, the motions on each row
 //! and the door for a reader whose key votes, a press that enacts asked
-//! first, the motions that wait, Change a module and the scheduled
-//! changes; the words for each motion.
+//! first, the motions that wait, and the scheduled changes and who made
+//! each; the words for each motion.
 use super::*;
-use crate::voting::{change, code_id, default_height, words};
+use crate::queries::Names;
+use crate::voting::words;
 use ducktape_view_guest::methods::{HostSession, Session, Submit};
-use module_registry::{Change, Entry, Modules, Scheduled};
+use module_registry::{Change, Entry, Grant, Modules, Scheduled, Scope};
 use valset::{Motion, Op, Pending, Voted};
 
 const CODE: [u8; 32] = [0x7e; 32];
@@ -42,10 +43,21 @@ fn sheet(
     signer: &[u8],
     needed: u64,
     pending: Vec<Pending>,
-    scheduled: Vec<Scheduled>,
+    scheduled: Vec<module_registry::Pending>,
 ) -> TestAppContext {
     let mut cx = TestAppContext::new();
     node(&mut cx);
+    sheet_over(cx, signer, needed, pending, scheduled)
+}
+
+/// [`sheet`] over a node the test seated.
+fn sheet_over(
+    mut cx: TestAppContext,
+    signer: &[u8],
+    needed: u64,
+    pending: Vec<Pending>,
+    scheduled: Vec<module_registry::Pending>,
+) -> TestAppContext {
     let members = vec![
         membership(&RESIDENT, "10.0.0.9:4000", valset::Role::Resident),
         membership(&OTHER, "10.0.0.2:4000", valset::Role::Validator),
@@ -185,7 +197,7 @@ fn a_reader_who_does_not_vote_gets_no_controls() {
     for id in [
         "nodes-door",
         "nodes-motions",
-        "nodes-change",
+        "nodes-scheduled",
         "nodes-promote-3",
     ] {
         assert!(cx.find(id).is_none(), "{id}");
@@ -203,11 +215,13 @@ fn a_reader_who_votes_gets_each_rows_motions_and_the_door() {
         "nodes-remove-1",
         "nodes-promote-3",
         "nodes-motions",
-        "nodes-change",
         "nodes-scheduled",
     ] {
         assert!(cx.find(id).is_some(), "{id}: {:?}", cx.texts());
     }
+    // a module is changed in Explorer: no form of its own here
+    assert!(cx.find("nodes-change").is_none() && cx.find("nodes-change-code").is_none());
+    assert!(cx.has_text("Change a module in Explorer, Programs."));
     assert!(cx.find("nodes-promote-0").is_none() && cx.find("nodes-demote-3").is_none());
     assert!(cx.has_text("No motion waits for votes.") && cx.has_text("No change is scheduled."));
     // one vote of two: cast at once
@@ -285,44 +299,37 @@ fn a_waiting_motion_reads_decoded_and_is_voted_with_its_own_bytes() {
 }
 
 #[test]
-fn change_a_module_votes_a_schedule_of_the_published_code() {
-    let mut cx = sheet(&THIS, 2, Vec::new(), Vec::new());
-    cx.simulate_click("nodes-change-propose");
-    cx.run_until_parked();
-    assert!(cx.has_text("Pick a program to change."));
-    cx.simulate_click("nodes-change-program-valset");
-    cx.run_until_parked();
-    // ten minutes of 1 s blocks past 4,200
-    assert!(cx.has_text("Runs code sha256:11111111…1111 now; its params stay."));
-    cx.simulate_input("nodes-change-code", "sha256:7e");
-    cx.simulate_click("nodes-change-propose");
-    cx.run_until_parked();
-    assert!(cx.has_text("A code id is sha256: and 64 hex digits."));
-    cx.simulate_input("nodes-change-code", &format!("sha256:{}", abi::hex(&CODE)));
-    cx.simulate_click("nodes-change-propose");
-    cx.run_until_parked();
-    assert_eq!(submitted(&cx), [Op::Vote(set_valset(4800))]);
-}
-
-#[test]
-fn a_scheduled_change_still_to_land_is_cancelled_by_a_vote() {
-    let ahead = Scheduled {
+fn a_scheduled_change_says_who_made_it_and_is_cancelled_by_a_vote() {
+    let ahead = module_registry::Pending {
         height: 4300,
         change: Change::Set(entry("valset", CODE)),
+        by: None,
     };
-    let landed = Scheduled {
+    let landed = module_registry::Pending {
         height: 4100,
         change: Change::Remove("chat".into()),
+        by: None,
     };
-    let mut cx = sheet(&THIS, 2, Vec::new(), vec![landed, ahead]);
+    let granted = module_registry::Pending {
+        height: 4800,
+        change: Change::Set(entry("chat", CODE)),
+        by: Some(12),
+    };
+    let mut cx = sheet(&THIS, 2, Vec::new(), vec![landed, ahead, granted]);
     assert_eq!(
-        texts_of(&cx, "nodes-scheduled-0")[..2],
+        texts_of(&cx, "nodes-scheduled-0"),
         [
             "Set valset to code sha256:7e7e7e7e…7e7e at block 4,300 · params unchanged",
-            "in 100 blocks"
+            "by vote · in 100 blocks",
+            "Propose cancel"
         ]
     );
-    assert!(cx.find("nodes-scheduled-1").is_none());
+    // identity names no account 12 here
+    assert_eq!(
+        texts_of(&cx, "nodes-scheduled-1")[1],
+        "by account 12 · validators can cancel for 10 min"
+    );
+    assert!(cx.find("nodes-scheduled-2").is_none());
     cx.simulate_click("nodes-scheduled-cancel-0");
     cx.run_until_parked();
     let cancel = module_registry::Op::Cancel {
@@ -335,6 +342,55 @@ fn a_scheduled_change_still_to_land_is_cancelled_by_a_vote() {
             op: abi::encode(&cancel)
         })]
     );
+}
+
+/// While the node's status is unread, a scheduled change tells who made it
+/// and no wait: no "0 min", no count from block 0.
+#[test]
+fn a_scheduled_change_tells_no_wait_before_the_status_is_read() {
+    let changes = vec![
+        module_registry::Pending {
+            height: 4300,
+            change: Change::Set(entry("valset", CODE)),
+            by: None,
+        },
+        module_registry::Pending {
+            height: 4800,
+            change: Change::Set(entry("chat", CODE)),
+            by: Some(12),
+        },
+    ];
+    let mut cx = TestAppContext::new();
+    node(&mut cx);
+    cx.host().never::<ChainStatus>();
+    let cx = sheet_over(cx, &THIS, 2, Vec::new(), changes);
+    assert_eq!(texts_of(&cx, "nodes-scheduled-0")[1], "by vote");
+    assert_eq!(texts_of(&cx, "nodes-scheduled-1")[1], "by account 12");
+}
+
+/// A grant to vote on reads with its account's name, as identity says it.
+#[test]
+fn a_grant_motion_names_its_account() {
+    let op = module_registry::Op::Grant(Grant {
+        scope: Scope::Module("trade".into()),
+        account: 12,
+    });
+    let waiting = Pending {
+        motion: Motion::Registry {
+            op: abi::encode(&op),
+        },
+        voters: vec![OTHER.to_vec()],
+    };
+    let carol = identity::Profile {
+        number: 12,
+        name: "carol".into(),
+        kind: identity::Kind::Person,
+    };
+    let mut cx = TestAppContext::new();
+    node(&mut cx);
+    serve_identity(&cx, Vec::new(), vec![carol]);
+    let cx = sheet_over(cx, &THIS, 2, vec![waiting], Vec::new());
+    assert_eq!(texts_of(&cx, "nodes-motion-0")[0], "Grant carol trade");
 }
 
 #[test]
@@ -394,24 +450,38 @@ fn every_motion_reads_in_words() {
             },
             "A registry change this screen can't read",
         ),
+        (
+            grant(false, Scope::Module("trade".into()), 12),
+            "Grant carol trade",
+        ),
+        (
+            grant(true, Scope::Module("chat".into()), 13),
+            "Revoke release-bot chat",
+        ),
+        (
+            grant(true, Scope::All, 13),
+            "Revoke release-bot every module",
+        ),
+        (
+            grant(false, Scope::All, 99),
+            "Grant account 99 every module",
+        ),
     ];
+    let names = Names::from([(12, "carol".into()), (13, "release-bot".into())]);
     for (motion, said) in cases {
-        assert_eq!(words(&motion, &roster), said);
+        assert_eq!(words(&motion, &roster, &names), said);
     }
 }
 
-#[test]
-fn a_change_needs_a_program_a_code_and_a_later_block() {
-    let code = abi::hex(&CODE);
-    let roster = roster();
-    let built = |program, code: &str, height| change(program, code, height, 4200, &roster);
-    assert!(built(Some("forge"), &code, "4800").is_err());
-    assert!(built(Some("valset"), &code, "4,200").is_err());
-    assert!(built(Some("valset"), &code, "soon").is_err());
-    assert_eq!(built(Some("valset"), &code, "4,800"), Ok(set_valset(4800)));
-    assert_eq!(code_id(&code), Some(abi::BlobId::Sha256(CODE)));
-    assert_eq!(code_id("sha256:7e"), None);
-    assert_eq!(default_height(4200, 2000), 4500);
+fn grant(revoke: bool, scope: Scope, account: u64) -> Motion {
+    let grant = Grant { scope, account };
+    let op = match revoke {
+        false => module_registry::Op::Grant(grant),
+        true => module_registry::Op::Revoke(grant),
+    };
+    Motion::Registry {
+        op: abi::encode(&op),
+    }
 }
 
 /// Until the motions are read (here they are refused), no press votes: a

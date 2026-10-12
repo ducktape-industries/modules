@@ -116,13 +116,21 @@ pub fn describe(op: &Op) -> describe::Description {
         ),
         Op::Leave => ("Leave".into(), vec![]),
         Op::Vote(motion) => {
+            let key = |key: &Vec<u8>| vec![field("key", Value::Key(key.clone()))];
             let (verb, fields) = match motion {
-                Motion::Promote { key } => ("promote", vec![field("key", Value::Key(key.clone()))]),
-                Motion::Demote { key } => ("demote", vec![field("key", Value::Key(key.clone()))]),
-                Motion::Remove { key } => ("remove", vec![field("key", Value::Key(key.clone()))]),
-                Motion::Door { open: true } => ("open the door", vec![]),
-                Motion::Door { open: false } => ("close the door", vec![]),
-                Motion::Registry { op } => ("registry", vec![field("op", Value::bytes(op))]),
+                Motion::Promote { key: promoted } => ("promote".into(), key(promoted)),
+                Motion::Demote { key: demoted } => ("demote".into(), key(demoted)),
+                Motion::Remove { key: removed } => ("remove".into(), key(removed)),
+                Motion::Door { open: true } => ("open the door".into(), vec![]),
+                Motion::Door { open: false } => ("close the door".into(), vec![]),
+                // in the registry's own words, which the app's confirm shows
+                Motion::Registry { op } => match abi::decode(op) {
+                    Ok(op) => {
+                        let described = module_registry::describe(&op);
+                        (described.title, described.fields)
+                    }
+                    Err(_) => ("registry".into(), vec![field("op", Value::bytes(op))]),
+                },
             };
             (format!("Vote · {verb}"), fields)
         }

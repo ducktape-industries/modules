@@ -1,6 +1,8 @@
 //! A node the explorer reads, played by the fake host: a short chain, three
 //! accounts, one validator and a registry, each answered as the program
-//! would. Tests by what they cover: `describe`, `window`, `pages`, `search`.
+//! would. Tests by what they cover: `access` (what a reader changes on the
+//! Programs page), `describe`, `window`, `pages`, `search`.
+mod access;
 mod describe;
 mod follow;
 mod pages;
@@ -309,32 +311,55 @@ pub(crate) fn respond(cx: &mut TestAppContext) {
             name: "explorer".into(),
             view: BlobId::Sha256([0xef; 32]),
         }],
-        vec![registry::Scheduled {
+        vec![registry::Pending {
             height: 120,
             change: registry::Change::Remove("forge".into()),
+            by: None,
         }],
     );
 }
 
 /// The registry answering what it runs, the views it lists and what is
-/// scheduled.
+/// scheduled; no grants, no hooks.
 pub(crate) fn registry_with(
     cx: &TestAppContext,
     programs: Vec<registry::Entry>,
     views: Vec<registry::View>,
-    scheduled: Vec<registry::Scheduled>,
+    scheduled: Vec<registry::Pending>,
 ) {
+    registry_granting(cx, programs, views, scheduled, Vec::new(), Vec::new());
+}
+
+/// The registry, its grants and its hooks too, under the suite's roles.
+pub(crate) fn registry_granting(
+    cx: &TestAppContext,
+    programs: Vec<registry::Entry>,
+    views: Vec<registry::View>,
+    scheduled: Vec<registry::Pending>,
+    grants: Vec<registry::Grant>,
+    hooks: Vec<String>,
+) {
+    fn whole<T>(items: Vec<T>) -> registry::PageResponse<T> {
+        registry::PageResponse {
+            height: 1,
+            items,
+            next: None,
+        }
+    }
     cx.host().handle::<Query<Modules>>(move |query| {
         Ok(match query {
             registry::Query::At(_) => registry::Reply::Programs(programs.clone()),
             registry::Query::Views(_) => registry::Reply::Views(views.clone()),
             registry::Query::Scheduled { .. } => {
-                registry::Reply::Scheduled(registry::PageResponse {
-                    height: 1,
-                    items: scheduled.clone(),
-                    next: None,
-                })
+                registry::Reply::Scheduled(whole(scheduled.clone()))
             }
+            registry::Query::Hooks(_) => registry::Reply::Hooks(hooks.clone()),
+            registry::Query::Grants { .. } => registry::Reply::Grants(whole(grants.clone())),
+            registry::Query::Roles => registry::Reply::Roles(abi::Roles {
+                registry: registry::MODULE.into(),
+                validators: valset::MODULE.into(),
+                identity: identity::MODULE.into(),
+            }),
             other => panic!("unexpected query: {other:?}"),
         })
     });

@@ -113,7 +113,7 @@ fn worded(note: &Note) -> String {
         ),
         Note::Unlinked(route) => format!("This link names nothing the Explorer shows: {route}"),
         Note::Copied => "Copied the link.".into(),
-        Note::Refused(message) => message.clone(),
+        Note::Sent(words) | Note::Refused(words) => words.clone(),
     }
 }
 
@@ -694,6 +694,38 @@ fn titled(kind: &str, title: String, theme: &Theme) -> impl IntoElement {
                 .aria_level(1)
                 .child(title),
         )
+}
+
+/// A press on a page: an outlined button that takes its own click and
+/// Enter or Space, so a row it sits in does not open too.
+fn press(
+    id: impl Into<SharedString>,
+    label: &str,
+    cx: Cx,
+    theme: &Theme,
+    pressed: impl Fn(&mut Explorer, &mut Context<Explorer>) + 'static,
+) -> AnyElement {
+    let click = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| pressed(view, cx));
+    div()
+        .id(id.into())
+        .flex_shrink_0()
+        .px_2()
+        .h(design::size::CONTROL)
+        .flex()
+        .items_center()
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .text_size(design::text::SECONDARY)
+        .text_color(theme.foreground)
+        .hover(|s| s.bg(theme.hover))
+        .role(Role::Button)
+        .focusable()
+        .on_click(click)
+        .consumes_click()
+        .consumes_keys(["enter", "space"])
+        .child(label.to_owned())
+        .into_any_element()
 }
 
 /// "Copy link": this page's `duck://<chain>/explorer/…` link, onto the

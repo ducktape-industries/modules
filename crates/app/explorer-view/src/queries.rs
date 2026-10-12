@@ -22,11 +22,18 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
     host.query(valset::ask::Validators).await
 }
 
-/// What the registry runs and lists, and what it will.
+/// What the registry runs and lists, and what it will; who may change it.
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
     let tip = host.ask::<ChainStatus>(()).await?.height;
     let programs = host.query(registry::ask::At(tip)).await?;
     let views = host.query(registry::ask::Views(tip)).await?;
+    let hooks = host.query(registry::ask::Hooks(tip)).await?;
+    let roles = host.query(registry::ask::Roles).await?;
+    let grants = host
+        .query_all(|after| registry::ask::Grants {
+            page: registry::PageRequest { after, limit: None },
+        })
+        .await?;
     let mut changes = host
         .query_all(|after| registry::ask::Scheduled {
             page: registry::PageRequest { after, limit: None },
@@ -37,6 +44,9 @@ pub(crate) async fn network(host: Host) -> Result<Network, Error> {
         programs,
         views,
         changes,
+        hooks,
+        grants,
+        roles: Some(roles),
     })
 }
 

@@ -1,19 +1,19 @@
 //! The vote, for a reader whose seated key votes for a validator (valset's
-//! `Voices`): the motions that wait, a change of a module's code, the
-//! registry's scheduled changes, and the presses that vote on them. A
-//! press the reader's uncast voices would carry to the quorum enacts, so
-//! it waits for a yes first ([`Voting::confirming`]). The words for a
-//! motion are here, pure, so each is a unit test.
+//! `Voices`): the motions that wait, the registry's scheduled changes and
+//! who made each, and the presses that vote on them. A module is changed
+//! in Explorer's Programs; this list stays here, in valset's view, which
+//! only the vote changes, so a maintainer's change is seen where no
+//! maintainer can hide it. A press the reader's uncast voices would carry
+//! to the quorum enacts, so it waits for a yes first
+//! ([`Voting::confirming`]). The words for a motion are here, pure, so
+//! each is a unit test.
 use abi::hex;
 use ducktape_view_guest::prelude::*;
-use module_registry::{Change, Entry, Scheduled};
+use module_registry::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
 
 use crate::Nodes;
-use crate::queries::{self, Motions};
-
-/// How far past the tip a change lands by default: about ten minutes.
-const LEAD_MS: u64 = 10 * 60 * 1000;
+use crate::queries::{self, Motions, Names, Schedule};
 
 #[derive(Default)]
 pub(crate) struct Voting {
@@ -24,24 +24,13 @@ pub(crate) struct Voting {
     pub(crate) motions: Loadable<Motions>,
     /// the programs the registry runs now
     pub(crate) roster: Loadable<Vec<Entry>>,
-    pub(crate) scheduled: Loadable<Vec<Scheduled>>,
+    pub(crate) scheduled: Loadable<Schedule>,
     /// a press that enacts, waiting for the reader's yes
     pub(crate) confirming: Option<Motion>,
     /// a vote in flight: no other press until it lands
     pub(crate) busy: bool,
     /// what the last vote did, or the refusal it met
     pub(crate) outcome: Option<Result<String, String>>,
-    pub(crate) change: ChangeForm,
-}
-
-/// Change a module: the program picked, the code typed, the height.
-#[derive(Default)]
-pub(crate) struct ChangeForm {
-    pub(crate) program: Option<String>,
-    pub(crate) code: TextField,
-    pub(crate) height: TextField,
-    /// why the last Propose built no motion
-    pub(crate) problem: Option<String>,
 }
 
 impl Voting {
@@ -86,7 +75,8 @@ impl Voting {
     }
 
     pub(crate) fn words(&self, motion: &Motion) -> String {
-        words(motion, self.entries())
+        let names = self.motions.ready().map(|motions| &motions.names);
+        words(motion, self.entries(), names.unwrap_or(&Names::new()))
     }
 }
 
@@ -197,102 +187,13 @@ impl Nodes {
         self.voting.outcome = None;
         cx.notify();
     }
-
-    /// Picks the program to change; an empty height takes the default.
-    pub(crate) fn pick(&mut self, program: String, cx: &mut Context<Self>) {
-        self.voting.change.program = Some(program);
-        self.voting.change.problem = None;
-        if self.voting.change.height.text().trim().is_empty()
-            && let Some(status) = self.status.ready()
-        {
-            let height = default_height(status.height, status.block_time_ms);
-            self.voting.change.height.reset(height.to_string());
-        }
-        cx.notify();
-    }
-
-    /// Change a module's Propose: the motion it builds, pressed.
-    pub(crate) fn propose(&mut self, cx: &mut Context<Self>) {
-        let tip = self.status.ready().map_or(0, |status| status.height);
-        let form = &self.voting.change;
-        let built = change(
-            form.program.as_deref(),
-            &form.code.text(),
-            &form.height.text(),
-            tip,
-            self.voting.entries(),
-        );
-        match built {
-            Ok(motion) => {
-                self.voting.change.problem = None;
-                self.press(motion, cx);
-            }
-            Err(problem) => {
-                self.voting.change.problem = Some(problem);
-                cx.notify();
-            }
-        }
-    }
 }
 
-/// The block about [`LEAD_MS`] past `tip`, at the node's block time.
-pub(crate) fn default_height(tip: u64, block_time_ms: u64) -> u64 {
-    tip + LEAD_MS.div_ceil(block_time_ms.max(1))
-}
-
-/// The motion Change a module builds: `program` set to the code `code`
-/// names at `height`, its params kept; or why it builds none.
-pub(crate) fn change(
-    program: Option<&str>,
-    code: &str,
-    height: &str,
-    tip: u64,
-    roster: &[Entry],
-) -> Result<Motion, String> {
-    let program = program.ok_or("Pick a program to change.")?;
-    let current = roster
-        .iter()
-        .find(|entry| entry.program == program)
-        .ok_or_else(|| format!("{program} no longer runs here."))?;
-    let code = code_id(code).ok_or("A code id is sha256: and 64 hex digits.")?;
-    let height: u64 = height
-        .trim()
-        .replace(',', "")
-        .parse()
-        .map_err(|_| "The height is a block number.".to_owned())?;
-    if height <= tip {
-        return Err(format!(
-            "Block {} has passed: pick a later one.",
-            design::grouped(height)
-        ));
-    }
-    let op = module_registry::Op::Schedule(Scheduled {
-        height,
-        change: Change::Set(Entry {
-            program: program.to_owned(),
-            code,
-            params: current.params.clone(),
-        }),
-    });
-    Ok(Motion::Registry {
-        op: abi::encode(&op),
-    })
-}
-
-/// A published code's id as a release names it: `sha256:<64 hex>`, or the
-/// hex alone.
-pub(crate) fn code_id(text: &str) -> Option<abi::BlobId> {
-    let text = text.trim();
-    let digits = text.strip_prefix("sha256:").unwrap_or(text);
-    let digest: [u8; 32] = abi::unhex(digits)?.try_into().ok()?;
-    Some(abi::BlobId::Sha256(digest))
-}
-
-/// The motion Cancel builds for a scheduled change.
-pub(crate) fn cancel(scheduled: &Scheduled) -> Motion {
+/// The motion Propose cancel builds for a scheduled change.
+pub(crate) fn cancel(pending: &Pending) -> Motion {
     let op = module_registry::Op::Cancel {
-        height: scheduled.height,
-        program: scheduled.change.program().to_owned(),
+        height: pending.height,
+        program: pending.change.program().to_owned(),
     };
     Motion::Registry {
         op: abi::encode(&op),
@@ -312,8 +213,16 @@ fn key_words(key: &[u8]) -> String {
     design::short_hex(&hex(key))
 }
 
+/// An account by its name, or its number while identity names none.
+pub(crate) fn named(names: &Names, account: u64) -> String {
+    names
+        .get(&account)
+        .cloned()
+        .unwrap_or_else(|| format!("account {account}"))
+}
+
 /// What a motion does, in words; a registry one decoded, never as bytes.
-pub(crate) fn words(motion: &Motion, roster: &[Entry]) -> String {
+pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String {
     match motion {
         Motion::Promote { key } => format!("Promote {} to validator", key_words(key)),
         Motion::Demote { key } => format!("Demote {} to resident", key_words(key)),
@@ -321,11 +230,19 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry]) -> String {
         Motion::Door { open: true } => "Open the door: anyone enrolls without an invite".into(),
         Motion::Door { open: false } => "Close the door: enrolling takes an invite".into(),
         Motion::Registry { op } => match abi::decode::<module_registry::Op>(op) {
-            Ok(module_registry::Op::Schedule(scheduled)) => scheduled_words(&scheduled, roster),
+            Ok(module_registry::Op::Schedule(scheduled)) => {
+                scheduled_words(scheduled.height, &scheduled.change, roster)
+            }
             Ok(module_registry::Op::Cancel { height, program }) => format!(
                 "Cancel {program}'s change at block {}",
                 design::grouped(height)
             ),
+            Ok(module_registry::Op::Grant(grant)) => {
+                format!("Grant {} {}", named(names, grant.account), grant.scope)
+            }
+            Ok(module_registry::Op::Revoke(grant)) => {
+                format!("Revoke {} {}", named(names, grant.account), grant.scope)
+            }
             Ok(op) => module_registry::describe(&op).title,
             Err(_) => "A registry change this screen can't read".into(),
         },
@@ -334,9 +251,9 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry]) -> String {
 
 /// A scheduled change in words: the program, the code, whether its params
 /// change (against what runs now), the height.
-pub(crate) fn scheduled_words(scheduled: &Scheduled, roster: &[Entry]) -> String {
-    let at = design::grouped(scheduled.height);
-    match &scheduled.change {
+pub(crate) fn scheduled_words(height: u64, change: &Change, roster: &[Entry]) -> String {
+    let at = design::grouped(height);
+    match change {
         Change::Set(entry) => {
             let params = match roster.iter().find(|now| now.program == entry.program) {
                 Some(now) if now.params == entry.params => "params unchanged",

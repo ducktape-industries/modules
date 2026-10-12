@@ -13,7 +13,9 @@
 //! The state is one struct (`state.rs`) and the window (`chain.rs`). Reads
 //! are typed (`queries.rs`) and loaded in `load.rs`, re-read on the live
 //! heads `watch.rs` follows; where the reader goes lands in `actions.rs`;
-//! `ui/` draws.
+//! what the reader changes on the Programs page, by grant or by vote, in
+//! `acting.rs`; `ui/` draws.
+mod acting;
 mod actions;
 mod chain;
 mod decode;
@@ -41,6 +43,8 @@ impl View for Explorer {
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
         Capability::Module,
+        // the registry changed by grant, or by a motion to valset
+        Capability::Op,
         Capability::Host,
         Capability::Clock,
         Capability::Clipboard,

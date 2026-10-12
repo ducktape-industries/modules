@@ -14,8 +14,8 @@
 //! the strip's blocks (`recent.rs`) follow the clock, one ask of each in
 //! flight at a time. A reader whose seated key votes for a validator gets
 //! the vote (`voting.rs`, drawn by `motions.rs`): motions on each row and
-//! the door, the motions that wait, Change a module and the scheduled
-//! changes.
+//! the door, the motions that wait, and the scheduled changes with who
+//! made each. A module is changed in Explorer's Programs.
 use ducktape_view_guest::methods;
 use ducktape_view_guest::prelude::*;
 use module_registry::Modules;

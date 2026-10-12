@@ -5,6 +5,7 @@ use ducktape_view_guest::prelude::*;
 use module_registry as registry;
 use serde::{Deserialize, Serialize};
 
+use crate::acting::Acting;
 use crate::chain::{BlockRow, Chain, TxRow};
 
 /// Where the explorer is: a list under a tab, or one thing opened from it.
@@ -96,7 +97,8 @@ pub struct Acted {
     pub rows: Vec<TxRow>,
 }
 
-/// What the registry runs, lists and will change, as it answers them.
+/// What the registry runs, lists and will change, and who may change it,
+/// as it answers them at the tip.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Network {
     #[serde(with = "borsh_bytes")]
@@ -104,9 +106,17 @@ pub struct Network {
     /// the view-only entries: a name and its view's code, no program behind it
     #[serde(with = "borsh_bytes")]
     pub views: Vec<registry::View>,
-    /// what the registry will fold in at later blocks
+    /// what the registry will fold in at later blocks, and whose grant
+    /// made each (`None`: the vote)
     #[serde(with = "borsh_bytes")]
-    pub changes: Vec<registry::Scheduled>,
+    pub changes: Vec<registry::Pending>,
+    /// the programs the kernel tells of every frame
+    pub hooks: Vec<String>,
+    #[serde(with = "borsh_bytes")]
+    pub grants: Vec<registry::Grant>,
+    /// the programs bound to the roles the kernel calls
+    #[serde(with = "borsh_bytes")]
+    pub roles: Option<abi::Roles>,
 }
 
 /// The line under the bar: what a search, a link or a copy came to. Worded
@@ -122,6 +132,8 @@ pub enum Note {
     /// a link whose path names no page
     Unlinked(String),
     Copied,
+    /// an op the node took, in words
+    Sent(String),
     /// a refusal, in the host's words
     Refused(String),
 }
@@ -167,6 +179,9 @@ pub struct Explorer {
     /// again (→ then ← comes back to the block it left); `None`, the tab's
     /// own list. Kept with `route`, so a restored view comes back the same.
     pub(crate) left: [Option<Route>; 5],
+    /// who reads and what they change, read again on every open
+    #[serde(skip)]
+    pub(crate) acting: Acting,
 }
 
 impl Explorer {
