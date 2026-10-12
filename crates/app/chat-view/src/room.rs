@@ -4,8 +4,15 @@ use chat::{ChannelInfo, MsgRow, PageRequest, Principal, ask};
 use ducktape_view_guest::prelude::*;
 
 use crate::composer::Target;
-use crate::queries;
-use crate::{Chat, PAGE, Pane, Room, Thread, WINDOW, links};
+use crate::queries::{self, Side};
+use crate::{Chat, Drawn, PAGE, Pane, Room, SPAN, Thread, WINDOW, links};
+
+const EDGE_ROWS: usize = 4;
+
+enum Reread {
+    Tail,
+    Span(u64, u64),
+}
 
 impl Chat {
     /// A room the reader chose: opened here, and named to the host so its
@@ -52,17 +59,24 @@ impl Chat {
             };
         }
         room.landed = land > 0;
+        room.target = land;
         room.at_tail = land == 0;
+        room.older_loading = false;
+        room.newer_loading = false;
         // the room is entered, or entered again at another row: the rows
         // and the roster shown go, and both read as loading
         room.messages = Loadable::Idle;
         room.members = Loadable::Idle;
+        *self.timeline_drawn.borrow_mut() = Drawn::default();
         let members_id = room.id.clone();
         if land > 0 {
             let rows = queries::around(cx.host(), id, land, viewer);
             room.messages = Loadable::Loading(cx.land(rows, |chat, result, cx| {
                 cx.notify();
                 let room = room_of(chat);
+                if let Ok(rows) = &result {
+                    room.has_older = rows.first().is_some_and(|row| row.seq > 1);
+                }
                 room.messages = result.into();
                 room.settle();
             }));
@@ -132,68 +146,67 @@ impl Chat {
         let Some(room) = &mut self.room else { return };
         let id = room.id.clone();
         let page = PageRequest::default();
-        // the window at the tail is a page of roots; a landed one is read
-        // around its middle row
-        let window = if room.landed {
-            room.messages
+        let reread = match room.landed {
+            true => room
+                .messages
                 .ready()
-                .and_then(|rows| rows.get(rows.len() / 2))
-                .map(|row| row.seq)
-                .filter(|seq| {
+                .and_then(|rows| Some((rows.first()?.seq, rows.last()?.seq)))
+                .filter(|(first, last)| {
                     touched(&ask::MessagesAround {
                         channel_id: id.clone(),
-                        seq: *seq,
+                        seq: first.midpoint(*last),
                         viewer: viewer.clone(),
                         page: page.clone(),
                     })
                 })
-                .map(Some)
-        } else {
-            touched(&ask::Roots {
+                .map(|(first, last)| Reread::Span(first, last)),
+            false => touched(&ask::Roots {
                 channel_id: id.clone(),
                 viewer: viewer.clone(),
                 page: page.clone(),
             })
-            .then_some(None)
+            .then_some(Reread::Tail),
         };
-        if window == Some(None) {
-            let shown = room
-                .messages
-                .ready()
-                .map_or(WINDOW, |rows| rows.len().max(WINDOW));
-            let rows = queries::roots(cx.host(), id.clone(), viewer.clone(), None, shown);
-            room.rereading = Some(cx.land(rows, |chat, rows, cx| {
-                let room = room_of(chat);
-                match rows {
-                    Ok((rows, has_older)) => {
-                        let moved =
-                            room.messages.ready() != Some(&rows) || room.has_older != has_older;
-                        if moved {
-                            room.has_older = has_older;
-                            room.messages = Loadable::Ready(rows);
+        match reread {
+            Some(Reread::Tail) => {
+                let shown = room
+                    .messages
+                    .ready()
+                    .map_or(WINDOW, |rows| rows.len().max(WINDOW));
+                let rows = queries::roots(cx.host(), id.clone(), viewer.clone(), None, shown);
+                room.rereading = Some(cx.land(rows, |chat, rows, cx| {
+                    let room = room_of(chat);
+                    match rows {
+                        Ok((rows, has_older)) => {
+                            let moved =
+                                room.messages.ready() != Some(&rows) || room.has_older != has_older;
+                            if moved {
+                                room.has_older = has_older;
+                                room.messages = Loadable::Ready(rows);
+                            }
+                            room.landed_rows(moved, cx);
                         }
-                        room.landed_rows(moved, cx);
+                        Err(refusal) => cx.log_refused("the room", &refusal),
                     }
-                    Err(refusal) => cx.log_refused("the room", &refusal),
-                }
-            }));
-        } else if let Some(Some(seq)) = window {
-            // a landed window re-reads around its middle row, so reactions,
-            // edits and reply counts land there too
-            let rows = queries::around(cx.host(), id.clone(), seq, viewer.clone());
-            room.rereading = Some(cx.land(rows, |chat, rows, cx| {
-                let room = room_of(chat);
-                match rows {
-                    Ok(rows) => {
-                        let moved = room.messages.ready() != Some(&rows);
-                        if moved {
-                            room.messages = Loadable::Ready(rows);
+                }));
+            }
+            Some(Reread::Span(first, last)) => {
+                let rows = queries::span(cx.host(), id.clone(), (first, last), viewer.clone());
+                room.rereading = Some(cx.land(rows, |chat, rows, cx| {
+                    let room = room_of(chat);
+                    match rows {
+                        Ok(rows) => {
+                            let moved = room.messages.ready() != Some(&rows);
+                            if moved {
+                                room.messages = Loadable::Ready(rows);
+                            }
+                            room.landed_rows(moved, cx);
                         }
-                        room.landed_rows(moved, cx);
+                        Err(refusal) => cx.log_refused("the room", &refusal),
                     }
-                    Err(refusal) => cx.log_refused("the room", &refusal),
-                }
-            }));
+                }));
+            }
+            None => {}
         }
         if touched(&ask::Members {
             channel_id: id.clone(),
@@ -235,6 +248,13 @@ impl Chat {
 
     /// One older page before the oldest row on screen.
     pub(crate) fn load_older(&mut self, cx: &mut Context<Self>) {
+        match self.room.as_ref().is_some_and(|room| room.landed) {
+            true => self.page_landed(Side::Older, cx),
+            false => self.page_roots(cx),
+        }
+    }
+
+    fn page_roots(&mut self, cx: &mut Context<Self>) {
         let viewer = self.viewer();
         let Some(room) = &mut self.room else { return };
         let Some(oldest) = room
@@ -245,16 +265,20 @@ impl Chat {
         else {
             return;
         };
-        if !room.has_older || room.older_loading || room.landed {
+        if !room.has_older || room.older_loading {
             return;
         }
         room.older_loading = true;
         let id = room.id.clone();
         let below = chat::roots_below(&id, oldest);
-        let older = queries::roots(cx.host(), id, viewer, Some(below), PAGE);
-        cx.land(older, |chat, result, cx| {
+        let older = queries::roots(cx.host(), id.clone(), viewer, Some(below), PAGE);
+        cx.land(older, move |chat, result, cx| {
             cx.notify();
             let Some(room) = &mut chat.room else { return };
+            let beside = room.id == id && !room.landed && edge(room, Side::Older) == Some(oldest);
+            if !beside {
+                return;
+            }
             room.older_loading = false;
             match result {
                 Ok((older, has_older)) => {
@@ -274,6 +298,65 @@ impl Chat {
         .detach();
     }
 
+    fn page_landed(&mut self, side: Side, cx: &mut Context<Self>) {
+        let viewer = self.viewer();
+        let Some(room) = &mut self.room else { return };
+        let Some(at) = edge(room, side) else { return };
+        let busy = match side {
+            Side::Older => room.older_loading || !room.has_older,
+            Side::Newer => room.newer_loading,
+        };
+        if busy {
+            return;
+        }
+        match side {
+            Side::Older => room.older_loading = true,
+            Side::Newer => room.newer_loading = true,
+        }
+        let id = room.id.clone();
+        let page = queries::beside(cx.host(), id.clone(), at, side, viewer);
+        cx.land(page, move |chat, result, cx| {
+            cx.notify();
+            let Some(room) = chat.room.as_mut() else {
+                return;
+            };
+            let beside = room.id == id && room.landed && edge(room, side) == Some(at);
+            if !beside {
+                return;
+            }
+            match side {
+                Side::Older => room.older_loading = false,
+                Side::Newer => room.newer_loading = false,
+            }
+            let page = match result {
+                Ok(page) => page,
+                Err(refusal) => {
+                    chat.notice = format!("Couldn’t read this room: {}", refusal.message);
+                    return;
+                }
+            };
+            let at_head = side == Side::Newer && page.is_empty();
+            if at_head {
+                chat.reached_head(cx);
+            } else {
+                room.extend(side, page);
+            }
+        })
+        .detach();
+    }
+
+    fn reached_head(&mut self, cx: &mut Context<Self>) {
+        let Some(room) = &mut self.room else { return };
+        room.landed = false;
+        room.target = 0;
+        room.at_tail = true;
+        if let Some(list) = self.channels.ready().cloned() {
+            self.channels_arrived(list, cx);
+            self.save_reads(cx);
+        }
+        self.settle_badge(cx);
+    }
+
     /// Settled native list geometry drives paging and tail state. Wheel deltas
     /// are intentionally not used: remeasurement and programmatic scrolling
     /// can move the viewport without one.
@@ -283,16 +366,26 @@ impl Chat {
         event: &ducktape_view_guest::ListScrollEvent,
         cx: &mut Context<Self>,
     ) {
+        let at_top = event.visible_range.start <= EDGE_ROWS;
+        let at_foot = event.visible_range.end.saturating_add(EDGE_ROWS) >= event.count;
         match pane {
             Pane::Timeline => {
                 let Some(room) = &mut self.room else { return };
-                room.at_tail = event.is_following_tail || event.visible_range.end >= event.count;
-                if event.visible_range.start <= 4 {
+                let at_tail = event.is_following_tail || event.visible_range.end >= event.count;
+                if room.at_tail != at_tail {
+                    room.at_tail = at_tail;
+                    cx.notify();
+                }
+                let landed = room.landed;
+                if at_top {
                     self.load_older(cx);
+                }
+                if landed && at_foot {
+                    self.page_landed(Side::Newer, cx);
                 }
             }
             Pane::Thread => {
-                if event.visible_range.end.saturating_add(4) >= event.count {
+                if at_foot {
                     self.load_more_replies(cx);
                 }
             }
@@ -523,6 +616,32 @@ impl Room {
             .retain(|p| !shown(&p.message_id, messages) && !shown(&p.message_id, replies));
     }
 
+    fn extend(&mut self, side: Side, page: Vec<MsgRow>) {
+        let Some(rows) = self.messages.ready_mut() else {
+            return;
+        };
+        match side {
+            Side::Older => {
+                self.has_older = page.first().is_some_and(|row| row.seq > 1);
+                rows.splice(0..0, page);
+                let Some(first) = rows.first().map(|row| row.seq) else {
+                    return;
+                };
+                rows.retain(|row| row.seq - first < SPAN as u64);
+            }
+            Side::Newer => {
+                rows.extend(page);
+                let Some(last) = rows.last().map(|row| row.seq) else {
+                    return;
+                };
+                let held = rows.len();
+                rows.retain(|row| last - row.seq < SPAN as u64);
+                self.has_older |= rows.len() < held;
+            }
+        }
+        self.settle();
+    }
+
     /// A re-read landed: drops the sends it shows, and draws if the rows
     /// `moved` or a send left.
     fn landed_rows(&mut self, moved: bool, cx: &mut Context<Chat>) {
@@ -532,6 +651,15 @@ impl Room {
             cx.notify();
         }
     }
+}
+
+fn edge(room: &Room, side: Side) -> Option<u64> {
+    let rows = room.messages.ready()?;
+    let row = match side {
+        Side::Older => rows.first(),
+        Side::Newer => rows.last(),
+    };
+    row.map(|row| row.seq)
 }
 
 pub(crate) fn room_of(chat: &mut Chat) -> &mut Room {

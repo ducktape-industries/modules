@@ -4,9 +4,10 @@ use chat::{MsgRow, Op, PostPolicy, Principal};
 use ducktape_view_guest::prelude::*;
 
 use crate::composer::Target;
-use crate::message::{ChatMessage, chat_message, mark_message_groups};
-use crate::{Chat, Control, Menu, Mode, Pane, links};
+use crate::message::{ChatMessage, chat_message, mark_message_groups, zone};
+use crate::{Chat, Control, Folded, Menu, Mode, Pane, links};
 use chat::view::Names;
+use std::rc::Rc;
 
 /// A refusal the archive gives every reaction, said before it is asked.
 const ARCHIVED_REACTIONS: &str = "This channel is archived — reactions are closed. Unarchive it from Channel details to react here again.";
@@ -104,58 +105,68 @@ impl Chat {
 
     fn edit_body(&self, pane: Pane, seq: u64) -> Option<String> {
         let names = self.names.ready().cloned().unwrap_or_default();
-        let row = self.rows(pane).into_iter().find(|row| row.seq == seq)?;
+        let row = self.shown(pane).find(|row| row.seq == seq)?.clone();
         let message = chat_message(row, &names);
         (!message.edit_body.is_empty()).then_some(message.edit_body)
     }
 
     /// The rows one pane shows, fetched and pending, as the index served them.
-    pub(crate) fn rows(&self, pane: Pane) -> Vec<MsgRow> {
+    pub(crate) fn shown(&self, pane: Pane) -> Box<dyn Iterator<Item = &MsgRow> + '_> {
         let Some(room) = &self.room else {
-            return Vec::new();
+            return Box::new(std::iter::empty());
         };
+        let fetched = room.messages.ready().into_iter().flatten();
         match pane {
-            Pane::Timeline => room
-                .messages
-                .ready()
-                .into_iter()
-                .flatten()
-                .chain(&room.pending)
-                .filter(|row| row.thread.is_none())
-                .cloned()
-                .collect(),
+            Pane::Timeline => Box::new(
+                fetched
+                    .chain(&room.pending)
+                    .filter(|row| row.thread.is_none()),
+            ),
             Pane::Thread => {
                 let Some(thread) = &room.thread else {
-                    return Vec::new();
+                    return Box::new(std::iter::empty());
                 };
-                let root = room
-                    .messages
-                    .ready()
-                    .and_then(|rows| rows.iter().find(|row| row.seq == thread.root));
-                root.into_iter()
-                    .chain(thread.replies.ready().into_iter().flatten())
-                    .chain(
-                        room.pending
-                            .iter()
-                            .filter(|row| row.thread == Some(thread.root)),
-                    )
-                    .cloned()
-                    .collect()
+                let root = fetched.filter(move |row| row.seq == thread.root).take(1);
+                let replies = thread.replies.ready().into_iter().flatten();
+                let pending = room
+                    .pending
+                    .iter()
+                    .filter(move |row| row.thread == Some(thread.root));
+                Box::new(root.chain(replies).chain(pending))
             }
         }
     }
 
     /// Rows to messages, named by the directory the reader has.
-    pub(crate) fn messages(&self, pane: Pane) -> Vec<ChatMessage> {
+    pub(crate) fn messages(&self, pane: Pane) -> Rc<[ChatMessage]> {
         let empty = Names::empty();
         let names = self.names.ready().unwrap_or(&empty);
-        let mut messages: Vec<ChatMessage> = self
-            .rows(pane)
-            .into_iter()
-            .map(|row| chat_message(row, names))
-            .collect();
         let boundary = (pane == Pane::Timeline).then_some(self.reads.boundary);
+        let zone = zone();
+        let mut drawn = self.drawn(pane).borrow_mut();
+        let same = |folded: &&Folded| {
+            folded.boundary == boundary
+                && folded.zone == zone
+                && folded.names == *names
+                && folded.rows.iter().eq(self.shown(pane))
+        };
+        if let Some(folded) = drawn.folded.as_ref().filter(same) {
+            return folded.messages.clone();
+        }
+        let rows: Vec<MsgRow> = self.shown(pane).cloned().collect();
+        let mut messages: Vec<ChatMessage> = rows
+            .iter()
+            .map(|row| chat_message(row.clone(), names))
+            .collect();
         mark_message_groups(&mut messages, boundary);
+        let messages: Rc<[ChatMessage]> = messages.into();
+        drawn.folded = Some(Folded {
+            rows,
+            names: names.clone(),
+            boundary,
+            zone,
+            messages: messages.clone(),
+        });
         messages
     }
 
@@ -163,8 +174,7 @@ impl Chat {
     /// edits it, and the chat module refuses anyone else.
     pub(crate) fn wrote(&self, pane: Pane, seq: u64) -> bool {
         let Some(me) = self.me() else { return false };
-        self.rows(pane)
-            .iter()
+        self.shown(pane)
             .any(|row| row.seq == seq && row.author == me)
     }
 
@@ -320,7 +330,7 @@ impl Chat {
         let Some(range) = self.copy else { return };
         let lines: Vec<String> = self
             .messages(range.pane)
-            .into_iter()
+            .iter()
             .filter(|m| range.holds(range.pane, m.seq))
             .map(|m| format!("{}: {}", m.author, m.body))
             .collect();
@@ -333,8 +343,7 @@ impl Chat {
 
     pub(crate) fn copy_count(&self) -> usize {
         let Some(range) = self.copy else { return 0 };
-        self.rows(range.pane)
-            .iter()
+        self.shown(range.pane)
             .filter(|row| range.holds(range.pane, row.seq))
             .count()
     }

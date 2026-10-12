@@ -4,8 +4,10 @@ use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use crate::composer::Draft;
+use crate::message::ChatMessage;
 use chat::view::Names;
 
 #[derive(Serialize, Deserialize, Default)]
@@ -52,13 +54,9 @@ pub struct Chat {
     pub(crate) confirmation: String,
     pub(crate) copy: Option<CopyRange>,
     #[serde(skip)]
-    pub(crate) timeline_list: RefCell<Option<ducktape_view_guest::ListState>>,
+    pub(crate) timeline_drawn: RefCell<Drawn>,
     #[serde(skip)]
-    pub(crate) thread_list: RefCell<Option<ducktape_view_guest::ListState>>,
-    #[serde(skip)]
-    pub(crate) timeline_rows: RefCell<Vec<String>>,
-    #[serde(skip)]
-    pub(crate) thread_rows: RefCell<Vec<String>>,
+    pub(crate) thread_drawn: RefCell<Drawn>,
     /// messages meant for the reader in rooms they have not read, by room
     #[serde(skip)]
     pub(crate) attention: BTreeMap<String, i64>,
@@ -77,6 +75,28 @@ pub struct Chat {
     pub(crate) rereading_channels: Option<ducktape_view_guest::Task<()>>,
 }
 
+#[derive(Default)]
+pub struct Drawn {
+    pub(crate) list: Option<(Shape, ducktape_view_guest::ListState)>,
+    pub(crate) keys: Vec<String>,
+    pub(crate) folded: Option<Folded>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Shape {
+    Tail,
+    Landed,
+    Thread,
+}
+
+pub struct Folded {
+    pub(crate) rows: Vec<MsgRow>,
+    pub(crate) names: Names,
+    pub(crate) boundary: Option<u64>,
+    pub(crate) zone: u64,
+    pub(crate) messages: Rc<[ChatMessage]>,
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Room {
     pub(crate) id: String,
@@ -88,8 +108,12 @@ pub struct Room {
     pub(crate) has_older: bool,
     #[serde(skip)]
     pub(crate) older_loading: bool,
+    #[serde(skip)]
+    pub(crate) newer_loading: bool,
     /// opened around a landing seq: the window may not reach the head
     pub(crate) landed: bool,
+    #[serde(skip)]
+    pub(crate) target: u64,
     pub(crate) reaches_head: bool,
     pub(crate) at_tail: bool,
     /// the rows read again while the ones on screen stay
@@ -294,6 +318,12 @@ impl Chat {
         match pane {
             Pane::Timeline => &mut self.timeline_cursor,
             Pane::Thread => &mut self.thread_cursor,
+        }
+    }
+    pub(crate) fn drawn(&self, pane: Pane) -> &RefCell<Drawn> {
+        match pane {
+            Pane::Timeline => &self.timeline_drawn,
+            Pane::Thread => &self.thread_drawn,
         }
     }
 
