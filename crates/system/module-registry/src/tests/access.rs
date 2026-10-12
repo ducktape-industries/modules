@@ -359,13 +359,28 @@ fn a_maintainer_cancels_a_grants_change_and_only_the_vote_cancels_the_votes() {
 fn the_votes_change_clears_a_stale_maker() {
     let (store, code) = seated();
     // a registry rolled back past a grant's change leaves its maker behind
-    BY.put(
-        &store.exec(env(TIP, Origin::Root)),
-        &(EARLIEST, "chat".into()),
-        &CAROL,
-    );
+    let stale = |height: u64| {
+        let ctx = store.exec(env(TIP, Origin::Root));
+        BY.put(&ctx, &(height, "chat".into()), &CAROL);
+    };
+    stale(EARLIEST);
     run(&store, vote(), at(EARLIEST, set("chat", code))).unwrap();
     assert_eq!(waiting(&store), [(EARLIEST, "chat".into(), None)]);
+    // a removal's cascade takes grants' changes along, never the vote's own
+    stale(EARLIEST + 1);
+    run(
+        &store,
+        vote(),
+        at(EARLIEST + 1, Change::Remove("chat".into())),
+    )
+    .unwrap();
+    assert_eq!(
+        waiting(&store),
+        [
+            (EARLIEST, "chat".into(), None),
+            (EARLIEST + 1, "chat".into(), None)
+        ]
+    );
 }
 
 #[test]

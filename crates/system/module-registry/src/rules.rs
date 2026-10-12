@@ -244,13 +244,15 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
             Change::Remove(name) | Change::RemoveView(name) => Some(overruled(ctx, name)?),
             _ => None,
         };
-        SCHEDULE.put(ctx, &key, &scheduled.change);
-        // a stale entry (a registry rolled back) would read as a grant's
-        BY.remove(ctx, &key);
+        // first, so a stale maker at this very key takes nothing of the
+        // vote's own entry along
         if let Some((grants, changes)) = overruled {
             grants.iter().for_each(|grant| GRANTS.remove(ctx, grant));
             changes.iter().for_each(|at| drop_change(ctx, at));
         }
+        SCHEDULE.put(ctx, &key, &scheduled.change);
+        // a stale entry (a registry rolled back) would read as a grant's
+        BY.remove(ctx, &key);
         return Ok(());
     };
     SCHEDULE.put(ctx, &key, &scheduled.change);
