@@ -12,9 +12,9 @@ dependencies = [
 
 [[package]]
 name = "accesskit"
-version = "0.24.1"
+version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3b7f7f85a7e5f68090000ed7622545829afd484d210358702ae4cb97dd0c320"
+checksum = "ad442f58ee04714aaa0ba0a2768c1ea1935b29507bb22ddece8cbbc76db02932"
 dependencies = [
  "enumn",
  "serde",
@@ -2577,7 +2577,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre"
 version = "0.3.8"
-source = "git+https://github.com/ducktape-industries/gpui-pre?rev=d852939e6774187444ea81cda369c450a8331d65#d852939e6774187444ea81cda369c450a8331d65"
+source = "git+https://github.com/ducktape-industries/gpui-pre?rev=d5b9b8176f77343107b719c8b57bbe796c58d5c0#d5b9b8176f77343107b719c8b57bbe796c58d5c0"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2721,7 +2721,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-scheduler"
 version = "0.3.8"
-source = "git+https://github.com/ducktape-industries/gpui-pre?rev=d852939e6774187444ea81cda369c450a8331d65#d852939e6774187444ea81cda369c450a8331d65"
+source = "git+https://github.com/ducktape-industries/gpui-pre?rev=d5b9b8176f77343107b719c8b57bbe796c58d5c0#d5b9b8176f77343107b719c8b57bbe796c58d5c0"
 dependencies = [
  "async-task",
  "backtrace",
@@ -2781,7 +2781,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-zlog"
 version = "0.3.8"
-source = "git+https://github.com/ducktape-industries/gpui-pre?rev=d852939e6774187444ea81cda369c450a8331d65#d852939e6774187444ea81cda369c450a8331d65"
+source = "git+https://github.com/ducktape-industries/gpui-pre?rev=d5b9b8176f77343107b719c8b57bbe796c58d5c0#d5b9b8176f77343107b719c8b57bbe796c58d5c0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5059,7 +5059,7 @@ dependencies = [
 [[package]]
 name = "rmp-serde"
 version = "1.3.1"
-source = "git+https://github.com/ducktape-industries/gpui-pre?rev=d852939e6774187444ea81cda369c450a8331d65#d852939e6774187444ea81cda369c450a8331d65"
+source = "git+https://github.com/ducktape-industries/gpui-pre?rev=d5b9b8176f77343107b719c8b57bbe796c58d5c0#d5b9b8176f77343107b719c8b57bbe796c58d5c0"
 dependencies = [
  "rmp",
  "serde",
