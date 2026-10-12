@@ -119,6 +119,21 @@ pub(super) fn check_bounds(
             check_native_style(&styles[*style]);
             check_bounds(child, styles, depth + 1, svg_bytes, ctx);
         }
+        Node::Web {
+            url,
+            style,
+            commands,
+            ..
+        } => {
+            check_native_style(&styles[*style]);
+            assert!(url.len() <= view_wire::MAX_URL_BYTES, "{ctx}: web address");
+            assert!(commands.len() <= view_wire::MAX_WEB_COMMANDS);
+            for command in commands {
+                if let view_wire::WebCommand::Load(url) = command {
+                    assert!(url.len() <= view_wire::MAX_URL_BYTES, "{ctx}: web load");
+                }
+            }
+        }
         Node::ResizeHandle { content, .. } => {
             check_bounds(content, styles, depth + 1, svg_bytes, ctx);
         }

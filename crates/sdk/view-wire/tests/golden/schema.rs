@@ -247,6 +247,7 @@ const TREE: &[Trace] = &[
     trace::<view_wire::ListSizingBehavior>,
     trace::<view_wire::RichTextRuns>,
     trace::<view_wire::SvgSource>,
+    trace::<view_wire::WebCommand>,
     trace::<view_wire::click::Click>,
     trace::<view_wire::click::KeyboardButton>,
     trace::<view_wire::click::MouseButton>,

@@ -340,6 +340,17 @@ fn first_nodes() -> Vec<Node> {
             on_bounds: Some(16),
             child: boxed("measured"),
         },
+        Node::Web {
+            id: id("page"),
+            url: "https://example.com/".into(),
+            style: style(),
+            revision: 3,
+            commands: vec![
+                WebCommand::Load("https://example.org/".into()),
+                WebCommand::Back,
+            ],
+            on_state: Some(17),
+        },
         text("plain"),
         Node::Image {
             id: Some(id("image")),
@@ -858,5 +869,6 @@ pub fn node_variant(node: &Node) -> &'static str {
         Node::Space => "Space",
         Node::Overlay { .. } => "Overlay",
         Node::Canvas { .. } => "Canvas",
+        Node::Web { .. } => "Web",
     }
 }

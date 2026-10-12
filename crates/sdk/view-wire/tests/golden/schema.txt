@@ -450,6 +450,9 @@ Event enum
   33 A11yAction struct
     handler: U32
     data: Option(TypeName("ActionData"))
+  34 Web struct
+    handler: U32
+    state: TypeName("WebState")
 FontFallbacks NewTypeStruct(Seq(Str))
 FontStyle enum
   0 Normal: Unit
@@ -838,6 +841,13 @@ Node enum
   14 Canvas struct
     style: U32
     commands: Seq(TypeName("CanvasCommand"))
+  15 Web struct
+    id: TypeName("WireRepr")
+    url: Str
+    style: U32
+    revision: U64
+    commands: Seq(TypeName("WebCommand"))
+    on_state: Option(U32)
 NodeId NewTypeStruct(U64)
 Orientation enum
   0 horizontal: Unit
@@ -1187,6 +1197,18 @@ UniformListScrollStrategy enum
 UniformListSizing enum
   0 Infer: Unit
   1 Auto: Unit
+WebCommand enum
+  0 Load: NewType(Str)
+  1 Back: Unit
+  2 Forward: Unit
+  3 Reload: Unit
+  4 Stop: Unit
+WebState struct
+  url: Str
+  title: Str
+  loading: Bool
+  can_go_back: Bool
+  can_go_forward: Bool
 WidgetCommand enum
   0 Replace struct
     target: Seq(TypeName("WireRepr"))

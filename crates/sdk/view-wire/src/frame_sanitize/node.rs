@@ -164,6 +164,15 @@ fn sanitize_fields(
             budgets.style(*style)?;
             canvas::sanitize(commands, budgets);
         }
+        Node::Web {
+            url,
+            style,
+            commands,
+            ..
+        } => {
+            budgets.style(*style)?;
+            crate::web::sanitize(url, commands, budgets);
+        }
         Node::Anchored {
             fit,
             position,
