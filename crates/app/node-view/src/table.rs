@@ -352,7 +352,7 @@ fn under(
             let id = ElementId::Name(format!("nodes-{name}-{index}").into());
             design::button(id, label, theme, press)
                 .kind(design::Kind::Quiet)
-                .enabled(!view.voting.busy)
+                .enabled(view.voting.pressable())
         })
     });
     if operator.is_none() && motions.is_none() {

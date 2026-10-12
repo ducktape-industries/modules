@@ -386,3 +386,47 @@ fn a_change_needs_a_program_a_code_and_a_later_block() {
     assert_eq!(code_id("sha256:7e"), None);
     assert_eq!(default_height(4200, 2000), 4500);
 }
+
+/// Until the motions are read (here they are refused), no press votes: a
+/// vote that enacts would go unasked.
+#[test]
+fn no_press_votes_before_the_motions_are_read() {
+    let mut cx = TestAppContext::new();
+    node(&mut cx);
+    respond_voter(&mut cx);
+    cx.host().never::<Query<Modules>>();
+    let session = cx.host().stream::<HostSession>();
+    cx.open::<Nodes>();
+    session.send(Session {
+        signer: abi::hex(&THIS),
+        ..Session::default()
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("not yet"));
+    let Some(ducktape_view_guest::wire::Node::Container(
+        ducktape_view_guest::wire::ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        },
+    )) = cx.find("nodes-door-open")
+    else {
+        panic!("the door's button")
+    };
+    assert_eq!(interactivity.aria.disabled, Some(true));
+    assert!(interactivity.on_click.is_none());
+}
+
+/// valset for a reader whose key THIS votes, its motions refused.
+fn respond_voter(cx: &mut TestAppContext) {
+    cx.host().handle::<Query<Valset>>(move |query| {
+        Ok(match query {
+            valset::Query::Validators => valset::Reply::Validators(vec![THIS.to_vec()]),
+            valset::Query::Memberships { .. } => valset::Reply::Memberships(page(vec![])),
+            valset::Query::Voices { .. } => valset::Reply::Voices(vec![THIS.to_vec()]),
+            valset::Query::Motions { .. } => {
+                return Err(Error::new("unavailable", "not yet"));
+            }
+            other => panic!("unexpected query: {other:?}"),
+        })
+    });
+}

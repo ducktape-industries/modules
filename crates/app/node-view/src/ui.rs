@@ -55,12 +55,12 @@ fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> impl IntoElemen
             .child(
                 design::button("nodes-door-open", "Open the door", theme, press(true))
                     .kind(design::Kind::Outline)
-                    .enabled(!view.voting.busy),
+                    .enabled(view.voting.pressable()),
             )
             .child(
                 design::button("nodes-door-close", "Close the door", theme, press(false))
                     .kind(design::Kind::Outline)
-                    .enabled(!view.voting.busy),
+                    .enabled(view.voting.pressable()),
             )
     });
     div()

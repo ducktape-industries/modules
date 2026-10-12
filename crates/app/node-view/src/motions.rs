@@ -165,7 +165,7 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
                         vote,
                     )
                     .kind(Kind::Outline)
-                    .enabled(!voting.busy)
+                    .enabled(voting.pressable())
                 });
                 row.children(press).into_any_element()
             })
@@ -281,7 +281,7 @@ fn change(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
                 .child(
                     design::button("nodes-change-propose", "Propose", theme, propose)
                         .kind(Kind::Primary)
-                        .enabled(!view.voting.busy),
+                        .enabled(view.voting.pressable()),
                 ),
         )
         .children(form.problem.as_ref().map(|problem| {
@@ -339,7 +339,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
                                 press,
                             )
                             .kind(Kind::Outline)
-                            .enabled(!voting.busy),
+                            .enabled(voting.pressable()),
                         )
                         .into_any_element()
                     })

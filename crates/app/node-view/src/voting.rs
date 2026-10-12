@@ -49,6 +49,12 @@ impl Voting {
         !self.voices.is_empty()
     }
 
+    /// Whether a press may vote now: none in flight, and the motions read,
+    /// so a press that enacts is known to and asks first.
+    pub(crate) fn pressable(&self) -> bool {
+        !self.busy && self.motions.ready().is_some()
+    }
+
     /// The validators that voted for `motion` so far: none for one that
     /// does not wait yet.
     pub(crate) fn voters(&self, motion: &Motion) -> &[Vec<u8>] {
@@ -58,10 +64,11 @@ impl Voting {
             .map_or(&[], |pending| pending.voters.as_slice())
     }
 
-    /// Whether the reader's uncast voices carry `motion` to the quorum.
+    /// Whether the reader's uncast voices carry `motion` to the quorum; a
+    /// press waits for the motions ([`pressable`](Voting::pressable)).
     pub(crate) fn enacts(&self, motion: &Motion) -> bool {
         let Some(motions) = self.motions.ready() else {
-            return false;
+            return true;
         };
         let voters = self.voters(motion);
         let uncast = self.voices.iter().filter(|v| !voters.contains(v)).count();
@@ -142,7 +149,7 @@ impl Nodes {
     /// A press on a motion: voted now, or, where it enacts, once the reader
     /// says yes.
     pub(crate) fn press(&mut self, motion: Motion, cx: &mut Context<Self>) {
-        if self.voting.busy {
+        if !self.voting.pressable() {
             return;
         }
         match self.voting.enacts(&motion) {
