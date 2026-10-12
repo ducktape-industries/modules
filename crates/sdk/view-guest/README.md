@@ -29,9 +29,9 @@ ducktape-view-guest = { path = "../modules/crates/sdk/view-guest" }
 serde = { version = "1", features = ["derive"] }
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "da49e2b089cb5bf8f36fef940cf5c0b94df92138" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "da49e2b089cb5bf8f36fef940cf5c0b94df92138" }
-gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "da49e2b089cb5bf8f36fef940cf5c0b94df92138" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7bbc06e33a6a420ee1e8725f5f3f3bb870a947e6" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7bbc06e33a6a420ee1e8725f5f3f3bb870a947e6" }
+gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7bbc06e33a6a420ee1e8725f5f3f3bb870a947e6" }
 ```
 
 The `[patch.crates-io]` lines are this workspace's own, at the rev its
