@@ -660,3 +660,113 @@ fn a_commit_bigger_than_a_frame_lands_in_parts() {
     assert_eq!(moved, ["unpack ok", "ok refs/heads/main"]);
     assert_eq!(sandbox.blob_count(), source.count());
 }
+
+/// A forge founded with `bounds` holding `project` with a history: c1 ← c2 ←
+/// c3 ← c4, a side commit merged at c4, each with a file of its own; and the
+/// source the pack came from.
+fn history(bounds: Bounds) -> (MemorySandbox, MemoryObjects, [Oid; 5]) {
+    let sandbox = MemorySandbox::default();
+    Forge::init(&sandbox.exec(1), &abi::encode(&bounds)).unwrap();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let c1 = file_commit(&mut source, &[], 1, &[("one", b"1")]);
+    let c2 = file_commit(&mut source, &[c1], 2, &[("two", b"2")]);
+    let side = file_commit(&mut source, &[c1], 3, &[("side", b"s")]);
+    let c3 = file_commit(&mut source, &[c2], 4, &[("three", b"3")]);
+    let c4 = file_commit(&mut source, &[c3, side], 5, &[("four", b"4")]);
+    let moved = push(
+        &sandbox,
+        OWNER,
+        "project",
+        &[(Hash::Sha1.zero(), c4, "refs/heads/main")],
+        &pack_of(&source, &all_ids(&source)),
+    )
+    .unwrap();
+    assert_eq!(moved, ["unpack ok", "ok refs/heads/main"]);
+    (sandbox, source, [c1, c2, side, c3, c4])
+}
+
+fn objects(sandbox: &MemorySandbox, ids: &[Oid], ancestors: bool) -> (Vec<Oid>, Vec<String>) {
+    let query = Query::Objects {
+        repo: "project".into(),
+        ids: ids.iter().map(|id| id.to_hex()).collect(),
+        ancestors,
+    };
+    let Reply::Objects {
+        objects, missing, ..
+    } = abi::decode(&ask(sandbox, &query).unwrap()).unwrap()
+    else {
+        panic!("objects");
+    };
+    let ids = objects
+        .iter()
+        .map(|object| Oid::from_hex(Hash::Sha1, &object.oid).unwrap())
+        .collect();
+    (ids, missing)
+}
+
+#[test]
+fn objects_come_by_id_as_git_stores_them_and_the_unheld_are_named() {
+    let (sandbox, source, [c1, _, _, _, c4]) = history(bounds());
+    let tree = Commit::parse(&source.get(&c4).unwrap().unwrap().body, Hash::Sha1)
+        .unwrap()
+        .tree;
+    let absent = Oid::from_hex(Hash::Sha1, "ab".repeat(20)).unwrap();
+    let query = Query::Objects {
+        repo: "project".into(),
+        ids: [tree, absent, c1].iter().map(|id| id.to_hex()).collect(),
+        ancestors: false,
+    };
+    let Reply::Objects {
+        objects, missing, ..
+    } = abi::decode(&ask(&sandbox, &query).unwrap()).unwrap()
+    else {
+        panic!("objects");
+    };
+    assert_eq!(missing, [absent.to_hex()]);
+    let held: Vec<_> = objects
+        .iter()
+        .map(|object| (object.oid.clone(), object.kind, object.body.clone()))
+        .collect();
+    let body = |id: &Oid| source.get(id).unwrap().unwrap().body;
+    assert_eq!(
+        held,
+        [
+            (tree.to_hex(), forge::ObjectKind::Tree, body(&tree)),
+            (c1.to_hex(), forge::ObjectKind::Commit, body(&c1)),
+        ]
+    );
+}
+
+/// The budget is a query's read budget: `tree_walk` reads, `diff_bytes`
+/// bytes. An id past it is in neither list, to ask again; the first held
+/// object comes whatever its size, so no object is out of reach.
+#[test]
+fn the_read_budget_cuts_the_ids_and_the_first_held_comes_past_it() {
+    let (sandbox, _, [c1, c2, _, c3, c4]) = history(Bounds {
+        tree_walk: 3,
+        ..bounds()
+    });
+    assert_eq!(objects(&sandbox, &[c4, c3, c2, c1], false).0, [c4, c3, c2]);
+    let (sandbox, source, [c1, c2, ..]) = history(Bounds {
+        diff_bytes: 10,
+        blob_bytes: 10,
+        ..bounds()
+    });
+    assert!(source.get(&c1).unwrap().unwrap().body.len() > 10);
+    assert_eq!(objects(&sandbox, &[c1, c2], false), (vec![c1], vec![]));
+}
+
+/// With `ancestors`, what the budget leaves brings the commits the named
+/// ones descend from, breadth first: only commits, each once.
+#[test]
+fn ancestors_come_breadth_first_while_the_budget_lasts() {
+    let (sandbox, _, [c1, c2, side, c3, c4]) = history(bounds());
+    assert_eq!(objects(&sandbox, &[c4], true).0, [c4, c3, side, c2, c1]);
+    assert_eq!(objects(&sandbox, &[c4], false).0, [c4]);
+    let (sandbox, _, [_, _, side, c3, c4]) = history(Bounds {
+        tree_walk: 3,
+        ..bounds()
+    });
+    assert_eq!(objects(&sandbox, &[c4], true).0, [c4, c3, side]);
+}

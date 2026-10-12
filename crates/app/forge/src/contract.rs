@@ -22,9 +22,10 @@ pub struct Bounds {
     /// Maximum commits in a history/compare walk; a log's `exclude` side
     /// walks under its own budget of the same size.
     pub log_walk: u64,
-    /// Maximum object reads in a tree/diff/compare query.
+    /// Maximum object reads in a tree/diff/compare/objects query.
     pub tree_walk: u64,
     /// Aggregate object bytes read by a query (including trees and commits).
+    /// An objects query answers its first held object even past it.
     pub diff_bytes: u64,
     /// Largest blob displayed inline. Larger blobs return a header.
     pub blob_bytes: u64,
@@ -159,7 +160,7 @@ pub enum Service {
 /// partly from chat's and names those too. Git objects are not keys: a
 /// view reaches one through a ref, and the push or merge that moves the ref
 /// brings it (a stage stores objects no ref reaches yet), so a read of
-/// objects follows `REFS`. The git client's own two questions declare
+/// objects follows `REFS`. The git client's own questions declare
 /// nothing: no view follows them.
 #[derive(
     Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize, ::program::Ask,
@@ -255,6 +256,20 @@ pub enum Query {
         principal: Principal,
         page: PageRequest,
     },
+    /// Git objects by id, as git stores them, for a git client that walks
+    /// the history itself (git-remote-duck's fetch). The ids are answered in
+    /// order under a query's read budget (`tree_walk` reads, `diff_bytes`
+    /// bytes), the first held one whatever its size; an id past the budget
+    /// is in neither of the reply's lists, to ask again. With `ancestors`,
+    /// the budget left brings the commits the named commits descend from,
+    /// breadth first: a walk down a history learns a commit's parents only
+    /// by reading it, so without them a clone pays one round trip a
+    /// generation.
+    Objects {
+        repo: String,
+        ids: Vec<String>,
+        ancestors: bool,
+    },
 }
 
 impl Query {
@@ -284,7 +299,8 @@ impl Query {
             | Query::Upload { .. }
             | Query::Blob { .. }
             | Query::Compare { .. }
-            | Query::Activity { .. } => None,
+            | Query::Activity { .. }
+            | Query::Objects { .. } => None,
         }
     }
 
@@ -304,7 +320,8 @@ impl Query {
             | Query::Upload { .. }
             | Query::Blob { .. }
             | Query::Compare { .. }
-            | Query::Activity { .. } => None,
+            | Query::Activity { .. }
+            | Query::Objects { .. } => None,
         }
     }
 }
@@ -383,6 +400,30 @@ pub enum Reply {
         height: u64,
         page: PageResponse<Judgment>,
     },
+    /// The held objects among the ids answered, in order, then the
+    /// ancestors asked for; `missing` the ids answered that this node does
+    /// not hold.
+    Objects {
+        height: u64,
+        objects: Vec<GitObject>,
+        missing: Vec<String>,
+    },
+}
+
+/// A git object as git stores it: its id, kind and body.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct GitObject {
+    pub oid: String,
+    pub kind: ObjectKind,
+    pub body: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum ObjectKind {
+    Commit,
+    Tree,
+    Blob,
+    Tag,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

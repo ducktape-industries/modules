@@ -474,3 +474,66 @@ fn fetch_pack_is_valid_for_git() {
     assert!(fsck.status.success(), "{fsck:?}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A store across a network, as a fetch sees it: what the walk announced
+/// ([`Objects::prefetch`]) and each read, in order.
+struct Remote {
+    store: MemoryObjects,
+    announced: std::cell::RefCell<BTreeSet<Oid>>,
+    reads: std::cell::RefCell<Vec<(Oid, Kind, bool)>>,
+}
+
+impl Objects for Remote {
+    fn get(&self, id: &Oid) -> gitcore::Result<Option<gitcore::Object>> {
+        let object = self.store.get(id)?;
+        if let Some(object) = &object {
+            let announced = self.announced.borrow().contains(id);
+            self.reads.borrow_mut().push((*id, object.kind, announced));
+        }
+        Ok(object)
+    }
+
+    fn has(&self, id: &Oid) -> gitcore::Result<bool> {
+        self.store.has(id)
+    }
+
+    fn put(&mut self, _: Kind, _: &[u8]) -> gitcore::Result<Oid> {
+        Err(Error::Unsupported)
+    }
+
+    fn prefetch(&self, ids: &[Oid]) -> gitcore::Result<()> {
+        self.announced.borrow_mut().extend(ids.iter().copied());
+        Ok(())
+    }
+}
+
+/// Every tree and blob a fetch reads, and every object of its pack, is
+/// announced before it is read, so a store across a network fetches them
+/// in batches; only the commit walk reads what it learns one at a time.
+#[test]
+fn a_fetch_announces_what_it_reads_next() {
+    let (store, refs, _, tip, tag) = repo();
+    let remote = Remote {
+        store,
+        announced: Default::default(),
+        reads: Default::default(),
+    };
+    let command = Fetch {
+        wants: vec![tip, tag],
+        done: true,
+        ..Fetch::default()
+    };
+    let mut bytes = Vec::new();
+    fetch(&remote, &refs, &command, 1000, &mut |chunk| {
+        bytes.extend_from_slice(chunk)
+    })
+    .unwrap();
+    let reads = remote.reads.borrow();
+    let unannounced: Vec<_> = reads
+        .iter()
+        .filter(|(_, kind, announced)| *kind != Kind::Commit && !announced)
+        .collect();
+    assert!(unannounced.is_empty(), "{unannounced:?}");
+    assert!(reads.iter().any(|(_, kind, _)| *kind == Kind::Tree));
+    assert!(reads.iter().any(|(_, kind, _)| *kind == Kind::Blob));
+}
