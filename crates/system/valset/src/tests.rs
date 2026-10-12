@@ -1,11 +1,13 @@
 // The module natively over `guest::MockHost`: what the founding suite checks on the host, without the host.
 
-use guest::{Env, Error, MockHost, Module, Origin, code};
+use abi::role::identity::{AccountNumber, Category, Kind, Profile, Standing};
+use guest::{Env, Error, MockHost, Module, Origin, Principal, Roster, code};
+use module_registry::{Change, Scheduled};
 use store::PageRequest;
 
 use crate::{
-    Genesis, Grant, INVITE_NAMESPACE, Invite, Member, Membership, Motion, Op, Query, Reply, Role,
-    Valset, Voted,
+    Genesis, Grant, INVITE_NAMESPACE, Invite, Member, Membership, Motion, Op, Pending, Query,
+    Reply, Role, Valset, Voted,
 };
 
 const NETWORK: &[u8] = b"net";
@@ -442,4 +444,233 @@ fn role_asks_the_program_bound_to_the_validators_role() {
         crate::role(&store.query(bound), &key(1)).unwrap(),
         Some(Role::Validator)
     );
+}
+
+// ---- who votes for which validator ----
+
+/// Ada, a person: key 20 is her device.
+const ADA: AccountNumber = 10;
+/// Bob, a person who manages no validator: key 21 is his device.
+const BOB: AccountNumber = 14;
+
+fn profile(number: AccountNumber, kind: Kind) -> Profile {
+    Profile {
+        number,
+        name: format!("account {number}"),
+        kind,
+    }
+}
+
+/// An agent Ada manages, in `standing`.
+fn agent(number: AccountNumber, standing: Standing) -> Profile {
+    profile(
+        number,
+        Kind::Managed {
+            manager: ADA,
+            category: Category::Agent,
+            standing,
+        },
+    )
+}
+
+/// Ada and Bob holding their devices, and each `(key, account)` of
+/// `held`; `agents` are Ada's agents.
+fn roster(held: &[(u8, AccountNumber)], agents: Vec<Profile>) -> Roster {
+    let mut roster = Roster::from(agents);
+    for person in [ADA, BOB] {
+        roster
+            .profiles
+            .insert(person, profile(person, Kind::Person));
+    }
+    roster.keys.insert(key(20), ADA);
+    roster.keys.insert(key(21), BOB);
+    for (n, account) in held {
+        roster.keys.insert(key(*n), *account);
+    }
+    roster
+}
+
+/// Validators 1 to 4, Ada's agent 11 holding validator 1's node key.
+fn delegated() -> MockHost {
+    let store = found(&[1, 2, 3, 4], 8).unwrap();
+    store.identity(roster(&[(1, 11)], vec![agent(11, Standing::Active)]));
+    store
+}
+
+/// A frame from device key `n`, acting as `account`, as the host resolves it.
+fn device(store: &MockHost, n: u8, account: AccountNumber, motion: Motion) -> Result<Voted, Error> {
+    let frame = Env {
+        sender: Some(Principal::Account(account)),
+        ..env(Origin::Signed(key(n)))
+    };
+    store.attempt(|| Valset::execute(&store.exec(frame), Op::Vote(motion)))?;
+    Ok(abi::decode(&store.take_output()).unwrap())
+}
+
+fn voices(store: &MockHost, n: u8) -> Vec<Vec<u8>> {
+    match ask(store, Query::Voices { key: key(n) }) {
+        Reply::Voices(voices) => voices,
+        other => panic!("{other:?}"),
+    }
+}
+
+fn motions(store: &MockHost, height: u64) -> (u64, Vec<Pending>) {
+    let at = Env {
+        height,
+        ..env(Origin::Root)
+    };
+    let query = Query::Motions {
+        page: PageRequest::first(16),
+    };
+    match Valset::query(&store.query(at), query).unwrap() {
+        Reply::Motions { needed, page } => (needed, page.items),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn counted(votes: u64) -> Voted {
+    Voted::Counted { votes, needed: 3 }
+}
+
+/// A registry op scheduling chat's removal at `height`.
+fn schedule(height: u64) -> Motion {
+    let op = module_registry::Op::Schedule(Scheduled {
+        height,
+        change: Change::Remove("chat".into()),
+    });
+    Motion::Registry {
+        op: abi::encode(&op),
+    }
+}
+
+#[test]
+fn a_validator_votes_as_itself_and_asks_identity_nothing() {
+    // no identity is seated: any ask of it would be refused
+    let store = founded();
+    let open = Motion::Door { open: true };
+    let one = Voted::Counted {
+        votes: 1,
+        needed: 2,
+    };
+    assert_eq!(vote(&store, 1, open.clone()).unwrap(), one);
+    assert_eq!(vote(&store, 2, open).unwrap(), Voted::Enacted);
+    assert_eq!(voices(&store, 1), [key(1)]);
+}
+
+#[test]
+fn a_managers_device_votes_for_the_validator_on_its_active_agent() {
+    let store = delegated();
+    let open = Motion::Door { open: true };
+    assert_eq!(device(&store, 20, ADA, open.clone()).unwrap(), counted(1));
+    let (_, pending) = motions(&store, 3);
+    assert_eq!(pending[0].voters, [key(1)]);
+    vote(&store, 2, open.clone()).unwrap();
+    assert_eq!(vote(&store, 3, open).unwrap(), Voted::Enacted);
+}
+
+#[test]
+fn a_suspended_agent_adds_no_voice_and_any_other_refusal_fails_the_vote() {
+    let store = found(&[1, 2, 3, 4], 8).unwrap();
+    store.identity(roster(&[(1, 11)], vec![agent(11, Standing::Suspended)]));
+    let open = Motion::Door { open: true };
+    let alone = device(&store, 20, ADA, open.clone()).unwrap_err();
+    assert_eq!(alone.code, code::UNAUTHORIZED);
+    let agents = vec![agent(11, Standing::Active), agent(12, Standing::Suspended)];
+    store.identity(roster(&[(1, 11), (2, 12)], agents));
+    assert_eq!(device(&store, 20, ADA, open.clone()).unwrap(), counted(1));
+    assert_eq!(voices(&store, 20), [key(1)]);
+    // an identity that refuses for any other reason fails the vote
+    store.borrow_mut().siblings.insert(
+        MockHost::roles().identity,
+        Box::new(|_, _| Err(Error::new(code::UNSUPPORTED, "not answered here"))),
+    );
+    let misbound = device(&store, 20, ADA, open).unwrap_err();
+    assert_eq!(misbound.code, code::UNSUPPORTED);
+}
+
+#[test]
+fn a_stranger_is_refused_and_a_node_key_on_a_person_votes_only_as_itself() {
+    let store = found(&[1, 2, 3, 4], 8).unwrap();
+    // validator 2's node key on Ada's own account, not on an agent
+    store.identity(roster(&[(2, ADA)], vec![]));
+    let open = Motion::Door { open: true };
+    let bob = device(&store, 21, BOB, open.clone()).unwrap_err();
+    assert_eq!(bob.code, code::UNAUTHORIZED);
+    let ada = device(&store, 20, ADA, open.clone()).unwrap_err();
+    assert_eq!(ada.code, code::UNAUTHORIZED);
+    assert_eq!(device(&store, 2, ADA, open).unwrap(), counted(1));
+    assert_eq!(voices(&store, 2), [key(2)]);
+    assert!(voices(&store, 20).is_empty());
+}
+
+#[test]
+fn one_frame_casts_every_voice_and_a_validator_counts_once() {
+    let store = found(&[1, 2, 3, 4], 8).unwrap();
+    let agents = vec![agent(11, Standing::Active), agent(12, Standing::Active)];
+    store.identity(roster(&[(1, 11), (2, 12)], agents));
+    let open = Motion::Door { open: true };
+    assert_eq!(device(&store, 20, ADA, open.clone()).unwrap(), counted(2));
+    assert_eq!(vote(&store, 1, open.clone()).unwrap(), counted(2));
+    assert_eq!(device(&store, 20, ADA, open.clone()).unwrap(), counted(2));
+    assert_eq!(vote(&store, 3, open).unwrap(), Voted::Enacted);
+}
+
+#[test]
+fn a_key_taken_off_the_agent_casts_no_new_votes_and_its_votes_stand() {
+    let store = delegated();
+    let open = Motion::Door { open: true };
+    assert_eq!(device(&store, 20, ADA, open.clone()).unwrap(), counted(1));
+    store.identity(roster(&[], vec![agent(11, Standing::Active)]));
+    let gone = device(&store, 20, ADA, open.clone()).unwrap_err();
+    assert_eq!(gone.code, code::UNAUTHORIZED);
+    assert!(voices(&store, 20).is_empty());
+    assert_eq!(vote(&store, 2, open).unwrap(), counted(2));
+}
+
+#[test]
+fn a_registry_schedule_too_late_to_land_is_refused_at_the_first_vote() {
+    let store = delegated();
+    // the block is at height 3
+    assert_eq!(
+        refused(&store, 1, Op::Vote(schedule(3))),
+        code::INVALID_INPUT
+    );
+    let late = device(&store, 20, ADA, schedule(2)).unwrap_err();
+    assert_eq!(late.code, code::INVALID_INPUT);
+    assert!(motions(&store, 3).1.is_empty());
+    assert_eq!(vote(&store, 1, schedule(4)).unwrap(), counted(1));
+}
+
+#[test]
+fn motions_list_what_vote_stored_and_voices_are_the_set_vote_uses() {
+    let store = delegated();
+    let open = Motion::Door { open: true };
+    device(&store, 20, ADA, open.clone()).unwrap();
+    vote(&store, 4, open.clone()).unwrap();
+    vote(&store, 2, schedule(5)).unwrap();
+    let (needed, pending) = motions(&store, 3);
+    assert_eq!(needed, 3);
+    assert_eq!(
+        pending,
+        [
+            Pending {
+                motion: open.clone(),
+                voters: vec![key(1), key(4)],
+            },
+            Pending {
+                motion: schedule(5),
+                voters: vec![key(2)],
+            },
+        ]
+    );
+    // at the change's height it can no longer land: left out
+    assert_eq!(motions(&store, 5).1.len(), 1);
+    // a voter unseated drops out of the list as out of the tally
+    pass(&store, &[1, 2, 3], Motion::Remove { key: key(4) });
+    let (needed, pending) = motions(&store, 3);
+    assert_eq!(needed, 3);
+    assert_eq!(pending[0].voters, [key(1)]);
+    assert_eq!(voices(&store, 20), [key(1)]);
+    assert_eq!(voices(&store, 1), [key(1)]);
+    assert!(voices(&store, 21).is_empty());
 }

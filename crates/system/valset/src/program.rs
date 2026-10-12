@@ -2,7 +2,7 @@
 
 use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
 
-use crate::rules::{MEMBERS, execute, init, memberships, validators};
+use crate::rules::{MEMBERS, account_of, execute, init, memberships, motions, validators, voices};
 use crate::{Genesis, MODULE, Membership, Op, Query, Reply};
 
 pub struct Valset;
@@ -33,6 +33,12 @@ impl Module for Valset {
                 Reply::Memberships(MEMBERS.range(ctx, &page)?.map(|(_, membership)| membership))
             }
             Query::Membership { key } => Reply::Membership(MEMBERS.get(ctx, &key)?),
+            Query::Motions { page } => motions(ctx, &page)?,
+            // a query has no sender: the account is the key's own
+            Query::Voices { key } => {
+                let voices = voices(ctx, &validators(ctx)?, &key, || account_of(ctx, &key))?;
+                Reply::Voices(voices)
+            }
         })
     }
 }

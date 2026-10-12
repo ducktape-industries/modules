@@ -56,8 +56,8 @@ enum Call<'a> {
 /// Who holds what, for a chain with no identity module seated: each key
 /// the account it holds, and each account's profile (a module's account is
 /// the profile whose kind names the module). The identity role over it
-/// answers modules ([`identity_role`]) and the chain (`Account`,
-/// `OfModule`).
+/// ([`identity_role`]) answers modules and the chain alike, as identity
+/// answers any asker.
 ///
 /// ```ignore
 /// let chain = MockChain::default();
@@ -72,9 +72,9 @@ pub struct Roster {
 }
 
 impl Roster {
-    /// What the kernel asks identity: the account a key holds (refused
-    /// while it does not act) or a module's own.
-    fn account(&self, asked: &Query) -> Result<Option<AccountNumber>, Error> {
+    /// Who acts, as the kernel (or a module) asks identity: the account a
+    /// key holds (refused while it does not act) or a module's own.
+    pub(crate) fn account(&self, asked: &Query) -> Result<Option<AccountNumber>, Error> {
         let number = match asked {
             Query::Account(key) => self.keys.get(key).copied(),
             Query::OfModule(module) => self
@@ -82,7 +82,9 @@ impl Roster {
                 .values()
                 .find(|profile| profile.kind == Kind::Module(module.clone()))
                 .map(|profile| profile.number),
-            Query::Profile(_) | Query::Profiles { .. } => unreachable!("the chain asks who acts"),
+            Query::Profile(_) | Query::Profiles { .. } => {
+                unreachable!("only who acts is asked here")
+            }
         };
         if let Some(number) = number
             && let Some(profile) = self.profiles.get(&number)
@@ -94,9 +96,15 @@ impl Roster {
         }
         Ok(number)
     }
+}
 
-    fn profiles(&self) -> Vec<Profile> {
-        self.profiles.values().cloned().collect()
+/// Profiles alone: a roster that holds no key.
+impl From<Vec<Profile>> for Roster {
+    fn from(profiles: Vec<Profile>) -> Roster {
+        Roster {
+            keys: BTreeMap::new(),
+            profiles: profiles.into_iter().map(|p| (p.number, p)).collect(),
+        }
     }
 }
 
@@ -166,7 +174,7 @@ impl MockChain {
         let roster = self.roster.clone();
         host.borrow_mut().siblings.insert(
             self.roles.identity.clone(),
-            Box::new(move |_, request| identity_role(&roster.borrow().profiles(), request)),
+            Box::new(move |_, request| identity_role(&roster.borrow(), request)),
         );
         // a module may query itself, as the kernel answers it
         host.borrow_mut()

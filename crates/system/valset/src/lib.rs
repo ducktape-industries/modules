@@ -1,5 +1,7 @@
 //! The `valset` module: who validates and who resides on a network. A key enrolls as a
-//! resident, by invite or through an open door; the validators' vote changes the rest.
+//! resident, by invite or through an open door; the validators' vote changes the rest. A
+//! validator votes with its node key, or through the person who manages the agent its node
+//! key sits on: any of that person's devices votes for it.
 //! Types, rules and [`Valset`] always build; the `module` feature adds the wasm exports.
 mod program;
 mod rules;
@@ -50,6 +52,16 @@ pub enum Query {
     Memberships { page: PageRequest },
     #[ask(Reply::Membership(Option<Membership>))]
     Membership { key: Vec<u8> },
+    /// The motions waiting for votes, in their bytes' order, and how many
+    /// votes pass one now. A registry change that can no longer land (its
+    /// height at or below the tip) is left out.
+    #[ask(Reply::Motions { needed: u64, page: PageResponse<Pending> })]
+    Motions { page: PageRequest },
+    /// The validators a frame signed by `key` votes for: `key` itself when
+    /// it is one, else the validators whose node keys sit on agents that
+    /// `key`'s account manages and keeps active. Empty: `key` does not vote.
+    #[ask(Reply::Voices(Vec<Vec<u8>>))]
+    Voices { key: Vec<u8> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -58,6 +70,19 @@ pub enum Reply {
     Members(Vec<Member>),
     Memberships(PageResponse<Membership>),
     Membership(Option<Membership>),
+    Motions {
+        needed: u64,
+        page: PageResponse<Pending>,
+    },
+    Voices(Vec<Vec<u8>>),
+}
+
+/// A motion waiting for votes, and the validators that cast one: only
+/// those still seated, as the tally counts them.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Pending {
+    pub motion: Motion,
+    pub voters: Vec<Vec<u8>>,
 }
 
 /// The ask another module makes of valset, at the program genesis bound to
