@@ -3,6 +3,7 @@
 use crate::composer::{Draft, Event, MentionChoice, Outcome, Send, Target, pending_row};
 use crate::names::mention_token;
 use crate::{Chat, Mode};
+use chat::MsgRow;
 use ducktape_view_guest::prelude::*;
 
 impl Chat {
@@ -89,14 +90,25 @@ impl Chat {
         let open_dm = self.dm_to_open(&target);
         cx.spawn(async move |this, cx| {
             let host = cx.host();
+            let minted = async {
+                let id = host.ask::<HostId>("message".into()).await?;
+                crate::composer::op(id, &send, &target)
+            }
+            .await;
+            let held = minted
+                .as_ref()
+                .ok()
+                .zip(me)
+                .and_then(|(op, me)| pending_row(op, me));
+            if let Some(row) = held.clone() {
+                let _ = this.update(cx, |chat, cx| chat.hold(&target, row, cx));
+            }
             let result = async {
+                let op = minted?;
                 if let Some(open) = open_dm {
                     host.ask::<Submit<::chat::Chat>>(open).await?;
                 }
-                let id = host.ask::<HostId>("message".into()).await?;
-                let op = crate::composer::op(id, &send, &target)?;
-                let pending = me.and_then(|me| pending_row(&op, me));
-                host.ask::<Submit<::chat::Chat>>(op).await.map(|_| pending)
+                host.ask::<Submit<::chat::Chat>>(op).await
             }
             .await;
             let _ = this.update(cx, |chat, cx| {
@@ -106,16 +118,8 @@ impl Chat {
                 let draft = chat.drafts.entry(key).or_default();
                 draft.complete_send(&send);
                 match result {
-                    Ok(pending) => {
+                    Ok(_) => {
                         draft.note.clear();
-                        // the room's re-read may have served it already: the
-                        // receipt and the changes come over separate links
-                        if let (Some(row), Some(room)) = (pending, chat.room.as_mut())
-                            && room.id == target.channel()
-                        {
-                            room.pending.push(row);
-                            room.settle();
-                        }
                         if let Target::Edit { seq, .. } = target
                             && chat
                                 .menu
@@ -129,11 +133,34 @@ impl Chat {
                     Err(refusal) => {
                         draft.note = refusal.message;
                         draft.failed(send);
+                        if let Some(row) = held {
+                            chat.unhold(&row.message_id);
+                        }
                     }
                 }
             });
         })
         .detach();
+    }
+
+    fn hold(&mut self, target: &Target, row: MsgRow, cx: &mut Context<Self>) {
+        let Some(room) = self
+            .room
+            .as_mut()
+            .filter(|room| room.id == target.channel())
+        else {
+            return;
+        };
+        room.pending.push(row);
+        room.settle();
+        cx.notify();
+    }
+
+    fn unhold(&mut self, message_id: &str) {
+        let Some(room) = self.room.as_mut() else {
+            return;
+        };
+        room.pending.retain(|row| row.message_id != message_id);
     }
 
     /// A post into a dm room the channel list doesn't hold yet: the op that

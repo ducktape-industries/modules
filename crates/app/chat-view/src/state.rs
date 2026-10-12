@@ -83,9 +83,6 @@ pub struct Room {
     pub(crate) messages: Loadable<Vec<MsgRow>>,
     pub(crate) members: Loadable<Vec<MemberRow>>,
     pub(crate) thread: Option<Thread>,
-    /// sends the module accepted that the index has not shown yet; drawn
-    /// after the fetched rows and dropped once a fetched row carries the id,
-    /// whichever comes first ([`Room::settle`] after every write to either)
     #[serde(skip)]
     pub(crate) pending: Vec<MsgRow>,
     pub(crate) has_older: bool,
