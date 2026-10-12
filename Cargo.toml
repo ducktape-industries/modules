@@ -79,7 +79,7 @@ view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }
 conformance = { path = "crates/sdk/conformance" }
 ducktape-view-guest = { path = "crates/sdk/view-guest" }
-gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "d5b9b8176f77343107b719c8b57bbe796c58d5c0", default-features = false }
+gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "69b0b541f7e517f25bd54f9fcf778be4a6b173be", default-features = false }
 module-registry = { path = "crates/system/module-registry" }
 valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
@@ -163,6 +163,6 @@ inherits = "release"
 strip = "debuginfo"
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "d5b9b8176f77343107b719c8b57bbe796c58d5c0" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "d5b9b8176f77343107b719c8b57bbe796c58d5c0" }
-gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "d5b9b8176f77343107b719c8b57bbe796c58d5c0" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "69b0b541f7e517f25bd54f9fcf778be4a6b173be" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "69b0b541f7e517f25bd54f9fcf778be4a6b173be" }
+gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "69b0b541f7e517f25bd54f9fcf778be4a6b173be" }
