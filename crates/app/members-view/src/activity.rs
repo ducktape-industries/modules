@@ -1,89 +1,72 @@
-//! What an account's keys signed lately. Nothing indexes an account's
-//! history, so, as Explorer's account page does, this reads the node's
-//! recent window of blocks, newest first, and keeps the transactions one of
-//! the account's keys signed, each titled by its own program
-//! (`module.describe`).
+//! What an account did lately, as the `activity` program indexes it: the newest frames the
+//! account acted in, each titled by its own program (`module.describe`) from its block's payload.
+use ::activity::PageRequest;
 use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// The recent window, in blocks: explorer-view's `WINDOW`.
-pub const WINDOW: u64 = 1_000;
-/// Blocks per `chain.blocks` page: explorer-view's, small so one reply's
-/// decoding stays well inside a tick's fuel.
-const PAGE: u32 = 20;
-/// The most transactions the detail lists; the scan stops once it has them.
 pub const SHOWN: usize = 8;
 
-/// The newest transactions an account signed in the window.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Recent {
-    /// the newest block's time, which `when` counts back from
     pub now: u64,
     pub items: Vec<Signed>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Signed {
-    /// what its program says it does: `Post in #general`
     pub title: String,
     pub height: u64,
     pub time: u64,
 }
 
-pub async fn recent(host: Host, keys: Vec<Vec<u8>>) -> Result<Recent, Error> {
-    let mut now = None;
-    let mut found = Vec::new();
-    let mut read = 0;
-    let mut before = None;
-    'window: loop {
-        let page = host
-            .ask::<ChainBlocks>(BlockPage {
-                before,
-                limit: PAGE,
-            })
-            .await?;
-        let full = page.len() == PAGE as usize;
-        for block in page {
-            now.get_or_insert(block.time);
-            read += 1;
-            before = Some(block.height);
-            for tx in block.txs.into_iter().rev() {
-                if keys.contains(&tx.signer) {
-                    found.push((block.height, block.time, tx.target, tx.payload));
-                    if found.len() == SHOWN {
-                        break 'window;
-                    }
-                }
-            }
-            if read == WINDOW || block.height == 0 {
-                break 'window;
-            }
+pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
+    let tip = host
+        .ask::<ChainBlocks>(BlockPage {
+            before: None,
+            limit: 1,
+        })
+        .await?;
+    let acted = ::activity::ask::Acted {
+        account,
+        page: PageRequest::first(SHOWN as u64),
+    };
+    let frames = host.query(acted).await?.items;
+    let mut block: Option<Block> = None;
+    let mut items = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let held = block
+            .as_ref()
+            .is_some_and(|block| block.height == frame.height);
+        if !held {
+            let at = BlockRef::Height(frame.height);
+            block = host.ask::<ChainBlock>(at).await.ok().flatten();
         }
-        if !full {
-            break;
-        }
-    }
-    let mut items = Vec::with_capacity(found.len());
-    for (height, time, target, payload) in found {
-        let described = host
-            .ask::<ModuleDescribe>((target.clone(), payload.clone()))
-            .await;
-        let title = match described {
-            Ok(Some(op)) => op.title,
-            // a program that says nothing, or a refusal: its name and size
-            Ok(None) | Err(_) => format!(
-                "{target} · {}",
-                design::plural(payload.len() as u64, "byte", "bytes")
-            ),
-        };
+        let payload = block
+            .as_ref()
+            .and_then(|block| block.txs.get(frame.position as usize))
+            .map(|tx| tx.payload.clone());
         items.push(Signed {
-            title,
-            height,
-            time,
+            title: title(&host, &frame.target, payload).await,
+            height: frame.height,
+            time: frame.time,
         });
     }
     Ok(Recent {
-        now: now.unwrap_or(0),
+        now: tip.first().map_or(0, |block| block.time),
         items,
     })
+}
+
+async fn title(host: &Host, target: &str, payload: Option<Vec<u8>>) -> String {
+    let Some(payload) = payload else {
+        return target.to_owned();
+    };
+    let size = design::plural(payload.len() as u64, "byte", "bytes");
+    match host
+        .ask::<ModuleDescribe>((target.to_owned(), payload))
+        .await
+    {
+        Ok(Some(op)) => op.title,
+        Ok(None) | Err(_) => format!("{target} · {size}"),
+    }
 }

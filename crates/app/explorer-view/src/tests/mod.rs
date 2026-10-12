@@ -12,6 +12,7 @@ pub(crate) use std::rc::Rc;
 
 pub(crate) use crate::*;
 pub(crate) use abi::BlobId;
+pub(crate) use activity::Activity;
 pub(crate) use ducktape_view_guest::host::Error;
 pub(crate) use ducktape_view_guest::methods::{
     Block, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads, ChainStatus, Changes,
@@ -191,11 +192,81 @@ pub(crate) fn forge() -> identity::Account {
         },
     )
 }
+/// The account a key acts as: Ada's laptop is account 3, a stranger none.
+pub(crate) fn holder(signer: &[u8]) -> Option<u64> {
+    (signer == ADA).then_some(3)
+}
+
+fn whole<T>(items: Vec<T>) -> activity::PageResponse<T> {
+    activity::PageResponse {
+        height: 1,
+        items,
+        next: None,
+    }
+}
+
+/// The `activity` program over `chain`, as the kernel's hook would have
+/// told it of every frame.
+pub(crate) fn index(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + 'static) {
+    cx.host().handle::<Query<Activity>>(move |query| {
+        let frames = chain().into_iter().rev().flat_map(|block| {
+            let txs = block.txs.into_iter().enumerate().rev();
+            txs.map(move |(position, tx)| {
+                let frame = activity::Frame {
+                    height: block.height,
+                    position: position as u32,
+                    time: block.time,
+                    target: tx.target,
+                    applied: true,
+                };
+                (holder(&tx.signer), frame)
+            })
+        });
+        Ok(match query {
+            activity::Query::Acted {
+                account,
+                page: asked,
+            } => {
+                let acted = frames
+                    .filter(|(holder, _)| *holder == Some(account))
+                    .map(|(_, frame)| frame)
+                    .take(asked.limit() as usize)
+                    .collect();
+                activity::Reply::Frames(whole(acted))
+            }
+            activity::Query::Used { .. } => {
+                let mut used: Vec<activity::Used> = Vec::new();
+                for (holder, frame) in frames {
+                    let Some(account) = holder else {
+                        continue;
+                    };
+                    let counted = used
+                        .iter_mut()
+                        .find(|used| (used.account, &used.program) == (account, &frame.target));
+                    match counted {
+                        Some(used) => used.frames += 1,
+                        None => used.push(activity::Used {
+                            account,
+                            program: frame.target,
+                            frames: 1,
+                        }),
+                    }
+                }
+                used.sort_by(|a, b| (a.account, &a.program).cmp(&(b.account, &b.program)));
+                activity::Reply::Used(whole(used))
+            }
+            other => panic!("unexpected activity query: {other:?}"),
+        })
+    });
+}
+
 /// A node at `tip`, whose tip the test may move.
 pub(crate) fn node(cx: &mut TestAppContext, tip: Rc<RefCell<u64>>) {
     let host = cx.host();
     let head = tip.clone();
     host.handle::<ChainStatus>(move |()| Ok(status(*head.borrow())));
+    let head = tip.clone();
+    index(cx, move || chain(*head.borrow()));
     let head = tip.clone();
     host.handle::<ChainBlocks>(move |ask| Ok(page(&chain(*head.borrow()), &ask)));
     host.handle::<ChainBlock>(move |by| {
@@ -329,6 +400,8 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
         .collect();
     let host = cx.host();
     host.handle::<ChainStatus>(move |()| Ok(status(tip)));
+    let indexed = chain.clone();
+    index(cx, move || indexed.clone());
     let blocks = chain.clone();
     host.handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
     host.handle::<ChainBlock>(move |by| {
@@ -357,5 +430,6 @@ pub(crate) fn quiet_host(cx: &TestAppContext) {
     host.never::<Query<Identity>>();
     host.never::<Query<Valset>>();
     host.never::<Query<Modules>>();
+    host.never::<Query<Activity>>();
     host.never::<ModuleDescribe>();
 }

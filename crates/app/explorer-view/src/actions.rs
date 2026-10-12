@@ -25,6 +25,7 @@ impl Explorer {
         }
         self.left[route.tab()] = Some(route.clone());
         self.route = route;
+        self.read_acted(cx);
         self.note = None;
         self.cursor = None;
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);

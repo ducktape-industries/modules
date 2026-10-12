@@ -22,6 +22,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "activity"
+version = "0.1.0"
+dependencies = [
+ "abi",
+ "borsh",
+ "describe",
+ "guest",
+ "program",
+ "store",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -465,7 +477,7 @@ dependencies = [
 [[package]]
 name = "blobs"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=e762b41dc36ed821429a55110af0bb0642a78c21#e762b41dc36ed821429a55110af0bb0642a78c21"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=dc6243a1dc51076ec923ede6327916372154fc15#dc6243a1dc51076ec923ede6327916372154fc15"
 dependencies = [
  "abi",
  "sha1",
@@ -2034,6 +2046,7 @@ name = "explorer-view"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "activity",
  "borsh",
  "chat",
  "ducklink",
@@ -2920,7 +2933,7 @@ dependencies = [
 [[package]]
 name = "host"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=e762b41dc36ed821429a55110af0bb0642a78c21#e762b41dc36ed821429a55110af0bb0642a78c21"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=dc6243a1dc51076ec923ede6327916372154fc15#dc6243a1dc51076ec923ede6327916372154fc15"
 dependencies = [
  "abi",
  "async-trait",
@@ -2935,6 +2948,7 @@ dependencies = [
  "sha2 0.10.9",
  "state",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]
@@ -3390,7 +3404,7 @@ dependencies = [
 [[package]]
 name = "keyscheme"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=e762b41dc36ed821429a55110af0bb0642a78c21#e762b41dc36ed821429a55110af0bb0642a78c21"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=dc6243a1dc51076ec923ede6327916372154fc15#dc6243a1dc51076ec923ede6327916372154fc15"
 dependencies = [
  "base64 0.22.1",
  "borsh",
@@ -3653,6 +3667,7 @@ name = "members-view"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "activity",
  "chat",
  "ducklink",
  "ducktape-view-guest",
@@ -3750,6 +3765,7 @@ name = "module-registry"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "activity",
  "borsh",
  "chat",
  "commonware-cryptography",
@@ -5067,7 +5083,7 @@ dependencies = [
 [[package]]
 name = "runtime"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=e762b41dc36ed821429a55110af0bb0642a78c21#e762b41dc36ed821429a55110af0bb0642a78c21"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=dc6243a1dc51076ec923ede6327916372154fc15#dc6243a1dc51076ec923ede6327916372154fc15"
 dependencies = [
  "abi",
  "async-trait",
@@ -5603,7 +5619,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "state"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=e762b41dc36ed821429a55110af0bb0642a78c21#e762b41dc36ed821429a55110af0bb0642a78c21"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=dc6243a1dc51076ec923ede6327916372154fc15#dc6243a1dc51076ec923ede6327916372154fc15"
 dependencies = [
  "abi",
  "borsh",

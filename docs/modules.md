@@ -260,6 +260,12 @@ validators role, which sends one when its validators' vote passes a
 `Motion::Registry`; the registry calls it before scheduling or cancelling
 a change.
 
+A module the registry lists as a hook ([roles.md](roles.md), "Hooks") is
+told of every frame a block carries through `Module::hook(ctx, record)`.
+`guest::hook` calls it only when `Env::kernel()` admits the origin (the
+chain, `Root`); a module that does not override `hook` refuses the call.
+`activity` is the one this repo founds.
+
 ## 6. Talking to other modules
 
 **A query is a read.** `ctx.query::<Q, R>(module, &q)` runs the sibling's
@@ -490,13 +496,17 @@ nothing built is committed.
 and `make wasm-publish` releases the result as `founding.tar.gz`, which
 `ducktape init` founds once its `founding.toml` is filled. To add poll to it:
 
-1. `crates/sdk/founding/src/lib.rs`: `("poll", "poll_view")` in `PROGRAMS`.
+1. `crates/sdk/founding/src/lib.rs`: `("poll", "poll_view")` in `PROGRAMS`,
+   or `"poll"` in `UNVIEWED` for a program with no screen of its own.
 2. `crates/sdk/founding/founding.toml`: a `[[programs]]` entry,
    `id = "poll"`, `code = "poll.wasm"` (and `params = …` if `init` takes
    any). The three `[roles]` stay bound to the boot set.
 3. qa's `founding.toml`: the same entry with `code = "@PROGRAMS@/poll.wasm"`.
    `kit up NAME` founds a fresh network with the program admitted at
    genesis and its account registered with identity.
+
+A hook is also named in both files' top-level `hooks = [...]`, as
+`activity` is.
 
 A module added to a running network goes through the registry instead
 (`Publish`, then `Schedule` at a height; [roles.md](roles.md), "Updating a

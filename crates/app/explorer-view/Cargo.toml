@@ -21,6 +21,7 @@ ducklink.workspace = true
 # by a program crate linked here.
 identity.workspace = true
 module-registry.workspace = true
+activity.workspace = true
 valset.workspace = true
 serde.workspace = true
 

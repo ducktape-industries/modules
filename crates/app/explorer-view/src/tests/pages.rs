@@ -318,11 +318,7 @@ fn a_transaction_shows_its_block_anchor_signer_and_operation() {
     );
     cx.simulate_click("explorer-from");
     cx.run_until_parked();
-    assert!(
-        cx.has_text("2 transactions in the last 13 blocks"),
-        "{:?}",
-        cx.texts()
-    );
+    assert!(cx.has_text("2 transactions recorded"), "{:?}", cx.texts());
 }
 
 #[test]
@@ -436,7 +432,7 @@ fn a_frame_landed_again_is_a_row_of_its_own() {
 }
 
 #[test]
-fn an_account_shows_its_devices_and_what_it_used_in_the_window() {
+fn an_account_shows_its_devices_and_what_it_used() {
     let (mut cx, _) = ready();
     cx.simulate_input("explorer-search", "ada");
     cx.simulate_submit("explorer-search");
