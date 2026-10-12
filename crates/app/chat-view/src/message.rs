@@ -16,7 +16,6 @@ pub struct ChatMessage {
     /// who wrote it; a run of messages is one principal's
     pub from: Principal,
     pub author: String,
-    pub meta: String,
     /// the message as one run of plain text: the copy range's line
     pub body: String,
     /// the editable markdown of the same body, mentions as stable tokens
@@ -73,11 +72,6 @@ pub fn chat_message(row: MsgRow, names: &Names) -> ChatMessage {
     let system = chat::program_post(&row, names.module(&row.author))
         .map(|(program, code)| (program.into(), code.into()));
     let edited = row.rev > 0;
-    let meta = match (row.seq, edited) {
-        (0, _) => "sending…".to_string(),
-        (seq, false) => format!("#{seq}"),
-        (seq, true) => format!("#{seq} · edited"),
-    };
     let (body, edit_body, blocks) = if row.deleted {
         (
             "Message deleted".to_string(),
@@ -95,7 +89,6 @@ pub fn chat_message(row: MsgRow, names: &Names) -> ChatMessage {
         id: row.message_id,
         seq: row.seq,
         author: names.author(&row.author),
-        meta,
         body,
         edit_body,
         blocks,
