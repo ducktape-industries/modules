@@ -13,6 +13,8 @@ mod rich;
 use controls::{Face, action_button, reaction_button, replies_button};
 use rich::{plain_line, rich_line};
 
+const PENDING_OPACITY: f32 = 0.5;
+
 /// The cells of the message row being drawn: the message is cell 0, each
 /// enabled control the next in paint order. `active` is the cell the
 /// pane's arrows are on, when this is their row; the controls are handed
@@ -96,6 +98,7 @@ pub fn card(
             theme.background
         })
         .hover(|style| style.bg(theme.surface_raised))
+        .when(message.pending, |card| card.opacity(PENDING_OPACITY))
         .child(message_cell)
         .child(avatar(&message, theme))
         .child(content(chat, message.clone(), pane, &mut cells, cx, theme));
@@ -355,7 +358,7 @@ fn content(
         .gap_1()
         .children(header)
         .children(blocks)
-        .children(marks(&message, theme))
+        .children(edited_mark(&message, theme))
         .children(reactions)
         .children(replies)
         .into_any_element()
@@ -388,23 +391,14 @@ fn blocks(
         .collect()
 }
 
-/// "edited", and "sending…" while the message is on its way.
-fn marks(message: &ChatMessage, theme: &Theme) -> Vec<AnyElement> {
-    let mark = |text: &'static str| {
+fn edited_mark(message: &ChatMessage, theme: &Theme) -> Option<AnyElement> {
+    message.edited.then(|| {
         div()
             .text_size(design::text::CAPTION)
             .text_color(theme.muted)
-            .child(text)
-    };
-    let mut marks = Vec::new();
-    if message.edited {
-        marks.push(mark("edited").into_any_element());
-    }
-    if message.pending {
-        let id = format!("chat-message-{}-pending", message.id);
-        marks.push(mark("sending…").id(id).into_any_element());
-    }
-    marks
+            .child("edited")
+            .into_any_element()
+    })
 }
 
 /// A root's replies: in the timeline, the button into its thread; atop

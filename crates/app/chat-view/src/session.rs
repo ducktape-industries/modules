@@ -41,6 +41,9 @@ impl Chat {
             for draft in self.drafts.values_mut() {
                 draft.retire_device_requests();
             }
+            if let Some(room) = &mut self.room {
+                room.pending.clear();
+            }
             self.reads.cursors.clear();
             self.reads.kept = None;
             self.create = None;

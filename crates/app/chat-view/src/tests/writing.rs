@@ -1,11 +1,8 @@
 //! Sending, and creating channels.
 use super::*;
 
-/// A message sent from the composer shows as sending until a chat block's
-/// re-read serves it; a refused create is a banner; the view restores into
-/// its room.
 #[test]
-fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
+fn a_send_shows_greyed_then_lands_and_a_refusal_is_a_banner() {
     let (mut cx, view) = opened();
     cx.simulate_input("chat-sidebar-search", "hello");
     cx.simulate_submit("chat-sidebar-search");
@@ -25,7 +22,7 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
         )
     );
     // the program took it; the re-read after the send does not serve it yet
-    assert!(cx.has_text("on its way") && cx.has_text("sending…"));
+    assert!(cx.has_text("on its way") && greyed(&cx, "message-1"));
     // its block lands, and the rows read again serve it
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
@@ -45,7 +42,7 @@ fn a_send_shows_pending_then_lands_and_a_refusal_is_a_banner() {
         .stream::<Changes<::chat::Chat>>()
         .send(block(4, posted("general")));
     cx.run_until_parked();
-    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
+    assert!(cx.has_text("on its way") && !greyed(&cx, "message-1"));
     assert_eq!(shown(&view, "message-1"), 1);
     cx.host().refuse::<Submit<::chat::Chat>>("no", "no");
     cx.simulate_click("chat-sidebar-new-channel");
@@ -71,38 +68,89 @@ fn shown(view: &Entity<Chat>, message_id: &str) -> usize {
     })
 }
 
-/// The receipt and `module.changes` come over separate connections, and
-/// the app reads preconfirmed state: the room's re-read can serve the
-/// post before its receipt lands. The receipt then adds nothing: the room
-/// already shows the message, once, with no "sending…".
-#[test]
-fn a_post_the_room_shows_before_its_receipt_is_shown_once() {
+fn greyed(cx: &TestAppContext, message_id: &str) -> bool {
+    cx.style(&format!("chat-message-{message_id}-card")).opacity == Some(0.5)
+}
+
+fn holding(view: &Entity<Chat>) -> Vec<String> {
+    view.read(|chat| {
+        let room = chat.room.as_ref().unwrap();
+        room.pending
+            .iter()
+            .map(|row| row.message_id.clone())
+            .collect()
+    })
+}
+
+fn submit_in_flight(cx: &TestAppContext) -> u64 {
     use ducktape_view_guest::methods::Method;
+    let requests = &cx.last_frame().requests;
+    let submit = requests
+        .iter()
+        .find(|request| request.kind == Submit::<::chat::Chat>::KIND);
+    submit.expect("the post is submitted").id
+}
+
+fn post_in_flight(text: &str) -> (TestAppContext, Entity<Chat>, u64) {
     let (mut cx, view) = opened();
     cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
     cx.host().never::<Submit<::chat::Chat>>();
-    cx.simulate_input("draft-general/editor", "on its way");
-    cx.update(&view, |chat, window, cx| {
-        let target = crate::composer::Target::Post {
-            channel: "general".into(),
-            thread: None,
-        };
-        let send = crate::composer::Event::Action("send".into());
-        chat.composer(target, send, window, cx);
+    cx.simulate_input("draft-general/editor", text);
+    cx.simulate_field_key("draft-general/editor", "enter");
+    let submit = submit_in_flight(&cx);
+    (cx, view, submit)
+}
+
+#[test]
+fn a_post_shows_greyed_while_its_submit_is_in_flight() {
+    let (cx, view, _) = post_in_flight("on its way");
+    assert!(cx.has_text("on its way"), "{:?}", cx.texts());
+    assert!(greyed(&cx, "message-1"));
+    assert_eq!(shown(&view, "message-1"), 1);
+    assert_eq!(holding(&view), ["message-1"]);
+    assert!(!cx.has_text("sending…"));
+    assert!(!greyed(&cx, "m2"), "a served row keeps its colour");
+}
+
+#[test]
+fn a_greyed_post_keeps_its_place_and_height_when_it_lands() {
+    let (mut cx, view, _) = post_in_flight("on its way");
+    let pending = cx.style("chat-message-message-1-card").clone();
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
+        Ok(match query {
+            Query::Channels { .. } => Reply::Channels(page(vec![channel("general", "General", 3)])),
+            Query::Roots { .. } => Reply::Roots(page(vec![
+                row(1, 7, "hello"),
+                row(2, 8, "**hi** there"),
+                MsgRow {
+                    message_id: "message-1".into(),
+                    ..row(3, 7, "on its way")
+                },
+            ])),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
     });
-    // the submit goes out, and its receipt is held
-    let mut receipt = None;
-    for _ in 0..50 {
-        cx.tick(Vec::new());
-        receipt = cx.last_frame().requests.iter().find_map(|request| {
-            (request.kind == Submit::<::chat::Chat>::KIND).then_some(request.id)
-        });
-        if receipt.is_some() {
-            break;
-        }
-    }
-    let receipt = receipt.expect("the post is submitted");
+    cx.host()
+        .stream::<Changes<::chat::Chat>>()
+        .send(block(4, posted("general")));
     cx.run_until_parked();
+    let landed = cx.style("chat-message-message-1-card").clone();
+    assert_eq!(
+        StyleRefinement {
+            opacity: None,
+            ..pending
+        },
+        landed,
+        "only the colour changes"
+    );
+    assert_eq!(shown(&view, "message-1"), 1);
+    assert!(holding(&view).is_empty());
+}
+
+#[test]
+fn a_post_the_room_shows_before_its_receipt_is_shown_once() {
+    use ducktape_view_guest::methods::Method;
+    let (mut cx, view, receipt) = post_in_flight("on its way");
     // its block lands first, and the re-read serves it
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
@@ -124,29 +172,24 @@ fn a_post_the_room_shows_before_its_receipt_is_shown_once() {
         .stream::<Changes<::chat::Chat>>()
         .send(block(4, posted("general")));
     cx.run_until_parked();
-    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
+    assert!(cx.has_text("on its way") && !greyed(&cx, "message-1"));
     // then the receipt
-    cx.tick(vec![wire::Event::Response {
+    cx.simulate_event(wire::Event::Response {
         id: receipt,
         result: Ok(Submit::<::chat::Chat>::encode_reply(&Vec::new())),
         done: true,
-    }]);
-    cx.run_until_parked();
-    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
+    });
+    assert!(cx.has_text("on its way") && !greyed(&cx, "message-1"));
     assert_eq!(shown(&view, "message-1"), 1);
-    view.read(|chat| assert!(chat.room.as_ref().unwrap().pending.is_empty()));
+    assert!(holding(&view).is_empty());
 }
 
 /// A post still sending, and the room opened again around a search hit
 /// whose window serves it: the window settles it, as a re-read does.
 #[test]
 fn a_window_opened_around_a_hit_settles_a_post_it_serves() {
-    let (mut cx, view) = opened();
-    cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
-    cx.simulate_input("draft-general/editor", "on its way");
-    cx.simulate_field_key("draft-general/editor", "enter");
-    cx.run_until_parked();
-    assert!(cx.has_text("sending…"));
+    let (mut cx, view, _) = post_in_flight("on its way");
+    assert!(greyed(&cx, "message-1"));
     let landed = || MsgRow {
         message_id: "message-1".into(),
         ..row(3, 7, "on its way")
@@ -172,7 +215,27 @@ fn a_window_opened_around_a_hit_settles_a_post_it_serves() {
     cx.simulate_click("chat-search-hit-general-1");
     cx.run_until_parked();
     assert_eq!(shown(&view, "message-1"), 1);
-    assert!(cx.has_text("on its way") && !cx.has_text("sending…"));
+    assert!(cx.has_text("on its way") && !greyed(&cx, "message-1"));
+}
+
+#[test]
+fn a_refused_post_leaves_the_timeline_and_keeps_the_text() {
+    let (mut cx, view, submit) = post_in_flight("turned away");
+    assert!(cx.has_text("turned away") && greyed(&cx, "message-1"));
+    cx.simulate_event(wire::Event::Response {
+        id: submit,
+        result: Err(wire::Error::new("unauthorized", "not a member")),
+        done: true,
+    });
+    assert!(cx.has_text("not a member"), "{:?}", cx.texts());
+    assert!(cx.has_text("An earlier message wasn’t sent"));
+    assert!(!cx.has_text("turned away"));
+    assert_eq!(shown(&view, "message-1"), 0);
+    assert!(holding(&view).is_empty());
+    view.read(|chat| {
+        let draft = &chat.drafts["draft-general"];
+        assert_eq!(draft.failed_send.as_ref().unwrap().body, "turned away");
+    });
 }
 
 /// A refused post shows no row: the composer says why and keeps the text
@@ -188,9 +251,25 @@ fn a_refused_post_shows_no_row_and_keeps_the_text() {
     cx.run_until_parked();
     assert!(cx.has_text("not a member"), "{:?}", cx.texts());
     assert!(cx.has_text("An earlier message wasn’t sent"));
-    assert!(!cx.has_text("sending…"));
     assert_eq!(shown(&view, "message-1"), 0);
-    view.read(|chat| assert!(chat.room.as_ref().unwrap().pending.is_empty()));
+    assert!(holding(&view).is_empty());
+}
+
+#[test]
+fn a_disconnect_takes_a_greyed_post_out_of_the_timeline() {
+    let (mut cx, view, _) = post_in_flight("on its way");
+    assert!(greyed(&cx, "message-1"));
+    cx.host().stream::<HostSession>().send(Session {
+        connected: false,
+        ..session()
+    });
+    cx.run_until_parked();
+    assert_eq!(shown(&view, "message-1"), 0);
+    assert!(holding(&view).is_empty());
+    view.read(|chat| {
+        let draft = &chat.drafts["draft-general"];
+        assert_eq!(draft.failed_send.as_ref().unwrap().body, "on its way");
+    });
 }
 
 #[test]
