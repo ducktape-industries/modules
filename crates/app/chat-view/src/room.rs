@@ -494,14 +494,13 @@ impl Chat {
 
     /// The channel list landed: the rooms, and what each one's head says
     /// about what the reader has read. The room on screen is read to its
-    /// head, and the host's notices for it with it.
+    /// head.
     pub(crate) fn channels_arrived(&mut self, channels: Vec<ChannelInfo>, cx: &mut Context<Self>) {
         let reading = self
             .room
             .as_ref()
             .filter(|room| self.reads.visible && !room.landed)
             .map(|room| room.id.clone());
-        let mut read = None;
         // what the list, its unread marks and the divider draw
         let mut moved = self.channels.ready() != Some(&channels);
         for info in &channels {
@@ -519,7 +518,6 @@ impl Chat {
                 self.reads.entering = false;
                 if info.head_seq > *cursor {
                     *cursor = info.head_seq;
-                    read = Some(info.channel.id.clone());
                     moved = true;
                 }
             }
@@ -537,9 +535,6 @@ impl Chat {
         if moved || self.reads.cursors.len() != kept {
             self.channels = Loadable::Ready(channels);
             cx.notify();
-        }
-        if let Some(room) = read {
-            self.read_notices(&room, cx);
         }
     }
 

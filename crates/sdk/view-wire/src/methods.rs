@@ -423,34 +423,18 @@ impl Method for HostWidget {
 pub struct Clipboard {
     pub text: String,
 }
-/// One notice for the host to decide on: `notify.post`. The view asks; the
-/// host logs it in its notification centre and decides whether a banner
-/// reaches the screen (the person's per-view choice, focus, a burst limit).
-/// `link` is a `duck://` link the centre opens when the notice is picked,
-/// or empty.
+/// How far the reader has read under a tag: `notify.seen`. `through_height`
+/// is the height of the newest row the view has shown the reader under
+/// `tag`; the host marks this program's notices under `tag` at or below it
+/// read. A tag is the program's own string, the one its notices carry
+/// (`notices::Notice::tag`).
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
-pub struct Notification {
-    pub title: String,
-    pub body: String,
+pub struct Seen {
     pub tag: String,
-    pub link: String,
-}
-/// What the host did with a [`Notification`].
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
-)]
-#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
-pub enum Delivery {
-    /// Logged, and a banner was raised.
-    Banner,
-    /// Logged in the centre only: no banner (not yet allowed, silenced,
-    /// in front, over the burst limit, or banners are off).
-    Logged,
-    /// The person blocked this view's notices: dropped, not logged.
-    Blocked,
+    pub through_height: u64,
 }
 methods! {
     also: ["module.query", "op.submit", "module.changes", HostWidget::KIND];
@@ -498,12 +482,11 @@ methods! {
     ClipboardRead, "clipboard.read", (), Clipboard;
     /// `clipboard.write`: text onto the clipboard.
     ClipboardWrite, "clipboard.write", String, ();
-    /// `notify.post`: hand the host a notice; it says what it did.
-    NotifyPost, "notify.post", Notification, Delivery;
-    /// `notify.seen`: the reader has seen what this view posted under a
-    /// tag; the host marks this view's rows under it read and takes down
-    /// its standing banner. Another view's rows are never touched.
-    NotifySeen, "notify.seen", String, ();
+    /// `notify.seen`: the reader has been shown this program's rows under a
+    /// tag through a height ([`Seen`]); the host marks the program's
+    /// notices under that tag at or below it read. Another program's
+    /// notices are never touched.
+    NotifySeen, "notify.seen", Seen, ();
     /// `store.get`: the value this view keeps under a key on this device,
     /// for the network in hand; `None` where it keeps none. A view sees
     /// only its own keys, and only on the network it runs on.

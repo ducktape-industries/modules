@@ -837,36 +837,6 @@
     "reply": null
   },
   {
-    "kind": "notify.post",
-    "request": {
-      "title": "alice mentioned you",
-      "body": "@bob hi",
-      "tag": "room",
-      "link": "duck://chat/room"
-    },
-    "reply": "Banner"
-  },
-  {
-    "kind": "notify.post",
-    "request": {
-      "title": "alice mentioned you",
-      "body": "@bob hi",
-      "tag": "room",
-      "link": "duck://chat/room"
-    },
-    "reply": "Logged"
-  },
-  {
-    "kind": "notify.post",
-    "request": {
-      "title": "alice mentioned you",
-      "body": "@bob hi",
-      "tag": "room",
-      "link": "duck://chat/room"
-    },
-    "reply": "Blocked"
-  },
-  {
     "kind": "store.get",
     "request": "reads/alice",
     "reply": [
@@ -895,7 +865,10 @@
   },
   {
     "kind": "notify.seen",
-    "request": "#design",
+    "request": {
+      "tag": "design/4",
+      "through_height": 12
+    },
     "reply": null
   },
   {

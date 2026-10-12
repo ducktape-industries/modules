@@ -29,6 +29,10 @@ impl Chat {
         if reader_changed {
             self.load_names(cx);
         }
+        // a watermark is the reader's: another one starts from none
+        if reader_changed || self.session.account != prev.account {
+            self.seen.clear();
+        }
         // a key that gains an account while this view stays open writes
         // without a relaunch; the rooms are looked at again once they are
         // known, since the recount of what is meant for them waits on it
@@ -69,6 +73,7 @@ impl Chat {
         if visible && self.session.connected {
             self.reread_channels(cx);
         }
+        self.settle_seen(cx);
     }
 
     /// The roster's names, read again with the ones on screen kept.

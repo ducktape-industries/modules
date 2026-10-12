@@ -1,12 +1,147 @@
-//! Notices, the tab badge, and the read cursors kept between runs.
+//! The tab badge, the read cursors kept between runs, and how far the reader
+//! has been shown each tag (`notify.seen`).
 use super::*;
+use ducktape_view_guest::methods::{NotifySeen, Seen};
 
-/// A direct message landing in a room the reader is not in is handed to the
-/// host as a notice linking to it, and counted on the tab until they open
-/// the room; opening it reads the host's rows under the notice's tag.
+fn seen(tag: &str, through_height: u64) -> Seen {
+    Seen {
+        tag: tag.into(),
+        through_height,
+    }
+}
+
+/// `row` as a block at `height` wrote it.
+fn at(height: u64, row: MsgRow) -> MsgRow {
+    MsgRow { height, ..row }
+}
+
+/// A reply to root 1 of `general`.
+fn reply(seq: u64, height: u64) -> MsgRow {
+    MsgRow {
+        thread: Some(1),
+        ..at(height, row(seq, 8, "re"))
+    }
+}
+
+/// Chat answers `general` with `roots`, and root 1's thread with
+/// `replies`, a page at a time: each page but the last says more remain.
+fn answers(cx: &mut TestAppContext, roots: Vec<MsgRow>, replies: Vec<Vec<MsgRow>>) {
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
+        Ok(match query {
+            Query::Channels { .. } => Reply::Channels(page(vec![
+                channel("general", "General", 3),
+                channel("dm-7-8", "dm", 1),
+            ])),
+            Query::Roots { .. } => Reply::Roots(page(roots.clone())),
+            Query::Members { .. } => Reply::Members(page(Vec::new())),
+            Query::Thread {
+                root_seq: 1,
+                page: asked,
+                ..
+            } => {
+                let at = asked.after.map_or(0, |after| usize::from(after[0]));
+                let next = (at + 1 < replies.len()).then(|| vec![at as u8 + 1]);
+                Reply::Thread {
+                    root: Some(row(1, 7, "hello")),
+                    replies: ::chat::PageResponse {
+                        height: 1,
+                        items: replies[at].clone(),
+                        next,
+                    },
+                }
+            }
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+}
+
+/// The timeline at its tail tells the host how far the reader has been
+/// shown the room: its newest root's height under `<channel>`, again each
+/// time a newer root lands, never twice for the same height (a frame drawn
+/// again, the same rows landing again).
 #[test]
-fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
-    use ducktape_view_guest::methods::{HostBadge, NotifyPost, NotifySeen};
+fn the_timeline_marks_the_room_through_its_newest_root() {
+    let (mut cx, view) = opened();
+    assert_eq!(cx.host().requests::<NotifySeen>(), [seen("general", 1)]);
+    let roots = vec![row(1, 7, "hello"), at(9, row(3, 8, "new"))];
+    answers(&mut cx, roots, vec![Vec::new()]);
+    let changes = cx.host().stream::<Changes<::chat::Chat>>();
+    changes.send(block(9, posted("general")));
+    cx.run_until_parked();
+    changes.send(block(10, posted("general")));
+    cx.run_until_parked();
+    cx.update(&view, |_, _, cx| cx.notify());
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<NotifySeen>(),
+        [seen("general", 1), seen("general", 9)]
+    );
+}
+
+/// The thread pane tells the host how far the reader has been shown the
+/// thread, under `<channel>/<root>`, once it shows the newest replies: not
+/// while a later page is still unread. Neither pane's watermark names the
+/// other's tag.
+#[test]
+fn the_thread_marks_its_tag_through_its_newest_reply() {
+    let (mut cx, view) = opened();
+    let pages = vec![vec![reply(2, 4)], vec![reply(3, 6)]];
+    answers(&mut cx, vec![row(1, 7, "hello")], pages);
+    thread(&mut cx, &view, 1);
+    assert_eq!(cx.host().requests::<NotifySeen>(), [seen("general", 1)]);
+    cx.update(&view, |chat, _, cx| {
+        cx.notify();
+        chat.load_more_replies(cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<NotifySeen>(),
+        [seen("general", 1), seen("general/1", 6)]
+    );
+}
+
+/// A room that is not on screen tells the host nothing, however its rows
+/// move; brought back in front, it marks what it shows.
+#[test]
+fn a_room_not_in_front_marks_nothing() {
+    let (mut cx, _) = opened();
+    cx.host().stream::<HostVisible>().send(false);
+    cx.run_until_parked();
+    answers(&mut cx, vec![at(9, row(3, 8, "new"))], vec![Vec::new()]);
+    cx.host()
+        .stream::<Changes<::chat::Chat>>()
+        .send(block(9, posted("general")));
+    cx.run_until_parked();
+    assert_eq!(cx.host().requests::<NotifySeen>(), [seen("general", 1)]);
+    cx.host().stream::<HostVisible>().send(true);
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<NotifySeen>(),
+        [seen("general", 1), seen("general", 9)]
+    );
+}
+
+/// A watermark is the reader's: another account seated in the view marks
+/// what it is shown from none.
+#[test]
+fn another_reader_marks_from_none() {
+    let (mut cx, _) = opened();
+    cx.host().stream::<HostSession>().send(Session {
+        account: Some(8),
+        ..session()
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<NotifySeen>(),
+        [seen("general", 1), seen("general", 1)]
+    );
+}
+
+/// A direct message landing in a room the reader is not in is counted on
+/// the tab until they open the room.
+#[test]
+fn a_direct_message_elsewhere_is_a_badge_until_read() {
+    use ducktape_view_guest::methods::HostBadge;
     let (mut cx, view) = opened();
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
@@ -29,30 +164,20 @@ fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
         );
     });
     cx.run_until_parked();
-    let posts = cx.host().requests::<NotifyPost>();
-    assert_eq!(posts.len(), 1);
-    assert_eq!(
-        (posts[0].title.as_str(), posts[0].body.as_str()),
-        ("reviewer", "ping")
-    );
-    assert_eq!(posts[0].link, "duck://testnet-0a1b2c3d/chat/dm-7-8/2");
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&1));
-    assert!(cx.host().requests::<NotifySeen>().is_empty());
     cx.update(&view, |chat, _, cx| {
         cx.notify();
         chat.choose("dm-7-8".into(), cx)
     });
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&0));
-    assert_eq!(cx.host().requests::<NotifySeen>(), [posts[0].tag.clone()]);
 }
 
 /// A reload carries the read cursors but not the count: the first list after
-/// it counts again what is meant for the reader in rooms still unread, and
-/// posts nothing a second time.
+/// it counts again what is meant for the reader in rooms still unread.
 #[test]
 fn the_badge_is_counted_again_from_the_read_cursors() {
-    use ducktape_view_guest::methods::{HostBadge, NotifyPost};
+    use ducktape_view_guest::methods::HostBadge;
     let (mut cx, view) = opened();
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
@@ -67,7 +192,6 @@ fn the_badge_is_counted_again_from_the_read_cursors() {
         })
     });
     let rooms = || vec![channel("general", "General", 3), channel("dm-7-8", "dm", 2)];
-    let posted = cx.host().requests::<NotifyPost>().len();
     cx.update(&view, |chat, _, cx| {
         cx.notify();
         // as a reload leaves it: the rooms and the cursors, no count
@@ -80,11 +204,6 @@ fn the_badge_is_counted_again_from_the_read_cursors() {
         chat.channels_landed(rooms(), cx);
     });
     cx.run_until_parked();
-    assert_eq!(
-        cx.host().requests::<NotifyPost>().len(),
-        posted,
-        "no second notice"
-    );
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&1));
 }
 

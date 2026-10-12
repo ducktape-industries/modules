@@ -66,6 +66,10 @@ pub struct Chat {
     /// the window's title last sent
     #[serde(skip)]
     pub(crate) title: Option<String>,
+    /// the `notify.seen` watermark last sent, by tag: one sent again only
+    /// past it
+    #[serde(skip)]
+    pub(crate) seen: BTreeMap<String, u64>,
     /// `attention` was counted again from the read cursors since this view
     /// (re)started
     #[serde(skip)]

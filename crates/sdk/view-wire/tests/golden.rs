@@ -363,13 +363,16 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             },
         ),
         exchange::<ClipboardWrite>("copied".into(), ()),
-        exchange::<NotifyPost>(notification(), Delivery::Banner),
-        exchange::<NotifyPost>(notification(), Delivery::Logged),
-        exchange::<NotifyPost>(notification(), Delivery::Blocked),
         exchange::<StoreGet>("reads/alice".into(), Some(vec![1, 2])),
         exchange::<StoreSet>(("reads/alice".into(), None), ()),
         exchange::<StoreSet>(("reads/alice".into(), Some(vec![1, 2])), ()),
-        exchange::<NotifySeen>("#design".into(), ()),
+        exchange::<NotifySeen>(
+            Seen {
+                tag: "design/4".into(),
+                through_height: 12,
+            },
+            (),
+        ),
         exchange::<ChainHeads>(
             (),
             Head {
@@ -429,15 +432,6 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         ),
         exchange::<ModuleDescribe>(("chat".into(), vec![3]), None),
     ]
-}
-
-fn notification() -> methods::Notification {
-    methods::Notification {
-        title: "alice mentioned you".into(),
-        body: "@bob hi".into(),
-        tag: "room".into(),
-        link: "duck://chat/room".into(),
-    }
 }
 
 /// The request and reply bytes of each exchange, by kind.

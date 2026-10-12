@@ -449,7 +449,6 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<HostLog>(d),
         borsh::<ClipboardRead>(d),
         borsh::<ClipboardWrite>(d),
-        borsh::<NotifyPost>(d),
         borsh::<NotifySeen>(d),
         borsh::<StoreGet>(d),
         borsh::<StoreSet>(d),

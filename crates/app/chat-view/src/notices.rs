@@ -1,23 +1,23 @@
-//! What chat hands the host's notification centre: a message that mentions
-//! the reader, or one in a direct room they are in, landing in a room they are
-//! not looking at. The host decides whether it becomes a banner. The tab
-//! badge counts such messages in rooms still unread.
+//! What chat tells the host about the reader's notices, and the tab badge.
+//! Chat's program writes its notices on chain and the host's inbox carries
+//! them; this view only says how far the reader has been shown each tag
+//! (`notify.seen`), so the host marks what is under it read. The tab badge
+//! counts the messages meant for the reader in rooms still unread.
 use std::collections::BTreeMap;
 
 use chat::{Block, ChannelInfo, Mark, MsgRow, Principal};
+use ducktape_view_guest::methods::Seen;
 use ducktape_view_guest::prelude::*;
 
-use crate::message::message_body;
+use crate::Chat;
 use crate::names::dm_peer_of;
-use crate::{Chat, links};
-use chat::view::Names;
 
 /// The most new messages read out of one room per change.
 const MAX_NEW: u64 = 20;
 
 impl Chat {
-    /// The channel list landed: the rooms, then a notice for what moved in
-    /// a room the reader is not looking at, and the badge.
+    /// The channel list landed: the rooms, then what moved in a room the
+    /// reader is not looking at is counted on the badge.
     pub(crate) fn channels_landed(&mut self, channels: Vec<ChannelInfo>, cx: &mut Context<Self>) {
         // before the first list there is nothing to compare against: what
         // was already there is history, not news
@@ -31,10 +31,10 @@ impl Chat {
             // the count is not kept, the read cursors are: the first list
             // a view that started over (a reload carries its state, not the
             // count) sees counts again what is meant for them in each room
-            // still unread, and announces only what moved since `before`
+            // still unread
             let recount = !std::mem::replace(&mut self.recounted, true);
             let viewing = self.viewing();
-            let news: Vec<(String, u64, u64, u64)> = self
+            let news: Vec<(String, u64, u64)> = self
                 .channels
                 .ready()
                 .into_iter()
@@ -50,11 +50,11 @@ impl Chat {
                         false => head,
                     };
                     let from = seen.min(cursor);
-                    (head > from).then(|| (id.clone(), from, seen, head))
+                    (head > from).then(|| (id.clone(), from, head))
                 })
                 .collect();
-            for (channel, from, seen, head) in news {
-                self.read_news(channel, from, seen, head, me, cx);
+            for (channel, from, head) in news {
+                self.read_news(channel, from, head, me, cx);
             }
         }
         self.settle_badge(cx);
@@ -70,16 +70,8 @@ impl Chat {
     }
 
     /// Reads the messages past `was` in `channel` and counts the ones meant
-    /// for the reader, posting those past `seen`.
-    fn read_news(
-        &mut self,
-        channel: String,
-        was: u64,
-        seen: u64,
-        head: u64,
-        me: u64,
-        cx: &mut Context<Self>,
-    ) {
+    /// for the reader.
+    fn read_news(&mut self, channel: String, was: u64, head: u64, me: u64, cx: &mut Context<Self>) {
         let fresh = (head - was).min(MAX_NEW);
         let viewer = self.viewer();
         let asked = cx.host().query(chat::ask::MessagesAround {
@@ -97,42 +89,56 @@ impl Chat {
                 Ok(rows) => rows,
                 Err(refusal) => return cx.log_refused("news", &refusal),
             };
-            let empty = Names::default();
-            let names = chat.names.ready().unwrap_or(&empty);
-            let name = chat
-                .info(&channel)
-                .map(|info| info.channel.name.clone())
-                .unwrap_or_default();
-            let posts: Vec<(u64, Notification)> = rows
+            let meant = rows
                 .iter()
-                .filter(|row| row.seq > was && row.seq <= head)
-                .filter_map(|row| {
-                    notice(row, me, &name, &chat.session.chain_id, names)
-                        .map(|post| (row.seq, post))
-                })
-                .collect();
-            if posts.is_empty() || chat.viewing().as_deref() == Some(channel.as_str()) {
+                .filter(|row| row.seq > was && row.seq <= head && meant_for(row, me))
+                .count();
+            if meant == 0 || chat.viewing().as_deref() == Some(channel.as_str()) {
                 return;
             }
-            *chat.attention.entry(channel).or_default() += posts.len() as i64;
-            for (_, post) in posts.into_iter().filter(|(seq, _)| *seq > seen) {
-                cx.host().notify::<NotifyPost>(post);
-            }
+            *chat.attention.entry(channel).or_default() += meant as i64;
             chat.settle_badge(cx);
         })
         .detach();
     }
 
-    /// `room` is read: the host's rows for it, under the tag its notices
-    /// carry, are read too.
-    pub(crate) fn read_notices(&self, room: &str, cx: &mut Context<Self>) {
-        let (Some(me), Some(info)) = (self.my_account(), self.info(room)) else {
+    /// How far the reader has been shown each tag, to the host
+    /// (`notify.seen`): each pane's newest row under its own tag
+    /// (`chat::notify::tag`), the timeline's roots under `<channel>` and an
+    /// open thread's replies under `<channel>/<root>`, so reading a room
+    /// leaves its threads' notices unread and the reverse. Only while the
+    /// room is on screen, only for a pane that shows its newest rows (the
+    /// timeline at its tail, a thread read to its last page), and only past
+    /// what was sent.
+    pub(crate) fn settle_seen(&mut self, cx: &mut Context<Self>) {
+        let Some(room) = self.room.as_ref().filter(|_| self.reads.visible) else {
             return;
         };
-        let empty = Names::default();
-        let names = self.names.ready().unwrap_or(&empty);
-        cx.host()
-            .notify::<NotifySeen>(tag(me, room, &info.channel.name, names));
+        let timeline = room.messages.ready().filter(|_| !room.landed);
+        let thread = room
+            .thread
+            .as_ref()
+            .filter(|thread| !thread.has_more)
+            .and_then(|thread| thread.replies.ready());
+        let shown: Vec<(String, u64)> = [timeline, thread]
+            .into_iter()
+            .filter_map(|rows| rows?.last())
+            .map(|row| (chat::notify::tag(row), row.height))
+            .collect();
+        for (tag, through_height) in shown {
+            if self
+                .seen
+                .get(&tag)
+                .is_some_and(|sent| *sent >= through_height)
+            {
+                continue;
+            }
+            self.seen.insert(tag.clone(), through_height);
+            cx.host().notify::<NotifySeen>(Seen {
+                tag,
+                through_height,
+            });
+        }
     }
 
     /// The tab badge: messages meant for the reader in rooms still unread.
@@ -159,36 +165,13 @@ impl Chat {
     }
 }
 
-/// The notice `row` makes for account `me`, if it is meant for them: it
-/// mentions them, or it is in a direct room they are in. Their own never is.
-fn notice(row: &MsgRow, me: u64, name: &str, chain: &str, names: &Names) -> Option<Notification> {
-    if row.deleted || row.author == Principal::Account(me) {
-        return None;
-    }
-    let direct = dm_peer_of(me, &row.channel_id).is_some();
-    if !direct && !mentions(&row.blocks, me) {
-        return None;
-    }
-    let sender = names.author(&row.author);
-    Some(Notification {
-        title: match direct {
-            true => sender,
-            false => format!("{sender} mentioned you"),
-        },
-        body: message_body(&row.blocks, names),
-        tag: tag(me, &row.channel_id, name, names),
-        // a notice without a link is one the centre cannot open, not a bad one
-        link: links::channel_link(chain, &row.channel_id, Some(row.seq)).unwrap_or_default(),
-    })
-}
-
-/// The tag a room's notices go under: `@peer` for a direct room, the
-/// channel's `#name` otherwise.
-fn tag(me: u64, room: &str, name: &str, names: &Names) -> String {
-    match dm_peer_of(me, room) {
-        Some(peer) => format!("@{}", names.author(&Principal::Account(peer))),
-        None => format!("#{name}"),
-    }
+/// Whether `row` is meant for account `me`, as the badge counts it: it
+/// mentions them, or it is in a direct room they are in. Their own never
+/// is, nor a deleted one.
+fn meant_for(row: &MsgRow, me: u64) -> bool {
+    !row.deleted
+        && row.author != Principal::Account(me)
+        && (dm_peer_of(me, &row.channel_id).is_some() || mentions(&row.blocks, me))
 }
 
 fn mentions(blocks: &[Block], me: u64) -> bool {
@@ -222,56 +205,25 @@ mod tests {
     }
 
     /// A mention of me, or any word in my direct room, from someone else:
-    /// a notice. A mention of another, my own words, or a plain message in
-    /// a channel: none.
+    /// meant for me. A mention of another, my own words, a plain message in
+    /// a channel, or a deleted one: not.
     #[test]
-    fn only_a_mention_or_a_direct_message_to_me_is_a_notice() {
-        let names = Names::default();
-        let chain = "testnet-0a1b2c3d";
+    fn only_a_mention_or_a_direct_message_to_me_is_meant_for_me() {
         let me = Mark::Mention(Principal::Account(3));
-        let mention = row("design", 5, said("@me", vec![me.clone()]));
-        let post = notice(&mention, 3, "design", chain, &names).unwrap();
-        assert_eq!(post.title, "account 5 mentioned you");
-        assert_eq!(post.tag, "#design");
-        assert_eq!(post.link, "duck://testnet-0a1b2c3d/chat/design/7");
-
+        assert!(meant_for(
+            &row("design", 5, said("@me", vec![me.clone()])),
+            3
+        ));
         let other = Mark::Mention(Principal::Account(4));
-        assert!(
-            notice(
-                &row("design", 5, said("@x", vec![other])),
-                3,
-                "design",
-                chain,
-                &names
-            )
-            .is_none()
-        );
-        assert!(
-            notice(
-                &row("design", 5, said("hi", vec![])),
-                3,
-                "design",
-                chain,
-                &names
-            )
-            .is_none()
-        );
-        assert!(
-            notice(
-                &row("design", 3, said("@me", vec![me])),
-                3,
-                "design",
-                chain,
-                &names
-            )
-            .is_none()
-        );
-
-        let direct = notice(&row("dm-3-5", 5, said("hi", vec![])), 3, "", chain, &names).unwrap();
-        assert_eq!(
-            (direct.title.as_str(), direct.body.as_str()),
-            ("account 5", "hi")
-        );
-        assert!(notice(&row("dm-4-5", 5, said("hi", vec![])), 3, "", chain, &names).is_none());
+        assert!(!meant_for(&row("design", 5, said("@x", vec![other])), 3));
+        assert!(!meant_for(&row("design", 5, said("hi", vec![])), 3));
+        assert!(!meant_for(&row("design", 3, said("@me", vec![me])), 3));
+        assert!(meant_for(&row("dm-3-5", 5, said("hi", vec![])), 3));
+        assert!(!meant_for(&row("dm-4-5", 5, said("hi", vec![])), 3));
+        let gone = MsgRow {
+            deleted: true,
+            ..row("dm-3-5", 5, said("hi", vec![]))
+        };
+        assert!(!meant_for(&gone, 3));
     }
 }

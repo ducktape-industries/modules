@@ -24,7 +24,7 @@
 //! its wasm exports.
 mod description;
 pub mod message;
-mod notify;
+pub mod notify;
 mod ops;
 mod origin;
 mod program;

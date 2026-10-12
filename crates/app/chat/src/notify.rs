@@ -178,8 +178,9 @@ fn key(channel: &str, seq: u64) -> String {
 
 /// What the app folds a notice under and a view's seen watermark names:
 /// the room for a root, `<channel>/<root>` for a reply, so reading a room
-/// leaves its threads' notices unread.
-fn tag(row: &MsgRow) -> String {
+/// leaves its threads' notices unread. chat-view names its watermarks with
+/// it, so the program and the view cannot drift.
+pub fn tag(row: &MsgRow) -> String {
     match row.thread {
         Some(root) => key(&row.channel_id, root),
         None => row.channel_id.clone(),
