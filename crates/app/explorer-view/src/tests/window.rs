@@ -41,6 +41,7 @@ fn a_pushed_head_reads_only_the_new_blocks() {
     node(&mut cx, tip.clone());
     cx.open::<Explorer>();
     cx.run_until_parked();
+    let status_reads = cx.host().requests::<ChainStatus>().len();
     *tip.borrow_mut() = 14;
     heads.send(Head {
         height: 14,
@@ -59,7 +60,7 @@ fn a_pushed_head_reads_only_the_new_blocks() {
     assert!(explorer_asked.iter().all(|ask| ask.before.is_none()));
     assert_eq!(
         cx.host().requests::<ChainStatus>().len(),
-        1,
+        status_reads,
         "a head moves the status without a read"
     );
 }

@@ -21,18 +21,16 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
 }
 
 /// What the registry runs and lists, and what it will.
-///
-/// `At(0)` is the folded set: the registry applies the changes due at or
-/// before the height asked, and it answers no height of its own, so there is
-/// no "as of now" to ask for — the scheduled list is what is still to come.
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
-    let programs = host.query(registry::ask::At(0)).await?;
-    let views = host.query(registry::ask::Views(0)).await?;
-    let changes = host
+    let tip = host.ask::<ChainStatus>(()).await?.height;
+    let programs = host.query(registry::ask::At(tip)).await?;
+    let views = host.query(registry::ask::Views(tip)).await?;
+    let mut changes = host
         .query_all(|after| registry::ask::Scheduled {
             page: registry::PageRequest { after, limit: None },
         })
         .await?;
+    changes.retain(|change| change.height > tip);
     Ok(Network {
         programs,
         views,

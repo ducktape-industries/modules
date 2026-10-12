@@ -67,6 +67,95 @@ fn a_registry_head_re_reads_the_programs() {
     assert!(cx.has_text("Nothing is scheduled against the registry."));
 }
 
+fn registry_env(height: u64, origin: guest::Origin) -> guest::Env {
+    guest::Env {
+        height,
+        origin,
+        sender: None,
+        ..guest::MockHost::env(registry::MODULE)
+    }
+}
+
+fn registry_swapping(program: &str, at: u64) -> (guest::MockHost, BlobId, BlobId) {
+    use guest::{MockHost, Module as _, Origin};
+    let store = MockHost::default();
+    let entry = |code| registry::Entry {
+        program: program.into(),
+        code,
+        params: Vec::new(),
+    };
+    let running = BlobId::Sha256([0xab; 32]);
+    let genesis = registry::Genesis {
+        programs: vec![entry(running)],
+        views: Vec::new(),
+    };
+    Modules::init(
+        &store.exec(registry_env(0, Origin::Root)),
+        &abi::encode(&genesis),
+    )
+    .unwrap();
+    let publish = registry::Op::Publish {
+        body: b"scheduled code".to_vec(),
+    };
+    Modules::execute(
+        &store.exec(registry_env(1, Origin::Signed(ADA.to_vec()))),
+        publish,
+    )
+    .unwrap();
+    let scheduled: BlobId = abi::decode(&store.take_output()).unwrap();
+    let swap = registry::Op::Schedule(registry::Scheduled {
+        height: at,
+        change: registry::Change::Set(entry(scheduled)),
+    });
+    let validators = Origin::Module(MockHost::roles().validators);
+    Modules::execute(&store.exec(registry_env(1, validators)), swap).unwrap();
+    (store, running, scheduled)
+}
+
+#[test]
+fn a_scheduled_swap_shows_once_a_head_reaches_its_height() {
+    use guest::Module as _;
+    let mut cx = TestAppContext::new();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    let heads = cx.host().stream::<ChainHeads>();
+    let (store, running, scheduled) = registry_swapping("chat", 14);
+    let asked_at = tip.clone();
+    cx.host().handle::<Query<Modules>>(move |query| {
+        let env = registry_env(*asked_at.borrow() + 1, guest::Origin::Root);
+        Ok(Modules::query(&store.query(env), query).unwrap())
+    });
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-programs");
+    cx.run_until_parked();
+    let running = crate::decode::short(running.digest());
+    let scheduled = crate::decode::short(scheduled.digest());
+    assert!(
+        cx.has_text(&running) && cx.has_text("at 14"),
+        "{:?}",
+        cx.texts()
+    );
+    let mut reach = |height: u64| {
+        *tip.borrow_mut() = height;
+        heads.send(Head {
+            height,
+            time: T0 + height * 1000,
+            id: [(height as u8).wrapping_add(100); 32],
+        });
+        cx.run_until_parked();
+        cx.has_text(&running) && cx.has_text("at 14")
+    };
+    assert!(reach(13), "before its height");
+    assert!(!reach(14), "at its height");
+    assert!(
+        cx.has_text(&scheduled) && !cx.has_text(&running),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.has_text("Nothing is scheduled against the registry."));
+}
+
 #[test]
 fn an_empty_registry_says_so() {
     let mut cx = TestAppContext::new();
