@@ -139,8 +139,9 @@ Ours, defined in this crate:
   `Subscription` are gpui's.
 - `div`, `uniform_list`, `list`, `Input`, `Textarea`, `img`/`Img`, `svg`/`Svg`,
   `canvas`/`Canvas`, `InteractiveText`/`StyledText`, `sensor`,
-  `resize_handle`, `modal_overlay`, `web` (`src/element.rs`, `src/list.rs`,
-  `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`, `src/web.rs`):
+  `resize_handle`, `modal_overlay`, `web`, `camera`, `microphone`
+  (`src/element.rs`, `src/list.rs`, `src/primitives/`, `src/rich_text.rs`,
+  `src/behavior.rs`, `src/web.rs`, `src/media.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
   crossed as routes: a listener's number, kept while its element is lowered
   (`view_wire::Event`). `list` is gpui's but for its first argument:
@@ -406,7 +407,9 @@ list's first frame holds the rows that fill it; `simulate_viewport(rows)`
 or `simulate_range(key, range)` then show it the rows the host shows.
 A sensor hears nothing until `simulate_bounds(name, origin, size)` lays
 its child out, and then as the app tells it: the same bounds again are no
-event. A web piece hears its page through `simulate_web_state(name, state)`.
+event. A web piece hears its page through `simulate_web_state(name, state)`,
+a camera or microphone piece its device through
+`simulate_media_state(name, state)`.
 The reader's offset is UTC until `simulate_offset(minutes)`. A frame
 carries at most
 `view_wire::MAX_REQUESTS` requests; the rest go in the next.
@@ -416,8 +419,9 @@ its kind and key path, so each screen a test reaches is gated.
 element with no host, sanitizer or audit, for a test of what that element
 carries (`testing::assert_accessible(&tree)` audits it when the test wants).
 It holds the view to its `View::CAPABILITIES` and `View::TARGETS` as the app
-does: a method whose capability the manifest leaves out, or a web piece from a
-view that does not declare `web`, panics with
+does: a method whose capability the manifest leaves out, or a web, camera or
+microphone piece from a view that does not declare `web`, `camera` or
+`microphone`, panics with
 `methods::refusal::UNDECLARED_CAPABILITY`, a node method naming a program
 the targets leave out with `methods::refusal::UNDECLARED_TARGET`, the codes
 the app refuses them with.

@@ -479,6 +479,30 @@ pub enum Delivery {
     /// The person blocked this view's notices: dropped, not logged.
     Blocked,
 }
+/// One camera, microphone or speaker, as `camera.devices` and
+/// `microphone.devices` list them: `id` is what a piece's `device` (or a
+/// microphone piece's `output`) names it by, `name` what a picker shows,
+/// `default` whether the system picks it when a piece names none. An id
+/// is the host's, good while the device stays plugged in.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Device {
+    pub id: String,
+    pub name: String,
+    pub default: bool,
+}
+/// `microphone.devices`: the microphones (`inputs`) and the speakers
+/// (`outputs`) the host can open.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct AudioDevices {
+    pub inputs: Vec<Device>,
+    pub outputs: Vec<Device>,
+}
 methods! {
     also: ["module.query", "op.submit", "module.changes", HostWidget::KIND];
     /// `chain.status`: the connected node's status.
@@ -561,12 +585,21 @@ methods! {
     /// chars; the host trims longer names and drops control characters,
     /// bidi controls and line or paragraph separators.
     HostTitle, "host.title", String, ();
+    /// `camera.devices`: the cameras the host can open, as listed now
+    /// (ask again after a piece reports one `Gone`). Refused
+    /// [`refusal::MEDIA_UNSUPPORTED`] by a host that captures nothing.
+    CameraDevices, "camera.devices", (), Vec<Device>;
+    /// `microphone.devices`: the microphones and speakers the host can
+    /// open, as listed now. Refused [`refusal::MEDIA_UNSUPPORTED`] by a
+    /// host that captures nothing.
+    MicrophoneDevices, "microphone.devices", (), AudioDevices;
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
 /// declares, and the only names it may. A method is reached only through the
 /// capability its kind starts with. One capability gates a node, not a
-/// method: [`Capability::Web`].
+/// method: [`Capability::Web`]; two gate a node and their methods:
+/// [`Capability::Camera`], [`Capability::Microphone`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Capability {
     Chain,
@@ -587,10 +620,18 @@ pub enum Capability {
     /// has no web view. When more than one installed view declares it, the
     /// first by module name gets the links. No method starts with it.
     Web,
+    /// The view places camera pieces ([`crate::Node::Camera`]) and lists
+    /// the cameras (`camera.devices`). Apart from `microphone`, as the
+    /// system asks for each apart: a voice-only view never gets a camera.
+    Camera,
+    /// The view places microphone pieces ([`crate::Node::Microphone`]),
+    /// which also play on a speaker, and lists the microphones and
+    /// speakers (`microphone.devices`).
+    Microphone,
 }
 
 impl Capability {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::Chain,
         Self::Module,
         Self::Op,
@@ -603,6 +644,8 @@ impl Capability {
         Self::Notify,
         Self::Store,
         Self::Web,
+        Self::Camera,
+        Self::Microphone,
     ];
 
     /// The name a manifest and a kind spell it with.
@@ -620,6 +663,8 @@ impl Capability {
             Self::Notify => "notify",
             Self::Store => "store",
             Self::Web => "web",
+            Self::Camera => "camera",
+            Self::Microphone => "microphone",
         }
     }
 
@@ -684,6 +729,9 @@ pub mod refusal {
     /// More links opened by the view in the last minute than the host takes.
     pub const LINK_LIMIT: &str = "link_limit";
     pub const INVITE_UNSUPPORTED: &str = "invite_unsupported";
+    /// This host captures nothing: a build without camera and microphone
+    /// support, or a platform it does not cover.
+    pub const MEDIA_UNSUPPORTED: &str = "media_unsupported";
     /// The host closed the request with no answer; written on the view's
     /// side, by the SDK.
     pub const REQUEST_CLOSED: &str = "request_closed";
@@ -785,6 +833,7 @@ mod tests {
             (NEEDS_GESTURE, "needs_gesture"),
             (LINK_LIMIT, "link_limit"),
             (INVITE_UNSUPPORTED, "invite_unsupported"),
+            (MEDIA_UNSUPPORTED, "media_unsupported"),
             (REQUEST_CLOSED, "request_closed"),
         ];
         for (code, wire) in codes {

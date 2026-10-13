@@ -34,14 +34,15 @@ use view_wire::{
     SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
     WebCommand, WebState, WidgetCommand, click, interactivity, keyboard, mouse,
 };
+use view_wire::{MediaState, MediaStatus, MicCommand, Playback};
 
 const MESSAGE: &str =
     "the wire changed: if intended, regenerate with WIRE_GOLDEN_WRITE=1 (this changes WIRE_ID)";
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 16;
-const EVENT_VARIANTS: usize = 35;
+const NODE_VARIANTS: usize = 18;
+const EVENT_VARIANTS: usize = 36;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -383,6 +384,29 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<HostVisible>((), true),
         exchange::<HostBadge>(3, ()),
         exchange::<HostTitle>("general".into(), ()),
+        exchange::<CameraDevices>(
+            (),
+            vec![Device {
+                id: "0".into(),
+                name: "FaceTime HD Camera".into(),
+                default: true,
+            }],
+        ),
+        exchange::<MicrophoneDevices>(
+            (),
+            AudioDevices {
+                inputs: vec![Device {
+                    id: "Built-in Microphone".into(),
+                    name: "Built-in Microphone".into(),
+                    default: true,
+                }],
+                outputs: vec![Device {
+                    id: "Headphones".into(),
+                    name: "Headphones".into(),
+                    default: false,
+                }],
+            },
+        ),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),
         exchange::<HostId>("msg".into(), "msg-1".into()),

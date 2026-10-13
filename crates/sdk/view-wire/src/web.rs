@@ -49,25 +49,7 @@ pub struct WebState {
 /// tooltip's content. A host refuses such a frame from a view whose
 /// manifest does not declare [`Capability::Web`](crate::methods::Capability::Web).
 pub fn carries_web(frame: &crate::Frame) -> bool {
-    fn has_web(node: &crate::Node) -> bool {
-        matches!(node, crate::Node::Web { .. }) || node.children().iter().any(has_web)
-    }
-    let patched = frame.patches.iter().filter_map(|patch| match patch {
-        crate::Patch::Replace { node, .. }
-        | crate::Patch::Props { node, .. }
-        | crate::Patch::Insert { node, .. } => Some(node),
-        crate::Patch::Remove { .. } | crate::Patch::Move { .. } => None,
-    });
-    let tooltips = frame
-        .tooltip_responses
-        .iter()
-        .filter_map(|response| response.content.as_deref());
-    frame
-        .root
-        .iter()
-        .chain(patched)
-        .chain(tooltips)
-        .any(has_web)
+    frame.carries(&|node| matches!(node, crate::Node::Web { .. }))
 }
 
 pub(crate) fn decode_commands<'de, D: serde::Deserializer<'de>>(

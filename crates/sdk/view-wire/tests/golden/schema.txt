@@ -1,5 +1,6 @@
 # methods: kind, target, request -> reply; borsh unless named
 blob.get None String -> Option<Vec<u8>>
+camera.devices None () -> Vec<Device>
 chain.block None BlockRef -> Option<Block>
 chain.blocks None BlockPage -> BlockList
 chain.heads None () -> Head
@@ -19,6 +20,7 @@ host.visible None () -> bool
 host.widget None TypeName("WidgetCommand") -> Unit tree
 invite.create None CreateInvite -> Invite
 link.open None String -> ()
+microphone.devices None () -> AudioDevices
 module.changes Some("P") () -> Option<Change>
 module.describe None (String, Vec<u8>) -> Option<Description>
 module.query Some("P") ModuleQuery -> ModuleReply
@@ -32,6 +34,7 @@ store.set None (String, Option<Vec<u8>>) -> ()
 () = Primitive(0)
 (String, Option<Vec<u8>>) = Tuple { elements: ["String", "Option<Vec<u8>>"] }
 (String, Vec<u8>) = Tuple { elements: ["String", "Vec<u8>"] }
+AudioDevices = Struct { fields: NamedFields([("inputs", "Vec<Device>"), ("outputs", "Vec<Device>")]) }
 Block = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]"), ("parent", "[u8; 32]"), ("time", "u64"), ("epoch", "u64"), ("proposer", "Option<Vec<u8>>"), ("txs", "Vec<Tx>")]) }
 BlockList = Struct { fields: NamedFields([("blocks", "Vec<Block>"), ("listed_from", "Option<u64>")]) }
 BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "u32")]) }
@@ -46,6 +49,7 @@ Delivery__Banner = Struct { fields: Empty }
 Delivery__Blocked = Struct { fields: Empty }
 Delivery__Logged = Struct { fields: Empty }
 Description = Struct { fields: NamedFields([("title", "String"), ("fields", "Vec<Field>")]) }
+Device = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool")]) }
 Error = Struct { fields: NamedFields([("code", "String"), ("message", "String")]) }
 Field = Struct { fields: NamedFields([("label", "String"), ("value", "Value")]) }
 Head = Struct { fields: NamedFields([("height", "u64"), ("time", "u64"), ("id", "[u8; 32]")]) }
@@ -88,6 +92,7 @@ Value__Module = Struct { fields: UnnamedFields(["String"]) }
 Value__Text = Struct { fields: UnnamedFields(["String"]) }
 Value__Time = Struct { fields: UnnamedFields(["u64"]) }
 Vec<Block> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Block" }
+Vec<Device> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Device" }
 Vec<Error> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Error" }
 Vec<Field> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Field" }
 Vec<Peer> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Peer" }
@@ -466,6 +471,9 @@ Event enum
   34 Web struct
     handler: U32
     state: TypeName("WebState")
+  35 Media struct
+    handler: U32
+    state: TypeName("MediaState")
 FontFallbacks NewTypeStruct(Seq(Str))
 FontStyle enum
   0 Normal: Unit
@@ -639,6 +647,24 @@ Location enum
   1 Left: Unit
   2 Right: Unit
   3 Numpad: Unit
+MediaState struct
+  status: TypeName("MediaStatus")
+  device: Str
+  playback: TypeName("Playback")
+  detail: Str
+MediaStatus enum
+  0 Starting: Unit
+  1 Live: Unit
+  2 Denied: Unit
+  3 Busy: Unit
+  4 Gone: Unit
+  5 NoDevice: Unit
+  6 Unsupported: Unit
+  7 Failed: Unit
+MicCommand enum
+  0 Record struct
+    seconds: U8
+  1 Stop: Unit
 Modifiers struct
   control: Bool
   alt: Bool
@@ -861,6 +887,21 @@ Node enum
     revision: U64
     commands: Seq(TypeName("WebCommand"))
     on_state: Option(U32)
+  16 Camera struct
+    id: TypeName("WireRepr")
+    style: U32
+    device: Option(Str)
+    mirror: Bool
+    on_state: Option(U32)
+  17 Microphone struct
+    id: TypeName("WireRepr")
+    style: U32
+    device: Option(Str)
+    output: Option(Str)
+    monitor: Bool
+    revision: U64
+    commands: Seq(TypeName("MicCommand"))
+    on_state: Option(U32)
 NodeId NewTypeStruct(U64)
 Orientation enum
   0 horizontal: Unit
@@ -891,6 +932,10 @@ Pinch struct
   modifiers: TypeName("Modifiers")
   phase: TypeName("TouchPhase")
 Pixels NewTypeStruct(F32)
+Playback enum
+  0 Idle: Unit
+  1 Recording: Unit
+  2 Playing: Unit
 Point struct
   x: TypeName("Pixels")
   y: TypeName("Pixels")

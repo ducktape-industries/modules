@@ -134,6 +134,39 @@ pub(super) fn check_bounds(
                 }
             }
         }
+        Node::Camera { style, device, .. } => {
+            check_native_style(&styles[*style]);
+            assert!(
+                device
+                    .as_ref()
+                    .is_none_or(|d| d.len() <= view_wire::MAX_DEVICE_BYTES)
+            );
+        }
+        Node::Microphone {
+            style,
+            device,
+            output,
+            commands,
+            ..
+        } => {
+            check_native_style(&styles[*style]);
+            for device in [device, output] {
+                assert!(
+                    device
+                        .as_ref()
+                        .is_none_or(|d| d.len() <= view_wire::MAX_DEVICE_BYTES)
+                );
+            }
+            assert!(commands.len() <= view_wire::MAX_MIC_COMMANDS);
+            for command in commands {
+                if let view_wire::MicCommand::Record { seconds } = command {
+                    assert!(
+                        (1..=view_wire::MAX_RECORD_SECONDS).contains(seconds),
+                        "{ctx}"
+                    );
+                }
+            }
+        }
         Node::ResizeHandle { content, .. } => {
             check_bounds(content, styles, depth + 1, svg_bytes, ctx);
         }
