@@ -353,7 +353,7 @@ pub(crate) fn form(
             format!("{} → {}", ref_label(&form.from), ref_label(&form.into)),
             theme,
         ))
-        .child(form_fields(form, cx, theme))
+        .child(form_fields(form, forge, cx, theme))
         .child(reviewers(form, forge, cx, theme));
     if !form.error.is_empty() {
         card = card.child(
@@ -385,7 +385,7 @@ pub(crate) fn form(
 }
 
 /// The draft's title and body fields.
-fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div {
+fn form_fields(form: &ChangeForm, forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Div {
     // a title typed again takes the last refusal with it
     let title = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.form {
@@ -407,7 +407,10 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
                 .bg(theme.background)
                 .text_color(theme.foreground)
                 .placeholder("What this change does")
-                .on_change(title),
+                .on_change(title)
+                .when(forge.may_write(), |title| {
+                    title.on_submit(cx.listener(|forge, _: &(), _, cx| forge.submit_change(cx)))
+                }),
         )
         .child(
             Textarea::new(id("forge-change-body"), &form.body, "Change body")

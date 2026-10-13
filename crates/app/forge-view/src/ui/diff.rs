@@ -96,10 +96,9 @@ pub(crate) fn render(
         .max_by_key(|(_, row)| row.text.len())
         .map(|(index, _)| index);
     let theme = *theme;
-    let comment: Route<Anchor> =
-        Rc::new(cx.listener(|forge, at: &Anchor, _, cx| {
-            forge.open_comment(at.0.clone(), at.1, at.2, cx)
-        }));
+    let comment: Route<Anchor> = Rc::new(cx.listener(|forge, at: &Anchor, window, cx| {
+        forge.open_comment(at.0.clone(), at.1, at.2, window, cx)
+    }));
     let handle = forge.diff_scroll.clone();
     // Under a review the lines are a grid: ↑ ↓ walk the lines with a
     // gutter, ← → a line's gutters (old, new), Enter comments there. The
@@ -645,7 +644,8 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .placeholder("What should change here?"),
+                .placeholder("What should change here?")
+                .on_submit(cx.listener(|forge, _: &(), _, cx| forge.stage_comment(cx))),
         );
     if !review.error.is_empty() {
         card = card.child(

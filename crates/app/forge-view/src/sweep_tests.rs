@@ -1,6 +1,6 @@
 //! What the forge-qa sweep found on the real screen, each held by the
 //! outcome a reader sees.
-use super::{booted, opened};
+use super::{booted, change_screen, opened, opened_as};
 use ducktape_view_guest::Role;
 use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire::Node;
@@ -152,4 +152,132 @@ fn the_changes_tab_counts_on_every_tab() {
         texts.iter().any(|text| text.parse::<u64>().is_ok()),
         "the README tab shows the count: {texts:?}"
     );
+}
+
+fn count_keys(node: &Node, key: &str) -> usize {
+    usize::from(node.key() == Some(key))
+        + node
+            .children()
+            .iter()
+            .map(|c| count_keys(c, key))
+            .sum::<usize>()
+}
+
+fn focused(cx: &TestAppContext) -> Option<String> {
+    cx.focused().and_then(Node::key).map(str::to_owned)
+}
+
+/// "New repository" opens with the keys in its name field, and Enter there
+/// creates the repository: a typed name is never lost to the list behind.
+#[test]
+fn a_new_repository_form_opens_focused_and_enter_creates() {
+    let (mut cx, view) = booted("default");
+    cx.simulate_click("forge-new-repo");
+    cx.run_until_parked();
+    assert_eq!(focused(&cx).as_deref(), Some("forge-new-repo-name"));
+    cx.simulate_input("forge-new-repo-name", "ledger");
+    cx.simulate_submit("forge-new-repo-name");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.new_repo.is_none(), "the form closed"));
+    assert!(
+        cx.host()
+            .requests::<crate::api::SubmitForge>()
+            .iter()
+            .any(|op| matches!(op, forge::Op::Create { repo, .. } if repo == "ledger")),
+        "Enter created it"
+    );
+}
+
+/// A change draft (from Compare) and an edit of a change open with the keys
+/// in the title; Enter there opens or saves the change.
+#[test]
+fn a_change_form_opens_focused_on_its_title_and_enter_submits() {
+    let (mut cx, view) = opened_as("default", 1);
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    cx.simulate_click("forge-compare-clean");
+    cx.run_until_parked();
+    assert_eq!(
+        focused(&cx).as_deref(),
+        Some("forge-change-title"),
+        "a draft"
+    );
+    cx.simulate_input("forge-change-title", "Clean up");
+    cx.simulate_submit("forge-change-title");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.form.is_none(), "the draft left on Enter"));
+    assert!(
+        cx.host()
+            .requests::<crate::api::SubmitForge>()
+            .iter()
+            .any(|op| matches!(op, forge::Op::ChangeOpen { title, .. } if title == "Clean up")),
+        "Enter opened it"
+    );
+
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    cx.simulate_click("forge-edit-change");
+    cx.run_until_parked();
+    assert_eq!(
+        focused(&cx).as_deref(),
+        Some("forge-change-title"),
+        "an edit"
+    );
+    assert_eq!(
+        count_keys(cx.root(), "forge-change-title"),
+        1,
+        "the heading does not share the field's id while editing"
+    );
+}
+
+/// Enter in the Grant field grants, like its button; not for a reader who
+/// cannot.
+#[test]
+fn enter_in_the_grant_field_grants_for_the_owner_only() {
+    let (mut cx, _) = opened_as("default", 1);
+    cx.simulate_click("forge-tab-settings");
+    cx.run_until_parked();
+    cx.simulate_input("forge-settings-grant-input", "acct:7");
+    cx.simulate_submit("forge-settings-grant-input");
+    cx.run_until_parked();
+    assert!(cx.host().requests::<crate::api::SubmitForge>().iter().any(
+        |op| matches!(op, forge::Op::Grant { principal, .. } if *principal == forge::Principal::Account(7))
+    ));
+    let (mut cx, _) = opened_as("default", 2);
+    cx.simulate_click("forge-tab-settings");
+    cx.run_until_parked();
+    assert!(
+        matches!(
+            cx.find("forge-settings-grant-input"),
+            Some(Node::Field {
+                on_submit: None,
+                ..
+            })
+        ),
+        "a reader's Enter grants nothing"
+    );
+}
+
+/// A line comment's composer opens with the keys in it; Enter stages the
+/// comment like the Stage button.
+#[test]
+fn a_line_comment_composer_opens_focused_and_enter_stages() {
+    let (mut cx, view) = change_screen("reviewed", crate::state::ChangeTab::Files);
+    cx.simulate_click("forge-start-review");
+    cx.run_until_parked();
+    cx.update(&view, |forge, window, cx| {
+        forge.open_comment(b"src/lib.rs".to_vec(), true, 3, window, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(focused(&cx).as_deref(), Some("forge-comment-body"));
+    cx.simulate_input("forge-comment-body", "rename this");
+    cx.simulate_submit("forge-comment-body");
+    cx.run_until_parked();
+    view.read(|forge| {
+        let review = forge.review().expect("a review session");
+        assert!(review.open.is_none(), "the composer closed");
+        assert_eq!(review.comments.len(), 1);
+    });
 }

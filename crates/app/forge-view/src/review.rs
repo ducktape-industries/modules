@@ -46,6 +46,7 @@ impl Forge {
         path: Vec<u8>,
         new_side: bool,
         line: u64,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(key) = self.review_key() else { return };
@@ -67,6 +68,7 @@ impl Forge {
                 body,
             });
         }
+        window.focus(crate::ui::components::id("forge-comment-body"));
         cx.notify();
     }
 

@@ -2248,7 +2248,9 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     });
     assert_eq!(
         all.keys().collect::<Vec<_>>(),
-        ["Activity", "Blob", "Changes", "Refs", "Repo", "Repos", "Tree"],
+        [
+            "Activity", "Blob", "Changes", "Refs", "Repo", "Repos", "Tree"
+        ],
         "{all:?}"
     );
     assert_eq!(all.values().sum::<usize>(), 9);

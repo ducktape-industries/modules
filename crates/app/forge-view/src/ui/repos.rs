@@ -545,7 +545,7 @@ fn header(
     theme: &Theme,
     search_id: &str,
 ) -> AnyElement {
-    let new = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_repo(cx));
+    let new = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_repo(window, cx));
     div()
         .id(id("forge-repos-header"))
         .flex()
@@ -658,7 +658,10 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                                 .bg(theme.background)
                                 .text_color(theme.foreground)
                                 .placeholder("letters, digits, dot, dash, underscore")
-                                .on_change(typed),
+                                .on_change(typed)
+                                .on_submit(
+                                    cx.listener(|forge, _: &(), _, cx| forge.create_repo(cx)),
+                                ),
                         ),
                 )
                 .child(

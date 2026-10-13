@@ -64,9 +64,9 @@ pub(crate) fn render(
         cells,
         forge,
         cx,
-        move |forge, index, cell, _, cx| match cell {
+        move |forge, index, cell, window, cx| match cell {
             0 => forge.pick_ref(names[index].clone(), cx),
-            _ if forge.may_write() => forge.start_change(names[index].clone(), cx),
+            _ if forge.may_write() => forge.start_change(names[index].clone(), window, cx),
             _ => {}
         },
     )
@@ -105,7 +105,7 @@ fn ref_row(
     });
     let start = cx.listener({
         let name = name.clone();
-        move |forge, _: &ClickEvent, _, cx| forge.start_change(name.clone(), cx)
+        move |forge, _: &ClickEvent, window, cx| forge.start_change(name.clone(), window, cx)
     });
     let mut line = row(format!("forge-ref-row-{label}"), theme)
         .in_grid()

@@ -579,8 +579,8 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
         (b"src/lib.rs".as_slice(), true, 3, "second thought"),
         (b"src/lib.rs".as_slice(), false, 1, "the old side too"),
     ] {
-        cx.update(&view, |forge, _, cx| {
-            forge.open_comment(path.to_vec(), new_side, line, cx)
+        cx.update(&view, |forge, window, cx| {
+            forge.open_comment(path.to_vec(), new_side, line, window, cx)
         });
         cx.run_until_parked();
         cx.simulate_input("forge-comment-body", body);
@@ -668,8 +668,8 @@ fn a_refused_review_keeps_every_draft() {
     let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
     cx.simulate_click("forge-start-review");
     cx.run_until_parked();
-    cx.update(&view, |forge, _, cx| {
-        forge.open_comment(b"src/lib.rs".to_vec(), true, 3, cx)
+    cx.update(&view, |forge, window, cx| {
+        forge.open_comment(b"src/lib.rs".to_vec(), true, 3, window, cx)
     });
     cx.run_until_parked();
     cx.simulate_input("forge-comment-body", "keep me");
@@ -761,8 +761,8 @@ fn the_details_sidebar_holds_reviews_merge_status_and_line_comments() {
 fn editing_a_change_keeps_the_paragraphs_of_its_body() {
     let (mut cx, view) = change_screen("default", ChangeTab::Conversation);
     let body = "What: a body.\n\nWhy: it reads.\n\nTest: this one.";
-    cx.update(&view, |forge, _, cx| {
-        forge.start_edit(cx);
+    cx.update(&view, |forge, window, cx| {
+        forge.start_edit(window, cx);
         // what the host's editor holds once the paragraphs are typed
         forge.form.as_mut().unwrap().body = ducktape_view_guest::TextField::new(body);
     });

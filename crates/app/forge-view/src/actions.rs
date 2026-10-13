@@ -111,8 +111,9 @@ impl Forge {
         );
     }
 
-    pub(crate) fn start_repo(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.new_repo = Some(NewRepo::default());
+        window.focus(crate::ui::components::id("forge-new-repo-name"));
         cx.notify();
     }
 
@@ -122,16 +123,22 @@ impl Forge {
     }
 
     /// A Change draft from a ref comparison, or an edit of an open change.
-    pub(crate) fn start_change(&mut self, from: Vec<u8>, cx: &mut Context<Self>) {
+    pub(crate) fn start_change(
+        &mut self,
+        from: Vec<u8>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.form = Some(ChangeForm {
             from,
             into: self.default_head(),
             ..ChangeForm::default()
         });
+        window.focus(crate::ui::components::id("forge-change-title"));
         cx.notify();
     }
 
-    pub(crate) fn start_edit(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((change, _, _, _)) = self.change() else {
             return;
         };
@@ -147,6 +154,7 @@ impl Forge {
             reviewers: change.reviewers.clone(),
             error: String::new(),
         });
+        window.focus(crate::ui::components::id("forge-change-title"));
         cx.notify();
     }
 

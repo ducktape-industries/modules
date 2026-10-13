@@ -190,7 +190,7 @@ fn title_line(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let edit = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_edit(cx));
+    let edit = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_edit(window, cx));
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.close_change(cx));
     let merge = cx.listener(|forge, _: &ClickEvent, _, cx| forge.merge(cx));
     let open = change.state == ChangeState::Open;
@@ -204,7 +204,7 @@ fn title_line(
         .items_center()
         .gap(design::space::SM)
         .child(heading(
-            id("forge-change-title"),
+            id("forge-change-heading"),
             change.title.clone(),
             1,
             theme,

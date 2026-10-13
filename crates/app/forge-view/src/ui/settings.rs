@@ -244,7 +244,10 @@ fn grant_field(
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Search members"),
+            .placeholder("Search members")
+            .when(forge.owns_repo(), |input| {
+                input.on_submit(cx.listener(|forge, _: &(), _, cx| forge.grant(cx)))
+            }),
         )
         .child(
             button(id("forge-settings-grant"), "Grant", theme, grant)
