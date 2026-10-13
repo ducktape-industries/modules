@@ -258,6 +258,7 @@ fn a_person_manages_an_agent_and_its_keys() {
     assert_eq!(
         get(&store, agent).control,
         Control::Managed {
+            runner: None,
             manager: 1,
             category: Category::Agent,
             life: Life::Active { keys: Vec::new() },
@@ -604,6 +605,7 @@ fn profiles_page_in_number_order_and_say_what_each_is() {
                 2,
                 "Scout",
                 Kind::Managed {
+                    runner: None,
                     manager: 1,
                     category: Category::Agent,
                     standing: Standing::Active
@@ -787,4 +789,126 @@ fn an_agent_answers_at_most_the_cap_besides_its_manager() {
     );
     let over = refused(&store, &alice, answers(agent, Audience::Accounts(people)));
     assert_eq!(over.code, code::CAPACITY);
+}
+
+fn runs(store: &MockHost, program: &str, account: u64) -> Result<Option<u64>, guest::Error> {
+    let asked = Query::Runs {
+        program: program.into(),
+        account,
+    };
+    match Identity::query(&store.query(env(Origin::Root, None, 100)), asked)? {
+        Reply::Number(number) => Ok(number),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn run_by(account: u64, runner: Option<&str>) -> Op {
+    Op::SetRunner {
+        account,
+        runner: runner.map(Into::into),
+    }
+}
+
+#[test]
+fn a_manager_hands_an_agent_to_a_module_that_then_alone_runs_it() {
+    let store = memory();
+    let alice = create(&store, ALICE, "Alice");
+    create(&store, BOB, "Bob");
+    let agent = create_agent(&store, ALICE, "Scout");
+    run(
+        &store,
+        &root(),
+        Op::RegisterModule {
+            module: "harness".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        runs(&store, "harness", agent).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+
+    let unknown = refused(
+        &store,
+        &signed(&store, ALICE),
+        run_by(agent, Some("nobody")),
+    );
+    assert_eq!(unknown.code, code::NOT_FOUND);
+    let stranger = refused(&store, &signed(&store, BOB), run_by(agent, Some("harness")));
+    assert_eq!(stranger.code, code::UNAUTHORIZED);
+    let person = refused(
+        &store,
+        &signed(&store, ALICE),
+        run_by(alice, Some("harness")),
+    );
+    assert_eq!(person.code, code::WRONG_STATE);
+
+    run(
+        &store,
+        &signed(&store, ALICE),
+        run_by(agent, Some("harness")),
+    )
+    .unwrap();
+    assert_eq!(runs(&store, "harness", agent).unwrap(), Some(agent));
+    assert_eq!(
+        runs(&store, "chat", agent).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+    assert_eq!(
+        runs(&store, "harness", alice).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+    let Reply::Profile(Some(profile)) = query(&store, Query::Profile { number: agent }) else {
+        panic!()
+    };
+    assert_eq!(
+        profile.kind,
+        Kind::Managed {
+            manager: alice,
+            category: Category::Agent,
+            standing: Standing::Active,
+            runner: Some("harness".into()),
+        }
+    );
+
+    run(
+        &store,
+        &signed(&store, ALICE),
+        Op::Suspend { account: agent },
+    )
+    .unwrap();
+    assert_eq!(
+        runs(&store, "harness", agent).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+    run(
+        &store,
+        &signed(&store, ALICE),
+        Op::Resume { account: agent },
+    )
+    .unwrap();
+    run(&store, &signed(&store, ALICE), run_by(agent, None)).unwrap();
+    assert_eq!(
+        runs(&store, "harness", agent).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+
+    run(
+        &store,
+        &signed(&store, ALICE),
+        run_by(agent, Some("harness")),
+    )
+    .unwrap();
+    run(
+        &store,
+        &signed(&store, ALICE),
+        Op::Revoke { account: agent },
+    )
+    .unwrap();
+    assert_eq!(
+        runs(&store, "harness", agent).unwrap_err().code,
+        code::WRONG_STATE
+    );
+    let revoked = refused(&store, &signed(&store, ALICE), run_by(agent, None));
+    assert_eq!(revoked.code, code::WRONG_STATE);
 }

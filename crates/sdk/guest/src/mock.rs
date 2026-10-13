@@ -35,7 +35,9 @@ pub type Sibling = Box<dyn Fn(Env, &[u8]) -> Result<Vec<u8>, Error>>;
 pub fn identity_role(roster: &Roster, request: &[u8]) -> Result<Vec<u8>, Error> {
     use abi::role::identity::{Query, Reply};
     let reply = match abi::decode(request).map_err(crate::kernel::error_from)? {
-        asked @ (Query::Account(_) | Query::OfModule(_)) => Reply::Account(roster.account(&asked)?),
+        asked @ (Query::Account(_) | Query::OfModule(_) | Query::Runs { .. }) => {
+            Reply::Account(roster.account(&asked)?)
+        }
         Query::Profile(number) => Reply::Profile(roster.profiles.get(&number).cloned()),
         Query::Profiles { after, limit } => {
             let mut page: Vec<Profile> = roster

@@ -37,6 +37,8 @@ impl conformance::identity::Fixture for Mine {
     fn managed(&self, host: &MockHost, key: &[u8]) -> AccountNumber { todo!() }
     /// `account` (one `managed` made) is revoked.
     fn revoke(&self, host: &MockHost, account: AccountNumber) { todo!() }
+    /// `account` (one `managed` made) is handed to `program` to run.
+    fn hand(&self, host: &MockHost, account: AccountNumber, program: &str) { todo!() }
 }
 
 #[test]
@@ -71,7 +73,10 @@ is managed and not active; a key dropped from its account (the fixture's
 page that has more, the listing is the same whatever the limit and agrees
 with `Profile`; `Profiles { limit: 0 }` is a page, empty with no `next` or
 the module's capped first page with `next` as any page has it; every `Kind::Module(id)` is the account `OfModule(id)`
-answers.
+answers; `Runs { program, account }` is refused until the account's
+manager hands it to the program (the fixture's `hand`), then answers it
+and the profile names the program its `runner`; another program, a
+person's account and a revoked one are refused.
 
 **validators**: the role's `Query` and `Reply` are the first variants;
 init with the role's `Genesis` seats exactly its validators, each a member

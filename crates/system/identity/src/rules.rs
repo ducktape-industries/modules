@@ -207,6 +207,7 @@ pub(crate) fn create_agent(ctx: &ExecCtx, name: String) -> Result<(), Error> {
             manager,
             category: Category::Agent,
             life: Life::Active { keys: Vec::new() },
+            runner: None,
         },
     };
     ACCOUNTS.put(ctx, &number, &account);
@@ -448,6 +449,54 @@ pub(crate) fn revoke(ctx: &ExecCtx, number: AccountNumber) -> Result<(), Error> 
         }
         Life::Revoked => Err(revoked(number)),
     })
+}
+
+pub(crate) fn set_runner(
+    ctx: &ExecCtx,
+    number: AccountNumber,
+    runner: Option<ModuleId>,
+) -> Result<(), Error> {
+    let mut account = account(ctx, number)?;
+    let Control::Managed {
+        manager,
+        life,
+        runner: current,
+        ..
+    } = &mut account.control
+    else {
+        return Err(not_an_agent(number));
+    };
+    managing(ctx, *manager, number)?;
+    if *life == Life::Revoked {
+        return Err(revoked(number));
+    }
+    if let Some(module) = &runner
+        && !OF_MODULE.has(ctx, module)
+    {
+        return Err(not_found(format!("module {module} has no account")));
+    }
+    *current = runner;
+    save(ctx, account);
+    Ok(())
+}
+
+pub(crate) fn runs(
+    ctx: &QueryCtx,
+    program: &ModuleId,
+    number: AccountNumber,
+) -> Result<Option<AccountNumber>, Error> {
+    let not_run = || unauthorized(format!("{program} does not run account {number}"));
+    let Control::Managed { life, runner, .. } = account(ctx, number)?.control else {
+        return Err(not_run());
+    };
+    if runner.as_ref() != Some(program) {
+        return Err(not_run());
+    }
+    match life {
+        Life::Active { .. } => Ok(Some(number)),
+        Life::Suspended { .. } => Err(unauthorized(format!("account {number} is suspended"))),
+        Life::Revoked => Err(revoked(number)),
+    }
 }
 
 pub(crate) fn audience(ctx: &QueryCtx, number: AccountNumber) -> Result<Audience, Error> {

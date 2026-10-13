@@ -67,6 +67,7 @@ pub enum Control {
         manager: AccountNumber,
         category: Category,
         life: Life,
+        runner: Option<ModuleId>,
     },
     /// A module's account: the module alone acts as it.
     Module { module: ModuleId },
@@ -119,7 +120,7 @@ impl Account {
                 manager,
                 category,
                 life,
-                ..
+                runner,
             } => Kind::Managed {
                 manager: *manager,
                 category: *category,
@@ -128,6 +129,7 @@ impl Account {
                     Life::Suspended { .. } => Standing::Suspended,
                     Life::Revoked => Standing::Revoked,
                 },
+                runner: runner.clone(),
             },
             Control::Module { module } => Kind::Module(module.clone()),
         }
@@ -220,6 +222,10 @@ pub enum Op {
         account: AccountNumber,
         audience: Audience,
     },
+    SetRunner {
+        account: AccountNumber,
+        runner: Option<ModuleId>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -245,6 +251,11 @@ pub enum Query {
     Profiles {
         after: Option<AccountNumber>,
         limit: u32,
+    },
+    #[ask(Reply::Number(Option<AccountNumber>))]
+    Runs {
+        program: ModuleId,
+        account: AccountNumber,
     },
     #[ask(Reply::Account(Option<Account>))]
     Get { number: AccountNumber },
@@ -375,6 +386,21 @@ pub fn describe(op: &Op) -> describe::Description {
             "Set who it answers".into(),
             vec![account(number), field("answers", answers(audience))],
         ),
+        Op::SetRunner {
+            account: number,
+            runner,
+        } => (
+            "Set the module that runs it".into(),
+            vec![
+                account(number),
+                field(
+                    "runner",
+                    runner
+                        .clone()
+                        .map_or_else(|| Value::text("—"), Value::Module),
+                ),
+            ],
+        ),
     };
     describe::Description { title, fields }
 }
@@ -399,6 +425,7 @@ fn op_variants_only_append() {
             "Resume",
             "Revoke",
             "SetAudience",
+            "SetRunner",
         ]
     );
 }
@@ -412,6 +439,7 @@ fn query_and_reply_variants_only_append() {
             "OfModule",
             "Profile",
             "Profiles",
+            "Runs",
             "Get",
             "Generation",
             "Resolve",

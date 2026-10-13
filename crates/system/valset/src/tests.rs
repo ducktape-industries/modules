@@ -468,6 +468,7 @@ fn agent(number: AccountNumber, standing: Standing) -> Profile {
     profile(
         number,
         Kind::Managed {
+            runner: None,
             manager: ADA,
             category: Category::Agent,
             standing,

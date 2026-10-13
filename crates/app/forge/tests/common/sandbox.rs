@@ -55,6 +55,7 @@ impl MemorySandbox {
             number,
             name: format!("account {number}"),
             kind: Kind::Managed {
+                runner: None,
                 manager: AGENT_MANAGER,
                 category: Category::Agent,
                 standing,

@@ -53,6 +53,7 @@ fn seated() -> (MockHost, BlobId) {
         profile(
             AGENT,
             Kind::Managed {
+                runner: None,
                 manager: CAROL,
                 category: Category::Agent,
                 standing: Standing::Active,

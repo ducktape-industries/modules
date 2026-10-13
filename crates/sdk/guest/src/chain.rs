@@ -82,6 +82,17 @@ impl Roster {
                 .values()
                 .find(|profile| profile.kind == Kind::Module(module.clone()))
                 .map(|profile| profile.number),
+            Query::Runs { program, account } => {
+                let runs = self.profiles.get(account).is_some_and(|profile| {
+                    matches!(&profile.kind, Kind::Managed { runner: Some(runner), .. } if runner == program)
+                });
+                if !runs {
+                    return Err(unauthorized(format!(
+                        "{program} does not run account {account}"
+                    )));
+                }
+                Some(*account)
+            }
             Query::Profile(_) | Query::Profiles { .. } => {
                 unreachable!("only who acts is asked here")
             }
@@ -376,6 +387,25 @@ impl MockChain {
         Ok(account.map(Principal::Account))
     }
 
+    fn run_by(
+        &self,
+        program: &ModuleId,
+        account: AccountNumber,
+    ) -> Result<Option<Principal>, Error> {
+        let asked = Query::Runs {
+            program: program.clone(),
+            account,
+        };
+        match self.account(asked)? {
+            Some(Principal::Account(number)) if number == account => {
+                Ok(Some(Principal::Account(account)))
+            }
+            _ => Err(unauthorized(format!(
+                "{program} does not run account {account}"
+            ))),
+        }
+    }
+
     /// The kernel's `run_frame`: `env.module` runs `payload`, then the
     /// messages it emitted in order, each at `depth + 1` and depth first,
     /// and the whole run is undone on a rejection it does not absorb: a
@@ -408,10 +438,11 @@ impl MockChain {
             return Err(refusal);
         }
         // the emitter's account, asked once for all its messages
-        let emitter = if emitted.is_empty() {
-            Ok(None)
-        } else {
+        let as_itself = emitted.iter().any(|message| message.acting.is_none());
+        let emitter = if as_itself {
             self.account(Query::OfModule(env.module.clone()))
+        } else {
+            Ok(None)
         };
         let nested = |me: &ModuleId, origin: &ModuleId, sender, cause| Env {
             module: me.clone(),
@@ -425,7 +456,11 @@ impl MockChain {
                 module: env.module.clone(),
                 seq: first + seq as u64,
             };
-            let ran = match emitter.clone() {
+            let sender = match message.acting {
+                None => emitter.clone(),
+                Some(account) => self.run_by(&env.module, account),
+            };
+            let ran = match sender {
                 Err(refusal) => Err(refusal),
                 Ok(sender) => {
                     let env = nested(

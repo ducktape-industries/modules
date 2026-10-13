@@ -106,6 +106,7 @@ fn configure(cx: &mut TestAppContext) {
                 // an agent eddy manages
                 chat::Profile {
                     kind: chat::Kind::Managed {
+                        runner: None,
                         manager: 7,
                         category: chat::Category::Agent,
                         standing: chat::Standing::Active,
