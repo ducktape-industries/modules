@@ -22,7 +22,7 @@ pub(crate) fn render(
         .flex_1()
         .min_h(px(0.))
         .child(pending(forge, "changes", theme));
-    if let Some(form) = &forge.form {
+    if let Some(form) = forge.form.as_ref().filter(|form| form.edit.is_none()) {
         column = column.child(crate::ui::changes::form(form, forge, cx, theme));
     }
     let reply = match staged(

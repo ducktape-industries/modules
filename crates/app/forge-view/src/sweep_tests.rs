@@ -1,6 +1,6 @@
 //! What the forge-qa sweep found on the real screen, each held by the
 //! outcome a reader sees.
-use super::{booted, change_screen, opened, opened_as};
+use super::{booted, change_screen, change_screen_as, opened, opened_as};
 use ducktape_view_guest::Role;
 use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire::Node;
@@ -341,4 +341,38 @@ fn about_left_open_does_not_lay_a_change_s_details_over_it() {
     cx.simulate_click("forge-change-1");
     cx.run_until_parked();
     assert!(cx.find("forge-details-over").is_none(), "{:?}", cx.texts());
+}
+
+/// An edit left open on a change's page belongs to that page: the Changes
+/// list and the Refs tab do not show "Edit change #n" after backing out.
+#[test]
+fn an_edit_left_open_does_not_show_on_the_list_tabs() {
+    let (mut cx, _) = change_screen_as("default", crate::state::ChangeTab::Conversation, 1);
+    cx.simulate_click("forge-edit-change");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_some(),
+        "the edit opened on its page"
+    );
+    cx.simulate_click("forge-change-back");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "the Changes list shows no edit form: {:?}",
+        cx.texts()
+    );
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "nor does the Refs tab"
+    );
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_some(),
+        "back on its page the edit is still there"
+    );
 }
