@@ -30,10 +30,10 @@ pub const MODULE: &str = "module-registry";
 pub const CODE_KIND: &str = "program";
 
 /// How many blocks a maintainer's change waits at least before it lands:
-/// about ten minutes at 1 s blocks, for the validators to see it and cancel
+/// about a minute at 1 s blocks, for the validators to see it and cancel
 /// it by vote. A constant: changing it is a registry upgrade, which only the
 /// vote schedules.
-pub const NOTICE: u64 = 600;
+pub const NOTICE: u64 = 60;
 
 /// The most changes one account's grants keep waiting at once; the vote's
 /// do not count. It bounds what a maintainer's change scans.
