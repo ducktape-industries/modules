@@ -95,9 +95,14 @@ fn registry_swapping(program: &str, at: u64) -> (guest::MockHost, BlobId, BlobId
         &abi::encode(&genesis),
     )
     .unwrap();
-    let publish = registry::Op::Publish {
+    let kind = registry::CODE_KIND;
+    let code = guest::blob_id(guest::HashKind::Sha256, kind, b"scheduled code").unwrap();
+    let blob = guest::Blob {
+        kind: kind.into(),
         body: b"scheduled code".to_vec(),
     };
+    store.borrow_mut().blobs.insert(code, blob);
+    let publish = registry::Op::Publish { code };
     Modules::execute(
         &store.exec(registry_env(1, Origin::Signed(ADA.to_vec()))),
         publish,

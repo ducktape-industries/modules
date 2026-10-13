@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use abi::role::identity;
-use guest::{AccountNumber, Env, HashKind, ModuleId, Origin, Principal};
+use guest::{AccountNumber, BlobId, Env, ModuleId, Origin, Principal};
 use guest::{
     Error, ExecCtx, QueryCtx, already_exists, capacity, invalid, not_found, unauthorized,
     unexpected_reply, wrong_state,
@@ -69,8 +69,20 @@ pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) {
     FOLDED.put(ctx, &0);
 }
 
-pub(crate) fn publish(ctx: &ExecCtx, body: Vec<u8>) -> Result<(), Error> {
-    let id = ctx.blob_put(HashKind::Sha256, CODE_KIND, body)?;
+pub(crate) fn publish(ctx: &ExecCtx, code: BlobId) -> Result<(), Error> {
+    let Some(blob) = ctx.blob_get(code) else {
+        return Err(not_found(format!(
+            "code {code:?} is neither attached to this frame nor published"
+        )));
+    };
+    let program = blob.kind == CODE_KIND;
+    if !program {
+        return Err(invalid(format!(
+            "code {code:?} is a {:?} blob, not {CODE_KIND:?}",
+            blob.kind
+        )));
+    }
+    let id = ctx.blob_put(code.kind(), CODE_KIND, blob.body)?;
     ctx.set_return_data(abi::encode(&id));
     Ok(())
 }

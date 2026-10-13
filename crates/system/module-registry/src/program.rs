@@ -27,7 +27,7 @@ impl Module for Modules {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         fold(ctx, ctx.env().height)?;
         match op {
-            Op::Publish { body } => publish(ctx, body),
+            Op::Publish { code } => publish(ctx, code),
             Op::Schedule(scheduled) => schedule(ctx, scheduled),
             Op::Cancel { height, program } => cancel(ctx, height, program),
             Op::Grant(granted) => grant(ctx, granted),

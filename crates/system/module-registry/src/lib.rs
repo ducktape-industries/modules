@@ -184,7 +184,7 @@ pub struct Scheduled {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
     Publish {
-        body: Vec<u8>,
+        code: abi::BlobId,
     },
     Schedule(Scheduled),
     Cancel {
@@ -250,7 +250,10 @@ pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let height = |height: &u64| field("height", Value::Text(height.to_string()));
     let (title, fields) = match op {
-        Op::Publish { body } => ("Publish".into(), vec![field("body", Value::bytes(body))]),
+        Op::Publish { code } => (
+            "Publish".into(),
+            vec![field("code", Value::Hash(code.digest().to_vec()))],
+        ),
         Op::Schedule(Scheduled { height: at, change }) => {
             let mut fields = vec![
                 field("change", Value::text(change.verb())),

@@ -55,12 +55,19 @@ fn main() {
         if !unprivileged {
             vote(&grant(Scope::All, me))?;
         }
+        let kind = module_registry::CODE_KIND;
+        let body = b"chat, the next release".to_vec();
+        let attached = guest::blob_id(guest::HashKind::Sha256, kind, &body).expect("a blob id");
+        let blob = guest::Blob {
+            kind: kind.into(),
+            body,
+        };
+        let registry = net.host(module_registry::MODULE);
+        registry.borrow_mut().blobs.insert(attached, blob);
         let code = net.submit(
             me,
             module_registry::MODULE,
-            &module_registry::Op::Publish {
-                body: b"chat, the next release".to_vec(),
-            },
+            &module_registry::Op::Publish { code: attached },
         )?;
         let code: abi::BlobId = abi::decode(&code).expect("a blob id");
         let at = |height: u64, change: Change| {
