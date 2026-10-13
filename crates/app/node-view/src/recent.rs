@@ -18,12 +18,6 @@ pub struct Recent {
     /// the key that led each block held, by height; `None` where the node
     /// keeps no certificate for it (a block it state-synced past)
     pub led: BTreeMap<u64, Option<Vec<u8>>>,
-    /// the lowest height the node's archive keeps, as a short page showed
-    ///
-    /// ponytail: set once and never lowered, so an empty page for a tip the
-    /// node had not archived yet leaves that height a gap until it scrolls
-    /// out, and an archive that later grows below it is not re-read; reset
-    /// it on a reconnect if either shows up.
     pub bottom: u64,
 }
 
@@ -46,15 +40,9 @@ impl Recent {
         })
     }
 
-    /// Folds in the page `asked` returned, then drops what fell out of
-    /// the span at `head`.
-    pub fn land(&mut self, asked: &BlockPage, head: u64, page: Vec<Block>) {
-        if page.len() < asked.limit as usize {
-            self.bottom = page
-                .last()
-                .map_or(asked.before.unwrap_or(0), |block| block.height);
-        }
-        for block in page {
+    pub fn land(&mut self, head: u64, page: BlockList) {
+        self.bottom = page.listed_from.unwrap_or(head + 1);
+        for block in page.blocks {
             self.led.insert(block.height, block.proposer);
         }
         self.led = self.led.split_off(Self::span(head).start());

@@ -1,6 +1,6 @@
 //! The `activity` module: where each frame a block carried sits on the chain, kept under the key
 //! that signed it and the account it acted as (the newest `KEPT` of each), as the kernel tells
-//! its hooks. Views list what an account did and fetch each frame's block for its payload.
+//! its hooks. Views list what an account did and read each frame by its place (`chain.tx`).
 mod program;
 mod rules;
 #[cfg(test)]

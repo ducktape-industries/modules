@@ -4,7 +4,7 @@
 use ducktape_view_guest::prelude::*;
 use module_registry as registry;
 
-use crate::chain::{TxRow, rows};
+use crate::chain::{ROW_PAYLOAD, TxRow, located};
 use crate::state::{Accounts, Acted, Network, Used};
 use crate::ui::LIST_ROWS;
 
@@ -66,7 +66,6 @@ pub(crate) async fn acted(host: Host, account: u64, known: Vec<TxRow>) -> Result
         page: activity::PageRequest::first(LIST_ROWS as u64),
     };
     let frames = host.query(asked).await?.items;
-    let mut block: Vec<TxRow> = Vec::new();
     let mut acted = Vec::with_capacity(frames.len());
     for frame in frames {
         let at = |row: &&TxRow| (row.height, row.index) == (frame.height, frame.position);
@@ -74,14 +73,14 @@ pub(crate) async fn acted(host: Host, account: u64, known: Vec<TxRow>) -> Result
             acted.push(row.clone());
             continue;
         }
-        let held = block.first().is_some_and(|row| row.height == frame.height);
-        if !held {
-            let read = host
-                .ask::<ChainBlock>(BlockRef::Height(frame.height))
-                .await?;
-            block = read.map(|read| rows(read).1).unwrap_or_default();
-        }
-        acted.extend(block.iter().find(at).cloned());
+        let ask = TxAsk {
+            tx: TxRef::At {
+                height: frame.height,
+                position: frame.position,
+            },
+            most: ROW_PAYLOAD,
+        };
+        acted.extend(host.ask::<ChainTx>(ask).await?.map(located));
     }
     Ok(Acted {
         account,

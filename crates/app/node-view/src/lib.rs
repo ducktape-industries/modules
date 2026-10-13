@@ -220,7 +220,7 @@ impl Nodes {
             view.asking.blocks = false;
             match answer {
                 Ok(blocks) => {
-                    view.recent.land(&page, head, blocks);
+                    view.recent.land(head, blocks);
                     // a page that filled nothing is not asked again
                     // until the next status
                     let wanted = page.before.map_or(head, |before| before - 1);

@@ -83,7 +83,7 @@ view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }
 conformance = { path = "crates/sdk/conformance" }
 ducktape-view-guest = { path = "crates/sdk/view-guest" }
-gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "7e1491be9357c2bca37c24dde9122fc69f9341bb", default-features = false }
+gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "b38e8b8feec037f15da484f7f703983ae4f8f0de", default-features = false }
 module-registry = { path = "crates/system/module-registry" }
 valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
@@ -98,8 +98,8 @@ files = { path = "crates/app/files" }
 # prebuilt wasm binary, `make probe-fixture`, not a Cargo dependency (its
 # `Step` script type is mirrored in module-registry's test, next to the
 # binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffafbbaf988bda7236541113de3a12bdbb40fb3b" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffafbbaf988bda7236541113de3a12bdbb40fb3b" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "fdd0fa4c6f4ac0480b8e152c274bcdb96417f90e" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "fdd0fa4c6f4ac0480b8e152c274bcdb96417f90e" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 
@@ -170,5 +170,5 @@ inherits = "release"
 strip = "debuginfo"
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7e1491be9357c2bca37c24dde9122fc69f9341bb" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7e1491be9357c2bca37c24dde9122fc69f9341bb" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "b38e8b8feec037f15da484f7f703983ae4f8f0de" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "b38e8b8feec037f15da484f7f703983ae4f8f0de" }

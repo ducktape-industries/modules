@@ -6,6 +6,11 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let held = view.chain.blocks.len() as u64;
     let list = rows("explorer-blocks-list", "Blocks", view);
     let list = block_lines(list, &view.chain.blocks, LIST_ROWS, now, cx, theme);
+    let unlisted = view
+        .chain
+        .unlisted_below()
+        .filter(|_| view.chain.complete)
+        .map(|from| quiet("explorer-blocks-unindexed", unindexed(from), theme));
     div()
         .id("explorer-blocks")
         .child(heading(
@@ -18,19 +23,27 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
             theme,
         ))
         .child(list.build(cx))
+        .children(unlisted)
         .into_any_element()
 }
 
 pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyElement {
     let Some((block, txs)) = view.block(height) else {
         return match &view.opened {
-            Loadable::Ready(None) | Loadable::Reloading(None, _) => empty_state(
-                "explorer-no-block",
-                format!("No block {}", grouped(height)),
-                "This node keeps no finalized block at this height.",
-                theme,
-            )
-            .into_any_element(),
+            Loadable::Ready(None) | Loadable::Reloading(None, _) => {
+                let unlisted = view.chain.unlisted_below().filter(|from| height < *from);
+                let why = match unlisted {
+                    Some(from) => unindexed(from),
+                    None => "This node keeps no finalized block at this height.".into(),
+                };
+                empty_state(
+                    "explorer-no-block",
+                    format!("No block {}", grouped(height)),
+                    why,
+                    theme,
+                )
+                .into_any_element()
+            }
             Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
             Loadable::Idle
             | Loadable::Loading(_)
