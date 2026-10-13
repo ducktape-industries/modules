@@ -139,8 +139,14 @@ impl ListState {
             item_ix: scroll_top.item_ix.min(inner.item_count),
             offset_in_item: px(f32::from(scroll_top.offset_in_item).max(0.)),
         };
-        let shown = offset.item_ix..offset.item_ix.saturating_add(INITIAL_ROWS);
-        inner.hold(shown);
+        // a row within a screenful of the end cannot be the top row: the
+        // host fills the screen upward from it, so the frame carries the
+        // screenful that ends the list, or the host measures the rows above
+        // it as placeholders and the real rows push it off the screen
+        let start = offset
+            .item_ix
+            .min(inner.item_count.saturating_sub(INITIAL_ROWS));
+        inner.hold(start..offset.item_ix.saturating_add(INITIAL_ROWS));
         inner.logical_scroll_top = offset;
         inner.push(wire::ListCommand::ScrollTo(to_wire_offset(offset)));
     }
@@ -699,6 +705,8 @@ mod tests {
         };
         assert_eq!(to(&mut cx, 100), 100..100 + INITIAL_ROWS);
         assert_eq!(to(&mut cx, 110), 100..110 + INITIAL_ROWS);
+        // the last row: the host draws the screenful above it
+        assert_eq!(to(&mut cx, 1_999), 2_000 - INITIAL_ROWS..2_000);
     }
 
     #[test]

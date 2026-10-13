@@ -351,6 +351,147 @@ fn a_landed_room_opens_on_its_message_and_pages_both_ways() {
     assert!(cx.find("chat-jump-latest").is_none());
 }
 
+const SEEDED_HEAD: u64 = 49;
+
+/// A seeded room's #general: 49 messages, every third a reply to the
+/// first, each at the height of its seq; the newest a root. The room list
+/// says its head is `listed` (past 49: newer messages the window does not
+/// hold), or is refused with none. Not yet seated nor opened.
+fn seeded_room(listed: Option<u64>) -> (TestAppContext, Entity<Chat>) {
+    let message = |seq: u64| MsgRow {
+        thread: seq.is_multiple_of(3).then_some(1),
+        height: seq,
+        ..row(seq, 7 + seq % 2, &format!("row {seq}"))
+    };
+    let mut cx = TestAppContext::new();
+    configure(&mut cx);
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
+        Ok(match query {
+            Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
+            Query::Channels { .. } => {
+                let Some(head) = listed else {
+                    return Err(wire::Error::new("unavailable", "the node is busy"));
+                };
+                Reply::Channels(page(vec![channel("general", "General", head)]))
+            }
+            Query::MessagesAround { seq, page, .. } => {
+                let half = page.limit() / 2;
+                let lo = seq.saturating_sub(half).max(1);
+                let hi = seq.saturating_add(half).min(SEEDED_HEAD);
+                Reply::Messages((lo..=hi).map(message).collect())
+            }
+            Query::Roots { .. } => Reply::Roots(::chat::PageResponse {
+                height: 1,
+                items: (1..=SEEDED_HEAD)
+                    .filter(|seq| !seq.is_multiple_of(3))
+                    .map(message)
+                    .collect(),
+                next: None,
+            }),
+            Query::Members { .. } => Reply::Members(page(Vec::new())),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+    let view = cx.open::<Chat>();
+    (cx, view)
+}
+
+/// Opens a link to message `seq` of #general: the route the app hands
+/// the view.
+fn open_link(cx: &mut TestAppContext, seq: u64) {
+    cx.host()
+        .stream::<ducktape_view_guest::methods::HostRoute>()
+        .send(format!("general/{seq}"));
+    cx.run_until_parked();
+}
+
+/// A link to a message near the end of a room, a newer root below it: the room lands on that message. A row that
+/// near the end cannot be the top row of a list that starts at the top,
+/// so the host fills the screen upward from it; the frame that scrolls to
+/// it carries the rows above it too, the host lays out real rows, not
+/// placeholders a real row would push the message off the screen from.
+#[test]
+fn a_link_near_the_end_lands_on_its_message_with_the_rows_above_it() {
+    let (mut cx, view) = seeded_room(Some(SEEDED_HEAD));
+    seat(&mut cx);
+    open_link(&mut cx, SEEDED_HEAD - 2);
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().landed));
+    // the room's intro, then its roots: 47 is the next to last
+    let target = (1..=SEEDED_HEAD - 2)
+        .filter(|seq| !seq.is_multiple_of(3))
+        .count();
+    let wire::Node::List {
+        item_count,
+        range_start,
+        children,
+        commands,
+        ..
+    } = timeline(&cx)
+    else {
+        unreachable!()
+    };
+    assert_eq!(item_count, target + 2);
+    assert!(
+        commands.contains(&wire::ListCommand::ScrollTo(wire::ListOffset {
+            item_ix: target,
+            offset_in_item: 0.,
+        })),
+        "{commands:?}"
+    );
+    assert!(
+        range_start < target && range_start + children.len() == item_count,
+        "the frame carries rows {range_start}..{} of {item_count}",
+        range_start + children.len()
+    );
+}
+
+/// A link to the room's newest message opens the room at its head: the
+/// host shows the last row at the list's foot either way, so it is not a
+/// landing. The list follows the tail and nothing offers to jump to the
+/// latest. Whether
+/// the room list is known when the window lands (the reader seated before
+/// or after the link) or lands after it.
+#[test]
+fn a_link_to_the_newest_message_opens_the_room_at_its_head() {
+    for seated_first in [true, false] {
+        let (mut cx, view) = seeded_room(Some(SEEDED_HEAD));
+        if seated_first {
+            seat(&mut cx);
+            open_link(&mut cx, SEEDED_HEAD);
+        } else {
+            open_link(&mut cx, SEEDED_HEAD);
+            seat(&mut cx);
+        }
+        at_its_head(&cx, &view);
+    }
+    // the room list lands after the window
+    let (mut cx, view) = seeded_room(None);
+    seat(&mut cx);
+    open_link(&mut cx, SEEDED_HEAD);
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().landed, "no list yet"));
+    cx.update(&view, |chat, _, cx| {
+        chat.channels_arrived(vec![channel("general", "General", SEEDED_HEAD)], cx);
+    });
+    cx.run_until_parked();
+    at_its_head(&cx, &view);
+    // the room list says newer messages lie past the window: still a landing
+    let (mut cx, view) = seeded_room(Some(SEEDED_HEAD + 1));
+    seat(&mut cx);
+    open_link(&mut cx, SEEDED_HEAD);
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().landed));
+}
+
+fn at_its_head(cx: &TestAppContext, view: &Entity<Chat>) {
+    view.read(|chat| {
+        let room = chat.room.as_ref().unwrap();
+        assert!(!room.landed, "the window holds the head: not a landing");
+        assert!(room.at_tail);
+    });
+    let (id, _, _) = window(cx);
+    assert_eq!(id, "chat-message-rows", "the room at its head");
+    assert!(cx.find("chat-jump-latest").is_none());
+}
+
 #[test]
 #[ignore = "measurement: prints a hover's render time over a full room, asserts nothing of it"]
 fn a_hover_over_a_full_room_measured() {
