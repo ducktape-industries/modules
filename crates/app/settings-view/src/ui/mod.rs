@@ -269,6 +269,10 @@ fn problem_text(problem: &Problem, empty: &str) -> String {
     match problem {
         Problem::Empty => empty.to_owned(),
         Problem::NotAKeyRequest => "That isn’t a key request for one of your agents.".into(),
+        Problem::NoSuchAccount => "No account has that name or number.".into(),
+        Problem::SeveralAccounts => {
+            "More than one account has that name. Add it by its number.".into()
+        }
         Problem::Refused(message) => format!("That didn’t go through: {message}"),
     }
 }

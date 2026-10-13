@@ -26,6 +26,46 @@ pub struct Settings {
     pub(crate) rename_agent: BTreeMap<u64, Form>,
     /// the one suspend, resume or revoke in flight
     pub(crate) agent_standing: Form,
+    pub(crate) answering: BTreeMap<u64, Answering>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(crate) struct Answering {
+    pub(crate) listing: bool,
+    pub(crate) form: Form,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Choice {
+    Manager,
+    Specific,
+    Anyone,
+}
+
+impl Choice {
+    pub(crate) const ALL: [Choice; 3] = [Self::Manager, Self::Specific, Self::Anyone];
+
+    pub(crate) fn shown(audience: &identity::Audience, listing: bool) -> Self {
+        match (audience, listing) {
+            (identity::Audience::Accounts(_), _) | (_, true) => Self::Specific,
+            (identity::Audience::Manager, false) => Self::Manager,
+            (identity::Audience::Anyone, false) => Self::Anyone,
+        }
+    }
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Manager => "Only me",
+            Self::Specific => "Specific people",
+            Self::Anyone => "Anyone",
+        }
+    }
+    pub(crate) fn slug(self) -> &'static str {
+        match self {
+            Self::Manager => "manager",
+            Self::Specific => "specific",
+            Self::Anyone => "anyone",
+        }
+    }
 }
 
 /// The panes of the left menu. Agents is listed only for an account that
@@ -71,6 +111,8 @@ pub(crate) enum Problem {
     Empty,
     /// the text is not an `AddKey` for one of the reader's agents
     NotAKeyRequest,
+    NoSuchAccount,
+    SeveralAccounts,
     /// the program refused it, in its own words
     Refused(String),
 }

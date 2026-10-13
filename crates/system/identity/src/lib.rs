@@ -28,6 +28,7 @@ pub use store::{PageRequest, PageResponse};
 pub const MODULE: &str = <::program::role::Identity as ::program::Program>::NAME;
 /// What a key signs to consent to a key joining an account ([`Admission`]).
 pub const CONSENT_NAMESPACE: &[u8] = b"ducktape:identity:consent";
+pub const MAX_AUDIENCE: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Key {
@@ -78,6 +79,14 @@ pub enum Life {
     Active { keys: Vec<Key> },
     Suspended { keys: Vec<Key> },
     Revoked,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Audience {
+    #[default]
+    Manager,
+    Accounts(Vec<AccountNumber>),
+    Anyone,
 }
 
 impl Account {
@@ -207,6 +216,10 @@ pub enum Op {
     Revoke {
         account: AccountNumber,
     },
+    SetAudience {
+        account: AccountNumber,
+        audience: Audience,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -246,6 +259,8 @@ pub enum Query {
         by: AccountNumber,
         page: PageRequest,
     },
+    #[ask(Reply::Audience(Audience))]
+    Audience { number: AccountNumber },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -262,6 +277,7 @@ pub enum Reply {
     Generation(u64),
     Resolved(Vec<Option<AccountNumber>>),
     Accounts(PageResponse<Account>),
+    Audience(Audience),
 }
 
 /// An op as a person reads it: a title and its fields. The source of the
@@ -270,6 +286,15 @@ pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let account = |number: &AccountNumber| field("account", Value::Account(*number));
     let optional = |text: &Option<String>| Value::Text(text.clone().unwrap_or_else(|| "—".into()));
+    let answers = |audience: &Audience| match audience {
+        Audience::Manager => Value::text("its manager"),
+        Audience::Accounts(numbers) => Value::List(
+            std::iter::once(Value::text("its manager"))
+                .chain(numbers.iter().copied().map(Value::Account))
+                .collect(),
+        ),
+        Audience::Anyone => Value::text("anyone"),
+    };
     let scheme = |scheme: &abi::Scheme| {
         field(
             "scheme",
@@ -343,6 +368,13 @@ pub fn describe(op: &Op) -> describe::Description {
         Op::Suspend { account: number } => ("Suspend".into(), vec![account(number)]),
         Op::Resume { account: number } => ("Resume".into(), vec![account(number)]),
         Op::Revoke { account: number } => ("Revoke".into(), vec![account(number)]),
+        Op::SetAudience {
+            account: number,
+            audience,
+        } => (
+            "Set who it answers".into(),
+            vec![account(number), field("answers", answers(audience))],
+        ),
     };
     describe::Description { title, fields }
 }
@@ -366,6 +398,39 @@ fn op_variants_only_append() {
             "Suspend",
             "Resume",
             "Revoke",
+            "SetAudience",
+        ]
+    );
+}
+
+#[test]
+fn query_and_reply_variants_only_append() {
+    assert_eq!(
+        describe::variants::<Query>(),
+        [
+            "OfKey",
+            "OfModule",
+            "Profile",
+            "Profiles",
+            "Get",
+            "Generation",
+            "Resolve",
+            "List",
+            "Managed",
+            "Audience",
+        ]
+    );
+    assert_eq!(
+        describe::variants::<Reply>(),
+        [
+            "Number",
+            "Profile",
+            "Profiles",
+            "Account",
+            "Generation",
+            "Resolved",
+            "Accounts",
+            "Audience",
         ]
     );
 }

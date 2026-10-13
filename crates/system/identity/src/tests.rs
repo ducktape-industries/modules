@@ -5,8 +5,8 @@ use guest::{MockHost, Module};
 use store::PageRequest;
 
 use crate::{
-    Account, Admission, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind, Life, Op,
-    Query, Reply, Standing,
+    Account, Admission, Audience, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind,
+    Life, MAX_AUDIENCE, Op, Query, Reply, Standing,
 };
 
 const ALICE: &[u8] = b"alice-key";
@@ -649,4 +649,142 @@ fn an_agents_key_consent_expires_and_is_not_replayed() {
     let fresh = agent_key(agent, BOT, 1);
     run(&store, &signed(&store, ALICE), fresh).unwrap();
     assert!(get(&store, agent).holds(BOT));
+}
+
+fn audience_of(store: &MockHost, number: u64) -> Result<Audience, guest::Error> {
+    let asked = Query::Audience { number };
+    match Identity::query(&store.query(env(Origin::Root, None, 100)), asked)? {
+        Reply::Audience(audience) => Ok(audience),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn answers(account: u64, audience: Audience) -> Op {
+    Op::SetAudience { account, audience }
+}
+
+fn audience_rows(store: &MockHost) -> usize {
+    let state = store.borrow();
+    state
+        .state
+        .keys()
+        .filter(|key| key.starts_with(b"u/"))
+        .count()
+}
+
+#[test]
+fn an_agent_answers_its_manager_until_its_manager_says_otherwise() {
+    let store = memory();
+    create(&store, ALICE, "Alice");
+    let bob = create(&store, BOB, "Bob");
+    let agent = create_agent(&store, ALICE, "Scout");
+    assert_eq!(audience_of(&store, agent), Ok(Audience::Manager));
+    assert_eq!(
+        audience_rows(&store),
+        0,
+        "no row until the manager sets one"
+    );
+
+    let alice = signed(&store, ALICE);
+    run(&store, &alice, answers(agent, Audience::Anyone)).unwrap();
+    assert_eq!(audience_of(&store, agent), Ok(Audience::Anyone));
+
+    let listed = Audience::Accounts(vec![agent, bob, 1, bob]);
+    run(&store, &alice, answers(agent, listed)).unwrap();
+    assert_eq!(
+        audience_of(&store, agent),
+        Ok(Audience::Accounts(vec![bob, agent])),
+        "sorted, once each, its manager implied"
+    );
+
+    run(&store, &alice, answers(agent, Audience::Accounts(vec![1]))).unwrap();
+    assert_eq!(audience_of(&store, agent), Ok(Audience::Manager));
+    assert_eq!(audience_rows(&store), 0, "its manager alone keeps no row");
+
+    run(&store, &alice, answers(agent, Audience::Anyone)).unwrap();
+    run(&store, &alice, answers(agent, Audience::Manager)).unwrap();
+    assert_eq!(audience_of(&store, agent), Ok(Audience::Manager));
+    assert_eq!(audience_rows(&store), 0);
+
+    run(&store, &alice, Op::Suspend { account: agent }).unwrap();
+    run(&store, &alice, answers(agent, Audience::Anyone)).unwrap();
+    assert_eq!(
+        audience_of(&store, agent),
+        Ok(Audience::Anyone),
+        "a suspended agent's manager still sets it"
+    );
+}
+
+#[test]
+fn only_its_manager_sets_whom_an_agent_answers() {
+    let store = memory();
+    create(&store, ALICE, "Alice");
+    create(&store, BOB, "Bob");
+    let agent = create_agent(&store, ALICE, "Scout");
+    add_agent_key(&store, ALICE, agent, BOT).unwrap();
+    for by in [signed(&store, BOB), signed(&store, BOT), root()] {
+        let why = format!("{:?}", by.origin);
+        let refusal = refused(&store, &by, answers(agent, Audience::Anyone));
+        assert_eq!(refusal.code, code::UNAUTHORIZED, "{why}");
+    }
+    assert_eq!(audience_of(&store, agent), Ok(Audience::Manager));
+}
+
+#[test]
+fn only_a_live_agent_has_an_audience() {
+    let store = memory();
+    create(&store, ALICE, "Alice");
+    run(
+        &store,
+        &root(),
+        Op::RegisterModule {
+            module: "chat".into(),
+        },
+    )
+    .unwrap();
+    let agent = create_agent(&store, ALICE, "Scout");
+    let alice = signed(&store, ALICE);
+    for number in [1, 2] {
+        let refusal = refused(&store, &alice, answers(number, Audience::Anyone));
+        assert_eq!(refusal.code, code::WRONG_STATE, "account {number}");
+        let asked = audience_of(&store, number).unwrap_err();
+        assert_eq!(asked.code, code::WRONG_STATE, "account {number}");
+    }
+    let nobody = refused(&store, &alice, answers(99, Audience::Anyone));
+    assert_eq!(nobody.code, code::NOT_FOUND);
+    assert_eq!(audience_of(&store, 99).unwrap_err().code, code::NOT_FOUND);
+    let unknown = refused(&store, &alice, answers(agent, Audience::Accounts(vec![99])));
+    assert_eq!(unknown.code, code::NOT_FOUND);
+
+    run(&store, &alice, answers(agent, Audience::Anyone)).unwrap();
+    run(&store, &alice, Op::Revoke { account: agent }).unwrap();
+    assert_eq!(
+        audience_of(&store, agent),
+        Ok(Audience::Manager),
+        "revoking drops its audience"
+    );
+    assert_eq!(audience_rows(&store), 0);
+    let revoked = refused(&store, &alice, answers(agent, Audience::Anyone));
+    assert_eq!(revoked.code, code::WRONG_STATE);
+}
+
+#[test]
+fn an_agent_answers_at_most_the_cap_besides_its_manager() {
+    let store = memory();
+    create(&store, ALICE, "Alice");
+    let agent = create_agent(&store, ALICE, "Scout");
+    let people: Vec<u64> = (0..=MAX_AUDIENCE as u8)
+        .map(|i| create(&store, &[i], &format!("p{i}")))
+        .collect();
+    let alice = signed(&store, ALICE);
+    let mut full = people[..MAX_AUDIENCE].to_vec();
+    full.extend([1, people[0]]);
+    run(&store, &alice, answers(agent, Audience::Accounts(full))).unwrap();
+    assert_eq!(
+        audience_of(&store, agent),
+        Ok(Audience::Accounts(people[..MAX_AUDIENCE].to_vec())),
+        "duplicates and the manager do not count"
+    );
+    let over = refused(&store, &alice, answers(agent, Audience::Accounts(people)));
+    assert_eq!(over.code, code::CAPACITY);
 }
