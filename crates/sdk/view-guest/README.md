@@ -29,14 +29,13 @@ ducktape-view-guest = { path = "../modules/crates/sdk/view-guest" }
 serde = { version = "1", features = ["derive"] }
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "69b0b541f7e517f25bd54f9fcf778be4a6b173be" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "69b0b541f7e517f25bd54f9fcf778be4a6b173be" }
-gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "69b0b541f7e517f25bd54f9fcf778be4a6b173be" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7e1491be9357c2bca37c24dde9122fc69f9341bb" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7e1491be9357c2bca37c24dde9122fc69f9341bb" }
 ```
 
 The `[patch.crates-io]` lines are this workspace's own, at the rev its
 `Cargo.toml` pins: the SDK builds against the gpui fork's copies of those
-three crates (crates.io's `rmp-serde` has no `typed` feature, and without
+two crates (crates.io's `rmp-serde` has no `typed` feature, and without
 the fork's scheduler a view does not build for wasm32), and cargo reads
 `[patch]` only from the manifest being built, so a crate outside the
 workspace repeats them. A view inside the workspace
