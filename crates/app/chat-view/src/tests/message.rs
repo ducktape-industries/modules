@@ -62,9 +62,14 @@ fn the_action_strip_hangs_over_the_rows_top_and_stays_under_the_pointer() {
         "the strip stays under the pointer"
     );
     assert_eq!(ground(&cx), Some(raised), "the card keeps its hover ground");
-    cx.simulate_hover("chat-message-m1-actions", false);
+    // a strip whose leave never comes (its row deleted or scrolled away
+    // under the pointer) is let go by the next row the pointer enters
+    cx.simulate_hover("chat-message-m2-row", true);
     assert!(cx.find("chat-message-m1-actions").is_none());
+    assert!(cx.find("chat-message-m2-actions").is_some());
     assert_ne!(ground(&cx), Some(raised));
+    cx.simulate_hover("chat-message-m2-row", false);
+    assert!(cx.find("chat-message-m2-actions").is_none());
     cx.simulate_hover("chat-message-m1-row", true);
     assert!(
         cx.find("chat-message-m1").unwrap().children().is_empty(),
@@ -91,7 +96,10 @@ fn fire(cx: &mut TestAppContext, view: &Entity<Chat>, mine: bool) {
 /// The pointer over message `seq`'s row, as the host reports it.
 pub(super) fn hover(cx: &mut TestAppContext, view: &Entity<Chat>, seq: u64) {
     cx.update(view, |chat, _, cx| {
-        chat.hovered = Some((Pane::Timeline, seq));
+        chat.hovered = Some(crate::Hovered {
+            key: (Pane::Timeline, seq),
+            strip: false,
+        });
         cx.notify();
     });
     cx.run_until_parked();
@@ -235,7 +243,10 @@ fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
     cx.update(&view, |chat, _, cx| {
         chat.search.draft.reset("hello");
         chat.confirmation = "Saved".into();
-        chat.hovered = Some((Pane::Timeline, 1));
+        chat.hovered = Some(crate::Hovered {
+            key: (Pane::Timeline, 1),
+            strip: false,
+        });
         cx.notify();
     });
     cx.run_until_parked();

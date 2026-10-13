@@ -51,7 +51,6 @@ impl Chat {
             // the next room's row at the same seq is not the one under
             // the pointer
             self.hovered = None;
-            self.strip_hovered = None;
         }
         let room = self.room.get_or_insert_default();
         if !same {

@@ -183,23 +183,22 @@ fn press(
     })
 }
 
-/// The row keeps `hovered` on itself while the pointer is over it; the
-/// strip keeps `strip_hovered` the same way ([`Chat::pointer_on`]).
+/// The row, or its strip, takes `hovered` as the pointer enters it and
+/// gives it up as the pointer leaves, if it still holds it: the host says
+/// the row's leave and the strip's enter in either order
+/// ([`Chat::pointer_on`]).
 fn hovers(
     key: (Pane, u64),
     strip: bool,
     cx: &mut Context<Chat>,
 ) -> impl Fn(&bool, &mut Window, &mut ducktape_view_guest::App) + 'static {
+    let at = Some(crate::state::Hovered { key, strip });
     cx.listener(move |chat, over: &bool, _window, cx| {
-        let hovered = match strip {
-            true => &mut chat.strip_hovered,
-            false => &mut chat.hovered,
-        };
-        if *over && *hovered != Some(key) {
-            *hovered = Some(key);
+        if *over && chat.hovered != at {
+            chat.hovered = at;
             cx.notify();
-        } else if !*over && *hovered == Some(key) {
-            *hovered = None;
+        } else if !*over && chat.hovered == at {
+            chat.hovered = None;
             cx.notify();
         }
     })
@@ -296,7 +295,7 @@ fn action_strip(
         // over the row above, whose hover would otherwise take the strip
         // away as the pointer reached it: the strip occludes, so no row
         // is hovered while the pointer is on it, and says itself that it
-        // is (`strip_hovered`), which keeps it drawn.
+        // is (`hovered`), which keeps it drawn.
         .top(gap(message) - px(STRIP_OVERHANG))
         .flex()
         .bg(theme.background)
