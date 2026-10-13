@@ -351,6 +351,74 @@ fn a_landed_room_opens_on_its_message_and_pages_both_ways() {
     assert!(cx.find("chat-jump-latest").is_none());
 }
 
+/// A notice's link (`chat::notify::link`) names a room's newest message,
+/// a root among replies: the room lands on that message. The newest row
+/// cannot be the top row of a list that starts at the top, so the host
+/// fills the screen upward from it; the frame that scrolls to it carries
+/// the rows above it too, the host lays out real rows, not placeholders a
+/// real row would push the message off the screen from.
+#[test]
+fn a_notice_link_lands_on_its_message_with_the_rows_above_it() {
+    const HEAD: u64 = 49;
+    // every third message a reply to the first, as a seeded room has them
+    let message = |seq: u64| MsgRow {
+        thread: seq.is_multiple_of(3).then_some(1),
+        ..row(seq, 7 + seq % 2, &format!("row {seq}"))
+    };
+    let mut cx = TestAppContext::new();
+    configure(&mut cx);
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
+        Ok(match query {
+            Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
+            Query::Channels { .. } => {
+                Reply::Channels(page(vec![channel("general", "General", HEAD)]))
+            }
+            Query::MessagesAround { seq, page, .. } => {
+                let half = page.limit() / 2;
+                let lo = seq.saturating_sub(half).max(1);
+                let hi = seq.saturating_add(half).min(HEAD);
+                Reply::Messages((lo..=hi).map(message).collect())
+            }
+            Query::Members { .. } => Reply::Members(page(Vec::new())),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+    let view = cx.open::<Chat>();
+    seat(&mut cx);
+    let link = ::chat::notify::link("general", HEAD);
+    assert_eq!(link.program, ::chat::MODULE);
+    cx.host()
+        .stream::<ducktape_view_guest::methods::HostRoute>()
+        .send(link.segments.join("/"));
+    cx.run_until_parked();
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().landed));
+    // the room's intro, then its roots: the newest root is the last row
+    let target = (1..=HEAD).filter(|seq| !seq.is_multiple_of(3)).count();
+    let wire::Node::List {
+        item_count,
+        range_start,
+        children,
+        commands,
+        ..
+    } = timeline(&cx)
+    else {
+        unreachable!()
+    };
+    assert_eq!(item_count, target + 1);
+    assert!(
+        commands.contains(&wire::ListCommand::ScrollTo(wire::ListOffset {
+            item_ix: target,
+            offset_in_item: 0.,
+        })),
+        "{commands:?}"
+    );
+    assert!(
+        range_start < target && range_start + children.len() == item_count,
+        "the frame carries rows {range_start}..{} of {item_count}",
+        range_start + children.len()
+    );
+}
+
 #[test]
 #[ignore = "measurement: prints a hover's render time over a full room, asserts nothing of it"]
 fn a_hover_over_a_full_room_measured() {

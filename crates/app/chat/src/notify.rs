@@ -200,8 +200,9 @@ pub fn tag(row: &MsgRow) -> String {
 }
 
 /// Where opening a notice goes: the message in chat, or a program's room
-/// where that program shows it (`forge:web:3` is forge's `web/3`).
-fn link(channel: &str, seq: u64) -> Link {
+/// where that program shows it (`forge:web:3` is forge's `web/3`). chat-view
+/// reads a chat link's route back to the room and message it lands on.
+pub fn link(channel: &str, seq: u64) -> Link {
     match namespace::path(channel) {
         Some((program, path)) => Link {
             program: program.into(),
