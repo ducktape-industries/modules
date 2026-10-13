@@ -2611,6 +2611,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness"
+version = "0.1.0"
+dependencies = [
+ "abi",
+ "activity",
+ "attribution",
+ "borsh",
+ "chat",
+ "describe",
+ "files",
+ "forge",
+ "guest",
+ "identity",
+ "program",
+ "provider",
+ "serde",
+ "serde_json",
+ "store",
+ "valset",
+]
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3459,10 +3481,12 @@ dependencies = [
  "forge",
  "gitcore",
  "guest",
+ "harness",
  "host",
  "identity",
  "keyscheme",
  "program",
+ "provider",
  "serde_json",
  "store",
  "tempfile",

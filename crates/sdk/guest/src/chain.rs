@@ -352,6 +352,7 @@ impl MockChain {
     }
 
     fn query_raw(&self, env: &Env, request: &[u8]) -> Result<Vec<u8>, Error> {
+        self.share_blobs();
         let seat = self.seated(&env.module)?;
         (seat.query)(seat.host.query(env.clone()), request)?;
         Ok(seat.host.take_response())
@@ -419,6 +420,7 @@ impl MockChain {
                 format!("messages nest deeper than {MAX_DEPTH}"),
             ));
         }
+        self.share_blobs();
         let checkpoint = self.checkpoint();
         let seat = self.seated(&env.module)?;
         let host = &seat.host;
@@ -498,6 +500,16 @@ impl MockChain {
             return Err(refusal);
         }
         Ok(output)
+    }
+
+    fn share_blobs(&self) {
+        let mut every = BTreeMap::new();
+        for seat in self.seats.values() {
+            every.extend(seat.host.borrow().blobs.clone());
+        }
+        for seat in self.seats.values() {
+            seat.host.borrow_mut().blobs.extend(every.clone());
+        }
     }
 
     fn checkpoint(&self) -> Vec<crate::mock::Written> {

@@ -383,6 +383,8 @@ mod discussion_tests;
 mod files_tests;
 #[path = "system/founding.rs"]
 mod founding_tests;
+#[path = "system/harness.rs"]
+mod harness_tests;
 #[path = "system/identity.rs"]
 mod identity_tests;
 #[path = "system/module_registry.rs"]

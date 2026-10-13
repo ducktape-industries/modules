@@ -63,6 +63,7 @@ members = [
     "crates/app/files",
     "crates/app/provider",
     "crates/app/attribution",
+    "crates/app/harness",
     "crates/lib/gitcore",
 ]
 
@@ -91,6 +92,7 @@ identity = { path = "crates/system/identity" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
 attribution = { path = "crates/app/attribution" }
+harness = { path = "crates/app/harness" }
 provider = { path = "crates/app/provider" }
 activity = { path = "crates/app/activity" }
 files = { path = "crates/app/files" }

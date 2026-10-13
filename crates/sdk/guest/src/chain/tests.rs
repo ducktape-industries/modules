@@ -7,7 +7,7 @@ use abi::role::identity::{Category, Kind, Profile, Query as Asked, Reply as Answ
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::*;
-use crate::{HashKind, Program, Reply};
+use crate::{BlobId, HashKind, Program, Reply};
 
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 enum Step {
@@ -23,6 +23,7 @@ enum Step {
     Peek(String, String),
     Person(AccountNumber),
     Blob,
+    Stat(BlobId),
     Event,
     Output(Vec<u8>),
     Refuse,
@@ -76,6 +77,10 @@ impl Module for Bot {
                 Step::Person(number) => ctx.require_person_or_agent(number)?,
                 Step::Blob => {
                     ctx.blob_put(HashKind::Sha256, "text", b"body".to_vec())?;
+                }
+                Step::Stat(id) => {
+                    let held = ctx.blob_stat(id).is_some();
+                    ctx.set(format!("held:{}", abi::hex(id.digest())), [u8::from(held)]);
                 }
                 Step::Event => ctx.event(b"happened".to_vec()),
                 Step::Output(bytes) => ctx.set_return_data(bytes),
@@ -688,4 +693,26 @@ fn a_module_queries_itself() {
         .get(b"peek:k".as_slice())
         .cloned();
     assert_eq!(peeked, Some(b"v".to_vec()));
+}
+
+#[test]
+fn every_module_reads_the_one_blob_store_the_network_keeps() {
+    let chain = chain();
+    let id = crate::blob_id(HashKind::Sha256, "text", b"body").unwrap();
+    let held = |module: &str| {
+        let key = format!("held:{}", abi::hex(id.digest()));
+        chain
+            .query::<String, Option<Vec<u8>>>(module, &key)
+            .unwrap()
+    };
+    chain
+        .submit(
+            ada(),
+            "a",
+            &vec![Step::Blob, emit("b", vec![Step::Stat(id)], false)],
+        )
+        .unwrap();
+    assert_eq!(held("b"), Some(vec![1]));
+    chain.submit(ada(), "c", &vec![Step::Stat(id)]).unwrap();
+    assert_eq!(held("c"), Some(vec![1]));
 }
