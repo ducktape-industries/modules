@@ -122,6 +122,8 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # duckfs path normalization: NFC so visually-identical names collide instead
 # of coexisting (a consensus-determinism requirement, not cosmetics).
 unicode-normalization = "0.1"
+# inbox-api's one reading of an RPC address (the app's reqwest::Url is it)
+url = "2"
 
 [patch."https://github.com/ducktape-industries/ducktape"]
 abi = { path = "crates/sdk/abi" }
