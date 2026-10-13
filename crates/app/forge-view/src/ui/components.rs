@@ -511,12 +511,9 @@ pub(crate) fn menu(
                     format!("{word} {count}").into(),
                 )
             });
-        let pick = cx.processor(move |forge, index: usize, window, cx| {
+        let pick = cx.processor(move |forge, index: usize, _, cx| {
             forge.menu_tags = index == 1;
             forge.menu_step(0, cx);
-            // a pointer press focuses the segment: the keys go back to
-            // the filter, where the typing goes on
-            window.focus(filter_id.clone());
         });
         head = head.child(
             design::segmented(
@@ -527,7 +524,12 @@ pub(crate) fn menu(
                 choices,
                 pick,
             )
-            .self_start(),
+            .self_start()
+            // a press focuses the tabs: it hands the keys back to the
+            // filter, where the typing goes on; ← → keep them on the tabs
+            .on_click(move |_: &ClickEvent, window: &mut Window, _: &mut App| {
+                window.focus(filter_id.clone())
+            }),
         );
         chrome += design::spacing::SM as f32 + ROW;
     }

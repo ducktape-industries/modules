@@ -2416,6 +2416,30 @@ fn the_ref_picker_filters_its_branches_and_tags() {
     );
 }
 
+/// The picker's Branches | Tags tabs are a radio group: ← → switch them and
+/// the keys stay on the tabs; a press switches them and hands the keys back
+/// to the filter box, where the typing goes on.
+#[test]
+fn the_ref_pickers_tabs_keep_their_arrows_and_a_press_goes_back_to_the_filter() {
+    let (mut cx, _view) = opened("default");
+    let focused = |cx: &TestAppContext| cx.focused().and_then(wire::Node::key).map(str::to_owned);
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    cx.simulate_focus("forge-ref-picker-kind");
+    cx.simulate_key_down("forge-ref-picker-kind", "right");
+    cx.run_until_parked();
+    assert_eq!(picker_items(&cx), ["forge-ref-refs/tags/v1"]);
+    assert_eq!(
+        focused(&cx).as_deref(),
+        Some("forge-ref-picker-kind"),
+        "the arrows keep the keys on the tabs"
+    );
+    cx.simulate_click("forge-ref-picker-branches");
+    cx.run_until_parked();
+    assert_eq!(picker_items(&cx).len(), 5);
+    assert_eq!(focused(&cx).as_deref(), Some("forge-ref-picker-filter"));
+}
+
 /// A ref list longer than the window keeps the picker inside it: the list
 /// shows the rows the window has room for and scrolls the rest, a virtual
 /// list of every branch, opened scrolled to the picked one.
