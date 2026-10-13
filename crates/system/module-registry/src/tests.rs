@@ -168,6 +168,46 @@ fn a_scheduled_change_is_seen_at_its_height_and_folded_by_the_next_op() {
     assert_eq!((height, entry.map(|e| e.code)), (6, Some(code)));
 }
 
+fn roster(store: &MockHost, height: u64) -> (u64, Vec<String>, Vec<String>) {
+    match Modules::query(&store.query(env(height, Origin::Root)), Query::Roster).unwrap() {
+        Reply::Roster {
+            height,
+            programs,
+            views,
+        } => (
+            height,
+            programs.into_iter().map(|e| e.program).collect(),
+            views.into_iter().map(|v| v.name).collect(),
+        ),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// What a client lists: no op runs here after the schedule, so nothing is
+/// folded, and the changes still land at their height.
+#[test]
+fn the_roster_is_answered_at_the_querys_own_height() {
+    let (store, code) = founded();
+    schedule(&store, 5, Change::Set(entry("new", code))).unwrap();
+    let explorer = View {
+        name: "explorer".into(),
+        view: code,
+    };
+    schedule(&store, 5, Change::SetView(explorer)).unwrap();
+    assert_eq!(
+        roster(&store, 4),
+        (4, vec!["boot".into()], vec!["lens".into()])
+    );
+    assert_eq!(
+        roster(&store, 5),
+        (
+            5,
+            vec!["boot".into(), "new".into()],
+            vec!["explorer".into(), "lens".into()]
+        )
+    );
+}
+
 #[test]
 fn a_program_bound_to_a_role_is_never_removed() {
     let (store, code) = founded();

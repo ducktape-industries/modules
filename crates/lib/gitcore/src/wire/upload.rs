@@ -354,8 +354,10 @@ pub fn fetch<S: Objects + ?Sized>(
         return Err(Error::BadRequest);
     };
     let hash = first_want.hash();
+    store.prefetch(&command.wants)?;
     let selection = select_wants(store, refs, &command.wants, cap)?;
     let mut common = Vec::new();
+    store.prefetch(&command.haves)?;
     for have in &command.haves {
         let new_common = store.has(have)? && !common.contains(have);
         if new_common {
@@ -402,6 +404,7 @@ pub fn fetch<S: Objects + ?Sized>(
     order.extend(new_commits.iter().copied());
     order.extend(objects.iter().copied());
     let count = u32::try_from(order.len()).map_err(|_| Error::TooManyObjects)?;
+    store.prefetch(&order)?;
 
     sink(&packfile_header());
     let mut banded = sideband::Writer::new(sideband::Band::Pack, sink);

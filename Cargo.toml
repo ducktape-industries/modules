@@ -61,6 +61,7 @@ members = [
     "crates/app/forge",
     "crates/app/activity",
     "crates/app/files",
+    "crates/app/provider",
     "crates/lib/gitcore",
 ]
 
@@ -88,6 +89,7 @@ valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
+provider = { path = "crates/app/provider" }
 activity = { path = "crates/app/activity" }
 files = { path = "crates/app/files" }
 

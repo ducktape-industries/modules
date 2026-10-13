@@ -117,6 +117,8 @@ fn configure(cx: &mut TestAppContext) {
                     kind: chat::Kind::Module("forge".into()),
                     ..person(9, "forge")
                 },
+                // a person eddy has no room with yet
+                person(10, "ada"),
             ])),
             Query::Channels { .. } => Reply::Channels(page(vec![
                 channel("general", "General", 3),

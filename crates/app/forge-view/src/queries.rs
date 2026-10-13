@@ -72,9 +72,11 @@ fn next_cursor(reply: &Reply) -> Option<&Vec<u8>> {
         Reply::Change { reviews, .. } => reviews.next.as_ref(),
         Reply::Judgment { page, .. } => page.next.as_ref(),
         // a log is never read whole: `log_page`
-        Reply::Log { .. } | Reply::Compare { .. } | Reply::Blob { .. } | Reply::Activity { .. } => {
-            None
-        }
+        Reply::Log { .. }
+        | Reply::Compare { .. }
+        | Reply::Blob { .. }
+        | Reply::Activity { .. }
+        | Reply::Objects { .. } => None,
     }
 }
 

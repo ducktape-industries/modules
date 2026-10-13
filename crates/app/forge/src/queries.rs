@@ -10,10 +10,16 @@ use guest::Error;
 use guest::{QueryCtx, stale};
 use store::Listing;
 
+use std::collections::{BTreeSet, VecDeque};
+
+use gitcore::{Commit, Kind, Objects as _, Oid};
+
 use crate::contract::*;
-use crate::objects::ObjectStore;
+use crate::objects::{ObjectStore, blob_id_of};
 use crate::ops::{cap, refusal_of};
-use crate::state::{ACTIVITY, REFS, load_bounds, load_refs, load_repo, repo_hash, storage, writes};
+use crate::state::{
+    ACTIVITY, REFS, load_bounds, load_refs, load_repo, parse_oid, repo_hash, storage, writes,
+};
 
 const AGENT: &[u8] = b"ducktape-forge";
 
@@ -118,4 +124,97 @@ pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u
     };
     served.map_err(refusal_of)?;
     Ok(response)
+}
+
+/// Git objects by id ([`Query::Objects`]): the ids in order while the read
+/// budget lasts (the first held one past it), then, asked for, the commits
+/// they descend from, breadth first, while it still lasts.
+pub(crate) fn objects(
+    ctx: &QueryCtx,
+    height: u64,
+    bounds: &Bounds,
+    name: &str,
+    ids: &[String],
+    ancestors: bool,
+) -> Result<Reply, Error> {
+    let hash = repo_hash(&load_repo(ctx, name)?);
+    let store = ObjectStore::new(ctx, hash);
+    let (mut reads, mut bytes) = (bounds.tree_walk, bounds.diff_bytes);
+    let mut objects = Vec::new();
+    let mut missing = Vec::new();
+    let mut parents = VecDeque::new();
+    let mut known = BTreeSet::new();
+    for hex in ids {
+        let id = parse_oid(hash, hex)?;
+        let len = ctx.blob_stat(blob_id_of(&id)).map(|header| header.len);
+        let spent = reads == 0 || len.is_some_and(|len| len > bytes && !objects.is_empty());
+        if spent {
+            return Ok(Reply::Objects {
+                height,
+                objects,
+                missing,
+            });
+        }
+        reads -= 1;
+        known.insert(id);
+        let Some(len) = len else {
+            missing.push(hex.clone());
+            continue;
+        };
+        bytes = bytes.saturating_sub(len);
+        let object = read(&store, &id)?;
+        if ancestors && object.kind == ObjectKind::Commit {
+            parents.extend(
+                Commit::parse(&object.body, hash)
+                    .map_err(refusal_of)?
+                    .parents,
+            );
+        }
+        objects.push(object);
+    }
+    while let Some(id) = parents.pop_front() {
+        if !known.insert(id) {
+            continue;
+        }
+        let Some(header) = ctx.blob_stat(blob_id_of(&id)) else {
+            continue;
+        };
+        if reads == 0 || header.len > bytes {
+            break;
+        }
+        reads -= 1;
+        bytes -= header.len;
+        let object = read(&store, &id)?;
+        if object.kind == ObjectKind::Commit {
+            parents.extend(
+                Commit::parse(&object.body, hash)
+                    .map_err(refusal_of)?
+                    .parents,
+            );
+        }
+        objects.push(object);
+    }
+    Ok(Reply::Objects {
+        height,
+        objects,
+        missing,
+    })
+}
+
+fn read(store: &ObjectStore<'_>, id: &Oid) -> Result<GitObject, Error> {
+    let object = store
+        .get(id)
+        .map_err(refusal_of)?
+        .ok_or_else(|| crate::objects::object_not_held(id))?;
+    let kind = match object.kind {
+        Kind::Commit => ObjectKind::Commit,
+        Kind::Tree => ObjectKind::Tree,
+        Kind::Blob => ObjectKind::Blob,
+        Kind::Tag => ObjectKind::Tag,
+    };
+    Ok(GitObject {
+        oid: id.to_hex(),
+        kind,
+        body: object.body,
+    })
 }

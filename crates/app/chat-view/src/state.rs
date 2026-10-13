@@ -291,6 +291,8 @@ impl Cursor {
 /// A control on a message card: what pressing it does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Control {
+    /// a run's avatar: its author's identity page
+    Profile(u64),
     /// the block link in the header: `link`
     Height(String),
     /// a program post's "Open in …": `link`

@@ -6,7 +6,7 @@ repository. Only what compiles to wasm lives here:
 ```
 crates/sdk/     abi error program guest store conformance describe ducklink view-wire view-guest view-guest-derive design
 crates/system/  module-registry valset identity
-crates/app/     chat chat-view forge forge-view activity files members-view node-view explorer-view settings-view
+crates/app/     chat chat-view forge forge-view activity files provider members-view node-view explorer-view settings-view
 crates/lib/     gitcore
 ```
 
@@ -27,6 +27,7 @@ crates/lib/     gitcore
 | `crates/app/forge`, `forge-view` | the git server as a module, the same shape as `chat`: a push is one op whose input is the receive-pack body a client sent, a merge is an op that lands the commit the client built, fetch and the ref advertisement are queries; a git object's blob id is its oid. it links `gitcore` for the git; merging is the client's. The module runs natively over `MemorySandbox` (forge and chat seated on a `MockChain`), which is where `fixtures/` comes from; `forge-view` links `forge` with `module` off |
 | `crates/app/activity` | the hook the kernel tells of every frame a block carries ([roles.md](docs/roles.md), "Hooks"): it indexes each frame by the key that signed it and the account it acted as, keeping the newest `KEPT` (1,000) of each, and counts each account's frames by program. It takes no op; members-view and explorer-view read it, then fetch each frame's block for its payload |
 | `crates/app/files` | a replicated filesystem as a module: a commit edits one tree of directories, files and symlinks and names the result by a snapshot; an account writes under `/home/<label>/` and `/shared/`, the root anywhere. A file's bytes are `chunk` blobs of at most `CHUNK_SIZE` (1 MiB) that a `Stage` op stores, so a large file lands over several frames and one commit references them; trees, files and snapshots are blobs too, and its state keeps only the head, the history, a snapshot's place in it and the named pins. Reads (stat, list, read, find, grep, diff) take the head or any snapshot it minted |
+| `crates/app/provider` | a module's request to the world outside the chain. A member node's key serves named services (`Serve`); a module requests one (`Request`: a service, an input, blob parts for a large body, and the prefix of its own `Op` the answer comes back as); the chain elects the provider in turn among the member nodes serving it; that provider alone answers (`Answer`), and the answer is delivered to the module in the same frame. A request unanswered for `EXPIRY_BLOCKS` (64) expires, and the module is told. `http` is the shape every HTTP service speaks; `relay` is answered with nothing, a later block's call back |
 | `crates/app/members-view`, `node-view`, `explorer-view`, `settings-view` | the system views, which link the system crates with `module` off |
 | `crates/lib/gitcore` | git as a library over one `Objects` trait: objects, packs (read, delta, write), walks, diffs, and the server side of the wire (receive-pack verification, upload-pack); no merging, that is the git client's. `forge` links it into its wasm |
 

@@ -192,21 +192,31 @@ pub fn reachable_objects<S: Objects + ?Sized>(
     reachable_from_trees(store, &roots, seen)
 }
 
+/// The trees and blobs under `trees`, less what `seen` holds. Breadth
+/// first, each tree's subtrees announced ([`Objects::prefetch`]) as it is
+/// read, so a store across a network fetches a level together.
 pub fn reachable_from_trees<S: Objects + ?Sized>(
     store: &S,
     trees: &[Oid],
     seen: &BTreeSet<Oid>,
 ) -> Result<BTreeSet<Oid>> {
     let mut found = BTreeSet::new();
-    let mut stack: Vec<Oid> = trees.to_vec();
-    while let Some(tree_id) = stack.pop() {
+    let mut queue: VecDeque<Oid> = trees.iter().copied().collect();
+    store.prefetch(trees)?;
+    while let Some(tree_id) = queue.pop_front() {
         let skip = seen.contains(&tree_id) || !found.insert(tree_id);
         if skip {
             continue;
         }
+        let mut subtrees = Vec::new();
         for entry in tree_of(store, &tree_id)?.entries {
             match entry.mode {
-                crate::object::Mode::Directory => stack.push(entry.id),
+                crate::object::Mode::Directory => {
+                    let unread = !seen.contains(&entry.id) && !found.contains(&entry.id);
+                    if unread {
+                        subtrees.push(entry.id);
+                    }
+                }
                 crate::object::Mode::Gitlink => {}
                 _ => {
                     let skip_blob = seen.contains(&entry.id);
@@ -216,6 +226,8 @@ pub fn reachable_from_trees<S: Objects + ?Sized>(
                 }
             }
         }
+        store.prefetch(&subtrees)?;
+        queue.extend(subtrees);
     }
     Ok(found)
 }

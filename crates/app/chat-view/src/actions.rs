@@ -91,6 +91,7 @@ impl Chat {
         cx: &mut Context<Self>,
     ) {
         match control {
+            Control::Profile(account) => self.open_link(account.to_string(), cx),
             Control::Height(link) => cx.host().open_link(&link),
             Control::ProgramOpen(link) => self.open_link(link, cx),
             Control::Reaction { emoji, add } => self.react(seq, emoji, add, cx),

@@ -7,7 +7,7 @@ use crate::message::{ChatMessage, SpanStyle};
 use crate::ui::badge;
 use crate::{Chat, Control, Pane};
 use chat::view::Names;
-use chat::{Block, Span};
+use chat::{Block, Principal, Span};
 mod controls;
 mod rich;
 use controls::{Face, action_button, reaction_button, replies_button};
@@ -100,7 +100,7 @@ pub fn card(
         .hover(|style| style.bg(theme.surface_raised))
         .when(message.pending, |card| card.opacity(PENDING_OPACITY))
         .child(message_cell)
-        .child(avatar(&message, theme))
+        .child(avatar(&message, pane, &mut cells, cx, theme))
         .child(content(chat, message.clone(), pane, &mut cells, cx, theme));
     // Controls are siblings of the selection target: their native click must
     // not also replace the opened menu with the message-selection toolbar.
@@ -194,38 +194,59 @@ fn cell(control_id: &str, enabled: bool, control: impl IntoElement) -> AnyElemen
         .into_any_element()
 }
 
-/// A run's first message wears its author's initials; the rest keep
-/// the column.
-fn avatar(message: &ChatMessage, theme: &Theme) -> AnyElement {
-    if message.show_author {
-        div()
-            .id(format!("chat-message-{}-avatar", message.id))
-            .size_7()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(design::space::XS)
-            .bg(if message.agent {
-                theme.agent_soft
-            } else {
-                theme.surface_raised
-            })
-            .text_color(if message.agent {
-                theme.agent
-            } else {
-                theme.muted
-            })
-            .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
-            .text_size(design::text::CAPTION)
-            .child(message.initial.clone())
-            .into_any_element()
-    } else {
-        div()
+/// A run's first message wears its author's initials, which open the
+/// author's identity page as a mention does; the rest keep the column.
+fn avatar(
+    message: &ChatMessage,
+    pane: Pane,
+    cells: &mut Cells,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> AnyElement {
+    if !message.show_author {
+        return div()
             .w_7()
             .h(design::space::XXS)
             .flex_shrink_0()
-            .into_any_element()
+            .into_any_element();
     }
+    let id = format!("chat-message-{}-avatar", message.id);
+    let face = div()
+        .id(id.clone())
+        .size_7()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(design::space::XS)
+        .bg(if message.agent {
+            theme.agent_soft
+        } else {
+            theme.surface_raised
+        })
+        .text_color(if message.agent {
+            theme.agent
+        } else {
+            theme.muted
+        })
+        .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+        .text_size(design::text::CAPTION)
+        .child(message.initial.clone());
+    let Principal::Account(account) = message.from else {
+        return face.into_any_element();
+    };
+    let control = Control::Profile(account);
+    let active = cells.push(control.clone());
+    let open = acts(pane, message.seq, message.rev, control, cx);
+    let face = face
+        .cursor_pointer()
+        .aria_label(format!("Open {}’s profile", message.author))
+        .on_click(open)
+        .consumes_click();
+    cell(
+        &id,
+        true,
+        design::item(face, ducktape_view_guest::Role::Link, active),
+    )
 }
 
 /// The strip over a row the pointer is on (or a chosen one): thread,

@@ -22,12 +22,13 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
     host.query(valset::ask::Validators).await
 }
 
-/// What the registry runs and lists, and what it will; who may change it.
+/// What the registry runs and lists at its height, and what it will
+/// after it; who may change it. A change keeps its place in the schedule
+/// until the registry's next op folds it, landed or not, so one due by that
+/// height is left out: it is in the roster.
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
-    let tip = host.ask::<ChainStatus>(()).await?.height;
-    let programs = host.query(registry::ask::At(tip)).await?;
-    let views = host.query(registry::ask::Views(tip)).await?;
-    let hooks = host.query(registry::ask::Hooks(tip)).await?;
+    let (height, programs, views) = host.query(registry::ask::Roster).await?;
+    let hooks = host.query(registry::ask::Hooks(height)).await?;
     let roles = host.query(registry::ask::Roles).await?;
     let grants = host
         .query_all(|after| registry::ask::Grants {
@@ -39,7 +40,7 @@ pub(crate) async fn network(host: Host) -> Result<Network, Error> {
             page: registry::PageRequest { after, limit: None },
         })
         .await?;
-    changes.retain(|change| change.height > tip);
+    changes.retain(|change| change.height > height);
     Ok(Network {
         programs,
         views,

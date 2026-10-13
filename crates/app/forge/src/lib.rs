@@ -71,6 +71,7 @@ fn op_variants_only_append() {
             "ChangeEdit",
             "ChangeClose",
             "ReviewSubmit",
+            "Stage",
         ]
     );
 }
