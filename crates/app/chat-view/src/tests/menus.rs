@@ -124,6 +124,56 @@ fn a_chosen_message_lets_go_on_escape_a_press_elsewhere_or_an_arrow() {
     assert!(!cx.has_text("2 messages selected"));
 }
 
+/// The range's own bar is no "press elsewhere": its Copy takes the range
+/// to the clipboard, the press does not let the range go first.
+#[test]
+fn the_copy_range_copies_from_its_bar() {
+    let (mut cx, view) = opened();
+    let copied = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+    let seen = copied.clone();
+    cx.host()
+        .handle::<ducktape_view_guest::methods::ClipboardWrite>(move |text| {
+            *seen.borrow_mut() = text;
+            Ok(())
+        });
+    cx.simulate_click("chat-message-m1");
+    let shift = ducktape_view_guest::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    let handler = cx.interactivity("chat-message-m2").on_click.unwrap();
+    let button = wire::click::ButtonEvent {
+        button: wire::click::MouseButton::Left,
+        position: Default::default(),
+        modifiers: shift,
+        click_count: 1,
+    };
+    cx.simulate_event(wire::Event::Click {
+        handler,
+        event: wire::click::Click::Mouse {
+            down: button.clone(),
+            up: button,
+            first_mouse: false,
+        },
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("2 messages selected"));
+    cx.simulate_mouse_down(
+        "chat-selection-copy",
+        ducktape_view_guest::MouseDownEvent {
+            button: ducktape_view_guest::MouseButton::Left,
+            position: Default::default(),
+            modifiers: Default::default(),
+            click_count: 1,
+            first_mouse: false,
+        },
+    );
+    view.read(|chat| assert!(chat.copy.is_some(), "the press on Copy keeps the range"));
+    cx.simulate_click("chat-selection-copy");
+    cx.run_until_parked();
+    assert_eq!(copied.borrow().lines().count(), 2, "{:?}", copied.borrow());
+}
+
 #[test]
 fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     let (mut cx, view) = opened();

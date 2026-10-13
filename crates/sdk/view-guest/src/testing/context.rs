@@ -617,6 +617,8 @@ impl TestAppContext {
         self.run(vec![event]);
     }
     /// A mouse button goes down on `key`: down the chain to it and back up,
+    /// from the deepest node that occludes what is behind it (gpui's hit
+    /// test ends there, so the nodes around it are not under the pointer),
     /// and to every node outside it that listens for a press outside. The
     /// press puts the keyboard where [`simulate_click`](Self::simulate_click)
     /// does.
@@ -624,7 +626,7 @@ impl TestAppContext {
         let chain = self.chain(key);
         let wire_event = wire::interactivity::MouseDown::from(&event);
         let mut events = along(
-            &chain,
+            &chain[press_stops_at(&chain)..],
             0,
             |i| i.capture_mouse_down,
             |i| i.on_mouse_down,
@@ -1243,6 +1245,18 @@ fn consumed_at(chain: &[&Node], keystroke: &gpui::Keystroke) -> Option<(usize, O
 /// open overlay's layer, whose content keeps the press from what is under
 /// the overlay. Answers the first node of the chain that still hears it.
 fn click_stops_at(chain: &[&Node]) -> usize {
+    stops_at(chain, |i| i.consumes_click || i.occlude)
+}
+
+/// Where a press on the last node of `chain` stops going out: at the
+/// deepest node that occludes what is behind it, or at the top of an open
+/// overlay's layer. A click's `consumes_click` stops the click, not the
+/// press under it.
+fn press_stops_at(chain: &[&Node]) -> usize {
+    stops_at(chain, |i| i.occlude)
+}
+
+fn stops_at(chain: &[&Node], stops: fn(&Interactivity) -> bool) -> usize {
     for (at, node) in chain.iter().enumerate().rev() {
         if let Node::Overlay { children, .. } = node
             && chain.get(at + 1).is_some_and(|inside| {
@@ -1253,10 +1267,7 @@ fn click_stops_at(chain: &[&Node]) -> usize {
         {
             return at + 1;
         }
-        if node
-            .interactivity()
-            .is_some_and(|i| i.consumes_click || i.occlude)
-        {
+        if node.interactivity().is_some_and(stops) {
             return at;
         }
     }
