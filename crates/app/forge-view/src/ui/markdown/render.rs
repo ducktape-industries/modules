@@ -124,7 +124,9 @@ fn column(name: &str, blocks: &[Block], theme: &Theme, on_link: &OnLink) -> Stat
                 .gap_2()
                 .child(
                     div()
+                        .id(id(format!("{key}-marker")))
                         .min_w(LIST_MARKER_W)
+                        .role(Role::ListMarker)
                         .text_color(theme.muted)
                         .font_family(design::fonts::FAMILY_MONO)
                         .text_size(design::text::SECONDARY)
