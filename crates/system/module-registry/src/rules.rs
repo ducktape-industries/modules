@@ -450,15 +450,15 @@ pub(crate) fn hooks_at(ctx: &QueryCtx, height: u64) -> Result<Vec<ModuleId>, Err
     Ok(roster(ctx, height, &[])?.hooks.into_iter().collect())
 }
 
-struct Roster {
-    programs: BTreeMap<ModuleId, Entry>,
-    views: BTreeMap<ModuleId, View>,
-    hooks: BTreeSet<ModuleId>,
+pub(crate) struct Roster {
+    pub(crate) programs: BTreeMap<ModuleId, Entry>,
+    pub(crate) views: BTreeMap<ModuleId, View>,
+    pub(crate) hooks: BTreeSet<ModuleId>,
 }
 
 /// Every list at a height, by name: what is folded, and every change due
 /// by then but the `overruled` ones.
-fn roster(ctx: &QueryCtx, height: u64, overruled: &[At]) -> Result<Roster, Error> {
+pub(crate) fn roster(ctx: &QueryCtx, height: u64, overruled: &[At]) -> Result<Roster, Error> {
     let mut programs: BTreeMap<_, _> = PROGRAMS.all(ctx)?.into_iter().collect();
     let mut views: BTreeMap<_, _> = VIEWS.all(ctx)?.into_iter().collect();
     let mut hooks: BTreeSet<_> = HOOKS.all(ctx)?.into_iter().collect();

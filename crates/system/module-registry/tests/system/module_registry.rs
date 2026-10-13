@@ -104,6 +104,18 @@ fn a_published_program_is_scheduled_by_the_validators_vote_and_seated_at_its_hei
             .collect();
         assert_eq!(admitted, [identity::MODULE, "identity2"]);
         assert!(net.host.programs().unwrap().contains_key("identity2"));
+        // no op has run on the registry since the schedule: what a client
+        // lists is answered at its height all the same
+        let module_registry::Reply::Roster {
+            height, programs, ..
+        } = net
+            .ask(module_registry::MODULE, &module_registry::Query::Roster)
+            .await
+        else {
+            panic!()
+        };
+        assert_eq!(height, net.height);
+        assert!(programs.iter().any(|entry| entry.program == "identity2"));
         net.apply(
             &public(7),
             "identity2",

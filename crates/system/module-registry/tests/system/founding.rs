@@ -10,8 +10,8 @@ fn founding_seats_the_validators_and_every_program_answers() {
             assert!(programs.contains_key(program), "{program} is not rostered");
         }
         assert!(!programs.contains_key("lens"), "a view is never admitted");
-        let module_registry::Reply::Views(views) = net
-            .ask(module_registry::MODULE, &module_registry::Query::Views(0))
+        let module_registry::Reply::Roster { views, .. } = net
+            .ask(module_registry::MODULE, &module_registry::Query::Roster)
             .await
         else {
             panic!()
