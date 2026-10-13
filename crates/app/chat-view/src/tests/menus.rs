@@ -30,6 +30,150 @@ fn menus_and_dialogs_are_modal_overlays_with_dismiss_routes() {
     view.read(|chat| assert!(chat.create.is_none()));
 }
 
+/// A chosen message (its strip stays open) is no dialog: no overlay opens
+/// for it, so the screen itself lets it go on Escape from anywhere in the
+/// view, on a press anywhere in it (a press on a message chooses that one
+/// after), and when the arrows move on. With shift, a press grows the
+/// copy range from the chosen message instead, which lets go the same way.
+#[test]
+fn a_chosen_message_lets_go_on_escape_a_press_elsewhere_or_an_arrow() {
+    let (mut cx, view) = opened();
+    let chosen = |view: &Entity<Chat>| {
+        view.read(|chat| chat.menu.as_ref().map(|menu| (menu.seq, menu.mode)))
+    };
+    cx.simulate_click("chat-message-m1");
+    assert_eq!(chosen(&view), Some((1, Mode::Toolbar)));
+    assert!(cx.find("chat-message-m1-actions").is_some());
+    assert!(
+        !matches!(
+            cx.find("chat-menu-overlay"),
+            Some(wire::Node::Overlay { .. })
+        ),
+        "a chosen message opens no dialog"
+    );
+    // Escape, with the keys in the sidebar's search field
+    let root = cx.interactivity("chat-root");
+    assert!(root.on_key_down.is_some() && root.consumes_keys.contains(&"escape".into()));
+    cx.simulate_focus("chat-sidebar-search");
+    cx.simulate_key_down("chat-sidebar-search", "escape");
+    assert_eq!(chosen(&view), None);
+    assert!(cx.find("chat-message-m1-actions").is_none());
+    assert!(
+        cx.interactivity("chat-root").consumes_keys.is_empty(),
+        "with nothing to let go, Escape is the host's"
+    );
+    // a press anywhere else
+    cx.simulate_click("chat-message-m1");
+    assert_eq!(chosen(&view), Some((1, Mode::Toolbar)));
+    let down = |shift| ducktape_view_guest::MouseDownEvent {
+        button: ducktape_view_guest::MouseButton::Left,
+        position: Default::default(),
+        modifiers: ducktape_view_guest::Modifiers {
+            shift,
+            ..Default::default()
+        },
+        click_count: 1,
+        first_mouse: false,
+    };
+    cx.simulate_mouse_down("chat-room-header", down(false));
+    assert_eq!(chosen(&view), None);
+    // a press on another message chooses it (the press comes down first)
+    cx.simulate_click("chat-message-m1");
+    cx.simulate_mouse_down("chat-message-m2", down(false));
+    cx.simulate_click("chat-message-m2");
+    assert_eq!(chosen(&view), Some((2, Mode::Toolbar)));
+    // the arrows leave it behind
+    cx.simulate_focus("chat-message-list");
+    cx.simulate_key_down("chat-message-list", "up");
+    assert_eq!(chosen(&view), None);
+    // shift: the range grows from the chosen message to the pressed one
+    cx.simulate_click("chat-message-m1");
+    cx.simulate_mouse_down("chat-message-m2", down(true));
+    assert_eq!(
+        chosen(&view),
+        Some((1, Mode::Toolbar)),
+        "a shift press keeps it for the range"
+    );
+    let handler = cx.interactivity("chat-message-m2").on_click.unwrap();
+    let button = |shift| wire::click::ButtonEvent {
+        button: wire::click::MouseButton::Left,
+        position: Default::default(),
+        modifiers: ducktape_view_guest::Modifiers {
+            shift,
+            ..Default::default()
+        },
+        click_count: 1,
+    };
+    cx.simulate_event(wire::Event::Click {
+        handler,
+        event: wire::click::Click::Mouse {
+            down: button(true),
+            up: button(true),
+            first_mouse: false,
+        },
+    });
+    cx.run_until_parked();
+    assert_eq!(chosen(&view), None);
+    view.read(|chat| {
+        let range = chat.copy.expect("the copy range");
+        assert_eq!((range.anchor, range.head), (1, 2));
+    });
+    assert!(cx.has_text("2 messages selected"));
+    cx.simulate_key_down("chat-message-list", "escape");
+    view.read(|chat| assert!(chat.copy.is_none()));
+    assert!(!cx.has_text("2 messages selected"));
+}
+
+/// The range's own bar is no "press elsewhere": its Copy takes the range
+/// to the clipboard, the press does not let the range go first.
+#[test]
+fn the_copy_range_copies_from_its_bar() {
+    let (mut cx, view) = opened();
+    let copied = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+    let seen = copied.clone();
+    cx.host()
+        .handle::<ducktape_view_guest::methods::ClipboardWrite>(move |text| {
+            *seen.borrow_mut() = text;
+            Ok(())
+        });
+    cx.simulate_click("chat-message-m1");
+    let shift = ducktape_view_guest::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    let handler = cx.interactivity("chat-message-m2").on_click.unwrap();
+    let button = wire::click::ButtonEvent {
+        button: wire::click::MouseButton::Left,
+        position: Default::default(),
+        modifiers: shift,
+        click_count: 1,
+    };
+    cx.simulate_event(wire::Event::Click {
+        handler,
+        event: wire::click::Click::Mouse {
+            down: button.clone(),
+            up: button,
+            first_mouse: false,
+        },
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("2 messages selected"));
+    cx.simulate_mouse_down(
+        "chat-selection-copy",
+        ducktape_view_guest::MouseDownEvent {
+            button: ducktape_view_guest::MouseButton::Left,
+            position: Default::default(),
+            modifiers: Default::default(),
+            click_count: 1,
+            first_mouse: false,
+        },
+    );
+    view.read(|chat| assert!(chat.copy.is_some(), "the press on Copy keeps the range"));
+    cx.simulate_click("chat-selection-copy");
+    cx.run_until_parked();
+    assert_eq!(copied.borrow().lines().count(), 2, "{:?}", copied.borrow());
+}
+
 #[test]
 fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     let (mut cx, view) = opened();
@@ -230,13 +374,27 @@ fn the_edit_field_saves() {
     edit(&mut cx, &view, 1);
     assert!(cx.find("chat-message-editing").is_some());
     assert!(cx.has_text("Save"));
-    // Cancel sits on Save's row, and leaves the edit
     let key = crate::composer::Target::Edit {
         channel: view.read(|chat| chat.room_id()),
         seq: 1,
         base_rev: 0,
     }
     .key();
+    // the field takes the keys as it opens: typing edits, Enter saves,
+    // not the room's composer under it
+    let editor = format!("{key}/editor");
+    assert!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .iter()
+            .any(|command| matches!(
+                command,
+                wire::WidgetCommand::Focus { target }
+                    if target.last() == Some(&wire::ElementIdWire::Name(editor.clone().into()))
+            )),
+        "the edit field takes the keys on open"
+    );
+    // Cancel sits on Save's row, and leaves the edit
     cx.simulate_click(&format!("{key}/cancel"));
     assert!(cx.find("chat-message-editing").is_none());
 }
