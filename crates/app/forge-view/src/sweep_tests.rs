@@ -82,3 +82,74 @@ fn an_op_whose_block_lands_before_its_receipt_leaves_the_screen() {
         cx.texts()
     );
 }
+
+/// A commit touching many files: the file strip is capped and scrolls, so
+/// the diff under it keeps its height instead of being pushed off screen.
+#[test]
+fn a_commit_with_many_files_keeps_its_diff_under_a_scrolling_strip() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
+    cx.run_until_parked();
+    let strip = cx.style("forge-commit-diff-files");
+    assert!(strip.max_size.height.is_some(), "the strip is capped");
+    assert!(strip.overflow.y.is_some(), "and scrolls past its cap");
+}
+
+/// A new-change draft begun in Refs stays in Refs and Changes: a change's
+/// own page does not wear it.
+#[test]
+fn a_new_change_draft_does_not_show_inside_another_change() {
+    let (mut cx, _) = super::opened_as("default", 9);
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    cx.simulate_click("forge-compare-clean");
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-form").is_some(), "{:?}", cx.texts());
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "the draft is not this change's: {:?}",
+        cx.texts()
+    );
+}
+
+/// An unborn repository's Commits tab says "No commits yet" with the
+/// repository's own address, not the program's refusal.
+#[test]
+fn an_unborn_repository_has_no_history_and_says_so_with_its_address() {
+    let (mut cx, _) = opened("unborn");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    assert!(cx.has_text("No commits yet"), "{:?}", cx.texts());
+    assert!(cx.find("forge-log-loading").is_none() && !cx.has_text("Retry"));
+    assert!(
+        cx.texts()
+            .iter()
+            .any(|text| text.contains("git push duck://testnet-0a1b2c3d/forge/project main")),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+/// The tab bar counts the open changes on every tab, not only once the
+/// Changes tab was visited.
+#[test]
+fn the_changes_tab_counts_on_every_tab() {
+    let (cx, _) = opened("default");
+    let tab = cx.node("forge-tab-changes");
+    let texts: Vec<String> = tab
+        .children()
+        .iter()
+        .flat_map(|child| child.children().iter().chain(std::iter::once(child)))
+        .filter_map(|node| node.text().map(str::to_owned))
+        .collect();
+    assert!(
+        texts.iter().any(|text| text.parse::<u64>().is_ok()),
+        "the README tab shows the count: {texts:?}"
+    );
+}

@@ -184,6 +184,10 @@ pub(crate) fn render(
         .into_any_element()
 }
 
+/// The most of the pane the file strip takes: past it the strip scrolls,
+/// so a commit touching many files still shows its diff beneath.
+const FILE_STRIP_MAX_H: Pixels = px(168.);
+
 /// Which files this diff touches, above the rows themselves. Each one
 /// narrows the list to itself.
 fn file_strip(
@@ -194,6 +198,9 @@ fn file_strip(
 ) -> AnyElement {
     let mut strip = div()
         .id(id(format!("{element_id}-files")))
+        .flex_none()
+        .max_h(FILE_STRIP_MAX_H)
+        .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap_0p5()
