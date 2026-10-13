@@ -449,6 +449,28 @@ impl Input {
         self.on_submit = Some(Box::new(listener));
         self
     }
+
+    /// A key the view hears on `on_key` instead of the engine: the arrows
+    /// of a filter field over a list. The engine's own keys — Backspace,
+    /// Delete, Tab, undo and redo — cannot be claimed.
+    pub fn claim(mut self, claim: wire::KeyClaim) -> Self {
+        self.claims.push(claim);
+        self
+    }
+
+    pub fn claims(mut self, claims: impl IntoIterator<Item = wire::KeyClaim>) -> Self {
+        self.claims.extend(claims);
+        self
+    }
+
+    /// Hears every claimed key as the host receives it, text untouched.
+    pub fn on_key(
+        mut self,
+        listener: impl Fn(&gpui::KeyDownEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_key = Some(Box::new(listener));
+        self
+    }
 }
 
 impl Styled for Input {
@@ -545,16 +567,13 @@ impl Textarea {
         Self(self.0.read_only(read_only))
     }
 
-    /// A key the view hears on `on_key` instead of the engine. The engine's
-    /// own keys — Backspace, Delete, Tab, undo and redo — cannot be claimed.
-    pub fn claim(mut self, claim: wire::KeyClaim) -> Self {
-        self.0.claims.push(claim);
-        self
+    /// See [`Input::claim`].
+    pub fn claim(self, claim: wire::KeyClaim) -> Self {
+        Self(self.0.claim(claim))
     }
 
-    pub fn claims(mut self, claims: impl IntoIterator<Item = wire::KeyClaim>) -> Self {
-        self.0.claims.extend(claims);
-        self
+    pub fn claims(self, claims: impl IntoIterator<Item = wire::KeyClaim>) -> Self {
+        Self(self.0.claims(claims))
     }
 
     /// See [`Input::on_change`].
@@ -565,13 +584,12 @@ impl Textarea {
         Self(self.0.on_change(listener))
     }
 
-    /// Hears every claimed key as the host receives it, text untouched.
+    /// See [`Input::on_key`].
     pub fn on_key(
-        mut self,
+        self,
         listener: impl Fn(&gpui::KeyDownEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.0.on_key = Some(Box::new(listener));
-        self
+        Self(self.0.on_key(listener))
     }
 }
 

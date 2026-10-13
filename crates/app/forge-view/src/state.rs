@@ -78,6 +78,15 @@ pub struct Forge {
     /// the dropdown item the arrows are on
     #[serde(skip)]
     pub(crate) menu_cursor: usize,
+    /// the open dropdown's filter box, empty on every open
+    #[serde(skip)]
+    pub(crate) menu_search: TextField,
+    /// the ref picker lists tags rather than branches
+    #[serde(skip)]
+    pub(crate) menu_tags: bool,
+    /// the open dropdown's list, kept on the item the arrows are on
+    #[serde(skip)]
+    pub(crate) menu_scroll: UniformListScrollHandle,
     /// the repository the arrows are on in the list, and which of its
     /// cells: Open, Copy, activity
     #[serde(skip)]
@@ -227,7 +236,8 @@ pub(crate) enum Menu {
 }
 
 impl Menu {
-    /// The element that opens it; its menu is `{key}-menu`.
+    /// The element that opens it; its list is `{key}-menu`, its filter
+    /// box `{key}-filter`.
     pub fn key(self) -> &'static str {
         match self {
             Menu::Ref => "forge-ref-picker",
@@ -412,9 +422,11 @@ pub(crate) enum Progress {
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Layout {
-    /// the pane's width, read from the window each render
+    /// the pane's size, read from the window each render
     #[serde(skip)]
     pub width: f32,
+    #[serde(skip)]
+    pub height: f32,
     /// the repositories rail
     pub tree: f32,
     /// the Code tab's file tree
@@ -427,6 +439,7 @@ impl Default for Layout {
     fn default() -> Self {
         Self {
             width: 0.,
+            height: 0.,
             tree: 220.,
             files: 300.,
             tree_open: false,

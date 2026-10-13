@@ -3,7 +3,8 @@
 use ducktape_view_guest::prelude::*;
 
 use crate::queries::PAGE;
-use crate::state::{self, ChangeTab, Forge, Nav, change_key};
+use crate::state::{self, ChangeTab, Forge, Menu, Nav, change_key};
+use crate::ui::components::ref_label;
 use forge::Principal;
 use forge::{
     Bounds, Change, CommitInfo, Comparison, PageRequest, PageResponse, Query, RefInfo, Reply,
@@ -124,6 +125,44 @@ impl Forge {
             .filter(|info| info.name.starts_with(b"refs/heads/"))
             .map(|info| info.name.clone())
             .collect()
+    }
+
+    /// The branches (or `tags`) a dropdown lists, in its order: the
+    /// default branch first, each kept while its name holds what the
+    /// dropdown's filter box does, in any case.
+    pub(crate) fn menu_refs(&self, tags: bool) -> Vec<Vec<u8>> {
+        let prefix: &[u8] = if tags { b"refs/tags/" } else { b"refs/heads/" };
+        let needle = self.menu_search.text().trim().to_lowercase();
+        let mut refs: Vec<Vec<u8>> = self
+            .refs()
+            .unwrap_or_default()
+            .iter()
+            .map(|info| info.name.clone())
+            .filter(|name| name.starts_with(prefix))
+            .filter(|name| ref_label(name).to_lowercase().contains(&needle))
+            .collect();
+        let default = self.default_head();
+        refs.sort_by_key(|name| (*name != default, name.clone()));
+        refs
+    }
+
+    /// What `menu` lists: the ref picker its open tab, the default head
+    /// the branches.
+    pub(crate) fn menu_list(&self, menu: Menu) -> Vec<Vec<u8>> {
+        self.menu_refs(menu == Menu::Ref && self.menu_tags)
+    }
+
+    /// The ref `menu` has picked: the one browsed, or the settings form's
+    /// default head.
+    pub(crate) fn menu_picked(&self, menu: Menu) -> Vec<u8> {
+        match menu {
+            Menu::Ref => self.head_name(),
+            Menu::Head => self
+                .repo_settings
+                .as_ref()
+                .map(|form| form.head.clone())
+                .unwrap_or_default(),
+        }
     }
 
     /// The default head of the repo, or `refs/heads/main` before it lands.

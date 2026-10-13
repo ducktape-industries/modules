@@ -78,10 +78,13 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
     // press outside closes it
     let (label, floating) = match forge.menu {
         None => ("", None),
-        Some(Menu::Ref) => ("Pick a ref", Some(ref_menu(forge, cx, &theme))),
-        Some(Menu::Head) => (
+        Some(menu @ Menu::Ref) => (
+            "Pick a ref",
+            Some(components::menu(menu, "Refs", forge, cx, &theme)),
+        ),
+        Some(menu @ Menu::Head) => (
             "Pick the default head",
-            Some(settings::head_menu(forge, cx, &theme)),
+            Some(components::menu(menu, "Default head", forge, cx, &theme)),
         ),
     };
     let mut root = modal_overlay(id("forge-menu-overlay"), label, root, floating);
@@ -315,8 +318,8 @@ pub(crate) fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -
         .aria_label(format!("Open {label} in Explorer"))
 }
 
-/// The picked ref as a dropdown at the head of the tab bar: branches, the
-/// default first, then tags. The pick steers every tab.
+/// The picked ref as a dropdown at the head of the tab bar
+/// ([`components::menu`]). The pick steers every tab.
 fn ref_picker(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let head = forge.head_name();
     let label = match forge.refs() {
@@ -332,46 +335,6 @@ fn ref_picker(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
             forge.open_dropdown(Menu::Ref, event, window, cx)
         }),
     )
-}
-
-/// The ref picker's menu: branches, the default first, then tags.
-fn ref_menu(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let head = forge.head_name();
-    let default = forge.default_head();
-    let mut items = Vec::new();
-    let mut ordered: Vec<&forge::RefInfo> = forge.refs().unwrap_or_default().iter().collect();
-    ordered.sort_by_key(|info| (info.name != default, info.name.clone()));
-    let (tags, branches): (Vec<_>, Vec<_>) = ordered
-        .into_iter()
-        .partition(|info| info.name.starts_with(b"refs/tags/"));
-    for (label, group) in [("Branches", branches), ("Tags", tags)] {
-        if group.is_empty() {
-            continue;
-        }
-        items.push(components::menu_label(label, theme));
-        for info in group {
-            let name = info.name.clone();
-            let pick = cx.processor({
-                let name = name.clone();
-                move |forge, (): (), window, cx| {
-                    forge.pick_ref(name.clone(), cx);
-                    forge.close_dropdown(Menu::Ref, window, cx);
-                }
-            });
-            items.push(components::menu_item(
-                id(format!("forge-ref-{}", components::path_text(&name))),
-                components::ref_label(&name),
-                (name == default).then_some("default"),
-                name == head,
-                theme,
-                move |window, app| pick((), window, app),
-            ));
-        }
-    }
-    if items.is_empty() {
-        items.push(components::menu_label("Reading refs…", theme));
-    }
-    components::menu(Menu::Ref, "Refs", items, forge, cx, theme)
 }
 
 /// On a narrow window an open repository's rail and a change's details

@@ -3,7 +3,9 @@
 use ducktape_view_guest::prelude::*;
 
 use crate::Forge;
-use crate::ui::components::{badge, button, empty_state, id, quiet, ref_label, row, short_hex};
+use crate::ui::components::{
+    badge, button, empty_state, id, name_cell, quiet, ref_label, row, short_hex, whole_name,
+};
 use crate::ui::{pending, staged};
 use forge::{Mergeability, Query, RefInfo, Reply, Revision};
 
@@ -110,12 +112,14 @@ fn ref_row(
         .on_click(pick)
         .active(active)
         .selected(name == forge.head_name())
-        .cell(
-            div()
+        .cell(whole_name(
+            name_cell(label.clone())
+                .id(id(format!("forge-ref-name-{label}")))
                 .w(NAME_W)
-                .truncate()
-                .child(crate::ui::bold(label.clone())),
-        )
+                .font_weight(ducktape_view_guest::FontWeight::MEDIUM),
+            label.clone(),
+            theme,
+        ))
         .cell(badge(
             id(format!("forge-ref-kind-{label}")),
             if tag { "tag" } else { "branch" },

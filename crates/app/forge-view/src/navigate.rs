@@ -3,7 +3,7 @@
 use ducktape_view_guest::prelude::*;
 
 use crate::Stage;
-use crate::state::{ChangeTab, Dock, Filter, Forge, RepoTab, SettingsForm, change_key};
+use crate::state::{ChangeTab, Dock, Filter, Forge, Menu, RepoTab, SettingsForm, change_key};
 use crate::ui::markdown::Target;
 use forge::Reply;
 
@@ -74,32 +74,68 @@ impl Forge {
     }
 
     /// Opens a dropdown under its button; a press anywhere else closes it.
-    pub(crate) fn open_menu(&mut self, menu: Option<crate::state::Menu>, cx: &mut Context<Self>) {
+    pub(crate) fn open_menu(&mut self, menu: Option<Menu>, cx: &mut Context<Self>) {
         self.menu = menu;
         cx.notify();
     }
 
-    /// Opens `menu` under the press that asked for it, its first item
-    /// active, and gives it the keys; Esc or a pick gives them back to the
-    /// button ([`crate::ui::components::dropdown`]).
+    /// Opens `menu` under the press that asked for it, its filter box
+    /// empty and holding the keys, on the tab and the item it has picked,
+    /// scrolled to the middle; Esc or a pick gives the keys back to the button
+    /// ([`crate::ui::components::dropdown`]).
     pub(crate) fn open_dropdown(
         &mut self,
-        menu: crate::state::Menu,
+        menu: Menu,
         event: &ClickEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let at = event.position();
         self.menu_at = (at.x.into(), at.y.into());
-        self.menu_cursor = 0;
+        self.menu_search.reset("");
+        let picked = self.menu_picked(menu);
+        self.menu_tags = menu == Menu::Ref && picked.starts_with(b"refs/tags/");
+        let index = self.menu_list(menu).iter().position(|name| *name == picked);
+        self.menu_cursor = index.unwrap_or(0);
+        // centred, so the pick shows with its neighbours; arrows keep Nearest
+        self.menu_scroll
+            .scroll_to_item(self.menu_cursor, ScrollStrategy::Center);
         self.open_menu(Some(menu), cx);
-        window.focus(crate::ui::components::id(format!("{}-menu", menu.key())));
+        window.focus(crate::ui::components::id(format!("{}-filter", menu.key())));
+    }
+
+    /// The arrows are on item `index` of the open dropdown, scrolled to.
+    pub(crate) fn menu_step(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.menu_cursor = index;
+        self.menu_scroll
+            .scroll_to_item(index, ScrollStrategy::Nearest);
+        cx.notify();
+    }
+
+    /// `name` picked in `menu`: the ref every tab reads, or the settings
+    /// form's default head. The menu closes and gives the keys back.
+    pub(crate) fn menu_pick(
+        &mut self,
+        menu: Menu,
+        name: Vec<u8>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match menu {
+            Menu::Ref => self.pick_ref(name, cx),
+            Menu::Head => {
+                if let Some(form) = &mut self.repo_settings {
+                    form.head = name;
+                }
+            }
+        }
+        self.close_dropdown(menu, window, cx);
     }
 
     /// Closes `menu` and gives the keys back to its button.
     pub(crate) fn close_dropdown(
         &mut self,
-        menu: crate::state::Menu,
+        menu: Menu,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
