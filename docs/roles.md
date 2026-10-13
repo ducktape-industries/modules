@@ -101,8 +101,9 @@ the one place that happens.
    then submits Publish to the kernel's `$attach` envelope naming that blob
    (`ducktape submit module-registry PAYLOAD --attach FILE --kind program`).
    The registry refuses code that is neither attached to the frame nor
-   already published, and a blob of any other kind. A Publish is never a validators' motion: an enacted vote runs
-   in a later frame, which attaches nothing.
+   already published, and a blob of any other kind. A Publish is never a
+   validators' motion: an enacted vote runs in a later frame, which attaches
+   nothing.
 2. `Schedule(Scheduled { height, change: Change::Set(Entry { program, code, params }) })`
    lands it at a later height.
 3. At that height the kernel's `At(height)` sees the new code. Under an id
