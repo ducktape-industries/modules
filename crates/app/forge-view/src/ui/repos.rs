@@ -91,7 +91,6 @@ fn repo_row(
     owner: String,
     table: bool,
     active: Option<usize>,
-    walked: bool,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
@@ -130,7 +129,10 @@ fn repo_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(|style| style.bg(theme.surface))
-        .when(walked && active.is_some(), |row| row.bg(theme.surface))
+        // the active row is drawn once the arrows have walked the list
+        .when(active.is_some() && forge.repos_cursor.is_some(), |row| {
+            row.bg(theme.surface)
+        })
         .role(Role::Row)
         .child(press)
         .child(repo_title(
@@ -397,14 +399,10 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
     if table {
         list = list.child(table_header(theme));
     }
-    // the active row is drawn once the arrows have walked the list
-    let walked = forge.repos_cursor.is_some();
     for (index, info) in rows.into_iter().enumerate() {
         let owner = forge.principal_name(&info.repo.owner);
         let active = (index == at).then_some(cell);
-        list = list.child(repo_row(
-            forge, info, owner, table, active, walked, cx, theme,
-        ));
+        list = list.child(repo_row(forge, info, owner, table, active, cx, theme));
     }
     column.child(list).into_any_element()
 }
