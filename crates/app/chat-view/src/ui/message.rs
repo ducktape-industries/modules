@@ -14,9 +14,13 @@ use controls::{Face, action_button, reaction_button, replies_button};
 use rich::{plain_line, rich_line};
 
 const PENDING_OPACITY: f32 = 0.5;
-/// How far the action strip hangs over the row's top edge: half of the
+/// How far the action strip hangs over the card's top edge: half of the
 /// strip, which is 26 tall (24 px buttons inside a 1 px border).
 const STRIP_OVERHANG: f32 = 13.;
+/// The quiet above a run's first message, outside its card: the card's
+/// ground (hover, chosen) hugs the message, and the strip hangs over the
+/// card, not over the gap.
+const RUN_GAP: Pixels = design::space::SM;
 
 /// The cells of the message row being drawn: the message is cell 0, each
 /// enabled control the next in paint order. `active` is the cell the
@@ -88,7 +92,7 @@ pub fn card(
         .gap(design::space::MD)
         .px_4()
         .pt(if message.show_author {
-            design::space::LG
+            design::space::XXS
         } else {
             design::space::HAIR
         })
@@ -118,6 +122,7 @@ pub fn card(
         .id(format!("chat-message-{id}-row"))
         .relative()
         .w_full()
+        .pt(gap(&message))
         .on_hover(row_hover)
         // a row of the pane's grid; it never claims
         .role(ducktape_view_guest::Role::Row)
@@ -133,6 +138,14 @@ pub fn card(
         outer = outer.child(strip);
     }
     (outer.into_any_element(), cells.controls)
+}
+
+/// The row's quiet above its card: a run's first message has one.
+fn gap(message: &ChatMessage) -> Pixels {
+    match message.show_author {
+        true => RUN_GAP,
+        false => px(0.),
+    }
 }
 
 /// A control's click: it does what Enter on its cell does
@@ -277,14 +290,14 @@ fn action_strip(
         .id(format!("chat-message-{id}-actions"))
         .absolute()
         .right_2()
-        // Half over the row's top edge, as Slack hangs it: the message
+        // Half over the card's top edge, as Slack hangs it: the message
         // under it stays where it is. The wire keeps a negative inset
         // (`style_sanitize`, signed to ±MAX_PIXELS). The upper half lies
         // over the row above, whose hover would otherwise take the strip
         // away as the pointer reached it: the strip occludes, so no row
         // is hovered while the pointer is on it, and says itself that it
         // is (`strip_hovered`), which keeps it drawn.
-        .top(px(-STRIP_OVERHANG))
+        .top(gap(message) - px(STRIP_OVERHANG))
         .flex()
         .bg(theme.background)
         .border_1()

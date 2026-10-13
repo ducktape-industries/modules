@@ -1,8 +1,9 @@
 use super::*;
 use ducktape_view_guest::{StyleRefinement, Styled};
 
-/// The strip hangs half over the row's top edge (Slack's), and the
-/// message under it stays where it is. The pointer on its upper half is
+/// The strip hangs half over the card's top edge (Slack's), and the
+/// message under it stays where it is; the card's ground hugs the message,
+/// the run's gap lying above it. The pointer on its upper half is
 /// over the row above, so the strip occludes (no row is hovered while the
 /// pointer is on it) and keeps itself drawn by its own hover; the card
 /// keeps its hover ground meanwhile. The wire keeps the negative inset:
@@ -26,8 +27,19 @@ fn the_action_strip_hangs_over_the_rows_top_and_stays_under_the_pointer() {
         "the strip says when the pointer is on it"
     );
     assert!(strip.group_hover.is_none());
+    // the run's quiet lies in the row above the card, so the card's ground
+    // hugs the message (no forehead over the avatar), and the strip hangs
+    // half over the card's top edge
+    let row = cx.style("chat-message-m1-row");
+    assert_eq!(row.padding.top, Some(px(8.).into()), "the run's gap");
+    let card = cx.style("chat-message-m1-card");
+    assert_eq!(card.padding.top, Some(px(4.).into()), "the card hugs");
     let style = cx.style("chat-message-m1-actions");
-    assert_eq!(style.inset.top, Some(px(-13.).into()), "half of its 26");
+    assert_eq!(
+        style.inset.top,
+        Some(px(8. - 13.).into()),
+        "half of its 26 over the card"
+    );
     assert_eq!(
         style.visibility, None,
         "drawn only while the pointer is on the row"
