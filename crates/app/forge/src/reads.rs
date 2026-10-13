@@ -1,5 +1,5 @@
-//! Object reads over the existing loose-object store; no pack parsing and
-//! no persistent writes.
+//! Object reads (`objects`: an entry of a stored pack, or an old loose
+//! blob); no persistent writes.
 use crate::contract::*;
 use crate::objects::{ObjectStore, object_not_held};
 use crate::ops::{cap, refusal_of};

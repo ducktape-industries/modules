@@ -1,11 +1,13 @@
 //! Every table forge keeps, declared once: the records, the indexes over
-//! them and the counters. Git objects are not here: an object's blob id is
-//! its oid (`objects`). People are [`Principal`]s: accounts.
+//! them and the counters. Git objects live in packs, each a blob, indexed
+//! here ([`PACKED`]); those stored before packs are blobs whose id is the
+//! oid (`objects`). People are [`Principal`]s: accounts.
 
 use std::collections::BTreeMap;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use gitcore::{Hash, Oid};
-use guest::{Error, code};
+use guest::{BlobId, Error, code};
 use guest::{ExecCtx, QueryCtx, invalid, not_found};
 use store::{Item, Map, Set};
 
@@ -39,6 +41,24 @@ pub const AUTHORED: Set<(String, u64, Principal, u64)> = Set::new("u/");
 pub const INVOLVED: Set<(Principal, String, u64)> = Set::new("i/");
 /// The last system message id forge posted into chat.
 pub const MESSAGES: Item<u64> = Item::new("system-message-seq");
+/// Each pack forge keeps, by number: the blob that holds it whole.
+pub const PACKS: Map<u32, BlobId> = Map::new("k/");
+/// The number the next pack takes.
+pub const NEXT_PACK: Item<u32> = Item::new("next-pack");
+/// Where each packed object is, by its oid's bytes, in any repository (an
+/// object is its content). The first pack that brought it holds it.
+pub const PACKED: Map<Vec<u8>, Location> = Map::new("o/");
+
+/// A packed object: the entry its pack holds it at, and its kind (a pack
+/// entry's type code) and size whole, so a presence check, a header and a
+/// read budget read this row and no pack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Location {
+    pub pack: u32,
+    pub offset: u32,
+    pub kind: u8,
+    pub size: u64,
+}
 
 /// Stored state that is not what forge wrote: an operator's problem.
 pub(crate) fn storage(sentence: impl Into<String>) -> Error {

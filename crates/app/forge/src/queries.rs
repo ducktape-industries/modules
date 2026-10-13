@@ -15,7 +15,7 @@ use std::collections::{BTreeSet, VecDeque};
 use gitcore::{Commit, Kind, Objects as _, Oid};
 
 use crate::contract::*;
-use crate::objects::{ObjectStore, blob_id_of};
+use crate::objects::{ObjectStore, Stat};
 use crate::ops::{cap, refusal_of};
 use crate::state::{
     ACTIVITY, REFS, load_bounds, load_refs, load_repo, parse_oid, repo_hash, storage, writes,
@@ -100,7 +100,7 @@ pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
     let refs = load_refs(ctx, name, hash)?;
-    let objects = ObjectStore::new(ctx, hash);
+    let objects = ObjectStore::new(ctx, hash, &bounds);
     let Some(command) = parse_command(request, hash).map_err(refusal_of)? else {
         return Ok(Vec::new());
     };
@@ -128,7 +128,10 @@ pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u
 
 /// Git objects by id ([`Query::Objects`]): the ids in order while the read
 /// budget lasts (the first held one past it), then, asked for, the commits
-/// they descend from, breadth first, while it still lasts.
+/// they descend from, breadth first, while it still lasts. An object whose
+/// pack would be one more than a query loads
+/// ([`MAX_PACKS`](crate::objects::MAX_PACKS)) ends the batch as the budget
+/// does.
 pub(crate) fn objects(
     ctx: &QueryCtx,
     height: u64,
@@ -138,7 +141,7 @@ pub(crate) fn objects(
     ancestors: bool,
 ) -> Result<Reply, Error> {
     let hash = repo_hash(&load_repo(ctx, name)?);
-    let store = ObjectStore::new(ctx, hash);
+    let store = ObjectStore::new(ctx, hash, bounds);
     let (mut reads, mut bytes) = (bounds.tree_walk, bounds.diff_bytes);
     let mut objects = Vec::new();
     let mut missing = Vec::new();
@@ -146,8 +149,12 @@ pub(crate) fn objects(
     let mut known = BTreeSet::new();
     for hex in ids {
         let id = parse_oid(hash, hex)?;
-        let len = ctx.blob_stat(blob_id_of(&id)).map(|header| header.len);
-        let spent = reads == 0 || len.is_some_and(|len| len > bytes && !objects.is_empty());
+        let stat = store.stat(&id).map_err(refusal_of)?;
+        let past = |stat: &Stat| stat.len > bytes || store.loads_past_cap(stat);
+        let spent = reads == 0
+            || stat
+                .as_ref()
+                .is_some_and(|stat| past(stat) && !objects.is_empty());
         if spent {
             return Ok(Reply::Objects {
                 height,
@@ -157,11 +164,11 @@ pub(crate) fn objects(
         }
         reads -= 1;
         known.insert(id);
-        let Some(len) = len else {
+        let Some(stat) = stat else {
             missing.push(hex.clone());
             continue;
         };
-        bytes = bytes.saturating_sub(len);
+        bytes = bytes.saturating_sub(stat.len);
         let object = read(&store, &id)?;
         if ancestors && object.kind == ObjectKind::Commit {
             parents.extend(
@@ -176,14 +183,14 @@ pub(crate) fn objects(
         if !known.insert(id) {
             continue;
         }
-        let Some(header) = ctx.blob_stat(blob_id_of(&id)) else {
+        let Some(stat) = store.stat(&id).map_err(refusal_of)? else {
             continue;
         };
-        if reads == 0 || header.len > bytes {
+        if reads == 0 || stat.len > bytes || store.loads_past_cap(&stat) {
             break;
         }
         reads -= 1;
-        bytes -= header.len;
+        bytes -= stat.len;
         let object = read(&store, &id)?;
         if object.kind == ObjectKind::Commit {
             parents.extend(

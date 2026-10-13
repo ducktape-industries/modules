@@ -1,71 +1,102 @@
-//! `gitcore::Objects` over the store's blobs: a git object's blob id is
-//! its oid, so no map sits between them.
+//! `gitcore::Objects` over forge's packs: each pack a push or a stage
+//! brought is one blob, kept as git compressed it, and each object it
+//! brought is indexed at its entry ([`PACKED`]). Objects forge stored
+//! before packs are blobs whose id is the oid, read as they are.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
+use gitcore::pack::{self, Base, Payload};
 use gitcore::{Error as GitError, Hash, Kind, Object, Objects, Oid};
 use guest::{BlobHeader, BlobId, Error, HashKind};
-use guest::{ExecCtx, QueryCtx, not_found};
+use guest::{ExecCtx, QueryCtx, capacity, not_found};
+
+use crate::contract::Bounds;
+use crate::state::{Location, NEXT_PACK, PACKED, PACKS, storage};
+
+/// The most packs one query or op loads; one more is `CapReached`. A pack
+/// is at most a block (16 MiB), so this bounds what a read holds.
+pub const MAX_PACKS: usize = 16;
 
 /// A different serving node or object replication can satisfy this query.
 pub(crate) fn object_not_held(oid: impl std::fmt::Display) -> Error {
     not_found(format!("object {oid} is not held by this node"))
 }
 
+/// What a presence check and a read budget need of an object: its kind,
+/// its size whole, and the pack it is read from (none for a loose blob).
+#[derive(Clone, Copy, Debug)]
+pub struct Stat {
+    pub kind: Kind,
+    pub len: u64,
+    pub pack: Option<u32>,
+}
+
 /// Reads objects; a `put` computes the id and persists nothing (a compare
 /// may build a prospective tree off consensus). A push writes through
 /// [`ObjectWriter`].
 pub struct ObjectStore<'a> {
-    sandbox: &'a QueryCtx,
+    packs: Packs<'a>,
     hash: Hash,
     budget: Option<Cell<(u64, u64)>>,
     max_object_size: u64,
 }
 
 impl<'a> ObjectStore<'a> {
-    pub fn new(sandbox: &'a QueryCtx, hash: Hash) -> ObjectStore<'a> {
+    pub fn new(sandbox: &'a QueryCtx, hash: Hash, bounds: &Bounds) -> ObjectStore<'a> {
         ObjectStore {
-            sandbox,
+            packs: Packs::new(sandbox, hash, bounds),
             hash,
             budget: None,
             max_object_size: u64::MAX,
         }
     }
 
-    pub fn querying(sandbox: &'a QueryCtx, hash: Hash, bounds: &crate::Bounds, reads: u64) -> Self {
+    pub fn querying(sandbox: &'a QueryCtx, hash: Hash, bounds: &Bounds, reads: u64) -> Self {
         Self {
             budget: Some(Cell::new((reads, bounds.diff_bytes))),
             max_object_size: bounds.max_object_size,
-            ..Self::new(sandbox, hash)
+            ..Self::new(sandbox, hash, bounds)
         }
     }
 
     pub fn header(&self, id: &Oid) -> gitcore::Result<BlobHeader> {
-        self.sandbox
-            .blob_stat(blob_id_of(id))
-            .ok_or(GitError::MissingObject(*id))
+        let stat = self.stat(id)?.ok_or(GitError::MissingObject(*id))?;
+        Ok(BlobHeader {
+            kind: stat.kind.as_str().to_owned(),
+            len: stat.len,
+        })
+    }
+
+    pub fn stat(&self, id: &Oid) -> gitcore::Result<Option<Stat>> {
+        self.packs.stat(id)
+    }
+
+    /// Whether reading an object of `stat` loads a pack past [`MAX_PACKS`]:
+    /// a batch ends before it rather than refuse.
+    pub fn loads_past_cap(&self, stat: &Stat) -> bool {
+        stat.pack.is_some_and(|number| self.packs.full_for(number))
     }
 }
 
 impl Objects for ObjectStore<'_> {
     fn get(&self, id: &Oid) -> gitcore::Result<Option<Object>> {
         if let Some(budget) = &self.budget {
-            let header = match self.sandbox.blob_stat(blob_id_of(id)) {
-                Some(header) => header,
-                None => return Ok(None),
+            let Some(stat) = self.packs.stat(id)? else {
+                return Ok(None);
             };
             let (reads, bytes) = budget.get();
-            if reads == 0 || header.len > bytes || header.len > self.max_object_size {
+            if reads == 0 || stat.len > bytes || stat.len > self.max_object_size {
                 return Err(GitError::CapReached);
             }
-            budget.set((reads - 1, bytes - header.len));
+            budget.set((reads - 1, bytes - stat.len));
         }
-        get(self.sandbox, id)
+        self.packs.get(id)
     }
 
     fn has(&self, id: &Oid) -> gitcore::Result<bool> {
-        Ok(self.sandbox.blob_stat(blob_id_of(id)).is_some())
+        Ok(self.packs.stat(id)?.is_some())
     }
 
     fn put(&mut self, kind: Kind, body: &[u8]) -> gitcore::Result<Oid> {
@@ -73,12 +104,125 @@ impl Objects for ObjectStore<'_> {
     }
 }
 
-fn get(sandbox: &QueryCtx, id: &Oid) -> gitcore::Result<Option<Object>> {
-    let Some(blob) = sandbox.blob_get(blob_id_of(id)) else {
-        return Ok(None);
-    };
-    let kind = Kind::parse(blob.kind.as_bytes())?;
-    Ok(Some(Object::new(kind, blob.body)))
+/// The reads both stores share: an object from its pack, through the index,
+/// or as a loose blob. The packs one store loaded stay loaded for it.
+struct Packs<'a> {
+    ctx: &'a QueryCtx,
+    hash: Hash,
+    max_depth: usize,
+    max_size: usize,
+    loaded: RefCell<BTreeMap<u32, Rc<Vec<u8>>>>,
+}
+
+impl<'a> Packs<'a> {
+    fn new(ctx: &'a QueryCtx, hash: Hash, bounds: &Bounds) -> Self {
+        Packs {
+            ctx,
+            hash,
+            max_depth: crate::ops::cap(bounds.max_delta_depth),
+            max_size: crate::ops::cap(bounds.max_object_size),
+            loaded: RefCell::default(),
+        }
+    }
+
+    fn locate(&self, id: &Oid) -> gitcore::Result<Option<Location>> {
+        PACKED
+            .get(self.ctx, &id.as_bytes().to_vec())
+            .map_err(|_| GitError::Storage)
+    }
+
+    fn stat(&self, id: &Oid) -> gitcore::Result<Option<Stat>> {
+        if let Some(at) = self.locate(id)? {
+            let kind = pack::kind_from_code(at.kind).ok_or(GitError::Storage)?;
+            return Ok(Some(Stat {
+                kind,
+                len: at.size,
+                pack: Some(at.pack),
+            }));
+        }
+        let Some(header) = self.ctx.blob_stat(blob_id_of(id)) else {
+            return Ok(None);
+        };
+        Ok(Some(Stat {
+            kind: Kind::parse(header.kind.as_bytes())?,
+            len: header.len,
+            pack: None,
+        }))
+    }
+
+    fn full_for(&self, number: u32) -> bool {
+        let loaded = self.loaded.borrow();
+        !loaded.contains_key(&number) && loaded.len() >= MAX_PACKS
+    }
+
+    fn get(&self, id: &Oid) -> gitcore::Result<Option<Object>> {
+        match self.locate(id)? {
+            Some(at) => self.unpack(id, at).map(Some),
+            None => {
+                let Some(blob) = self.ctx.blob_get(blob_id_of(id)) else {
+                    return Ok(None);
+                };
+                let kind = Kind::parse(blob.kind.as_bytes())?;
+                Ok(Some(Object::new(kind, blob.body)))
+            }
+        }
+    }
+
+    /// The object at `at`, its delta chain applied. [`ObjectWriter::flush`]
+    /// indexes an object in a pack only when its whole chain reads inside
+    /// that pack, so a read loads one pack and a chain is no deeper than
+    /// the pack was let have; a chain that leaves it is a corrupt index.
+    fn unpack(&self, id: &Oid, at: Location) -> gitcore::Result<Object> {
+        let bytes = self.pack(at.pack)?.ok_or(GitError::MissingObject(*id))?;
+        let mut deltas = Vec::new();
+        let mut offset = at.offset as usize;
+        let (kind, mut body) = loop {
+            if deltas.len() > self.max_depth {
+                return Err(GitError::DeltaTooDeep);
+            }
+            match pack::entry_at(&bytes, offset, self.hash, self.max_size)?.0 {
+                Payload::Full(kind, body) => break (kind, body),
+                Payload::OfsDelta { base_offset, delta } => {
+                    deltas.push(delta);
+                    offset = base_offset;
+                }
+                Payload::RefDelta { base, delta } => {
+                    deltas.push(delta);
+                    let base = self.locate(&base)?.filter(|base| base.pack == at.pack);
+                    offset = base.ok_or(GitError::Storage)?.offset as usize;
+                }
+            }
+        };
+        for delta in deltas.iter().rev() {
+            body = pack::apply_delta(&body, delta, self.max_size)?;
+        }
+        let as_indexed = pack::kind_code(kind) == at.kind && body.len() as u64 == at.size;
+        if !as_indexed {
+            return Err(GitError::Storage);
+        }
+        Ok(Object::new(kind, body))
+    }
+
+    /// Pack `number`'s bytes, loaded once per store; `None` when its blob
+    /// is not on this node.
+    fn pack(&self, number: u32) -> gitcore::Result<Option<Rc<Vec<u8>>>> {
+        if let Some(bytes) = self.loaded.borrow().get(&number) {
+            return Ok(Some(bytes.clone()));
+        }
+        if self.full_for(number) {
+            return Err(GitError::CapReached);
+        }
+        let id = PACKS
+            .get(self.ctx, &number)
+            .map_err(|_| GitError::Storage)?
+            .ok_or(GitError::Storage)?;
+        let Some(blob) = self.ctx.blob_get(id) else {
+            return Ok(None);
+        };
+        let bytes = Rc::new(blob.body);
+        self.loaded.borrow_mut().insert(number, bytes.clone());
+        Ok(Some(bytes))
+    }
 }
 
 /// The object store a push or a stage writes into. Objects wait here until
@@ -88,27 +232,135 @@ fn get(sandbox: &QueryCtx, id: &Oid) -> gitcore::Result<Option<Object>> {
 // in memory already and `Bounds.max_objects`/`max_object_size` cap both.
 pub struct ObjectWriter<'a> {
     sandbox: &'a ExecCtx,
+    packs: Packs<'a>,
     hash: Hash,
     pending: BTreeMap<Oid, (Kind, Vec<u8>)>,
+    /// Each `put`, in order: `server::admit_pack` puts a pack's objects in
+    /// the order `pack::read` lists them, the pack's own entry order.
+    order: Vec<Oid>,
 }
 
 impl<'a> ObjectWriter<'a> {
-    pub fn new(sandbox: &'a ExecCtx, hash: Hash) -> Self {
+    pub fn new(sandbox: &'a ExecCtx, hash: Hash, bounds: &Bounds) -> Self {
         ObjectWriter {
             sandbox,
+            packs: Packs::new(sandbox, hash, bounds),
             hash,
             pending: BTreeMap::new(),
+            order: Vec::new(),
         }
     }
 
-    /// Stores every object the admitted pack brought.
-    pub fn flush(self) -> Result<(), Error> {
-        for (_, (kind, body)) in self.pending {
-            self.sandbox
-                .blob_put(hash_kind_of(self.hash), kind.as_str(), body)?;
+    /// Stores what the admitted `pack` brought that forge does not hold:
+    /// the pack itself, as one blob, indexing each new object whose delta
+    /// chain reads inside it; and the rest whole, in one pack forge writes
+    /// (no deltas), as are objects that came in no pack (an empty `pack`).
+    /// A delta against an object forge held before (a thin pack's, or one
+    /// in an earlier part of a split push) goes whole, so a read never
+    /// follows a chain from pack to pack. An object forge already holds is
+    /// not indexed again: the first pack that brought it keeps it, and the
+    /// later pack's copy stays in its bytes unread. A pack that adds
+    /// nothing is not stored.
+    pub fn flush(self, pack: &[u8]) -> Result<(), Error> {
+        let mut new = BTreeMap::new();
+        for (index, id) in self.order.iter().enumerate() {
+            if !new.contains_key(id) && self.packs.stat(id).map_err(read_error)?.is_none() {
+                new.insert(*id, index);
+            }
+        }
+        let entries = match pack.is_empty() {
+            true => Vec::new(),
+            false => pack::entries(pack, self.hash, self.packs.max_size).map_err(read_error)?,
+        };
+        if !entries.is_empty() && entries.len() != self.order.len() {
+            return Err(storage(
+                "the admitted pack's entries and its objects differ",
+            ));
+        }
+        let mut memo = vec![None; entries.len()];
+        let mut inside = Vec::new();
+        let mut whole = Vec::new();
+        for (id, index) in &new {
+            match !entries.is_empty() && reads_inside(*index, &entries, &new, &mut memo) {
+                true => inside.push((*id, entries[*index].0)),
+                false => whole.push(*id),
+            }
+        }
+        if !inside.is_empty() {
+            self.keep(pack.to_vec(), inside)?;
+        }
+        if !whole.is_empty() {
+            let objects = whole.iter().map(|id| {
+                let (kind, body) = &self.pending[id];
+                Object::new(*kind, body.clone())
+            });
+            let written = pack::write(objects, self.hash).map_err(read_error)?;
+            let offsets = pack::entries(&written, self.hash, self.packs.max_size)
+                .map_err(read_error)?
+                .into_iter()
+                .map(|(offset, _)| offset);
+            let placed = whole.iter().copied().zip(offsets).collect();
+            self.keep(written, placed)?;
         }
         Ok(())
     }
+
+    /// Stores `bytes` as pack blob number [`NEXT_PACK`] and indexes each
+    /// placed object at its entry.
+    fn keep(&self, bytes: Vec<u8>, placed: Vec<(Oid, usize)>) -> Result<(), Error> {
+        let number = NEXT_PACK.get(self.sandbox)?.unwrap_or(0);
+        let next = number
+            .checked_add(1)
+            .ok_or_else(|| Error::new(guest::code::EXHAUSTED, "pack counter exhausted"))?;
+        let blob = self
+            .sandbox
+            .blob_put(hash_kind_of(self.hash), "pack", bytes)?;
+        PACKS.put(self.sandbox, &number, &blob);
+        NEXT_PACK.put(self.sandbox, &next);
+        for (id, offset) in placed {
+            let (kind, body) = &self.pending[&id];
+            let offset = u32::try_from(offset).map_err(|_| capacity("a pack is at most 4 GiB"))?;
+            let at = Location {
+                pack: number,
+                offset,
+                kind: pack::kind_code(*kind),
+                size: body.len() as u64,
+            };
+            PACKED.put(self.sandbox, &id.as_bytes().to_vec(), &at);
+        }
+        Ok(())
+    }
+}
+
+/// Whether entry `index` reads inside its pack: whole, or a delta whose
+/// base does (an offset of the pack, or an object new in it that does).
+/// An entry being decided does not (no cycle survives admission anyway).
+fn reads_inside(
+    index: usize,
+    entries: &[(usize, Base)],
+    new: &BTreeMap<Oid, usize>,
+    memo: &mut Vec<Option<bool>>,
+) -> bool {
+    if let Some(known) = memo[index] {
+        return known;
+    }
+    memo[index] = Some(false);
+    let base = match entries[index].1 {
+        Base::Whole => None,
+        Base::Offset(offset) => Some(entries.binary_search_by_key(&offset, |(at, _)| *at).ok()),
+        Base::Object(id) => Some(new.get(&id).copied()),
+    };
+    let inside = match base {
+        None => true,
+        Some(None) => false,
+        Some(Some(base)) => reads_inside(base, entries, new, memo),
+    };
+    memo[index] = Some(inside);
+    inside
+}
+
+fn read_error(error: GitError) -> Error {
+    crate::ops::refusal_of(error)
 }
 
 impl Objects for ObjectWriter<'_> {
@@ -116,16 +368,17 @@ impl Objects for ObjectWriter<'_> {
         if let Some((kind, body)) = self.pending.get(id) {
             return Ok(Some(Object::new(*kind, body.clone())));
         }
-        get(self.sandbox, id)
+        self.packs.get(id)
     }
 
     fn has(&self, id: &Oid) -> gitcore::Result<bool> {
-        Ok(self.pending.contains_key(id) || self.sandbox.blob_stat(blob_id_of(id)).is_some())
+        Ok(self.pending.contains_key(id) || self.packs.stat(id)?.is_some())
     }
 
     fn put(&mut self, kind: Kind, body: &[u8]) -> gitcore::Result<Oid> {
         let id = gitcore::oid_of(self.hash, kind, body)?;
         self.pending.insert(id, (kind, body.to_vec()));
+        self.order.push(id);
         Ok(id)
     }
 }
@@ -148,5 +401,44 @@ pub fn blob_id_of(oid: &Oid) -> BlobId {
     match oid {
         Oid::Sha1(digest) => BlobId::Sha1(*digest),
         Oid::Sha256(digest) => BlobId::Sha256(*digest),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Objects forge makes itself come in no pack: they land whole in one
+    /// pack forge writes, indexed, and read back.
+    #[test]
+    fn objects_made_outside_a_pack_land_whole_in_one_pack() {
+        let host = guest::MockHost::default();
+        let ctx = host.exec(guest::MockHost::env("forge"));
+        let bounds = Bounds {
+            max_objects: 100,
+            max_delta_depth: 64,
+            max_object_size: 1 << 20,
+            push_walk: 100,
+            fetch_walk: 100,
+            merge_cost: 100,
+            page_size: 16,
+            log_walk: 100,
+            tree_walk: 100,
+            diff_bytes: 1 << 20,
+            blob_bytes: 1 << 20,
+            record_bytes: 1 << 10,
+        };
+        let mut writer = ObjectWriter::new(&ctx, Hash::Sha1, &bounds);
+        let made = [
+            writer.put(Kind::Blob, b"made here").unwrap(),
+            writer.put(Kind::Blob, b"and here").unwrap(),
+        ];
+        writer.flush(&[]).unwrap();
+        assert_eq!(host.borrow().blobs.len(), 1);
+        let store = ObjectStore::new(&ctx, Hash::Sha1, &bounds);
+        for (id, body) in made.iter().zip([&b"made here"[..], b"and here"]) {
+            assert_eq!(store.get(id).unwrap().unwrap().body, body);
+            assert_eq!(store.stat(id).unwrap().unwrap().pack, Some(0));
+        }
     }
 }

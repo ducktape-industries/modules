@@ -294,3 +294,48 @@ pub fn ids_in_pack(bytes: &[u8], hash: Hash) -> BTreeSet<Oid> {
         .map(|(id, _)| id)
         .collect()
 }
+
+/// Object `id` as forge answers it (`Query::Objects`), if it holds it.
+pub fn object_of(sandbox: &MemorySandbox, repo: &str, id: &Oid) -> Option<Object> {
+    let query = Query::Objects {
+        repo: repo.into(),
+        ids: vec![id.to_hex()],
+        ancestors: false,
+    };
+    let Reply::Objects { objects, .. } = abi::decode(&ask(sandbox, &query).unwrap()).unwrap()
+    else {
+        panic!("objects");
+    };
+    objects.into_iter().next().map(|object| {
+        let kind = match object.kind {
+            forge::ObjectKind::Commit => Kind::Commit,
+            forge::ObjectKind::Tree => Kind::Tree,
+            forge::ObjectKind::Blob => Kind::Blob,
+            forge::ObjectKind::Tag => Kind::Tag,
+        };
+        Object::new(kind, object.body)
+    })
+}
+
+/// Every object of `source` reads back from forge as it was pushed, none
+/// of them a blob of its own: forge keeps packs, each one blob.
+#[track_caller]
+pub fn holds_all(sandbox: &MemorySandbox, repo: &str, source: &MemoryObjects) {
+    for id in source.ids() {
+        assert_eq!(
+            object_of(sandbox, repo, id),
+            source.get(id).unwrap(),
+            "{id}"
+        );
+        assert!(!is_loose(sandbox, id), "{id} is a blob of its own");
+    }
+}
+
+/// Whether `id` is a blob of its own, as forge stored objects before packs.
+pub fn is_loose(sandbox: &MemorySandbox, id: &Oid) -> bool {
+    let blob = match id {
+        Oid::Sha1(digest) => abi::BlobId::Sha1(*digest),
+        Oid::Sha256(digest) => abi::BlobId::Sha256(*digest),
+    };
+    sandbox.reads(1).blob_stat(blob).is_some()
+}

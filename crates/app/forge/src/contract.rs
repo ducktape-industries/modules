@@ -157,7 +157,8 @@ pub enum Service {
 /// A read. Each variant names the tables it is answered from (`#[reads]`,
 /// [`program::Reads`]), so a view following `module.changes` re-reads it
 /// only for a block that wrote to one of them; a judgment is answered
-/// partly from chat's and names those too. Git objects are not keys: a
+/// partly from chat's and names those too. Git objects are not followed:
+/// an object never changes once held (its index row is written once), a
 /// view reaches one through a ref, and the push or merge that moves the ref
 /// brings it (a stage stores objects no ref reaches yet), so a read of
 /// objects follows `REFS`. The git client's own questions declare

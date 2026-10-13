@@ -2,6 +2,7 @@
 //! configure, grant, revoke, push, stage). Change ops live in `changes`.
 
 use gitcore::server::{Policy, RefUpdate};
+use gitcore::wire::receive;
 use gitcore::{Error as GitError, Limits, server};
 use guest::{Error, HashKind};
 use guest::{ExecCtx, QueryCtx, already_exists, capacity, decoded, invalid, unauthorized};
@@ -116,12 +117,13 @@ pub(crate) fn revoke(
     Ok(())
 }
 
-/// A git receive-pack: once the pack unpacks, its objects land as blobs and
-/// each accepted ref moves; git's own report is the op's output. The
-/// objects land even when every ref is refused, as git's receive-pack keeps
-/// what it unpacked: a stage stores objects no ref reaches as well, and a
-/// client that pushes again after a refusal (a branch moved meanwhile)
-/// sends less. A pack that does not unpack stores nothing.
+/// A git receive-pack: once the pack unpacks, it lands (one blob, its
+/// objects indexed: [`ObjectWriter::flush`]) and each accepted ref moves;
+/// git's own report is the op's output. The objects land even when every
+/// ref is refused, as git's receive-pack keeps what it unpacked: a stage
+/// stores objects no ref reaches as well, and a client that pushes again
+/// after a refusal (a branch moved meanwhile) sends less. A pack that does
+/// not unpack stores nothing.
 pub(crate) fn push(
     ctx: &ExecCtx,
     actor: &Principal,
@@ -137,7 +139,7 @@ pub(crate) fn push(
         allow_force: repo.settings.allow_force,
         allow_delete: repo.settings.allow_delete,
     };
-    let mut objects = ObjectWriter::new(ctx, hash);
+    let mut objects = ObjectWriter::new(ctx, hash, &bounds);
     let outcome = server::push(
         &mut objects,
         &refs,
@@ -149,7 +151,10 @@ pub(crate) fn push(
     )
     .map_err(refusal_of)?;
     if outcome.unpack_error.is_none() {
-        objects.flush()?;
+        let pack = receive::parse_request(request, hash)
+            .map_err(refusal_of)?
+            .pack;
+        objects.flush(pack)?;
     }
     for (reference, update) in &outcome.moves {
         match update {
@@ -170,7 +175,7 @@ pub(crate) fn push(
     Ok(())
 }
 
-/// The objects half of a push: the pack's objects land as blobs, checked as
+/// The objects half of a push: the pack lands as a push's does, checked as
 /// a push checks them (bounds, deltas against what is held, every object
 /// they name held), and no ref moves.
 pub(crate) fn stage(
@@ -183,9 +188,9 @@ pub(crate) fn stage(
     require_writer(ctx, name, &repo, actor)?;
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
-    let mut objects = ObjectWriter::new(ctx, hash);
+    let mut objects = ObjectWriter::new(ctx, hash, &bounds);
     server::admit_pack(&mut objects, pack, hash, &limits_of(&bounds)).map_err(refusal_of)?;
-    objects.flush()
+    objects.flush(pack)
 }
 
 fn require_owner(repo: &Repo, actor: &Principal) -> Result<(), Error> {
@@ -241,7 +246,7 @@ pub fn cap(bound: u64) -> usize {
 
 pub fn refusal_of(error: GitError) -> Error {
     match error {
-        GitError::Storage => storage("the blob ctx refused a write"),
+        GitError::Storage => storage("forge's stored objects did not read or write"),
         GitError::CapReached | GitError::ObjectTooLarge => {
             capacity("query or operation exceeds its configured work/byte bound")
         }

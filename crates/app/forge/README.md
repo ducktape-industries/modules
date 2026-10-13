@@ -7,8 +7,10 @@ only.
 
 ## Decisions in one screen
 
-- `gitcore` reads loose commit/tree/blob objects through the sandbox; queries never
-  parse packs. No gix, host Git mirror, or forge-specific host storage is needed.
+- Git objects are kept in git's own packs: a push or a stage stores its pack as
+  one blob, deltas and zlib as git sent them, and indexes each object it brings
+  at its entry; a query reads one entry back (`src/objects.rs`). No gix, host Git
+  mirror, or forge-specific host storage is needed.
 - Reads run off consensus. Every change/review mutation is an operation. Merge
   objects are computed and published by the client; `Merge` checks both endpoint
   OIDs and atomically changes the target ref and optional change record. It does
@@ -18,8 +20,8 @@ only.
 - Every table is declared once in `src/state.rs` as a typed `store::Map`/`Set`/`Item`:
   records (repos, refs, changes, reviews), the indexes over them (activity,
   involvement, authored reviews) and the counters. A remove path takes its index
-  rows with it. Git objects are the one exception: an object is the blob whose
-  id is its oid, with no table between them (`src/objects.rs`).
+  rows with it. Git objects are indexed there too (`PACKS`, `PACKED`); those
+  stored before packs are blobs whose id is the oid, read as they are.
 - Forge emits chat creation for `forge:<repo>:<n>` and system lines for opening,
   closing, merging, and submitting a review. Chat owns all conversation replies.
   The kernel runs each emission once the handler returns Ok, in the same frame,

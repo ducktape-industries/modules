@@ -150,15 +150,8 @@ fn client_merge_fast_forwards_or_lands_the_merge_commit_the_client_built() {
         refs_of(&sandbox, "project")["refs/heads/main"],
         merged_id.to_hex()
     );
-    let Oid::Sha1(digest) = merged_id else {
-        panic!();
-    };
     let actual = Commit::parse(
-        &sandbox
-            .reads(1)
-            .blob_get(abi::BlobId::Sha1(digest))
-            .unwrap()
-            .body,
+        &object_of(&sandbox, "project", &merged_id).unwrap().body,
         Hash::Sha1,
     )
     .unwrap();

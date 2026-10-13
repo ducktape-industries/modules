@@ -275,7 +275,8 @@ fn an_import_arrives_as_fast_forward_steps_and_an_open_pack_is_refused_whole() {
     )
     .unwrap();
     assert_eq!(step_two, ["unpack ok", "ok refs/heads/main"]);
-    assert_eq!(sandbox.blob_count(), source.count());
+    assert_eq!(sandbox.blob_count(), 2);
+    holds_all(&sandbox, "project", &source);
     assert_eq!(
         refs_of(&sandbox, "project")["refs/heads/main"],
         third.to_hex()
@@ -490,9 +491,10 @@ fn a_stage_stores_objects_and_moves_no_ref() {
     assert_eq!(sandbox.blob_count(), 0);
 
     stage(&sandbox, OWNER, pack_of(&source, &below)).unwrap();
-    assert_eq!(sandbox.blob_count(), below.len());
+    assert_eq!(sandbox.blob_count(), 1);
     stage(&sandbox, OWNER, pack_of(&source, &[tip])).unwrap();
-    assert_eq!(sandbox.blob_count(), source.count());
+    assert_eq!(sandbox.blob_count(), 2);
+    holds_all(&sandbox, "project", &source);
     assert!(refs_of(&sandbox, "project").is_empty());
 
     // a pack that is no pack is refused as one
@@ -522,7 +524,8 @@ fn only_the_owner_and_granted_writers_stage() {
     )
     .unwrap();
     stage(&sandbox, WRITER, everything).unwrap();
-    assert_eq!(sandbox.blob_count(), source.count());
+    assert_eq!(sandbox.blob_count(), 1);
+    holds_all(&sandbox, "project", &source);
 }
 
 /// Every object a stage stored had what it names held when it landed, so
@@ -566,7 +569,8 @@ fn a_push_moves_a_ref_onto_staged_objects() {
         refs_of(&sandbox, "project")["refs/heads/main"],
         second.to_hex()
     );
-    assert_eq!(sandbox.blob_count(), source.count());
+    assert_eq!(sandbox.blob_count(), 3);
+    holds_all(&sandbox, "project", &source);
 }
 
 /// A push whose ref is refused keeps the objects it unpacked, as git's
@@ -587,7 +591,8 @@ fn a_refused_ref_keeps_the_objects_its_pack_brought() {
     )
     .unwrap();
     assert_eq!(stale, ["unpack ok", "ng refs/heads/main stale info"]);
-    assert_eq!(sandbox.blob_count(), source.count());
+    assert_eq!(sandbox.blob_count(), 1);
+    holds_all(&sandbox, "project", &source);
     let again = push(
         &sandbox,
         OWNER,
@@ -658,7 +663,8 @@ fn a_commit_bigger_than_a_frame_lands_in_parts() {
     )
     .unwrap();
     assert_eq!(moved, ["unpack ok", "ok refs/heads/main"]);
-    assert_eq!(sandbox.blob_count(), source.count());
+    assert_eq!(sandbox.blob_count(), blobs.len() + 1);
+    holds_all(&sandbox, "project", &source);
 }
 
 /// A forge founded with `bounds` holding `project` with a history: c1 ← c2 ←

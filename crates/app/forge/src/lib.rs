@@ -15,7 +15,7 @@
 //! - `ops.rs`: the repository ops; `changes.rs` the change ops
 //! - `queries.rs`, `reads.rs`, `diffs.rs`, `change_queries.rs`: the answers
 //!   to its repository, object and change questions
-//! - `objects.rs`: git objects over the store's blobs
+//! - `objects.rs`: git objects in packs, each a blob, read back by offset
 //! - `discussion.rs`: what forge asks of and posts into chat
 //! - `description.rs`: [`describe()`], an op in a person's words
 
@@ -47,8 +47,8 @@ pub use program::Forge;
 /// of `module.changes` plays back in a test to say which a block touched.
 pub mod tables {
     pub use crate::state::{
-        ACTIVITY, AUTHORED, BOUNDS, CHANGES, INVOLVED, MESSAGES, NUMBERS, REFS, REPOS, REVIEWS,
-        WRITERS, WRITES,
+        ACTIVITY, AUTHORED, BOUNDS, CHANGES, INVOLVED, Location, MESSAGES, NEXT_PACK, NUMBERS,
+        PACKED, PACKS, REFS, REPOS, REVIEWS, WRITERS, WRITES,
     };
 }
 
