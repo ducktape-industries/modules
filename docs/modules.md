@@ -303,6 +303,15 @@ the message's number in the frame). What the target's refusal does is
   applied outcome and returns a refusal, so a module that never wants a
   reply leaves it alone.
 
+`ctx.emit_as(account, target, &op, reply)` (and `emit_raw_as`) sends the
+same message as `account` instead of this module's own account. The host
+asks the identity role `Runs { program, account }` and runs the message as
+`account` only when identity answers with it: an active agent whose manager
+handed it to this module (identity's `SetRunner`). Any other answer refuses
+the message, which `reply` then handles like any refusal. harness writes as
+the agents it runs this way, so chat and files judge the agent's account,
+not harness's.
+
 A reply names only the message's id. A module that wants to know *what* it
 was waiting for keeps that itself:
 
