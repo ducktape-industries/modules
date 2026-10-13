@@ -2,7 +2,7 @@
 //! answers. The row words themselves are `tests/rows.rs`.
 use super::*;
 use ducktape_view_guest::methods::{
-    Block, BlockPage, ChainBlocks, ChainNetwork, ChainStatus, ClockTicks, NetworkStatus,
+    Block, BlockList, BlockPage, ChainBlocks, ChainNetwork, ChainStatus, ClockTicks, NetworkStatus,
     NodeStatus, Peer, Query,
 };
 use ducktape_view_guest::testing::{StreamSender, TestAppContext};
@@ -37,16 +37,20 @@ fn status() -> NodeStatus {
 
 /// The node's archive: every height up to the tip, led in turn by this
 /// node and OTHER; UNLISTED leads none.
-fn blocks(page: BlockPage) -> Vec<Block> {
+fn blocks(page: BlockPage) -> BlockList {
     let below = page.before.unwrap_or(4201);
-    (below.saturating_sub(page.limit as u64)..below)
+    let blocks = (below.saturating_sub(page.limit as u64)..below)
         .rev()
         .map(|height| Block {
             height,
             proposer: Some(if height % 2 == 0 { THIS } else { OTHER }.to_vec()),
             ..Block::default()
         })
-        .collect()
+        .collect();
+    BlockList {
+        blocks,
+        listed_from: Some(0),
+    }
 }
 
 /// Each validator's newest vote as the node heard it: this node at its
@@ -386,16 +390,14 @@ fn a_refused_live_head_is_logged_and_the_set_stays() {
     );
 }
 
-/// A page that fills nothing is not asked again in a loop: the node keeps
-/// nothing at or under that height, so the next head is asked for alone.
 #[test]
 fn a_page_that_fills_nothing_is_not_asked_again() {
     let (mut cx, ticks) = ready();
     cx.host().handle::<ChainBlocks>(|page| {
-        Ok(blocks(page)
-            .into_iter()
-            .filter(|block| block.height != 4201)
-            .collect())
+        let mut listed = blocks(page);
+        listed.blocks.retain(|block| block.height > 4201);
+        listed.listed_from = Some(4202);
+        Ok(listed)
     });
     let asked = cx.host().requests::<ChainBlocks>().len();
     for height in [4201, 4201, 4202] {

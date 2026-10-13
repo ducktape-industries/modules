@@ -421,6 +421,7 @@ impl Network {
             "chain.network",
             "chain.blocks",
             "chain.block",
+            "chain.tx",
             "blob.get",
             "invite.create",
             "module.describe",
@@ -512,14 +513,19 @@ impl Network {
                     methods::decode(payload).map_err(|error| malformed(&error))?;
                 let state = self.0.borrow();
                 let before = page.before.unwrap_or(u64::MAX);
-                let blocks: Vec<&methods::Block> = state
+                let blocks = state
                     .blocks
                     .iter()
                     .rev()
                     .filter(|block| block.height < before)
                     .take(page.limit.min(100) as usize)
+                    .map(listed)
                     .collect();
-                Ok(methods::encode(&blocks))
+                let listed_from = state.blocks.first().map(|block| block.height);
+                Ok(methods::encode(&methods::BlockList {
+                    blocks,
+                    listed_from,
+                }))
             }
             "chain.block" => {
                 let by: methods::BlockRef =
@@ -529,7 +535,30 @@ impl Network {
                     methods::BlockRef::Height(height) => block.height == *height,
                     methods::BlockRef::Id(id) => block.id == *id,
                 });
-                Ok(methods::encode(&block))
+                Ok(methods::encode(&block.map(listed)))
+            }
+            "chain.tx" => {
+                let ask: methods::TxAsk =
+                    methods::decode(payload).map_err(|error| malformed(&error))?;
+                let state = self.0.borrow();
+                let found = state.blocks.iter().find_map(|block| {
+                    let position = match &ask.tx {
+                        methods::TxRef::At { height, position } => {
+                            (block.height == *height).then_some(*position)?
+                        }
+                        methods::TxRef::Hash(hash) => {
+                            block.txs.iter().position(|tx| tx.hash == *hash)? as u32
+                        }
+                    };
+                    let tx = block.txs.get(position as usize)?;
+                    Some(methods::Located {
+                        height: block.height,
+                        position,
+                        time: block.time,
+                        tx: capped(tx, ask.most),
+                    })
+                });
+                Ok(methods::encode(&found))
             }
             "blob.get" => {
                 let id: String = methods::decode(payload).map_err(|error| malformed(&error))?;
@@ -774,7 +803,8 @@ impl Network {
             signer: signer.clone(),
             anchor,
             target: target.clone(),
-            payload,
+            size: payload.len() as u32,
+            payload: Some(payload),
             receipt: Some(methods::Receipt {
                 program: target,
                 outcome: outcome.clone(),
@@ -828,6 +858,25 @@ impl Network {
                 .subscribers
                 .retain(|(name, sender)| *name != program || sender.send(item.clone()).is_ok());
         }
+    }
+}
+
+fn listed(block: &methods::Block) -> methods::Block {
+    methods::Block {
+        txs: block
+            .txs
+            .iter()
+            .map(|tx| capped(tx, wire::PREVIEW_BYTES))
+            .collect(),
+        ..block.clone()
+    }
+}
+
+fn capped(tx: &methods::Tx, most: u32) -> methods::Tx {
+    let within = tx.size <= most;
+    methods::Tx {
+        payload: tx.payload.clone().filter(|_| within),
+        ..tx.clone()
     }
 }
 

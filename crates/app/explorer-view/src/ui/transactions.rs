@@ -85,7 +85,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
         )
         .into_any_element();
     };
-    view.describe(tx, cx);
+    view.open(tx, cx);
     let now = view.chain.now();
     let code = view
         .runs(&tx.target)
@@ -95,7 +95,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
         .gap_2()
         .child(mono(tx.target.clone()))
         .children(code.map(|code| mono(format!("code {code}")).text_color(theme.faint)));
-    let title = tx.op().map(|op| clip(&op.title)).unwrap_or_default();
+    let title = clip(&tx.title());
     let copy = copy_button(view, &Route::Tx(*hash), cx, theme);
     div()
         .id("explorer-tx")

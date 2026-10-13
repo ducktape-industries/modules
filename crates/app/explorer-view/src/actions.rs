@@ -6,6 +6,11 @@ use crate::Explorer;
 use crate::chain::rows;
 use crate::state::{Note, Route, hash_of};
 
+enum Found {
+    Block,
+    Tx,
+}
+
 impl Explorer {
     pub(crate) fn go(&mut self, route: Route, cx: &mut Context<Self>) {
         if let Route::Block(height) = route {
@@ -75,7 +80,7 @@ impl Explorer {
     }
 
     /// A hash, as search and a link read it: a transaction or a block in the
-    /// window, else a block the node finds by id.
+    /// window, else a block or a transaction the node finds by it.
     fn find_hash(&mut self, hash: [u8; 32], cx: &mut Context<Self>) {
         if self.tx(&hash).is_some() {
             return self.go(Route::Tx(hash), cx);
@@ -83,17 +88,36 @@ impl Explorer {
         if let Some(block) = self.chain.blocks.iter().find(|block| block.id == hash) {
             return self.go(Route::Block(block.height), cx);
         }
-        let ask = cx.host().ask::<ChainBlock>(BlockRef::Id(hash));
-        let blocks = self.chain.blocks.len() as u64;
-        cx.land(ask, move |view, found, cx| {
+        let host = cx.host();
+        let found = async move {
+            if let Some(block) = host.ask::<ChainBlock>(BlockRef::Id(hash)).await? {
+                return Ok::<_, Error>(Some((block, Found::Block)));
+            }
+            let by_hash = TxAsk {
+                tx: TxRef::Hash(hash),
+                most: 0,
+            };
+            let Some(located) = host.ask::<ChainTx>(by_hash).await? else {
+                return Ok(None);
+            };
+            let block = host
+                .ask::<ChainBlock>(BlockRef::Height(located.height))
+                .await?;
+            Ok(block.map(|block| (block, Found::Tx)))
+        };
+        let listed_from = self.chain.listed_from;
+        cx.land(found, move |view, found, cx| {
             match found {
-                Ok(Some(block)) => {
+                Ok(Some((block, found))) => {
                     let (row, txs) = rows(block);
-                    let height = row.height;
+                    let route = match found {
+                        Found::Block => Route::Block(row.height),
+                        Found::Tx => Route::Tx(hash),
+                    };
                     view.opened = Loadable::Ready(Some((row, txs)));
-                    view.go(Route::Block(height), cx);
+                    view.go(route, cx);
                 }
-                Ok(None) => view.note = Some(Note::NoSuchHash { blocks }),
+                Ok(None) => view.note = Some(Note::NoSuchHash { listed_from }),
                 Err(refusal) => view.note = Some(Note::Refused(refusal.message)),
             }
             cx.notify();
@@ -105,9 +129,10 @@ impl Explorer {
     /// a [`Route::path`], or `block/<hash>`, found like a searched hash.
     pub(crate) fn open_route(&mut self, route: &str, cx: &mut Context<Self>) {
         if let Some(opened) = Route::from_path(route) {
-            // a transaction outside the window reads as "not in the last N
-            // blocks" until the window reaches it
-            return self.go(opened, cx);
+            return match opened {
+                Route::Tx(hash) if self.tx(&hash).is_none() => self.find_hash(hash, cx),
+                opened => self.go(opened, cx),
+            };
         }
         if let Some(hash) = route.strip_prefix("block/").and_then(hash_of) {
             return self.find_hash(hash, cx);

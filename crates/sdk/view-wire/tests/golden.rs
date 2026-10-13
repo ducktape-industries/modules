@@ -275,38 +275,42 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 before: Some(10),
                 limit: 2,
             },
-            vec![Block {
-                height: 9,
-                id: [4; 32],
-                parent: [5; 32],
-                time: 1,
-                epoch: 0,
-                proposer: Some(vec![6; 32]),
-                txs: vec![Tx {
-                    hash: [7; 32],
-                    signer: vec![8; 32],
-                    anchor: Tip {
-                        height: 8,
-                        id: [3; 32],
-                    },
-                    target: "chat".into(),
-                    payload: vec![9],
-                    receipt: Some(Receipt {
-                        program: "chat".into(),
-                        outcome: Outcome::Rejected(Error {
-                            code: "unauthorized".into(),
-                            message: "not a member".into(),
+            BlockList {
+                blocks: vec![Block {
+                    height: 9,
+                    id: [4; 32],
+                    parent: [5; 32],
+                    time: 1,
+                    epoch: 0,
+                    proposer: Some(vec![6; 32]),
+                    txs: vec![Tx {
+                        hash: [7; 32],
+                        signer: vec![8; 32],
+                        anchor: Tip {
+                            height: 8,
+                            id: [3; 32],
+                        },
+                        target: "chat".into(),
+                        size: 1,
+                        payload: Some(vec![9]),
+                        receipt: Some(Receipt {
+                            program: "chat".into(),
+                            outcome: Outcome::Rejected(Error {
+                                code: "unauthorized".into(),
+                                message: "not a member".into(),
+                            }),
+                            events: vec![vec![1]],
+                            nested: vec![Receipt {
+                                program: "identity".into(),
+                                outcome: Outcome::Applied { output: vec![2] },
+                                events: Vec::new(),
+                                nested: Vec::new(),
+                            }],
                         }),
-                        events: vec![vec![1]],
-                        nested: vec![Receipt {
-                            program: "identity".into(),
-                            outcome: Outcome::Applied { output: vec![2] },
-                            events: Vec::new(),
-                            nested: Vec::new(),
-                        }],
-                    }),
+                    }],
                 }],
-            }],
+                listed_from: Some(3),
+            },
         ),
         exchange::<ChainBlock>(BlockRef::Id([4; 32]), None),
         exchange::<ChainBlock>(
@@ -326,10 +330,44 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                         id: [2; 32],
                     },
                     target: "chat".into(),
-                    payload: vec![9],
+                    size: 5000,
+                    payload: None,
                     receipt: None,
                 }],
             }),
+        ),
+        exchange::<ChainTx>(
+            TxAsk {
+                tx: TxRef::At {
+                    height: 9,
+                    position: 0,
+                },
+                most: u32::MAX,
+            },
+            Some(Located {
+                height: 9,
+                position: 0,
+                time: 1,
+                tx: Tx {
+                    hash: [7; 32],
+                    signer: vec![8; 32],
+                    anchor: Tip {
+                        height: 7,
+                        id: [2; 32],
+                    },
+                    target: "chat".into(),
+                    size: 2,
+                    payload: Some(vec![9, 9]),
+                    receipt: None,
+                },
+            }),
+        ),
+        exchange::<ChainTx>(
+            TxAsk {
+                tx: TxRef::Hash([7; 32]),
+                most: 0,
+            },
+            None,
         ),
         exchange::<BlobGet>("sha256:00".into(), Some(b"blob".to_vec())),
         exchange::<HostSession>(

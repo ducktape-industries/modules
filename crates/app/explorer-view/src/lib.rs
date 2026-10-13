@@ -1,8 +1,9 @@
-//! Explorer: the chain as this node keeps it. Finalized blocks and the
-//! transactions they carry come from the node's block archive
-//! (`chain.blocks`, `chain.block`); who signed them from `identity`; the
-//! validators from `valset`; the programs from `module-registry`; what each
-//! account did from `activity`, whose frames are read from their blocks.
+//! Explorer: the chain as this node lists it. Finalized blocks and the
+//! transactions they carry come from `chain.blocks` and `chain.block`, a
+//! transaction's whole payload from `chain.tx`; who signed them from
+//! `identity`; the validators from `valset`; the programs from
+//! `module-registry`; what each account did from `activity`, whose frames
+//! are read by their place (`chain.tx`).
 //!
 //! What the node does not keep is not shown: there are no receipts, so a
 //! transaction is "in block N", never applied or rejected; and there is no

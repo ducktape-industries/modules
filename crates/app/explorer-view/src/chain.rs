@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell};
 
-use crate::{PAGE, WINDOW, decode};
+use crate::{WINDOW, decode};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockRow {
@@ -29,8 +29,8 @@ pub struct TxRow {
     pub signer: Vec<u8>,
     pub anchor: u64,
     pub target: String,
-    /// the payload as it landed, described only once a row is on screen
-    pub payload: Vec<u8>,
+    pub size: u32,
+    pub payload: Option<Vec<u8>>,
     /// what the host answered for it (`Explorer::describe`), or its bytes
     pub(crate) op: OnceCell<Description>,
     pub(crate) asked: Cell<bool>,
@@ -43,14 +43,18 @@ impl TxRow {
     pub fn op(&self) -> Option<&Description> {
         self.op.get()
     }
+
+    pub fn title(&self) -> String {
+        match (self.op.get(), &self.payload) {
+            (Some(op), _) => op.title.clone(),
+            (None, Some(_)) => String::new(),
+            (None, None) => decode::sized(&self.target, u64::from(self.size)),
+        }
+    }
 }
 
-/// The longest payload a snapshot keeps for a row not yet described; a
-/// longer one is kept as its bytes' description ([`decode::bytes`]).
-const KEPT_PAYLOAD: usize = 4 << 10;
+pub(crate) const ROW_PAYLOAD: u32 = 4 << 10;
 
-/// A [`TxRow`] as the snapshot holds it: the op where it was described,
-/// else a short payload, never a 1 MB push.
 #[derive(Serialize, Deserialize)]
 struct StoredTx<'a> {
     hash: [u8; 32],
@@ -60,17 +64,21 @@ struct StoredTx<'a> {
     signer: Cow<'a, [u8]>,
     anchor: u64,
     target: Cow<'a, str>,
+    size: u32,
     op: Option<Description>,
-    payload: Cow<'a, [u8]>,
+    payload: Option<Cow<'a, [u8]>>,
     receipt: Cow<'a, Option<Receipt>>,
 }
 
 impl Serialize for TxRow {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let short = self
+            .payload
+            .as_deref()
+            .filter(|payload| payload.len() <= ROW_PAYLOAD as usize);
         let (op, payload) = match self.op.get() {
-            Some(op) => (Some(op.clone()), &[][..]),
-            None if self.payload.len() <= KEPT_PAYLOAD => (None, &self.payload[..]),
-            None => (Some(decode::bytes(&self.target, &self.payload)), &[][..]),
+            Some(op) => (Some(op.clone()), None),
+            None => (None, short.map(Cow::Borrowed)),
         };
         StoredTx {
             hash: self.hash,
@@ -80,8 +88,9 @@ impl Serialize for TxRow {
             signer: Cow::Borrowed(&self.signer),
             anchor: self.anchor,
             target: Cow::Borrowed(&self.target),
+            size: self.size,
             op,
-            payload: Cow::Borrowed(payload),
+            payload,
             receipt: Cow::Borrowed(&self.receipt),
         }
         .serialize(s)
@@ -99,7 +108,8 @@ impl<'de> Deserialize<'de> for TxRow {
             signer: stored.signer.into_owned(),
             anchor: stored.anchor,
             target: stored.target.into_owned(),
-            payload: stored.payload.into_owned(),
+            size: stored.size,
+            payload: stored.payload.map(Cow::into_owned),
             op: stored.op.map(Into::into).unwrap_or_default(),
             asked: Default::default(),
             receipt: stored.receipt.into_owned(),
@@ -123,21 +133,30 @@ pub(crate) fn rows(block: Block) -> (BlockRow, Vec<TxRow>) {
         .into_iter()
         .enumerate()
         .rev()
-        .map(|(index, tx)| TxRow {
-            hash: tx.hash,
-            height: block.height,
-            index: index as u32,
-            time: block.time,
-            signer: tx.signer,
-            anchor: tx.anchor.height,
-            target: tx.target,
-            payload: tx.payload,
-            op: Default::default(),
-            asked: Default::default(),
-            receipt: tx.receipt,
-        })
+        .map(|(index, tx)| tx_row(block.height, index as u32, block.time, tx))
         .collect();
     (row, txs)
+}
+
+pub(crate) fn located(located: Located) -> TxRow {
+    tx_row(located.height, located.position, located.time, located.tx)
+}
+
+fn tx_row(height: u64, index: u32, time: u64, tx: Tx) -> TxRow {
+    TxRow {
+        hash: tx.hash,
+        height,
+        index,
+        time,
+        signer: tx.signer,
+        anchor: tx.anchor.height,
+        target: tx.target,
+        size: tx.size,
+        payload: tx.payload,
+        op: Default::default(),
+        asked: Default::default(),
+        receipt: tx.receipt,
+    }
 }
 
 /// The recent window, newest first.
@@ -147,6 +166,7 @@ pub struct Chain {
     pub txs: Vec<TxRow>,
     /// the archive ends inside the window: nothing older to read
     pub complete: bool,
+    pub listed_from: Option<u64>,
     /// the last page was refused, in the host's words
     pub failed: Option<String>,
 }
@@ -168,23 +188,27 @@ impl Chain {
             .filter(|block| block.height == height)
     }
 
+    pub fn unlisted_below(&self) -> Option<u64> {
+        self.listed_from.filter(|from| *from > 0)
+    }
+
     /// Folds in one page. `before` is what the page was asked with: `None`
     /// reads down from the head, `Some` below the oldest block held.
-    pub(crate) fn land(&mut self, before: Option<u64>, page: Vec<Block>) {
+    pub(crate) fn land(&mut self, before: Option<u64>, page: BlockList) {
         self.failed = None;
-        if page.is_empty() {
+        self.listed_from = page.listed_from;
+        let Some(oldest) = page.blocks.last().map(|block| block.height) else {
             self.complete |= before.is_some();
             return;
-        }
-        let full = page.len() == PAGE as usize;
-        let reached_genesis = page.last().is_some_and(|block| block.height == 0);
-        let (blocks, txs): (Vec<_>, Vec<_>) = page.into_iter().map(rows).unzip();
+        };
+        let reached_bottom = page.listed_from.is_none_or(|from| oldest <= from);
+        let (blocks, txs): (Vec<_>, Vec<_>) = page.blocks.into_iter().map(rows).unzip();
         let txs = txs.into_iter().flatten();
         match (before, self.top()) {
             (Some(_), _) => {
                 self.blocks.extend(blocks);
                 self.txs.extend(txs);
-                self.complete = !full || reached_genesis;
+                self.complete = reached_bottom;
             }
             (None, Some(top)) if blocks.last().is_some_and(|b| b.height <= top + 1) => {
                 let fresh = blocks.iter().take_while(|b| b.height > top).count();
@@ -200,7 +224,7 @@ impl Chain {
             (None, _) => {
                 self.blocks = blocks;
                 self.txs = txs.collect();
-                self.complete = !full || reached_genesis;
+                self.complete = reached_bottom;
             }
         }
         self.blocks.truncate(WINDOW);
