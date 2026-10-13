@@ -98,6 +98,7 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement
     let open = chat.room.as_ref().map(|room| room.id.as_str());
     let mine = chat.my_account();
     let mut rooms = Vec::new();
+    // (the room, if it is open yet; the peer; the room's id)
     let mut dms = Vec::new();
     for info in channels {
         let id = info.channel.id.as_str();
@@ -107,19 +108,31 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement
         if chat::dm_peers(id).is_some() {
             dms.extend(
                 mine.and_then(|mine| dm_peer_of(mine, id))
-                    .map(|peer| (info, peer)),
+                    .map(|peer| (Some(info), peer, info.channel.id.clone())),
             );
         } else {
             rooms.push(info);
         }
+    }
+    // then everyone else a person writes to, by name: their room opens on
+    // the first message ([`Chat::dm_to_open`])
+    if let (Some(mine), Some(names)) = (mine, chat.names.ready()) {
+        let mut rest: Vec<(String, u64)> = names
+            .people()
+            .filter(|peer| *peer != mine && !dms.iter().any(|(_, open, _)| open == peer))
+            .map(|peer| (names.member(&Principal::Account(peer)).to_lowercase(), peer))
+            .collect();
+        rest.sort();
+        let rest = rest.into_iter();
+        dms.extend(rest.map(|(_, peer)| (None, peer, chat::dm_channel_id(mine, peer))));
     }
     // one Tab stop under the header: ↑ ↓ walk the channels and the direct
     // messages, Enter opens the active room. Active: where the arrows are,
     // else the open room, else the first
     let ids: Vec<String> = rooms
         .iter()
-        .chain(dms.iter().map(|(info, _)| info))
         .map(|info| info.channel.id.clone())
+        .chain(dms.iter().map(|(_, _, id)| id.clone()))
         .collect();
     let at = chat
         .rooms_cursor
@@ -156,17 +169,10 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement
             div(),
             theme,
         ));
-        for (info, peer) in dms {
-            let selected = open == Some(info.channel.id.as_str());
-            box_ = box_.child(dm_button(
-                chat,
-                info,
-                peer,
-                selected,
-                index == at,
-                cx,
-                theme,
-            ));
+        for (info, peer, id) in dms {
+            let selected = open == Some(id.as_str());
+            let row = dm_button(chat, info, peer, id, selected, index == at, cx, theme);
+            box_ = box_.child(row);
             index += 1;
         }
     }
@@ -302,10 +308,13 @@ fn channel_button(
     design::item(row, Role::ListBoxOption, active).into_any_element()
 }
 
+/// A direct message's row: the room `id` with `peer`, `info` once it is open.
+#[allow(clippy::too_many_arguments)]
 fn dm_button(
     chat: &Chat,
-    info: &ChannelInfo,
+    info: Option<&ChannelInfo>,
     peer: u64,
+    id: String,
     selected: bool,
     active: bool,
     cx: &mut Context<Chat>,
@@ -317,8 +326,7 @@ fn dm_button(
         |n| n.member(&Principal::Account(peer)),
     );
     let agent = names.is_some_and(|n| crate::message::agent(n, &Principal::Account(peer)));
-    let unread = chat.unread(info) && !selected;
-    let id = info.channel.id.clone();
+    let unread = info.is_some_and(|info| chat.unread(info)) && !selected;
     let click = cx.listener(move |chat, _: &ClickEvent, _, cx| {
         cx.notify();
         chat.choose(id.clone(), cx)
