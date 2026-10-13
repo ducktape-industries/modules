@@ -46,6 +46,10 @@ code = "files.wasm"
 id = "provider"
 code = "provider.wasm"
 
+[[programs]]
+id = "attribution"
+code = "attribution.wasm"
+
 [[views]]
 name = "explorer"
 code = "explorer_view.wasm"

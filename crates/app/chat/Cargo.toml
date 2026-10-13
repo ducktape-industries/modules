@@ -17,6 +17,7 @@ describe = []
 
 [dependencies]
 abi = { workspace = true }
+attribution = { workspace = true }
 describe = { workspace = true }
 borsh = { workspace = true }
 guest = { workspace = true, features = ["serde"] }
