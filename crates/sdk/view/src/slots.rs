@@ -67,6 +67,7 @@ pub(crate) enum Kind {
     Submit,
     Bounds,
     WebState,
+    MediaState,
     Drag,
     Dismiss,
     ListRequest,

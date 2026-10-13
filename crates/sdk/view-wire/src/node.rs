@@ -302,6 +302,57 @@ pub enum Node {
         commands: Vec<crate::web::WebCommand>,
         on_state: Option<u32>,
     },
+    /// A camera's picture, drawn by the host in the node's box: the whole
+    /// picture, centred, the box's background on the sides it does not
+    /// fill, flipped left to right when `mirror` (a person checking
+    /// themselves expects a mirror). No picture crosses to the view. Only
+    /// a view whose manifest declares the `camera` capability may send one;
+    /// a host refuses the frame of any other
+    /// ([`crate::media::carries_camera`]).
+    ///
+    /// The camera opens when the host first sees the node (under its
+    /// path), the system's permission asked first where it asks; it opens
+    /// again when `device` changes (`None`: the system's default camera,
+    /// else an id `camera.devices` listed), and is released (its light
+    /// off) when a frame no longer has the node or its window closes. A
+    /// view turns its camera off by not placing the piece. `on_state`
+    /// hears where the camera is as [`Event::Media`].
+    Camera {
+        id: ElementIdWire,
+        style: StyleId,
+        device: Option<String>,
+        mirror: bool,
+        on_state: Option<u32>,
+    },
+    /// A microphone's level, drawn by the host as a meter in the node's
+    /// box: a bar from the left in the style's text colour over its
+    /// background. The level never crosses: it moves faster than a view
+    /// should draw. Only a view whose manifest declares the `microphone`
+    /// capability may send one; a host refuses the frame of any other
+    /// ([`crate::media::carries_microphone`]).
+    ///
+    /// The microphone opens as a [`Node::Camera`]'s camera does, by
+    /// `device` (an input `microphone.devices` listed), and is released
+    /// when a frame no longer has the node; a view mutes by not placing
+    /// it. `output` is the speaker (an output `microphone.devices` listed;
+    /// `None`: the default) a recording plays on and the monitor loops to.
+    /// `monitor` plays what the microphone hears straight back while set:
+    /// through speakers it feeds back, so a view sets it only on the
+    /// person's explicit choice and says to wear headphones. `commands`
+    /// apply in order, once, when `revision` moves (a [`Node::List`]'s
+    /// pattern): [`crate::MicCommand::Record`] records, then plays back.
+    /// `on_state` hears the microphone and the recording as
+    /// [`Event::Media`].
+    Microphone {
+        id: ElementIdWire,
+        style: StyleId,
+        device: Option<String>,
+        output: Option<String>,
+        monitor: bool,
+        revision: u64,
+        commands: Vec<crate::media::MicCommand>,
+        on_state: Option<u32>,
+    },
 }
 
 mod impls;

@@ -361,6 +361,15 @@ pub fn every_event() -> Vec<Event> {
                 can_go_forward: true,
             },
         },
+        Event::Media {
+            handler: 18,
+            state: MediaState {
+                status: MediaStatus::Failed,
+                device: "FaceTime HD Camera".into(),
+                playback: Playback::Recording,
+                detail: "the driver stopped".into(),
+            },
+        },
     ]
 }
 
@@ -445,5 +454,6 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::Resync => "Resync",
         Event::A11yAction { .. } => "A11yAction",
         Event::Web { .. } => "Web",
+        Event::Media { .. } => "Media",
     }
 }

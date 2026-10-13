@@ -218,6 +218,26 @@ impl FakeHost {
                  which this view's CAPABILITIES does not declare",
                 methods::refusal::UNDECLARED_CAPABILITY,
             );
+            for (capability, carries, piece) in [
+                (
+                    methods::Capability::Camera,
+                    crate::wire::media::carries_camera as fn(&Frame) -> bool,
+                    "a camera piece",
+                ),
+                (
+                    methods::Capability::Microphone,
+                    crate::wire::media::carries_microphone,
+                    "a microphone piece",
+                ),
+            ] {
+                assert!(
+                    declared.contains(&capability) || !carries(frame),
+                    "{}: {piece} needs the `{}` capability, \
+                     which this view's CAPABILITIES does not declare",
+                    methods::refusal::UNDECLARED_CAPABILITY,
+                    capability.as_str(),
+                );
+            }
         }
         for stream in state.streams.values() {
             let mut stream = stream.borrow_mut();

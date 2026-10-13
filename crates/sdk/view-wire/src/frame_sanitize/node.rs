@@ -130,6 +130,7 @@ fn sanitize_fields(
             canvas::sanitize(commands);
         }
         Node::Web { style, .. } => walk.style(*style)?,
+        Node::Camera { style, .. } | Node::Microphone { style, .. } => walk.style(*style)?,
         Node::Anchored {
             fit,
             position,
