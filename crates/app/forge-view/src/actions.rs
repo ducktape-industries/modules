@@ -48,6 +48,7 @@ impl Forge {
         let review = matches!(op, Op::ReviewSubmit { .. }).then(|| scope.clone());
         self.pending.push(Pending {
             id,
+            issued: self.block,
             scope,
             label: label.to_owned(),
             progress: Progress::Submitting,
@@ -61,7 +62,14 @@ impl Forge {
             };
             match result {
                 Ok(_) => {
-                    op.progress = Progress::Accepted;
+                    // a block heard since the op went out carries it: the
+                    // receipt can land after the block on a fast node, and
+                    // no later block would retire the row
+                    if forge.block > op.issued {
+                        forge.pending.retain(|op| op.id != id);
+                    } else {
+                        op.progress = Progress::Accepted;
+                    }
                     if let Some(key) = &review {
                         forge.reviews.remove(key);
                     }

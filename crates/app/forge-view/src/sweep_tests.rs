@@ -62,3 +62,23 @@ fn no_tree_row_is_lit_until_the_arrows_walk_it() {
     cx.simulate_key_down("forge-tree-rows", "down");
     assert_eq!(lit(&cx).len(), 1, "the arrows lit the row they walked to");
 }
+
+/// An op's receipt can land after the block that carries it (a fast
+/// node): the row must not wait for a next block that never comes.
+#[test]
+fn an_op_whose_block_lands_before_its_receipt_leaves_the_screen() {
+    use super::{Changes, block, change_screen_as};
+    use crate::state::ChangeTab;
+    let (mut cx, view) = change_screen_as("default", ChangeTab::Conversation, 9);
+    let heads = cx.host().stream::<Changes<forge::Forge>>();
+    // the op goes out, and the block carrying it is heard before the
+    // node's receipt lands
+    cx.update(&view, |forge, _, cx| forge.merge(cx));
+    heads.send(block(200, Vec::new()));
+    cx.run_until_parked();
+    assert!(
+        !cx.has_text("Merging this change"),
+        "the block retired the row: {:?}",
+        cx.texts()
+    );
+}

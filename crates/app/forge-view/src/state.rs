@@ -58,6 +58,10 @@ pub struct Forge {
     pub(crate) rereading_messages: BTreeMap<String, Task<()>>,
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
+    /// the height of the last forge block heard: an op issued before it
+    /// is carried by the time its receipt lands
+    #[serde(skip)]
+    pub(crate) block: u64,
     #[serde(skip)]
     pub(crate) diff_scroll: UniformListScrollHandle,
     #[serde(skip)]
@@ -403,6 +407,9 @@ pub(crate) struct SettingsForm {
 #[derive(Clone, Debug)]
 pub(crate) struct Pending {
     pub id: u64,
+    /// the forge block heard last as the op was issued: a later one
+    /// carries it
+    pub issued: u64,
     /// the screen the row belongs to
     pub scope: String,
     pub label: String,

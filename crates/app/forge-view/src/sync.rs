@@ -71,6 +71,9 @@ impl Forge {
     /// the reads it wrote to. `None` is a reopened node link: everything is
     /// asked again.
     pub(crate) fn reconcile(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        if let Some(change) = change {
+            self.block = self.block.max(change.height);
+        }
         let pending = self.pending.len();
         self.pending.retain(|op| op.progress != Progress::Accepted);
         if self.pending.len() != pending {
