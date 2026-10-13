@@ -383,7 +383,9 @@ const WHOLE_UP_TO: usize = 24;
 /// it whole on hover; a name short enough to be shown whole says nothing
 /// more.
 // ponytail: counts characters, not the drawn width (the guest does not
-// measure text); a name of wide glyphs can be cut below the count.
+// measure text); a name of wide glyphs, or a menu squeezed by a window
+// under ~340 px, can be cut below the count with no tip. The host knows
+// when it cut a text: a tip it shows only then would replace the count.
 pub(crate) fn whole_name<E: StatefulInteractiveElement>(
     element: E,
     name: impl Into<SharedString>,
