@@ -38,6 +38,10 @@ params = "forge.params"
 id = "activity"
 code = "activity.wasm"
 
+[[programs]]
+id = "files"
+code = "files.wasm"
+
 [[views]]
 name = "explorer"
 code = "explorer_view.wasm"
