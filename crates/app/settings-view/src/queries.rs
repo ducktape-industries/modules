@@ -3,8 +3,9 @@
 //! worded only when drawn.
 use ducktape_view_guest::host::malformed;
 use ducktape_view_guest::prelude::*;
-use identity::{Control, Kind, PageRequest, Reference, Standing};
+use identity::{Audience, Control, Kind, PageRequest, Reference, Standing};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Who the seated key is.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -42,6 +43,9 @@ pub struct Agent {
     /// what identity says it is: always `Kind::Managed` (checked on read)
     #[serde(with = "ducktape_view_guest::borsh_bytes")]
     pub kind: Kind,
+    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    pub audience: Audience,
+    pub names: BTreeMap<u64, String>,
 }
 
 impl Agent {
@@ -129,22 +133,78 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
             page: PageRequest { after, limit: None },
         })
         .await?;
-    let agents = listed
-        .into_iter()
-        .map(|agent| match agent.kind() {
-            kind @ Kind::Managed { .. } => Ok(Agent {
-                number: agent.number,
-                keys: agent.keys().len(),
-                name: agent.card.name,
-                kind,
-            }),
-            Kind::Person | Kind::Module(_) => Err(malformed(format!(
+    let mut agents = Vec::new();
+    for agent in listed {
+        let kind @ Kind::Managed { .. } = agent.kind() else {
+            return Err(malformed(format!(
                 "identity lists account {} as managed, and it is not",
                 agent.number
-            ))),
-        })
-        .collect::<Result<_, _>>()?;
+            )));
+        };
+        let number = agent.number;
+        let audience = host.query(identity::ask::Audience { number }).await?;
+        let names = names(host, &audience).await?;
+        agents.push(Agent {
+            number,
+            keys: agent.keys().len(),
+            name: agent.card.name,
+            kind,
+            audience,
+            names,
+        });
+    }
     Ok(agents)
+}
+
+async fn names(host: &Host, audience: &Audience) -> Result<BTreeMap<u64, String>, Error> {
+    let Audience::Accounts(numbers) = audience else {
+        return Ok(BTreeMap::new());
+    };
+    let mut names = BTreeMap::new();
+    for &number in numbers {
+        if let Some(profile) = host.query(identity::ask::Profile { number }).await? {
+            names.insert(number, profile.name);
+        }
+    }
+    Ok(names)
+}
+
+pub(crate) enum Found {
+    Account(u64),
+    Nobody,
+    Several,
+}
+
+pub(crate) async fn find(host: Host, typed: String) -> Result<Found, Error> {
+    let numbered = typed.strip_prefix('#').unwrap_or(&typed).parse::<u64>();
+    if let Ok(number) = numbered {
+        let references = vec![Reference::Account(number)];
+        let resolved = host.query(identity::ask::Resolve { references }).await?;
+        return Ok(match resolved.into_iter().next().flatten() {
+            Some(number) => Found::Account(number),
+            None => Found::Nobody,
+        });
+    }
+    let wanted = typed.to_lowercase();
+    let mut matched = Vec::new();
+    let mut after = None;
+    loop {
+        let (profiles, next) = host
+            .query(identity::ask::Profiles { after, limit: 100 })
+            .await?;
+        let named = profiles.into_iter().filter(|profile| {
+            let module = matches!(profile.kind, Kind::Module(_));
+            !module && profile.name.to_lowercase() == wanted
+        });
+        matched.extend(named.map(|profile| profile.number));
+        let Some(next) = next else { break };
+        after = Some(next);
+    }
+    Ok(match matched.as_slice() {
+        [number] => Found::Account(*number),
+        [] => Found::Nobody,
+        _ => Found::Several,
+    })
 }
 
 async fn read_key(host: &Host, key: Vec<u8>, label: Option<String>) -> Result<Key, Error> {

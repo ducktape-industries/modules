@@ -2,9 +2,10 @@
 //! invite. A refusal lands on the form it came from.
 use ducktape_view_guest::prelude::*;
 
-use crate::state::{Form, Problem, Section, TTL};
+use crate::queries::Found;
+use crate::state::{Answering, Choice, Form, Problem, Section, TTL};
 use crate::{Settings, queries};
-use identity::Identity;
+use identity::{Audience, Identity};
 
 impl Settings {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
@@ -109,14 +110,130 @@ impl Settings {
     }
 
     fn agent_name(&self, number: u64) -> Option<String> {
+        self.agent(number).map(|agent| agent.name.clone())
+    }
+
+    fn agent(&self, number: u64) -> Option<&queries::Agent> {
         match self.account.ready() {
-            Some(Some(queries::Seat::Account(account))) => account
-                .agents
-                .iter()
-                .find(|agent| agent.number == number)
-                .map(|agent| agent.name.clone()),
+            Some(Some(queries::Seat::Account(account))) => {
+                account.agents.iter().find(|agent| agent.number == number)
+            }
             _ => None,
         }
+    }
+
+    fn listed(&self, number: u64) -> Vec<u64> {
+        match self.agent(number).map(|agent| &agent.audience) {
+            Some(Audience::Accounts(numbers)) => numbers.clone(),
+            Some(Audience::Manager | Audience::Anyone) | None => Vec::new(),
+        }
+    }
+
+    pub(crate) fn pick_audience(&mut self, number: u64, choice: Choice, cx: &mut Context<Self>) {
+        match choice {
+            Choice::Manager => self.answer(number, Audience::Manager, cx),
+            Choice::Specific => self.open_people(number, cx),
+            Choice::Anyone => self.answer(number, Audience::Anyone, cx),
+        }
+    }
+
+    fn open_people(&mut self, number: u64, cx: &mut Context<Self>) {
+        let answering = self.answering.entry(number).or_default();
+        if answering.form.busy {
+            return;
+        }
+        answering.listing = true;
+        cx.notify();
+    }
+
+    fn answer(&mut self, number: u64, audience: Audience, cx: &mut Context<Self>) {
+        let answering = self.answering.entry(number).or_default();
+        if answering.form.busy {
+            return;
+        }
+        answering.listing = false;
+        answering.form.problem = None;
+        let unchanged = self
+            .agent(number)
+            .is_some_and(|agent| agent.audience == audience);
+        if unchanged {
+            cx.notify();
+            return;
+        }
+        self.submit_audience(number, audience, cx);
+    }
+
+    pub(crate) fn submit_audience_person(&mut self, number: u64, cx: &mut Context<Self>) {
+        let Some(answering) = self.answering.get_mut(&number) else {
+            let opened = Answering {
+                listing: true,
+                ..Answering::default()
+            };
+            self.answering.insert(number, opened);
+            cx.notify();
+            return;
+        };
+        let form = &mut answering.form;
+        if form.busy {
+            return;
+        }
+        let typed = form.text.text().trim().to_string();
+        if typed.is_empty() {
+            form.problem = Some(Problem::Empty);
+            cx.notify();
+            return;
+        }
+        form.busy = true;
+        form.problem = None;
+        cx.notify();
+        let find = queries::find(cx.host(), typed);
+        cx.land(find, move |view, found, cx| view.found(number, found, cx))
+            .detach();
+    }
+
+    fn found(
+        &mut self,
+        number: u64,
+        found: Result<Found, ducktape_view_guest::host::Error>,
+        cx: &mut Context<Self>,
+    ) {
+        let form = &mut self.answering.entry(number).or_default().form;
+        form.busy = false;
+        let problem = match found {
+            Ok(Found::Account(person)) => {
+                let mut listed = self.listed(number);
+                listed.push(person);
+                return self.submit_audience(number, Audience::Accounts(listed), cx);
+            }
+            Ok(Found::Nobody) => Problem::NoSuchAccount,
+            Ok(Found::Several) => Problem::SeveralAccounts,
+            Err(refusal) => Problem::Refused(refusal.message),
+        };
+        form.problem = Some(problem);
+        cx.notify();
+    }
+
+    pub(crate) fn remove_audience_person(
+        &mut self,
+        number: u64,
+        person: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let mut listed = self.listed(number);
+        listed.retain(|listed| *listed != person);
+        self.submit_audience(number, Audience::Accounts(listed), cx);
+    }
+
+    fn submit_audience(&mut self, number: u64, audience: Audience, cx: &mut Context<Self>) {
+        let op = identity::Op::SetAudience {
+            account: number,
+            audience,
+        };
+        self.submit_agent_op(
+            op,
+            move |v| &mut v.answering.entry(number).or_default().form,
+            cx,
+        );
     }
 
     pub(crate) fn submit_create_agent(&mut self, cx: &mut Context<Self>) {
