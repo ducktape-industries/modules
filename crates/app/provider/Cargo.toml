@@ -1,0 +1,28 @@
+[package]
+name = "provider"
+version.workspace = true
+edition.workspace = true
+
+# The types and rules are always built; a view links them with `module`
+# off. `module` adds its wasm exports (`guest::export!`), which only its
+# own wasm build turns on.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+module = []
+# `describe` makes this crate's wasm build the `ducktape.describe` module:
+# the `describe` export alone, no module, no imports.
+describe = []
+
+[dependencies]
+abi = { workspace = true }
+borsh = { workspace = true }
+describe = { workspace = true }
+guest = { workspace = true }
+# `#[derive(program::Ask)]`: each query asked alone, typed by its reply
+program = { workspace = true }
+store = { workspace = true }
+
+[dev-dependencies]
+valset = { workspace = true }
