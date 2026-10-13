@@ -376,6 +376,8 @@ fn refusal_of(receipt: &Receipt) -> &str {
 mod activity_tests;
 #[path = "system/discussion.rs"]
 mod discussion_tests;
+#[path = "system/files.rs"]
+mod files_tests;
 #[path = "system/founding.rs"]
 mod founding_tests;
 #[path = "system/identity.rs"]

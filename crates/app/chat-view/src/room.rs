@@ -79,6 +79,13 @@ impl Chat {
                 }
                 room.messages = result.into();
                 room.settle();
+                if chat
+                    .channels
+                    .ready()
+                    .is_some_and(|list| chat.landed_on_head(list))
+                {
+                    chat.reached_head(cx);
+                }
             }));
         } else {
             let rows = queries::roots(cx.host(), id, viewer, None, WINDOW);
@@ -347,9 +354,7 @@ impl Chat {
 
     fn reached_head(&mut self, cx: &mut Context<Self>) {
         let Some(room) = &mut self.room else { return };
-        room.landed = false;
-        room.target = 0;
-        room.at_tail = true;
+        room.live();
         if let Some(list) = self.channels.ready().cloned() {
             self.channels_arrived(list, cx);
             self.save_reads(cx);
@@ -493,9 +498,16 @@ impl Chat {
     }
 
     /// The channel list landed: the rooms, and what each one's head says
-    /// about what the reader has read. The room on screen is read to its
-    /// head, and the host's notices for it with it.
+    /// about what the reader has read. A room landed on its newest root is
+    /// the room at its head ([`Self::landed_on_head`]). The room on screen
+    /// is read to its head, and the host's notices for it with it.
     pub(crate) fn channels_arrived(&mut self, channels: Vec<ChannelInfo>, cx: &mut Context<Self>) {
+        if self.landed_on_head(&channels)
+            && let Some(room) = &mut self.room
+        {
+            room.live();
+            cx.notify();
+        }
         let reading = self
             .room
             .as_ref()
@@ -541,6 +553,40 @@ impl Chat {
         if let Some(room) = read {
             self.read_notices(&room, cx);
         }
+    }
+
+    /// Whether the room landed on its newest root, its window holding the
+    /// room's head as `channels` names it. The host draws the last row at
+    /// the list's foot either way, so such a room is the room at its head:
+    /// nothing newer to page to, nothing to jump to. A landing with newer
+    /// roots below it stays one, since only the host knows whether they fit
+    /// on the screen.
+    fn landed_on_head(&self, channels: &[ChannelInfo]) -> bool {
+        let Some(room) = self.room.as_ref().filter(|room| room.landed) else {
+            return false;
+        };
+        let Some(rows) = room.messages.ready() else {
+            return false;
+        };
+        let head = channels
+            .iter()
+            .find(|info| info.channel.id == room.id)
+            .map(|info| info.head_seq);
+        let holds_head = rows
+            .last()
+            .zip(head)
+            .is_some_and(|(row, head)| row.seq >= head);
+        // the row the timeline lands on: the target, or a reply's root
+        let landing = rows
+            .iter()
+            .find(|row| row.seq == room.target)
+            .map(|row| row.thread.unwrap_or(row.seq));
+        let newest_root = rows
+            .iter()
+            .rev()
+            .find(|row| row.thread.is_none())
+            .map(|row| row.seq);
+        holds_head && landing.is_some() && landing == newest_root
     }
 
     pub(crate) fn unread(&self, info: &ChannelInfo) -> bool {
@@ -604,6 +650,13 @@ impl Chat {
 }
 
 impl Room {
+    /// The room at its head: no longer a window around a landing.
+    fn live(&mut self) {
+        self.landed = false;
+        self.target = 0;
+        self.at_tail = true;
+    }
+
     /// Fresh rows landed or a send was held: a pending send the index
     /// serves leaves, so the room never lists a message twice.
     pub(crate) fn settle(&mut self) {

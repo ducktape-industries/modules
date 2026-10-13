@@ -1,0 +1,20 @@
+[package]
+name = "files"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+module = []
+describe = []
+
+[dependencies]
+abi = { workspace = true }
+borsh = { workspace = true }
+describe = { workspace = true }
+guest = { workspace = true }
+program = { workspace = true }
+store = { workspace = true }
+unicode-normalization = { workspace = true }
