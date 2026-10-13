@@ -2115,6 +2115,7 @@ dependencies = [
  "ducktape-view-guest",
  "forge",
  "futures",
+ "gitcore",
  "program",
  "pulldown-cmark",
  "serde",
