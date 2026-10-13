@@ -101,9 +101,10 @@ fn the_thread_marks_its_tag_through_its_newest_reply() {
 }
 
 /// A room opened around a landing holds every message near it, replies
-/// too: nothing is marked while it may not reach the head, and once read
-/// down to the head the timeline marks `<channel>` through its newest root,
-/// never a thread's tag through a reply it does not show.
+/// too: nothing is marked while it is a landing (a newer root sits below
+/// the one it landed on), and once read down to the head the timeline marks
+/// `<channel>` through its newest root, never a thread's tag through a
+/// reply it does not show.
 #[test]
 fn a_landed_room_read_to_its_head_marks_its_newest_root() {
     let (mut cx, _) = opened();
@@ -124,7 +125,7 @@ fn a_landed_room_read_to_its_head_marks_its_newest_root() {
     });
     cx.host()
         .stream::<ducktape_view_guest::methods::HostRoute>()
-        .send("general/2".into());
+        .send("general/1".into());
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<NotifySeen>(), [seen("general", 1)]);
     cx.simulate_range("chat-message-list", 0..2);
