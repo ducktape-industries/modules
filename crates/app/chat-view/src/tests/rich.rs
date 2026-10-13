@@ -109,6 +109,30 @@ fn rich_message_keeps_styles_and_dispatches_each_link_by_value() {
     );
 }
 
+/// A run's avatar opens its author's identity page, the page a mention of
+/// them opens; the press is the avatar's, so the message stays unchosen.
+#[test]
+fn an_avatar_opens_its_authors_profile() {
+    let (mut cx, view) = opened();
+    cx.simulate_click("chat-message-m2-avatar");
+    cx.run_until_parked();
+    let opened = cx
+        .host()
+        .requests::<ducktape_view_guest::methods::LinkOpen>();
+    assert_eq!(
+        opened.last().map(String::as_str),
+        Some("duck://testnet-0a1b2c3d/identity/8")
+    );
+    assert_eq!(
+        cx.interactivity("chat-message-m2-avatar")
+            .aria
+            .label
+            .as_deref(),
+        Some("Open reviewer’s profile")
+    );
+    view.read(|chat| assert!(chat.menu.is_none() && chat.copy.is_none()));
+}
+
 #[test]
 fn a_headers_block_number_opens_explorer_at_that_block() {
     let (mut cx, view) = opened();

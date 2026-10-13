@@ -391,7 +391,12 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     );
 
     // → the controls in paint order, each in a cell of its own: the
-    // header's block link, then the reaction chip, a button that stays one
+    // author's avatar, the header's block link, then the reaction chip, a
+    // button that stays one
+    cx.simulate_key_down("chat-message-list", "right");
+    let avatar = cx.interactivity("chat-message-m1-avatar");
+    assert_eq!(avatar.role, Some(ducktape_view_guest::Role::Link));
+    assert!(avatar.aria.active_descendant && !avatar.focusable);
     cx.simulate_key_down("chat-message-list", "right");
     let link = cx.interactivity("chat-message-m1-height");
     assert_eq!(link.role, Some(ducktape_view_guest::Role::Link));
@@ -545,14 +550,15 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
         assert!(found.contains(&format!("{chip}-cell")), "{pane}: {found:?}");
         assert!(holds(row, &chip), "{pane}");
     }
-    // the timeline's row: the message, its block link, the chip, the `+`
-    // and the way into the thread, a cell each in paint order
+    // the timeline's row: the message, its avatar, its block link, the
+    // chip, the `+` and the way into the thread, a cell each in paint order
     let mut found = Vec::new();
     cells(cx.find("chat-message-m1-row").unwrap(), false, &mut found);
     assert_eq!(
         found,
         [
             "chat-message-m1",
+            "chat-message-m1-avatar-cell",
             "chat-message-m1-height-cell",
             "chat-message-m1-reaction-🔥-cell",
             "chat-message-m1-reaction-add-cell",
@@ -638,8 +644,9 @@ fn enter_presses_no_control_of_a_row_not_drawn_since_the_cursor_moved() {
     fire(&mut cx, &view, false);
     cx.simulate_focus("chat-message-list");
     cx.simulate_key_down("chat-message-list", "up");
-    cx.simulate_key_down("chat-message-list", "right");
-    cx.simulate_key_down("chat-message-list", "right");
+    for _ in 0..3 {
+        cx.simulate_key_down("chat-message-list", "right");
+    }
     assert!(super::room::claims(&cx, "chat-message-m1-reaction-🔥"));
     // the recorded controls are another row's: nothing to press
     cx.update(&view, |chat, _, _| {
