@@ -58,6 +58,10 @@ pub struct Forge {
     pub(crate) rereading_messages: BTreeMap<String, Task<()>>,
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
+    /// the height of the last forge block heard: an op issued before it
+    /// is carried by the time its receipt lands
+    #[serde(skip)]
+    pub(crate) block: u64,
     #[serde(skip)]
     pub(crate) diff_scroll: UniformListScrollHandle,
     #[serde(skip)]
@@ -101,6 +105,10 @@ pub struct Forge {
     /// which of its cells: the list's id, the row, the cell
     #[serde(skip)]
     pub(crate) list_cursor: Option<(&'static str, usize, usize)>,
+    /// the arrows have walked the file tree since the last move: its
+    /// cursor is drawn
+    #[serde(skip)]
+    pub(crate) tree_walked: bool,
     /// the repository tab the arrows are on but have not opened
     #[serde(skip)]
     pub(crate) tab_cursor: Option<RepoTab>,
@@ -371,6 +379,8 @@ pub(crate) fn verdict_verb(verdict: Verdict) -> &'static str {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct ChangeForm {
+    /// the repository it was opened in, the only one that shows it
+    pub repo: String,
     /// `Some(n)` edits that change instead of opening a new one
     pub edit: Option<u64>,
     pub from: Vec<u8>,
@@ -403,6 +413,9 @@ pub(crate) struct SettingsForm {
 #[derive(Clone, Debug)]
 pub(crate) struct Pending {
     pub id: u64,
+    /// the forge block heard last as the op was issued: a later one
+    /// carries it
+    pub issued: u64,
     /// the screen the row belongs to
     pub scope: String,
     pub label: String,

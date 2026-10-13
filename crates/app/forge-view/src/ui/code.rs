@@ -19,7 +19,9 @@ use forge::{BlobView, Content, EntryKind, Query, Reply};
 
 pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let mut columns = div().id(id("forge-code")).flex().flex_1().min_h(px(0.));
-    if forge.layout.tree_visible() || forge.nav().blob.is_none() {
+    // wide, the tree stands beside the file; narrow, an open file takes
+    // its place until closed (the rail's toggle is the rail's alone)
+    if !forge.layout.narrow() || forge.nav().blob.is_none() {
         columns = columns.child(tree(forge, cx, theme)).child(design::divider(
             id("forge-files-resize"),
             "Resize the file tree",
@@ -46,7 +48,7 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         // a repo with no commits: without this, a freshly created repo sat
         // on "Resolving the ref…" forever instead of saying so.
         let waiting = match forge.refs() {
-            Some(_) => no_commits(theme),
+            Some(_) => no_commits(forge, theme),
             None => quiet("Resolving the ref…", theme).into_any_element(),
         };
         return column.child(waiting).into_any_element();
@@ -108,7 +110,10 @@ fn tree_column(forge: &Forge, theme: &Theme) -> Stateful<Div> {
 /// What marks a row: the open file, the keyboard cursor, open folders.
 struct Marks {
     open: Option<Vec<u8>>,
+    /// where the keys put the cursor, drawn
     cursor: Option<Vec<u8>>,
+    /// the row the keys start from, claimed for them
+    claimed: Option<Vec<u8>>,
     expanded: BTreeSet<Vec<u8>>,
 }
 
@@ -124,9 +129,12 @@ fn tree_rows(forge: &Forge, rows: Vec<Row>, cx: &mut Context<Forge>, theme: &The
         }
     });
     // the tree claims a row before any key: the cursor, else the open
-    // file, else the first entry, which is where `tree_key` starts too
+    // file, else the first entry, which is where `tree_key` starts too.
+    // The cursor is drawn once the arrows walk the tree: a press moves it
+    // (the keys go on from there) and lights nothing, and at rest nothing
+    // is lit, as the tree cannot see whether it holds the focus
     let open = forge.nav().blob.as_ref().map(|(path, _)| path.clone());
-    let cursor = forge
+    let claimed = forge
         .nav()
         .cursor
         .clone()
@@ -138,7 +146,11 @@ fn tree_rows(forge: &Forge, rows: Vec<Row>, cx: &mut Context<Forge>, theme: &The
         });
     let marks = Marks {
         open,
-        cursor,
+        cursor: forge
+            .tree_walked
+            .then(|| forge.nav().cursor.clone())
+            .flatten(),
+        claimed,
         expanded: forge.nav().expanded.clone(),
     };
     let theme = *theme;
@@ -212,6 +224,7 @@ fn tree_row(
     // reaches the tree's key handler alone and not a focused row too.
     let selected = marks.open.as_deref() == Some(&entry.path[..]);
     let cursor = marks.cursor.as_deref() == Some(&entry.path[..]);
+    let claimed = marks.claimed.as_deref() == Some(&entry.path[..]);
     let mut line = div()
         .id(id(format!("forge-tree-{}", path_text(&entry.path))))
         .w_full()
@@ -242,7 +255,7 @@ fn tree_row(
     if is_dir {
         line = line.aria_expanded(expanded);
     }
-    if cursor {
+    if claimed {
         line = line.aria_active_descendant();
     }
     if selected {
@@ -253,11 +266,12 @@ fn tree_row(
     line.into_any_element()
 }
 
-pub(crate) fn no_commits(theme: &Theme) -> AnyElement {
+pub(crate) fn no_commits(forge: &Forge, theme: &Theme) -> AnyElement {
+    let address = crate::ui::repo_link(forge, &forge.repo_name());
     empty_state(
         id("forge-tree-no-commits"),
         "No commits yet",
-        "Push code to this ref to browse it here: `git push duck://<network>/forge/<name> main`.",
+        format!("Push code to this ref to browse it here: `git push {address} main`."),
         theme,
     )
     .into_any_element()

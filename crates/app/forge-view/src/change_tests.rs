@@ -1,10 +1,9 @@
 //! The Change screens: the list, the detail header, the conversation, the
 //! reviewer's Files tab, and the one operation a review becomes.
-use super::{answer, booted, change_screen, change_screen_as, opened, refusal};
+use super::{answer, booted, change_screen, change_screen_as, focused, opened, opened_as, refusal};
 use crate::api::{Ask, SubmitForge};
 use crate::state::ChangeTab;
 use ducktape_view_guest::methods::Submit;
-use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire;
 use ducktape_view_guest::wire::Node;
 use forge::{LineComment, Op, PageRequest, Query, Side, Verdict};
@@ -202,6 +201,25 @@ fn an_operation_shows_its_submission_then_a_refusal_reverts_it_with_the_reason()
         cx.texts()
     );
     assert!(cx.has_text("Closing this change"), "the row stays in place");
+}
+
+/// An op's receipt can land after the block that carries it (a fast
+/// node): the row must not wait for a next block that never comes.
+#[test]
+fn an_op_whose_block_lands_before_its_receipt_leaves_the_screen() {
+    use super::{Changes, block};
+    let (mut cx, view) = change_screen_as("default", ChangeTab::Conversation, 9);
+    let heads = cx.host().stream::<Changes<forge::Forge>>();
+    // the op goes out, and the block carrying it is heard before the
+    // node's receipt lands
+    cx.update(&view, |forge, _, cx| forge.merge(cx));
+    heads.send(block(200, Vec::new()));
+    cx.run_until_parked();
+    assert!(
+        !cx.has_text("Merging this change"),
+        "the block retired the row: {:?}",
+        cx.texts()
+    );
 }
 
 #[test]
@@ -579,8 +597,8 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
         (b"src/lib.rs".as_slice(), true, 3, "second thought"),
         (b"src/lib.rs".as_slice(), false, 1, "the old side too"),
     ] {
-        cx.update(&view, |forge, _, cx| {
-            forge.open_comment(path.to_vec(), new_side, line, cx)
+        cx.update(&view, |forge, window, cx| {
+            forge.open_comment(path.to_vec(), new_side, line, window, cx)
         });
         cx.run_until_parked();
         cx.simulate_input("forge-comment-body", body);
@@ -668,8 +686,8 @@ fn a_refused_review_keeps_every_draft() {
     let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
     cx.simulate_click("forge-start-review");
     cx.run_until_parked();
-    cx.update(&view, |forge, _, cx| {
-        forge.open_comment(b"src/lib.rs".to_vec(), true, 3, cx)
+    cx.update(&view, |forge, window, cx| {
+        forge.open_comment(b"src/lib.rs".to_vec(), true, 3, window, cx)
     });
     cx.run_until_parked();
     cx.simulate_input("forge-comment-body", "keep me");
@@ -692,6 +710,28 @@ fn a_refused_review_keeps_every_draft() {
         let review = forge.review().expect("the session survives a refusal");
         assert_eq!(review.comments.len(), 1);
         assert_eq!(review.comments[0].body.text(), "keep me");
+    });
+}
+
+/// A line comment's composer opens with the keys in it; Enter stages the
+/// comment like the Stage button.
+#[test]
+fn a_line_comment_composer_opens_focused_and_enter_stages() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-start-review");
+    cx.run_until_parked();
+    cx.update(&view, |forge, window, cx| {
+        forge.open_comment(b"src/lib.rs".to_vec(), true, 3, window, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(focused(&cx).as_deref(), Some("forge-comment-body"));
+    cx.simulate_input("forge-comment-body", "rename this");
+    cx.simulate_submit("forge-comment-body");
+    cx.run_until_parked();
+    view.read(|forge| {
+        let review = forge.review().expect("a review session");
+        assert!(review.open.is_none(), "the composer closed");
+        assert_eq!(review.comments.len(), 1);
     });
 }
 
@@ -761,8 +801,8 @@ fn the_details_sidebar_holds_reviews_merge_status_and_line_comments() {
 fn editing_a_change_keeps_the_paragraphs_of_its_body() {
     let (mut cx, view) = change_screen("default", ChangeTab::Conversation);
     let body = "What: a body.\n\nWhy: it reads.\n\nTest: this one.";
-    cx.update(&view, |forge, _, cx| {
-        forge.start_edit(cx);
+    cx.update(&view, |forge, window, cx| {
+        forge.start_edit(window, cx);
         // what the host's editor holds once the paragraphs are typed
         forge.form.as_mut().unwrap().body = ducktape_view_guest::TextField::new(body);
     });
@@ -783,6 +823,155 @@ fn editing_a_change_keeps_the_paragraphs_of_its_body() {
         cx.host().requests::<SubmitForge>().iter().any(
             |op| matches!(op, Op::ChangeEdit { n: 1, body: Some(saved), .. } if saved == body)
         ),
+    );
+}
+
+/// A new-change draft begun in Refs stays in Refs and Changes: a change's
+/// own page does not wear it.
+#[test]
+fn a_new_change_draft_does_not_show_inside_another_change() {
+    let (mut cx, _) = opened_as("default", 9);
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    cx.simulate_click("forge-compare-clean");
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-form").is_some(), "{:?}", cx.texts());
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "the draft is not this change's: {:?}",
+        cx.texts()
+    );
+}
+
+fn count_keys(node: &Node, key: &str) -> usize {
+    usize::from(node.key() == Some(key))
+        + node
+            .children()
+            .iter()
+            .map(|c| count_keys(c, key))
+            .sum::<usize>()
+}
+
+/// A change draft (from Compare) and an edit of a change open with the keys
+/// in the title; Enter there opens or saves the change.
+#[test]
+fn a_change_form_opens_focused_on_its_title_and_enter_submits() {
+    let (mut cx, view) = opened_as("default", 1);
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    cx.simulate_click("forge-compare-clean");
+    cx.run_until_parked();
+    assert_eq!(
+        focused(&cx).as_deref(),
+        Some("forge-change-title"),
+        "a draft"
+    );
+    cx.simulate_input("forge-change-title", "Clean up");
+    cx.simulate_submit("forge-change-title");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.form.is_none(), "the draft left on Enter"));
+    assert!(
+        cx.host()
+            .requests::<SubmitForge>()
+            .iter()
+            .any(|op| matches!(op, forge::Op::ChangeOpen { title, .. } if title == "Clean up")),
+        "Enter opened it"
+    );
+
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    cx.simulate_click("forge-edit-change");
+    cx.run_until_parked();
+    assert_eq!(
+        focused(&cx).as_deref(),
+        Some("forge-change-title"),
+        "an edit"
+    );
+    assert_eq!(
+        count_keys(cx.root(), "forge-change-title"),
+        1,
+        "the heading does not share the field's id while editing"
+    );
+}
+
+/// An edit left open on a change's page belongs to that page: the Changes
+/// list and the Refs tab do not show "Edit change #n" after backing out.
+#[test]
+fn an_edit_left_open_does_not_show_on_the_list_tabs() {
+    let (mut cx, _) = change_screen_as("default", ChangeTab::Conversation, 1);
+    cx.simulate_click("forge-edit-change");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_some(),
+        "the edit opened on its page"
+    );
+    cx.simulate_click("forge-change-back");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "the Changes list shows no edit form: {:?}",
+        cx.texts()
+    );
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "nor does the Refs tab"
+    );
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_some(),
+        "back on its page the edit is still there"
+    );
+}
+
+/// A change form stays in the repository it was opened in: an edit of one
+/// repository's #1 is not drawn on another's #1, where Save would write
+/// over that change, and a draft compared in one is not offered in another.
+#[test]
+fn a_change_form_stays_in_the_repository_it_was_opened_in() {
+    let (mut cx, view) = change_screen_as("default", ChangeTab::Conversation, 1);
+    cx.simulate_click("forge-edit-change");
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-form").is_some());
+    cx.update(&view, |forge, _, cx| forge.open_route("other/1", cx));
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-header").is_some(), "other's #1");
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "project's edit on other's change: {:?}",
+        cx.texts()
+    );
+    cx.update(&view, |forge, _, cx| forge.open_route("project/1", cx));
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_some(),
+        "the edit waits on its own page"
+    );
+
+    let (mut cx, view) = opened_as("default", 1);
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    cx.simulate_click("forge-compare-clean");
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-form").is_some());
+    cx.update(&view, |forge, _, cx| forge.open_repo("other".into(), cx));
+    cx.run_until_parked();
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "project's draft on other's Changes: {:?}",
+        cx.texts()
     );
 }
 
@@ -826,10 +1015,6 @@ fn a_merged_change_lists_the_commits_it_merged() {
         )),
         "{asked:?}"
     );
-}
-
-fn focused(cx: &TestAppContext) -> Option<String> {
-    cx.focused().and_then(Node::key).map(str::to_owned)
 }
 
 /// The finish form is a dialog: Tab from its last stop comes round to its

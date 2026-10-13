@@ -44,7 +44,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         .child(header(forge, cx, theme))
         .child(tabs(forge, cx, theme))
         .child(pending(forge, &scope, theme));
-    if let Some(form) = &forge.form {
+    if let Some(form) = forge.change_form() {
         column = column.child(crate::ui::changes::form(form, forge, cx, theme));
     }
     let tab = forge.nav().change_tab;
@@ -185,7 +185,7 @@ fn title_line(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let edit = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_edit(cx));
+    let edit = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_edit(window, cx));
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.close_change(cx));
     let merge = cx.listener(|forge, _: &ClickEvent, _, cx| forge.merge(cx));
     let open = change.state == ChangeState::Open;
@@ -199,7 +199,7 @@ fn title_line(
         .items_center()
         .gap(design::space::SM)
         .child(heading(
-            id("forge-change-title"),
+            id("forge-change-heading"),
             change.title.clone(),
             1,
             theme,
@@ -310,10 +310,12 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let Some(query) = forge.diff_query() else {
         return quiet("Comparing the endpoints…", theme);
     };
-    let mut columns = div().id(id("forge-files")).flex().flex_1().min_h(px(0.));
-    if forge.layout.tree_visible() {
-        columns = columns.child(file_tree(forge, &query, cx, theme));
-    }
+    let columns = div()
+        .id(id("forge-files"))
+        .flex()
+        .flex_1()
+        .min_h(px(0.))
+        .child(file_tree(forge, &query, cx, theme));
     let pane = div()
         .id(id("forge-files-pane"))
         .flex_1()

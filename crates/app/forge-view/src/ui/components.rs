@@ -33,6 +33,9 @@ where
     selected: bool,
     /// `Some(cell)`: the arrows are on this row, at that cell
     active: Option<usize>,
+    /// the arrows have walked this list: the active row is drawn, not
+    /// only claimed
+    walked: bool,
     /// a row of a [`grid`]: a `Row` of cells even with no control
     in_grid: bool,
     children: Vec<AnyElement>,
@@ -51,6 +54,7 @@ where
         theme: *theme,
         selected: false,
         active: None,
+        walked: false,
         in_grid: false,
         children: Vec::new(),
         controls: Vec::new(),
@@ -74,6 +78,13 @@ where
     /// control in order. A control claims for itself when it is the cell.
     pub fn active(mut self, cell: Option<usize>) -> Self {
         self.active = cell;
+        self
+    }
+    /// The list has been walked with the arrows: its active row shows. At
+    /// rest the first row is claimed for the keys but drawn like any other,
+    /// since a view cannot see whether its list holds the focus.
+    pub fn walked(mut self, walked: bool) -> Self {
+        self.walked = walked;
         self
     }
     /// A row of a [`grid`]: its press is the first cell of a `Row` even
@@ -111,9 +122,10 @@ where
             .min_h(design::size::CONTROL)
             .px_2()
             .when(self.selected, |item| item.bg(chosen))
-            .when(self.active.is_some() && !self.selected, |item| {
-                item.bg(hovered)
-            });
+            .when(
+                self.walked && self.active.is_some() && !self.selected,
+                |item| item.bg(hovered),
+            );
         let Some(click) = self.click else {
             return item
                 .role(Role::ListItem)
@@ -173,6 +185,13 @@ pub(crate) fn cursor(forge: &Forge, id: &'static str) -> (usize, usize) {
         Some((list, row, cell)) if list == id => (row, cell),
         _ => (0, 0),
     }
+}
+
+/// Whether the arrows have walked the list `id`: only then is its active
+/// row drawn. At rest every list claims its first row for the keys and
+/// draws none, as a view cannot see whether the list holds the focus.
+pub(crate) fn walked(forge: &Forge, id: &'static str) -> bool {
+    matches!(forge.list_cursor, Some((list, ..)) if list == id)
 }
 
 /// A list of [`row`]s as one Tab stop: ↑ ↓ walk the rows (a virtual list

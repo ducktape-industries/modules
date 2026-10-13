@@ -708,6 +708,24 @@ fn an_unborn_repo_says_so_instead_of_resolving_forever() {
     assert!(!cx.has_text("Resolving the ref…"));
 }
 
+/// An unborn repository's Commits tab says "No commits yet" with the
+/// repository's own address, not the program's refusal.
+#[test]
+fn an_unborn_repository_has_no_history_and_says_so_with_its_address() {
+    let (mut cx, _) = opened("unborn");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    assert!(cx.has_text("No commits yet"), "{:?}", cx.texts());
+    assert!(cx.find("forge-log-loading").is_none() && !cx.has_text("Retry"));
+    assert!(
+        cx.texts()
+            .iter()
+            .any(|text| text.contains("git push duck://testnet-0a1b2c3d/forge/project main")),
+        "{:?}",
+        cx.texts()
+    );
+}
+
 #[test]
 fn a_refused_read_keeps_its_reason_and_offers_one_retry() {
     let mut cx = TestAppContext::new();
@@ -781,6 +799,31 @@ fn creating_a_repository_validates_its_name_then_shows_the_submission() {
     view.read(|forge| assert!(forge.new_repo.is_none()));
 }
 
+fn focused(cx: &TestAppContext) -> Option<String> {
+    cx.focused().and_then(wire::Node::key).map(str::to_owned)
+}
+
+/// "New repository" opens with the keys in its name field, and Enter there
+/// creates the repository: a typed name is never lost to the list behind.
+#[test]
+fn a_new_repository_form_opens_focused_and_enter_creates() {
+    let (mut cx, view) = booted("default");
+    cx.simulate_click("forge-new-repo");
+    cx.run_until_parked();
+    assert_eq!(focused(&cx).as_deref(), Some("forge-new-repo-name"));
+    cx.simulate_input("forge-new-repo-name", "ledger");
+    cx.simulate_submit("forge-new-repo-name");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.new_repo.is_none(), "the form closed"));
+    assert!(
+        cx.host()
+            .requests::<SubmitForge>()
+            .iter()
+            .any(|op| matches!(op, forge::Op::Create { repo, .. } if repo == "ledger")),
+        "Enter created it"
+    );
+}
+
 #[test]
 fn a_repository_opens_with_its_header_ref_picker_and_tabs() {
     let (cx, view) = opened("default");
@@ -817,6 +860,24 @@ fn a_repository_opens_with_its_header_ref_picker_and_tabs() {
     cx.update(&view, |forge, _, cx| forge.open_menu(None, cx));
     cx.run_until_parked();
     assert!(cx.find("forge-ref-picker-menu").is_none());
+}
+
+/// The tab bar counts the open changes on every tab, not only once the
+/// Changes tab was visited.
+#[test]
+fn the_changes_tab_counts_on_every_tab() {
+    let (cx, _) = opened("default");
+    let tab = cx.node("forge-tab-changes");
+    let texts: Vec<String> = tab
+        .children()
+        .iter()
+        .flat_map(|child| child.children().iter().chain(std::iter::once(child)))
+        .filter_map(|node| node.text().map(str::to_owned))
+        .collect();
+    assert!(
+        texts.iter().any(|text| text.parse::<u64>().is_ok()),
+        "the README tab shows the count: {texts:?}"
+    );
 }
 
 /// The repository tabs read on open, so they are a manual tab list: → moves
@@ -1178,6 +1239,20 @@ fn commits_follows_the_cursor_and_opens_one_commit_with_its_diff() {
     view.read(|forge| assert!(forge.nav().commit.is_none()));
 }
 
+/// A commit touching many files: the file strip is capped and scrolls, so
+/// the diff under it keeps its height instead of being pushed off screen.
+#[test]
+fn a_commit_with_many_files_keeps_its_diff_under_a_scrolling_strip() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
+    cx.run_until_parked();
+    let strip = cx.style("forge-commit-diff-files");
+    assert!(strip.max_size.height.is_some(), "the strip is capped");
+    assert!(strip.overflow.y.is_some(), "and scrolls past its cap");
+}
+
 #[test]
 fn refs_carry_their_distance_from_the_default_head_and_open_a_draft() {
     let (mut cx, view) = opened("default");
@@ -1266,6 +1341,34 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
     );
 }
 
+/// Enter in the Grant field grants, like its button; not for a reader who
+/// cannot.
+#[test]
+fn enter_in_the_grant_field_grants_for_the_owner_only() {
+    let (mut cx, _) = opened_as("default", 1);
+    cx.simulate_click("forge-tab-settings");
+    cx.run_until_parked();
+    cx.simulate_input("forge-settings-grant-input", "acct:7");
+    cx.simulate_submit("forge-settings-grant-input");
+    cx.run_until_parked();
+    assert!(cx.host().requests::<SubmitForge>().iter().any(
+        |op| matches!(op, forge::Op::Grant { principal, .. } if *principal == forge::Principal::Account(7))
+    ));
+    let (mut cx, _) = opened_as("default", 2);
+    cx.simulate_click("forge-tab-settings");
+    cx.run_until_parked();
+    assert!(
+        matches!(
+            cx.find("forge-settings-grant-input"),
+            Some(wire::Node::Field {
+                on_submit: None,
+                ..
+            })
+        ),
+        "a reader's Enter grants nothing"
+    );
+}
+
 #[test]
 fn the_narrow_window_folds_the_rail_and_the_dock_into_toggles() {
     let (mut cx, view) = opened("default");
@@ -1277,6 +1380,67 @@ fn the_narrow_window_folds_the_rail_and_the_dock_into_toggles() {
     cx.simulate_click("forge-toggle-rail");
     cx.run_until_parked();
     assert!(cx.find("forge-rail").is_some());
+}
+
+/// Narrow, the "Repositories" toggle folds the rail alone: the Code tab's
+/// file tree gives way to an open file and comes back when the file closes,
+/// and a change's file list stays beside its diff, whatever the rail does.
+#[test]
+fn narrow_side_panes_do_not_follow_the_repositories_toggle() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_resize(760., 800.);
+    cx.run_until_parked();
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-tree").is_some(),
+        "no file open: the tree is the screen"
+    );
+    cx.simulate_click("forge-tree-README.md");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-tree").is_none(),
+        "a file open takes the tree's place"
+    );
+    cx.simulate_click("forge-toggle-rail");
+    cx.run_until_parked();
+    assert!(cx.find("forge-rail").is_some(), "the rail unfolds");
+    assert!(
+        cx.find("forge-tree").is_none(),
+        "the tree does not follow the rail"
+    );
+    cx.simulate_click("forge-blob-close");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-tree").is_some(),
+        "the file closed: the tree is back"
+    );
+
+    let (mut cx, _) = change_screen("default", ChangeTab::Files);
+    cx.simulate_resize(760., 800.);
+    cx.run_until_parked();
+    assert!(cx.find("forge-rail").is_none());
+    assert!(
+        cx.find("forge-file-tree").is_some(),
+        "the file list stays beside the diff"
+    );
+}
+
+/// Narrow, About left open on a repository does not reappear as a change's
+/// "Details" overlay over the change.
+#[test]
+fn about_left_open_does_not_lay_a_change_s_details_over_it() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_resize(760., 800.);
+    cx.run_until_parked();
+    cx.simulate_click("forge-dock-about");
+    cx.run_until_parked();
+    assert!(cx.find("forge-about").is_some());
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(cx.find("forge-details-over").is_none(), "{:?}", cx.texts());
 }
 
 /// A window opens at 60% of the desk, 768 px on a 1280 one: the list keeps
@@ -1350,6 +1514,22 @@ fn the_rail_is_a_list_box_whose_enter_opens_the_active_repository() {
     cx.run_until_parked();
     let name = rows[0].trim_start_matches("forge-rail-repo-");
     view.read(|forge| assert_eq!(forge.nav().repo.as_deref(), Some(name)));
+}
+
+/// A walk of a list ends where the reader moves: back on the repositories
+/// after opening one, no row is lit as if still picked.
+#[test]
+fn a_walk_of_the_repositories_ends_with_a_move() {
+    let (mut cx, view) = booted("default");
+    let lit = |cx: &TestAppContext| lit_rows(cx, "forge-repos-list", Role::Row);
+    cx.simulate_focus("forge-repos-list");
+    cx.simulate_key_down("forge-repos-list", "right");
+    assert_eq!(lit(&cx).len(), 1, "the arrows light the row they walk");
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    cx.update(&view, |forge, _, cx| forge.open_repos(cx));
+    cx.run_until_parked();
+    assert_eq!(lit(&cx), Vec::<String>::new(), "back at rest");
 }
 
 #[test]
@@ -1837,6 +2017,47 @@ fn the_tree_claims_a_row_on_entry_and_end_reaches_the_last() {
     assert!(cx.interactivity(&first).aria.active_descendant);
 }
 
+/// The file tree the same: a press on a folder lights nothing, the keys do.
+#[test]
+fn no_tree_row_is_lit_until_the_arrows_walk_it() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    let lit = |cx: &TestAppContext| lit_rows(cx, "forge-tree-rows", Role::TreeItem);
+    assert_eq!(lit(&cx), Vec::<String>::new(), "at rest");
+    cx.simulate_click("forge-tree-src");
+    cx.run_until_parked();
+    assert_eq!(lit(&cx), Vec::<String>::new(), "after a press on a folder");
+    cx.simulate_focus("forge-tree-rows");
+    cx.simulate_key_down("forge-tree-rows", "down");
+    assert_eq!(lit(&cx).len(), 1, "the arrows lit the row they walked to");
+}
+
+/// A press in the tree is where the keys go on from: ↓ after opening a
+/// folder steps into it, wherever the arrows were before the press.
+#[test]
+fn the_keys_go_on_from_the_tree_row_pressed() {
+    use crate::tree::Key;
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    let press = |cx: &mut TestAppContext, key| {
+        cx.update(&view, |forge, _, cx| forge.tree_key(key, cx));
+        cx.run_until_parked();
+    };
+    press(&mut cx, Key::End);
+    cx.simulate_click("forge-tree-src");
+    cx.run_until_parked();
+    press(&mut cx, Key::Down);
+    let cursor = view.read(|forge| forge.nav().cursor.clone().map(|path| path_of(&path)));
+    assert!(
+        cursor
+            .as_deref()
+            .is_some_and(|path| path.starts_with("src/")),
+        "{cursor:?}"
+    );
+}
+
 #[test]
 fn a_forge_link_opens_its_repository() {
     let mut cx = TestAppContext::new();
@@ -1894,6 +2115,48 @@ fn the_commit_list_is_a_list_box_whose_enter_opens_the_active_commit() {
     cx.run_until_parked();
     let oid = second.trim_start_matches("forge-commit-").to_owned();
     view.read(|forge| assert_eq!(forge.nav().commit.as_deref(), Some(oid.as_str())));
+}
+
+/// The keys of the `role` nodes under `root` drawn with a background of
+/// their own: the rows a reader sees as "selected".
+fn lit_rows(cx: &TestAppContext, root: &str, role: Role) -> Vec<String> {
+    fn walk(cx: &TestAppContext, node: &wire::Node, role: Role, out: &mut Vec<String>) {
+        if let Some(key) = node.key()
+            && node.interactivity().is_some_and(|it| it.role == Some(role))
+            && node.style().is_some()
+            && cx.style(key).background.is_some()
+        {
+            out.push(key.to_owned());
+        }
+        for child in node.children() {
+            walk(cx, child, role, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(cx, cx.node(root), role, &mut out);
+    out
+}
+
+/// At rest no row of a list is lit: the first is claimed for the keys,
+/// but a reader who has not touched the arrows sees no "selected" row.
+/// The arrows light the row they walk to.
+#[test]
+fn no_list_row_is_lit_until_the_arrows_walk_it() {
+    let (cx, _) = booted("default");
+    assert_eq!(
+        lit_rows(&cx, "forge-repos-list", Role::Row),
+        Vec::<String>::new(),
+        "the repositories at rest"
+    );
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    let rows = |cx: &TestAppContext| lit_rows(cx, "forge-log-list", Role::ListBoxOption);
+    assert_eq!(rows(&cx), Vec::<String>::new(), "the commits at rest");
+    cx.simulate_focus("forge-log-list");
+    cx.simulate_key_down("forge-log-list", "down");
+    let lit = rows(&cx);
+    assert_eq!(lit.len(), 1, "{lit:?}");
 }
 
 /// The style of the list box or grid `id`, which says whether it scrolls
@@ -2195,9 +2458,10 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     let real_review = costs(&mut costed, "Readme tab, a real review block", |c| {
         c.heads.forge.send(block(100, real_review_keys()))
     });
+    // the open-changes count on the tab bar reads the changes again too
     assert_eq!(
         real_review.keys().collect::<Vec<_>>(),
-        ["Activity", "Repo", "Repos"],
+        ["Activity", "Changes", "Repo", "Repos"],
         "{real_review:?}"
     );
     let pushed = costs(&mut costed, "Readme tab, a ref moved", |c| {
@@ -2244,10 +2508,12 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     });
     assert_eq!(
         all.keys().collect::<Vec<_>>(),
-        ["Activity", "Blob", "Refs", "Repo", "Repos", "Tree"],
+        [
+            "Activity", "Blob", "Changes", "Refs", "Repo", "Repos", "Tree"
+        ],
         "{all:?}"
     );
-    assert_eq!(all.values().sum::<usize>(), 8);
+    assert_eq!(all.values().sum::<usize>(), 9);
     costed.cx.simulate_click("forge-tab-changes");
     costed.cx.run_until_parked();
     costed.cx.simulate_click("forge-filter-judgment");
@@ -2259,7 +2525,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     );
     assert_eq!(
         judged.keys().collect::<Vec<_>>(),
-        ["Activity", "Judgment", "Repo", "Repos"],
+        ["Activity", "Changes", "Judgment", "Repo", "Repos"],
         "{judged:?}"
     );
     let posted = costs(

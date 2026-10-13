@@ -10,7 +10,11 @@ use forge::Reply;
 impl Forge {
     fn moved(&mut self, cx: &mut Context<Self>) {
         self.notice.clear();
+        // a walk of a list ends where the reader moves: none stays lit
         self.list_cursor = None;
+        self.repos_cursor = None;
+        self.rail_cursor = None;
+        self.tree_walked = false;
         cx.notify();
         self.sync(cx);
     }
@@ -236,6 +240,7 @@ impl Forge {
         self.nav.change_tab = ChangeTab::default();
         self.nav.diff_path = None;
         self.nav.dock = None;
+        self.layout.dock_open = false;
         self.closing = None;
         self.reply.reset("");
         self.moved(cx);

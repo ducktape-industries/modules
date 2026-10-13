@@ -22,7 +22,7 @@ pub(crate) fn render(
         .flex_1()
         .min_h(px(0.))
         .child(pending(forge, "changes", theme));
-    if let Some(form) = &forge.form {
+    if let Some(form) = forge.change_form() {
         column = column.child(crate::ui::changes::form(form, forge, cx, theme));
     }
     let reply = match staged(
@@ -64,9 +64,9 @@ pub(crate) fn render(
         cells,
         forge,
         cx,
-        move |forge, index, cell, _, cx| match cell {
+        move |forge, index, cell, window, cx| match cell {
             0 => forge.pick_ref(names[index].clone(), cx),
-            _ if forge.may_write() => forge.start_change(names[index].clone(), cx),
+            _ if forge.may_write() => forge.start_change(names[index].clone(), window, cx),
             _ => {}
         },
     )
@@ -105,12 +105,13 @@ fn ref_row(
     });
     let start = cx.listener({
         let name = name.clone();
-        move |forge, _: &ClickEvent, _, cx| forge.start_change(name.clone(), cx)
+        move |forge, _: &ClickEvent, window, cx| forge.start_change(name.clone(), window, cx)
     });
     let mut line = row(format!("forge-ref-row-{label}"), theme)
         .in_grid()
         .on_click(pick)
         .active(active)
+        .walked(crate::ui::components::walked(forge, "forge-refs-list"))
         .selected(name == forge.head_name())
         .cell(whole_name(
             name_cell(label.clone())

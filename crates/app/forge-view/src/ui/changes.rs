@@ -18,7 +18,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         .min_h(px(0.))
         .child(filters(forge, cx, theme))
         .child(pending(forge, "changes", theme));
-    if let Some(form) = &forge.form {
+    if let Some(form) = forge.change_form() {
         column = column.child(self::form(form, forge, cx, theme));
     }
     let Some(query) = forge.changes_query(&forge.repo_name()) else {
@@ -78,6 +78,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     let numbers: Vec<u64> = shown.iter().map(|(summary, _)| summary.n).collect();
     let (at, _) = crate::ui::components::cursor(forge, "forge-changes-list");
     let at = at.min(numbers.len().saturating_sub(1));
+    let walked = crate::ui::components::walked(forge, "forge-changes-list");
     let mut list = crate::ui::components::list(
         "forge-changes-list",
         "Changes",
@@ -94,6 +95,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             summary,
             *judgment,
             index == at,
+            walked,
             cx,
             theme,
         ));
@@ -114,6 +116,7 @@ fn change_row(
     summary: &ChangeSummary,
     judgment: Option<&Judgment>,
     active: bool,
+    walked: bool,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
@@ -136,7 +139,7 @@ fn change_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(move |style| style.bg(theme_.surface))
-        .when(active, |line| line.bg(theme_.surface))
+        .when(walked && active, |line| line.bg(theme_.surface))
         .aria_selected(false)
         .on_click(open)
         .child(
@@ -350,7 +353,7 @@ pub(crate) fn form(
             format!("{} → {}", ref_label(&form.from), ref_label(&form.into)),
             theme,
         ))
-        .child(form_fields(form, cx, theme))
+        .child(form_fields(form, forge, cx, theme))
         .child(reviewers(form, forge, cx, theme));
     if !form.error.is_empty() {
         card = card.child(
@@ -382,7 +385,7 @@ pub(crate) fn form(
 }
 
 /// The draft's title and body fields.
-fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div {
+fn form_fields(form: &ChangeForm, forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Div {
     // a title typed again takes the last refusal with it
     let title = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.form {
@@ -404,7 +407,10 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
                 .bg(theme.background)
                 .text_color(theme.foreground)
                 .placeholder("What this change does")
-                .on_change(title),
+                .on_change(title)
+                .when(forge.may_write(), |title| {
+                    title.on_submit(cx.listener(|forge, _: &(), _, cx| forge.submit_change(cx)))
+                }),
         )
         .child(
             Textarea::new(id("forge-change-body"), &form.body, "Change body")

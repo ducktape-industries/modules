@@ -96,10 +96,9 @@ pub(crate) fn render(
         .max_by_key(|(_, row)| row.text.len())
         .map(|(index, _)| index);
     let theme = *theme;
-    let comment: Route<Anchor> =
-        Rc::new(cx.listener(|forge, at: &Anchor, _, cx| {
-            forge.open_comment(at.0.clone(), at.1, at.2, cx)
-        }));
+    let comment: Route<Anchor> = Rc::new(cx.listener(|forge, at: &Anchor, window, cx| {
+        forge.open_comment(at.0.clone(), at.1, at.2, window, cx)
+    }));
     let handle = forge.diff_scroll.clone();
     // Under a review the lines are a grid: ↑ ↓ walk the lines with a
     // gutter, ← → a line's gutters (old, new), Enter comments there. The
@@ -184,6 +183,10 @@ pub(crate) fn render(
         .into_any_element()
 }
 
+/// The most of the pane the file strip takes: past it the strip scrolls,
+/// so a commit touching many files still shows its diff beneath.
+const FILE_STRIP_MAX_H: Pixels = px(168.);
+
 /// Which files this diff touches, above the rows themselves. Each one
 /// narrows the list to itself.
 fn file_strip(
@@ -194,6 +197,9 @@ fn file_strip(
 ) -> AnyElement {
     let mut strip = div()
         .id(id(format!("{element_id}-files")))
+        .flex_none()
+        .max_h(FILE_STRIP_MAX_H)
+        .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap_0p5()
@@ -638,7 +644,8 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .placeholder("What should change here?"),
+                .placeholder("What should change here?")
+                .on_submit(cx.listener(|forge, _: &(), _, cx| forge.stage_comment(cx))),
         );
     if !review.error.is_empty() {
         card = card.child(

@@ -1,7 +1,7 @@
 //! `cargo run -p forge-view --example live`: Forge in the real app over a
 //! fake node with a repository and the people who may push to it. `web`
 //! holds a history: a long branch and tag list, a long source file, and two
-//! open changes, one of them a large diff; `docs` is empty.
+//! open changes, one of them a large diff; `docs` is empty; `mine` is the reader's own.
 use ducktape_view_guest::live;
 use forge::{Bounds, Op, Revision};
 use gitcore::wire::pktline;
@@ -49,6 +49,24 @@ fn main() {
                 },
             )?;
         }
+        // one repository of my own, so its Settings (owner only) can be
+        // tried: pushed the same history
+        net.submit(
+            net.me(),
+            forge::MODULE,
+            &Op::Create {
+                repo: "mine".into(),
+                hash: abi::HashKind::Sha256,
+            },
+        )?;
+        net.submit(
+            net.me(),
+            forge::MODULE,
+            &Op::Push {
+                repo: "mine".into(),
+                request: history(),
+            },
+        )?;
         net.submit(
             ada,
             forge::MODULE,

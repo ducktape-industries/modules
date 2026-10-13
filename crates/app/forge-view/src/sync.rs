@@ -71,6 +71,9 @@ impl Forge {
     /// the reads it wrote to. `None` is a reopened node link: everything is
     /// asked again.
     pub(crate) fn reconcile(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        if let Some(change) = change {
+            self.block = self.block.max(change.height);
+        }
         let pending = self.pending.len();
         self.pending.retain(|op| op.progress != Progress::Accepted);
         if self.pending.len() != pending {
@@ -235,6 +238,8 @@ impl Forge {
         wanted.push(self.repo_query());
         wanted.push(self.refs_query());
         wanted.push(Query::Activity { repo: repo.clone() });
+        // the tab bar says how many changes are open, whichever tab shows
+        wanted.extend(self.open_changes_query());
         match self.nav.change {
             Some(n) => wanted.extend(self.change_reads(&repo, n)),
             None => wanted.extend(self.tab_reads(repo)),
@@ -261,6 +266,8 @@ impl Forge {
                 let open = self.nav.blob.as_ref().map(|(_, oid)| blob(oid.clone()));
                 self.tree_queries().into_iter().chain(open).collect()
             }
+            // an unborn ref has no log to ask for
+            RepoTab::Commits if self.tree_query(Vec::new()).is_none() => Vec::new(),
             RepoTab::Commits => {
                 let open = self.nav.commit.as_deref();
                 std::iter::once(self.log_query())

@@ -48,6 +48,7 @@ impl Forge {
         let review = matches!(op, Op::ReviewSubmit { .. }).then(|| scope.clone());
         self.pending.push(Pending {
             id,
+            issued: self.block,
             scope,
             label: label.to_owned(),
             progress: Progress::Submitting,
@@ -61,7 +62,14 @@ impl Forge {
             };
             match result {
                 Ok(_) => {
-                    op.progress = Progress::Accepted;
+                    // a block heard since the op went out carries it: the
+                    // receipt can land after the block on a fast node, and
+                    // no later block would retire the row
+                    if forge.block > op.issued {
+                        forge.pending.retain(|op| op.id != id);
+                    } else {
+                        op.progress = Progress::Accepted;
+                    }
                     if let Some(key) = &review {
                         forge.reviews.remove(key);
                     }
@@ -103,8 +111,9 @@ impl Forge {
         );
     }
 
-    pub(crate) fn start_repo(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.new_repo = Some(NewRepo::default());
+        window.focus(crate::ui::components::id("forge-new-repo-name"));
         cx.notify();
     }
 
@@ -114,20 +123,28 @@ impl Forge {
     }
 
     /// A Change draft from a ref comparison, or an edit of an open change.
-    pub(crate) fn start_change(&mut self, from: Vec<u8>, cx: &mut Context<Self>) {
+    pub(crate) fn start_change(
+        &mut self,
+        from: Vec<u8>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.form = Some(ChangeForm {
+            repo: self.repo_name(),
             from,
             into: self.default_head(),
             ..ChangeForm::default()
         });
+        window.focus(crate::ui::components::id("forge-change-title"));
         cx.notify();
     }
 
-    pub(crate) fn start_edit(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((change, _, _, _)) = self.change() else {
             return;
         };
         self.form = Some(ChangeForm {
+            repo: self.repo_name(),
             edit: Some(change.n),
             from: match &change.from {
                 Revision::Ref(name) => name.clone(),
@@ -139,6 +156,7 @@ impl Forge {
             reviewers: change.reviewers.clone(),
             error: String::new(),
         });
+        window.focus(crate::ui::components::id("forge-change-title"));
         cx.notify();
     }
 
@@ -148,7 +166,6 @@ impl Forge {
     }
 
     pub(crate) fn submit_change(&mut self, cx: &mut Context<Self>) {
-        let repo = self.repo_name();
         let Some(form) = &mut self.form else { return };
         if form.title.is_blank() {
             form.error = "A change needs a title".into();
@@ -157,6 +174,7 @@ impl Forge {
         }
         let form = form.clone();
         self.form = None;
+        let repo = form.repo.clone();
         let (op, label, scope) = match form.edit {
             Some(n) => (
                 Op::ChangeEdit {

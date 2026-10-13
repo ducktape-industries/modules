@@ -129,7 +129,10 @@ fn repo_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(|style| style.bg(theme.surface))
-        .when(active.is_some(), |row| row.bg(theme.surface))
+        // the active row is drawn once the arrows have walked the list
+        .when(active.is_some() && forge.repos_cursor.is_some(), |row| {
+            row.bg(theme.surface)
+        })
         .role(Role::Row)
         .child(press)
         .child(repo_title(
@@ -472,7 +475,10 @@ pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
                 item.bg(theme.surface_raised)
                     .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
             })
-            .when(index == at && !selected, |item| item.bg(theme.surface))
+            .when(
+                forge.rail_cursor.is_some() && index == at && !selected,
+                |item| item.bg(theme.surface),
+            )
             .hover(|style| style.bg(theme.surface))
             .aria_selected(selected)
             .on_click(open)
@@ -537,7 +543,7 @@ fn header(
     theme: &Theme,
     search_id: &str,
 ) -> AnyElement {
-    let new = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_repo(cx));
+    let new = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_repo(window, cx));
     div()
         .id(id("forge-repos-header"))
         .flex()
@@ -650,7 +656,10 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                                 .bg(theme.background)
                                 .text_color(theme.foreground)
                                 .placeholder("letters, digits, dot, dash, underscore")
-                                .on_change(typed),
+                                .on_change(typed)
+                                .on_submit(
+                                    cx.listener(|forge, _: &(), _, cx| forge.create_repo(cx)),
+                                ),
                         ),
                 )
                 .child(

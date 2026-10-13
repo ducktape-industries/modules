@@ -250,21 +250,26 @@ impl Forge {
         })
     }
 
-    /// How many changes are open here, once the Changes tab has read them
-    /// all (a list with more pages to come counts none).
+    /// How many changes are open here, read for the tab bar on every
+    /// repository screen (a list with more pages to come counts none).
     pub(crate) fn open_changes(&self) -> Option<u64> {
-        let query = Query::Changes {
+        match self.ready(&self.open_changes_query()?)? {
+            Reply::Changes { page, .. } if page.next.is_none() => Some(page.items.len() as u64),
+            _ => None,
+        }
+    }
+
+    /// The open changes of the repository, the read the tab bar's count
+    /// comes from.
+    pub(crate) fn open_changes_query(&self) -> Option<Query> {
+        Some(Query::Changes {
             repo: self.nav.repo.clone()?,
             filter: forge::ChangeFilter {
                 state: Some(forge::ChangeState::Open),
                 ..forge::ChangeFilter::default()
             },
             page: PAGE,
-        };
-        match self.ready(&query)? {
-            Reply::Changes { page, .. } if page.next.is_none() => Some(page.items.len() as u64),
-            _ => None,
-        }
+        })
     }
 
     pub(crate) fn change_query(&self) -> Option<Query> {
@@ -361,6 +366,15 @@ impl Forge {
 
     pub(crate) fn pending_in(&self, scope: &str) -> Vec<&state::Pending> {
         self.pending.iter().filter(|op| op.scope == scope).collect()
+    }
+
+    /// The change form this screen shows: a draft on its repository's
+    /// Changes and Refs tabs, an edit on its change's page. Anywhere else
+    /// it waits, its text kept.
+    pub(crate) fn change_form(&self) -> Option<&state::ChangeForm> {
+        self.form.as_ref().filter(|form| {
+            self.nav.repo.as_ref() == Some(&form.repo) && form.edit == self.nav.change
+        })
     }
 
     pub(crate) fn nav(&self) -> &Nav {
