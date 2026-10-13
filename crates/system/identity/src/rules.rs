@@ -1,14 +1,14 @@
 // The rules: who acts as an account, then the ops and queries.
 
 use guest::{
-    Error, ExecCtx, ModuleId, Origin, QueryCtx, Scheme, already_exists, invalid, not_found,
-    unauthorized, wrong_state,
+    Error, ExecCtx, ModuleId, Origin, QueryCtx, Scheme, already_exists, capacity, invalid,
+    not_found, unauthorized, wrong_state,
 };
 use store::{Item, Map, PageRequest, Set};
 
 use crate::{
-    Account, AccountNumber, Admission, CONSENT_NAMESPACE, Card, Category, Consent, Control, Key,
-    Life, Reference, Reply,
+    Account, AccountNumber, Admission, Audience, CONSENT_NAMESPACE, Card, Category, Consent,
+    Control, Key, Life, MAX_AUDIENCE, Reference, Reply,
 };
 
 pub(crate) const ACCOUNTS: Map<AccountNumber, Account> = Map::new("a/");
@@ -19,6 +19,7 @@ const GENERATION: Map<Vec<u8>, u64> = Map::new("g/");
 /// so a manager's list keeps what they answered for.
 pub(crate) const MANAGED: Set<(AccountNumber, AccountNumber)> = Set::new("d/");
 const NEXT: Item<AccountNumber> = Item::new("next");
+const AUDIENCES: Map<AccountNumber, Audience> = Map::new("u/");
 
 pub(crate) fn account(ctx: &QueryCtx, number: AccountNumber) -> Result<Account, Error> {
     ACCOUNTS
@@ -230,6 +231,10 @@ fn revoked(number: AccountNumber) -> Error {
     wrong_state(format!("account {number} is revoked for good"))
 }
 
+fn not_an_agent(number: AccountNumber) -> Error {
+    wrong_state(format!("account {number} is no one's agent"))
+}
+
 /// A person's new key signs the frame and a key already on their account
 /// consents; an agent's manager signs the frame and the new key consents to
 /// itself. Either way the consent proves a key agreed to the admission. A
@@ -405,7 +410,7 @@ fn relive(
 ) -> Result<(), Error> {
     let mut account = account(ctx, number)?;
     let Control::Managed { manager, life, .. } = &mut account.control else {
-        return Err(wrong_state(format!("account {number} is no one's agent")));
+        return Err(not_an_agent(number));
     };
     managing(ctx, *manager, number)?;
     let was = std::mem::replace(life, Life::Revoked);
@@ -438,8 +443,56 @@ pub(crate) fn revoke(ctx: &ExecCtx, number: AccountNumber) -> Result<(), Error> 
     relive(ctx, number, |life| match life {
         Life::Active { keys } | Life::Suspended { keys } => {
             drop_keys(ctx, &keys);
+            AUDIENCES.remove(ctx, &number);
             Ok(Life::Revoked)
         }
         Life::Revoked => Err(revoked(number)),
     })
+}
+
+pub(crate) fn audience(ctx: &QueryCtx, number: AccountNumber) -> Result<Audience, Error> {
+    let Control::Managed { .. } = account(ctx, number)?.control else {
+        return Err(not_an_agent(number));
+    };
+    Ok(AUDIENCES.get(ctx, &number)?.unwrap_or_default())
+}
+
+pub(crate) fn set_audience(
+    ctx: &ExecCtx,
+    number: AccountNumber,
+    audience: Audience,
+) -> Result<(), Error> {
+    let Control::Managed { manager, life, .. } = account(ctx, number)?.control else {
+        return Err(not_an_agent(number));
+    };
+    managing(ctx, manager, number)?;
+    if life == Life::Revoked {
+        return Err(revoked(number));
+    }
+    match settled(ctx, manager, audience)? {
+        Audience::Manager => AUDIENCES.remove(ctx, &number),
+        audience => AUDIENCES.put(ctx, &number, &audience),
+    }
+    Ok(())
+}
+
+fn settled(ctx: &ExecCtx, manager: AccountNumber, audience: Audience) -> Result<Audience, Error> {
+    let Audience::Accounts(mut numbers) = audience else {
+        return Ok(audience);
+    };
+    numbers.sort_unstable();
+    numbers.dedup();
+    numbers.retain(|number| *number != manager);
+    if numbers.len() > MAX_AUDIENCE {
+        return Err(capacity(format!(
+            "an agent answers at most {MAX_AUDIENCE} accounts besides its manager"
+        )));
+    }
+    if let Some(missing) = numbers.iter().find(|number| !ACCOUNTS.has(ctx, number)) {
+        return Err(not_found(format!("account {missing}")));
+    }
+    match numbers.is_empty() {
+        true => Ok(Audience::Manager),
+        false => Ok(Audience::Accounts(numbers)),
+    }
 }
