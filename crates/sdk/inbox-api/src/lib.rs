@@ -33,6 +33,46 @@ use serde::{Deserialize, Serialize};
 /// 404 at `<rpc>/inbox/v1/status` means that address keeps no inbox.
 pub const PATH: &str = "/inbox/v1";
 
+/// An RPC address as a [`Login`] signs it, and as an inbox is told it is
+/// reached at (`--origin`): `scheme://host[:port]`, the scheme http or
+/// https, the scheme and host lowercased, the scheme's default port
+/// dropped, no trailing `/`. A bare `host:port` (what a node prints and
+/// people paste) means http. Anything more than an origin (userinfo, a
+/// path, a query, a fragment) is refused. The app and the inbox both apply
+/// this one rule, so they sign and check the same bytes.
+pub fn origin(url: &str) -> Result<String, &'static str> {
+    const REFUSED: &str = "an RPC address is http(s)://host[:port] and nothing else";
+    let url = url.trim();
+    // `localhost:8844` would otherwise parse as a URL of scheme `localhost`
+    let parsed = match url.contains("://") {
+        true => url::Url::parse(url),
+        false => url::Url::parse(&format!("http://{url}")),
+    }
+    .map_err(|_| REFUSED)?;
+    let bare = matches!(parsed.scheme(), "http" | "https")
+        && parsed.host_str().is_some()
+        && parsed.username().is_empty()
+        && parsed.password().is_none()
+        && parsed.query().is_none()
+        && parsed.fragment().is_none()
+        && parsed.path() == "/";
+    match bare {
+        true => Ok(parsed.as_str().trim_end_matches('/').to_owned()),
+        false => Err(REFUSED),
+    }
+}
+
+/// How many calls an account may make at once: past them the inbox paces
+/// it at [`PACE_EVERY_MS`] and answers 429. The app paces itself the same,
+/// so a call waits its turn instead of being refused.
+pub const PACE_BURST: u64 = 20;
+/// One call every this many ms, per account, once [`PACE_BURST`] is spent
+/// (5 a second).
+pub const PACE_EVERY_MS: u64 = 200;
+/// The most ids one [`Read::Ids`] names (five pages of 200): a `read` over
+/// it is refused.
+pub const MAX_READ_IDS: usize = 1_000;
+
 /// What a device key signs a [`Login`] under. Collides with none in use
 /// (`ducktape:frame`, `ducktape:identity:consent`, `ducktape:invite`).
 pub const LOGIN_NAMESPACE: &[u8] = b"ducktape:inbox-login";
@@ -42,7 +82,7 @@ pub const LOGIN_NAMESPACE: &[u8] = b"ducktape:inbox-login";
 /// so a signature made for another address or chain does not verify.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize)]
 pub struct Login {
-    /// The RPC address the app connected to, without a trailing `/`.
+    /// The RPC address the app connected to, as [`origin`] writes it.
     pub origin: String,
     /// The chain id `<network>#<salt>` (`ducklink::ChainId::of`).
     pub chain: String,
@@ -225,6 +265,10 @@ pub enum Push {
     /// The account's mutes changed, on any device: what `entries` lists
     /// changed with them, so the app reads it again.
     Prefs { mutes: Mutes },
+    /// The inbox's follower stopped or stalled, or recovered: the new
+    /// `status`, to every socket, so an open app shows a stuck inbox
+    /// without asking.
+    Status(Status),
 }
 
 #[cfg(test)]
@@ -479,5 +523,65 @@ mod tests {
                 "mutes": {"programs": [], "kinds": [], "tags": [], "senders": [9]},
             }),
         );
+        golden(
+            Push::Status(Status {
+                chain: "testnet#abababab".into(),
+                indexed_height: 20,
+                tip: 22,
+                stopped: None,
+                stalled: Some(Stopped {
+                    height: 21,
+                    reason: "the store: disk full".into(),
+                }),
+            }),
+            json!({
+                "type": "status",
+                "chain": "testnet#abababab",
+                "indexed_height": 20,
+                "tip": 22,
+                "stopped": null,
+                "stalled": {"height": 21, "reason": "the store: disk full"},
+            }),
+        );
+    }
+
+    /// The cases the app's address field and the inbox's `--origin` each
+    /// met: one rule for both.
+    #[test]
+    fn an_origin_is_scheme_host_and_port_only() {
+        for (url, written) in [
+            (" http://127.0.0.1:8844/ ", "http://127.0.0.1:8844"),
+            ("127.0.0.1:34329", "http://127.0.0.1:34329"),
+            (" localhost:8844 ", "http://localhost:8844"),
+            ("https://rpc.example/", "https://rpc.example"),
+            ("http://192.168.1.5:8845", "http://192.168.1.5:8845"),
+            (
+                "https://Duckpond.Ducktape.Industries",
+                "https://duckpond.ducktape.industries",
+            ),
+            ("HTTPS://rpc.example:443", "https://rpc.example"),
+            ("http://rpc.example:80/", "http://rpc.example"),
+            ("https://rpc.example:8443", "https://rpc.example:8443"),
+            ("http://[::1]:8844", "http://[::1]:8844"),
+        ] {
+            assert_eq!(origin(url).as_deref(), Ok(written), "{url:?}");
+        }
+        for junk in [
+            "",
+            "hello world",
+            "host:port",
+            "host/v1",
+            "a:b@host",
+            "host?x=1",
+            "http://a:b@host",
+            "http://user@host",
+            "http://host/v1",
+            "http://host?x=1",
+            "http://host#top",
+            "ftp://host",
+            "https://",
+        ] {
+            assert!(origin(junk).is_err(), "{junk:?}");
+        }
     }
 }
