@@ -176,14 +176,7 @@ fn row(
             String::from_utf8_lossy(&commit.author.name).into_owned(),
             theme,
         ))
-        .cell(quiet(
-            design::date(
-                u64::try_from(commit.author.time)
-                    .unwrap_or(0)
-                    .saturating_mul(1000),
-            ),
-            theme,
-        ));
+        .cell(quiet(authored(commit), theme));
     if commit.parents.len() > 1 {
         row = row.cell(badge(
             id(format!("forge-commit-merge-{oid}")),
@@ -211,11 +204,7 @@ fn facts(commit: &CommitInfo, theme: &Theme) -> Stateful<Div> {
         "{} <{}> · {}",
         String::from_utf8_lossy(&commit.author.name),
         String::from_utf8_lossy(&commit.author.email),
-        design::date(
-            u64::try_from(commit.author.time)
-                .unwrap_or(0)
-                .saturating_mul(1000)
-        )
+        authored(commit)
     );
     div()
         .id(id("forge-commit-facts"))
@@ -232,6 +221,15 @@ fn facts(commit: &CommitInfo, theme: &Theme) -> Stateful<Div> {
             String::from_utf8_lossy(&commit.message).into_owned(),
             theme,
         ))
+}
+
+/// When the commit was authored, as a date (git keeps seconds).
+fn authored(commit: &CommitInfo) -> String {
+    design::date(
+        u64::try_from(commit.author.time)
+            .unwrap_or(0)
+            .saturating_mul(1000),
+    )
 }
 
 /// The short commit id column.

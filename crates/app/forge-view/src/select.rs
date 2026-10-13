@@ -250,8 +250,8 @@ impl Forge {
         })
     }
 
-    /// How many changes are open here, once the Changes tab has read them
-    /// all (a list with more pages to come counts none).
+    /// How many changes are open here, read for the tab bar on every
+    /// repository screen (a list with more pages to come counts none).
     pub(crate) fn open_changes(&self) -> Option<u64> {
         match self.ready(&self.open_changes_query()?)? {
             Reply::Changes { page, .. } if page.next.is_none() => Some(page.items.len() as u64),
