@@ -1,8 +1,9 @@
 //! `gitcore::Objects` over forge's packs: each pack a push or a stage
 //! brought is one blob, kept as git compressed it, and each object it
 //! brought is indexed at its entry ([`PACKED`]); a read takes the bytes its
-//! delta chain spans, never the pack. Objects forge stored before packs
-//! are blobs whose id is the oid, read as they are.
+//! delta chain spans, never the pack, and a chain against an object of an
+//! earlier pack goes on there. Objects forge stored before packs are blobs
+//! whose id is the oid, read as they are.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -136,8 +137,13 @@ impl<'a> Packs<'a> {
     }
 
     fn get(&self, id: &Oid) -> gitcore::Result<Option<Object>> {
+        self.within(id, self.max_depth)
+    }
+
+    /// Object `id`, its chain applying at most `left` deltas.
+    fn within(&self, id: &Oid, left: usize) -> gitcore::Result<Option<Object>> {
         match self.locate(id)? {
-            Some(at) => self.unpack(id, at).map(Some),
+            Some(at) => self.unpack(id, at, left).map(Some),
             None => {
                 let Some(blob) = self.ctx.blob_get(blob_id_of(id)) else {
                     return Ok(None);
@@ -148,12 +154,13 @@ impl<'a> Packs<'a> {
         }
     }
 
-    /// The object at `at`, its delta chain applied, read from the bytes of
-    /// its pack the chain spans (`at.start..at.end`).
-    /// [`ObjectWriter::flush`] indexes an object in a pack only when its
-    /// whole chain reads inside that pack, so the chain is no deeper than
-    /// the pack was let have; one that leaves the span is a corrupt index.
-    fn unpack(&self, id: &Oid, at: Location) -> gitcore::Result<Object> {
+    /// The object at `at`, its delta chain applied: the part of the chain
+    /// in its pack read from the bytes it spans there (`at.start..at.end`),
+    /// a base in another pack or a loose one read as that object is.
+    /// [`ObjectWriter::flush`] keeps a chain within the founded
+    /// `max_delta_depth`; one past `left`, or one that leaves its span in
+    /// its own pack, is a corrupt index.
+    fn unpack(&self, id: &Oid, at: Location, left: usize) -> gitcore::Result<Object> {
         let start = at.start as usize;
         let len = at.end.checked_sub(at.start).ok_or(GitError::Storage)?;
         let window = self
@@ -172,7 +179,7 @@ impl<'a> Packs<'a> {
         let mut deltas = Vec::new();
         let mut offset = in_window(at.offset)?;
         let (kind, mut body) = loop {
-            if deltas.len() > self.max_depth {
+            if deltas.len() > left {
                 return Err(GitError::DeltaTooDeep);
             }
             match pack::entry_at(&window, offset, self.hash, self.max_size)?.0 {
@@ -183,8 +190,18 @@ impl<'a> Packs<'a> {
                 }
                 Payload::RefDelta { base, delta } => {
                     deltas.push(delta);
-                    let base = self.locate(&base)?.filter(|base| base.pack == at.pack);
-                    offset = in_window(base.ok_or(GitError::Storage)?.offset)?;
+                    match self.locate(&base)? {
+                        Some(base) if base.pack == at.pack => offset = in_window(base.offset)?,
+                        _ => {
+                            let left = left
+                                .checked_sub(deltas.len())
+                                .ok_or(GitError::DeltaTooDeep)?;
+                            let object = self
+                                .within(&base, left)?
+                                .ok_or(GitError::MissingBase(base))?;
+                            break (object.kind, object.body);
+                        }
+                    }
                 }
             }
         };
@@ -239,15 +256,16 @@ impl<'a> ObjectWriter<'a> {
     }
 
     /// Stores what the admitted `pack` brought that forge does not hold:
-    /// the pack itself, as one blob, indexing each new object whose delta
-    /// chain reads inside it; and the rest whole, in one pack forge writes
-    /// (no deltas), as are objects that came in no pack (an empty `pack`).
-    /// A delta against an object forge held before (a thin pack's, or one
-    /// in an earlier part of a split push) goes whole, so a read never
-    /// follows a chain from pack to pack. An object forge already holds is
-    /// not indexed again: the first pack that brought it keeps it, and the
-    /// later pack's copy stays in its bytes unread. A pack that adds
-    /// nothing is not stored.
+    /// the pack itself, as one blob, indexing each new object at its entry;
+    /// a delta against an object forge held before (a thin pack's, or one
+    /// in an earlier part of a split push) stays one, its chain going on
+    /// through that object. An object whose whole chain would apply more
+    /// than the founded `max_delta_depth` deltas goes whole instead, in one
+    /// pack forge writes (no deltas), as do objects that came in no pack
+    /// (an empty `pack`): a chain that grows push after push starts again.
+    /// An object forge already holds is not indexed again: the first pack
+    /// that brought it keeps it, and the later pack's copy stays in its
+    /// bytes unread. A pack that adds nothing is not stored.
     pub fn flush(self, pack: &[u8]) -> Result<(), Error> {
         let mut new = BTreeMap::new();
         for (index, id) in self.order.iter().enumerate() {
@@ -264,15 +282,33 @@ impl<'a> ObjectWriter<'a> {
                 "the admitted pack's entries and its objects differ",
             ));
         }
+        // what each delta against an object forge held applies past it
+        let mut held = BTreeMap::new();
+        for entry in &entries {
+            if let Base::Object(id) = entry.base
+                && !new.contains_key(&id)
+            {
+                let depth = self.packs.locate(&id).map_err(read_error)?;
+                held.insert(id, depth.map_or(0, |at| usize::from(at.depth)));
+            }
+        }
+        let chains = Chains {
+            entries: &entries,
+            new: &new,
+            held: &held,
+            max: self.packs.max_depth.min(usize::from(u8::MAX)),
+        };
         let mut memo = vec![None; entries.len()];
         let mut inside = Vec::new();
         let mut whole = Vec::new();
         for (id, index) in &new {
             match entries.is_empty() {
                 true => whole.push(*id),
-                false => match span(*index, &entries, &new, &mut memo) {
-                    Some(span) => inside.push((*id, entries[*index].offset, span)),
-                    None => whole.push(*id),
+                false => match chains.of(*index, &mut memo) {
+                    (depth, span) if depth <= chains.max => {
+                        inside.push((*id, entries[*index].offset, span, depth as u8))
+                    }
+                    _ => whole.push(*id),
                 },
             }
         }
@@ -288,7 +324,7 @@ impl<'a> ObjectWriter<'a> {
             let placed = whole
                 .iter()
                 .zip(self.entries(&written)?)
-                .map(|(id, entry)| (*id, entry.offset, (entry.offset, entry.end)))
+                .map(|(id, entry)| (*id, entry.offset, (entry.offset, entry.end), 0))
                 .collect();
             self.keep(written, placed)?;
         }
@@ -313,8 +349,9 @@ impl<'a> ObjectWriter<'a> {
     }
 
     /// Stores `bytes` as pack blob number [`NEXT_PACK`] and indexes each
-    /// placed object at its entry, with the span its chain reads.
-    fn keep(&self, bytes: Vec<u8>, placed: Vec<(Oid, usize, (usize, usize))>) -> Result<(), Error> {
+    /// placed object at its entry, with the span its chain reads there and
+    /// the deltas the whole chain applies.
+    fn keep(&self, bytes: Vec<u8>, placed: Vec<Placed>) -> Result<(), Error> {
         let number = NEXT_PACK.get(self.sandbox)?.unwrap_or(0);
         let next = number
             .checked_add(1)
@@ -322,13 +359,14 @@ impl<'a> ObjectWriter<'a> {
         let at =
             |offset: usize| u32::try_from(offset).map_err(|_| capacity("a pack is at most 4 GiB"));
         let mut rows = Vec::with_capacity(placed.len());
-        for (id, offset, (start, end)) in placed {
+        for (id, offset, (start, end), depth) in placed {
             let (kind, body) = &self.pending[&id];
             let location = Location {
                 pack: number,
                 offset: at(offset)?,
                 start: at(start)?,
                 end: at(end)?,
+                depth,
                 kind: pack::kind_code(*kind),
                 size: body.len() as u64,
             };
@@ -354,34 +392,64 @@ struct Entry {
     base: Base,
 }
 
-/// The bytes entry `index`'s chain spans when it reads inside its pack:
-/// whole, or a delta whose base does (an offset of the pack, or an object
-/// new in it that does); `None` when it does not. An entry being decided
-/// does not (no cycle survives admission anyway).
-fn span(
-    index: usize,
-    entries: &[Entry],
-    new: &BTreeMap<Oid, usize>,
-    memo: &mut Vec<Option<Option<(usize, usize)>>>,
-) -> Option<(usize, usize)> {
-    if let Some(known) = memo[index] {
-        return known;
+/// An object placed in a pack: its id, its entry's offset, the bytes its
+/// chain spans there and the deltas the whole chain applies.
+type Placed = (Oid, usize, (usize, usize), u8);
+
+/// The chains of an admitted pack's entries.
+struct Chains<'a> {
+    entries: &'a [Entry],
+    /// The objects new to forge, at their first entry.
+    new: &'a BTreeMap<Oid, usize>,
+    /// The depth of each object forge held that a delta here is against.
+    held: &'a BTreeMap<Oid, usize>,
+    /// The most deltas a chain applies: past it, an object goes whole.
+    max: usize,
+}
+
+impl Chains<'_> {
+    /// How many deltas reading entry `index` applies, and the bytes of the
+    /// pack the read takes: its own, its base's when the base is read from
+    /// this pack too (an offset, or an object new here and kept here). A
+    /// base read elsewhere (held before, or new here but gone whole) ends
+    /// the span and adds its own depth. An entry being decided is too deep
+    /// (no cycle survives admission anyway).
+    fn of(
+        &self,
+        index: usize,
+        memo: &mut Vec<Option<(usize, (usize, usize))>>,
+    ) -> (usize, (usize, usize)) {
+        if let Some(known) = memo[index] {
+            return known;
+        }
+        let entry = self.entries[index];
+        let own = (entry.offset, entry.end);
+        memo[index] = Some((usize::MAX, own));
+        let merged = |(depth, (start, end)): (usize, (usize, usize))| {
+            (depth.saturating_add(1), (start.min(own.0), end.max(own.1)))
+        };
+        let chain = match entry.base {
+            Base::Whole => (0, own),
+            Base::Offset(offset) => {
+                match self.entries.binary_search_by_key(&offset, |e| e.offset) {
+                    Ok(base) => merged(self.of(base, memo)),
+                    Err(_) => (usize::MAX, own),
+                }
+            }
+            Base::Object(id) => match self.new.get(&id) {
+                Some(&base) => match self.of(base, memo) {
+                    kept if kept.0 <= self.max => merged(kept),
+                    _ => (1, own),
+                },
+                None => (
+                    self.held.get(&id).copied().unwrap_or(0).saturating_add(1),
+                    own,
+                ),
+            },
+        };
+        memo[index] = Some(chain);
+        chain
     }
-    memo[index] = Some(None);
-    let entry = entries[index];
-    let base = match entry.base {
-        Base::Whole => None,
-        Base::Offset(offset) => Some(entries.binary_search_by_key(&offset, |e| e.offset).ok()),
-        Base::Object(id) => Some(new.get(&id).copied()),
-    };
-    let span = match base {
-        None => Some((entry.offset, entry.end)),
-        Some(None) => None,
-        Some(Some(base)) => span(base, entries, new, memo)
-            .map(|(start, end)| (start.min(entry.offset), end.max(entry.end))),
-    };
-    memo[index] = Some(span);
-    span
 }
 
 fn read_error(error: GitError) -> Error {

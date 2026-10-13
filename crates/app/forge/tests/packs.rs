@@ -118,34 +118,50 @@ fn a_ref_delta_inside_its_pack_stays_a_delta() {
     );
 }
 
+/// The deltas of `pack`'s objects that are against an object outside it,
+/// each with that base.
+fn thin_deltas(sandbox: &MemorySandbox, objects: &MemoryObjects) -> Vec<(Oid, Oid)> {
+    objects
+        .ids()
+        .filter_map(|id| match entry(sandbox, id) {
+            Payload::RefDelta { base, .. } if objects.get(&base).unwrap().is_none() => {
+                Some((*id, base))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// git's thin pack (what a push sends) deltifies against what forge holds:
-/// a split push's earlier part, or an earlier push. Those objects land
-/// whole in one pack forge writes, so no read follows a chain from pack to
-/// pack and a chain does not grow with every push.
+/// a split push's earlier part, or an earlier push. Those deltas stay
+/// deltas, and a read goes on into the pack that holds the base.
 #[test]
-fn a_thin_pack_s_deltas_against_held_objects_land_whole() {
+fn a_thin_pack_keeps_its_deltas_against_held_objects() {
     let sandbox = founded_project();
     let base = objects_in(BASE, &MemoryObjects::new(Hash::Sha1));
     let later = objects_in(THIN, &base);
     stage(&sandbox, BASE).unwrap();
-    let thin = pack::read(THIN, Hash::Sha1, &Limits::generous(), |id| base.get(id));
-    assert!(thin.is_ok());
     assert!(pack::read(THIN, Hash::Sha1, &Limits::generous(), |_| Ok(None)).is_err());
     stage(&sandbox, THIN).unwrap();
+    assert_eq!(sandbox.blob_count(), 2);
     holds_all(&sandbox, "project", &base);
     holds_all(&sandbox, "project", &later);
-    let packs: BTreeSet<u32> = later.ids().map(|id| location(&sandbox, id).pack).collect();
-    assert_eq!(sandbox.blob_count(), 1 + packs.len());
-    let whole_in_forge_s = later
-        .ids()
-        .filter(|id| location(&sandbox, id).pack == 2)
-        .inspect(|id| assert!(matches!(entry(&sandbox, id), Payload::Full(..)), "{id}"))
-        .count();
-    assert!(whole_in_forge_s > 0);
+    let thin = thin_deltas(&sandbox, &later);
+    assert!(!thin.is_empty());
+    for (id, base_id) in thin {
+        assert_eq!(
+            (
+                location(&sandbox, &id).pack,
+                location(&sandbox, &base_id).pack
+            ),
+            (1, 0)
+        );
+        assert!(location(&sandbox, &id).depth > location(&sandbox, &base_id).depth);
+    }
 }
 
 /// Objects forge stored before packs, a blob each, keep reading, and a
-/// pack's delta against one resolves.
+/// pack's delta against one stays a delta and resolves.
 #[test]
 fn a_delta_against_a_loose_object_resolves() {
     let sandbox = founded_project();
@@ -160,11 +176,14 @@ fn a_delta_against_a_loose_object_resolves() {
     }
     let loose = sandbox.blob_count();
     stage(&sandbox, THIN).unwrap();
+    assert_eq!(sandbox.blob_count(), loose + 1);
     for id in base.ids() {
         assert_eq!(object_of(&sandbox, "project", id), base.get(id).unwrap());
     }
     holds_all(&sandbox, "project", &later);
-    assert!(sandbox.blob_count() > loose);
+    let thin = thin_deltas(&sandbox, &later);
+    assert!(!thin.is_empty());
+    assert!(thin.iter().all(|(id, _)| location(&sandbox, id).depth == 1));
 }
 
 /// A pack whose objects forge holds already adds nothing: not stored, not
@@ -179,16 +198,21 @@ fn a_pack_of_held_objects_is_not_stored_again() {
     holds_all(&sandbox, "project", &base);
 }
 
-/// Pushes that each change one file a little, as git sends them (thin, the
-/// file a delta against its version before): every version reads back,
-/// each whole where it is indexed, however many pushes came before.
-#[test]
-fn a_file_changed_push_after_push_reads_back_every_version() {
-    let Ok(git) = std::process::Command::new("git").arg("--version").output() else {
-        return;
-    };
+/// Pushes to a forge founded with `bounds` that each change one file a
+/// little, as git sends them (thin, the file a delta against its version
+/// before); every version reads back. The file's blob of each version, or
+/// none without git.
+fn one_file_pushed(bounds: Bounds, versions: usize) -> Option<(MemorySandbox, Vec<Oid>)> {
+    let git = std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .ok()?;
     assert!(git.status.success());
-    let dir = std::env::temp_dir().join(format!("forge-packs-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "forge-packs-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
     let run = |args: &[&str], input: Option<&[u8]>| -> Vec<u8> {
@@ -215,10 +239,12 @@ fn a_file_changed_push_after_push_reads_back_every_version() {
     let lines: Vec<String> = (0..400)
         .map(|n| format!("line {n} of a lock file\n"))
         .collect();
-    let sandbox = founded_project();
+    let sandbox = MemorySandbox::default();
+    sandbox.chain.init("forge", &bounds).unwrap();
+    create(&sandbox, "project", HashKind::Sha1);
     let mut old = Hash::Sha1.zero();
     let mut commits = Vec::new();
-    for version in 0..8 {
+    for version in 0..versions {
         let mut text = lines.clone();
         text[version * 40] = format!("line changed in version {version}\n");
         std::fs::write(dir.join("Cargo.lock"), text.concat()).unwrap();
@@ -255,6 +281,7 @@ fn a_file_changed_push_after_push_reads_back_every_version() {
     std::fs::remove_dir_all(&dir).ok();
     let listed = run_list(&sandbox, &commits);
     assert_eq!(listed.len(), commits.len());
+    let mut locks = Vec::new();
     for (version, commit) in commits.iter().enumerate() {
         let tree = Commit::parse(
             &object_of(&sandbox, "project", commit).unwrap().body,
@@ -271,9 +298,48 @@ fn a_file_changed_push_after_push_reads_back_every_version() {
         let body = object_of(&sandbox, "project", &lock).unwrap().body;
         let expected = format!("line changed in version {version}\n");
         assert!(String::from_utf8(body).unwrap().contains(&expected));
-        assert!(
-            matches!(entry(&sandbox, &lock), Payload::Full(..)),
-            "v{version}"
+        locks.push(lock);
+    }
+    Some((sandbox, locks))
+}
+
+/// Each version after the first stays git's delta against the one before,
+/// its chain going back pack by pack.
+#[test]
+fn a_file_changed_push_after_push_keeps_its_deltas() {
+    let Some((sandbox, locks)) = one_file_pushed(bounds(), 8) else {
+        return;
+    };
+    for (version, lock) in locks.iter().enumerate() {
+        let at = location(&sandbox, lock);
+        assert_eq!(usize::from(at.depth), version, "v{version}");
+        assert_eq!(
+            matches!(entry(&sandbox, lock), Payload::Full(..)),
+            version == 0
+        );
+    }
+}
+
+/// A chain that would apply more deltas than the founded `max_delta_depth`
+/// starts again: that version lands whole, and the next deltas against it.
+#[test]
+fn a_chain_past_the_founded_depth_starts_again_whole() {
+    let shallow = Bounds {
+        max_delta_depth: 3,
+        ..bounds()
+    };
+    let Some((sandbox, locks)) = one_file_pushed(shallow, 9) else {
+        return;
+    };
+    let depths: Vec<u8> = locks
+        .iter()
+        .map(|lock| location(&sandbox, lock).depth)
+        .collect();
+    assert_eq!(depths, [0, 1, 2, 3, 0, 1, 2, 3, 0]);
+    for (lock, depth) in locks.iter().zip(depths) {
+        assert_eq!(
+            matches!(entry(&sandbox, lock), Payload::Full(..)),
+            depth == 0
         );
     }
 }
