@@ -2462,9 +2462,11 @@ fn a_long_ref_list_keeps_the_picker_in_the_window() {
     };
     assert_eq!(*count, 5, "every branch is in the list");
     assert_eq!(
-        scroll_request.as_ref().map(|request| request.index),
-        Some(4),
-        "scrolled to unrelated, the last"
+        scroll_request
+            .as_ref()
+            .map(|request| (request.index, request.strategy)),
+        Some((4, wire::list::UniformListScrollStrategy::Center)),
+        "scrolled to unrelated, the last, with its neighbours"
     );
     view.read(|forge| assert_eq!(forge.menu_cursor, 4));
 }

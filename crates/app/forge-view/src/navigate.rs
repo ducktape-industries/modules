@@ -81,7 +81,7 @@ impl Forge {
 
     /// Opens `menu` under the press that asked for it, its filter box
     /// empty and holding the keys, on the tab and the item it has picked,
-    /// scrolled to; Esc or a pick gives the keys back to the button
+    /// scrolled to the middle; Esc or a pick gives the keys back to the button
     /// ([`crate::ui::components::dropdown`]).
     pub(crate) fn open_dropdown(
         &mut self,
@@ -96,7 +96,10 @@ impl Forge {
         let picked = self.menu_picked(menu);
         self.menu_tags = menu == Menu::Ref && picked.starts_with(b"refs/tags/");
         let index = self.menu_list(menu).iter().position(|name| *name == picked);
-        self.menu_step(index.unwrap_or(0), cx);
+        self.menu_cursor = index.unwrap_or(0);
+        // centred, so the pick shows with its neighbours; arrows keep Nearest
+        self.menu_scroll
+            .scroll_to_item(self.menu_cursor, ScrollStrategy::Center);
         self.open_menu(Some(menu), cx);
         window.focus(crate::ui::components::id(format!("{}-filter", menu.key())));
     }
