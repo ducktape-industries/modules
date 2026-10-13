@@ -3,11 +3,15 @@
 //! line here, because it arrives as one.
 //!
 //! Every row is virtual, and a line's gutter number is its comment button.
+//! The rows of a diff are laid out once per reply and kept ([`DiffCache`])
+//! as indices into it: a frame paints the rows on screen, not the diff,
+//! and no line is copied out of the reply.
 use ducktape_view_guest::prelude::*;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::Forge;
-use crate::state::ReviewSession;
+use crate::state::PendingComment;
 use crate::ui::components::{PRESS_TARGET, badge, empty_state, id, path_text, quiet};
 use crate::ui::staged;
 use forge::{Content, FileDiff, FileStatus, LineKind, Query, Reply, Side};
@@ -22,8 +26,8 @@ const MARKER_W: Pixels = px(12.);
 /// The anchor a gutter button carries: path, new side, line.
 pub(crate) type Anchor = (Vec<u8>, bool, u64);
 
-/// One painted row of the flattened diff.
-#[derive(Clone)]
+/// One row of the diff as it is painted: a file's header, a hunk's, or a
+/// line. Built for the rows on screen, from the held reply.
 struct Painted {
     kind: Kind,
     text: String,
@@ -31,17 +35,207 @@ struct Painted {
     old: Option<u64>,
     new: Option<u64>,
     line: LineKind,
-    /// a comment this reader has staged at this anchor
-    draft: Option<String>,
-    /// published line comments anchored here: author, body, outdated
-    published: Vec<(String, String, bool)>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Kind {
     File,
     Hunk,
     Line,
+}
+
+/// A diff laid out as rows, once: where each file's and each hunk's rows
+/// start in the held reply. No line is copied: a row is found by its index
+/// and its text read from the reply when it is painted.
+struct Rows {
+    reply: Rc<Reply>,
+    files: Vec<FileRows>,
+    /// the rows of the list, the closing row of a cut layout included
+    count: usize,
+    /// the rows that are lines with a number: the grid a review walks
+    lines: usize,
+    /// the longest line, the row the list measures its width by
+    widest: Option<usize>,
+    /// the files past the host's list ceiling, not laid out here
+    left_out: usize,
+}
+
+/// One file's place in the rows: its index in the reply's page, its first
+/// row and first numbered line, and each hunk's (its header row, its first
+/// line). A file without hunks has one row after its header saying why.
+struct FileRows {
+    file: usize,
+    first_row: usize,
+    first_line: usize,
+    hunks: Vec<(usize, usize)>,
+}
+
+/// The most rows one list may hold on the host, by the wire. A diff past
+/// it lays out whole files up to it and closes with a row naming the rest.
+const LIST_CEILING: usize = ducktape_view_guest::wire::MAX_UNIFORM_LIST_COUNT;
+
+/// The rows of the diff on screen, by the reply landed and the one file
+/// shown, if one: the same reply lays out the same, so a frame reuses them.
+#[derive(Default)]
+pub(crate) struct DiffCache(RefCell<Option<(Key, Rc<Rows>)>>);
+
+type Key = (*const Reply, Option<Vec<u8>>);
+
+impl DiffCache {
+    fn rows(&self, reply: &Rc<Reply>, only: Option<Vec<u8>>) -> Rc<Rows> {
+        let key = (Rc::as_ptr(reply), only);
+        let mut slot = self.0.borrow_mut();
+        if let Some((held, rows)) = slot.as_ref()
+            && *held == key
+        {
+            return rows.clone();
+        }
+        let rows = Rc::new(Rows::layout(reply.clone(), key.1.as_deref()));
+        *slot = Some((key, rows.clone()));
+        rows
+    }
+
+    /// Forgets the rows once the reply they index is no longer held: a
+    /// screen left drops its read, and the layout must not keep the diff
+    /// in memory in its place.
+    pub(crate) fn drop_unshared(&self) {
+        let mut slot = self.0.borrow_mut();
+        if slot
+            .as_ref()
+            .is_some_and(|(_, rows)| Rc::strong_count(&rows.reply) == 1)
+        {
+            *slot = None;
+        }
+    }
+}
+
+impl Rows {
+    /// Lays out the files of the reply (one, under `only`) in order, whole
+    /// files while they fit the list ceiling with the closing row.
+    fn layout(reply: Rc<Reply>, only: Option<&[u8]>) -> Rows {
+        let mut rows = Rows {
+            reply: reply.clone(),
+            files: Vec::new(),
+            count: 0,
+            lines: 0,
+            widest: None,
+            left_out: 0,
+        };
+        let page = match &*reply {
+            Reply::Diff { page, .. } => &page.items[..],
+            _ => &[],
+        };
+        let mut longest = 0;
+        for (index, file) in page.iter().enumerate() {
+            if only.is_some_and(|only| path_of(file).as_deref() != Some(only)) {
+                continue;
+            }
+            let span = 1
+                + file
+                    .hunks
+                    .iter()
+                    .map(|hunk| 1 + hunk.lines.len())
+                    .sum::<usize>()
+                + usize::from(file.hunks.is_empty());
+            if rows.left_out > 0 || rows.count + span + 1 > LIST_CEILING {
+                rows.left_out += 1;
+                continue;
+            }
+            let mut laid = FileRows {
+                file: index,
+                first_row: rows.count,
+                first_line: rows.lines,
+                hunks: Vec::with_capacity(file.hunks.len()),
+            };
+            let mut row = laid.first_row + 1;
+            for hunk in &file.hunks {
+                laid.hunks.push((row, rows.lines));
+                for (at, line) in hunk.lines.iter().enumerate() {
+                    if line.bytes.len() > longest {
+                        longest = line.bytes.len();
+                        rows.widest = Some(row + 1 + at);
+                    }
+                }
+                row += 1 + hunk.lines.len();
+                rows.lines += hunk.lines.len();
+            }
+            rows.files.push(laid);
+            rows.count += span;
+        }
+        rows.count += usize::from(rows.left_out > 0);
+        rows
+    }
+
+    fn page(&self) -> &[FileDiff] {
+        match &*self.reply {
+            Reply::Diff { page, .. } => &page.items,
+            _ => &[],
+        }
+    }
+
+    /// The row `index` is, found through the file and hunk it falls in.
+    fn painted(&self, index: usize) -> Painted {
+        let at = self.files.partition_point(|file| file.first_row <= index);
+        let Some(laid) = at.checked_sub(1).map(|at| &self.files[at]) else {
+            return Painted::banner(Kind::Hunk, self.closing(), Vec::new());
+        };
+        let file = &self.page()[laid.file];
+        let path = path_of(file).unwrap_or_default();
+        if index == laid.first_row {
+            return Painted::banner(Kind::File, file_header(file), path);
+        }
+        let hunk = laid.hunks.partition_point(|(first, _)| *first <= index);
+        let Some((first, _)) = hunk.checked_sub(1).map(|hunk| laid.hunks[hunk]) else {
+            // past the header of a file with no hunks, or past its last
+            // row: the closing row
+            if index == laid.first_row + 1 && file.hunks.is_empty() {
+                return Painted::banner(Kind::Hunk, why(file).into(), path);
+            }
+            return Painted::banner(Kind::Hunk, self.closing(), Vec::new());
+        };
+        let hunk = &file.hunks[hunk - 1];
+        let Some(line) = (index - first).checked_sub(1) else {
+            let text = format!(
+                "@@ -{},{} +{},{} @@",
+                hunk.old.start, hunk.old.count, hunk.new.start, hunk.new.count
+            );
+            return Painted::banner(Kind::Hunk, text, path);
+        };
+        let Some(line) = hunk.lines.get(line) else {
+            return Painted::banner(Kind::Hunk, self.closing(), Vec::new());
+        };
+        Painted {
+            kind: Kind::Line,
+            text: String::from_utf8_lossy(&line.bytes)
+                .trim_end_matches('\n')
+                .to_owned(),
+            path,
+            old: line.old_line,
+            new: line.new_line,
+            line: line.kind,
+        }
+    }
+
+    /// The row of the `line`th numbered line.
+    fn row_of_line(&self, line: usize) -> usize {
+        let at = self.files.partition_point(|file| file.first_line <= line);
+        let Some(laid) = at.checked_sub(1).map(|at| &self.files[at]) else {
+            return 0;
+        };
+        let hunk = laid.hunks.partition_point(|(_, first)| *first <= line);
+        let Some((row, first)) = hunk.checked_sub(1).map(|hunk| laid.hunks[hunk]) else {
+            return laid.first_row;
+        };
+        row + 1 + (line - first)
+    }
+
+    /// What the closing row of a cut layout says.
+    fn closing(&self) -> String {
+        format!(
+            "{} not drawn here: open one from the file list",
+            design::plural(self.left_out as u64, "more file", "more files")
+        )
+    }
 }
 
 /// `reviewable` turns the gutter into comment buttons.
@@ -61,6 +255,9 @@ pub(crate) fn render(
         page, total_files, ..
     } = reply
     else {
+        return div().into_any_element();
+    };
+    let Some(shared) = forge.shared(query) else {
         return div().into_any_element();
     };
     let only = forge.nav().diff_path.clone();
@@ -85,70 +282,81 @@ pub(crate) fn render(
     // A screen with no file tree beside it (a commit's own diff) carries the
     // file headers above the virtual list, where they stay in view.
     let strip = (!reviewable).then(|| file_strip(&files, element_id, cx, theme));
-    let rows = paint(forge, &files, reviewable);
-    let count = rows.len();
-    // A diff's width is set by its longest source line, so that row is the
-    // one the list measures — and the one a headless render always draws.
-    let widest = rows
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| row.kind == Kind::Line)
-        .max_by_key(|(_, row)| row.text.len())
-        .map(|(index, _)| index);
+    let rows = forge.diff_cache.rows(&shared, only);
+    let count = rows.count;
     let theme = *theme;
     let comment: Route<Anchor> = Rc::new(cx.listener(|forge, at: &Anchor, window, cx| {
         forge.open_comment(at.0.clone(), at.1, at.2, window, cx)
     }));
     let handle = forge.diff_scroll.clone();
+    // what a reader has written on these lines, looked up per row painted
+    let drafts: Rc<Vec<PendingComment>> = Rc::new(
+        reviewable
+            .then(|| forge.review())
+            .flatten()
+            .map(|review| review.comments.clone())
+            .unwrap_or_default(),
+    );
+    let published: Rc<Vec<Anchored>> = Rc::new(if reviewable {
+        published_comments(forge)
+    } else {
+        Vec::new()
+    });
     // Under a review the lines are a grid: ↑ ↓ walk the lines with a
     // gutter, ← → a line's gutters (old, new), Enter comments there. The
     // active line is scrolled into view before its gutter claims, since a
     // virtual row off screen has no node to claim with.
-    let lines: Vec<usize> = rows
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| reviewable && row.kind == Kind::Line && row.old.or(row.new).is_some())
-        .map(|(index, _)| index)
-        .collect();
-    let anchors: Vec<Vec<Anchor>> = lines
-        .iter()
-        .map(|index| {
-            let row = &rows[*index];
-            [(false, row.old), (true, row.new)]
-                .into_iter()
-                .filter_map(|(new_side, number)| Some((row.path.clone(), new_side, number?)))
-                .collect()
-        })
-        .collect();
+    let lines = if reviewable { rows.lines } else { 0 };
     let (at, cell) = forge.diff_cursor;
-    let at = at.min(lines.len().saturating_sub(1));
-    let cell = cell.min(
-        anchors
-            .get(at)
-            .map_or(0, |cells| cells.len().saturating_sub(1)),
-    );
-    let active = lines.get(at).map(|line| (*line, cell));
+    let at = at.min(lines.saturating_sub(1));
+    let cells = if lines > 0 {
+        anchors(&rows.painted(rows.row_of_line(at))).len()
+    } else {
+        0
+    };
+    let cell = cell.min(cells.saturating_sub(1));
+    let active = (lines > 0).then(|| (rows.row_of_line(at), cell));
     let press = comment.clone();
-    let list =
-        crate::ui::components::rows(element_id, count, widest, Some(&handle), move |index| {
+    let painted = rows.clone();
+    let list = crate::ui::components::rows(
+        element_id,
+        count,
+        rows.widest,
+        Some(&handle),
+        move |index| {
             let active = active
                 .filter(|(line, _)| *line == index)
                 .map(|(_, cell)| cell);
-            paint_row(&rows[index], index, reviewable, active, &comment, &theme)
-        });
-    let list = match lines.is_empty() {
-        true => list,
-        false => {
-            let reveal = lines.clone();
-            let pressed = anchors.clone();
+            let row = painted.painted(index);
+            let notes = Notes {
+                draft: drafts
+                    .iter()
+                    .find(|c| anchored(&row, &c.path, c.new_side, c.line))
+                    .map(|c| c.body.text().clone()),
+                published: published
+                    .iter()
+                    .filter(|(p, side, at, _, _, _)| anchored(&row, p, *side, *at))
+                    .map(|(_, _, _, author, body, outdated)| {
+                        (author.clone(), body.clone(), *outdated)
+                    })
+                    .collect(),
+            };
+            paint_row(&row, index, reviewable, active, notes, &comment, &theme)
+        },
+    );
+    let list = match lines {
+        0 => list,
+        _ => {
+            let reveal = rows.clone();
+            let pressed = rows.clone();
             design::composite(id(format!("{element_id}-lines")), Role::Grid, "Diff")
-                .active(at, lines.len())
-                .cells(cell, anchors[at].len())
+                .active(at, lines)
+                .cells(cell, cells)
                 .on_move(cx.processor(move |forge, index: usize, _, cx| {
                     forge.diff_cursor = (index, 0);
                     forge
                         .diff_scroll
-                        .scroll_to_item(reveal[index], ScrollStrategy::Nearest);
+                        .scroll_to_item(reveal.row_of_line(index), ScrollStrategy::Nearest);
                     cx.notify();
                 }))
                 .on_move_cell(cx.processor(|forge, cell: usize, _, cx| {
@@ -156,7 +364,8 @@ pub(crate) fn render(
                     cx.notify();
                 }))
                 .on_press(move |index, window, app| {
-                    if let Some(anchor) = pressed[index].get(cell) {
+                    let row = pressed.painted(pressed.row_of_line(index));
+                    if let Some(anchor) = anchors(&row).get(cell) {
                         press(anchor, window, app);
                     }
                 })
@@ -248,100 +457,69 @@ fn status_label(status: FileStatus) -> &'static str {
     }
 }
 
+/// A line's gutters as anchors, in paint order: the old side, then the
+/// new; a line with one number has one.
+fn anchors(row: &Painted) -> Vec<Anchor> {
+    [(false, row.old), (true, row.new)]
+        .into_iter()
+        .filter_map(|(new_side, number)| Some((row.path.clone(), new_side, number?)))
+        .collect()
+}
+
+/// Whether a comment at `path:line (side)` sits on this line: a line is
+/// anchored on its new side when it has one, else its old.
+fn anchored(row: &Painted, path: &[u8], new_side: bool, line: u64) -> bool {
+    row.kind == Kind::Line
+        && row.path == path
+        && new_side == row.new.is_some()
+        && row.new.or(row.old) == Some(line)
+}
+
+/// What readers wrote on one line: this reader's draft, and the published
+/// comments (author, body, outdated).
+struct Notes {
+    draft: Option<String>,
+    published: Vec<(String, String, bool)>,
+}
+
 impl Painted {
-    /// A row that is not a source line: a file's header or a hunk's.
-    fn banner(kind: Kind, text: String, path: &[u8]) -> Painted {
+    /// A row that is not a source line: a file's header, a hunk's, or the
+    /// closing row.
+    fn banner(kind: Kind, text: String, path: Vec<u8>) -> Painted {
         Painted {
             kind,
             text,
-            path: path.to_vec(),
+            path,
             old: None,
             new: None,
             line: LineKind::Context,
-            draft: None,
-            published: Vec::new(),
         }
     }
 }
 
-fn paint(forge: &Forge, files: &[&FileDiff], reviewable: bool) -> Vec<Painted> {
-    let review = reviewable.then(|| forge.review()).flatten();
-    let published = if reviewable {
-        published_comments(forge)
-    } else {
-        Vec::new()
-    };
-    let mut rows = Vec::new();
-    for file in files {
-        paint_file(&mut rows, file, review, &published);
-    }
-    rows
-}
-
-/// One file's rows: its header, then each hunk's header and lines, or one
-/// line saying why it has none.
-fn paint_file(
-    rows: &mut Vec<Painted>,
-    file: &FileDiff,
-    review: Option<&ReviewSession>,
-    published: &[Anchored],
-) {
-    let path = path_of(file).unwrap_or_default();
+/// A file's header row: its path (old → new when renamed), status, counts.
+fn file_header(file: &FileDiff) -> String {
     let header = match (&file.old_path, &file.new_path) {
         (Some(old), Some(new)) if old != new => {
             format!("{} → {}", path_text(old), path_text(new))
         }
-        _ => path_text(&path),
+        _ => path_text(&path_of(file).unwrap_or_default()),
     };
-    let text = format!(
+    format!(
         "{header} · {} · +{} −{}",
         status_label(file.status),
         file.additions,
         file.deletions
-    );
-    rows.push(Painted::banner(Kind::File, text, &path));
-    if file.hunks.is_empty() {
-        let why = match file.content {
-            Content::Binary => "Binary file — no lines to show",
-            Content::Oversize => "Too large to diff inline",
-            Content::Gitlink => "Submodule pointer",
-            Content::Text => "No line changes",
-        };
-        rows.push(Painted::banner(Kind::Hunk, why.into(), &path));
-        return;
-    }
-    for hunk in &file.hunks {
-        let text = format!(
-            "@@ -{},{} +{},{} @@",
-            hunk.old.start, hunk.old.count, hunk.new.start, hunk.new.count
-        );
-        rows.push(Painted::banner(Kind::Hunk, text, &path));
-        for line in &hunk.lines {
-            let anchor_side = line.new_line.is_some();
-            let anchor_line = line.new_line.or(line.old_line).unwrap_or(0);
-            rows.push(Painted {
-                kind: Kind::Line,
-                text: String::from_utf8_lossy(&line.bytes)
-                    .trim_end_matches('\n')
-                    .to_owned(),
-                path: path.clone(),
-                old: line.old_line,
-                new: line.new_line,
-                line: line.kind,
-                draft: review
-                    .and_then(|review| review.staged(&path, anchor_side, anchor_line))
-                    .map(|staged| staged.body.text().clone()),
-                published: published
-                    .iter()
-                    .filter(|(p, side, at, _, _, _)| {
-                        *p == path && *side == anchor_side && *at == anchor_line
-                    })
-                    .map(|(_, _, _, author, body, outdated)| {
-                        (author.clone(), body.clone(), *outdated)
-                    })
-                    .collect(),
-            });
-        }
+    )
+}
+
+/// Why a file has no lines to show.
+fn why(file: &FileDiff) -> &'static str {
+    match file.content {
+        Content::Binary => "Binary file — no lines to show",
+        Content::Oversize => "Too large to diff inline",
+        Content::Gitlink => "Submodule pointer",
+        Content::Text => "No line changes",
     }
 }
 
@@ -375,6 +553,7 @@ fn paint_row(
     index: usize,
     reviewable: bool,
     active: Option<usize>,
+    notes: Notes,
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -399,7 +578,7 @@ fn paint_row(
             .text_color(theme.faint)
             .child(row.text.clone())
             .into_any_element(),
-        Kind::Line => line_row(row, index, reviewable, active, comment, theme),
+        Kind::Line => line_row(row, index, reviewable, active, notes, comment, theme),
     }
 }
 
@@ -409,6 +588,7 @@ fn line_row(
     index: usize,
     reviewable: bool,
     active: Option<usize>,
+    notes: Notes,
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -464,7 +644,7 @@ fn line_row(
                 .min_w(px(0.))
                 .text_color(colour),
         );
-    if row.published.is_empty() && row.draft.is_none() {
+    if notes.published.is_empty() && notes.draft.is_none() {
         return body.into_any_element();
     }
     div()
@@ -474,14 +654,15 @@ fn line_row(
         .flex_col()
         .child(body)
         .children(
-            row.published
+            notes
+                .published
                 .iter()
                 .enumerate()
                 .map(|(at, (author, text, outdated))| {
                     published_comment(index, at, author, text, *outdated, theme)
                 }),
         )
-        .children(row.draft.as_ref().map(|draft| {
+        .children(notes.draft.as_ref().map(|draft| {
             comment_box(
                 id(format!("forge-diff-draft-{index}")),
                 "Your pending comment".to_owned(),
@@ -673,4 +854,152 @@ pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
             ),
     )
     .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(path: &str, lines: &[&str]) -> FileDiff {
+        FileDiff {
+            old_path: None,
+            new_path: Some(path.as_bytes().to_vec()),
+            status: FileStatus::Added,
+            old_oid: None,
+            new_oid: Some("new".into()),
+            old_kind: None,
+            new_kind: Some(forge::EntryKind::File),
+            old_size: 0,
+            new_size: 1,
+            content: Content::Text,
+            additions: lines.len() as u64,
+            deletions: 0,
+            hunks: vec![forge::DiffHunk {
+                old: forge::LineRange { start: 0, count: 0 },
+                new: forge::LineRange {
+                    start: 1,
+                    count: lines.len() as u64,
+                },
+                lines: lines
+                    .iter()
+                    .enumerate()
+                    .map(|(i, text)| forge::DiffLine {
+                        kind: LineKind::Added,
+                        old_line: None,
+                        new_line: Some(i as u64 + 1),
+                        bytes: format!("{text}\n").into_bytes(),
+                    })
+                    .collect(),
+            }],
+        }
+    }
+
+    fn reply(files: Vec<FileDiff>) -> Rc<Reply> {
+        Rc::new(Reply::Diff {
+            height: 1,
+            base: Some("base".into()),
+            head: "head".into(),
+            total_files: files.len() as u64,
+            page: forge::PageResponse {
+                height: 1,
+                items: files,
+                next: None,
+            },
+        })
+    }
+
+    /// The same reply is laid out once: a frame gets the rows the last one
+    /// had. Another reply, or one file of it, is laid out anew.
+    #[test]
+    fn rows_are_kept_per_reply() {
+        let cache = DiffCache::default();
+        let a = reply(vec![file("a.rs", &["one", "a longer line", "three"])]);
+        let first = cache.rows(&a, None);
+        assert_eq!((first.count, first.lines, first.widest), (5, 3, Some(3)));
+        assert!(Rc::ptr_eq(&first, &cache.rows(&a, None)));
+        assert!(!Rc::ptr_eq(&first, &cache.rows(&a, Some(b"a.rs".to_vec()))));
+        let again = reply(vec![file("a.rs", &["one"])]);
+        assert!(!Rc::ptr_eq(&first, &cache.rows(&again, None)));
+        // the reply still held elsewhere keeps its rows; dropped, they go
+        cache.drop_unshared();
+        assert!(cache.0.borrow().is_some());
+        drop(again);
+        cache.drop_unshared();
+        assert!(cache.0.borrow().is_none());
+    }
+
+    /// Every row is found by its index: headers, hunks, lines, a file with
+    /// no hunks, and the grid of numbered lines walks the lines alone.
+    #[test]
+    fn rows_are_found_by_index() {
+        let mut empty = file("b.bin", &[]);
+        empty.hunks.clear();
+        empty.content = Content::Binary;
+        let rows = Rows::layout(
+            reply(vec![
+                file("a.rs", &["one", "two"]),
+                empty,
+                file("c.rs", &["three"]),
+            ]),
+            None,
+        );
+        assert_eq!((rows.count, rows.lines, rows.left_out), (9, 3, 0));
+        let texts: Vec<(Kind, String)> = (0..rows.count)
+            .map(|index| rows.painted(index))
+            .map(|row| (row.kind, row.text))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                (Kind::File, "a.rs · added · +2 −0".into()),
+                (Kind::Hunk, "@@ -0,0 +1,2 @@".into()),
+                (Kind::Line, "one".into()),
+                (Kind::Line, "two".into()),
+                (Kind::File, "b.bin · added · +0 −0".into()),
+                (Kind::Hunk, "Binary file — no lines to show".into()),
+                (Kind::File, "c.rs · added · +1 −0".into()),
+                (Kind::Hunk, "@@ -0,0 +1,1 @@".into()),
+                (Kind::Line, "three".into()),
+            ]
+        );
+        assert_eq!(
+            (0..3)
+                .map(|line| rows.row_of_line(line))
+                .collect::<Vec<_>>(),
+            [2, 3, 8]
+        );
+        assert_eq!(rows.painted(8).path, b"c.rs");
+    }
+
+    /// A diff past the host's list ceiling lays out whole files up to it
+    /// and closes with a row naming the files not drawn.
+    #[test]
+    fn a_diff_past_the_list_ceiling_closes_with_the_files_left_out() {
+        let lines: Vec<String> = (0..1000).map(|n| n.to_string()).collect();
+        let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+        // 70 files of 1002 rows each: 65 fit under 65,536 with the closing row
+        let files = (0..70).map(|n| file(&format!("f{n}.rs"), &lines)).collect();
+        let rows = Rows::layout(reply(files), None);
+        assert_eq!(rows.left_out, 5);
+        assert_eq!(rows.count, 65 * 1002 + 1);
+        assert!(rows.count <= LIST_CEILING);
+        let closing = rows.painted(rows.count - 1);
+        assert_eq!(
+            closing.text,
+            "5 more files not drawn here: open one from the file list"
+        );
+        assert_eq!(rows.painted(rows.count - 2).text, "999");
+    }
+
+    /// A comment sits on a line by its path, the side it is anchored on and
+    /// its number there, never on a header row.
+    #[test]
+    fn a_note_finds_its_line() {
+        let rows = Rows::layout(reply(vec![file("a.rs", &["one", "two"])]), None);
+        assert!(anchored(&rows.painted(3), b"a.rs", true, 2));
+        assert!(!anchored(&rows.painted(3), b"a.rs", false, 2));
+        assert!(!anchored(&rows.painted(3), b"b.rs", true, 2));
+        assert!(!anchored(&rows.painted(0), b"a.rs", true, 2));
+        assert_eq!(anchors(&rows.painted(3)), [(b"a.rs".to_vec(), true, 2)]);
+    }
 }

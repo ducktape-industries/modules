@@ -2,6 +2,7 @@
 //! programs speak is folded to rows at render time, so a snapshot carries
 //! navigation and drafts, never wire records.
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use ducktape_view_guest::Paged;
 use ducktape_view_guest::prelude::*;
@@ -39,7 +40,7 @@ pub struct Forge {
     pub(crate) layout: Layout,
     #[serde(skip)]
     /// every read on screen, keyed by the query that asked it
-    pub(crate) data: BTreeMap<Query, Loadable<Reply>>,
+    pub(crate) data: BTreeMap<Query, Loadable<Rc<Reply>>>,
     /// every log on screen, keyed like `data`: read a page at a time, as
     /// far as its list is scrolled. Beside each, the view hearing it land.
     #[serde(skip)]
@@ -117,6 +118,8 @@ pub struct Forge {
     pub(crate) change_tab_cursor: Option<ChangeTab>,
     #[serde(skip)]
     pub(crate) blob_cache: crate::ui::code::BlobCache,
+    #[serde(skip)]
+    pub(crate) diff_cache: crate::ui::diff::DiffCache,
 }
 
 /// Where the reader is. One flat record: every screen is a projection of it,

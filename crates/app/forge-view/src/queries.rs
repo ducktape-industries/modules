@@ -6,6 +6,7 @@
 //! repository is old, and its list shows a screenful.
 use ducktape_view_guest::host::{Page, all_pages, malformed};
 use ducktape_view_guest::prelude::*;
+use std::rc::Rc;
 
 use crate::api::Ask as Forge;
 use forge::{CommitInfo, PageRequest, PageResponse, Query, Reply};
@@ -17,8 +18,9 @@ const PER_PAGE: u64 = 64;
 
 /// One read of forge, `next` followed: the pages after the first fold into
 /// it. A cursor refused `stale` (an op landed between two pages) starts the
-/// read over from its first page ([`all_pages`]).
-pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
+/// read over from its first page ([`all_pages`]). The reply is shared: a
+/// screen that lays it out keeps the layout beside it, not a copy of it.
+pub(crate) async fn fetch(host: Host, query: Query) -> Result<Rc<Reply>, Error> {
     let pages = all_pages(|after| {
         let ask = match after {
             None => Some(query.clone()),
@@ -41,6 +43,7 @@ pub(crate) async fn fetch(host: Host, query: Query) -> Result<Reply, Error> {
             extend(&mut reply, page);
             reply
         })
+        .map(Rc::new)
         .ok_or_else(|| malformed("forge answered no page".into()))
 }
 

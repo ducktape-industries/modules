@@ -1,6 +1,7 @@
 //! What the screens read out of the view: the replies that have landed,
 //! picked by the query that asked them, and the reader's own identity.
 use ducktape_view_guest::prelude::*;
+use std::rc::Rc;
 
 use crate::queries::PAGE;
 use crate::state::{self, ChangeTab, Forge, Menu, Nav, change_key};
@@ -72,6 +73,11 @@ impl Forge {
             Some(Loadable::Failed(refusal)) => Stage::Failed(refusal),
             _ => Stage::Loading,
         }
+    }
+
+    /// A landed reply, shared: for a screen that keeps a layout of it.
+    pub(crate) fn shared(&self, query: &Query) -> Option<Rc<Reply>> {
+        self.data.get(query)?.ready().cloned()
     }
 
     pub(crate) fn ready(&self, query: &Query) -> Option<&Reply> {

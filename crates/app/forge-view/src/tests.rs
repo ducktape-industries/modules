@@ -80,6 +80,7 @@ fn answer(query: &Query, mode: &str) -> Reply {
             ..
         } => reply("log"),
         Query::Log { .. } => reply("log-next"),
+        Query::Diff { .. } if mode == "release" => release_diff(),
         Query::Diff { .. } => reply("diff-text"),
         Query::Compare { .. } if mode == "diverged" => reply("compare-diverged"),
         Query::Compare { .. } => reply("compare"),
@@ -101,6 +102,56 @@ fn answer(query: &Query, mode: &str) -> Reply {
         Query::Judgment { .. } if mode == "judgment-empty" => reply("judgment-empty"),
         Query::Judgment { .. } => reply("judgment"),
         other => panic!("no fixture for {other:?}"),
+    }
+}
+
+/// A diff the size of a release: 100 files of 1000 added lines each, more
+/// rows than the host draws in one list.
+fn release_diff() -> Reply {
+    let files: Vec<forge::FileDiff> = (0..100)
+        .map(|n| {
+            let lines = (0..1000)
+                .map(|at| forge::DiffLine {
+                    kind: forge::LineKind::Added,
+                    old_line: None,
+                    new_line: Some(at + 1),
+                    bytes: format!("pub fn f{n}_{at}(x: u64) -> u64 {{ x ^ {at} }}\n").into_bytes(),
+                })
+                .collect();
+            forge::FileDiff {
+                old_path: None,
+                new_path: Some(format!("src/gen/file_{n:03}.rs").into_bytes()),
+                status: forge::FileStatus::Added,
+                old_oid: None,
+                new_oid: Some(format!("{n:040x}")),
+                old_kind: None,
+                new_kind: Some(forge::EntryKind::File),
+                old_size: 0,
+                new_size: 40_000,
+                content: forge::Content::Text,
+                additions: 1000,
+                deletions: 0,
+                hunks: vec![forge::DiffHunk {
+                    old: forge::LineRange { start: 0, count: 0 },
+                    new: forge::LineRange {
+                        start: 1,
+                        count: 1000,
+                    },
+                    lines,
+                }],
+            }
+        })
+        .collect();
+    Reply::Diff {
+        height: 1,
+        base: Some("base".into()),
+        head: "head".into(),
+        total_files: files.len() as u64,
+        page: forge::PageResponse {
+            height: 1,
+            items: files,
+            next: None,
+        },
     }
 }
 
