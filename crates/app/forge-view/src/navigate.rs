@@ -10,7 +10,10 @@ use forge::Reply;
 impl Forge {
     fn moved(&mut self, cx: &mut Context<Self>) {
         self.notice.clear();
+        // a walk of a list ends where the reader moves: none stays lit
         self.list_cursor = None;
+        self.repos_cursor = None;
+        self.rail_cursor = None;
         cx.notify();
         self.sync(cx);
     }

@@ -1516,6 +1516,22 @@ fn the_rail_is_a_list_box_whose_enter_opens_the_active_repository() {
     view.read(|forge| assert_eq!(forge.nav().repo.as_deref(), Some(name)));
 }
 
+/// A walk of a list ends where the reader moves: back on the repositories
+/// after opening one, no row is lit as if still picked.
+#[test]
+fn a_walk_of_the_repositories_ends_with_a_move() {
+    let (mut cx, view) = booted("default");
+    let lit = |cx: &TestAppContext| lit_rows(cx, "forge-repos-list", Role::Row);
+    cx.simulate_focus("forge-repos-list");
+    cx.simulate_key_down("forge-repos-list", "right");
+    assert_eq!(lit(&cx).len(), 1, "the arrows light the row they walk");
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    cx.update(&view, |forge, _, cx| forge.open_repos(cx));
+    cx.run_until_parked();
+    assert_eq!(lit(&cx), Vec::<String>::new(), "back at rest");
+}
+
 #[test]
 fn a_snapshot_restores_the_same_screen_without_replaying_events() {
     let (mut cx, view) = opened("default");
