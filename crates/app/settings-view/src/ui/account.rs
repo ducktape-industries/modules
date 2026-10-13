@@ -3,7 +3,8 @@
 //! their manager does to them.
 use super::*;
 use crate::queries::{Account, Agent, Key};
-use identity::Standing;
+use crate::state::{Answering, Choice};
+use identity::{Audience, Standing};
 
 /// The identity header's avatar.
 const AVATAR_XL: Pixels = px(40.);
@@ -382,23 +383,208 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
         .when(!revoked, |row| {
             row.child(actions(view, number, standing, renaming, cx, theme))
         });
-    let mut card = div()
+    let renamed = renaming.and_then(|form| {
+        problem(
+            &format!("agents/{number}/rename"),
+            form,
+            "Enter the agent's new name.",
+            theme,
+        )
+    });
+    let answers = (!revoked).then(|| answers(view, agent, cx, theme));
+    div()
         .id(format!("settings/agents/{number}/card"))
         .flex()
         .flex_col()
         .border_b_1()
         .border_color(theme.border)
         .when(revoked, |card| card.opacity(0.6))
-        .child(row);
-    if let Some(form) = renaming {
-        card = card.children(problem(
-            &format!("agents/{number}/rename"),
-            form,
-            "Enter the agent's new name.",
+        .child(row)
+        .children(renamed)
+        .children(answers)
+        .into_any_element()
+}
+
+fn answers(
+    view: &Settings,
+    agent: &Agent,
+    cx: &mut Context<Settings>,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let number = agent.number;
+    let answering = view.answering.get(&number);
+    let listing = answering.is_some_and(|answering| answering.listing);
+    let busy = answering.is_some_and(|answering| answering.form.busy);
+    let shown = Choice::shown(&agent.audience, listing);
+    let choices = design::segmented(
+        format!("settings/agents/{number}/answers"),
+        format!("Who {} answers", agent.name),
+        theme,
+        Choice::ALL.iter().position(|choice| *choice == shown),
+        Choice::ALL.map(|choice| {
+            (
+                format!("settings/agents/{number}/answers/{}", choice.slug()).into(),
+                choice.label().into(),
+            )
+        }),
+        cx.processor(move |v: &mut Settings, index: usize, _, cx| {
+            v.pick_audience(number, Choice::ALL[index], cx)
+        }),
+    );
+    let open_to_anyone = agent.audience == Audience::Anyone;
+    let specific = shown == Choice::Specific;
+    let picker = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(design::space::LG)
+        .child(secondary(
+            format!("settings/agents/{number}/answers/label"),
+            "Who it answers",
             theme,
-        ));
-    }
-    card.into_any_element()
+        ))
+        .child(choices)
+        .when(busy, |line| {
+            line.child(secondary(
+                format!("settings/agents/{number}/answers/saving"),
+                "Saving…",
+                theme,
+            ))
+        });
+    let people = specific.then(|| people(agent, answering, busy, cx, theme));
+    let refused = answering.and_then(|answering| {
+        problem(
+            &format!("agents/{number}/answers"),
+            &answering.form,
+            "Enter a name or an account number.",
+            theme,
+        )
+    });
+    div()
+        .id(format!("settings/agents/{number}/answering"))
+        .flex()
+        .flex_col()
+        .gap(design::space::SM)
+        .pl(design::size::AVATAR + design::space::LG)
+        .pb(design::space::MD)
+        .child(picker)
+        .when(open_to_anyone, |block| {
+            block.child(
+                secondary(
+                    format!("settings/agents/{number}/answers/warning"),
+                    "Anyone on the network can tell this agent what to do.",
+                    theme,
+                )
+                .text_color(theme.warning),
+            )
+        })
+        .children(people)
+        .children(refused)
+}
+
+fn people(
+    agent: &Agent,
+    answering: Option<&Answering>,
+    busy: bool,
+    cx: &mut Context<Settings>,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let number = agent.number;
+    let listed: &[u64] = match &agent.audience {
+        Audience::Accounts(numbers) => numbers,
+        Audience::Manager | Audience::Anyone => &[],
+    };
+    let rows: Vec<Stateful<Div>> = listed
+        .iter()
+        .map(|&person| {
+            let name = agent
+                .names
+                .get(&person)
+                .cloned()
+                .unwrap_or_else(|| format!("#{person}"));
+            let remove = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
+                v.remove_audience_person(number, person, cx)
+            });
+            div()
+                .id(format!("settings/agents/{number}/answers/{person}"))
+                .flex()
+                .items_center()
+                .gap(design::space::LG)
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_baseline()
+                        .gap(design::space::SM)
+                        .child(div().child(name))
+                        .child(
+                            design::mono(format!("account {person}"))
+                                .text_size(design::text::CAPTION)
+                                .text_color(theme.muted),
+                        ),
+                )
+                .child(submit(
+                    &format!("settings/agents/{number}/answers/{person}/remove"),
+                    "Remove",
+                    "Working…",
+                    busy,
+                    false,
+                    theme,
+                    remove,
+                ))
+        })
+        .collect();
+    let empty = listed.is_empty().then(|| {
+        secondary(
+            format!("settings/agents/{number}/answers/none"),
+            "Add people by name or account number.",
+            theme,
+        )
+    });
+    let add = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
+        v.submit_audience_person(number, cx)
+    });
+    let add_id = format!("settings/agents/{number}/answers/add");
+    let adding = match answering {
+        Some(answering) => {
+            let submitted = cx.listener(move |v: &mut Settings, _: &(), _, cx| {
+                v.submit_audience_person(number, cx)
+            });
+            let input = field(
+                &format!("settings/agents/{number}/answers/name"),
+                &format!("Add someone {} answers", agent.name),
+                "Name or account number",
+                &answering.form,
+                theme,
+            );
+            let input = match busy {
+                true => input.into_any_element(),
+                false => input.on_submit(submitted).into_any_element(),
+            };
+            div()
+                .flex()
+                .gap(design::space::SM)
+                .child(input)
+                .child(submit(&add_id, "Add", "Adding…", busy, false, theme, add))
+        }
+        None => div().flex().child(submit(
+            &add_id,
+            "Add someone",
+            "Adding…",
+            busy,
+            false,
+            theme,
+            add,
+        )),
+    };
+    div()
+        .id(format!("settings/agents/{number}/answers/people"))
+        .flex()
+        .flex_col()
+        .gap(design::space::SM)
+        .children(rows)
+        .children(empty)
+        .child(adding)
 }
 
 /// An agent's presses: Rename (Save while its field is open, with

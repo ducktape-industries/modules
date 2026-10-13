@@ -75,6 +75,7 @@ Who may do what (the acting account is `ctx.sender()`):
 | `RemoveKey` | a person removes their own key or a junior one, never their last. An agent's manager removes any of its keys |
 | `SetName`, `SetProfile` | a person or a module on its own account; an agent's manager on the agent's (not once revoked) |
 | `Suspend`, `Resume`, `Revoke` | the agent's manager |
+| `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and at most `MAX_AUDIENCE` = 64 others) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
 
 The role's queries, which views and other modules ask too, are
 `Account(key)`, `OfModule(module)`, `Profile(number)` and

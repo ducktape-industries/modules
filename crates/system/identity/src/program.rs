@@ -3,8 +3,9 @@
 use guest::{Error, ExecCtx, Module, Program, QueryCtx};
 
 use crate::rules::{
-    ACCOUNTS, MANAGED, OF_MODULE, account, add_key, create, create_agent, generation, of_key,
-    profiles, register_module, remove_key, resolve, resume, revoke, set_name, set_profile, suspend,
+    ACCOUNTS, MANAGED, OF_MODULE, account, add_key, audience, create, create_agent, generation,
+    of_key, profiles, register_module, remove_key, resolve, resume, revoke, set_audience, set_name,
+    set_profile, suspend,
 };
 use crate::{Op, Query, Reply};
 
@@ -38,6 +39,7 @@ impl Module for Identity {
             Op::Suspend { account } => suspend(ctx, account),
             Op::Resume { account } => resume(ctx, account),
             Op::Revoke { account } => revoke(ctx, account),
+            Op::SetAudience { account, audience } => set_audience(ctx, account, audience),
         }
     }
 
@@ -65,6 +67,7 @@ impl Module for Identity {
                     .range_of(ctx, &by, &page)?
                     .try_map(|(_, number)| account(ctx, number))?,
             ),
+            Query::Audience { number } => Reply::Audience(audience(ctx, number)?),
         })
     }
 }
