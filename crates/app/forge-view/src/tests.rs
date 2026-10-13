@@ -2198,9 +2198,10 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     let real_review = costs(&mut costed, "Readme tab, a real review block", |c| {
         c.heads.forge.send(block(100, real_review_keys()))
     });
+    // the open-changes count on the tab bar reads the changes again too
     assert_eq!(
         real_review.keys().collect::<Vec<_>>(),
-        ["Activity", "Repo", "Repos"],
+        ["Activity", "Changes", "Repo", "Repos"],
         "{real_review:?}"
     );
     let pushed = costs(&mut costed, "Readme tab, a ref moved", |c| {
@@ -2247,10 +2248,10 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     });
     assert_eq!(
         all.keys().collect::<Vec<_>>(),
-        ["Activity", "Blob", "Refs", "Repo", "Repos", "Tree"],
+        ["Activity", "Blob", "Changes", "Refs", "Repo", "Repos", "Tree"],
         "{all:?}"
     );
-    assert_eq!(all.values().sum::<usize>(), 8);
+    assert_eq!(all.values().sum::<usize>(), 9);
     costed.cx.simulate_click("forge-tab-changes");
     costed.cx.run_until_parked();
     costed.cx.simulate_click("forge-filter-judgment");
@@ -2262,7 +2263,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     );
     assert_eq!(
         judged.keys().collect::<Vec<_>>(),
-        ["Activity", "Judgment", "Repo", "Repos"],
+        ["Activity", "Changes", "Judgment", "Repo", "Repos"],
         "{judged:?}"
     );
     let posted = costs(

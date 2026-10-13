@@ -253,18 +253,23 @@ impl Forge {
     /// How many changes are open here, once the Changes tab has read them
     /// all (a list with more pages to come counts none).
     pub(crate) fn open_changes(&self) -> Option<u64> {
-        let query = Query::Changes {
+        match self.ready(&self.open_changes_query()?)? {
+            Reply::Changes { page, .. } if page.next.is_none() => Some(page.items.len() as u64),
+            _ => None,
+        }
+    }
+
+    /// The open changes of the repository, the read the tab bar's count
+    /// comes from.
+    pub(crate) fn open_changes_query(&self) -> Option<Query> {
+        Some(Query::Changes {
             repo: self.nav.repo.clone()?,
             filter: forge::ChangeFilter {
                 state: Some(forge::ChangeState::Open),
                 ..forge::ChangeFilter::default()
             },
             page: PAGE,
-        };
-        match self.ready(&query)? {
-            Reply::Changes { page, .. } if page.next.is_none() => Some(page.items.len() as u64),
-            _ => None,
-        }
+        })
     }
 
     pub(crate) fn change_query(&self) -> Option<Query> {
