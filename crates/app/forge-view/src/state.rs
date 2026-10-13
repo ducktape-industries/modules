@@ -105,6 +105,10 @@ pub struct Forge {
     /// which of its cells: the list's id, the row, the cell
     #[serde(skip)]
     pub(crate) list_cursor: Option<(&'static str, usize, usize)>,
+    /// the arrows have walked the file tree since the last move: its
+    /// cursor is drawn
+    #[serde(skip)]
+    pub(crate) tree_walked: bool,
     /// the repository tab the arrows are on but have not opened
     #[serde(skip)]
     pub(crate) tab_cursor: Option<RepoTab>,

@@ -130,8 +130,9 @@ fn tree_rows(forge: &Forge, rows: Vec<Row>, cx: &mut Context<Forge>, theme: &The
     });
     // the tree claims a row before any key: the cursor, else the open
     // file, else the first entry, which is where `tree_key` starts too.
-    // Only a cursor the keys set is drawn: at rest nothing is lit, as the
-    // tree cannot see whether it holds the focus
+    // The cursor is drawn once the arrows walk the tree: a press moves it
+    // (the keys go on from there) and lights nothing, and at rest nothing
+    // is lit, as the tree cannot see whether it holds the focus
     let open = forge.nav().blob.as_ref().map(|(path, _)| path.clone());
     let claimed = forge
         .nav()
@@ -145,7 +146,10 @@ fn tree_rows(forge: &Forge, rows: Vec<Row>, cx: &mut Context<Forge>, theme: &The
         });
     let marks = Marks {
         open,
-        cursor: forge.nav().cursor.clone(),
+        cursor: forge
+            .tree_walked
+            .then(|| forge.nav().cursor.clone())
+            .flatten(),
         claimed,
         expanded: forge.nav().expanded.clone(),
     };

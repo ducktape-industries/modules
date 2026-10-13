@@ -2033,6 +2033,31 @@ fn no_tree_row_is_lit_until_the_arrows_walk_it() {
     assert_eq!(lit(&cx).len(), 1, "the arrows lit the row they walked to");
 }
 
+/// A press in the tree is where the keys go on from: ↓ after opening a
+/// folder steps into it, wherever the arrows were before the press.
+#[test]
+fn the_keys_go_on_from_the_tree_row_pressed() {
+    use crate::tree::Key;
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    let press = |cx: &mut TestAppContext, key| {
+        cx.update(&view, |forge, _, cx| forge.tree_key(key, cx));
+        cx.run_until_parked();
+    };
+    press(&mut cx, Key::End);
+    cx.simulate_click("forge-tree-src");
+    cx.run_until_parked();
+    press(&mut cx, Key::Down);
+    let cursor = view.read(|forge| forge.nav().cursor.clone().map(|path| path_of(&path)));
+    assert!(
+        cursor
+            .as_deref()
+            .is_some_and(|path| path.starts_with("src/")),
+        "{cursor:?}"
+    );
+}
+
 #[test]
 fn a_forge_link_opens_its_repository() {
     let mut cx = TestAppContext::new();

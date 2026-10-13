@@ -136,8 +136,9 @@ impl Forge {
     /// the rows above stay, the children appear (or go) beneath it.
     pub(crate) fn toggle_dir(&mut self, path: Vec<u8>, cx: &mut Context<Self>) {
         if !self.nav.expanded.remove(&path) {
-            self.nav.expanded.insert(path);
+            self.nav.expanded.insert(path.clone());
         }
+        self.nav.cursor = Some(path);
         cx.notify();
         self.sync(cx);
     }
@@ -166,8 +167,9 @@ impl Forge {
             .unwrap_or(0);
         let row = &rows[at];
         let open = self.nav.expanded.contains(&row.path);
-        // the keys hold the cursor where they act, a press never moves it
+        // the keys act on the row the tree claims, and draw it from now on
         self.nav.cursor = Some(row.path.clone());
+        self.tree_walked = true;
         match key {
             Key::Up => self.nav.cursor = Some(rows[at.saturating_sub(1)].path.clone()),
             Key::Down => self.nav.cursor = Some(rows[(at + 1).min(rows.len() - 1)].path.clone()),

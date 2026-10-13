@@ -14,6 +14,7 @@ impl Forge {
         self.list_cursor = None;
         self.repos_cursor = None;
         self.rail_cursor = None;
+        self.tree_walked = false;
         cx.notify();
         self.sync(cx);
     }
@@ -158,6 +159,7 @@ impl Forge {
     }
 
     pub(crate) fn open_file(&mut self, path: Vec<u8>, oid: String, cx: &mut Context<Self>) {
+        self.nav.cursor = Some(path.clone());
         self.nav.blob = Some((path, oid));
         self.moved(cx);
     }
