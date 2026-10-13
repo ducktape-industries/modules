@@ -351,6 +351,23 @@ fn first_nodes() -> Vec<Node> {
             ],
             on_state: Some(17),
         },
+        Node::Camera {
+            id: id("camera"),
+            style: style(),
+            device: Some("0".into()),
+            mirror: true,
+            on_state: Some(18),
+        },
+        Node::Microphone {
+            id: id("microphone"),
+            style: style(),
+            device: Some("Built-in Microphone".into()),
+            output: Some("Headphones".into()),
+            monitor: true,
+            revision: 2,
+            commands: vec![MicCommand::Record { seconds: 5 }, MicCommand::Stop],
+            on_state: Some(19),
+        },
         text("plain"),
         Node::Image {
             id: Some(id("image")),
@@ -870,5 +887,7 @@ pub fn node_variant(node: &Node) -> &'static str {
         Node::Overlay { .. } => "Overlay",
         Node::Canvas { .. } => "Canvas",
         Node::Web { .. } => "Web",
+        Node::Camera { .. } => "Camera",
+        Node::Microphone { .. } => "Microphone",
     }
 }

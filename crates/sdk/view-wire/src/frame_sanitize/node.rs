@@ -173,6 +173,22 @@ fn sanitize_fields(
             budgets.style(*style)?;
             crate::web::sanitize(url, commands, budgets);
         }
+        Node::Camera { style, device, .. } => {
+            budgets.style(*style)?;
+            crate::media::sanitize_device(device, budgets);
+        }
+        Node::Microphone {
+            style,
+            device,
+            output,
+            commands,
+            ..
+        } => {
+            budgets.style(*style)?;
+            crate::media::sanitize_device(device, budgets);
+            crate::media::sanitize_device(output, budgets);
+            crate::media::sanitize_commands(commands);
+        }
         Node::Anchored {
             fit,
             position,

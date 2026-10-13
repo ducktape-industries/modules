@@ -235,6 +235,13 @@ pub enum Event {
         handler: u32,
         state: crate::WebState,
     },
+    /// Where a [`Node::Camera`]'s or [`Node::Microphone`]'s device is (and
+    /// a microphone's recording), to the node's `on_state`: sent when the
+    /// piece first reports, and whenever any of it changes after.
+    Media {
+        handler: u32,
+        state: crate::MediaState,
+    },
 }
 
 /// Why a request failed, as the view gets it: the one [`Error`] — a stable
@@ -318,6 +325,33 @@ pub struct Frame {
     /// yields more than one tick runs, a handler chain longer than one
     /// round — and wants the next tick now, not at the next event or answer.
     pub busy: bool,
+}
+
+impl Frame {
+    /// Whether any node the frame carries is one `is` picks: in its tree,
+    /// in a patch or in a tooltip's content. What a host checks a node a
+    /// capability gates by ([`crate::web::carries_web`],
+    /// [`crate::media::carries_camera`]).
+    pub fn carries(&self, is: &dyn Fn(&Node) -> bool) -> bool {
+        fn has(node: &Node, is: &dyn Fn(&Node) -> bool) -> bool {
+            is(node) || node.children().iter().any(|child| has(child, is))
+        }
+        let patched = self.patches.iter().filter_map(|patch| match patch {
+            Patch::Replace { node, .. }
+            | Patch::Props { node, .. }
+            | Patch::Insert { node, .. } => Some(node),
+            Patch::Remove { .. } | Patch::Move { .. } => None,
+        });
+        let tooltips = self
+            .tooltip_responses
+            .iter()
+            .filter_map(|response| response.content.as_deref());
+        self.root
+            .iter()
+            .chain(patched)
+            .chain(tooltips)
+            .any(|node| has(node, is))
+    }
 }
 
 /// Copied input accessibility and native layout options.

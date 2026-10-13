@@ -96,6 +96,11 @@ mod widget;
 pub use widget::{WidgetCommand, WidgetTarget};
 pub mod web;
 pub use web::{MAX_URL_BYTES, MAX_WEB_COMMANDS, WebCommand, WebState};
+pub mod media;
+pub use media::{
+    MAX_DEVICE_BYTES, MAX_MIC_COMMANDS, MAX_RECORD_SECONDS, MediaState, MediaStatus, MicCommand,
+    Playback,
+};
 
 mod styled_nodes;
 pub use styled_nodes::{ContainerNode, TextNode};
