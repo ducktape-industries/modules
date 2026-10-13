@@ -86,6 +86,7 @@ impl Chat {
             self.notice = ARCHIVED_REACTIONS.into();
             return;
         }
+        let mut editor = None;
         if mode == Mode::Editing {
             let Some(body) = self.edit_body(pane, seq) else {
                 return;
@@ -96,10 +97,12 @@ impl Chat {
                 base_rev: rev,
             };
             let choices = self.mention_choices();
+            let key = target.key();
             self.drafts
-                .entry(target.key())
+                .entry(key.clone())
                 .or_default()
                 .seed(&body, &choices);
+            editor = Some(key);
         }
         if mode == Mode::Reactions {
             self.picker = Default::default();
@@ -112,8 +115,12 @@ impl Chat {
             at: self.layout.press,
         });
         self.menu_cursor = 0;
-        if mode != Mode::Editing {
-            window.focus(crate::ui::menu::focus_key(pane, mode));
+        match editor {
+            // the edit field takes the keys as it opens: what is typed
+            // edits, and Enter saves; left in the room's composer, the
+            // typing was a new message and Enter sent it
+            Some(key) => crate::composer::focus(window, &key),
+            None => window.focus(crate::ui::menu::focus_key(pane, mode)),
         }
     }
 

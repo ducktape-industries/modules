@@ -324,13 +324,27 @@ fn the_edit_field_saves() {
     edit(&mut cx, &view, 1);
     assert!(cx.find("chat-message-editing").is_some());
     assert!(cx.has_text("Save"));
-    // Cancel sits on Save's row, and leaves the edit
     let key = crate::composer::Target::Edit {
         channel: view.read(|chat| chat.room_id()),
         seq: 1,
         base_rev: 0,
     }
     .key();
+    // the field takes the keys as it opens: typing edits, Enter saves,
+    // not the room's composer under it
+    let editor = format!("{key}/editor");
+    assert!(
+        cx.host()
+            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .iter()
+            .any(|command| matches!(
+                command,
+                wire::WidgetCommand::Focus { target }
+                    if target.last() == Some(&wire::ElementIdWire::Name(editor.clone().into()))
+            )),
+        "the edit field takes the keys on open"
+    );
+    // Cancel sits on Save's row, and leaves the edit
     cx.simulate_click(&format!("{key}/cancel"));
     assert!(cx.find("chat-message-editing").is_none());
 }
