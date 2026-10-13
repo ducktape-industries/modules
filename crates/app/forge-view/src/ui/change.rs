@@ -315,10 +315,12 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let Some(query) = forge.diff_query() else {
         return quiet("Comparing the endpoints…", theme);
     };
-    let mut columns = div().id(id("forge-files")).flex().flex_1().min_h(px(0.));
-    if forge.layout.tree_visible() {
-        columns = columns.child(file_tree(forge, &query, cx, theme));
-    }
+    let columns = div()
+        .id(id("forge-files"))
+        .flex()
+        .flex_1()
+        .min_h(px(0.))
+        .child(file_tree(forge, &query, cx, theme));
     let pane = div()
         .id(id("forge-files-pane"))
         .flex_1()

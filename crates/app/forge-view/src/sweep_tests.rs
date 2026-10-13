@@ -281,3 +281,64 @@ fn a_line_comment_composer_opens_focused_and_enter_stages() {
         assert_eq!(review.comments.len(), 1);
     });
 }
+
+/// Narrow, the "Repositories" toggle folds the rail alone: the Code tab's
+/// file tree gives way to an open file and comes back when the file closes,
+/// and a change's file list stays beside its diff, whatever the rail does.
+#[test]
+fn narrow_side_panes_do_not_follow_the_repositories_toggle() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_resize(760., 800.);
+    cx.run_until_parked();
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-tree").is_some(),
+        "no file open: the tree is the screen"
+    );
+    cx.simulate_click("forge-tree-README.md");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-tree").is_none(),
+        "a file open takes the tree's place"
+    );
+    cx.simulate_click("forge-toggle-rail");
+    cx.run_until_parked();
+    assert!(cx.find("forge-rail").is_some(), "the rail unfolds");
+    assert!(
+        cx.find("forge-tree").is_none(),
+        "the tree does not follow the rail"
+    );
+    cx.simulate_click("forge-blob-close");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-tree").is_some(),
+        "the file closed: the tree is back"
+    );
+
+    let (mut cx, _) = change_screen("default", crate::state::ChangeTab::Files);
+    cx.simulate_resize(760., 800.);
+    cx.run_until_parked();
+    assert!(cx.find("forge-rail").is_none());
+    assert!(
+        cx.find("forge-file-tree").is_some(),
+        "the file list stays beside the diff"
+    );
+}
+
+/// Narrow, About left open on a repository does not reappear as a change's
+/// "Details" overlay over the change.
+#[test]
+fn about_left_open_does_not_lay_a_change_s_details_over_it() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_resize(760., 800.);
+    cx.run_until_parked();
+    cx.simulate_click("forge-dock-about");
+    cx.run_until_parked();
+    assert!(cx.find("forge-about").is_some());
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-1");
+    cx.run_until_parked();
+    assert!(cx.find("forge-details-over").is_none(), "{:?}", cx.texts());
+}

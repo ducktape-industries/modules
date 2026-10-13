@@ -19,7 +19,9 @@ use forge::{BlobView, Content, EntryKind, Query, Reply};
 
 pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let mut columns = div().id(id("forge-code")).flex().flex_1().min_h(px(0.));
-    if forge.layout.tree_visible() || forge.nav().blob.is_none() {
+    // wide, the tree stands beside the file; narrow, an open file takes
+    // its place until closed (the rail's toggle is the rail's alone)
+    if !forge.layout.narrow() || forge.nav().blob.is_none() {
         columns = columns.child(tree(forge, cx, theme)).child(design::divider(
             id("forge-files-resize"),
             "Resize the file tree",

@@ -235,6 +235,7 @@ impl Forge {
         self.nav.change_tab = ChangeTab::default();
         self.nav.diff_path = None;
         self.nav.dock = None;
+        self.layout.dock_open = false;
         self.closing = None;
         self.reply.reset("");
         self.moved(cx);
