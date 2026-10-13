@@ -2,7 +2,9 @@
 
 use crate::error::{Error, Result};
 
-pub(crate) fn apply(base: &[u8], delta: &[u8], max_result_size: usize) -> Result<Vec<u8>> {
+/// `delta` applied to `base`: the object it encodes, refused past
+/// `max_result_size` bytes.
+pub fn apply(base: &[u8], delta: &[u8], max_result_size: usize) -> Result<Vec<u8>> {
     let mut cursor = 0;
     let base_size = read_size(delta, &mut cursor)?;
     let result_size = read_size(delta, &mut cursor)?;

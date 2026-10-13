@@ -285,3 +285,72 @@ fn git_accepts_a_pack_we_wrote() {
     assert_eq!(body.stdout, expected.1.body);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Every object of a pack read again entry by entry, deltas applied by hand,
+/// matches what `read` gave, which lists them in the pack's order: what a
+/// store that keeps the pack and indexes each object at its offset relies on.
+#[test]
+fn every_entry_reads_back_at_the_offset_git_listed() {
+    for (bytes, listing) in [
+        (fixture!("ofs.pack"), fixture!("ofs.verify")),
+        (fixture!("ref.pack"), fixture!("ref.verify")),
+    ] {
+        let git_offsets: Vec<usize> = String::from_utf8_lossy(listing)
+            .lines()
+            .filter(|line| line.split(' ').next().is_some_and(|oid| oid.len() == 40))
+            .map(|line| line.split_whitespace().nth(4).unwrap().parse().unwrap())
+            .collect();
+        let entries = pack::entries(bytes, Hash::Sha1, usize::MAX).unwrap();
+        let offsets: Vec<usize> = entries.iter().map(|(offset, _)| *offset).collect();
+        assert_eq!(offsets, git_offsets);
+        let objects = pack::read(bytes, Hash::Sha1, &Limits::generous(), no_base).unwrap();
+        assert_eq!(objects.len(), offsets.len());
+        let at: std::collections::BTreeMap<Oid, usize> = objects
+            .iter()
+            .zip(&offsets)
+            .map(|((id, _), offset)| (*id, *offset))
+            .collect();
+        for ((id, object), offset) in objects.iter().zip(&offsets) {
+            let base = entries.iter().find(|(at, _)| at == offset).unwrap().1;
+            let mut deltas = Vec::new();
+            let mut next = *offset;
+            let (kind, mut body) = loop {
+                match pack::entry_at(bytes, next, Hash::Sha1, usize::MAX)
+                    .unwrap()
+                    .0
+                {
+                    pack::Payload::Full(kind, body) => break (kind, body),
+                    pack::Payload::OfsDelta { base_offset, delta } => {
+                        if next == *offset {
+                            assert_eq!(base, pack::Base::Offset(base_offset));
+                        }
+                        deltas.push(delta);
+                        next = base_offset;
+                    }
+                    pack::Payload::RefDelta { base: id, delta } => {
+                        if next == *offset {
+                            assert_eq!(base, pack::Base::Object(id));
+                        }
+                        deltas.push(delta);
+                        next = at[&id];
+                    }
+                }
+            };
+            for delta in deltas.iter().rev() {
+                body = pack::apply_delta(&body, delta, usize::MAX).unwrap();
+            }
+            assert_eq!((kind, &body), (object.kind, &object.body), "{id}");
+        }
+    }
+}
+
+#[test]
+fn an_entry_outside_the_pack_is_refused() {
+    let bytes = fixture!("ofs.pack");
+    for offset in [0, 11, bytes.len() - 20, bytes.len()] {
+        assert_eq!(
+            pack::entry_at(bytes, offset, Hash::Sha1, usize::MAX).err(),
+            Some(Error::Truncated)
+        );
+    }
+}

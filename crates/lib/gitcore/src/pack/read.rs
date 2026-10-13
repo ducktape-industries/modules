@@ -1,4 +1,4 @@
-// Pack reading: header, entry headers, inflate, delta resolution (ofs, ref, thin) and checksum.
+// Pack reading: header, entry headers, inflate, delta resolution (ofs, ref, thin) and checksum; one entry at an offset, for a pack read before.
 
 use super::{Limits, SIGNATURE, delta, kind_from_code};
 use crate::error::{Error, Result};
@@ -14,7 +14,10 @@ use std::collections::BTreeMap;
 const OFS_DELTA: u8 = 6;
 const REF_DELTA: u8 = 7;
 
-enum Payload {
+/// One pack entry, inflated: a whole object, or a delta against the entry
+/// at `base_offset` of the same pack or against the object `base`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Payload {
     Full(Kind, Vec<u8>),
     OfsDelta { base_offset: usize, delta: Vec<u8> },
     RefDelta { base: Oid, delta: Vec<u8> },
@@ -120,33 +123,7 @@ fn parse_entries(body: &[u8], count: usize, hash: Hash, limits: &Limits) -> Resu
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let offset = cursor.pos;
-        let (type_code, size) = read_entry_header(&mut cursor)?;
-        let too_large = size > limits.max_object_size;
-        if too_large {
-            return Err(Error::ObjectTooLarge);
-        }
-        let payload = match type_code {
-            OFS_DELTA => {
-                let distance = read_offset(&mut cursor)?;
-                let Some(base_offset) = offset.checked_sub(distance) else {
-                    return Err(Error::BadDelta);
-                };
-                let delta = inflate_at(&mut cursor, size)?;
-                Payload::OfsDelta { base_offset, delta }
-            }
-            REF_DELTA => {
-                let base = Oid::from_bytes(hash, cursor.take(hash.size())?)?;
-                let delta = inflate_at(&mut cursor, size)?;
-                Payload::RefDelta { base, delta }
-            }
-            other => {
-                let Some(kind) = kind_from_code(other) else {
-                    return Err(Error::UnknownObjectKind);
-                };
-                let data = inflate_at(&mut cursor, size)?;
-                Payload::Full(kind, data)
-            }
-        };
+        let payload = read_payload(&mut cursor, hash, limits.max_object_size)?;
         entries.push(Entry { offset, payload });
     }
     let trailing_garbage = cursor.pos != body.len();
@@ -154,6 +131,99 @@ fn parse_entries(body: &[u8], count: usize, hash: Hash, limits: &Limits) -> Resu
         return Err(Error::BadPackHeader);
     }
     Ok(entries)
+}
+
+fn read_payload(cursor: &mut Cursor<'_>, hash: Hash, max_size: usize) -> Result<Payload> {
+    let offset = cursor.pos;
+    let (type_code, size) = read_entry_header(cursor)?;
+    let too_large = size > max_size;
+    if too_large {
+        return Err(Error::ObjectTooLarge);
+    }
+    Ok(match type_code {
+        OFS_DELTA => {
+            let distance = read_offset(cursor)?;
+            let Some(base_offset) = offset.checked_sub(distance) else {
+                return Err(Error::BadDelta);
+            };
+            let delta = inflate_at(cursor, size)?;
+            Payload::OfsDelta { base_offset, delta }
+        }
+        REF_DELTA => {
+            let base = Oid::from_bytes(hash, cursor.take(hash.size())?)?;
+            let delta = inflate_at(cursor, size)?;
+            Payload::RefDelta { base, delta }
+        }
+        other => {
+            let Some(kind) = kind_from_code(other) else {
+                return Err(Error::UnknownObjectKind);
+            };
+            Payload::Full(kind, inflate_at(cursor, size)?)
+        }
+    })
+}
+
+/// The entry at `offset` of a pack read before (its header and checksum
+/// included) and the offset the entry after it starts at: random access,
+/// the entry alone, its delta unresolved. An entry bigger than `max_size`
+/// inflated is refused.
+pub fn entry_at(
+    pack: &[u8],
+    offset: usize,
+    hash: Hash,
+    max_size: usize,
+) -> Result<(Payload, usize)> {
+    let body = entries_of(pack, hash)?;
+    let in_body = offset >= 12 && offset < body.len();
+    if !in_body {
+        return Err(Error::Truncated);
+    }
+    let mut cursor = Cursor {
+        bytes: body,
+        pos: offset,
+    };
+    let payload = read_payload(&mut cursor, hash, max_size)?;
+    Ok((payload, cursor.pos))
+}
+
+/// What an entry is read from: itself whole, or a delta against the entry
+/// at an offset of the same pack or against an object by id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Base {
+    Whole,
+    Offset(usize),
+    Object(Oid),
+}
+
+/// Each entry of a pack read before, in the pack's order (the order
+/// [`read`] lists its objects in): where it starts and what it is read
+/// from. Each entry is inflated to find its end.
+pub fn entries(pack: &[u8], hash: Hash, max_size: usize) -> Result<Vec<(usize, Base)>> {
+    let body = entries_of(pack, hash)?;
+    let count = parse_header(body)?;
+    let mut cursor = Cursor {
+        bytes: body,
+        pos: 12,
+    };
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let offset = cursor.pos;
+        let base = match read_payload(&mut cursor, hash, max_size)? {
+            Payload::Full(..) => Base::Whole,
+            Payload::OfsDelta { base_offset, .. } => Base::Offset(base_offset),
+            Payload::RefDelta { base, .. } => Base::Object(base),
+        };
+        entries.push((offset, base));
+    }
+    Ok(entries)
+}
+
+/// A pack without its trailing checksum.
+fn entries_of(pack: &[u8], hash: Hash) -> Result<&[u8]> {
+    pack.len()
+        .checked_sub(hash.size())
+        .map(|len| &pack[..len])
+        .ok_or(Error::Truncated)
 }
 
 fn read_entry_header(cursor: &mut Cursor<'_>) -> Result<(u8, usize)> {

@@ -4,7 +4,8 @@ mod delta;
 mod read;
 mod write;
 
-pub use read::read;
+pub use delta::apply as apply_delta;
+pub use read::{Base, Payload, entries, entry_at, read};
 pub use write::{PackWriter, write};
 
 use crate::object::Kind;
@@ -28,7 +29,8 @@ impl Limits {
     }
 }
 
-pub(crate) fn kind_code(kind: Kind) -> u8 {
+/// An object kind's type code in a pack entry's header.
+pub fn kind_code(kind: Kind) -> u8 {
     match kind {
         Kind::Commit => 1,
         Kind::Tree => 2,
@@ -37,7 +39,8 @@ pub(crate) fn kind_code(kind: Kind) -> u8 {
     }
 }
 
-pub(crate) fn kind_from_code(code: u8) -> Option<Kind> {
+/// The object kind a pack entry's type code names (not a delta's).
+pub fn kind_from_code(code: u8) -> Option<Kind> {
     match code {
         1 => Some(Kind::Commit),
         2 => Some(Kind::Tree),
