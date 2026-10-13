@@ -267,6 +267,7 @@ impl Net {
             target: target.to_owned(),
             payload: abi::encode(op),
             reply: false,
+            acting: None,
         }))];
         let signer = public(PROBE_SIGNER);
         let submission = self.submission(&signer, program, abi::encode(&script));

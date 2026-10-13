@@ -127,6 +127,7 @@ fn a_row_says_who_operates_a_node_on_an_agent() {
         number: 11,
         name: "validator vps".into(),
         kind: identity::Kind::Managed {
+            runner: None,
             manager: 10,
             category: identity::Category::Agent,
             standing: identity::Standing::Active,

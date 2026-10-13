@@ -34,6 +34,7 @@ fn scout() -> identity::Account {
         12,
         "Scout",
         identity::Control::Managed {
+            runner: None,
             manager: 7,
             category: identity::Category::Agent,
             life: identity::Life::Active { keys: Vec::new() },
@@ -99,6 +100,7 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
                         number: 12,
                         name: "Scout".into(),
                         kind: identity::Kind::Managed {
+                            runner: None,
                             manager: 7,
                             category: identity::Category::Agent,
                             standing: identity::Standing::Suspended,
@@ -635,6 +637,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
                         panic!()
                     };
                     let control = identity::Control::Managed {
+                        runner: None,
                         manager,
                         category,
                         life,
@@ -716,6 +719,7 @@ fn an_identity_head_re_reads_the_account_in_place() {
             identity::Query::Managed { .. } => {
                 let mut scout = scout();
                 scout.control = identity::Control::Managed {
+                    runner: None,
                     manager: 7,
                     category: identity::Category::Agent,
                     life: identity::Life::Suspended { keys: Vec::new() },

@@ -357,11 +357,41 @@ impl ExecCtx {
         payload: impl Into<Vec<u8>>,
         reply: Reply,
     ) -> MessageId {
-        match self.host(HostOp::Emit(Message {
+        self.send(Message {
             target: target.into(),
             payload: payload.into(),
             reply: reply == Reply::Wanted,
-        })) {
+            acting: None,
+        })
+    }
+
+    pub fn emit_as<T: BorshSerialize>(
+        &self,
+        account: AccountNumber,
+        target: impl Into<ModuleId>,
+        op: &T,
+        reply: Reply,
+    ) -> MessageId {
+        self.emit_raw_as(account, target, abi::encode(op), reply)
+    }
+
+    pub fn emit_raw_as(
+        &self,
+        account: AccountNumber,
+        target: impl Into<ModuleId>,
+        payload: impl Into<Vec<u8>>,
+        reply: Reply,
+    ) -> MessageId {
+        self.send(Message {
+            target: target.into(),
+            payload: payload.into(),
+            reply: reply == Reply::Wanted,
+            acting: Some(account),
+        })
+    }
+
+    fn send(&self, message: Message) -> MessageId {
+        match self.host(HostOp::Emit(message)) {
             HostReply::Item(item) => item.into(),
             other => protocol("item", other),
         }
@@ -392,11 +422,12 @@ mod tests {
         let ctx = host.exec(MockHost::env("forge"));
         let first = ctx.emit_raw("chat", b"a".to_vec(), Reply::None);
         let second = ctx.emit_raw("chat", b"b".to_vec(), Reply::Wanted);
+        let third = ctx.emit_raw_as(7, "chat", b"c".to_vec(), Reply::None);
         let id = |seq| MessageId {
             module: "forge".into(),
             seq,
         };
-        assert_eq!((first, second), (id(0), id(1)));
+        assert_eq!((first, second, third), (id(0), id(1), id(2)));
         assert_eq!(
             host.take_emissions(),
             [
@@ -404,11 +435,19 @@ mod tests {
                     target: "chat".into(),
                     payload: b"a".to_vec(),
                     reply: false,
+                    acting: None,
                 },
                 Message {
                     target: "chat".into(),
                     payload: b"b".to_vec(),
                     reply: true,
+                    acting: None,
+                },
+                Message {
+                    target: "chat".into(),
+                    payload: b"c".to_vec(),
+                    reply: false,
+                    acting: Some(7),
                 },
             ]
         );

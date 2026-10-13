@@ -26,6 +26,11 @@ enum Step {
     Event,
     Output(Vec<u8>),
     Refuse,
+    EmitAs {
+        account: AccountNumber,
+        target: String,
+        steps: Vec<Step>,
+    },
 }
 
 struct Bot;
@@ -75,6 +80,13 @@ impl Module for Bot {
                 Step::Event => ctx.event(b"happened".to_vec()),
                 Step::Output(bytes) => ctx.set_return_data(bytes),
                 Step::Refuse => return Err(Error::new(code::WRONG_STATE, "as scripted")),
+                Step::EmitAs {
+                    account,
+                    target,
+                    steps,
+                } => {
+                    ctx.emit_as(account, target, &steps, Reply::None);
+                }
             }
         }
         Ok(())
@@ -135,6 +147,13 @@ impl Module for Ident {
             }
             Asked::OfModule(module) => {
                 Answer::Account(module.bytes().next().map(|byte| 100 + byte as u64))
+            }
+            Asked::Runs { program, account } if program == "a" => Answer::Account(Some(account)),
+            Asked::Runs { program, account } => {
+                return Err(Error::new(
+                    code::UNAUTHORIZED,
+                    format!("{program} does not run {account}"),
+                ));
             }
             Asked::Profile(_) => Answer::Profile(None),
             Asked::Profiles { .. } => Answer::Profiles {
@@ -435,6 +454,7 @@ fn a_submission_acts_as_the_account_its_key_holds_or_as_no_one() {
         number: 5,
         name: "agent".into(),
         kind: Kind::Managed {
+            runner: None,
             manager: 1,
             category: Category::Agent,
             standing: Standing::Suspended,
@@ -468,12 +488,54 @@ fn a_submission_acts_as_the_account_its_key_holds_or_as_no_one() {
 }
 
 #[test]
+fn a_message_acts_as_an_agent_only_through_the_module_that_runs_it() {
+    let chain = chain();
+    let agent = |number, runner: Option<&str>, standing| Profile {
+        number,
+        name: "agent".into(),
+        kind: Kind::Managed {
+            manager: 1,
+            category: Category::Agent,
+            standing,
+            runner: runner.map(Into::into),
+        },
+    };
+    chain.profile(agent(8, Some("a"), Standing::Active));
+    chain.profile(agent(9, Some("a"), Standing::Suspended));
+    let as_agent = |number| Step::EmitAs {
+        account: number,
+        target: "c".into(),
+        steps: Vec::new(),
+    };
+    chain.submit(ada(), "a", &vec![as_agent(8)]).unwrap();
+    assert_eq!(logged(&chain, "c")[0].sender, account(8));
+    for (module, number) in [("b", 8), ("a", 9), ("a", 1)] {
+        let refused = chain
+            .submit(ada(), module, &vec![as_agent(number)])
+            .unwrap_err();
+        assert_eq!(refused.code, code::UNAUTHORIZED, "{module} as {number}");
+    }
+    assert_eq!(logged(&chain, "c").len(), 1);
+    let mut seated = chain;
+    seated.seat::<Ident>(&MockHost::roles().identity);
+    seated
+        .submit(Origin::Signed(vec![7]), "a", &vec![as_agent(40)])
+        .unwrap();
+    assert_eq!(logged(&seated, "c")[1].sender, account(40));
+    let refused = seated
+        .submit(Origin::Signed(vec![7]), "b", &vec![as_agent(40)])
+        .unwrap_err();
+    assert_eq!(refused.code, code::UNAUTHORIZED);
+}
+
+#[test]
 fn the_roster_answers_modules_as_the_identity_role_does() {
     let chain = chain();
     chain.profile(Profile {
         number: 6,
         name: "idle".into(),
         kind: Kind::Managed {
+            runner: None,
             manager: 1,
             category: Category::Agent,
             standing: Standing::Revoked,

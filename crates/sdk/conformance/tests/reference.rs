@@ -111,6 +111,14 @@ impl conformance::identity::Fixture for Identity {
     fn revoke(&self, host: &MockHost, account: AccountNumber) {
         Self::as_manager(host, account, identity::Op::Revoke { account });
     }
+
+    fn hand(&self, host: &MockHost, account: AccountNumber, program: &str) {
+        let op = identity::Op::SetRunner {
+            account,
+            runner: Some(program.into()),
+        };
+        Self::as_manager(host, account, op);
+    }
 }
 
 #[test]

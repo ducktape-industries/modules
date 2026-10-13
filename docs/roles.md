@@ -12,7 +12,7 @@ modules in `crates/system/` are one implementation of each.
 |---|---|---|
 | `registry` | `module-registry` | at founding, writes its params (`role::registry::Genesis`: every founding module and view, and the founding hooks); at each block, before any frame, asks `At(height)` and admits, swaps or drops modules to match the answer, then asks `Hooks(height)` for the modules it tells of each frame the block carries ("Hooks", below) |
 | `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there. The node (`ducktape join`, `invite`, `vote`, `leave`) signs the role's `Op` with its identity key |
-| `identity` | `identity` | as it admits a module (at founding, and later off the registry), executes `RegisterModule { module }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfModule(sender)` |
+| `identity` | `identity` | as it admits a module (at founding, and later off the registry), executes `RegisterModule { module }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfModule(sender)`, and for a message a module sends as another account asks `Runs { program, account }` |
 
 The founding file binds them (ducktape's `[roles]` table; qa's
 `founding.toml` is a working one):
@@ -41,6 +41,12 @@ hands it to the module as `Env.sender`:
   suspended agent) is refused, and the host rejects the frame;
 - a message or a reply from another module acts as that module's account
   (`OfModule(module)`);
+- a message a module sends as another account (`ctx.emit_as(account, ..)`,
+  `Message.acting`) acts as that account when identity answers
+  `Runs { program, account }` with it: an agent whose manager handed it to
+  that module, while the agent is active. Any other answer, or a refusal,
+  rejects the message, so no key is held anywhere for an agent a module
+  runs;
 - founding and the kernel's own calls act as the chain (`Root`).
 
 A module reads it as `ctx.sender()`, which is `Principal::Account(number)`
@@ -57,10 +63,10 @@ Everything that acts is an account in `identity`:
 avatar, bio); the `Control` is who acts as it:
 
 - `Person { keys }`: a person and the keys they hold.
-- `Managed { manager, category, life }`: an agent. Its manager, a person,
-  gives it keys and decides its `Life`: `Active { keys }`,
-  `Suspended { keys }` (keys kept, frames refused) or `Revoked` (keys
-  dropped, final).
+- `Managed { manager, category, life, runner }`: an agent. Its manager, a
+  person, gives it keys, hands it to a module to run (`runner`), and
+  decides its `Life`: `Active { keys }`, `Suspended { keys }` (keys kept,
+  frames refused) or `Revoked` (keys dropped, final).
 - `Module { module }`: a module's account, registered by the kernel as it
   admits the module. It holds no keys; the module alone acts as it.
 
@@ -75,13 +81,14 @@ Who may do what (the acting account is `ctx.sender()`):
 | `RemoveKey` | a person removes their own key or a junior one, never their last. An agent's manager removes any of its keys |
 | `SetName`, `SetProfile` | a person or a module on its own account; an agent's manager on the agent's (not once revoked) |
 | `Suspend`, `Resume`, `Revoke` | the agent's manager |
+| `SetRunner { account, runner }` | the agent's manager, not once revoked. `Some(module)` names a module that has an account; that module then sends messages as the agent (`Runs`). `None` takes it back |
 | `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and at most `MAX_AUDIENCE` = 64 others) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
 
 The role's queries, which views and other modules ask too, are
-`Account(key)`, `OfModule(module)`, `Profile(number)` and
-`Profiles { after, limit }`. A `Profile` is `{ number, name, kind }`, where
-`Kind` is `Person`, `Managed { manager, category, standing }` or
-`Module(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view
+`Account(key)`, `OfModule(module)`, `Profile(number)`,
+`Profiles { after, limit }` and `Runs { program, account }`. A `Profile` is
+`{ number, name, kind }`, where `Kind` is `Person`,
+`Managed { manager, category, standing, runner }` or `Module(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view
 shows beside a name ("Agent · managed by Dev", "Module · chat", "suspended"),
 the one place that happens.
 

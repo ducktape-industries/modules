@@ -235,6 +235,7 @@ pub(crate) fn scout() -> identity::Account {
         5,
         "Scout",
         identity::Control::Managed {
+            runner: None,
             manager: 3,
             category: identity::Category::Agent,
             life: identity::Life::Suspended { keys: Vec::new() },

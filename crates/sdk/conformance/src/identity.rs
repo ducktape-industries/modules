@@ -33,6 +33,8 @@ pub trait Fixture {
     /// The managed `account` ([`Fixture::managed`]'s) is revoked, by its
     /// manager.
     fn revoke(&self, host: &MockHost, account: AccountNumber);
+
+    fn hand(&self, host: &MockHost, account: AccountNumber, program: &str);
 }
 
 /// Every identity rule, each on a fresh host.
@@ -49,6 +51,7 @@ pub fn run(fixture: &impl Fixture) {
     profiles_page_ascending(fixture);
     profiles_of_limit_zero_is_a_page(fixture);
     module_profiles_agree_with_of_module(fixture);
+    a_program_runs_only_the_managed_account_handed_to_it(fixture);
 }
 
 fn module() -> String {
@@ -155,6 +158,10 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
             after: Some(2),
             limit: 5,
         },
+        Query::Runs {
+            program: "chat".into(),
+            account: 4,
+        },
     ] {
         same_bytes::<<M<F> as Program>::Query>(&m, "Query", &query);
     }
@@ -162,6 +169,7 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
         number: 1,
         name: "Scout".into(),
         kind: Kind::Managed {
+            runner: None,
             manager: 2,
             category: Category::Agent,
             standing: Standing::Suspended,
@@ -359,6 +367,45 @@ pub fn a_revoked_account_s_keys_stop_resolving<F: Fixture>(fixture: &F) {
         ),
         "identity: a revoked account's profile is managed and Revoked, not {kind:?}"
     );
+}
+
+pub fn a_program_runs_only_the_managed_account_handed_to_it<F: Fixture>(fixture: &F) {
+    let host = fixture.host();
+    for name in ["harness", "chat"] {
+        register::<F>(&host, Origin::Root, None, name).unwrap();
+    }
+    let person = fixture.account(&host, b"person key");
+    let agent = fixture.managed(&host, b"agent key");
+    let runs = |program: &str, account| {
+        query::<F>(
+            &host,
+            Query::Runs {
+                program: program.into(),
+                account,
+            },
+        )
+    };
+    let refused = |program: &str, account| match runs(program, account) {
+        Err(_) => {}
+        other => panic!("identity: Runs {{ {program}, {account} }} is refused, not {other:?}"),
+    };
+    refused("harness", agent);
+    refused("harness", person);
+    fixture.hand(&host, agent, "harness");
+    match runs("harness", agent) {
+        Ok(Reply::Account(Some(number))) if number == agent => {}
+        other => panic!(
+            "identity: Runs of the managed account {agent} handed to harness answers it, not {other:?}"
+        ),
+    }
+    let kind = profile::<F>(&host, agent).map(|p| p.kind);
+    assert!(
+        matches!(&kind, Some(Kind::Managed { runner: Some(runner), .. }) if runner == "harness"),
+        "identity: the profile of an account handed to harness names it its runner, not {kind:?}"
+    );
+    refused("chat", agent);
+    fixture.revoke(&host, agent);
+    refused("harness", agent);
 }
 
 /// `Profile` of a number no account has is `None`.

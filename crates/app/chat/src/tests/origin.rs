@@ -24,6 +24,7 @@ fn identity() -> Vec<Profile> {
         profile(
             3,
             Kind::Managed {
+                runner: None,
                 manager: 1,
                 category: Category::Agent,
                 standing: Standing::Active,

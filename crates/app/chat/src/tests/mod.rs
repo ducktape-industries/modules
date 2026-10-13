@@ -52,6 +52,7 @@ fn roster() -> Vec<crate::Profile> {
     };
     let agent = |number, standing| {
         let kind = Kind::Managed {
+            runner: None,
             manager: 1,
             category: Category::Agent,
             standing,

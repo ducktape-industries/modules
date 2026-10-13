@@ -259,6 +259,7 @@ mod tests {
                 updated_at: 1,
             },
             control: identity::Control::Managed {
+                runner: None,
                 manager: 7,
                 category: identity::Category::Agent,
                 life: identity::Life::Active { keys: Vec::new() },

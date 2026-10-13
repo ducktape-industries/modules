@@ -284,6 +284,7 @@ fn an_agent_acts_until_its_manager_suspends_it() {
         assert_eq!(
             net.account(agent).await.control,
             identity::Control::Managed {
+                runner: None,
                 manager: alice,
                 category: identity::Category::Agent,
                 life: identity::Life::Active { keys: Vec::new() },
@@ -371,11 +372,71 @@ fn an_agent_acts_until_its_manager_suspends_it() {
         assert_eq!(
             account.kind(),
             identity::Kind::Managed {
+                runner: None,
                 manager: alice,
                 category: identity::Category::Agent,
                 standing: identity::Standing::Revoked,
             }
         );
+    });
+}
+
+#[derive(BorshDeserialize)]
+enum Probed {
+    #[allow(dead_code)]
+    Host(abi::HostReply),
+    Env(Box<abi::Env>),
+}
+
+impl Net {
+    async fn sent_as(&mut self, account: AccountNumber) -> Receipt {
+        let message = Message {
+            target: "probe".into(),
+            payload: abi::encode(&vec![Step::Env]),
+            reply: false,
+            acting: Some(account),
+        };
+        let script = vec![Step::Op(HostOp::Emit(message))];
+        let submission = self.submission(&public(PROBE_SIGNER), "probe", abi::encode(&script));
+        let applied = self.block(vec![submission]).await;
+        applied.submissions[0].nested[0].clone()
+    }
+}
+
+#[test]
+fn a_module_sends_as_the_agent_its_manager_hands_it_while_the_agent_acts() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found(context, dir.path()).await;
+        net.create(1, "Alice").await;
+        net.create(2, "Bob").await;
+        let create = identity::Op::CreateAgent {
+            name: "Scout".into(),
+        };
+        let agent: AccountNumber =
+            abi::decode(&net.apply(&public(1), identity::MODULE, &create).await).unwrap();
+        assert_eq!(refusal_of(&net.sent_as(agent).await), reason::UNAUTHORIZED);
+
+        let hand = identity::Op::SetRunner {
+            account: agent,
+            runner: Some("probe".into()),
+        };
+        let by_bob = net.refuse(&public(2), identity::MODULE, &hand).await;
+        assert_eq!(by_bob, reason::UNAUTHORIZED);
+        net.apply(&public(1), identity::MODULE, &hand).await;
+        let ran = net.sent_as(agent).await;
+        let probed: Vec<Probed> = abi::decode(output_of(&ran)).unwrap();
+        let [Probed::Env(env)] = probed.as_slice() else {
+            panic!()
+        };
+        assert_eq!(env.sender, Some(abi::Principal::Account(agent)));
+        assert_eq!(env.origin, abi::Origin::Program("probe".into()));
+
+        let suspend = identity::Op::Suspend { account: agent };
+        net.apply(&public(1), identity::MODULE, &suspend).await;
+        assert_eq!(refusal_of(&net.sent_as(agent).await), reason::UNAUTHORIZED);
+        let person = net.sent_as(ALICE).await;
+        assert_eq!(refusal_of(&person), reason::UNAUTHORIZED);
     });
 }
 
@@ -429,6 +490,7 @@ fn the_roles_and_the_env_are_ducktapes_byte_for_byte() {
         "pub struct Roles {",
         "pub struct Env {",
         "pub enum Cause {",
+        "pub struct Message {",
     ] {
         assert_eq!(
             item(&theirs, first),

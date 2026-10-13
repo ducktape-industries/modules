@@ -69,6 +69,7 @@ fn agent(number: u64, name: &str, manager: u64, life: identity::Life) -> identit
         number,
         name,
         identity::Control::Managed {
+            runner: None,
             manager,
             category: identity::Category::Agent,
             life,

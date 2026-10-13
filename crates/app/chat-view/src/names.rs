@@ -59,6 +59,7 @@ mod tests {
 
     fn agent(manager: u64, standing: Standing) -> Kind {
         Kind::Managed {
+            runner: None,
             manager,
             category: Category::Agent,
             standing,
