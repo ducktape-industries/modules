@@ -17,9 +17,9 @@ pub(crate) use abi::BlobId;
 pub(crate) use activity::Activity;
 pub(crate) use ducktape_view_guest::host::Error;
 pub(crate) use ducktape_view_guest::methods::{
-    Block, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads, ChainStatus, Changes,
-    ClipboardWrite, Description, Head, HostRoute, HostSession, ModuleDescribe, NodeStatus, Outcome,
-    Query, Receipt, Session, Tip, Tx, Value,
+    Block, BlockList, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads, ChainStatus,
+    ChainTx, Changes, ClipboardWrite, Description, Head, HostRoute, HostSession, Located,
+    ModuleDescribe, NodeStatus, Outcome, Query, Receipt, Session, Tip, Tx, TxAsk, TxRef, Value,
 };
 pub(crate) use ducktape_view_guest::testing::TestAppContext;
 pub(crate) use identity::Identity;
@@ -52,7 +52,8 @@ pub(crate) fn tx(seed: u8, signer: [u8; 32], target: &str, payload: Vec<u8>) -> 
             id: [10; 32],
         },
         target: target.into(),
-        payload,
+        size: payload.len() as u32,
+        payload: Some(payload),
         receipt: None,
     }
 }
@@ -125,16 +126,73 @@ pub(crate) fn chain(tip: u64) -> Vec<Block> {
         .collect()
 }
 
-pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> Vec<Block> {
+pub(crate) const LISTED_BYTES: u32 = 4 << 10;
+
+pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> BlockList {
     let top = chain.len() as u64 - 1;
-    let Some(start) = ask.before.map_or(Some(top), |before| before.checked_sub(1)) else {
-        return Vec::new();
-    };
-    (0..=start.min(top))
-        .rev()
-        .take(ask.limit as usize)
-        .map(|height| chain[height as usize].clone())
-        .collect()
+    let start = ask.before.map_or(Some(top), |before| before.checked_sub(1));
+    let blocks = start.map_or_else(Vec::new, |start| {
+        (0..=start.min(top))
+            .rev()
+            .take(ask.limit as usize)
+            .map(|height| listed(&chain[height as usize]))
+            .collect()
+    });
+    BlockList {
+        blocks,
+        listed_from: Some(0),
+    }
+}
+
+pub(crate) fn listed(block: &Block) -> Block {
+    Block {
+        txs: block
+            .txs
+            .iter()
+            .map(|tx| capped(tx, LISTED_BYTES))
+            .collect(),
+        ..block.clone()
+    }
+}
+
+fn capped(tx: &Tx, most: u32) -> Tx {
+    let within = tx.size <= most;
+    Tx {
+        payload: tx.payload.clone().filter(|_| within),
+        ..tx.clone()
+    }
+}
+
+fn located(chain: &[Block], ask: TxAsk) -> Option<Located> {
+    chain.iter().find_map(|block| {
+        let position = match ask.tx {
+            TxRef::At { height, position } => (block.height == height).then_some(position)?,
+            TxRef::Hash(hash) => block.txs.iter().position(|tx| tx.hash == hash)? as u32,
+        };
+        let tx = block.txs.get(position as usize)?;
+        Some(Located {
+            height: block.height,
+            position,
+            time: block.time,
+            tx: capped(tx, ask.most),
+        })
+    })
+}
+
+pub(crate) fn serve(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + Clone + 'static) {
+    let host = cx.host();
+    let held = chain.clone();
+    host.handle::<ChainBlocks>(move |ask| Ok(page(&held(), &ask)));
+    let held = chain.clone();
+    host.handle::<ChainBlock>(move |by| {
+        let held = held();
+        let found = match by {
+            BlockRef::Height(height) => held.get(height as usize),
+            BlockRef::Id(id) => held.iter().find(|block| block.id == id),
+        };
+        Ok(found.map(listed))
+    });
+    host.handle::<ChainTx>(move |ask| Ok(located(&chain(), ask)));
 }
 
 pub(crate) fn status(height: u64) -> NodeStatus {
@@ -269,15 +327,7 @@ pub(crate) fn node(cx: &mut TestAppContext, tip: Rc<RefCell<u64>>) {
     host.handle::<ChainStatus>(move |()| Ok(status(*head.borrow())));
     let head = tip.clone();
     index(cx, move || chain(*head.borrow()));
-    let head = tip.clone();
-    host.handle::<ChainBlocks>(move |ask| Ok(page(&chain(*head.borrow()), &ask)));
-    host.handle::<ChainBlock>(move |by| {
-        let chain = chain(*tip.borrow());
-        Ok(match by {
-            BlockRef::Height(height) => chain.get(height as usize).cloned(),
-            BlockRef::Id(id) => chain.into_iter().find(|block| block.id == id),
-        })
-    });
+    serve(cx, move || chain(*tip.borrow()));
     host.handle::<Query<Identity>>(|query| match query {
         identity::Query::List { .. } => {
             Ok(identity::Reply::Accounts(module_registry::PageResponse {
@@ -430,14 +480,7 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
     host.handle::<ChainStatus>(move |()| Ok(status(tip)));
     let indexed = chain.clone();
     index(cx, move || indexed.clone());
-    let blocks = chain.clone();
-    host.handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
-    host.handle::<ChainBlock>(move |by| {
-        Ok(match by {
-            BlockRef::Height(height) => chain.get(height as usize).cloned(),
-            BlockRef::Id(id) => chain.iter().find(|block| block.id == id).cloned(),
-        })
-    });
+    serve(cx, move || chain.clone());
     host.handle::<Query<Identity>>(|_| {
         Ok(identity::Reply::Accounts(module_registry::PageResponse {
             height: 1,
@@ -455,6 +498,7 @@ pub(crate) fn quiet_host(cx: &TestAppContext) {
     let host = cx.host();
     host.never::<ChainStatus>();
     host.never::<ChainBlocks>();
+    host.never::<ChainTx>();
     host.never::<Query<Identity>>();
     host.never::<Query<Valset>>();
     host.never::<Query<Modules>>();

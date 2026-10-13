@@ -34,6 +34,28 @@ fn the_window_follows_the_head_and_stops_where_the_archive_does() {
 }
 
 #[test]
+fn a_page_cut_short_reads_on_until_the_lowest_listed_block() {
+    let mut window = Chain::default();
+    let blocks = chain(30);
+    let ask = |before| BlockPage {
+        before,
+        limit: PAGE,
+    };
+    let mut short = page(&blocks, &ask(None));
+    short.blocks.truncate(5);
+    window.land(None, short);
+    assert_eq!((window.top(), window.blocks.len()), (Some(30), 5));
+    assert!(!window.complete, "a page cut by its bytes is not the end");
+    let mut listed = page(&blocks, &ask(Some(26)));
+    listed.blocks.retain(|block| block.height >= 20);
+    listed.listed_from = Some(20);
+    window.land(Some(26), listed);
+    assert_eq!(window.blocks.last().map(|block| block.height), Some(20));
+    assert!(window.complete);
+    assert_eq!(window.unlisted_below(), Some(20));
+}
+
+#[test]
 fn a_pushed_head_reads_only_the_new_blocks() {
     let mut cx = TestAppContext::new();
     let heads = cx.host().stream::<ChainHeads>();
@@ -143,9 +165,25 @@ fn a_full_window_renders_inside_the_frame_budget() {
     }
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
+    assert!(
+        cx.has_text("forge · 1,048,588 bytes"),
+        "the push is listed by its size: {:?}",
+        cx.texts()
+    );
     cx.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
     cx.run_until_parked();
     assert!(cx.has_text("1048576 bytes · 50505050…5050"));
+    assert_eq!(
+        cx.host().requests::<ChainTx>(),
+        [TxAsk {
+            tx: TxRef::At {
+                height: WINDOW as u64,
+                position: 0
+            },
+            most: u32::MAX
+        }],
+        "only the opened push reads its payload"
+    );
     sizes.push(("a 1 MB push", cx.frame_bytes()));
     // A regression guard, not a host limit: about 1.5x what each page drew
     // when measured. The host's own limits are the sanitize check inside

@@ -437,6 +437,7 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<InviteCreate>(d),
         borsh::<ChainBlocks>(d),
         borsh::<ChainBlock>(d),
+        borsh::<ChainTx>(d),
         borsh::<ChainNetwork>(d),
         borsh::<BlobGet>(d),
         borsh::<HostSession>(d),

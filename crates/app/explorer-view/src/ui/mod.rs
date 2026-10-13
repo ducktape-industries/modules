@@ -103,14 +103,28 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
         .into_any_element()
 }
 
+pub(crate) fn unindexed(from: u64) -> String {
+    format!(
+        "History before block {} is not indexed on this node.",
+        grouped(from)
+    )
+}
+
 /// The line under the bar, in words.
 fn worded(note: &Note) -> String {
     match note {
         Note::NotFound(query) => format!("Nothing here is called “{query}”."),
-        Note::NoSuchHash { blocks } => format!(
-            "No block has this hash, and no transaction in the last {} does.",
-            plural(*blocks, "block", "blocks")
-        ),
+        Note::NoSuchHash { listed_from } => {
+            let since = listed_from.filter(|from| *from > 0);
+            match since {
+                Some(from) => format!(
+                    "No block or transaction since block {} has this hash. {}",
+                    grouped(from),
+                    unindexed(from)
+                ),
+                None => "No block or transaction has this hash.".into(),
+            }
+        }
         Note::Unlinked(route) => format!("This link names nothing the Explorer shows: {route}"),
         Note::Copied => "Copied the link.".into(),
         Note::Sent(words) | Note::Refused(words) => words.clone(),
@@ -594,7 +608,7 @@ fn tx_row(
     let now = view.chain.now();
     view.describe(tx, cx);
     // empty until the host answers: the program column already says whose
-    let title = tx.op().map(|op| clip(&op.title)).unwrap_or_default();
+    let title = clip(&tx.title());
     let (word, mark) = match &tx.receipt {
         Some(run) => {
             let (word, color, _) = outcome(run, theme);

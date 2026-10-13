@@ -82,7 +82,7 @@ fn a_submission_is_a_block_with_its_changes() {
     assert_eq!(net.person("ada"), ada, "a name is one account");
     let status = net.status();
     assert_eq!(status.height, height + 1);
-    let blocks: Vec<methods::Block> = methods::decode(
+    let listed: methods::BlockList = methods::decode(
         &net.answer(
             "chain.blocks",
             None,
@@ -94,10 +94,35 @@ fn a_submission_is_a_block_with_its_changes() {
         .unwrap(),
     )
     .unwrap();
+    let blocks = &listed.blocks;
     assert_eq!(blocks[0].height, height + 1);
     assert_eq!(blocks[0].txs.len(), 1);
     assert_eq!(blocks[0].txs[0].target, "identity");
     assert_eq!(blocks.last().unwrap().height, 1);
+    assert_eq!(listed.listed_from, Some(1));
+    let size = blocks[0].txs[0].size;
+    assert!(size > 0);
+    let read = |most| {
+        let ask = methods::TxAsk {
+            tx: methods::TxRef::At {
+                height: height + 1,
+                position: 0,
+            },
+            most,
+        };
+        let answer = net
+            .answer("chain.tx", None, &methods::encode(&ask))
+            .unwrap();
+        methods::decode::<Option<methods::Located>>(&answer)
+            .unwrap()
+            .unwrap()
+            .tx
+    };
+    assert_eq!(read(size - 1).payload, None);
+    assert_eq!(
+        read(size).payload.map(|payload| payload.len()),
+        Some(size as usize)
+    );
 }
 
 /// A typed override answers before the chain; a refused one refuses.

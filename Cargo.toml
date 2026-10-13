@@ -98,8 +98,8 @@ files = { path = "crates/app/files" }
 # prebuilt wasm binary, `make probe-fixture`, not a Cargo dependency (its
 # `Step` script type is mirrored in module-registry's test, next to the
 # binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffafbbaf988bda7236541113de3a12bdbb40fb3b" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffafbbaf988bda7236541113de3a12bdbb40fb3b" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "fdd0fa4c6f4ac0480b8e152c274bcdb96417f90e" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "fdd0fa4c6f4ac0480b8e152c274bcdb96417f90e" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 

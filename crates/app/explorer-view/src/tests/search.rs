@@ -20,9 +20,16 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     assert!(cx.has_text(&abi::hex(&[105; 32])), "{:?}", cx.texts());
     search(&mut cx, &abi::hex(&[0xee; 32]));
     assert!(
-        cx.has_text("No block has this hash, and no transaction in the last 13 blocks does."),
+        cx.has_text("No block or transaction has this hash."),
         "{:?}",
         cx.texts()
+    );
+    assert_eq!(
+        cx.host().requests::<ChainTx>(),
+        [TxAsk {
+            tx: TxRef::Hash([0xee; 32]),
+            most: 0
+        }]
     );
     search(&mut cx, "1,000");
     assert!(cx.has_text("No block 1,000"), "{:?}", cx.texts());
@@ -32,6 +39,80 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     );
     search(&mut cx, "nobody");
     assert!(cx.has_text("Nothing here is called “nobody”."));
+}
+
+#[test]
+fn a_transaction_past_the_window_is_found_by_its_hash() {
+    let mut cx = TestAppContext::new();
+    let tip = WINDOW as u64 + 100;
+    node(&mut cx, Rc::new(RefCell::new(tip)));
+    serve(&cx, move || {
+        let mut blocks = chain(tip);
+        for block in &mut blocks {
+            block.id[..8].copy_from_slice(&block.height.to_le_bytes());
+        }
+        blocks
+    });
+    let routes = cx.host().stream::<HostRoute>();
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_input("explorer-search", &abi::hex(&[0xa1; 32]));
+    cx.simulate_submit("explorer-search");
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("In block 11") && cx.has_text("hello there"),
+        "{:?}",
+        cx.texts()
+    );
+    cx.simulate_click("explorer-tab-overview");
+    cx.run_until_parked();
+    routes.send(format!("tx/{}", abi::hex(&[0xb2; 32])));
+    cx.run_until_parked();
+    assert!(cx.has_text("In block 12"), "{:?}", cx.texts());
+    assert_eq!(
+        cx.host().requests::<ChainBlock>(),
+        [
+            BlockRef::Id([0xa1; 32]),
+            BlockRef::Height(11),
+            BlockRef::Id([0xb2; 32]),
+            BlockRef::Height(12)
+        ]
+    );
+}
+
+#[test]
+fn a_node_that_lists_from_a_later_block_says_so() {
+    let mut cx = TestAppContext::new();
+    node(&mut cx, Rc::new(RefCell::new(30)));
+    cx.host().handle::<ChainBlocks>(|ask| {
+        let mut listed = page(&chain(30), &ask);
+        listed.blocks.retain(|block| block.height >= 20);
+        listed.listed_from = Some(20);
+        Ok(listed)
+    });
+    cx.host().handle::<ChainBlock>(|_| Ok(None));
+    cx.host().handle::<ChainTx>(|_| Ok(None));
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-blocks");
+    cx.run_until_parked();
+    let unindexed = "History before block 20 is not indexed on this node.";
+    assert!(cx.has_text(unindexed), "{:?}", cx.texts());
+    let search = |cx: &mut TestAppContext, text: &str| {
+        cx.simulate_input("explorer-search", text);
+        cx.simulate_submit("explorer-search");
+        cx.run_until_parked();
+    };
+    search(&mut cx, "12");
+    assert!(cx.has_text("No block 12") && cx.has_text(unindexed));
+    search(&mut cx, &abi::hex(&[0xb2; 32]));
+    assert!(
+        cx.has_text(&format!(
+            "No block or transaction since block 20 has this hash. {unindexed}"
+        )),
+        "{:?}",
+        cx.texts()
+    );
 }
 
 #[test]
@@ -81,10 +162,8 @@ fn a_link_opens_the_page_it_names() {
     assert!(cx.has_text("account 3   Person   1 device"));
     open(&mut cx, "program/chat");
     assert!(cx.has_text("Transactions · chat"));
-    // a transaction the window does not hold says how far it looked
     open(&mut cx, &format!("tx/{}", abi::hex(&[0xee; 32])));
-    assert!(cx.has_text("Transaction not found"));
-    assert!(cx.has_text("It is not in the last 13 blocks this explorer reads."));
+    assert!(cx.has_text("No block or transaction has this hash."));
     open(&mut cx, "nowhere/1");
     assert!(cx.has_text("This link names nothing the Explorer shows: nowhere/1"));
 }

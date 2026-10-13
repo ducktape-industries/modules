@@ -13,15 +13,16 @@ const MAX_VALUE: usize = 160;
 /// An op no describe module read: its program, its size, its first bytes.
 pub fn bytes(program: &str, payload: &[u8]) -> Description {
     Description {
-        title: format!(
-            "{program} · {}",
-            plural(payload.len() as u64, "byte", "bytes")
-        ),
+        title: sized(program, payload.len() as u64),
         fields: vec![Field {
             label: "bytes".into(),
             value: Value::bytes(payload),
         }],
     }
+}
+
+pub fn sized(program: &str, size: u64) -> String {
+    format!("{program} · {}", plural(size, "byte", "bytes"))
 }
 
 /// [`Value::Bytes`] as `abi::preview` reads bytes: all of a short run, the

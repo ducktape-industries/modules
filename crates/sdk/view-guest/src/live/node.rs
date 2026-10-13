@@ -341,9 +341,11 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
             });
             match net.answer("chain.blocks", None, &page) {
                 Ok(bytes) => {
-                    let blocks: Vec<methods::Block> = methods::decode(&bytes).expect("own bytes");
-                    let blocks: Vec<wire::Finalized> = blocks.iter().map(wire::finalized).collect();
-                    Response::borsh(&blocks)
+                    let list: methods::BlockList = methods::decode(&bytes).expect("own bytes");
+                    Response::borsh(&wire::Page {
+                        blocks: list.blocks.iter().map(wire::finalized).collect(),
+                        listed_from: list.listed_from,
+                    })
                 }
                 Err(error) => Response::refused(refusal(&error)),
             }
@@ -361,6 +363,30 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                 Ok(bytes) => {
                     let block: Option<methods::Block> = methods::decode(&bytes).expect("own bytes");
                     Response::borsh(&block.as_ref().map(wire::finalized))
+                }
+                Err(error) => Response::refused(refusal(&error)),
+            }
+        }
+        ("POST", route::TX) => {
+            let ask: wire::TxAsk = match abi::decode(&body) {
+                Ok(ask) => ask,
+                Err(error) => return malformed(error.sentence),
+            };
+            let tx = match ask.tx {
+                wire::TxRef::At { height, position } => methods::TxRef::At { height, position },
+                wire::TxRef::Hash(hash) => methods::TxRef::Hash(hash),
+            };
+            let ask = methods::encode(&methods::TxAsk { tx, most: ask.most });
+            match net.answer("chain.tx", None, &ask) {
+                Ok(bytes) => {
+                    let found: Option<methods::Located> =
+                        methods::decode(&bytes).expect("own bytes");
+                    Response::borsh(&found.map(|found| wire::Located {
+                        height: found.height,
+                        position: found.position,
+                        time: found.time,
+                        tx: wire::tx(&found.tx),
+                    }))
                 }
                 Err(error) => Response::refused(refusal(&error)),
             }

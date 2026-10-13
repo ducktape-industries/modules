@@ -8,7 +8,8 @@ use abi::{BlobId, ProgramId, Roles, Root};
 use borsh::{BorshDeserialize, BorshSerialize};
 use guest::abi;
 
-pub const NODE_CONTRACT: u32 = 3;
+pub const NODE_CONTRACT: u32 = 4;
+pub const PREVIEW_BYTES: u32 = 4 << 10;
 pub const FRAME_NAMESPACE: &[u8] = b"ducktape:frame";
 
 pub mod route {
@@ -19,6 +20,7 @@ pub mod route {
     pub const CHANGES: &str = "/v1/changes";
     pub const BLOCKS: &str = "/v1/blocks";
     pub const BLOCK: &str = "/v1/block";
+    pub const TX: &str = "/v1/tx";
     pub const NETWORK: &str = "/v1/network";
     /// JSON, the one route the app reaches through `ducktape-rpc`.
     pub const INVITE: &str = "/v1/invite";
@@ -144,8 +146,35 @@ pub struct Tx {
     pub signer: Vec<u8>,
     pub anchor: Tip,
     pub target: String,
-    pub payload: Vec<u8>,
+    pub size: u32,
+    pub payload: Option<Vec<u8>>,
     pub receipt: Option<Receipt>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Page {
+    pub blocks: Vec<Finalized>,
+    pub listed_from: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum TxRef {
+    At { height: u64, position: u32 },
+    Hash([u8; 32]),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct TxAsk {
+    pub tx: TxRef,
+    pub most: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Located {
+    pub height: u64,
+    pub position: u32,
+    pub time: u64,
+    pub tx: Tx,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -183,21 +212,22 @@ pub fn finalized(block: &view_wire::methods::Block) -> Finalized {
         time: block.time,
         epoch: block.epoch,
         proposer: block.proposer.clone(),
-        txs: block
-            .txs
-            .iter()
-            .map(|tx| Tx {
-                hash: tx.hash,
-                signer: tx.signer.clone(),
-                anchor: Tip {
-                    height: tx.anchor.height,
-                    id: tx.anchor.id,
-                },
-                target: tx.target.clone(),
-                payload: tx.payload.clone(),
-                receipt: tx.receipt.as_ref().map(receipt),
-            })
-            .collect(),
+        txs: block.txs.iter().map(tx).collect(),
+    }
+}
+
+pub fn tx(tx: &view_wire::methods::Tx) -> Tx {
+    Tx {
+        hash: tx.hash,
+        signer: tx.signer.clone(),
+        anchor: Tip {
+            height: tx.anchor.height,
+            id: tx.anchor.id,
+        },
+        target: tx.target.clone(),
+        size: tx.size,
+        payload: tx.payload.clone(),
+        receipt: tx.receipt.as_ref().map(receipt),
     }
 }
 

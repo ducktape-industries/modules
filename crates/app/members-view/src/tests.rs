@@ -3,8 +3,8 @@ use ::activity::Activity;
 use abi::Scheme;
 use ducktape_view_guest::methods::Query;
 use ducktape_view_guest::methods::{
-    Block, BlockPage, BlockRef, ChainBlock, ChainBlocks, Change, Description, ModuleDescribe,
-    Session, Tx,
+    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, Description, Located,
+    ModuleDescribe, Session, Tx, TxRef,
 };
 use ducktape_view_guest::testing::TestAppContext;
 use ducktape_view_guest::wire::{ContainerNode, Node};
@@ -91,7 +91,8 @@ fn tx(signer: &[u8], n: u8) -> Tx {
     Tx {
         signer: signer.to_vec(),
         target: "chat".into(),
-        payload: vec![n],
+        size: 1,
+        payload: Some(vec![n]),
         ..Tx::default()
     }
 }
@@ -119,14 +120,28 @@ fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
     let tip = blocks.last().cloned();
     cx.host().handle::<ChainBlocks>(move |page: BlockPage| {
         assert_eq!((page.before, page.limit), (None, 1), "only the tip is read");
-        Ok(tip.clone().into_iter().collect())
+        Ok(BlockList {
+            blocks: tip.clone().into_iter().collect(),
+            listed_from: Some(1),
+        })
     });
     let held = blocks.clone();
-    cx.host().handle::<ChainBlock>(move |by| {
-        let BlockRef::Height(height) = by else {
-            panic!("a frame's block is read by its height")
+    cx.host().handle::<ChainTx>(move |ask| {
+        let TxRef::At { height, position } = ask.tx else {
+            panic!("a frame's transaction is read by its place")
         };
-        Ok(held.iter().find(|block| block.height == height).cloned())
+        let block = held.iter().find(|block| block.height == height);
+        let found = block.and_then(|block| {
+            let mut tx = block.txs.get(position as usize)?.clone();
+            tx.payload = tx.payload.filter(|_| tx.size <= ask.most);
+            Some(Located {
+                height,
+                position,
+                time: block.time,
+                tx,
+            })
+        });
+        Ok(found)
     });
     cx.host().handle::<Query<Activity>>(move |query| {
         let ::activity::Query::Acted { account, .. } = query else {
@@ -283,6 +298,7 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
     }
     // scout's post is scout's, not eddy's
     assert!(!cx.has_text("Post 5 in chat"));
+    assert!(cx.host().requests::<ChainBlock>().is_empty());
     // the reader's own account has no one to DM
     assert!(cx.find("members-open-dm").is_none());
     cx.simulate_click("members-explorer");
@@ -509,6 +525,31 @@ fn a_valset_block_reaches_the_standing_without_an_identity_bump() {
         "{:?}",
         cx.texts()
     );
+}
+
+#[test]
+fn a_frame_too_long_to_describe_reads_as_its_size() {
+    let mut cx = TestAppContext::new();
+    respond(&mut cx);
+    let large = Tx {
+        signer: EDDY.to_vec(),
+        target: "forge".into(),
+        size: 5_000,
+        payload: Some(vec![9; 5_000]),
+        ..Tx::default()
+    };
+    chain(&mut cx, vec![block(11, vec![large])]);
+    cx.open::<Members>();
+    cx.host().stream::<HostSession>().send(Session {
+        account: Some(7),
+        chain_id: "testnet#0a1b2c3d".into(),
+        ..Session::default()
+    });
+    cx.run_until_parked();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    assert!(cx.has_text("forge · 5,000 bytes"), "{:?}", cx.texts());
+    assert!(cx.host().requests::<ModuleDescribe>().is_empty());
 }
 
 /// The detail's activity read again lands what it shows: nothing draws.

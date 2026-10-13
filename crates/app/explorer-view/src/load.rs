@@ -171,39 +171,75 @@ impl Explorer {
     /// window; a render that stays pure needs the visible rows computed
     /// ahead of it.
     pub(crate) fn describe(&self, tx: &TxRow, cx: &mut Context<Self>) {
+        let Some(payload) = &tx.payload else {
+            return;
+        };
         if tx.op.get().is_some() || tx.asked.replace(true) {
             return;
         }
         let ask = cx
             .host()
-            .ask::<ModuleDescribe>((tx.target.clone(), tx.payload.clone()));
-        let hash = tx.hash;
+            .ask::<ModuleDescribe>((tx.target.clone(), payload.clone()));
+        let (hash, target, payload) = (tx.hash, tx.target.clone(), payload.clone());
         cx.land(ask, move |view, described, cx| {
-            let Some(tx) = view.tx(&hash) else {
-                return;
-            };
-            let op = match described {
-                Ok(Some(op)) => op,
-                Ok(None) => decode::bytes(&tx.target, &tx.payload),
-                Err(refusal) => {
-                    cx.log_refused("a description", &refusal);
-                    decode::bytes(&tx.target, &tx.payload)
-                }
-            };
-            // every row of the hash: a frame the node landed again is
-            // the same op, drawn once per landing
-            let rows = view
-                .chain
-                .txs
-                .iter()
-                .chain(view.opened_txs())
-                .chain(view.acted_txs());
-            for tx in rows.filter(|tx| tx.hash == hash) {
-                let _ = tx.op.set(op.clone());
-            }
-            cx.notify();
+            let op = worded(&target, &payload, described, cx);
+            view.described(hash, op, cx);
         })
         .detach();
+    }
+
+    pub(crate) fn open(&self, tx: &TxRow, cx: &mut Context<Self>) {
+        if tx.payload.is_some() {
+            return self.describe(tx, cx);
+        }
+        if tx.op.get().is_some() || tx.asked.replace(true) {
+            return;
+        }
+        let host = cx.host();
+        let whole = TxAsk {
+            tx: TxRef::At {
+                height: tx.height,
+                position: tx.index,
+            },
+            most: u32::MAX,
+        };
+        let target = tx.target.clone();
+        let read = async move {
+            let located = host.ask::<ChainTx>(whole).await?;
+            let Some(payload) = located.and_then(|located| located.tx.payload) else {
+                return Ok(None);
+            };
+            let described = host.ask::<ModuleDescribe>((target, payload.clone())).await;
+            Ok::<_, Error>(Some((payload, described)))
+        };
+        let (hash, target, size) = (tx.hash, tx.target.clone(), u64::from(tx.size));
+        cx.land(read, move |view, read, cx| {
+            let op = match read {
+                Ok(Some((payload, described))) => worded(&target, &payload, described, cx),
+                Ok(None) => unread(&target, size),
+                Err(refusal) => {
+                    cx.log_refused("a transaction's payload", &refusal);
+                    unread(&target, size)
+                }
+            };
+            view.described(hash, op, cx);
+        })
+        .detach();
+    }
+
+    fn described(&mut self, hash: [u8; 32], op: Description, cx: &mut Context<Self>) {
+        // every row of the hash: a frame the node landed again is
+        // the same op, drawn once per landing
+        let rows = self
+            .chain
+            .txs
+            .iter()
+            .chain(self.opened_txs())
+            .chain(self.acted_txs());
+        for tx in rows.filter(|tx| tx.hash == hash) {
+            let _ = tx.op.set(op.clone());
+        }
+        cx.notify();
     }
 
     pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
@@ -242,5 +278,28 @@ impl Explorer {
             }
             _ => None,
         }
+    }
+}
+
+fn worded(
+    target: &str,
+    payload: &[u8],
+    described: Result<Option<Description>, Error>,
+    cx: &mut Context<Explorer>,
+) -> Description {
+    match described {
+        Ok(Some(op)) => op,
+        Ok(None) => decode::bytes(target, payload),
+        Err(refusal) => {
+            cx.log_refused("a description", &refusal);
+            decode::bytes(target, payload)
+        }
+    }
+}
+
+fn unread(target: &str, size: u64) -> Description {
+    Description {
+        title: decode::sized(target, size),
+        fields: Vec::new(),
     }
 }

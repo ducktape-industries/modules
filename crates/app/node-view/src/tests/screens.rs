@@ -41,16 +41,20 @@ fn leader(height: u64) -> Vec<u8> {
     key(turn as usize)
 }
 
-fn sheet_blocks(page: BlockPage) -> Vec<Block> {
+fn sheet_blocks(page: BlockPage) -> BlockList {
     let below = page.before.unwrap_or(HEIGHT + 1);
-    (below.saturating_sub(page.limit as u64)..below)
+    let blocks = (below.saturating_sub(page.limit as u64)..below)
         .rev()
         .map(|height| Block {
             height,
             proposer: Some(leader(height)),
             ..Block::default()
         })
-        .collect()
+        .collect();
+    BlockList {
+        blocks,
+        listed_from: Some(0),
+    }
 }
 
 fn sheet_valset(cx: &TestAppContext) {

@@ -1,5 +1,5 @@
 //! What an account did lately, as the `activity` program indexes it: the newest frames the
-//! account acted in, each titled by its own program (`module.describe`) from its block's payload.
+//! account acted in, each titled by its own program (`module.describe`) from its payload.
 use ::activity::PageRequest;
 use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,8 @@ pub struct Signed {
     pub time: u64,
 }
 
+const DESCRIBED_BYTES: u32 = 4 << 10;
+
 pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
     let tip = host
         .ask::<ChainBlocks>(BlockPage {
@@ -31,37 +33,37 @@ pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
         page: PageRequest::first(SHOWN as u64),
     };
     let frames = host.query(acted).await?.items;
-    let mut block: Option<Block> = None;
     let mut items = Vec::with_capacity(frames.len());
     for frame in frames {
-        let held = block
-            .as_ref()
-            .is_some_and(|block| block.height == frame.height);
-        if !held {
-            let at = BlockRef::Height(frame.height);
-            block = host.ask::<ChainBlock>(at).await.ok().flatten();
-        }
-        let payload = block
-            .as_ref()
-            .and_then(|block| block.txs.get(frame.position as usize))
-            .map(|tx| tx.payload.clone());
+        let at = TxRef::At {
+            height: frame.height,
+            position: frame.position,
+        };
+        let ask = TxAsk {
+            tx: at,
+            most: DESCRIBED_BYTES,
+        };
+        let tx = host.ask::<ChainTx>(ask).await.ok().flatten();
         items.push(Signed {
-            title: title(&host, &frame.target, payload).await,
+            title: title(&host, &frame.target, tx.map(|located| located.tx)).await,
             height: frame.height,
             time: frame.time,
         });
     }
     Ok(Recent {
-        now: tip.first().map_or(0, |block| block.time),
+        now: tip.blocks.first().map_or(0, |block| block.time),
         items,
     })
 }
 
-async fn title(host: &Host, target: &str, payload: Option<Vec<u8>>) -> String {
-    let Some(payload) = payload else {
+async fn title(host: &Host, target: &str, tx: Option<Tx>) -> String {
+    let Some(tx) = tx else {
         return target.to_owned();
     };
-    let size = design::plural(payload.len() as u64, "byte", "bytes");
+    let size = design::plural(u64::from(tx.size), "byte", "bytes");
+    let Some(payload) = tx.payload else {
+        return format!("{target} · {size}");
+    };
     match host
         .ask::<ModuleDescribe>((target.to_owned(), payload))
         .await

@@ -296,10 +296,6 @@ pub enum BlockRef {
     Height(u64),
     Id([u8; 32]),
 }
-/// One applied frame of a block. `payload` is the op the target program
-/// was handed. `receipt` is its run as the node kept it when it applied
-/// the block; `None` where the node keeps none (it never ran the block:
-/// one below its state-sync anchor).
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
@@ -309,8 +305,39 @@ pub struct Tx {
     pub signer: Vec<u8>,
     pub anchor: Tip,
     pub target: String,
-    pub payload: Vec<u8>,
+    pub size: u32,
+    pub payload: Option<Vec<u8>>,
     pub receipt: Option<Receipt>,
+}
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct BlockList {
+    pub blocks: Vec<Block>,
+    pub listed_from: Option<u64>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum TxRef {
+    At { height: u64, position: u32 },
+    Hash([u8; 32]),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct TxAsk {
+    pub tx: TxRef,
+    pub most: u32,
+}
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Located {
+    pub height: u64,
+    pub position: u32,
+    pub time: u64,
+    pub tx: Tx,
 }
 #[derive(
     Clone,
@@ -461,10 +488,11 @@ methods! {
     /// `invite.create`: mint one invite, once (never retried).
     InviteCreate, "invite.create", CreateInvite, Invite;
     /// `chain.blocks`: a page of finalized blocks, newest first.
-    ChainBlocks, "chain.blocks", BlockPage, Vec<Block>;
+    ChainBlocks, "chain.blocks", BlockPage, BlockList;
     /// `chain.block`: one finalized block; `None` where the node has none by
     /// that name.
     ChainBlock, "chain.block", BlockRef, Option<Block>;
+    ChainTx, "chain.tx", TxAsk, Option<Located>;
     /// `blob.get`: a blob by `sha256:<hex>` or `sha1:<hex>` id, unframed;
     /// `None` where the node holds no blob by that id.
     BlobGet, "blob.get", String, Option<Vec<u8>>;

@@ -323,7 +323,7 @@ fn a_pushed_head_asks_for_the_blocks_since_the_top() {
 }
 
 #[test]
-fn an_accounts_activity_past_the_window_is_read_from_its_blocks_and_follows_the_index() {
+fn an_accounts_activity_past_the_window_is_read_by_place_and_follows_the_index() {
     let mut cx = TestAppContext::new();
     let tip = Rc::new(RefCell::new(WINDOW as u64 + 100));
     node(&mut cx, tip.clone());
@@ -343,11 +343,15 @@ fn an_accounts_activity_past_the_window_is_read_from_its_blocks_and_follows_the_
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
-    assert_eq!(
-        cx.host().requests::<ChainBlock>(),
-        [BlockRef::Height(11)],
-        "both frames are in one block, read once"
-    );
+    let at = |position| TxAsk {
+        tx: TxRef::At {
+            height: 11,
+            position,
+        },
+        most: 4 << 10,
+    };
+    assert_eq!(cx.host().requests::<ChainTx>(), [at(1), at(0)]);
+    assert!(cx.host().requests::<ChainBlock>().is_empty());
     let asked = cx.host().requests::<Query<Activity>>().len();
     heads.send(Some(ducktape_view_guest::methods::Change {
         height: *tip.borrow() + 1,
@@ -360,8 +364,8 @@ fn an_accounts_activity_past_the_window_is_read_from_its_blocks_and_follows_the_
         "the counts and the open account are read again"
     );
     assert_eq!(
-        cx.host().requests::<ChainBlock>().len(),
-        1,
+        cx.host().requests::<ChainTx>().len(),
+        2,
         "a row already read is not read again"
     );
     cx.simulate_click("explorer-tx-11-0");

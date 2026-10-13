@@ -125,9 +125,8 @@ pub struct Network {
 pub enum Note {
     /// a search that names nothing here
     NotFound(String),
-    /// a hash no block has, looked for across a window of `blocks`
     NoSuchHash {
-        blocks: u64,
+        listed_from: Option<u64>,
     },
     /// a link whose path names no page
     Unlinked(String),
