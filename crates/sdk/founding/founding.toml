@@ -42,6 +42,10 @@ code = "activity.wasm"
 id = "files"
 code = "files.wasm"
 
+[[programs]]
+id = "provider"
+code = "provider.wasm"
+
 [[views]]
 name = "explorer"
 code = "explorer_view.wasm"
