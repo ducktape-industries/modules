@@ -29,6 +29,7 @@ store = { workspace = true }
 activity = { workspace = true }
 chat = { workspace = true }
 files = { workspace = true }
+attribution = { workspace = true }
 forge = { workspace = true }
 gitcore = { workspace = true }
 identity = { workspace = true }

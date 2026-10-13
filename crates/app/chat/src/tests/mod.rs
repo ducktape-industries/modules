@@ -7,6 +7,7 @@ use guest::{ExecCtx, MockHost, Module, QueryCtx};
 
 use crate::{Op, PageRequest, PostPolicy, Principal, Query, Reply, parse_message};
 
+mod attributed;
 mod channels;
 mod messages;
 mod origin;

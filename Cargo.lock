@@ -226,6 +226,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "attribution"
+version = "0.1.0"
+dependencies = [
+ "abi",
+ "borsh",
+ "describe",
+ "guest",
+ "program",
+ "store",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -599,6 +611,7 @@ name = "chat"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "attribution",
  "borsh",
  "describe",
  "guest",
@@ -3436,6 +3449,7 @@ version = "0.1.0"
 dependencies = [
  "abi",
  "activity",
+ "attribution",
  "borsh",
  "chat",
  "commonware-cryptography",

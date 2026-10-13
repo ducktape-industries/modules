@@ -3,6 +3,7 @@
 //! the store as it found it.
 use guest::{Error, ExecCtx, Origin, already_exists, capacity, invalid, unauthorized, wrong_state};
 
+use crate::attributed::report;
 use crate::rules;
 use crate::state::{
     ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
@@ -170,6 +171,7 @@ pub(crate) fn post(
         None => ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq))),
     }
     replace_message(ctx, None, &row);
+    report(ctx, sender, None, &row);
     MESSAGE_IDS.put(ctx, &message_id, &(channel_id.clone(), seq));
     HEADS.put(ctx, &channel_id, &seq);
     Ok(())
@@ -234,6 +236,7 @@ pub(crate) fn edit(
     };
     fits(&row)?;
     replace_message(ctx, Some(&old), &row);
+    report(ctx, sender, Some(&old), &row);
     Ok(())
 }
 
@@ -268,6 +271,7 @@ pub(crate) fn delete(
         ..old.clone()
     };
     replace_message(ctx, Some(&old), &tombstone);
+    report(ctx, sender, Some(&old), &tombstone);
     Ok(())
 }
 

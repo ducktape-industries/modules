@@ -1,7 +1,7 @@
 //! The module: the signer resolved to its principal, then every op and
 //! every query, each handed to its function in `ops.rs` or `queries.rs`.
 
-use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+use guest::{Error, ExecCtx, MessageId, Module, Outcome, Program, QueryCtx};
 
 use crate::ops::{
     create_channel, delete, edit, open_dm, post, react, rename, set_archived, set_membership,
@@ -65,6 +65,10 @@ impl Module for Chat {
                 member,
             } => set_membership(ctx, &sender, &channel_id, principal, member),
         }
+    }
+
+    fn reply(_ctx: &ExecCtx, _id: &MessageId, _outcome: &Outcome) -> Result<(), Error> {
+        Ok(())
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {

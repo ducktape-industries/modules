@@ -20,6 +20,7 @@
 //! The module runs over `guest`'s contexts, so a native test runs it over
 //! [`guest::MockHost`] exactly as the host does. The `module` feature adds
 //! its wasm exports.
+pub mod attributed;
 mod description;
 pub mod message;
 mod ops;
