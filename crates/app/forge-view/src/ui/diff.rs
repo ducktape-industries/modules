@@ -58,6 +58,8 @@ struct Rows {
     widest: Option<usize>,
     /// the files past the host's list ceiling, not laid out here
     left_out: usize,
+    /// the lines of a file shown alone past the ceiling, not laid out here
+    cut_lines: usize,
 }
 
 /// One file's place in the rows: its index in the reply's page, its first
@@ -71,7 +73,8 @@ struct FileRows {
 }
 
 /// The most rows one list may hold on the host, by the wire. A diff past
-/// it lays out whole files up to it and closes with a row naming the rest.
+/// it lays out whole files up to it and closes with a row naming the rest;
+/// a file past it shown alone draws its lines up to it, the rest counted.
 const LIST_CEILING: usize = ducktape_view_guest::wire::MAX_UNIFORM_LIST_COUNT;
 
 /// The rows of the diff on screen, by the reply landed and the one file
@@ -111,7 +114,8 @@ impl DiffCache {
 
 impl Rows {
     /// Lays out the files of the reply (one, under `only`) in order, whole
-    /// files while they fit the list ceiling with the closing row.
+    /// files while they fit the list ceiling with the closing row; the one
+    /// file under `only` up to that ceiling.
     fn layout(reply: Rc<Reply>, only: Option<&[u8]>) -> Rows {
         let mut rows = Rows {
             reply: reply.clone(),
@@ -120,6 +124,7 @@ impl Rows {
             lines: 0,
             widest: None,
             left_out: 0,
+            cut_lines: 0,
         };
         let page = match &*reply {
             Reply::Diff { page, .. } => &page.items[..],
@@ -137,7 +142,8 @@ impl Rows {
                     .map(|hunk| 1 + hunk.lines.len())
                     .sum::<usize>()
                 + usize::from(file.hunks.is_empty());
-            if rows.left_out > 0 || rows.count + span + 1 > LIST_CEILING {
+            let fits = rows.count + span < LIST_CEILING;
+            if rows.left_out > 0 || (!fits && only.is_none()) {
                 rows.left_out += 1;
                 continue;
             }
@@ -149,20 +155,28 @@ impl Rows {
             };
             let mut row = laid.first_row + 1;
             for hunk in &file.hunks {
+                // the rows left before the closing row, this hunk's header
+                // first; only a file shown alone runs out of them
+                let room = (LIST_CEILING - 1).saturating_sub(row + 1);
+                let shown = hunk.lines.len().min(room);
+                rows.cut_lines += hunk.lines.len() - shown;
+                if room == 0 {
+                    continue;
+                }
                 laid.hunks.push((row, rows.lines));
-                for (at, line) in hunk.lines.iter().enumerate() {
+                for (at, line) in hunk.lines[..shown].iter().enumerate() {
                     if line.bytes.len() > longest {
                         longest = line.bytes.len();
                         rows.widest = Some(row + 1 + at);
                     }
                 }
-                row += 1 + hunk.lines.len();
-                rows.lines += hunk.lines.len();
+                row += 1 + shown;
+                rows.lines += shown;
             }
             rows.files.push(laid);
-            rows.count += span;
+            rows.count = row + usize::from(file.hunks.is_empty());
         }
-        rows.count += usize::from(rows.left_out > 0);
+        rows.count += usize::from(rows.cut());
         rows
     }
 
@@ -175,6 +189,9 @@ impl Rows {
 
     /// The row `index` is, found through the file and hunk it falls in.
     fn painted(&self, index: usize) -> Painted {
+        if self.cut() && index + 1 == self.count {
+            return Painted::banner(Kind::Hunk, self.closing(), Vec::new());
+        }
         let at = self.files.partition_point(|file| file.first_row <= index);
         let Some(laid) = at.checked_sub(1).map(|at| &self.files[at]) else {
             return Painted::banner(Kind::Hunk, self.closing(), Vec::new());
@@ -229,8 +246,17 @@ impl Rows {
         row + 1 + (line - first)
     }
 
+    /// Whether the list ends in a closing row: files or lines left out.
+    fn cut(&self) -> bool {
+        self.left_out > 0 || self.cut_lines > 0
+    }
+
     /// What the closing row of a cut layout says.
     fn closing(&self) -> String {
+        if self.cut_lines > 0 {
+            let lines = design::plural(self.cut_lines as u64, "more line", "more lines");
+            return format!("{lines} not drawn here");
+        }
         format!(
             "{} not drawn here: open one from the file list",
             design::plural(self.left_out as u64, "more file", "more files")
@@ -989,6 +1015,27 @@ mod tests {
             "5 more files not drawn here: open one from the file list"
         );
         assert_eq!(rows.painted(rows.count - 2).text, "999");
+    }
+
+    /// A file longer than the ceiling on its own is left out of the whole
+    /// diff with the files after it; opened alone, it draws as many of its
+    /// lines as the list holds and the closing row counts the rest.
+    #[test]
+    fn a_file_past_the_ceiling_opened_alone_draws_up_to_it() {
+        let lines: Vec<String> = (0..70_000).map(|n| n.to_string()).collect();
+        let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let diff = reply(vec![file("data.txt", &lines), file("z.rs", &["one"])]);
+        let whole = Rows::layout(diff.clone(), None);
+        assert_eq!((whole.count, whole.left_out), (1, 2));
+        let alone = Rows::layout(diff, Some(b"data.txt"));
+        assert_eq!(alone.count, LIST_CEILING);
+        assert_eq!(alone.lines, LIST_CEILING - 3);
+        assert_eq!(
+            alone.painted(alone.count - 1).text,
+            "4,467 more lines not drawn here"
+        );
+        assert_eq!(alone.painted(alone.count - 2).text, "65532");
+        assert_eq!(alone.row_of_line(alone.lines - 1), alone.count - 2);
     }
 
     /// A comment sits on a line by its path, the side it is anchored on and
