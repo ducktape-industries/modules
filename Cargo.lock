@@ -1961,6 +1961,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
+name = "files"
+version = "0.1.0"
+dependencies = [
+ "abi",
+ "borsh",
+ "describe",
+ "guest",
+ "program",
+ "store",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3428,6 +3441,7 @@ dependencies = [
  "commonware-cryptography",
  "commonware-runtime",
  "describe",
+ "files",
  "forge",
  "gitcore",
  "guest",

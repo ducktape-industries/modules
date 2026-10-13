@@ -60,6 +60,7 @@ members = [
     "crates/app/example-view",
     "crates/app/forge",
     "crates/app/activity",
+    "crates/app/files",
     "crates/lib/gitcore",
 ]
 
@@ -88,6 +89,7 @@ identity = { path = "crates/system/identity" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
 activity = { path = "crates/app/activity" }
+files = { path = "crates/app/files" }
 
 # ---- the host the founding suite runs the boot set on and the key schemes
 # it signs with (dev-dependencies only); the probe fixture it seats is a
