@@ -496,6 +496,8 @@ pub(crate) fn menu(
         .flex_col()
         .gap(design::space::SM)
         .p(design::space::SM)
+        .border_b_1()
+        .border_color(theme.border)
         .child(filter);
     // the rows the list has room for: the frame keeps one height as the
     // filter narrows it and as the tabs switch, and stays in the window
@@ -531,7 +533,8 @@ pub(crate) fn menu(
                 window.focus(filter_id.clone())
             }),
         );
-        chrome += design::spacing::SM as f32 + ROW;
+        // the segments' box draws its top and bottom edges around them
+        chrome += design::spacing::SM as f32 + ROW + 2. * BORDER;
     }
     let total = match menu {
         Menu::Ref => forge.refs().map_or(0, <[_]>::len),
@@ -579,8 +582,6 @@ pub(crate) fn menu(
                 .py(px(LIST_PAD))
                 .flex()
                 .flex_col()
-                .border_t_1()
-                .border_color(theme.border)
                 .child(body),
         );
     let (x, y) = forge.menu_at;
