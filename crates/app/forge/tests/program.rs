@@ -1,5 +1,6 @@
 mod common;
 use common::*;
+use forge::Content;
 
 #[test]
 fn founding_requires_bounds_and_ops_require_a_signer() {
@@ -769,4 +770,92 @@ fn ancestors_come_breadth_first_while_the_budget_lasts() {
         ..bounds()
     });
     assert_eq!(objects(&sandbox, &[c4], true).0, [c4, c3, side]);
+}
+
+/// A diff is held to `merge_cost` per file, and only an interleaved edit
+/// pays it: a file added, deleted or grown in one place shows whole at any
+/// length, a file whose edit is too long to search is answered `Oversize`,
+/// and either way the page it is on still comes.
+#[test]
+fn a_long_one_sided_edit_shows_and_a_too_long_search_marks_the_file() {
+    let sandbox = MemorySandbox::default();
+    Forge::init(
+        &sandbox.exec(1),
+        &abi::encode(&Bounds {
+            merge_cost: 1024,
+            ..bounds()
+        }),
+    )
+    .unwrap();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let line = |n: usize| format!("line {n}\n");
+    let text = |range: std::ops::Range<usize>| range.map(line).collect::<String>();
+    let mut shuffled = String::new();
+    for n in 0..1500 {
+        shuffled += &line(n);
+        shuffled += "x\n";
+    }
+    let before = text(0..1500);
+    let c1 = file_commit(
+        &mut source,
+        &[],
+        1,
+        &[
+            ("keep", b"k\n"),
+            ("mid", before.as_bytes()),
+            ("rewrite", before.as_bytes()),
+        ],
+    );
+    let grown = text(0..700) + &text(5000..6500) + &text(700..1500);
+    let c2 = file_commit(
+        &mut source,
+        &[c1],
+        2,
+        &[
+            ("added", text(0..2000).as_bytes()),
+            ("keep", b"k\n"),
+            ("mid", grown.as_bytes()),
+            ("rewrite", shuffled.as_bytes()),
+        ],
+    );
+    push(
+        &sandbox,
+        OWNER,
+        "project",
+        &[(Hash::Sha1.zero(), c2, "refs/heads/main")],
+        &pack_of(&source, &all_ids(&source)),
+    )
+    .unwrap();
+    let query = Query::Diff {
+        repo: "project".into(),
+        base: Some(c1.to_hex()),
+        head: c2.to_hex(),
+        path: None,
+        page: PageRequest::first(128),
+    };
+    let Reply::Diff { page, .. } = abi::decode(&ask(&sandbox, &query).unwrap()).unwrap() else {
+        panic!("diff");
+    };
+    let file = |name: &str| {
+        page.items
+            .iter()
+            .find(|f| f.new_path.as_deref() == Some(name.as_bytes()))
+            .unwrap()
+    };
+    let (added, mid, rewrite) = (file("added"), file("mid"), file("rewrite"));
+    assert_eq!(
+        (added.content, added.additions, added.deletions),
+        (Content::Text, 2000, 0)
+    );
+    assert_eq!(
+        (mid.content, mid.additions, mid.deletions),
+        (Content::Text, 1500, 0)
+    );
+    assert_eq!(mid.hunks.len(), 1);
+    assert_eq!(
+        (rewrite.content, rewrite.hunks.len()),
+        (Content::Oversize, 0)
+    );
+    assert_eq!(page.items.len(), 3);
 }
