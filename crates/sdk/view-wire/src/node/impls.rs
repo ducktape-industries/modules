@@ -23,7 +23,8 @@ impl Node {
             | Self::List { id, .. }
             | Self::ResizeHandle { id, .. }
             | Self::Sensor { id, .. }
-            | Self::Overlay { id, .. } => Some(id),
+            | Self::Overlay { id, .. }
+            | Self::Web { id, .. } => Some(id),
             Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
                 None
             }
@@ -59,7 +60,8 @@ impl Node {
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
             | Self::Overlay { style, .. }
-            | Self::Canvas { style, .. } => Some(*style),
+            | Self::Canvas { style, .. }
+            | Self::Web { style, .. } => Some(*style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
         }
     }
@@ -80,7 +82,8 @@ impl Node {
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
             | Self::Overlay { style, .. }
-            | Self::Canvas { style, .. } => visit(style),
+            | Self::Canvas { style, .. }
+            | Self::Web { style, .. } => visit(style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
         }
         if let Self::Container(crate::ContainerNode {
@@ -145,7 +148,8 @@ impl Node {
             | Self::Svg { .. }
             | Self::Field { .. }
             | Self::Space
-            | Self::Canvas { .. } => &[],
+            | Self::Canvas { .. }
+            | Self::Web { .. } => &[],
         }
     }
 
@@ -176,7 +180,8 @@ impl Node {
             | Self::Field { .. }
             | Self::Space
             | Self::Svg { .. }
-            | Self::Canvas { .. } => &mut [],
+            | Self::Canvas { .. }
+            | Self::Web { .. } => &mut [],
         }
     }
 
@@ -202,7 +207,8 @@ impl Node {
             | Self::Field { .. }
             | Self::Space
             | Self::Svg { .. }
-            | Self::Canvas { .. } => None,
+            | Self::Canvas { .. }
+            | Self::Web { .. } => None,
         }
     }
 

@@ -257,8 +257,9 @@ view shows beside a name.
 
 `Env::authority()` admits only a message from the module bound to the
 validators role, which sends one when its validators' vote passes a
-`Motion::Registry`; the registry calls it before scheduling or cancelling
-a change.
+`Motion::Registry`; the registry admits it, or a maintainer's signed frame
+by its grant ([roles.md](roles.md), "Updating a module"), before scheduling
+or cancelling a change.
 
 A module the registry lists as a hook ([roles.md](roles.md), "Hooks") is
 told of every frame a block carries through `Module::hook(ctx, record)`.

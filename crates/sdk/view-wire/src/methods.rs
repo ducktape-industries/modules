@@ -476,8 +476,10 @@ methods! {
     /// tab (the app words it "N unread").
     HostBadge, "host.badge", i64, ();
     /// `link.open`: the one way out: a `duck://` link, opened in the
-    /// app, or an `https://` one, handed to the system browser. Any other
-    /// scheme is refused (`malformed_request`).
+    /// app, or an `https://` one, opened in the view that declares
+    /// [`Capability::Web`] (as its `host.route`) when the app has one and a
+    /// web view, else handed to the system browser. Any other scheme is
+    /// refused (`malformed_request`).
     LinkOpen, "link.open", String, ();
     /// `host.route`: a subscription, one item per `duck://` link opened into
     /// this view: the path after the view's own segment (`tx/<hash>` of
@@ -487,6 +489,13 @@ methods! {
     /// arrives as `forge:web:3/42`. A segment is nonempty, not `.` or `..`,
     /// and holds no `/` and no control character; the whole route is at most
     /// 256 bytes. A link that mounted the view is its first item.
+    ///
+    /// The view that declares [`Capability::Web`] gets, besides, each http(s)
+    /// link the app opens into it, as the WHOLE address
+    /// (`https://example.com/a?b`), at most 2048 bytes, held to the web
+    /// piece's rule ([`crate::Node::Web`]): `https://`, or `http://` on this
+    /// machine, no user name or password. One waits per view: a second link
+    /// before the view reads the first replaces it.
     HostRoute, "host.route", (), String;
     /// `host.id`: a fresh id under the named prefix.
     HostId, "host.id", String, String;
@@ -528,7 +537,8 @@ methods! {
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
 /// declares, and the only names it may. A method is reached only through the
-/// capability its kind starts with.
+/// capability its kind starts with. One capability gates a node, not a
+/// method: [`Capability::Web`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Capability {
     Chain,
@@ -542,10 +552,17 @@ pub enum Capability {
     Clipboard,
     Notify,
     Store,
+    /// The view draws web pages ([`crate::Node::Web`]) and opens the
+    /// http(s) links the app opens: the app hands such a link to the view
+    /// that declares this, as its `host.route` (the whole address; see
+    /// [`HostRoute`]), and to the system browser when none does or the app
+    /// has no web view. When more than one installed view declares it, the
+    /// first by module name gets the links. No method starts with it.
+    Web,
 }
 
 impl Capability {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Chain,
         Self::Module,
         Self::Op,
@@ -557,6 +574,7 @@ impl Capability {
         Self::Clipboard,
         Self::Notify,
         Self::Store,
+        Self::Web,
     ];
 
     /// The name a manifest and a kind spell it with.
@@ -573,6 +591,7 @@ impl Capability {
             Self::Clipboard => "clipboard",
             Self::Notify => "notify",
             Self::Store => "store",
+            Self::Web => "web",
         }
     }
 
@@ -654,10 +673,16 @@ mod tests {
             .collect();
         prefixes.sort_unstable();
         prefixes.dedup();
-        let mut known = Capability::ALL.map(Capability::as_str).to_vec();
+        // `web` gates a node (`Node::Web`), not a method
+        let mut known: Vec<&str> = Capability::ALL
+            .into_iter()
+            .filter(|capability| *capability != Capability::Web)
+            .map(Capability::as_str)
+            .collect();
         known.sort_unstable();
         assert_eq!(prefixes, known);
         assert_eq!(Capability::parse("link"), Some(Capability::Link));
+        assert_eq!(Capability::parse("web"), Some(Capability::Web));
         for name in ["rpc", "chat", "module.query", "", "Chain"] {
             assert_eq!(Capability::parse(name), None, "{name:?}");
         }

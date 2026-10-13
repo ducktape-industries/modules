@@ -29,14 +29,13 @@ ducktape-view-guest = { path = "../modules/crates/sdk/view-guest" }
 serde = { version = "1", features = ["derive"] }
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "d852939e6774187444ea81cda369c450a8331d65" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "d852939e6774187444ea81cda369c450a8331d65" }
-gpui-pre-zlog = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "d852939e6774187444ea81cda369c450a8331d65" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7e1491be9357c2bca37c24dde9122fc69f9341bb" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "7e1491be9357c2bca37c24dde9122fc69f9341bb" }
 ```
 
 The `[patch.crates-io]` lines are this workspace's own, at the rev its
 `Cargo.toml` pins: the SDK builds against the gpui fork's copies of those
-three crates (crates.io's `rmp-serde` has no `typed` feature, and without
+two crates (crates.io's `rmp-serde` has no `typed` feature, and without
 the fork's scheduler a view does not build for wasm32), and cargo reads
 `[patch]` only from the manifest being built, so a crate outside the
 workspace repeats them. A view inside the workspace
@@ -140,8 +139,8 @@ Ours, defined in this crate:
   `Subscription` are gpui's.
 - `div`, `uniform_list`, `list`, `Input`, `Textarea`, `img`/`Img`, `svg`/`Svg`,
   `canvas`/`Canvas`, `InteractiveText`/`StyledText`, `sensor`,
-  `resize_handle`, `modal_overlay` (`src/element.rs`, `src/list.rs`,
-  `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`):
+  `resize_handle`, `modal_overlay`, `web` (`src/element.rs`, `src/list.rs`,
+  `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`, `src/web.rs`):
   each lowers to a `view_wire::Node`, with handlers kept guest-side and
   crossed as routes: a listener's number, kept while its element is lowered
   (`view_wire::Event`). `list` is gpui's but for its first argument:
@@ -407,7 +406,7 @@ list's first frame holds the rows that fill it; `simulate_viewport(rows)`
 or `simulate_range(key, range)` then show it the rows the host shows.
 A sensor hears nothing until `simulate_bounds(name, origin, size)` lays
 its child out, and then as the app tells it: the same bounds again are no
-event.
+event. A web piece hears its page through `simulate_web_state(name, state)`.
 The reader's offset is UTC until `simulate_offset(minutes)`. A frame
 carries at most
 `view_wire::MAX_REQUESTS` requests; the rest go in the next.
@@ -417,7 +416,8 @@ its kind and key path, so each screen a test reaches is gated.
 element with no host, sanitizer or audit, for a test of what that element
 carries (`testing::assert_accessible(&tree)` audits it when the test wants).
 It holds the view to its `View::CAPABILITIES` and `View::TARGETS` as the app
-does: a method whose capability the manifest leaves out panics with
+does: a method whose capability the manifest leaves out, or a web piece from a
+view that does not declare `web`, panics with
 `methods::refusal::UNDECLARED_CAPABILITY`, a node method naming a program
 the targets leave out with `methods::refusal::UNDECLARED_TARGET`, the codes
 the app refuses them with.

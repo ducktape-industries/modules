@@ -1,5 +1,8 @@
 //! The `module-registry` module: the roster of modules a network runs, and
-//! the scheduled changes to it (only by the validators' vote: `Env::authority`).
+//! the scheduled changes to it, made by the validators' vote
+//! (`Env::authority`) or by a maintainer: an account the vote granted a
+//! [`Scope`], whose change lands at least [`NOTICE`] blocks after it is
+//! made, so the vote can cancel it first.
 //! It fills the kernel's registry role: each block the kernel asks
 //! `Query::At(height)` and runs what it answers. An update is a
 //! `Change::Set` of published code under a running id: the kernel swaps the
@@ -13,16 +16,114 @@ mod rules;
 mod tests;
 
 pub use program::Modules;
+pub use rules::grantable;
 pub use store::{PageRequest, PageResponse};
 
+use abi::role::identity::{Kind, Profile};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::ModuleId;
+use guest::{AccountNumber, ModuleId, Roles};
 
 pub use abi::role::registry::{Entry, Genesis, View};
 
 pub const MODULE: &str = "module-registry";
 
 pub const CODE_KIND: &str = "program";
+
+/// How many blocks a maintainer's change waits at least before it lands:
+/// about ten minutes at 1 s blocks, for the validators to see it and cancel
+/// it by vote. A constant: changing it is a registry upgrade, which only the
+/// vote schedules.
+pub const NOTICE: u64 = 600;
+
+/// The most changes one account's grants keep waiting at once; the vote's
+/// do not count. It bounds what a maintainer's change scans.
+pub const MAX_PENDING: usize = 8;
+
+/// The names a grant covers: one id, which may run nothing yet (how a team
+/// adds a new module), or every id but those bound to a role the kernel calls.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Scope {
+    Module(ModuleId),
+    All,
+}
+
+impl Scope {
+    pub fn includes(&self, program: &str) -> bool {
+        match self {
+            Scope::Module(id) => id == program,
+            Scope::All => true,
+        }
+    }
+}
+
+impl std::fmt::Display for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Scope::Module(id) => f.write_str(id),
+            Scope::All => f.write_str("every module"),
+        }
+    }
+}
+
+/// An account made a maintainer of `scope` by the validators' vote: its
+/// signed frames schedule and cancel changes to the names in it.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Grant {
+    pub scope: Scope,
+    pub account: AccountNumber,
+}
+
+/// A change waiting in the schedule, and the account whose grant made it;
+/// `None`: the validators' vote made it.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Pending {
+    pub height: u64,
+    pub change: Change,
+    pub by: Option<AccountNumber>,
+}
+
+/// Whether `program` fills a role the kernel calls by its genesis binding:
+/// only the vote changes it.
+pub fn role_bound(roles: &Roles, program: &str) -> bool {
+    [&roles.registry, &roles.validators, &roles.identity]
+        .iter()
+        .any(|role| role.as_str() == program)
+}
+
+/// Whether `grants` make `account` a maintainer of `program`: it holds
+/// `Module(program)` or `All`, and `program` fills no role. What a view
+/// asks before it offers a press; the rule reads the same off its table.
+pub fn covers(grants: &[Grant], roles: &Roles, account: AccountNumber, program: &str) -> bool {
+    !role_bound(roles, program)
+        && grants
+            .iter()
+            .any(|grant| grant.account == account && grant.scope.includes(program))
+}
+
+/// Why the vote may not make `grant`, `None` when it may: a module id in
+/// its one spelling and bound to no role, given to an account identity
+/// profiles (`profile`) that is no program's. The rule and valset's first
+/// vote both ask it, so a bad grant is refused before it is voted on.
+pub fn grant_refused(grant: &Grant, roles: &Roles, profile: Option<&Profile>) -> Option<String> {
+    if let Scope::Module(id) = &grant.scope {
+        if !::program::is_name(id) {
+            return Some(format!("{id:?} is not a program id: 1..=64 of [a-z0-9_-]"));
+        }
+        if role_bound(roles, id) {
+            return Some(format!(
+                "{id} fills a role the kernel calls: only the validators' vote changes it"
+            ));
+        }
+    }
+    let account = grant.account;
+    match profile.map(|profile| &profile.kind) {
+        None => Some(format!("there is no account {account}")),
+        Some(Kind::Module(module)) => Some(format!(
+            "account {account} is module {module}'s: a grant goes to a person or an agent"
+        )),
+        Some(Kind::Person | Kind::Managed { .. }) => None,
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Change {
@@ -80,9 +181,18 @@ pub struct Scheduled {
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
-    Publish { body: Vec<u8> },
+    Publish {
+        body: Vec<u8>,
+    },
     Schedule(Scheduled),
-    Cancel { height: u64, program: ModuleId },
+    Cancel {
+        height: u64,
+        program: ModuleId,
+    },
+    /// The vote only.
+    Grant(Grant),
+    /// The vote, or the holder stepping down from its own grant.
+    Revoke(Grant),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
@@ -90,7 +200,7 @@ pub enum Op {
 pub enum Query {
     #[ask(Reply::Programs(Vec<Entry>))]
     At(u64),
-    #[ask(Reply::Scheduled(PageResponse<Scheduled>))]
+    #[ask(Reply::Scheduled(PageResponse<Pending>))]
     Scheduled { page: PageRequest },
     #[ask(Reply::Program { height: u64, entry: Option<Entry> })]
     Program(ModuleId),
@@ -103,16 +213,20 @@ pub enum Query {
     Roles,
     #[ask(Reply::Hooks(Vec<ModuleId>))]
     Hooks(u64),
+    /// Every grant, by scope then account. Tag 6: tag 5 is the role's `Hooks`.
+    #[ask(Reply::Grants(PageResponse<Grant>))]
+    Grants { page: PageRequest },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Reply {
     Programs(Vec<Entry>),
-    Scheduled(PageResponse<Scheduled>),
+    Scheduled(PageResponse<Pending>),
     Program { height: u64, entry: Option<Entry> },
     Views(Vec<View>),
     Roles(abi::Roles),
     Hooks(Vec<ModuleId>),
+    Grants(PageResponse<Grant>),
 }
 
 /// An op as a person reads it: a title and its fields. The source of the
@@ -145,8 +259,22 @@ pub fn describe(op: &Op) -> describe::Description {
             format!("Cancel · {program}"),
             vec![field("program", Value::Module(program.clone())), height(at)],
         ),
+        Op::Grant(grant) => (format!("Grant · {}", grant.scope), granted(grant)),
+        Op::Revoke(grant) => (format!("Revoke · {}", grant.scope), granted(grant)),
     };
     describe::Description { title, fields }
+}
+
+fn granted(grant: &Grant) -> Vec<describe::Field> {
+    use describe::{Value, field};
+    let scope = match &grant.scope {
+        Scope::Module(id) => Value::Module(id.clone()),
+        Scope::All => Value::text("every module"),
+    };
+    vec![
+        field("account", Value::Account(grant.account)),
+        field("scope", scope),
+    ]
 }
 
 describe::export!(Op, describe);
@@ -157,6 +285,6 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Publish", "Schedule", "Cancel",]
+        ["Publish", "Schedule", "Cancel", "Grant", "Revoke"]
     );
 }

@@ -94,6 +94,8 @@ pub use list::{
 };
 mod widget;
 pub use widget::{WidgetCommand, WidgetTarget};
+pub mod web;
+pub use web::{MAX_URL_BYTES, MAX_WEB_COMMANDS, WebCommand, WebState};
 
 mod styled_nodes;
 pub use styled_nodes::{ContainerNode, TextNode};
