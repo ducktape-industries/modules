@@ -89,6 +89,15 @@ fn a_stage_keeps_git_s_pack_whole_deltas_and_all() {
         .filter(|id| matches!(entry(&sandbox, id), Payload::OfsDelta { .. }))
         .count();
     assert!(deltas > 0, "git's deltas are kept");
+    // a delta's row spans its chain, base before it, and no more of the pack
+    for id in later.ids() {
+        let at = location(&sandbox, id);
+        assert!(at.start <= at.offset && at.offset < at.end, "{id}");
+        if let Payload::OfsDelta { base_offset, .. } = entry(&sandbox, id) {
+            assert!(at.start as usize <= base_offset, "{id}");
+        }
+        assert!(((at.end - at.start) as usize) < OFS.len());
+    }
     assert!(later.ids().all(|id| location(&sandbox, id).pack == 1));
 }
 
@@ -331,23 +340,16 @@ fn pushed_a_commit_at_a_time(count: usize) -> (MemorySandbox, Vec<Oid>) {
     (sandbox, commits)
 }
 
-/// One query loads at most `MAX_PACKS` (16) packs: a walk that needs more
-/// is refused as past its bound, and `Objects` ends its batch there instead.
+/// A read takes the bytes its chain spans, never a whole pack, so a walk
+/// across a history pushed a pack a commit reads it all, and `Objects`
+/// brings every ancestor.
 #[test]
-fn a_read_past_sixteen_packs_is_refused_and_a_batch_ends_there() {
-    let (sandbox, commits) = pushed_a_commit_at_a_time(16);
+fn a_history_in_many_packs_reads_whole() {
+    let (sandbox, commits) = pushed_a_commit_at_a_time(40);
     run_list(&sandbox, &commits);
-    let (sandbox, commits) = pushed_a_commit_at_a_time(17);
-    let log = Query::Log {
-        repo: "project".into(),
-        from: forge::Revision::Ref(b"refs/heads/main".to_vec()),
-        exclude: None,
-        page: PageRequest::first(64),
-    };
-    assert_eq!(ask(&sandbox, &log).unwrap_err().code, code::CAPACITY);
     let query = Query::Objects {
         repo: "project".into(),
-        ids: vec![commits[16].to_hex()],
+        ids: vec![commits[39].to_hex()],
         ancestors: true,
     };
     let Reply::Objects {
@@ -358,8 +360,8 @@ fn a_read_past_sixteen_packs_is_refused_and_a_batch_ends_there() {
     };
     assert!(missing.is_empty());
     let answered: Vec<String> = objects.into_iter().map(|object| object.oid).collect();
-    let newest: Vec<String> = commits.iter().rev().take(16).map(Oid::to_hex).collect();
-    assert_eq!(answered, newest);
+    let newest_first: Vec<String> = commits.iter().rev().map(Oid::to_hex).collect();
+    assert_eq!(answered, newest_first);
 }
 
 /// A chain deeper than the founded `max_delta_depth` is refused at the

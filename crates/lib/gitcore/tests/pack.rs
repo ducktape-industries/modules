@@ -344,13 +344,22 @@ fn every_entry_reads_back_at_the_offset_git_listed() {
     }
 }
 
+/// An entry reads from a window of its pack too, and a window that cuts
+/// it short is refused.
 #[test]
-fn an_entry_outside_the_pack_is_refused() {
+fn an_entry_reads_from_a_window_of_its_pack() {
     let bytes = fixture!("ofs.pack");
-    for offset in [0, 11, bytes.len() - 20, bytes.len()] {
-        assert_eq!(
-            pack::entry_at(bytes, offset, Hash::Sha1, usize::MAX).err(),
-            Some(Error::Truncated)
-        );
-    }
+    let entries = pack::entries(bytes, Hash::Sha1, usize::MAX).unwrap();
+    let ((start, _), (next, _)) = (entries[1], entries[2]);
+    let whole = pack::entry_at(bytes, start, Hash::Sha1, usize::MAX).unwrap();
+    let window = &bytes[start..next];
+    assert_eq!(
+        pack::entry_at(window, 0, Hash::Sha1, usize::MAX).unwrap(),
+        (whole.0, next - start)
+    );
+    assert!(pack::entry_at(&window[..window.len() - 1], 0, Hash::Sha1, usize::MAX).is_err());
+    assert_eq!(
+        pack::entry_at(bytes, bytes.len(), Hash::Sha1, usize::MAX).err(),
+        Some(Error::Truncated)
+    );
 }

@@ -101,7 +101,10 @@ impl<'a> Cursor<'a> {
     }
 
     fn take(&mut self, len: usize) -> Result<&'a [u8]> {
-        let available = self.pos + len <= self.bytes.len();
+        let available = self
+            .pos
+            .checked_add(len)
+            .is_some_and(|end| end <= self.bytes.len());
         if !available {
             return Err(Error::Truncated);
         }
@@ -163,25 +166,17 @@ fn read_payload(cursor: &mut Cursor<'_>, hash: Hash, max_size: usize) -> Result<
     })
 }
 
-/// The entry at `offset` of a pack read before (its header and checksum
-/// included) and the offset the entry after it starts at: random access,
-/// the entry alone, its delta unresolved. An entry bigger than `max_size`
-/// inflated is refused.
+/// The entry at `offset` of `bytes` (a pack read before, or a window of
+/// one) and the offset the entry after it starts at: one entry, its delta
+/// unresolved, an offset delta's base in `bytes`' own offsets. An entry
+/// bigger than `max_size` inflated is refused.
 pub fn entry_at(
-    pack: &[u8],
+    bytes: &[u8],
     offset: usize,
     hash: Hash,
     max_size: usize,
 ) -> Result<(Payload, usize)> {
-    let body = entries_of(pack, hash)?;
-    let in_body = offset >= 12 && offset < body.len();
-    if !in_body {
-        return Err(Error::Truncated);
-    }
-    let mut cursor = Cursor {
-        bytes: body,
-        pos: offset,
-    };
+    let mut cursor = Cursor { bytes, pos: offset };
     let payload = read_payload(&mut cursor, hash, max_size)?;
     Ok((payload, cursor.pos))
 }

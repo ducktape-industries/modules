@@ -49,13 +49,16 @@ pub const NEXT_PACK: Item<u32> = Item::new("next-pack");
 /// object is its content). The first pack that brought it holds it.
 pub const PACKED: Map<Vec<u8>, Location> = Map::new("o/");
 
-/// A packed object: the entry its pack holds it at, and its kind (a pack
-/// entry's type code) and size whole, so a presence check, a header and a
-/// read budget read this row and no pack.
+/// A packed object: the entry its pack holds it at, the bytes of the pack
+/// its delta chain spans (`start..end`, what a read takes), and its kind (a
+/// pack entry's type code) and size whole, so a presence check, a header
+/// and a read budget read this row alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Location {
     pub pack: u32,
     pub offset: u32,
+    pub start: u32,
+    pub end: u32,
     pub kind: u8,
     pub size: u64,
 }

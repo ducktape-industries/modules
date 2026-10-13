@@ -15,7 +15,7 @@ use std::collections::{BTreeSet, VecDeque};
 use gitcore::{Commit, Kind, Objects as _, Oid};
 
 use crate::contract::*;
-use crate::objects::{ObjectStore, Stat};
+use crate::objects::ObjectStore;
 use crate::ops::{cap, refusal_of};
 use crate::state::{
     ACTIVITY, REFS, load_bounds, load_refs, load_repo, parse_oid, repo_hash, storage, writes,
@@ -128,10 +128,7 @@ pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u
 
 /// Git objects by id ([`Query::Objects`]): the ids in order while the read
 /// budget lasts (the first held one past it), then, asked for, the commits
-/// they descend from, breadth first, while it still lasts. An object whose
-/// pack would be one more than a query loads
-/// ([`MAX_PACKS`](crate::objects::MAX_PACKS)) ends the batch as the budget
-/// does.
+/// they descend from, breadth first, while it still lasts.
 pub(crate) fn objects(
     ctx: &QueryCtx,
     height: u64,
@@ -149,12 +146,8 @@ pub(crate) fn objects(
     let mut known = BTreeSet::new();
     for hex in ids {
         let id = parse_oid(hash, hex)?;
-        let stat = store.stat(&id).map_err(refusal_of)?;
-        let past = |stat: &Stat| stat.len > bytes || store.loads_past_cap(stat);
-        let spent = reads == 0
-            || stat
-                .as_ref()
-                .is_some_and(|stat| past(stat) && !objects.is_empty());
+        let len = store.stat(&id).map_err(refusal_of)?.map(|stat| stat.len);
+        let spent = reads == 0 || len.is_some_and(|len| len > bytes && !objects.is_empty());
         if spent {
             return Ok(Reply::Objects {
                 height,
@@ -164,11 +157,11 @@ pub(crate) fn objects(
         }
         reads -= 1;
         known.insert(id);
-        let Some(stat) = stat else {
+        let Some(len) = len else {
             missing.push(hex.clone());
             continue;
         };
-        bytes = bytes.saturating_sub(stat.len);
+        bytes = bytes.saturating_sub(len);
         let object = read(&store, &id)?;
         if ancestors && object.kind == ObjectKind::Commit {
             parents.extend(
@@ -186,7 +179,7 @@ pub(crate) fn objects(
         let Some(stat) = store.stat(&id).map_err(refusal_of)? else {
             continue;
         };
-        if reads == 0 || stat.len > bytes || store.loads_past_cap(&stat) {
+        if reads == 0 || stat.len > bytes {
             break;
         }
         reads -= 1;
