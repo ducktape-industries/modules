@@ -805,14 +805,15 @@ fn a_repository_opens_with_its_header_ref_picker_and_tabs() {
         );
     }
     // The ref picker is one dropdown; open, it carries every ref the paged
-    // read followed, and a press outside folds it.
+    // read followed, branches and tags apart, and a press outside folds it.
     assert!(cx.find("forge-ref-refs/heads/clean").is_none());
     let mut cx = cx;
     cx.simulate_click("forge-ref-picker");
     cx.run_until_parked();
     assert!(cx.find("forge-ref-refs/heads/clean").is_some());
     assert!(cx.find("forge-ref-refs/heads/conflict").is_some());
-    assert!(cx.has_text("Branches"), "{:?}", cx.texts());
+    assert!(cx.has_text("Branches 5"), "{:?}", cx.texts());
+    assert!(cx.has_text("Tags 1"), "{:?}", cx.texts());
     cx.update(&view, |forge, _, cx| forge.open_menu(None, cx));
     cx.run_until_parked();
     assert!(cx.find("forge-ref-picker-menu").is_none());
@@ -1220,7 +1221,7 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
     assert!(cx.has_text("Wren"), "the granted writer resolves to a name");
     cx.simulate_click("forge-settings-force");
     cx.simulate_click("forge-settings-head");
-    cx.simulate_click("forge-settings-head-clean");
+    cx.simulate_click("forge-ref-refs/heads/clean");
     cx.simulate_click("forge-settings-save");
     cx.run_until_parked();
     assert!(cx.host().requests::<SubmitForge>().iter().any(|op| matches!(
@@ -1612,11 +1613,14 @@ fn the_repositories_grid_walks_cells_and_enter_presses_the_active_one() {
     view.read(|forge| assert_eq!(forge.nav().repo.as_deref(), Some(name.as_str())));
 }
 
-/// The ref picker's menu is one Tab stop in a modal overlay: it takes the
-/// keys on open with its first item active, ↓ then Enter picks a ref, and
-/// Esc closes it and gives the keys back to the button.
+/// The ref picker's menu takes the keys on open in its filter box, with the
+/// picked ref active: the box hears ↑ ↓ and Esc instead of its text (not
+/// Enter, its submit), ↓ then Enter picks a ref, and Esc closes the menu
+/// and gives the keys back to the button. The list is a Tab stop of its
+/// own in the modal overlay, whose keys do the same.
 #[test]
 fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
+    use wire::keyboard::{Key, Named};
     let (mut cx, view) = opened("default");
     let focused = |cx: &TestAppContext| -> Vec<String> {
         cx.host()
@@ -1635,7 +1639,18 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
     cx.run_until_parked();
     assert_eq!(
         focused(&cx).last().map(String::as_str),
-        Some("forge-ref-picker-menu")
+        Some("forge-ref-picker-filter")
+    );
+    let Some(wire::Node::Field { claims, .. }) = cx.find("forge-ref-picker-filter") else {
+        panic!("the filter box");
+    };
+    let claimed: Vec<&Key> = claims.iter().map(|claim| &claim.key).collect();
+    for key in [Named::ArrowUp, Named::ArrowDown, Named::Escape] {
+        assert!(claimed.contains(&&Key::Named(key)), "{key:?}");
+    }
+    assert!(
+        !claimed.contains(&&Key::Named(Named::Enter)),
+        "Enter submits"
     );
     let menu = cx.interactivity("forge-ref-picker-menu");
     assert_eq!(menu.role, Some(ducktape_view_guest::Role::Menu));
@@ -1664,9 +1679,10 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
         items
     };
     assert!(items.len() >= 2, "{items:?}");
+    assert_eq!(items[0], "forge-ref-refs/heads/main", "the default first");
     assert!(cx.interactivity(&items[0]).aria.active_descendant);
     assert!(!cx.interactivity(&items[0]).focusable);
-    cx.simulate_key_down("forge-ref-picker-menu", "escape");
+    cx.simulate_field_key("forge-ref-picker-filter", "escape");
     cx.run_until_parked();
     assert!(cx.find("forge-ref-picker-menu").is_none());
     assert_eq!(
@@ -1675,9 +1691,10 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
     );
     cx.simulate_click("forge-ref-picker");
     cx.run_until_parked();
-    cx.simulate_key_down("forge-ref-picker-menu", "down");
+    cx.simulate_field_key("forge-ref-picker-filter", "down");
+    cx.run_until_parked();
     assert!(cx.interactivity(&items[1]).aria.active_descendant);
-    cx.simulate_key_down("forge-ref-picker-menu", "enter");
+    cx.simulate_submit("forge-ref-picker-filter");
     cx.run_until_parked();
     let picked = items[1].trim_start_matches("forge-ref-").to_owned();
     view.read(|forge| {
@@ -1688,6 +1705,21 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
         focused(&cx).last().map(String::as_str),
         Some("forge-ref-picker")
     );
+    // open again, on the ref just picked; the list's own keys
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    assert!(cx.interactivity(&items[1]).aria.active_descendant);
+    cx.simulate_focus("forge-ref-picker-menu");
+    cx.simulate_key_down("forge-ref-picker-menu", "up");
+    cx.simulate_key_down("forge-ref-picker-menu", "enter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(
+            forge.nav().rev.as_deref(),
+            Some(b"refs/heads/main".as_slice())
+        );
+        assert_eq!(forge.menu, None);
+    });
 }
 
 /// Escape in the open menu closes it once: the menu consumes it, so the
@@ -1706,13 +1738,22 @@ fn escape_in_a_menu_closes_it_once() {
             })
             .count()
     };
-    cx.simulate_click("forge-ref-picker");
-    cx.run_until_parked();
-    let before = back_to_picker(&cx);
-    cx.simulate_key_down("forge-ref-picker-menu", "escape");
-    cx.run_until_parked();
-    assert!(cx.find("forge-ref-picker-menu").is_none());
-    assert_eq!(back_to_picker(&cx) - before, 1, "closed once");
+    // from the filter box, which claims it, and from the list
+    for list in [false, true] {
+        cx.simulate_click("forge-ref-picker");
+        cx.run_until_parked();
+        let before = back_to_picker(&cx);
+        match list {
+            false => cx.simulate_field_key("forge-ref-picker-filter", "escape"),
+            true => {
+                cx.simulate_focus("forge-ref-picker-menu");
+                cx.simulate_key_down("forge-ref-picker-menu", "escape");
+            }
+        }
+        cx.run_until_parked();
+        assert!(cx.find("forge-ref-picker-menu").is_none());
+        assert_eq!(back_to_picker(&cx) - before, 1, "closed once");
+    }
 }
 
 /// Every element of the window keeps its path while a dropdown is open and
@@ -1753,7 +1794,7 @@ fn a_dropdown_leaves_the_window_where_it_was() {
         "the menu is open"
     );
     assert_eq!(window(&cx), closed);
-    cx.simulate_key_down("forge-ref-picker-menu", "escape");
+    cx.simulate_field_key("forge-ref-picker-filter", "escape");
     cx.run_until_parked();
     assert!(
         cx.find("forge-ref-picker-menu").is_none(),
@@ -2304,5 +2345,162 @@ fn the_window_is_named_for_the_screen() {
             "project · #1",
             "project · #1 Review this change"
         ]
+    );
+}
+
+/// The keys of the items the open ref picker lists, in order.
+fn picker_items(cx: &TestAppContext) -> Vec<String> {
+    fn gather(node: &wire::Node, items: &mut Vec<String>) {
+        if node
+            .interactivity()
+            .is_some_and(|item| item.role == Some(ducktape_view_guest::Role::MenuItemRadio))
+        {
+            items.push(node.key().unwrap_or_default().to_owned());
+        }
+        node.children()
+            .iter()
+            .for_each(|child| gather(child, items));
+    }
+    let mut items = Vec::new();
+    if let Some(menu) = cx.find("forge-ref-picker-menu") {
+        gather(menu, &mut items);
+    }
+    items
+}
+
+/// The ref picker as a reader uses it: the default branch first, what is
+/// typed in the filter box narrows both tabs in any case and counts what
+/// each still holds, a filter nothing matches says so, the tags are a
+/// press away, and Enter picks the first match. Opened again on a tag, it
+/// opens on the tags with that tag checked.
+#[test]
+fn the_ref_picker_filters_its_branches_and_tags() {
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    let branch = |name: &str| format!("forge-ref-refs/heads/{name}");
+    assert_eq!(
+        picker_items(&cx),
+        ["main", "clean", "conflict", "feature", "unrelated"].map(branch)
+    );
+    assert!(cx.has_text("Branches 5") && cx.has_text("Tags 1"));
+    cx.simulate_input("forge-ref-picker-filter", "CON");
+    cx.run_until_parked();
+    assert_eq!(picker_items(&cx), [branch("conflict")]);
+    assert!(cx.has_text("Branches 1") && cx.has_text("Tags 0"));
+    cx.simulate_input("forge-ref-picker-filter", "zzz");
+    cx.run_until_parked();
+    assert!(picker_items(&cx).is_empty());
+    assert!(cx.has_text("No branches match"), "{:?}", cx.texts());
+    cx.simulate_input("forge-ref-picker-filter", "");
+    cx.simulate_click("forge-ref-picker-tags");
+    cx.run_until_parked();
+    assert_eq!(picker_items(&cx), ["forge-ref-refs/tags/v1"]);
+    let Some(wire::Node::Field { placeholder, .. }) = cx.find("forge-ref-picker-filter") else {
+        panic!("the filter box");
+    };
+    assert_eq!(placeholder, "Filter tags");
+    cx.simulate_input("forge-ref-picker-filter", "v");
+    cx.simulate_submit("forge-ref-picker-filter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(forge.nav().rev.as_deref(), Some(b"refs/tags/v1".as_slice()));
+        assert_eq!(forge.menu, None);
+    });
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    assert_eq!(picker_items(&cx), ["forge-ref-refs/tags/v1"]);
+    assert_eq!(
+        cx.interactivity("forge-ref-refs/tags/v1").aria.toggled,
+        Some(ducktape_view_guest::Toggled::True)
+    );
+}
+
+/// A ref list longer than the window keeps the picker inside it: the list
+/// shows the rows the window has room for and scrolls the rest, a virtual
+/// list of every branch, opened scrolled to the picked one.
+#[test]
+fn a_long_ref_list_keeps_the_picker_in_the_window() {
+    use ducktape_view_guest::px;
+    // the rows the open picker's list is as tall as
+    let rows = |cx: &TestAppContext| {
+        let height = cx.style("forge-ref-picker-rows").size.height;
+        let (row, inset) = (design::height::ROW as f32, design::spacing::XXS as f32 * 2.);
+        (1..=12).find(|rows| height == Some(px(*rows as f32 * row + inset).into()))
+    };
+    let (mut cx, view) = opened("default");
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    // as tall as the refs of both tabs, so a switch keeps its height
+    assert_eq!(rows(&cx), Some(6), "a tall window shows every ref");
+    cx.simulate_click("forge-ref-refs/heads/unrelated");
+    cx.simulate_resize(1180., 200.);
+    cx.simulate_click("forge-ref-picker");
+    cx.run_until_parked();
+    let shown = rows(&cx).expect("the list is as tall as whole rows");
+    assert!(
+        shown < 5,
+        "a short window shows fewer than the branches: {shown}"
+    );
+    let mut list = None;
+    fn find_list<'a>(node: &'a wire::Node, list: &mut Option<&'a wire::Node>) {
+        if matches!(node, wire::Node::UniformList { .. }) {
+            *list = Some(node);
+        }
+        node.children()
+            .iter()
+            .for_each(|child| find_list(child, list));
+    }
+    find_list(cx.node("forge-ref-picker-menu"), &mut list);
+    let Some(wire::Node::UniformList {
+        count,
+        scroll_request,
+        ..
+    }) = list
+    else {
+        panic!("the items are a virtual list");
+    };
+    assert_eq!(*count, 5, "every branch is in the list");
+    assert_eq!(
+        scroll_request.as_ref().map(|request| request.index),
+        Some(4),
+        "scrolled to unrelated, the last"
+    );
+    view.read(|forge| assert_eq!(forge.menu_cursor, 4));
+}
+
+/// A ref's name in a narrow column is cut in its middle, and a name long
+/// enough to be cut is said whole on hover; a short one is not.
+#[test]
+fn a_long_ref_name_is_cut_in_the_middle_and_whole_on_hover() {
+    use crate::ui::components::{name_cell, whole_name};
+    let long = "people/ada/a-rather-long-branch-name-about-the-perf-work-35";
+    let (node, styles) = ducktape_view_guest::testing::lower::<Forge, _>(|_| {
+        div()
+            .id("names")
+            .child(whole_name(
+                name_cell(long).id("long"),
+                long,
+                &Theme::default(),
+            ))
+            .child(whole_name(
+                name_cell("main").id("short"),
+                "main",
+                &Theme::default(),
+            ))
+    });
+    let [long_cell, short_cell] = node.children() else {
+        panic!("two cells: {node:?}");
+    };
+    assert!(long_cell.interactivity().unwrap().tooltip.is_some());
+    assert!(
+        short_cell
+            .interactivity()
+            .is_none_or(|it| it.tooltip.is_none())
+    );
+    let overflow = &styles[long_cell.style().unwrap()].text.text_overflow;
+    assert!(
+        format!("{overflow:?}").starts_with("Some(TruncateMiddle("),
+        "{overflow:?}"
     );
 }

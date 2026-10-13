@@ -7,7 +7,7 @@ use ducktape_view_guest::{Div, FontWeight, Stateful};
 use crate::Forge;
 use crate::state::{Menu, SettingsForm};
 use crate::ui::changes::people_picker;
-use crate::ui::components::{button, dropdown, id, menu, menu_item, ref_label};
+use crate::ui::components::{button, dropdown, id, ref_label};
 use crate::ui::{PAGE_X, pending, scroller, staged};
 use forge::Reply;
 
@@ -89,7 +89,8 @@ fn group(key: &str, title: &str, theme: &Theme) -> Stateful<Div> {
         .child(title.to_owned())
 }
 
-/// The branches a default head may name, as a dropdown.
+/// The branches a default head may name, as a dropdown
+/// ([`crate::ui::components::menu`]).
 fn heads(forge: &Forge, form: &SettingsForm, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     dropdown(
         Menu::Head.key(),
@@ -100,39 +101,6 @@ fn heads(forge: &Forge, form: &SettingsForm, cx: &mut Context<Forge>, theme: &Th
             forge.open_dropdown(Menu::Head, event, window, cx)
         }),
     )
-}
-
-/// The default head's menu, open: every branch, the form's head checked.
-pub(crate) fn head_menu(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let head = forge
-        .repo_settings
-        .as_ref()
-        .map(|form| form.head.clone())
-        .unwrap_or_default();
-    let items = forge
-        .branches()
-        .into_iter()
-        .map(|name| {
-            let pick = cx.processor({
-                let name = name.clone();
-                move |forge, (): (), window, cx| {
-                    if let Some(form) = &mut forge.repo_settings {
-                        form.head = name.clone();
-                    }
-                    forge.close_dropdown(Menu::Head, window, cx);
-                }
-            });
-            menu_item(
-                id(format!("forge-settings-head-{}", ref_label(&name))),
-                ref_label(&name),
-                None,
-                head == name,
-                theme,
-                move |window, app| pick((), window, app),
-            )
-        })
-        .collect();
-    menu(Menu::Head, "Default head", items, forge, cx, theme)
 }
 
 /// The force and delete switches.

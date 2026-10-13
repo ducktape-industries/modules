@@ -107,9 +107,12 @@ impl View for Forge {
 
 impl Render for Forge {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // the pane's width, as the host lays the frame out: the rail and
-        // the dock fold to it in the frame that shows them
-        self.layout.width = window.viewport_size().width.into();
+        // the pane's size, as the host lays the frame out: the rail and
+        // the dock fold to its width in the frame that shows them, and a
+        // dropdown keeps to its height
+        let viewport = window.viewport_size();
+        self.layout.width = viewport.width.into();
+        self.layout.height = viewport.height.into();
         // a change's title lands async: the frame is the one place that
         // sees each
         self.settle_title(cx);
