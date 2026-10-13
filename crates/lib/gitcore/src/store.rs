@@ -9,13 +9,6 @@ pub trait Objects {
     fn get(&self, id: &Oid) -> Result<Option<Object>>;
     fn has(&self, id: &Oid) -> Result<bool>;
     fn put(&mut self, kind: Kind, body: &[u8]) -> Result<Oid>;
-
-    /// The objects a walk reads next, in the order it reads them: a store
-    /// across a network asks for them together instead of one round trip
-    /// each. A store at hand has nothing to do.
-    fn prefetch(&self, _ids: &[Oid]) -> Result<()> {
-        Ok(())
-    }
 }
 
 #[derive(Clone, Debug)]

@@ -5,7 +5,9 @@
 pub use std::collections::{BTreeMap, BTreeSet};
 
 pub use forge::{Bounds, Forge, Op, PageRequest, Principal, Query, Reply, Service, Settings};
+pub use gitcore::walk::{Closed, Listing};
 pub use gitcore::wire::pktline::{self, Pkt, Reader};
+pub use gitcore::wire::upload::{Command, parse_command, respond};
 pub use gitcore::{
     Commit, Hash, Kind, Limits, MemoryObjects, Mode, Object, Objects, Oid, Signature, Tree,
     TreeEntry, pack,
@@ -293,4 +295,59 @@ pub fn ids_in_pack(bytes: &[u8], hash: Hash) -> BTreeSet<Oid> {
         .into_iter()
         .map(|(id, _)| id)
         .collect()
+}
+
+pub fn closure_of(
+    sandbox: &MemorySandbox,
+    repo: &str,
+    hash: HashKind,
+    wants: &[Oid],
+    haves: &[Oid],
+) -> Vec<gitcore::walk::Listed> {
+    let mut listing = Listing::of(wants, haves);
+    while let Some(walk) = listing.pending() {
+        let query = Query::Closure {
+            repo: repo.into(),
+            walk: forge::Walk::of(walk),
+        };
+        let Reply::Closure { listed, next, .. } =
+            abi::decode(&ask(sandbox, &query).unwrap()).unwrap()
+        else {
+            panic!("a closure answers Closure");
+        };
+        listing.receive(Closed {
+            listed: listed
+                .iter()
+                .map(|item| item.parse(hash).unwrap())
+                .collect(),
+            next: next.parse(hash).unwrap(),
+        });
+    }
+    listing.into_listed()
+}
+
+pub fn fetch(sandbox: &MemorySandbox, repo: &str, hash: HashKind, request: &[u8]) -> Vec<u8> {
+    let Ok(Some(Command::Fetch(command))) = parse_command(request, forge_hash(hash)) else {
+        panic!("a fetch request");
+    };
+    let listed = closure_of(sandbox, repo, hash, &command.wants, &command.haves);
+    let objects = listed.iter().map(|item| {
+        let id = forge::blob_id_of(&item.id);
+        let blob = sandbox.forge.borrow().blobs.get(&id).cloned().unwrap();
+        assert_eq!(Kind::parse(blob.kind.as_bytes()).unwrap(), item.kind);
+        Ok(Object::new(item.kind, blob.body))
+    });
+    let mut response = Vec::new();
+    respond(&command, objects, &mut |chunk| {
+        response.extend_from_slice(chunk)
+    })
+    .unwrap();
+    response
+}
+
+pub fn forge_hash(hash: HashKind) -> Hash {
+    match hash {
+        HashKind::Sha1 => Hash::Sha1,
+        HashKind::Sha256 => Hash::Sha256,
+    }
 }

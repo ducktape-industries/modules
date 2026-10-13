@@ -76,7 +76,7 @@ fn next_cursor(reply: &Reply) -> Option<&Vec<u8>> {
         | Reply::Compare { .. }
         | Reply::Blob { .. }
         | Reply::Activity { .. }
-        | Reply::Objects { .. } => None,
+        | Reply::Closure { .. } => None,
     }
 }
 

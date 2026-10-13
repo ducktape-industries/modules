@@ -1,15 +1,12 @@
-// upload-pack protocol v2: capability advertisement, ls-refs and fetch command parsing, and the fetch response.
+// upload-pack protocol v2: capability advertisement, ls-refs and fetch command parsing, and the fetch response written from the objects a closure listed.
 
 use super::{pktline, sideband};
 use crate::error::{Error, Result};
-use crate::object::{Kind, Tag};
+use crate::object::{Kind, Object, Tag};
 use crate::oid::{Hash, Oid};
 use crate::pack::PackWriter;
-use crate::store::{Objects, load};
-use crate::walk::{
-    Verdict, commit_of, commits, is_ancestor, reachable_from_trees, reachable_objects,
-};
-use std::collections::{BTreeMap, BTreeSet};
+use crate::store::Objects;
+use std::collections::BTreeMap;
 
 pub fn capability_advertisement(hash: Hash, agent: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -259,160 +256,31 @@ pub fn packfile_header() -> Vec<u8> {
     pktline::encode(b"packfile\n")
 }
 
-struct Selection {
-    tags: Vec<Oid>,
-    tips: Vec<Oid>,
-    loose_trees: BTreeSet<Oid>,
-    loose_blobs: BTreeSet<Oid>,
-}
-
-fn select_wants<S: Objects + ?Sized>(
-    store: &S,
-    refs: &BTreeMap<Vec<u8>, Oid>,
-    wants: &[Oid],
-    cap: usize,
-) -> Result<Selection> {
-    let advertised: BTreeSet<&Oid> = refs.values().collect();
-    let mut selection = Selection {
-        tags: Vec::new(),
-        tips: Vec::new(),
-        loose_trees: BTreeSet::new(),
-        loose_blobs: BTreeSet::new(),
-    };
-    for want in wants {
-        let allowed = advertised.contains(want);
-        if !allowed {
-            return Err(Error::NotAdvertised(*want));
-        }
-        select_want(store, *want, cap, &mut selection)?;
-    }
-    Ok(selection)
-}
-
-fn select_want<S: Objects + ?Sized>(
-    store: &S,
-    want: Oid,
-    cap: usize,
-    selection: &mut Selection,
-) -> Result<()> {
-    let mut current = want;
-    for _ in 0..=cap {
-        let object = load(store, &current)?;
-        match object.kind {
-            Kind::Tag => {
-                selection.tags.push(current);
-                current = Tag::parse(&object.body, current.hash())?.object;
-            }
-            Kind::Commit => {
-                selection.tips.push(current);
-                return Ok(());
-            }
-            Kind::Tree => {
-                selection.loose_trees.insert(current);
-                return Ok(());
-            }
-            Kind::Blob => {
-                selection.loose_blobs.insert(current);
-                return Ok(());
-            }
-        }
-    }
-    Err(Error::CapReached)
-}
-
-fn all_wants_reachable<S: Objects + ?Sized>(
-    store: &S,
-    tips: &[Oid],
-    common: &[Oid],
-    cap: usize,
-) -> Result<bool> {
-    for tip in tips {
-        let mut covered = false;
-        for have in common {
-            let verdict = is_ancestor(store, have, tip, cap)?;
-            let reaches = verdict == Verdict::Yes;
-            if reaches {
-                covered = true;
-                break;
-            }
-        }
-        if !covered {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-pub fn fetch<S: Objects + ?Sized>(
-    store: &S,
-    refs: &BTreeMap<Vec<u8>, Oid>,
-    command: &Fetch,
-    cap: usize,
-    sink: &mut dyn FnMut(&[u8]),
-) -> Result<()> {
+pub fn respond<I>(command: &Fetch, objects: I, sink: &mut dyn FnMut(&[u8])) -> Result<()>
+where
+    I: ExactSizeIterator<Item = Result<Object>>,
+{
     let Some(first_want) = command.wants.first() else {
         return Err(Error::BadRequest);
     };
     let hash = first_want.hash();
-    store.prefetch(&command.wants)?;
-    let selection = select_wants(store, refs, &command.wants, cap)?;
-    let mut common = Vec::new();
-    store.prefetch(&command.haves)?;
-    for have in &command.haves {
-        let new_common = store.has(have)? && !common.contains(have);
-        if new_common {
-            common.push(*have);
-        }
-    }
+    let count = u32::try_from(objects.len()).map_err(|_| Error::TooManyObjects)?;
     if !command.done {
-        let ready =
-            !command.wait_for_done && all_wants_reachable(store, &selection.tips, &common, cap)?;
-        sink(&acknowledgments(&common, ready));
+        let ready = !command.wait_for_done;
+        sink(&acknowledgments(&[], ready));
         if !ready {
             sink(pktline::flush());
             return Ok(());
         }
         sink(pktline::delim());
     }
-    let new_commits = commits(store, &selection.tips, &common, cap)?;
-    let new_set: BTreeSet<Oid> = new_commits.iter().copied().collect();
-    let mut boundary: BTreeSet<Oid> = BTreeSet::new();
-    for id in &new_commits {
-        for parent in commit_of(store, id)?.parents {
-            let outside = !new_set.contains(&parent);
-            if outside {
-                boundary.insert(parent);
-            }
-        }
-    }
-    for have in &common {
-        let is_commit = store
-            .get(have)?
-            .is_some_and(|object| object.kind == Kind::Commit);
-        if is_commit {
-            boundary.insert(*have);
-        }
-    }
-    let boundary: Vec<Oid> = boundary.into_iter().collect();
-    let seen = reachable_objects(store, &boundary, &BTreeSet::new())?;
-    let mut objects = reachable_objects(store, &new_commits, &seen)?;
-    let loose_trees: Vec<Oid> = selection.loose_trees.iter().copied().collect();
-    objects.extend(reachable_from_trees(store, &loose_trees, &seen)?);
-    objects.extend(selection.loose_blobs.iter().copied());
-    let mut order: Vec<Oid> = Vec::new();
-    order.extend(selection.tags.iter().copied());
-    order.extend(new_commits.iter().copied());
-    order.extend(objects.iter().copied());
-    let count = u32::try_from(order.len()).map_err(|_| Error::TooManyObjects)?;
-    store.prefetch(&order)?;
-
     sink(&packfile_header());
     let mut banded = sideband::Writer::new(sideband::Band::Pack, sink);
     {
         let mut write = |bytes: &[u8]| banded.write(bytes);
         let mut writer = PackWriter::new(&mut write, hash, count);
-        for id in &order {
-            writer.add(&load(store, id)?);
+        for object in objects {
+            writer.add(&object?);
         }
         writer.finish()?;
     }

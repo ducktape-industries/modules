@@ -22,10 +22,8 @@ pub struct Bounds {
     /// Maximum commits in a history/compare walk; a log's `exclude` side
     /// walks under its own budget of the same size.
     pub log_walk: u64,
-    /// Maximum object reads in a tree/diff/compare/objects query.
     pub tree_walk: u64,
     /// Aggregate object bytes read by a query (including trees and commits).
-    /// An objects query answers its first held object even past it.
     pub diff_bytes: u64,
     /// Largest blob displayed inline. Larger blobs return a header.
     pub blob_bytes: u64,
@@ -256,19 +254,9 @@ pub enum Query {
         principal: Principal,
         page: PageRequest,
     },
-    /// Git objects by id, as git stores them, for a git client that walks
-    /// the history itself (git-remote-duck's fetch). The ids are answered in
-    /// order under a query's read budget (`tree_walk` reads, `diff_bytes`
-    /// bytes), the first held one whatever its size; an id past the budget
-    /// is in neither of the reply's lists, to ask again. With `ancestors`,
-    /// the budget left brings the commits the named commits descend from,
-    /// breadth first: a walk down a history learns a commit's parents only
-    /// by reading it, so without them a clone pays one round trip a
-    /// generation.
-    Objects {
+    Closure {
         repo: String,
-        ids: Vec<String>,
-        ancestors: bool,
+        walk: Walk,
     },
 }
 
@@ -300,7 +288,7 @@ impl Query {
             | Query::Blob { .. }
             | Query::Compare { .. }
             | Query::Activity { .. }
-            | Query::Objects { .. } => None,
+            | Query::Closure { .. } => None,
         }
     }
 
@@ -321,7 +309,7 @@ impl Query {
             | Query::Blob { .. }
             | Query::Compare { .. }
             | Query::Activity { .. }
-            | Query::Objects { .. } => None,
+            | Query::Closure { .. } => None,
         }
     }
 }
@@ -400,22 +388,128 @@ pub enum Reply {
         height: u64,
         page: PageResponse<Judgment>,
     },
-    /// The held objects among the ids answered, in order, then the
-    /// ancestors asked for; `missing` the ids answered that this node does
-    /// not hold.
-    Objects {
+    Closure {
         height: u64,
-        objects: Vec<GitObject>,
-        missing: Vec<String>,
+        listed: Vec<Listed>,
+        next: Walk,
     },
 }
 
-/// A git object as git stores it: its id, kind and body.
+#[derive(
+    Clone, Debug, Default, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize,
+)]
+pub struct Walk {
+    pub haves: Vec<String>,
+    pub commits: Vec<QueuedCommit>,
+    pub objects: Vec<String>,
+    pub trees: Vec<PendingTree>,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
+pub struct QueuedCommit {
+    pub oid: String,
+    pub time: i64,
+    pub uninteresting: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
+pub struct PendingTree {
+    pub tree: String,
+    pub against: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct GitObject {
+pub struct Listed {
     pub oid: String,
     pub kind: ObjectKind,
-    pub body: Vec<u8>,
+}
+
+impl Walk {
+    pub fn of(walk: gitcore::walk::Walk) -> Walk {
+        Walk {
+            haves: hexes(&walk.haves),
+            commits: walk
+                .commits
+                .into_iter()
+                .map(|queued| QueuedCommit {
+                    oid: queued.id.to_hex(),
+                    time: queued.time,
+                    uninteresting: queued.uninteresting,
+                })
+                .collect(),
+            objects: hexes(&walk.objects),
+            trees: walk
+                .trees
+                .into_iter()
+                .map(|pending| PendingTree {
+                    tree: pending.tree.to_hex(),
+                    against: hexes(&pending.against),
+                })
+                .collect(),
+        }
+    }
+
+    pub fn parse(&self, hash: HashKind) -> Option<gitcore::walk::Walk> {
+        let hash = crate::objects::hash_of(hash);
+        let mut trees = Vec::with_capacity(self.trees.len());
+        for pending in &self.trees {
+            trees.push(gitcore::walk::Pending {
+                tree: gitcore::Oid::from_hex(hash, &pending.tree).ok()?,
+                against: oids(hash, &pending.against)?,
+            });
+        }
+        let mut commits = Vec::with_capacity(self.commits.len());
+        for queued in &self.commits {
+            commits.push(gitcore::walk::Queued {
+                id: gitcore::Oid::from_hex(hash, &queued.oid).ok()?,
+                time: queued.time,
+                uninteresting: queued.uninteresting,
+            });
+        }
+        Some(gitcore::walk::Walk {
+            haves: oids(hash, &self.haves)?,
+            commits,
+            objects: oids(hash, &self.objects)?,
+            trees,
+        })
+    }
+}
+
+impl Listed {
+    pub fn of(listed: gitcore::walk::Listed) -> Listed {
+        let kind = match listed.kind {
+            gitcore::Kind::Commit => ObjectKind::Commit,
+            gitcore::Kind::Tree => ObjectKind::Tree,
+            gitcore::Kind::Blob => ObjectKind::Blob,
+            gitcore::Kind::Tag => ObjectKind::Tag,
+        };
+        Listed {
+            oid: listed.id.to_hex(),
+            kind,
+        }
+    }
+
+    pub fn parse(&self, hash: HashKind) -> Option<gitcore::walk::Listed> {
+        let kind = match self.kind {
+            ObjectKind::Commit => gitcore::Kind::Commit,
+            ObjectKind::Tree => gitcore::Kind::Tree,
+            ObjectKind::Blob => gitcore::Kind::Blob,
+            ObjectKind::Tag => gitcore::Kind::Tag,
+        };
+        let id = gitcore::Oid::from_hex(crate::objects::hash_of(hash), &self.oid).ok()?;
+        Some(gitcore::walk::Listed { id, kind })
+    }
+}
+
+fn hexes(ids: &[gitcore::Oid]) -> Vec<String> {
+    ids.iter().map(gitcore::Oid::to_hex).collect()
+}
+
+fn oids(hash: gitcore::Hash, hexes: &[String]) -> Option<Vec<gitcore::Oid>> {
+    hexes
+        .iter()
+        .map(|hex| gitcore::Oid::from_hex(hash, hex).ok())
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
