@@ -199,6 +199,12 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
             "request {id} was elected to another provider"
         )));
     }
+    let same_block = ctx.env().height <= stored.row.made;
+    if same_block {
+        return Err(wrong_state(format!(
+            "request {id} is answered in a later block than the one that made it"
+        )));
+    }
     if ctx.env().height > stored.row.deadline {
         return Err(wrong_state(format!(
             "request {id} expired at height {}",

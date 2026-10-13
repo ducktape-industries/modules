@@ -135,6 +135,9 @@ fn the_election_takes_turns_and_only_the_elected_provider_answers() {
         (ASKER, &b"ping"[..], 1 + EXPIRY_BLOCKS)
     );
 
+    let same_block = answer(&chain, BO, 2, Answer::Output(Vec::new())).unwrap_err();
+    assert_eq!(same_block.code, code::WRONG_STATE);
+    chain.at(2, 0);
     let wrong = answer(&chain, ADA, 2, Answer::Output(Vec::new())).unwrap_err();
     assert_eq!(wrong.code, code::UNAUTHORIZED);
     answer(&chain, BO, 2, Answer::Output(b"pong".to_vec())).unwrap();
@@ -250,6 +253,7 @@ fn a_refused_delivery_still_closes_the_request() {
     let chain = chain();
     serve(&chain, ADA, &[RELAY]).unwrap();
     ask(&chain, RELAY, b"").unwrap();
+    chain.at(2, 0);
     answer(&chain, ADA, 1, Answer::Output(b"refuse me".to_vec())).unwrap();
     assert!(delivered(&chain).is_empty());
     assert!(assigned(&chain, ADA).is_empty());
