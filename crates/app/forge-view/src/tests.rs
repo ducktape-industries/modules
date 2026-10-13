@@ -1439,6 +1439,9 @@ mod screen_tests;
 #[path = "log_tests.rs"]
 mod log_tests;
 
+#[path = "sweep_tests.rs"]
+mod sweep_tests;
+
 #[test]
 fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {
     let (mut cx, view) = booted("default");

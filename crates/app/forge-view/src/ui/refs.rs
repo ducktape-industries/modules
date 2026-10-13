@@ -111,6 +111,7 @@ fn ref_row(
         .in_grid()
         .on_click(pick)
         .active(active)
+        .walked(crate::ui::components::walked(forge, "forge-refs-list"))
         .selected(name == forge.head_name())
         .cell(whole_name(
             name_cell(label.clone())

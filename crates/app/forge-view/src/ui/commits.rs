@@ -86,6 +86,7 @@ pub(crate) fn log(
     };
     let (at, _) = crate::ui::components::cursor(forge, list_id);
     let at = at.min(held - 1);
+    let walked = crate::ui::components::walked(forge, list_id);
     let pressed = log.clone();
     let list = crate::ui::components::list(
         list_id,
@@ -110,7 +111,7 @@ pub(crate) fn log(
             log.read(|log| {
                 range
                     .map(|index| match log.rows().get(index) {
-                        Some(commit) => row(commit, index == at, &open, &theme),
+                        Some(commit) => row(commit, index == at, walked, &open, &theme),
                         None => reading_on(&more, &theme),
                     })
                     .collect()
@@ -140,6 +141,7 @@ fn reading_on(key: &str, theme: &Theme) -> AnyElement {
 fn row(
     commit: &CommitInfo,
     active: bool,
+    walked: bool,
     open: &crate::ui::diff::Route<String>,
     theme: &Theme,
 ) -> AnyElement {
@@ -148,6 +150,7 @@ fn row(
     let clicked = oid.clone();
     let mut row = crate::ui::components::row(format!("forge-commit-{oid}"), theme)
         .active(active.then_some(0))
+        .walked(walked)
         .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| {
             open(&clicked, window, app)
         })

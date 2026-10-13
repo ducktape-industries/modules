@@ -108,7 +108,10 @@ fn tree_column(forge: &Forge, theme: &Theme) -> Stateful<Div> {
 /// What marks a row: the open file, the keyboard cursor, open folders.
 struct Marks {
     open: Option<Vec<u8>>,
+    /// where the keys put the cursor, drawn
     cursor: Option<Vec<u8>>,
+    /// the row the keys start from, claimed for them
+    claimed: Option<Vec<u8>>,
     expanded: BTreeSet<Vec<u8>>,
 }
 
@@ -124,9 +127,11 @@ fn tree_rows(forge: &Forge, rows: Vec<Row>, cx: &mut Context<Forge>, theme: &The
         }
     });
     // the tree claims a row before any key: the cursor, else the open
-    // file, else the first entry, which is where `tree_key` starts too
+    // file, else the first entry, which is where `tree_key` starts too.
+    // Only a cursor the keys set is drawn: at rest nothing is lit, as the
+    // tree cannot see whether it holds the focus
     let open = forge.nav().blob.as_ref().map(|(path, _)| path.clone());
-    let cursor = forge
+    let claimed = forge
         .nav()
         .cursor
         .clone()
@@ -138,7 +143,8 @@ fn tree_rows(forge: &Forge, rows: Vec<Row>, cx: &mut Context<Forge>, theme: &The
         });
     let marks = Marks {
         open,
-        cursor,
+        cursor: forge.nav().cursor.clone(),
+        claimed,
         expanded: forge.nav().expanded.clone(),
     };
     let theme = *theme;
@@ -212,6 +218,7 @@ fn tree_row(
     // reaches the tree's key handler alone and not a focused row too.
     let selected = marks.open.as_deref() == Some(&entry.path[..]);
     let cursor = marks.cursor.as_deref() == Some(&entry.path[..]);
+    let claimed = marks.claimed.as_deref() == Some(&entry.path[..]);
     let mut line = div()
         .id(id(format!("forge-tree-{}", path_text(&entry.path))))
         .w_full()
@@ -242,7 +249,7 @@ fn tree_row(
     if is_dir {
         line = line.aria_expanded(expanded);
     }
-    if cursor {
+    if claimed {
         line = line.aria_active_descendant();
     }
     if selected {

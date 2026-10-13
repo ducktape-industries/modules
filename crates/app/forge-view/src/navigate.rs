@@ -155,7 +155,6 @@ impl Forge {
     }
 
     pub(crate) fn open_file(&mut self, path: Vec<u8>, oid: String, cx: &mut Context<Self>) {
-        self.nav.cursor = Some(path.clone());
         self.nav.blob = Some((path, oid));
         self.moved(cx);
     }

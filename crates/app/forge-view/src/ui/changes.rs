@@ -78,6 +78,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     let numbers: Vec<u64> = shown.iter().map(|(summary, _)| summary.n).collect();
     let (at, _) = crate::ui::components::cursor(forge, "forge-changes-list");
     let at = at.min(numbers.len().saturating_sub(1));
+    let walked = crate::ui::components::walked(forge, "forge-changes-list");
     let mut list = crate::ui::components::list(
         "forge-changes-list",
         "Changes",
@@ -94,6 +95,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             summary,
             *judgment,
             index == at,
+            walked,
             cx,
             theme,
         ));
@@ -114,6 +116,7 @@ fn change_row(
     summary: &ChangeSummary,
     judgment: Option<&Judgment>,
     active: bool,
+    walked: bool,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
@@ -136,7 +139,7 @@ fn change_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(move |style| style.bg(theme_.surface))
-        .when(active, |line| line.bg(theme_.surface))
+        .when(walked && active, |line| line.bg(theme_.surface))
         .aria_selected(false)
         .on_click(open)
         .child(
