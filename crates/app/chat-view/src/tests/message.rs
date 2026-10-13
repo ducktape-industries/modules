@@ -1,38 +1,76 @@
 use super::*;
 use ducktape_view_guest::{StyleRefinement, Styled};
 
+/// The strip hangs half over the card's top edge (Slack's), and the
+/// message under it stays where it is; the card's ground hugs the message,
+/// the run's gap lying above it. The pointer on its upper half is
+/// over the row above, so the strip occludes (no row is hovered while the
+/// pointer is on it) and keeps itself drawn by its own hover; the card
+/// keeps its hover ground meanwhile. The wire keeps the negative inset:
+/// this frame went through the sanitizer.
 #[test]
-fn action_strip_keeps_the_rows_hover_and_is_not_inside_selection_target() {
-    let (mut cx, view) = opened();
+fn the_action_strip_hangs_over_the_rows_top_and_stays_under_the_pointer() {
+    use ducktape_view_guest::px;
+    let (mut cx, _view) = opened();
     assert!(
         cx.find("chat-message-m1-actions").is_none(),
         "no strip on a row the pointer is not over"
     );
-    hover(&mut cx, &view, 1);
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
-        style,
-        interactivity: Some(interactivity),
-        ..
-    })) = cx.find("chat-message-m1-actions")
-    else {
-        panic!("action strip")
-    };
-    let style = &cx.styles()[*style];
-    assert_eq!(
-        style.visibility,
-        StyleRefinement::default().invisible().visibility
-    );
-    assert_eq!(
-        cx.styles()[interactivity.group_hover.as_ref().unwrap().style].visibility,
-        StyleRefinement::default().visible().visibility
-    );
-    // An occluding strip took the row's group hover away as the pointer
-    // reached it: it hid itself and could not be clicked. It stays under
-    // the group; its buttons consume their press, so the card does not.
+    cx.simulate_hover("chat-message-m1-row", true);
+    let strip = cx.interactivity("chat-message-m1-actions");
     assert!(
-        !interactivity.occlude,
-        "the strip must not take the row's hover from under the pointer"
+        strip.occlude,
+        "the strip occludes the row above its overhang"
     );
+    assert!(
+        strip.on_hover.is_some(),
+        "the strip says when the pointer is on it"
+    );
+    assert!(strip.group_hover.is_none());
+    // the run's quiet lies in the row above the card, so the card's ground
+    // hugs the message (no forehead over the avatar), and the strip hangs
+    // half over the card's top edge
+    let row = cx.style("chat-message-m1-row");
+    assert_eq!(row.padding.top, Some(px(8.).into()), "the run's gap");
+    let card = cx.style("chat-message-m1-card");
+    assert_eq!(card.padding.top, Some(px(4.).into()), "the card hugs");
+    let style = cx.style("chat-message-m1-actions");
+    assert_eq!(
+        style.inset.top,
+        Some(px(8. - 13.).into()),
+        "half of its 26 over the card"
+    );
+    assert_eq!(
+        style.visibility, None,
+        "drawn only while the pointer is on the row"
+    );
+    let raised = ducktape_view_guest::Theme::default().surface_raised;
+    let ground = |cx: &TestAppContext| {
+        cx.style("chat-message-m1-card")
+            .background
+            .as_ref()
+            .and_then(|fill| fill.color())
+            .and_then(|background| background.as_solid())
+    };
+    assert_eq!(ground(&cx), Some(raised));
+    // the pointer moves from the card onto the strip: the row leaves, the
+    // strip enters, in whichever order the host says them
+    cx.simulate_hover("chat-message-m1-actions", true);
+    cx.simulate_hover("chat-message-m1-row", false);
+    assert!(
+        cx.find("chat-message-m1-actions").is_some(),
+        "the strip stays under the pointer"
+    );
+    assert_eq!(ground(&cx), Some(raised), "the card keeps its hover ground");
+    // a strip whose leave never comes (its row deleted or scrolled away
+    // under the pointer) is let go by the next row the pointer enters
+    cx.simulate_hover("chat-message-m2-row", true);
+    assert!(cx.find("chat-message-m1-actions").is_none());
+    assert!(cx.find("chat-message-m2-actions").is_some());
+    assert_ne!(ground(&cx), Some(raised));
+    cx.simulate_hover("chat-message-m2-row", false);
+    assert!(cx.find("chat-message-m2-actions").is_none());
+    cx.simulate_hover("chat-message-m1-row", true);
     assert!(
         cx.find("chat-message-m1").unwrap().children().is_empty(),
         "native action clicks must not bubble through selection"
@@ -58,7 +96,10 @@ fn fire(cx: &mut TestAppContext, view: &Entity<Chat>, mine: bool) {
 /// The pointer over message `seq`'s row, as the host reports it.
 pub(super) fn hover(cx: &mut TestAppContext, view: &Entity<Chat>, seq: u64) {
     cx.update(view, |chat, _, cx| {
-        chat.hovered = Some((Pane::Timeline, seq));
+        chat.hovered = Some(crate::Hovered {
+            key: (Pane::Timeline, seq),
+            strip: false,
+        });
         cx.notify();
     });
     cx.run_until_parked();
@@ -202,7 +243,10 @@ fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
     cx.update(&view, |chat, _, cx| {
         chat.search.draft.reset("hello");
         chat.confirmation = "Saved".into();
-        chat.hovered = Some((Pane::Timeline, 1));
+        chat.hovered = Some(crate::Hovered {
+            key: (Pane::Timeline, 1),
+            strip: false,
+        });
         cx.notify();
     });
     cx.run_until_parked();

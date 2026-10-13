@@ -64,6 +64,7 @@ impl View for Chat {
             draft.retire_device_requests();
         }
         self.menu = None;
+        self.copy = None;
         self.watch(cx);
         if self.names.is_idle() {
             self.load_names(cx);

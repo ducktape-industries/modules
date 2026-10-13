@@ -472,6 +472,9 @@ pub fn selection_bar(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl
         .gap_2()
         .p_2()
         .bg(theme.accent_soft)
+        // the range's own bar: a press on it is no press elsewhere, which
+        // lets the range go (`chat-root`) before its Copy could take it
+        .occlude()
         .child(div().flex_1().child(format!(
             "{} selected",
             design::plural(count as u64, "message", "messages")

@@ -32,10 +32,12 @@ pub struct Chat {
     /// The reader's reactions, newest first: the picker's frequent row.
     #[serde(default)]
     pub(crate) recent_emoji: Vec<String>,
-    /// The message row under the pointer: the one that carries the action
-    /// strip, beside a chosen one.
+    /// Where the pointer is among the message rows: the row that carries
+    /// the action strip, beside a chosen one. One slot whatever the pointer
+    /// entered took last, so a strip that vanished under the pointer (its
+    /// row deleted or scrolled away) leaves nothing once it moves on.
     #[serde(skip)]
-    pub(crate) hovered: Option<(Pane, u64)>,
+    pub(crate) hovered: Option<Hovered>,
     /// The room the arrows are on in the sidebar's list; the open room
     /// until they move.
     #[serde(skip)]
@@ -288,6 +290,15 @@ impl Cursor {
     }
 }
 
+/// The message row under the pointer, or its action strip (`strip`): the
+/// strip hangs half over the row above and occludes it, so the row itself
+/// is not hovered while the pointer is on the strip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Hovered {
+    pub(crate) key: (Pane, u64),
+    pub(crate) strip: bool,
+}
+
 /// A control on a message card: what pressing it does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Control {
@@ -310,6 +321,12 @@ pub enum Control {
 }
 
 impl Chat {
+    /// Whether the pointer is on the message row `key`: on the row or on
+    /// its action strip.
+    pub(crate) fn pointer_on(&self, key: (Pane, u64)) -> bool {
+        self.hovered.is_some_and(|hovered| hovered.key == key)
+    }
+
     pub(crate) fn cursor(&self, pane: Pane) -> &Cursor {
         match pane {
             Pane::Timeline => &self.timeline_cursor,
