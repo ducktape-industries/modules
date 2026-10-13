@@ -68,8 +68,6 @@ pub struct Transfer {
     pub to: AccountNumber,
 }
 
-/// Every relation `object` holds as of `revision`, which only grows: relations it
-/// held before and not now are withdrawn.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Update {
     pub object: Object,
@@ -108,8 +106,6 @@ pub struct Relations {
     pub relations: Vec<Relation>,
 }
 
-/// `Attribute` and `AttributeBatch` come from the module whose objects they name;
-/// `Subscribe` from the module to be told, as `deliver` followed by the borsh `Change`.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
     Attribute(Update),
