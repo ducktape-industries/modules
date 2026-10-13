@@ -153,8 +153,9 @@ fn acts(
     })
 }
 
-/// A press on the card selects the message; a control on it consumes its
-/// own press, so the card never hears it.
+/// A press on the card selects the message (with shift held, the copy
+/// range grows to it); a control on it consumes its own press, so the
+/// card never hears it.
 fn press(
     pane: Pane,
     seq: u64,
@@ -165,7 +166,7 @@ fn press(
         let at = (position.x.into(), position.y.into());
         cx.notify();
         chat.layout.press = at;
-        chat.press_message(pane, seq);
+        chat.press_message(pane, seq, event.modifiers().shift);
     })
 }
 

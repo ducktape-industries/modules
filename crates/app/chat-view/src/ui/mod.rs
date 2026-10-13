@@ -16,6 +16,24 @@ use crate::Chat;
 
 pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
+    // A chosen message has no popup of its own (its strip sits in the
+    // row), so no overlay dismisses it: the screen lets it and the copy
+    // range go on Escape from anywhere in the view and on a press
+    // anywhere in it — a press on a message chooses it again after
+    // (click follows mouse down), with shift it grows the range instead
+    let escape = cx.listener(|chat, event: &KeyDownEvent, _window, cx| {
+        if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() && chat.holds()
+        {
+            chat.let_go();
+            cx.notify();
+        }
+    });
+    let press = cx.listener(|chat, event: &MouseDownEvent, _window, cx| {
+        if !event.modifiers.shift && chat.holds() {
+            chat.let_go();
+            cx.notify();
+        }
+    });
     let screen = div()
         .id("chat-root")
         .relative()
@@ -24,6 +42,12 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_size(design::text::BODY)
+        // a node that hears a key or a press says what it is
+        .role(Role::Group)
+        .aria_label("Chat")
+        .on_key_down(escape)
+        .when(chat.holds(), |screen| screen.consumes_keys(["escape"]))
+        .on_any_mouse_down(press)
         .child(if chat.session.connected {
             connected(chat, cx, &theme).into_any_element()
         } else {
