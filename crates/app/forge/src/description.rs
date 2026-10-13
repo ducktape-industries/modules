@@ -106,6 +106,11 @@ pub fn describe(op: &Op) -> Description {
             ("Edit change", repo, fields)
         }
         Op::ChangeClose { repo, n } => ("Close change", repo, vec![change(n)]),
+        Op::Stage { repo, pack } => (
+            "Stage objects",
+            repo,
+            vec![field("pack", Value::bytes(pack))],
+        ),
         Op::ReviewSubmit { repo, n, review } => (
             "Review",
             repo,

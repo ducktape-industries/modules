@@ -1,5 +1,5 @@
 //! The execute path: who acts, which op, and the repository ops (create,
-//! configure, grant, revoke, push). Change ops live in `changes`.
+//! configure, grant, revoke, push, stage). Change ops live in `changes`.
 
 use gitcore::server::{Policy, RefUpdate};
 use gitcore::{Error as GitError, Limits, server};
@@ -116,8 +116,12 @@ pub(crate) fn revoke(
     Ok(())
 }
 
-/// A git receive-pack: the objects land as blobs, then each accepted ref
-/// moves; git's own report is the op's output.
+/// A git receive-pack: once the pack unpacks, its objects land as blobs and
+/// each accepted ref moves; git's own report is the op's output. The
+/// objects land even when every ref is refused, as git's receive-pack keeps
+/// what it unpacked: a stage stores objects no ref reaches as well, and a
+/// client that pushes again after a refusal (a branch moved meanwhile)
+/// sends less. A pack that does not unpack stores nothing.
 pub(crate) fn push(
     ctx: &ExecCtx,
     actor: &Principal,
@@ -144,7 +148,9 @@ pub(crate) fn push(
         cap(bounds.push_walk),
     )
     .map_err(refusal_of)?;
-    objects.flush()?;
+    if outcome.unpack_error.is_none() {
+        objects.flush()?;
+    }
     for (reference, update) in &outcome.moves {
         match update {
             RefUpdate::Set(target) => {
@@ -162,6 +168,24 @@ pub(crate) fn push(
     save_repo(ctx, name, &repo)?;
     ctx.set_return_data(outcome.report);
     Ok(())
+}
+
+/// The objects half of a push: the pack's objects land as blobs, checked as
+/// a push checks them (bounds, deltas against what is held, every object
+/// they name held), and no ref moves.
+pub(crate) fn stage(
+    ctx: &ExecCtx,
+    actor: &Principal,
+    name: &str,
+    pack: &[u8],
+) -> Result<(), Error> {
+    let repo = load_repo(ctx, name)?;
+    require_writer(ctx, name, &repo, actor)?;
+    let bounds = load_bounds(ctx)?;
+    let hash = repo_hash(&repo);
+    let mut objects = ObjectWriter::new(ctx, hash);
+    server::admit_pack(&mut objects, pack, hash, &limits_of(&bounds)).map_err(refusal_of)?;
+    objects.flush()
 }
 
 fn require_owner(repo: &Repo, actor: &Principal) -> Result<(), Error> {

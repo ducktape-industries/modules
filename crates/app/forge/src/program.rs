@@ -7,8 +7,8 @@ use guest::{Error, ExecCtx, Module, Program, QueryCtx};
 use crate::change_queries::{change, changes, judgment};
 use crate::changes::{Draft, Edit, MergeRequest, close, edit, merge_heads, open, submit_review};
 use crate::contract::*;
-use crate::ops::{configure, create, grant, init, push, revoke, signed_account, touch};
-use crate::queries::{advertise, listing, refs, repos, upload};
+use crate::ops::{configure, create, grant, init, push, revoke, signed_account, stage, touch};
+use crate::queries::{advertise, listing, objects, refs, repos, upload};
 use crate::reads::{blob, comparison, diff, log, tree};
 use crate::state::{WRITERS, load_bounds, load_repo};
 
@@ -93,6 +93,7 @@ impl Module for Forge {
             Op::ReviewSubmit { repo, n, review } => {
                 submit_review(ctx, actor, &repo, n, review).map(Some)
             }
+            Op::Stage { repo, pack } => stage(ctx, actor, &repo, &pack).map(|()| None),
         }?;
         if let Some(reply) = reply {
             ctx.set_return_data(abi::encode(&reply));
@@ -196,6 +197,11 @@ impl Module for Forge {
                 height,
                 page: judgment(ctx, principal, &listing(page)?)?,
             },
+            Query::Objects {
+                repo,
+                ids,
+                ancestors,
+            } => objects(ctx, height, &bounds, repo, ids, *ancestors)?,
         })
     }
 }
