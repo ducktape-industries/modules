@@ -483,6 +483,48 @@ mod tests {
         assert_eq!(myers(b"abXcdYef", b"abPcdQef", 3), Err(Error::CapReached));
     }
 
+    /// Matching the head and tail first keeps the plain search's answer:
+    /// a script that replays `a` into `b` with as few edits, capped
+    /// wherever the plain search is unless the middle left is one-sided.
+    #[test]
+    fn trimming_keeps_the_plain_search_answer() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move |bound: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % bound
+        };
+        let edits = |ops: &[Op]| ops.iter().filter(|op| **op != Op::Equal).count();
+        for _ in 0..2000 {
+            let mut text = || -> Vec<u8> { (0..next(12)).map(|_| b'a' + next(3) as u8).collect() };
+            let (a, b) = (text(), text());
+            let cost = next(14) as usize;
+            let plain = search(&a, &b, cost);
+            let trimmed = myers(&a, &b, cost);
+            let Ok(ops) = trimmed else {
+                assert!(plain.is_err(), "{a:?} {b:?} {cost}");
+                continue;
+            };
+            let (mut i, mut j) = (0, 0);
+            for op in &ops {
+                match op {
+                    Op::Equal => {
+                        assert_eq!(a[i], b[j]);
+                        (i, j) = (i + 1, j + 1);
+                    }
+                    Op::Insert => j += 1,
+                    Op::Delete => i += 1,
+                }
+            }
+            assert_eq!((i, j), (a.len(), b.len()));
+            match plain {
+                Ok(plain) => assert_eq!(edits(&ops), edits(&plain), "{a:?} {b:?}"),
+                Err(_) => assert!(edits(&ops) > cost, "{a:?} {b:?} {cost}"),
+            }
+        }
+    }
+
     #[test]
     fn edit_script_replays_old_into_new() {
         let old = b"the quick brown fox jumps";
