@@ -14,6 +14,9 @@ use controls::{Face, action_button, reaction_button, replies_button};
 use rich::{plain_line, rich_line};
 
 const PENDING_OPACITY: f32 = 0.5;
+/// How far the action strip hangs over the row's top edge: half of the
+/// strip, which is 26 tall (24 px buttons inside a 1 px border).
+const STRIP_OVERHANG: f32 = 13.;
 
 /// The cells of the message row being drawn: the message is cell 0, each
 /// enabled control the next in paint order. `active` is the cell the
@@ -63,7 +66,7 @@ pub fn card(
             .as_ref()
             .is_some_and(|menu| menu.pane == pane && menu.seq == seq);
     let ranged = !message.deleted && chat.copy.is_some_and(|range| range.holds(pane, seq));
-    let group: ducktape_view_guest::SharedString = format!("chat-message-{id}").into();
+    let key = (pane, seq);
     // cell 0 of the row: the message, the cell the arrows land on and
     // claimed while they are on it. It lies under the whole card, as a
     // cell may not hold the controls' cells drawn over it. The pointer's
@@ -90,14 +93,16 @@ pub fn card(
             design::space::HAIR
         })
         .pb(design::space::HAIR)
+        // the pointer on the strip is not on the card (the strip occludes
+        // it): the card keeps its hover ground from state, not from
+        // `hover`, so it does not drop while the pointer is on the strip
         .bg(if chosen {
             theme.accent_soft
-        } else if ranged {
+        } else if ranged || chat.pointer_on(key) {
             theme.surface_raised
         } else {
             theme.background
         })
-        .hover(|style| style.bg(theme.surface_raised))
         .when(message.pending, |card| card.opacity(PENDING_OPACITY))
         .child(message_cell)
         .child(avatar(&message, pane, &mut cells, cx, theme))
@@ -108,13 +113,11 @@ pub fn card(
     // chosen one) carries the action strip: drawn invisible under every
     // row, the strips were most of each frame the view sends — over half
     // its bytes in a busy room — and every frame is paid for in fuel.
-    let key = (pane, seq);
-    let row_hover = hovers(key, cx);
+    let row_hover = hovers(key, false, cx);
     let mut outer = div()
         .id(format!("chat-message-{id}-row"))
         .relative()
         .w_full()
-        .group(group.clone())
         .on_hover(row_hover)
         // a row of the pane's grid; it never claims
         .role(ducktape_view_guest::Role::Row)
@@ -125,8 +128,8 @@ pub fn card(
         .aria_position_in_set(set.0)
         .aria_size_of_set(set.1)
         .child(card);
-    if !message.pending && !message.deleted && (chosen || chat.hovered == Some(key)) {
-        let strip = action_strip(chat, &message, pane, chosen, &mut cells, cx, theme);
+    if !message.pending && !message.deleted && (chosen || chat.pointer_on(key)) {
+        let strip = action_strip(chat, &message, pane, &mut cells, cx, theme);
         outer = outer.child(strip);
     }
     (outer.into_any_element(), cells.controls)
@@ -166,17 +169,23 @@ fn press(
     })
 }
 
-/// The row keeps `hovered` on itself while the pointer is over it.
+/// The row keeps `hovered` on itself while the pointer is over it; the
+/// strip keeps `strip_hovered` the same way ([`Chat::pointer_on`]).
 fn hovers(
     key: (Pane, u64),
+    strip: bool,
     cx: &mut Context<Chat>,
 ) -> impl Fn(&bool, &mut Window, &mut ducktape_view_guest::App) + 'static {
     cx.listener(move |chat, over: &bool, _window, cx| {
-        if *over && chat.hovered != Some(key) {
-            chat.hovered = Some(key);
+        let hovered = match strip {
+            true => &mut chat.strip_hovered,
+            false => &mut chat.hovered,
+        };
+        if *over && *hovered != Some(key) {
+            *hovered = Some(key);
             cx.notify();
-        } else if !*over && chat.hovered == Some(key) {
-            chat.hovered = None;
+        } else if !*over && *hovered == Some(key) {
+            *hovered = None;
             cx.notify();
         }
     })
@@ -255,36 +264,32 @@ fn action_strip(
     chat: &Chat,
     message: &ChatMessage,
     pane: Pane,
-    chosen: bool,
     cells: &mut Cells,
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> AnyElement {
     let (id, seq) = (&message.id, message.seq);
-    // the row's hover group (`card`)
-    let group: ducktape_view_guest::SharedString = format!("chat-message-{id}").into();
     let rev = message.rev;
     let writable = chat.may_write();
+    let strip_hover = hovers((pane, seq), true, cx);
     let actions = div()
         .id(format!("chat-message-{id}-actions"))
         .absolute()
         .right_2()
-        // 26px tall at the row's top: its buttons are press targets of 24
-        // and sit inside a compact row (25); only the bar's bottom border
-        // falls into the next row, which paints over it. Lower, the buttons
-        // would hang out of this row's hover (a negative top is clamped)
-        .top_0()
+        // Half over the row's top edge, as Slack hangs it: the message
+        // under it stays where it is. The wire keeps a negative inset
+        // (`style_sanitize`, signed to ±MAX_PIXELS). The upper half lies
+        // over the row above, whose hover would otherwise take the strip
+        // away as the pointer reached it: the strip occludes, so no row
+        // is hovered while the pointer is on it, and says itself that it
+        // is (`strip_hovered`), which keeps it drawn.
+        .top(px(-STRIP_OVERHANG))
         .flex()
         .bg(theme.background)
         .border_1()
         .border_color(theme.border)
-        // No occlude: an occluding bar took the row's hover away the
-        // moment the pointer reached it, hid itself, and was never
-        // clickable. Each button consumes its press (`consumes_click`),
-        // so the card beneath does not take it too.
-        .invisible()
-        .group_hover(group, |style| style.visible())
-        .when(chosen, |actions| actions.visible());
+        .occlude()
+        .on_hover(strip_hover);
     // each button is a cell of the row, beside the card
     let cell = |button: AnyElement, key: &str, enabled: bool| {
         cell(&format!("chat-message-{id}-{key}"), enabled, button)

@@ -36,6 +36,12 @@ pub struct Chat {
     /// strip, beside a chosen one.
     #[serde(skip)]
     pub(crate) hovered: Option<(Pane, u64)>,
+    /// The message row whose action strip is under the pointer: the strip
+    /// hangs half over the row above and occludes it, so the row itself
+    /// is not hovered while the pointer is on the strip, and this keeps
+    /// the strip there.
+    #[serde(skip)]
+    pub(crate) strip_hovered: Option<(Pane, u64)>,
     /// The room the arrows are on in the sidebar's list; the open room
     /// until they move.
     #[serde(skip)]
@@ -310,6 +316,12 @@ pub enum Control {
 }
 
 impl Chat {
+    /// Whether the pointer is on the message row `key`: on the row or on
+    /// its action strip.
+    pub(crate) fn pointer_on(&self, key: (Pane, u64)) -> bool {
+        self.hovered == Some(key) || self.strip_hovered == Some(key)
+    }
+
     pub(crate) fn cursor(&self, pane: Pane) -> &Cursor {
         match pane {
             Pane::Timeline => &self.timeline_cursor,
