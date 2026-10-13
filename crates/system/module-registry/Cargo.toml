@@ -39,6 +39,7 @@ valset = { workspace = true }
 commonware-cryptography = { workspace = true }
 commonware-runtime = { workspace = true }
 host = { workspace = true }
+blobs = { workspace = true }
 keyscheme = { workspace = true, features = ["testkit"] }
 # the drift test reads `cargo metadata`
 serde_json = { workspace = true }

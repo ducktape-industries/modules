@@ -62,14 +62,7 @@ fn seated() -> (MockHost, BlobId) {
     ]);
     // at the frames' height, so the fold every op starts with has run
     // and a refusal below writes nothing
-    Modules::execute(
-        &store.exec(env(TIP + 1, Origin::Signed(vec![9]))),
-        Op::Publish {
-            body: b"wasm".to_vec(),
-        },
-    )
-    .unwrap();
-    let code: BlobId = abi::decode(&store.take_output()).unwrap();
+    let code = publish(&store, env(TIP + 1, Origin::Signed(vec![9])), b"wasm");
     (store, code)
 }
 
@@ -190,11 +183,7 @@ fn view_of(name: &str, code: BlobId) -> Change {
 
 /// An op at `height`, which folds every change due by then.
 fn fold_to(store: &MockHost, height: u64) {
-    Modules::execute(
-        &store.exec(env(height, Origin::Signed(vec![9]))),
-        Op::Publish { body: vec![1] },
-    )
-    .unwrap();
+    publish(store, env(height, Origin::Signed(vec![9])), &[1]);
 }
 
 #[test]

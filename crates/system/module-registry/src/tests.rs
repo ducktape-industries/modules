@@ -3,10 +3,10 @@
 
 mod access;
 
-use guest::{BlobId, Env, MockHost, Module, Origin, code};
+use guest::{Blob, BlobId, Env, HashKind, MockHost, Module, Origin, code};
 use store::PageRequest;
 
-use crate::{Change, Entry, Genesis, Modules, Op, Query, Reply, Scheduled, View};
+use crate::{CODE_KIND, Change, Entry, Genesis, Modules, Op, Query, Reply, Scheduled, View};
 
 fn env(height: u64, origin: Origin) -> Env {
     Env {
@@ -16,6 +16,22 @@ fn env(height: u64, origin: Origin) -> Env {
         sender: None,
         ..MockHost::env(crate::MODULE)
     }
+}
+
+fn attached(store: &MockHost, kind: &str, body: &[u8]) -> BlobId {
+    let code = guest::blob_id(HashKind::Sha256, kind, body).unwrap();
+    let blob = Blob {
+        kind: kind.into(),
+        body: body.to_vec(),
+    };
+    store.borrow_mut().blobs.insert(code, blob);
+    code
+}
+
+fn publish(store: &MockHost, env: Env, body: &[u8]) -> BlobId {
+    let code = attached(store, CODE_KIND, body);
+    Modules::execute(&store.exec(env), Op::Publish { code }).unwrap();
+    abi::decode(&store.take_output()).unwrap()
 }
 
 fn authority(height: u64) -> Env {
@@ -43,14 +59,7 @@ fn founded() -> (MockHost, BlobId) {
             hooks: vec!["boot".into()],
         },
     );
-    Modules::execute(
-        &store.exec(env(1, Origin::Signed(vec![9]))),
-        Op::Publish {
-            body: b"wasm".to_vec(),
-        },
-    )
-    .unwrap();
-    let code: BlobId = abi::decode(&store.take_output()).unwrap();
+    let code = publish(&store, env(1, Origin::Signed(vec![9])), b"wasm");
     (store, code)
 }
 
@@ -142,11 +151,7 @@ fn a_scheduled_change_is_seen_at_its_height_and_folded_by_the_next_op() {
     assert_eq!(programs(&store, 4), ["boot"]);
     assert_eq!(programs(&store, 5), ["boot", "new"]);
     assert_eq!(programs(&store, 6), ["new"]);
-    Modules::execute(
-        &store.exec(env(6, Origin::Signed(vec![9]))),
-        Op::Publish { body: vec![1] },
-    )
-    .unwrap();
+    publish(&store, env(6, Origin::Signed(vec![9])), &[1]);
     assert_eq!(programs(&store, 6), ["new"]);
     let Reply::Scheduled(page) = Modules::query(
         &store.query(env(6, Origin::Root)),
@@ -317,11 +322,7 @@ fn a_view_is_listed_apart_from_the_programs_and_scheduled_like_one() {
             ("lens".into(), BlobId::Sha256([2; 32]))
         ]
     );
-    Modules::execute(
-        &store.exec(env(6, Origin::Signed(vec![9]))),
-        Op::Publish { body: vec![1] },
-    )
-    .unwrap();
+    publish(&store, env(6, Origin::Signed(vec![9])), &[1]);
     assert_eq!(views(&store, 6), [("explorer".into(), code)]);
     assert_eq!(programs(&store, 6), ["boot"]);
 }
@@ -531,11 +532,7 @@ fn a_hook_is_set_and_removed_at_its_height_and_goes_with_its_program() {
     assert_eq!(hooks(&store, 6), ["activity", "boot"]);
     assert_eq!(hooks(&store, 7), ["activity"]);
     assert_eq!(hooks(&store, 8), Vec::<String>::new());
-    Modules::execute(
-        &store.exec(env(8, Origin::Signed(vec![9]))),
-        Op::Publish { body: vec![1] },
-    )
-    .unwrap();
+    publish(&store, env(8, Origin::Signed(vec![9])), &[1]);
     assert_eq!(hooks(&store, 8), Vec::<String>::new());
     schedule(&store, 9, Change::Set(entry("activity", code))).unwrap();
     assert_eq!(
@@ -543,4 +540,43 @@ fn a_hook_is_set_and_removed_at_its_height_and_goes_with_its_program() {
         Vec::<String>::new(),
         "a program set again is no hook again"
     );
+}
+
+#[test]
+fn a_publish_rosters_the_code_its_frame_attaches_under_the_same_id() {
+    let (store, _) = founded();
+    let code = attached(&store, CODE_KIND, b"attached wasm");
+    Modules::execute(
+        &store.exec(env(2, Origin::Signed(vec![9]))),
+        Op::Publish { code },
+    )
+    .unwrap();
+    let published: BlobId = abi::decode(&store.take_output()).unwrap();
+    assert_eq!(published, code);
+}
+
+#[test]
+fn a_publish_of_code_its_frame_does_not_attach_is_refused() {
+    let (store, _) = founded();
+    let code = guest::blob_id(HashKind::Sha256, CODE_KIND, b"never attached").unwrap();
+    let refused = store.refused(|| {
+        Modules::execute(
+            &store.exec(env(1, Origin::Signed(vec![9]))),
+            Op::Publish { code },
+        )
+    });
+    assert_eq!(refused.code, code::NOT_FOUND);
+}
+
+#[test]
+fn a_publish_of_a_blob_that_is_not_a_program_is_refused() {
+    let (store, _) = founded();
+    let page = attached(&store, "page", b"not code");
+    let refused = store.refused(|| {
+        Modules::execute(
+            &store.exec(env(1, Origin::Signed(vec![9]))),
+            Op::Publish { code: page },
+        )
+    });
+    assert_eq!(refused.code, code::INVALID_INPUT);
 }

@@ -390,8 +390,9 @@ fn a_member_leaves_and_a_stranger_cannot() {
 #[test]
 fn a_registry_motion_emits_its_op_to_the_registry_once_enacted() {
     let store = founded();
-    let op = abi::encode(&module_registry::Op::Publish {
-        body: b"code".to_vec(),
+    let op = abi::encode(&module_registry::Op::Cancel {
+        height: 1_000,
+        program: "chat".into(),
     });
     let motion = Motion::Registry { op: op.clone() };
     vote(&store, 1, motion.clone()).unwrap();
@@ -402,6 +403,16 @@ fn a_registry_motion_emits_its_op_to_the_registry_once_enacted() {
     assert_eq!(sent[0].target, MockHost::roles().registry);
     assert_eq!(sent[0].payload, op);
     assert!(!sent[0].reply);
+}
+
+#[test]
+fn a_publish_is_no_motion_since_the_vote_cannot_carry_the_code_it_attaches() {
+    let store = founded();
+    let op = abi::encode(&module_registry::Op::Publish {
+        code: abi::BlobId::Sha256([7; 32]),
+    });
+    let motion = Motion::Registry { op };
+    assert_eq!(refused(&store, 1, Op::Vote(motion)), code::INVALID_INPUT);
 }
 
 #[test]

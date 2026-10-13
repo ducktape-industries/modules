@@ -1,20 +1,65 @@
 use super::*;
 
 #[test]
+fn a_publish_reads_only_code_its_own_frame_attaches_and_keeps_it_past_the_frame() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found(context, dir.path()).await;
+        let held = net.held(module_registry::CODE_KIND, &program("chat"));
+        let unattached = module_registry::Op::Publish { code: held.id };
+        let refused = net
+            .refuse(&public(7), module_registry::MODULE, &unattached)
+            .await;
+        assert_eq!(refused, reason::NOT_FOUND, "a held blob is no attached one");
+        let attaching = net.attaching(held);
+        let output = net.apply(&public(7), ATTACH, &attaching).await;
+        let code: BlobId = abi::decode(&output).unwrap();
+        assert_eq!(code, held.id, "the registry keeps the code under its id");
+        net.tick().await;
+        let output = net
+            .apply(&public(7), module_registry::MODULE, &unattached)
+            .await;
+        let again: BlobId = abi::decode(&output).unwrap();
+        assert_eq!(
+            again, code,
+            "published code outlives the frame that attached it"
+        );
+    });
+}
+
+#[test]
+fn a_publish_refuses_an_attached_blob_that_is_no_program() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found(context, dir.path()).await;
+        let page = net.held("page", b"not code");
+        let attaching = net.attaching(page);
+        let refused = net.refuse(&public(7), ATTACH, &attaching).await;
+        assert_eq!(refused, reason::INVALID_INPUT);
+    });
+}
+
+#[test]
+fn a_publish_is_no_motion_the_validators_can_vote_on() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found(context, dir.path()).await;
+        let code = net.publish(&public(7), &program("identity")).await;
+        let publish = abi::encode(&module_registry::Op::Publish { code });
+        let vote = valset::Op::Vote(valset::Motion::Registry { op: publish });
+        let refused = net
+            .refuse(&public(FOUNDERS[0]), valset::MODULE, &vote)
+            .await;
+        assert_eq!(refused, reason::INVALID_INPUT);
+    });
+}
+
+#[test]
 fn a_published_program_is_scheduled_by_the_validators_vote_and_seated_at_its_height() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
-        let output = net
-            .apply(
-                &public(7),
-                module_registry::MODULE,
-                &module_registry::Op::Publish {
-                    body: program("identity"),
-                },
-            )
-            .await;
-        let code: BlobId = abi::decode(&output).unwrap();
+        let code = net.publish(&public(7), &program("identity")).await;
         let entry = module_registry::Entry {
             program: "identity2".into(),
             code,
@@ -174,16 +219,7 @@ fn schedule_pages_and_missing_programs_report_the_answering_height() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
-        let output = net
-            .apply(
-                &public(7),
-                module_registry::MODULE,
-                &module_registry::Op::Publish {
-                    body: program("identity"),
-                },
-            )
-            .await;
-        let code: BlobId = abi::decode(&output).unwrap();
+        let code = net.publish(&public(7), &program("identity")).await;
         for program in ["z", "a", "m"] {
             let receipt = net
                 .govern(&module_registry::Op::Schedule(module_registry::Scheduled {
@@ -247,16 +283,7 @@ fn a_schedule_from_a_key_or_another_module_is_refused() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
-        let output = net
-            .apply(
-                &public(7),
-                module_registry::MODULE,
-                &module_registry::Op::Publish {
-                    body: program("identity"),
-                },
-            )
-            .await;
-        let code: BlobId = abi::decode(&output).unwrap();
+        let code = net.publish(&public(7), &program("identity")).await;
         let schedule = module_registry::Op::Schedule(module_registry::Scheduled {
             height: net.height + 5,
             change: module_registry::Change::Set(module_registry::Entry {
@@ -311,16 +338,7 @@ fn a_maintainer_the_vote_granted_upgrades_a_module_with_no_vote() {
         };
         let output = net.apply(&public(7), identity::MODULE, &create).await;
         let seven: AccountNumber = abi::decode(&output).unwrap();
-        let output = net
-            .apply(
-                &public(7),
-                module_registry::MODULE,
-                &module_registry::Op::Publish {
-                    body: program("chat"),
-                },
-            )
-            .await;
-        let code: BlobId = abi::decode(&output).unwrap();
+        let code = net.publish(&public(7), &program("chat")).await;
         let upgrade = |height| {
             module_registry::Op::Schedule(module_registry::Scheduled {
                 height,
@@ -392,16 +410,7 @@ fn the_vote_overrules_a_maintainers_change_at_its_own_key() {
         };
         let output = net.apply(&public(7), identity::MODULE, &create).await;
         let seven: AccountNumber = abi::decode(&output).unwrap();
-        let output = net
-            .apply(
-                &public(7),
-                module_registry::MODULE,
-                &module_registry::Op::Publish {
-                    body: program("chat"),
-                },
-            )
-            .await;
-        let code: BlobId = abi::decode(&output).unwrap();
+        let code = net.publish(&public(7), &program("chat")).await;
         let granted = net
             .govern(&module_registry::Op::Grant(module_registry::Grant {
                 scope: module_registry::Scope::Module("probe".into()),

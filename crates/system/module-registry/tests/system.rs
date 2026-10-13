@@ -1,8 +1,9 @@
 use abi::reason;
-use abi::{BlobId, HostOp, Message, Origin, Outcome, Scheme};
+use abi::{BlobId, HashKind, HostOp, Message, Origin, Outcome, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
+use host::attach::{ATTACH, Attached, Attachment};
 use host::{
     Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, Receipt, Roles,
     Submission, Tip,
@@ -252,6 +253,34 @@ impl Net {
             Outcome::Applied { output } => output,
             Outcome::Rejected(refusal) => panic!("{target} rejected the op: {refusal}"),
         }
+    }
+
+    fn held(&self, kind: &str, body: &[u8]) -> Attachment {
+        let framed = blobs::frame(kind, body).unwrap();
+        let id = blobs::id_of(HashKind::Sha256, &framed);
+        self.host.blobs().write(&id, &framed).unwrap();
+        Attachment {
+            id,
+            len: framed.len() as u64,
+        }
+    }
+
+    fn attaching(&self, attachment: Attachment) -> Attached {
+        let publish = module_registry::Op::Publish {
+            code: attachment.id,
+        };
+        Attached {
+            target: module_registry::MODULE.into(),
+            payload: abi::encode(&publish),
+            blobs: vec![attachment],
+        }
+    }
+
+    async fn publish(&mut self, signer: &[u8], code: &[u8]) -> BlobId {
+        let attachment = self.held(module_registry::CODE_KIND, code);
+        let attaching = self.attaching(attachment);
+        let output = self.apply(signer, ATTACH, &attaching).await;
+        abi::decode(&output).unwrap()
     }
 
     async fn refuse<T: BorshSerialize>(&mut self, signer: &[u8], target: &str, op: &T) -> String {

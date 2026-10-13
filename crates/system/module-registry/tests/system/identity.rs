@@ -216,16 +216,7 @@ fn every_module_has_its_account_from_its_admission() {
         }
 
         // a module installed later has its account once it runs
-        let output = net
-            .apply(
-                &public(7),
-                module_registry::MODULE,
-                &module_registry::Op::Publish {
-                    body: PROBE.to_vec(),
-                },
-            )
-            .await;
-        let code: BlobId = abi::decode(&output).unwrap();
+        let code = net.publish(&public(7), PROBE).await;
         let lands_at = net.height + 3;
         let entry = module_registry::Entry {
             program: "late".into(),

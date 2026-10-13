@@ -97,13 +97,14 @@ provider = { path = "crates/app/provider" }
 activity = { path = "crates/app/activity" }
 files = { path = "crates/app/files" }
 
-# ---- the host the founding suite runs the boot set on and the key schemes
-# it signs with (dev-dependencies only); the probe fixture it seats is a
-# prebuilt wasm binary, `make probe-fixture`, not a Cargo dependency (its
-# `Step` script type is mirrored in module-registry's test, next to the
-# binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "32c0b79904512d886f1a7ce0efdb7677c202a3fd" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "32c0b79904512d886f1a7ce0efdb7677c202a3fd" }
+# ---- the host the founding suite runs the boot set on, the blob store it
+# puts attached code in and the key schemes it signs with (dev-dependencies
+# only); the probe fixture it seats is a prebuilt wasm binary, `make
+# probe-fixture`, not a Cargo dependency (its `Step` script type is mirrored
+# in module-registry's test, next to the binary it scripts)
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "9a37089fce2dda956e0e9d394123fd297ab88810" }
+blobs = { git = "https://github.com/ducktape-industries/ducktape", rev = "9a37089fce2dda956e0e9d394123fd297ab88810" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "9a37089fce2dda956e0e9d394123fd297ab88810" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 

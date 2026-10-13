@@ -221,8 +221,14 @@ impl conformance::registry::Fixture for Registry {
     type Module = module_registry::Modules;
 
     fn publish(&self, host: &MockHost, height: u64, body: &[u8]) -> Result<BlobId, Error> {
-        let body = body.to_vec();
-        Self::run(host, height, module_registry::Op::Publish { body })?;
+        let kind = module_registry::CODE_KIND;
+        let code = guest::blob_id(guest::HashKind::Sha256, kind, body)?;
+        let blob = guest::Blob {
+            kind: kind.into(),
+            body: body.to_vec(),
+        };
+        host.borrow_mut().blobs.insert(code, blob);
+        Self::run(host, height, module_registry::Op::Publish { code })?;
         Ok(abi::decode(&host.take_output()).unwrap())
     }
 

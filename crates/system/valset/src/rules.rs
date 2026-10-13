@@ -252,7 +252,7 @@ pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply
         let motion: Motion =
             abi::decode(&record).map_err(|refusal| corrupt("votes/", &record, refusal.sentence))?;
         if let Motion::Registry { op } = &motion
-            && registry_op(op).and_then(|op| timely(ctx, &op)).is_err()
+            && registry_motion(ctx, op).is_err()
         {
             continue;
         }
@@ -272,10 +272,28 @@ fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
         Motion::Remove { key } => removable(ctx, key),
         Motion::Door { open } => door_moves(ctx, *open),
         Motion::Registry { op } => {
-            let op = registry_op(op)?;
-            timely(ctx, &op)?;
+            let op = registry_motion(ctx, op)?;
             grantable(ctx, &op)
         }
+    }
+}
+
+fn registry_motion(ctx: &QueryCtx, op: &[u8]) -> Result<module_registry::Op, Error> {
+    let op = registry_op(op)?;
+    votable(&op)?;
+    timely(ctx, &op)?;
+    Ok(op)
+}
+
+fn votable(op: &module_registry::Op) -> Result<(), Error> {
+    match op {
+        module_registry::Op::Publish { .. } => Err(invalid(
+            "a publish is a frame of its own that attaches the code: the vote schedules published code by its id",
+        )),
+        module_registry::Op::Schedule(_)
+        | module_registry::Op::Cancel { .. }
+        | module_registry::Op::Grant(_)
+        | module_registry::Op::Revoke(_) => Ok(()),
     }
 }
 
