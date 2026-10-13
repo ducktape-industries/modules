@@ -368,6 +368,15 @@ impl Forge {
         self.pending.iter().filter(|op| op.scope == scope).collect()
     }
 
+    /// The change form this screen shows: a draft on its repository's
+    /// Changes and Refs tabs, an edit on its change's page. Anywhere else
+    /// it waits, its text kept.
+    pub(crate) fn change_form(&self) -> Option<&state::ChangeForm> {
+        self.form.as_ref().filter(|form| {
+            self.nav.repo.as_ref() == Some(&form.repo) && form.edit == self.nav.change
+        })
+    }
+
     pub(crate) fn nav(&self) -> &Nav {
         &self.nav
     }

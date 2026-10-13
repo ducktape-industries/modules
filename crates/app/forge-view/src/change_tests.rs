@@ -934,6 +934,47 @@ fn an_edit_left_open_does_not_show_on_the_list_tabs() {
     );
 }
 
+/// A change form stays in the repository it was opened in: an edit of one
+/// repository's #1 is not drawn on another's #1, where Save would write
+/// over that change, and a draft compared in one is not offered in another.
+#[test]
+fn a_change_form_stays_in_the_repository_it_was_opened_in() {
+    let (mut cx, view) = change_screen_as("default", ChangeTab::Conversation, 1);
+    cx.simulate_click("forge-edit-change");
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-form").is_some());
+    cx.update(&view, |forge, _, cx| forge.open_route("other/1", cx));
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-header").is_some(), "other's #1");
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "project's edit on other's change: {:?}",
+        cx.texts()
+    );
+    cx.update(&view, |forge, _, cx| forge.open_route("project/1", cx));
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_some(),
+        "the edit waits on its own page"
+    );
+
+    let (mut cx, view) = opened_as("default", 1);
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    cx.simulate_click("forge-compare-clean");
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-form").is_some());
+    cx.update(&view, |forge, _, cx| forge.open_repo("other".into(), cx));
+    cx.run_until_parked();
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-form").is_none(),
+        "project's draft on other's Changes: {:?}",
+        cx.texts()
+    );
+}
+
 /// A change's Commits tab lists the change's own commits: the log of its
 /// source less what its target reaches, not the target's whole history.
 #[test]

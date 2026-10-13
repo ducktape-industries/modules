@@ -44,12 +44,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         .child(header(forge, cx, theme))
         .child(tabs(forge, cx, theme))
         .child(pending(forge, &scope, theme));
-    // a new-change draft begun in Refs is that tab's, not this page's
-    if let Some(form) = forge
-        .form
-        .as_ref()
-        .filter(|form| form.edit == Some(change.n))
-    {
+    if let Some(form) = forge.change_form() {
         column = column.child(crate::ui::changes::form(form, forge, cx, theme));
     }
     let tab = forge.nav().change_tab;

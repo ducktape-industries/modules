@@ -18,8 +18,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         .min_h(px(0.))
         .child(filters(forge, cx, theme))
         .child(pending(forge, "changes", theme));
-    // a draft; an edit shows on its change's page
-    if let Some(form) = forge.form.as_ref().filter(|form| form.edit.is_none()) {
+    if let Some(form) = forge.change_form() {
         column = column.child(self::form(form, forge, cx, theme));
     }
     let Some(query) = forge.changes_query(&forge.repo_name()) else {

@@ -375,6 +375,8 @@ pub(crate) fn verdict_verb(verdict: Verdict) -> &'static str {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct ChangeForm {
+    /// the repository it was opened in, the only one that shows it
+    pub repo: String,
     /// `Some(n)` edits that change instead of opening a new one
     pub edit: Option<u64>,
     pub from: Vec<u8>,

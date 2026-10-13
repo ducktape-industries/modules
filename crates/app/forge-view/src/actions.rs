@@ -130,6 +130,7 @@ impl Forge {
         cx: &mut Context<Self>,
     ) {
         self.form = Some(ChangeForm {
+            repo: self.repo_name(),
             from,
             into: self.default_head(),
             ..ChangeForm::default()
@@ -143,6 +144,7 @@ impl Forge {
             return;
         };
         self.form = Some(ChangeForm {
+            repo: self.repo_name(),
             edit: Some(change.n),
             from: match &change.from {
                 Revision::Ref(name) => name.clone(),
@@ -164,7 +166,6 @@ impl Forge {
     }
 
     pub(crate) fn submit_change(&mut self, cx: &mut Context<Self>) {
-        let repo = self.repo_name();
         let Some(form) = &mut self.form else { return };
         if form.title.is_blank() {
             form.error = "A change needs a title".into();
@@ -173,6 +174,7 @@ impl Forge {
         }
         let form = form.clone();
         self.form = None;
+        let repo = form.repo.clone();
         let (op, label, scope) = match form.edit {
             Some(n) => (
                 Op::ChangeEdit {
