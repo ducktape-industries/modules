@@ -1,5 +1,6 @@
-//! Typed reads: who the seated key is (identity), and whether each of its
-//! keys validates (valset). Rows keep what the programs said; they are
+//! Typed reads: who the seated key is and whom each of its agents answers
+//! (identity), the account a typed name or number is, and whether each of
+//! its keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
 use ducktape_view_guest::host::malformed;
 use ducktape_view_guest::prelude::*;
