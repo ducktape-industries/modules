@@ -131,7 +131,7 @@ Who may schedule or cancel (publishing a blob is open to anyone):
 - A maintainer: a signed frame whose account holds a `Grant` of the id
   (`Scope::Module(id)`, which may run nothing yet) or of every module
   (`Scope::All`). It sets, removes and cancels changes of the ids it
-  covers, never a role's id, and its change lands at least `NOTICE` (600)
+  covers, never a role's id, and its change lands at least `NOTICE` (60)
   blocks after the block it is made in, so the vote can cancel it first.
   It may not change an id the vote has a change waiting on, nor claim an
   id a maintainer's waiting removal frees (a program under a view being

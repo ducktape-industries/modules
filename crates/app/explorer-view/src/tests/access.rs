@@ -146,7 +146,7 @@ fn a_maintainers_upgrade_goes_to_the_registry_as_it_was_typed() {
     assert!(cx.has_text("Params kept: 3 bytes, as chat runs now."));
     let earliest = 12 + 1 + registry::NOTICE;
     assert!(cx.has_text(&format!(
-        "Block {earliest} or later: the validators get 600 blocks to look, and can cancel it by vote until it lands."
+        "Block {earliest} or later: the validators get 60 blocks to look, and can cancel it by vote until it lands."
     )));
     cx.simulate_input("explorer-form-code", &format!("sha256:{}", abi::hex(&CODE)));
     cx.simulate_click("explorer-form-submit");
@@ -208,7 +208,7 @@ fn a_reader_with_neither_a_grant_nor_voices_sees_who_and_presses_nothing() {
 fn access_lists_every_grant_by_name_and_the_reader_steps_down_from_its_own() {
     let mut cx = maintainer();
     assert!(cx.has_text("Access"));
-    assert!(cx.has_text("changes by a maintainer wait 600 blocks (about 10 min)"));
+    assert!(cx.has_text("changes by a maintainer wait 60 blocks (about 1 min)"));
     assert!(cx.has_text("every module") && cx.has_text("Scout"));
     assert!(cx.has_text("agent"), "Scout is an agent");
     assert!(cx.has_text("Ada (you)"));
@@ -229,12 +229,12 @@ fn access_lists_every_grant_by_name_and_the_reader_steps_down_from_its_own() {
     );
 }
 
-/// Minutes are the node's: 600 blocks at 2 s are about 20 min.
+/// Minutes are the node's: 60 blocks at 2 s are about 2 min.
 #[test]
 fn the_waits_read_in_minutes_at_the_nodes_block_time() {
     let cx = reader_on(Some(3), ADA, false, grants(), waiting(), Vec::new(), 2000);
     assert!(
-        cx.has_text("changes by a maintainer wait 600 blocks (about 20 min)"),
+        cx.has_text("changes by a maintainer wait 60 blocks (about 2 min)"),
         "{:?}",
         cx.texts()
     );
@@ -457,7 +457,7 @@ fn a_form_builds_its_op_or_says_why_not() {
             account: 7,
         }))
     );
-    assert_eq!(acting::default_height(Path::Grant, 12, 1000), 642);
+    assert_eq!(acting::default_height(Path::Grant, 12, 1000), 102);
     assert_eq!(acting::default_height(Path::Vote, 12, 1000), 612);
     assert_eq!(acting::default_height(Path::Vote, 12, 2000), 312);
 }
