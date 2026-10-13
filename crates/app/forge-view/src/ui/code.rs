@@ -46,7 +46,7 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         // a repo with no commits: without this, a freshly created repo sat
         // on "Resolving the ref…" forever instead of saying so.
         let waiting = match forge.refs() {
-            Some(_) => no_commits(theme),
+            Some(_) => no_commits(forge, theme),
             None => quiet("Resolving the ref…", theme).into_any_element(),
         };
         return column.child(waiting).into_any_element();
@@ -260,11 +260,12 @@ fn tree_row(
     line.into_any_element()
 }
 
-pub(crate) fn no_commits(theme: &Theme) -> AnyElement {
+pub(crate) fn no_commits(forge: &Forge, theme: &Theme) -> AnyElement {
+    let address = crate::ui::repo_link(forge, &forge.repo_name());
     empty_state(
         id("forge-tree-no-commits"),
         "No commits yet",
-        "Push code to this ref to browse it here: `git push duck://<network>/forge/<name> main`.",
+        format!("Push code to this ref to browse it here: `git push {address} main`."),
         theme,
     )
     .into_any_element()

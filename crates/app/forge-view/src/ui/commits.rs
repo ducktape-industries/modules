@@ -28,6 +28,14 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     if let Some(oid) = forge.nav().commit.clone() {
         return detail(forge, &oid, cx, theme);
     }
+    // no commit under the ref: nothing to log, and the program would
+    // refuse the read
+    if forge.tree_query(Vec::new()).is_none() {
+        return match forge.refs() {
+            Some(_) => crate::ui::code::no_commits(forge, theme),
+            None => quiet("Resolving the ref…", theme),
+        };
+    }
     log(forge, &forge.log_query(), "forge-log", cx, theme)
 }
 
@@ -200,10 +208,14 @@ fn facts(commit: &CommitInfo, theme: &Theme) -> Stateful<Div> {
             .join(", ")
     };
     let author = format!(
-        "{} <{}> at {}",
+        "{} <{}> · {}",
         String::from_utf8_lossy(&commit.author.name),
         String::from_utf8_lossy(&commit.author.email),
-        commit.author.time
+        design::date(
+            u64::try_from(commit.author.time)
+                .unwrap_or(0)
+                .saturating_mul(1000)
+        )
     );
     div()
         .id(id("forge-commit-facts"))
