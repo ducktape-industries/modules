@@ -5,7 +5,7 @@ use ducktape_view_guest::prelude::*;
 
 use crate::composer::Target;
 use crate::queries::{self, Side};
-use crate::{Chat, Drawn, PAGE, Pane, Room, SPAN, Thread, WINDOW, links};
+use crate::{Chat, Drawn, PAGE, Pane, Room, SPAN, Thread, WINDOW};
 
 const EDGE_ROWS: usize = 4;
 
@@ -15,15 +15,11 @@ enum Reread {
 }
 
 impl Chat {
-    /// A room the reader chose: opened here, and named to the host so its
-    /// tray, links and notices follow.
+    /// A room the reader chose: opened here, and only here. Named to the
+    /// host as a link, its route would reach another chat window too.
     pub(crate) fn choose(&mut self, id: String, cx: &mut Context<Self>) {
         self.create = None;
         self.search_clear();
-        match links::channel_link(&self.session.chain_id, &id, None) {
-            Some(link) => cx.host().open_link(&link),
-            None => cx.host().log("no room link: the session names no chain"),
-        }
         self.open(id, cx);
         // read to the head this view knows now, not at the next list: a
         // reader who opens a room and quits has read it
