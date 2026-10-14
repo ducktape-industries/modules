@@ -1,7 +1,6 @@
 //! The program: every op and every query, each handed to its rule.
 
 use ::program::{Error, ExecCtx, Program, QueryCtx};
-use store::PAGE_BYTES;
 
 use crate::rules::{
     ACCOUNTS, MANAGED, OF_PROGRAM, account, add_key, audience, create, create_agent, generation,
@@ -60,20 +59,14 @@ impl Program for Identity {
                     .map(|reference| resolve(ctx, reference))
                     .collect::<Result<Vec<_>, _>>()?,
             ),
-            Query::List { page } => Reply::Accounts(ACCOUNTS.range_within(
-                ctx,
-                &(),
-                &page,
-                PAGE_BYTES,
-                |(_, account)| Ok(account),
-            )?),
-            Query::Managed { by, page } => Reply::Accounts(MANAGED.range_within(
-                ctx,
-                &by,
-                &page,
-                PAGE_BYTES,
-                |(_, number)| account(ctx, number),
-            )?),
+            Query::List { page } => {
+                Reply::Accounts(ACCOUNTS.range(ctx, &page)?.map(|(_, account)| account))
+            }
+            Query::Managed { by, page } => Reply::Accounts(
+                MANAGED
+                    .range_of(ctx, &by, &page)?
+                    .try_map(|(_, number)| account(ctx, number))?,
+            ),
             Query::Audience { number } => Reply::Audience(audience(ctx, number)?),
         })
     }

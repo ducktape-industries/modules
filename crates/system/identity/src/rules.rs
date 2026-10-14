@@ -4,12 +4,11 @@ use ::program::{
     Error, ExecCtx, Origin, ProgramId, QueryCtx, Scheme, already_exists, capacity, invalid,
     not_found, unauthorized, wrong_state,
 };
-use store::{Item, Map, PAGE_BYTES, PageRequest, Set, within};
+use store::{Item, Map, PageRequest, Set};
 
 use crate::{
     Account, AccountNumber, Admission, Audience, CONSENT_NAMESPACE, Card, Category, Consent,
-    Control, Key, Life, MAX_AUDIENCE, MAX_BIO_BYTES, MAX_KEYS, MAX_LABEL_BYTES, MAX_NAME_BYTES,
-    Reference, Reply,
+    Control, Key, Life, MAX_AUDIENCE, Reference, Reply,
 };
 
 pub(crate) const ACCOUNTS: Map<AccountNumber, Account> = Map::new("a/");
@@ -69,16 +68,14 @@ pub(crate) fn profiles(
     if let Some(after) = after {
         range = range.after(ACCOUNTS.key(&after));
     }
-    let accounts = ACCOUNTS.scan(ctx, range.limit(limit + 1))?;
-    let past_limit = accounts.len() as u64 > limit;
-    let numbered = accounts
-        .into_iter()
-        .take(limit as usize)
-        .map(|(number, account)| (number, account.profile()));
-    let (page, cut) = within(numbered, PAGE_BYTES);
-    let more = past_limit || cut;
-    let next = page.last().filter(|_| more).map(|(number, _)| *number);
-    let profiles = page.into_iter().map(|(_, profile)| profile).collect();
+    let mut accounts = ACCOUNTS.scan(ctx, range.limit(limit + 1))?;
+    let more = accounts.len() as u64 > limit;
+    accounts.truncate(limit as usize);
+    let next = accounts.last().filter(|_| more).map(|(number, _)| *number);
+    let profiles = accounts
+        .iter()
+        .map(|(_, account)| account.profile())
+        .collect();
     Ok(Reply::Profiles { profiles, next })
 }
 
@@ -109,7 +106,7 @@ fn drop_keys(ctx: &ExecCtx, keys: &[Key]) {
     }
 }
 
-fn trimmed(name: String) -> Result<String, Error> {
+fn named(name: String) -> Result<String, Error> {
     let name = name.trim().to_owned();
     if name.is_empty() {
         return Err(invalid("a name is not empty"));
@@ -117,30 +114,14 @@ fn trimmed(name: String) -> Result<String, Error> {
     Ok(name)
 }
 
-fn named(name: String) -> Result<String, Error> {
-    let name = trimmed(name)?;
-    at_most("name", name.len(), MAX_NAME_BYTES)?;
-    Ok(name)
-}
-
-fn at_most(field: &str, bytes: usize, most: usize) -> Result<(), Error> {
-    let too_long = bytes > most;
-    if too_long {
-        return Err(invalid(format!(
-            "{field} is {bytes} bytes: a {field} is at most {most}"
-        )));
-    }
-    Ok(())
-}
-
 /// A fresh card: a name, nothing else yet.
-fn card(ctx: &ExecCtx, name: String) -> Card {
-    Card {
-        name,
+fn card(ctx: &ExecCtx, name: String) -> Result<Card, Error> {
+    Ok(Card {
+        name: named(name)?,
         avatar: None,
         bio: None,
         updated_at: ctx.env().time,
-    }
+    })
 }
 
 fn save(ctx: &ExecCtx, mut account: Account) {
@@ -157,7 +138,7 @@ pub(crate) fn register_program(ctx: &ExecCtx, program: ProgramId) -> Result<(), 
     if OF_PROGRAM.has(ctx, &program) {
         return Ok(());
     }
-    let card = card(ctx, trimmed(program.clone())?);
+    let card = card(ctx, program.clone())?;
     let number = next_number(ctx)?;
     let account = Account {
         number,
@@ -174,7 +155,7 @@ pub(crate) fn register_program(ctx: &ExecCtx, program: ProgramId) -> Result<(), 
 pub(crate) fn create(ctx: &ExecCtx, name: String, scheme: Scheme) -> Result<(), Error> {
     let env = ctx.env();
     let signer = env.signer()?;
-    let card = card(ctx, named(name)?);
+    let card = card(ctx, name)?;
     if OF_KEY.has(ctx, &signer) {
         return Err(already_exists("this key already belongs to an account"));
     }
@@ -217,7 +198,7 @@ fn person(ctx: &ExecCtx, number: AccountNumber) -> Result<Account, Error> {
 
 pub(crate) fn create_agent(ctx: &ExecCtx, name: String) -> Result<(), Error> {
     let manager = person(ctx, acting(ctx)?)?.number;
-    let card = card(ctx, named(name)?);
+    let card = card(ctx, name)?;
     let number = next_number(ctx)?;
     let account = Account {
         number,
@@ -298,15 +279,6 @@ pub(crate) fn add_key(
     };
     if env.time > consent.expires_at {
         return Err(unauthorized("the consent has expired"));
-    }
-    if let Some(label) = &label {
-        at_most("label", label.len(), MAX_LABEL_BYTES)?;
-    }
-    let full = keys.len() >= MAX_KEYS;
-    if full {
-        return Err(invalid(format!(
-            "keys: an account holds at most {MAX_KEYS} keys"
-        )));
     }
     let admission = Admission {
         network: env.chain_id.clone(),
@@ -422,14 +394,10 @@ pub(crate) fn set_profile(
     bio: Option<String>,
 ) -> Result<(), Error> {
     let mut account = editable(ctx, number)?;
-    let bio = bio
+    account.card.avatar = avatar;
+    account.card.bio = bio
         .map(|bio| bio.trim().to_owned())
         .filter(|bio| !bio.is_empty());
-    if let Some(bio) = &bio {
-        at_most("bio", bio.len(), MAX_BIO_BYTES)?;
-    }
-    account.card.avatar = avatar;
-    account.card.bio = bio;
     save(ctx, account);
     Ok(())
 }

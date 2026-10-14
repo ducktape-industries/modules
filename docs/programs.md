@@ -157,13 +157,6 @@ for the page after. A cursor is
 bound to the listing it came from (a cursor from one listing handed to
 another is refused `stale`) and cannot escape its prefix.
 
-A node answers a query with at most 4 MiB. A page whose rows can be large
-counts bytes as well as rows: `range_within`/`page_within` (and
-`Listing::slice_within` over a list already in hand) map each row and end the
-page once the encoded rows pass a budget, usually `store::PAGE_BYTES`
-(1 MiB). The page always carries one row, so a client keeps following
-`next` and never reads a short page as the end.
-
 Reads see the frame's own writes so far. `committed_get`/`committed_scan`
 read as of the last committed block, which a program rarely wants.
 

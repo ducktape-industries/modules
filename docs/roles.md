@@ -84,14 +84,8 @@ Who may do what (the acting account is `ctx.sender()`):
 | `SetRunner { account, runner }` | the agent's manager, not once revoked. `Some(program)` names a program that has an account; that program then sends messages as the agent (`Runs`). `None` takes it back |
 | `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and at most `MAX_AUDIENCE` = 64 others) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
 
-A person's or an agent's name is at most `MAX_NAME_BYTES` (128), a bio at
-most `MAX_BIO_BYTES` (2048), a key's label at most `MAX_LABEL_BYTES` (64), and
-an account holds at most `MAX_KEYS` (32) keys. Past one, the op is refused
-`invalid_input`, its sentence naming the field. A program's account is named
-after its program id, which the kernel admits, so that name takes no cap.
-
-The role's queries, which views and other programs ask too, are
-`Account(key)`, `OfProgram(program)`, `Profile(number)`,
+The role's queries, which views and other modules ask too, are
+`Account(key)`, `OfModule(module)`, `Profile(number)`,
 `Profiles { after, limit }` and `Runs { program, account }`. A `Profile` is
 `{ number, name, kind }`, where `Kind` is `Person`,
 `Managed { manager, category, standing, runner }` or `Program(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view

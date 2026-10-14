@@ -539,11 +539,7 @@ pub enum OpReply {
 
 pub const PACK_KIND: &str = "pack";
 
-const NAME_BYTES: usize = 4 + 64 + 1;
-pub const CLOSURE_NAMES: usize = store::PAGE_BYTES / NAME_BYTES;
-pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
-pub const MAX_ADVERTISED_REFS: usize = 10_000;
-pub const ADVERTISEMENT_BYTES: usize = 3 << 20;
+pub const CLOSURE_NAMES: usize = 16_384;
 
 /// The longest repository name whose change channels fit chat's id limit:
 /// `forge:<repo>:<n>` is the program, two `:` and up to 20 digits of `n`.

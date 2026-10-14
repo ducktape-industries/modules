@@ -3,7 +3,7 @@
 //! resumes where it left off.
 use ::program::Range;
 use ::program::{Error, QueryCtx, capacity, invalid};
-use store::{PAGE_BYTES, PageRequest, PageResponse, within};
+use store::{PageRequest, PageResponse};
 
 use crate::state::{
     ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS,
@@ -93,14 +93,11 @@ pub(crate) fn roots(
     channel_id: String,
     page: &PageRequest,
 ) -> Result<PageResponse<MsgRow>, Error> {
-    let rows = ROOTS.range_within(
+    let keys = ROOTS.range_of(ctx, &channel_id, page)?;
+    rows_at(
         ctx,
-        &channel_id,
-        page,
-        PAGE_BYTES,
-        |(channel_id, newest)| MESSAGES.get(ctx, &(channel_id, newest_first(newest))),
-    )?;
-    Ok(rows.flatten())
+        keys.map(|(channel_id, newest)| (channel_id, newest_first(newest))),
+    )
 }
 
 pub(crate) fn thread(
@@ -109,14 +106,10 @@ pub(crate) fn thread(
     root: u64,
     page: &PageRequest,
 ) -> Result<Reply, Error> {
-    let thread = (channel_id.clone(), root);
-    let replies =
-        REPLIES.range_within(ctx, &thread, page, PAGE_BYTES, |(channel_id, _, reply)| {
-            MESSAGES.get(ctx, &(channel_id, reply))
-        })?;
+    let keys = REPLIES.range_of(ctx, &(channel_id.clone(), root), page)?;
     Ok(Reply::Thread {
-        root: MESSAGES.get(ctx, &thread)?,
-        replies: replies.flatten(),
+        root: MESSAGES.get(ctx, &(channel_id, root))?,
+        replies: rows_at(ctx, keys.map(|(channel_id, _, reply)| (channel_id, reply)))?,
     })
 }
 
@@ -130,15 +123,8 @@ pub(crate) fn around(
     let half = page.limit() / 2;
     let lo = MESSAGES.key(&(channel_id.clone(), seq.saturating_sub(half)));
     let hi = MESSAGES.key(&(channel_id, seq.saturating_add(half + 1)));
-    let mut rows: Vec<MsgRow> = MESSAGES
-        .scan(ctx, Range::new(lo, Some(hi)))?
-        .into_iter()
-        .map(|(_, row)| row)
-        .collect();
-    rows.sort_by_key(|row| (row.seq.abs_diff(seq), row.seq < seq));
-    let (mut nearest, _) = within(rows, PAGE_BYTES);
-    nearest.sort_by_key(|row| row.seq);
-    Ok(nearest)
+    let rows = MESSAGES.scan(ctx, Range::new(lo, Some(hi)))?;
+    Ok(rows.into_iter().map(|(_, row)| row).collect())
 }
 
 /// The messages holding every word of `text`, newest first. The first
@@ -173,11 +159,7 @@ pub(crate) fn search(
     let limit = page.limit() as usize;
     let capped = capped || hits.len() > limit;
     hits.truncate(limit);
-    let (hits, cut) = within(hits, PAGE_BYTES);
-    Ok(MessageHits {
-        hits,
-        capped: capped || cut,
-    })
+    Ok(MessageHits { hits, capped })
 }
 
 /// One page of the messages tagged `tag`, newest first.
@@ -188,19 +170,27 @@ pub(crate) fn tagged(
     page: &PageRequest,
 ) -> Result<PageResponse<MsgRow>, Error> {
     let label = tag_label(tag);
-    let rows = match channel_id {
-        Some(channel_id) => CHANNEL_TAGS.range_within(
-            ctx,
-            &(channel_id, label),
-            page,
-            PAGE_BYTES,
-            |(channel_id, _, newest)| MESSAGES.get(ctx, &(channel_id, newest_first(newest))),
-        )?,
-        None => TAGS.range_within(ctx, &label, page, PAGE_BYTES, |(_, _, channel_id, seq)| {
-            MESSAGES.get(ctx, &(channel_id, seq))
-        })?,
+    let keys = match channel_id {
+        Some(channel_id) => CHANNEL_TAGS
+            .range_of(ctx, &(channel_id, label), page)?
+            .map(|(channel_id, _, newest)| (channel_id, newest_first(newest))),
+        None => TAGS
+            .range_of(ctx, &label, page)?
+            .map(|(_, _, channel_id, seq)| (channel_id, seq)),
     };
-    Ok(rows.flatten())
+    rows_at(ctx, keys)
+}
+
+/// A page of message addresses as the page of rows they name.
+fn rows_at(
+    ctx: &QueryCtx,
+    keys: PageResponse<(String, u64)>,
+) -> Result<PageResponse<MsgRow>, Error> {
+    Ok(PageResponse {
+        height: keys.height,
+        items: messages(ctx, keys.items)?,
+        next: keys.next,
+    })
 }
 
 /// Every message row a reply carries.

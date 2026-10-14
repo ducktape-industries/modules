@@ -197,28 +197,6 @@ verdicts are valid; a comment verdict needs body text or line comments. Clients
 validate positions against the displayed endpoint bytes, stage one draft per
 anchor, read the exported cap, and preserve drafts on failed submission.
 
-## Read limits
-
-A node answers a query with at most 4 MiB, so every reply forge gives stays
-under it. A page of commits, files, changes, reviews or judgments ends early once
-its encoded items pass `store::PAGE_BYTES` (1 MiB), and always carries at least
-one item: a short page with a `next` cursor is not the end of the list. Beyond
-paging, forge states these limits and refuses past them with `capacity`, naming
-the object and the limit:
-
-| Limit | Value | What passes it |
-|---|---|---|
-| `MAX_MESSAGE_BYTES` | 1 MiB | `Log` refuses a commit whose message is longer, naming its OID |
-| `MAX_ADVERTISED_REFS` | 10,000 | `Advertise` and `ls-refs` refuse a repository with more refs, naming its ref count |
-| `ADVERTISEMENT_BYTES` | 3 MiB | the same refusal when the refs' names together pass it |
-
-These bound what forge reads back, not what it stores: a push may land a longer
-message or more refs. A clone is not limited by `MAX_MESSAGE_BYTES`, since
-`Closure` lists ids and the bytes come from the node's blobs. A `Closure` page
-lists about `CLOSURE_NAMES` (15,196) ids, the most that fit `PAGE_BYTES`; a
-tree naming more continues on the next page, which its pending entry in `next`
-records as `from`, the entries already expanded.
-
 ## Bounds, refusals, and the current host seam
 
 New bounds are `page_size`, `log_walk`, `tree_walk`, `diff_bytes`, `blob_bytes`,
