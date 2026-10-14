@@ -407,6 +407,8 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 }],
             },
         ),
+        exchange::<MicrophoneChime>(Some("Headphones".into()), ()),
+        exchange::<MicrophoneChime>(None, ()),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),
         exchange::<HostId>("msg".into(), "msg-1".into()),

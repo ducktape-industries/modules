@@ -366,11 +366,7 @@ fn first_nodes() -> Vec<Node> {
             output: Some("Headphones".into()),
             monitor: true,
             revision: 2,
-            commands: vec![
-                MicCommand::Record { seconds: 5 },
-                MicCommand::Stop,
-                MicCommand::Chime,
-            ],
+            commands: vec![MicCommand::Record { seconds: 5 }, MicCommand::Stop],
             on_state: Some(19),
         },
         text("plain"),

@@ -119,11 +119,6 @@ impl MicHandle {
     pub fn stop(&self) {
         self.push(wire::MicCommand::Stop);
     }
-
-    /// Plays the host's test chime on the piece's output.
-    pub fn chime(&self) {
-        self.push(wire::MicCommand::Chime);
-    }
 }
 
 /// A microphone's level the host draws as a meter in this element's box:
@@ -368,7 +363,6 @@ mod tests {
         assert!(commands.is_empty());
         cx.update(&view, |view, _, cx| {
             view.mic.record(5);
-            view.mic.chime();
             cx.notify();
         });
         cx.run_until_parked();
@@ -380,14 +374,8 @@ mod tests {
         else {
             unreachable!()
         };
-        assert_eq!(moved, revision + 2);
-        assert_eq!(
-            commands,
-            vec![
-                wire::MicCommand::Record { seconds: 5 },
-                wire::MicCommand::Chime
-            ]
-        );
+        assert_eq!(moved, revision + 1);
+        assert_eq!(commands, vec![wire::MicCommand::Record { seconds: 5 }]);
         cx.simulate_media_state(
             "camera",
             MediaState {
