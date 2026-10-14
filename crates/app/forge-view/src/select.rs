@@ -233,12 +233,25 @@ impl Forge {
         }
     }
 
-    /// The commit `oid`, once a log on screen holds it: the one the reader
-    /// browses, else the commit's own row.
+    /// The log on screen: inside a change its own commits (what its target
+    /// does not reach), else the history of the ref the reader browses.
+    pub(crate) fn shown_log(&self) -> Option<Query> {
+        match self.nav.change {
+            Some(_) => {
+                let (from, into) = self.endpoints()?;
+                Some(crate::ui::commits::query(self, from, Some(into)))
+            }
+            None => Some(self.log_query()),
+        }
+    }
+
+    /// The commit `oid`, once a log holds it: the one on screen, else the
+    /// commit's own row.
     pub(crate) fn commit(&self, oid: &str) -> Option<CommitInfo> {
-        [self.log_query(), self.commit_query(oid)]
-            .iter()
-            .filter_map(|query| self.logs.get(query))
+        self.shown_log()
+            .into_iter()
+            .chain([self.commit_query(oid)])
+            .filter_map(|query| self.logs.get(&query))
             .find_map(|(log, _)| {
                 log.read(|log| log.rows().iter().find(|commit| commit.oid == oid).cloned())
             })

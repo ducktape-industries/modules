@@ -449,13 +449,14 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
     let Some(wire::Node::UniformList { count, .. }) = cx.find("forge-diff") else {
         panic!("the diff list");
     };
-    // 65 files of 1002 rows and the closing row fit the host's ceiling
+    // 64 files of 1002 rows and the closing row fit under the host's
+    // ceiling with the room kept for comments
     let count = *count;
-    assert_eq!(count, 65 * 1002 + 1);
+    assert_eq!(count, 64 * 1002 + 1);
     cx.simulate_range("forge-diff", count - 20..count);
     cx.run_until_parked();
     assert!(
-        cx.has_text("35 more files not drawn here: open one from the file list"),
+        cx.has_text("36 more files not drawn here: open one from the file list"),
         "{:?}",
         cx.texts()
     );
@@ -466,6 +467,51 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
         cx.texts()
             .iter()
             .any(|text| text.starts_with("pub fn f99_")),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+/// A diff that fills the host's list still has room for what readers
+/// write: the composer opens on any line, comments are drawn while they
+/// fit, and the ones past that are counted at the list's end, never
+/// silently gone; the list stays under the host's ceiling.
+#[test]
+fn comments_past_the_lists_room_are_counted_at_its_end() {
+    let (mut cx, view) = change_screen("release", ChangeTab::Files);
+    let path = b"src/gen/file_000.rs".to_vec();
+    // 64 long comments, 30 rows a box: more than the room the diff leaves
+    let body = "word ".repeat(400);
+    cx.update(&view, |forge, _, cx| {
+        forge.start_review(cx);
+        let review = forge.review_mut().expect("a review");
+        for line in 1..=64 {
+            review.stage(crate::state::PendingComment {
+                path: path.clone(),
+                new_side: true,
+                line,
+                body: ducktape_view_guest::TextField::new(body.clone()),
+            });
+        }
+    });
+    // the composer on the last of them, past where the comments run out
+    cx.update(&view, |forge, window, cx| {
+        forge.open_comment(path.clone(), true, 64, window, cx)
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-comment-body").is_some(),
+        "the composer opens"
+    );
+    let (count, _) = diff_rows(&cx);
+    assert!(count <= wire::MAX_UNIFORM_LIST_COUNT, "{count}");
+    cx.simulate_range("forge-diff", count - 3..count);
+    cx.run_until_parked();
+    // however many fit, the rest are named at the end
+    assert!(
+        cx.texts()
+            .iter()
+            .any(|text| text.ends_with(" more comments not drawn here")),
         "{:?}",
         cx.texts()
     );
@@ -565,6 +611,148 @@ fn the_diff_gutters_are_a_grid_the_arrows_walk() {
         assert_eq!(open.line, number.parse::<u64>().unwrap());
         assert_eq!(open.new_side, side == "new");
     });
+}
+
+/// The diff list's row count, and its rows held, by index.
+fn diff_rows(cx: &ducktape_view_guest::testing::TestAppContext) -> (usize, Vec<(usize, &Node)>) {
+    let Some(Node::UniformList {
+        count,
+        indices,
+        children,
+        ..
+    }) = cx.find("forge-diff")
+    else {
+        panic!("the diff list");
+    };
+    let mut rows: Vec<(usize, &Node)> = indices
+        .iter()
+        .map(|index| *index as usize)
+        .zip(children)
+        .collect();
+    rows.sort_by_key(|(index, _)| *index);
+    (*count, rows)
+}
+
+/// The keys of the diff list's rows from `index`, `n` of them.
+fn keys_from(
+    cx: &ducktape_view_guest::testing::TestAppContext,
+    index: usize,
+    n: usize,
+) -> Vec<String> {
+    let (_, rows) = diff_rows(cx);
+    (index..index + n)
+        .map(|at| {
+            let row = rows.iter().find(|(held, _)| *held == at);
+            row.and_then(|(_, row)| row.key())
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// The list index of the diff row that holds `key`.
+fn row_holding(cx: &ducktape_view_guest::testing::TestAppContext, key: &str) -> usize {
+    fn holds(node: &Node, key: &str) -> bool {
+        node.key() == Some(key) || node.children().iter().any(|child| holds(child, key))
+    }
+    let (_, rows) = diff_rows(cx);
+    rows.iter()
+        .find(|(_, row)| holds(row, key))
+        .map(|(index, _)| *index)
+        .unwrap_or_else(|| panic!("no row holds {key}"))
+}
+
+/// What a reader writes on a line takes rows of its own right after it,
+/// and the lines below move down: in a list that draws every row one
+/// height, a box nested in its line's row spilled under the lines after
+/// it, which drew over it (a staged comment vanished but on a last line).
+/// The composer opens there too, not above the diff.
+#[test]
+fn a_comment_takes_rows_of_its_own_under_its_line() {
+    let (mut cx, _) = change_screen("reviewed", ChangeTab::Files);
+    let count = diff_rows(&cx).0;
+    let line = row_holding(&cx, "forge-gutter-src/lib.rs-old-1");
+    let next = keys_from(&cx, line + 1, 1).remove(0);
+    cx.simulate_click("forge-gutter-src/lib.rs-old-1");
+    cx.run_until_parked();
+    assert_eq!(diff_rows(&cx).0, count + 3);
+    assert_eq!(
+        keys_from(&cx, line + 1, 4),
+        [
+            "forge-comment-0",
+            "forge-comment-1",
+            "forge-comment-2",
+            &next
+        ],
+        "the composer, then the next line"
+    );
+    assert_eq!(row_holding(&cx, "forge-comment-body"), line + 2);
+    cx.simulate_input("forge-comment-body", "rename this");
+    cx.simulate_click("forge-comment-save");
+    cx.run_until_parked();
+    assert_eq!(diff_rows(&cx).0, count + 2);
+    assert_eq!(
+        keys_from(&cx, line + 1, 3),
+        ["forge-diff-draft-0-0", "forge-diff-draft-0-1", &next],
+        "the staged comment, then the next line"
+    );
+    assert!(cx.has_text("Your pending comment") && cx.has_text("rename this"));
+}
+
+/// The keys typed in the composer's field reach the grid around it too:
+/// while the composer is open the grid walks and presses nothing, so a
+/// Space or an Enter typed there leaves the composer on its line.
+#[test]
+fn the_grid_keeps_still_while_its_composer_is_open() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-gutter-src/lib.rs-new-5");
+    cx.run_until_parked();
+    cx.simulate_input("forge-comment-body", "keep this");
+    for key in ["space", "enter", "down"] {
+        cx.simulate_key_down("forge-diff-lines", key);
+        cx.run_until_parked();
+    }
+    view.read(|forge| {
+        let open = forge.review().and_then(|review| review.open.as_ref());
+        let open = open.expect("the composer stays open");
+        assert_eq!((open.line, open.new_side), (5, true));
+        assert_eq!(open.body.text(), "keep this");
+        assert_eq!(forge.diff_cursor, None, "no walk either");
+    });
+    cx.simulate_click("forge-comment-cancel");
+    cx.run_until_parked();
+    cx.simulate_focus("forge-diff-lines");
+    cx.simulate_key_down("forge-diff-lines", "down");
+    view.read(|forge| assert!(forge.diff_cursor.is_some(), "walks again"));
+}
+
+/// At rest no gutter of the diff is lit: the first is claimed for the
+/// keys, but a reader who has not touched the arrows sees no line picked,
+/// nor one left lit after pressing another line's number. The arrows
+/// light the gutter they walk to.
+#[test]
+fn no_gutter_is_lit_until_the_arrows_walk_it() {
+    let (mut cx, _) = change_screen("reviewed", ChangeTab::Files);
+    let lit = |cx: &ducktape_view_guest::testing::TestAppContext| {
+        let mut lit = super::lit_rows(cx, "forge-diff-lines", ducktape_view_guest::Role::Button);
+        lit.retain(|key| key.starts_with("forge-gutter-"));
+        lit
+    };
+    assert_eq!(lit(&cx), Vec::<String>::new(), "the diff at rest");
+    cx.simulate_click("forge-gutter-src/lib.rs-new-5");
+    cx.run_until_parked();
+    assert_eq!(lit(&cx), Vec::<String>::new(), "a press lights nothing");
+    cx.simulate_click("forge-comment-cancel");
+    cx.run_until_parked();
+    cx.simulate_focus("forge-diff-lines");
+    cx.simulate_key_down("forge-diff-lines", "down");
+    assert_eq!(lit(&cx).len(), 1, "{:?}", lit(&cx));
+    // a move elsewhere and back: the walk is over, nothing stays lit
+    cx.simulate_click("forge-change-tab-conversation");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-tab-files");
+    cx.run_until_parked();
+    assert_eq!(lit(&cx), Vec::<String>::new(), "a walk ends with a move");
 }
 
 #[test]
@@ -1048,6 +1236,47 @@ fn a_merged_change_lists_the_commits_it_merged() {
             } if *source == heads.source && *target == heads.target
         )),
         "{asked:?}"
+    );
+}
+
+/// A commit pressed on a change's Commits tab opens its page in the
+/// change, as the repository's Commits tab does: its message, its parent
+/// and its diff. Back, or another tab, returns to the change's commits.
+#[test]
+fn a_change_opens_one_of_its_commits_and_comes_back() {
+    let (mut cx, view) = change_screen("default", ChangeTab::Commits);
+    let oid = "26607f522099476177a45a8058a93108fba5a84d";
+    cx.simulate_click(&format!("forge-commit-{oid}"));
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("Feature\n\nReview these bytes.\n"),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.has_text("ebfb8b62…4e16"), "the parent is named");
+    assert!(
+        cx.find("forge-commit-diff-file-src/lib.rs").is_some(),
+        "its diff: {:?}",
+        cx.texts()
+    );
+    assert!(
+        cx.find("forge-change-log").is_none(),
+        "the page replaces the list"
+    );
+    view.read(|forge| assert_eq!(forge.nav().change, Some(1), "still in the change"));
+    cx.simulate_click("forge-commit-close");
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-log").is_some(), "{:?}", cx.texts());
+    cx.simulate_click(&format!("forge-commit-{oid}"));
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-tab-files");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-tab-commits");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-log").is_some(),
+        "a tab left drops the commit: {:?}",
+        cx.texts()
     );
 }
 

@@ -243,7 +243,14 @@ fn summary(commit: &CommitInfo) -> String {
         .to_owned()
 }
 
-fn detail(forge: &Forge, oid: &str, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+/// One commit's page: its facts over its diff against its first parent,
+/// with a Back to the log it was opened from.
+pub(crate) fn detail(
+    forge: &Forge,
+    oid: &str,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+) -> AnyElement {
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_commit(None, cx));
     let commit = forge.commit(oid);
     let mut column = div()

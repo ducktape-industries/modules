@@ -3,15 +3,18 @@
 //! line here, because it arrives as one.
 //!
 //! Every row is virtual, and a line's gutter number is its comment button.
+//! A virtual list draws every row one height, so what readers write on a
+//! line (its comments, a draft, the open composer) takes rows of its own
+//! after the line ([`Notes`]) rather than growing the line's row.
 //! The rows of a diff are laid out once per reply and kept ([`DiffCache`])
 //! as indices into it: a frame paints the rows on screen, not the diff,
 //! and no line is copied out of the reply.
 use ducktape_view_guest::prelude::*;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use crate::Forge;
-use crate::state::PendingComment;
 use crate::ui::components::{PRESS_TARGET, badge, empty_state, id, path_text, quiet};
 use crate::ui::staged;
 use forge::{Content, FileDiff, FileStatus, LineKind, Query, Reply, Side};
@@ -22,6 +25,16 @@ pub(crate) type Route<E> = Rc<dyn Fn(&E, &mut Window, &mut App)>;
 /// A line-number gutter column, and the +/− marker's.
 const GUTTER_W: Pixels = px(44.);
 const MARKER_W: Pixels = px(12.);
+
+/// A reviewable diff's row: its gutter's press target. Every row of it,
+/// a note's included, is this tall, so a note's rows meet edge to edge.
+const ROW_H: Pixels = PRESS_TARGET;
+/// How wide a note box grows.
+const NOTE_W: Pixels = px(520.);
+/// What one line of a note box holds, in character widths (a wide CJK
+/// character counts two): a line of capitals, about 8 px a character at
+/// the note's size, still fits the box's 498 px of text.
+const NOTE_CHARS: usize = 60;
 
 /// The anchor a gutter button carries: path, new side, line.
 pub(crate) type Anchor = (Vec<u8>, bool, u64);
@@ -72,10 +85,16 @@ struct FileRows {
     hunks: Vec<(usize, usize)>,
 }
 
-/// The most rows one list may hold on the host, by the wire. A diff past
-/// it lays out whole files up to it and closes with a row naming the rest;
-/// a file past it shown alone draws its lines up to it, the rest counted.
+/// The most rows one list may hold on the host, by the wire: the diff's
+/// own rows and the notes after its lines share them.
 const LIST_CEILING: usize = ducktape_view_guest::wire::MAX_UNIFORM_LIST_COUNT;
+/// The rows of the list kept for notes ([`Notes`]): however long the diff,
+/// the open composer and a few hundred comment boxes fit beside it.
+const NOTE_ROOM: usize = 1024;
+/// The most rows a diff lays out. A diff past it lays out whole files up to
+/// it and closes with a row naming the rest; a file past it shown alone
+/// draws its lines up to it, the rest counted.
+const ROWS_CEILING: usize = LIST_CEILING - NOTE_ROOM;
 
 /// The rows of the diff on screen, by the reply landed and the one file
 /// shown, if one: the same reply lays out the same, so a frame reuses them.
@@ -114,7 +133,7 @@ impl DiffCache {
 
 impl Rows {
     /// Lays out the files of the reply (one, under `only`) in order, whole
-    /// files while they fit the list ceiling with the closing row; the one
+    /// files while they fit [`ROWS_CEILING`] with the closing row; the one
     /// file under `only` up to that ceiling.
     fn layout(reply: Rc<Reply>, only: Option<&[u8]>) -> Rows {
         let mut rows = Rows {
@@ -142,7 +161,7 @@ impl Rows {
                     .map(|hunk| 1 + hunk.lines.len())
                     .sum::<usize>()
                 + usize::from(file.hunks.is_empty());
-            let fits = rows.count + span < LIST_CEILING;
+            let fits = rows.count + span < ROWS_CEILING;
             if rows.left_out > 0 || (!fits && only.is_none()) {
                 rows.left_out += 1;
                 continue;
@@ -157,7 +176,7 @@ impl Rows {
             for hunk in &file.hunks {
                 // the rows left before the closing row, this hunk's header
                 // first; only a file shown alone runs out of them
-                let room = (LIST_CEILING - 1).saturating_sub(row + 1);
+                let room = (ROWS_CEILING - 1).saturating_sub(row + 1);
                 let shown = hunk.lines.len().min(room);
                 rows.cut_lines += hunk.lines.len() - shown;
                 if room == 0 {
@@ -246,6 +265,39 @@ impl Rows {
         row + 1 + (line - first)
     }
 
+    /// The row of the line whose `new_side` gutter carries `number` in the
+    /// file at `path`, when that line is laid out.
+    fn row_of_anchor(&self, path: &[u8], new_side: bool, number: u64) -> Option<usize> {
+        let page = self.page();
+        let at = self.files.iter().position(|laid| {
+            let file = &page[laid.file];
+            file.new_path.as_deref().or(file.old_path.as_deref()) == Some(path)
+        })?;
+        let laid = &self.files[at];
+        let end = self
+            .files
+            .get(at + 1)
+            .map_or(self.lines, |next| next.first_line);
+        let hunks = &page[laid.file].hunks;
+        laid.hunks
+            .iter()
+            .enumerate()
+            .find_map(|(h, &(row, first))| {
+                let next = laid.hunks.get(h + 1).map_or(end, |&(_, line)| line);
+                hunks[h].lines[..next - first]
+                    .iter()
+                    .position(|line| {
+                        let carried = if new_side {
+                            line.new_line
+                        } else {
+                            line.old_line
+                        };
+                        carried == Some(number)
+                    })
+                    .map(|offset| row + 1 + offset)
+            })
+    }
+
     /// Whether the list ends in a closing row: files or lines left out.
     fn cut(&self) -> bool {
         self.left_out > 0 || self.cut_lines > 0
@@ -261,6 +313,265 @@ impl Rows {
             "{} not drawn here: open one from the file list",
             design::plural(self.left_out as u64, "more file", "more files")
         )
+    }
+}
+
+/// What readers wrote on the lines laid out, as rows of the list: each
+/// line's notes (its published comments, this reader's draft or the open
+/// composer) follow it, a box drawn a row at a time. The diff's own rows
+/// keep their indices ([`Rows`]); a list index is found through these.
+#[derive(Default)]
+struct Notes {
+    /// in row order: the row of the line, and the rows after it
+    zones: Vec<(usize, Vec<NoteRow>)>,
+    /// how many note rows come before each zone, and after the last
+    before: Vec<usize>,
+    /// each zone's first list index
+    starts: Vec<usize>,
+    /// the list index of the open composer's last row, when it is drawn
+    composer: Option<usize>,
+}
+
+/// One row of a note box: its key, what it holds, and whether it is the
+/// box's top or bottom edge.
+struct NoteRow {
+    key: String,
+    kind: NoteKind,
+    first: bool,
+    last: bool,
+}
+
+enum NoteKind {
+    /// who wrote it (or where the composer anchors), and whether the
+    /// review was pinned at another head
+    Head(String, bool),
+    Text(String),
+    /// the composer's field, then its error and buttons
+    Field,
+    Actions,
+    /// after the list's last row: the notes there was no room for
+    Closing(String),
+}
+
+/// A list index: one of the diff's own rows, or a row of a note.
+enum Slot<'a> {
+    Row(usize),
+    Note(&'a NoteRow),
+}
+
+impl Notes {
+    /// The notes of the lines `rows` lays out, under the list ceiling.
+    fn of(forge: &Forge, rows: &Rows) -> Notes {
+        let mut zones: BTreeMap<usize, Vec<NoteRow>> = BTreeMap::new();
+        let mut place = |path: &[u8], new_side: bool, line: u64, rows_of_box: Vec<NoteRow>| {
+            if let Some(row) = rows.row_of_anchor(path, new_side, line) {
+                zones.entry(row).or_default().extend(rows_of_box);
+            }
+        };
+        for (n, (path, new_side, line, author, body, outdated)) in
+            published_comments(forge).into_iter().enumerate()
+        {
+            let text = wrap(&body).into_iter().map(NoteKind::Text);
+            let rows_of_box = boxed(
+                &format!("forge-diff-comment-{n}"),
+                std::iter::once(NoteKind::Head(author, outdated)).chain(text),
+            );
+            place(&path, new_side, line, rows_of_box);
+        }
+        let review = forge.review();
+        let open = review.and_then(|review| review.open.as_ref());
+        for (n, draft) in review
+            .iter()
+            .flat_map(|review| &review.comments)
+            .enumerate()
+        {
+            if open.is_some_and(|open| open.anchors(draft)) {
+                continue;
+            }
+            let text = wrap(&draft.body.text()).into_iter().map(NoteKind::Text);
+            let head = NoteKind::Head("Your pending comment".into(), false);
+            let rows_of_box = boxed(
+                &format!("forge-diff-draft-{n}"),
+                std::iter::once(head).chain(text),
+            );
+            place(&draft.path, draft.new_side, draft.line, rows_of_box);
+        }
+        if let Some(open) = open {
+            let parts = [
+                NoteKind::Head(open.anchor(), false),
+                NoteKind::Field,
+                NoteKind::Actions,
+            ];
+            place(
+                &open.path,
+                open.new_side,
+                open.line,
+                boxed("forge-comment", parts),
+            );
+        }
+        let last = rows.count.saturating_sub(1);
+        Notes::laid(zones, LIST_CEILING.saturating_sub(rows.count), last)
+    }
+
+    /// Each line's note rows after it, in row order, while they fit `room`:
+    /// the open composer's first, as it is where the keys go. The boxes past
+    /// the first that does not fit are counted in a row of their own after
+    /// `last`, the list's last row, for which one row of the room is kept.
+    // ponytail: the room is what the diff leaves under the list ceiling, at
+    // least [`NOTE_ROOM`]; notes past it on a diff that long are counted at
+    // its end, not drawn (opened alone, their file has room for them).
+    fn laid(zones: BTreeMap<usize, Vec<NoteRow>>, room: usize, last: usize) -> Notes {
+        let composes =
+            |zone: &[NoteRow]| zone.iter().any(|note| matches!(note.kind, NoteKind::Field));
+        let mut left = room.saturating_sub(1);
+        let composer = zones
+            .values()
+            .find(|zone| composes(zone))
+            .map(Vec::len)
+            .filter(|rows| *rows <= left);
+        left -= composer.unwrap_or(0);
+        let mut notes = Notes::default();
+        let (mut added, mut left_out) = (0, 0);
+        for (row, rows_of_zone) in zones {
+            let fits = if composes(&rows_of_zone) {
+                composer.is_some()
+            } else if left_out == 0 && rows_of_zone.len() <= left {
+                left -= rows_of_zone.len();
+                true
+            } else {
+                false
+            };
+            if !fits {
+                let boxes = rows_of_zone.iter().filter(|note| note.first).count();
+                left_out += boxes - usize::from(composes(&rows_of_zone));
+                continue;
+            }
+            notes.before.push(added);
+            notes.starts.push(row + 1 + added);
+            if composes(&rows_of_zone) {
+                notes.composer = Some(row + added + rows_of_zone.len());
+            }
+            added += rows_of_zone.len();
+            notes.zones.push((row, rows_of_zone));
+        }
+        if left_out > 0 {
+            let text = design::plural(left_out as u64, "more comment", "more comments");
+            notes.before.push(added);
+            notes.starts.push(last + 1 + added);
+            notes.zones.push((
+                last,
+                boxed(
+                    "forge-diff-notes-left-out",
+                    [NoteKind::Closing(format!("{text} not drawn here"))],
+                ),
+            ));
+            added += 1;
+        }
+        notes.before.push(added);
+        notes
+    }
+
+    /// The note rows in the list.
+    fn added(&self) -> usize {
+        self.before.last().copied().unwrap_or(0)
+    }
+
+    /// The note rows before zone `zone` (all of them past the last).
+    fn added_before(&self, zone: usize) -> usize {
+        self.before.get(zone).copied().unwrap_or(0)
+    }
+
+    /// The list index of the diff's row `row`.
+    fn index_of(&self, row: usize) -> usize {
+        let zones = self.zones.partition_point(|(after, _)| *after < row);
+        row + self.added_before(zones)
+    }
+
+    /// What list index `index` draws.
+    fn slot(&self, index: usize) -> Slot<'_> {
+        let at = self.starts.partition_point(|start| *start <= index);
+        if let Some(zone) = at.checked_sub(1)
+            && let Some(note) = self.zones[zone].1.get(index - self.starts[zone])
+        {
+            return Slot::Note(note);
+        }
+        Slot::Row(index - self.added_before(at))
+    }
+}
+
+/// A box's rows, keyed under `key`: its parts in order, the first its top
+/// edge and the last its bottom.
+fn boxed(key: &str, parts: impl IntoIterator<Item = NoteKind>) -> Vec<NoteRow> {
+    let mut rows: Vec<NoteRow> = parts
+        .into_iter()
+        .enumerate()
+        .map(|(n, kind)| NoteRow {
+            key: format!("{key}-{n}"),
+            kind,
+            first: n == 0,
+            last: false,
+        })
+        .collect();
+    if let Some(last) = rows.last_mut() {
+        last.last = true;
+    }
+    rows
+}
+
+/// `text` as the lines a note box draws, broken between words.
+// ponytail: breaks by a character budget, not by the font's widths (a
+// view cannot measure text); a line that still runs past the box is cut
+// with an ellipsis, and the whole comment reads in the Conversation tab.
+fn wrap(text: &str) -> Vec<String> {
+    let width = |word: &str| -> usize {
+        word.chars()
+            .map(|c| if c >= '\u{1100}' { 2 } else { 1 })
+            .sum()
+    };
+    let mut lines = Vec::new();
+    for paragraph in text.trim_end().split('\n') {
+        let mut line = String::new();
+        let mut used = 0;
+        for word in paragraph.split(' ') {
+            let w = width(word);
+            if used > 0 && used + 1 + w > NOTE_CHARS {
+                lines.push(std::mem::take(&mut line));
+                used = 0;
+            }
+            if used > 0 {
+                line.push(' ');
+                used += 1;
+            }
+            line.push_str(word);
+            used += w;
+        }
+        lines.push(line);
+    }
+    lines
+}
+
+/// The open composer's field and the routes of its buttons, for the rows
+/// that draw it.
+struct Composer {
+    body: TextField,
+    error: String,
+    stage: Route<()>,
+    cancel: Route<()>,
+}
+
+/// Scrolls the open composer into view: it follows its line, and its field
+/// must be in the frame that gives it the keys.
+pub(crate) fn reveal_composer(forge: &Forge) {
+    let Some(shared) = forge.diff_query().and_then(|query| forge.shared(&query)) else {
+        return;
+    };
+    let rows = forge
+        .diff_cache
+        .rows(&shared, forge.nav().diff_path.clone());
+    if let Some(last) = Notes::of(forge, &rows).composer {
+        forge
+            .diff_scroll
+            .scroll_to_item(last, ScrollStrategy::Nearest);
     }
 }
 
@@ -309,31 +620,34 @@ pub(crate) fn render(
     // file headers above the virtual list, where they stay in view.
     let strip = (!reviewable).then(|| file_strip(&files, element_id, cx, theme));
     let rows = forge.diff_cache.rows(&shared, only);
-    let count = rows.count;
+    // what readers have written on these lines, as rows after each line
+    let notes = Rc::new(match reviewable {
+        true => Notes::of(forge, &rows),
+        false => Notes::default(),
+    });
+    let count = rows.count + notes.added();
     let theme = *theme;
     let comment: Route<Anchor> = Rc::new(cx.listener(|forge, at: &Anchor, window, cx| {
         forge.open_comment(at.0.clone(), at.1, at.2, window, cx)
     }));
+    let composer = forge
+        .review()
+        .and_then(|review| Some((review.open.as_ref()?, &review.error)))
+        .map(|(open, error)| Composer {
+            body: open.body.clone(),
+            error: error.clone(),
+            stage: Rc::new(cx.listener(|forge, _: &(), _, cx| forge.stage_comment(cx))),
+            cancel: Rc::new(cx.listener(|forge, _: &(), _, cx| forge.discard_comment(cx))),
+        });
     let handle = forge.diff_scroll.clone();
-    // what a reader has written on these lines, looked up per row painted
-    let drafts: Rc<Vec<PendingComment>> = Rc::new(
-        reviewable
-            .then(|| forge.review())
-            .flatten()
-            .map(|review| review.comments.clone())
-            .unwrap_or_default(),
-    );
-    let published: Rc<Vec<Anchored>> = Rc::new(if reviewable {
-        published_comments(forge)
-    } else {
-        Vec::new()
-    });
     // Under a review the lines are a grid: ↑ ↓ walk the lines with a
     // gutter, ← → a line's gutters (old, new), Enter comments there. The
     // active line is scrolled into view before its gutter claims, since a
-    // virtual row off screen has no node to claim with.
+    // virtual row off screen has no node to claim with. At rest the first
+    // gutter is claimed and drawn like any other.
     let lines = if reviewable { rows.lines } else { 0 };
-    let (at, cell) = forge.diff_cursor;
+    let walked = forge.diff_cursor.is_some();
+    let (at, cell) = forge.diff_cursor.unwrap_or_default();
     let at = at.min(lines.saturating_sub(1));
     let cells = if lines > 0 {
         anchors(&rows.painted(rows.row_of_line(at))).len()
@@ -344,30 +658,27 @@ pub(crate) fn render(
     let active = (lines > 0).then(|| (rows.row_of_line(at), cell));
     let press = comment.clone();
     let painted = rows.clone();
+    let slots = notes.clone();
     let list = crate::ui::components::rows(
         element_id,
         count,
-        rows.widest,
+        rows.widest.map(|row| notes.index_of(row)),
         Some(&handle),
-        move |index| {
-            let active = active
-                .filter(|(line, _)| *line == index)
-                .map(|(_, cell)| cell);
-            let row = painted.painted(index);
-            let notes = Notes {
-                draft: drafts
-                    .iter()
-                    .find(|c| anchored(&row, &c.path, c.new_side, c.line))
-                    .map(|c| c.body.text().clone()),
-                published: published
-                    .iter()
-                    .filter(|(p, side, at, _, _, _)| anchored(&row, p, *side, *at))
-                    .map(|(_, _, _, author, body, outdated)| {
-                        (author.clone(), body.clone(), *outdated)
-                    })
-                    .collect(),
-            };
-            paint_row(&row, index, reviewable, active, notes, &comment, &theme)
+        move |index| match slots.slot(index) {
+            Slot::Note(note) => note_row(note, composer.as_ref(), &theme),
+            Slot::Row(row) => {
+                let active = active
+                    .filter(|(line, _)| *line == row)
+                    .map(|(_, cell)| (cell, walked));
+                paint_row(
+                    &painted.painted(row),
+                    row,
+                    reviewable,
+                    active,
+                    &comment,
+                    &theme,
+                )
+            }
         },
     );
     let list = match lines {
@@ -375,18 +686,25 @@ pub(crate) fn render(
         _ => {
             let reveal = rows.clone();
             let pressed = rows.clone();
+            // An open composer is the grid's edit mode: the keys typed in
+            // its field reach the grid around it too, where Space and Enter
+            // would press the active gutter and move the composer away, so
+            // the grid walks nothing until it is staged or cancelled.
+            let walkable = if notes.composer.is_some() { 0 } else { lines };
             design::composite(id(format!("{element_id}-lines")), Role::Grid, "Diff")
-                .active(at, lines)
+                .active(at, walkable)
                 .cells(cell, cells)
                 .on_move(cx.processor(move |forge, index: usize, _, cx| {
-                    forge.diff_cursor = (index, 0);
+                    forge.diff_cursor = Some((index, 0));
+                    let row = notes.index_of(reveal.row_of_line(index));
                     forge
                         .diff_scroll
-                        .scroll_to_item(reveal.row_of_line(index), ScrollStrategy::Nearest);
+                        .scroll_to_item(row, ScrollStrategy::Nearest);
                     cx.notify();
                 }))
                 .on_move_cell(cx.processor(|forge, cell: usize, _, cx| {
-                    forge.diff_cursor.1 = cell;
+                    let (line, _) = forge.diff_cursor.unwrap_or_default();
+                    forge.diff_cursor = Some((line, cell));
                     cx.notify();
                 }))
                 .on_press(move |index, window, app| {
@@ -460,10 +778,7 @@ fn file_strip(
                 .on_click(pick)
                 .child(crate::ui::bold(label))
                 .child(quiet(status_label(file.status), theme))
-                .child(quiet(
-                    format!("+{} −{}", file.additions, file.deletions),
-                    theme,
-                )),
+                .children(counts(file).map(|counts| quiet(counts, theme))),
         );
     }
     strip.into_any_element()
@@ -492,22 +807,6 @@ fn anchors(row: &Painted) -> Vec<Anchor> {
         .collect()
 }
 
-/// Whether a comment at `path:line (side)` sits on this line: a line is
-/// anchored on its new side when it has one, else its old.
-fn anchored(row: &Painted, path: &[u8], new_side: bool, line: u64) -> bool {
-    row.kind == Kind::Line
-        && row.path == path
-        && new_side == row.new.is_some()
-        && row.new.or(row.old) == Some(line)
-}
-
-/// What readers wrote on one line: this reader's draft, and the published
-/// comments (author, body, outdated).
-struct Notes {
-    draft: Option<String>,
-    published: Vec<(String, String, bool)>,
-}
-
 impl Painted {
     /// A row that is not a source line: a file's header, a hunk's, or the
     /// closing row.
@@ -531,12 +830,17 @@ fn file_header(file: &FileDiff) -> String {
         }
         _ => path_text(&path_of(file).unwrap_or_default()),
     };
-    format!(
-        "{header} · {} · +{} −{}",
-        status_label(file.status),
-        file.additions,
-        file.deletions
-    )
+    let status = status_label(file.status);
+    match counts(file) {
+        Some(counts) => format!("{header} · {status} · {counts}"),
+        None => format!("{header} · {status}"),
+    }
+}
+
+/// The lines a file adds and removes, when they were counted: a binary,
+/// an oversize file or a submodule has none to count, not zero.
+fn counts(file: &FileDiff) -> Option<String> {
+    (file.content == Content::Text).then(|| format!("+{} −{}", file.additions, file.deletions))
 }
 
 /// Why a file has no lines to show.
@@ -574,12 +878,14 @@ fn published_comments(forge: &Forge) -> Vec<Anchored> {
     all
 }
 
+/// One of the diff's own rows. Each is one line high, as the list draws
+/// every row the height of the one it measures: a header padded taller
+/// spilled into the row under it and was drawn over by it.
 fn paint_row(
     row: &Painted,
     index: usize,
     reviewable: bool,
-    active: Option<usize>,
-    notes: Notes,
+    active: Option<(usize, bool)>,
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -588,8 +894,6 @@ fn paint_row(
             .id(id(format!("forge-diff-file-{}", path_text(&row.path))))
             .w_full()
             .px(design::space::BLOCK)
-            .pt(design::space::LG)
-            .pb(design::space::XS)
             .font_family(design::fonts::FAMILY_MONO)
             .text_size(design::text::CAPTION)
             .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
@@ -604,17 +908,17 @@ fn paint_row(
             .text_color(theme.faint)
             .child(row.text.clone())
             .into_any_element(),
-        Kind::Line => line_row(row, index, reviewable, active, notes, comment, theme),
+        Kind::Line => line_row(row, index, reviewable, active, comment, theme),
     }
 }
 
-/// `active`: which of the line's gutters the arrows are on, under a review.
+/// `active`: which of the line's gutters the arrows are on, under a review,
+/// and whether they have walked there: only then is it drawn.
 fn line_row(
     row: &Painted,
     index: usize,
     reviewable: bool,
-    active: Option<usize>,
-    notes: Notes,
+    active: Option<(usize, bool)>,
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -631,7 +935,11 @@ fn line_row(
     // the gutters are the row's cells, in paint order: the old side, then
     // the new; a line with one number has one cell
     let cells = usize::from(row.old.is_some());
-    let body = div()
+    let (claimed, walked) = match active {
+        Some((cell, walked)) => (Some(cell), walked),
+        None => (None, false),
+    };
+    div()
         .id(id(format!("forge-diff-line-{index}")))
         .w_full()
         .flex()
@@ -639,12 +947,12 @@ fn line_row(
         .gap_1()
         .px(design::space::BLOCK)
         .bg(background)
-        .when(reviewable, |body| body.role(Role::Row))
+        .when(reviewable, |body| body.h(ROW_H).role(Role::Row))
         .child(gutter(
             row,
             false,
             reviewable,
-            active == Some(0),
+            (claimed == Some(0), walked),
             comment,
             theme,
         ))
@@ -652,7 +960,7 @@ fn line_row(
             row,
             true,
             reviewable,
-            active == Some(cells),
+            (claimed == Some(cells), walked),
             comment,
             theme,
         ))
@@ -671,102 +979,119 @@ fn line_row(
                 .flex_1()
                 .min_w(px(0.))
                 .text_color(colour),
-        );
-    if notes.published.is_empty() && notes.draft.is_none() {
-        return body.into_any_element();
+        )
+        .into_any_element()
+}
+
+/// One row of a note box, under the line it is on: the box's edges, and
+/// what this row of it holds.
+fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyElement {
+    if let NoteKind::Closing(text) = &note.kind {
+        // drawn as the diff's own closing row is
+        return div()
+            .id(id(note.key.clone()))
+            .w_full()
+            .px(design::space::BLOCK)
+            .font_family(design::fonts::FAMILY_MONO)
+            .text_size(design::text::CAPTION)
+            .text_color(theme.faint)
+            .child(text.clone())
+            .into_any_element();
     }
-    div()
-        .id(id(format!("forge-diff-thread-{index}")))
-        .w_full()
+    let slice = div()
+        .flex_1()
+        .min_w(px(0.))
+        .max_w(NOTE_W)
+        .h(ROW_H)
         .flex()
-        .flex_col()
-        .child(body)
-        .children(
-            notes
-                .published
-                .iter()
-                .enumerate()
-                .map(|(at, (author, text, outdated))| {
-                    published_comment(index, at, author, text, *outdated, theme)
-                }),
-        )
-        .children(notes.draft.as_ref().map(|draft| {
-            comment_box(
-                id(format!("forge-diff-draft-{index}")),
-                "Your pending comment".to_owned(),
-                draft,
-                None,
-                theme,
+        .items_center()
+        .gap(design::space::SM)
+        .px(design::space::MD)
+        .bg(theme.background)
+        .border_l_1()
+        .border_r_1()
+        .border_color(theme.border_strong)
+        .when(note.first, |slice| slice.border_t_1())
+        .when(note.last, |slice| slice.border_b_1());
+    let slice = match (&note.kind, composer) {
+        (NoteKind::Head(who, outdated), _) => slice
+            .text_size(design::text::SECONDARY)
+            .text_color(theme.muted)
+            .child(who.clone())
+            .when(*outdated, |slice| {
+                slice.child(badge(
+                    id(format!("{}-outdated", note.key)),
+                    "outdated",
+                    theme.warning,
+                    theme.warning_soft,
+                ))
+            }),
+        (NoteKind::Text(text), _) => {
+            slice.child(div().flex_1().min_w(px(0.)).truncate().child(text.clone()))
+        }
+        (NoteKind::Field, Some(composer)) => {
+            let stage = composer.stage.clone();
+            slice.child(
+                // short of the row, so the buttons under it clear its edge
+                Input::new(id("forge-comment-body"), &composer.body, "Line comment")
+                    .h(ROW_H - px(4.))
+                    .flex_1()
+                    .px_2()
+                    .border_1()
+                    .border_color(theme.border_strong)
+                    .bg(theme.background)
+                    .text_size(design::text::SECONDARY)
+                    .text_color(theme.foreground)
+                    .placeholder("What should change here?")
+                    .on_submit(move |_: &(), window: &mut Window, app: &mut App| {
+                        stage(&(), window, app)
+                    }),
             )
-        }))
-        .into_any_element()
-}
-
-/// One published line comment under its line.
-fn published_comment(
-    index: usize,
-    at: usize,
-    author: &str,
-    text: &str,
-    outdated: bool,
-    theme: &Theme,
-) -> AnyElement {
-    let tag = outdated.then(|| {
-        badge(
-            id(format!("forge-diff-outdated-{index}-{at}")),
-            "outdated",
-            theme.warning,
-            theme.warning_soft,
-        )
-        .into_any_element()
-    });
-    comment_box(
-        id(format!("forge-diff-comment-{index}-{at}")),
-        author.to_owned(),
-        text,
-        tag,
-        theme,
-    )
-}
-
-/// A comment boxed under the line it is on: who (or whose draft) over
-/// what it says.
-fn comment_box(
-    element_id: ElementId,
-    who: String,
-    text: &str,
-    tag: Option<AnyElement>,
-    theme: &Theme,
-) -> AnyElement {
-    div()
-        .id(element_id)
-        .w_full()
-        .pl(GUTTER_W * 2. + MARKER_W + design::space::BLOCK + design::space::SM)
-        .pr(design::space::BLOCK)
-        .py(design::space::XS)
-        .child(
-            div()
-                .max_w(px(520.))
-                .flex()
-                .flex_col()
-                .gap(design::space::HAIR)
-                .px(design::space::MD)
-                .py(design::space::SM)
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.background)
+        }
+        (NoteKind::Actions, Some(composer)) => {
+            let (stage, cancel) = (composer.stage.clone(), composer.cancel.clone());
+            slice
                 .child(
                     div()
-                        .flex()
-                        .items_center()
-                        .gap(design::space::SM)
+                        .id(id("forge-comment-error"))
+                        .flex_1()
+                        .min_w(px(0.))
+                        .truncate()
                         .text_size(design::text::SECONDARY)
-                        .text_color(theme.muted)
-                        .child(who)
-                        .children(tag),
+                        .text_color(theme.danger)
+                        .child(composer.error.clone()),
                 )
-                .child(div().child(text.to_owned())),
-        )
+                .child(crate::ui::components::button(
+                    id("forge-comment-cancel"),
+                    "Cancel",
+                    theme,
+                    move |_: &ClickEvent, window: &mut Window, app: &mut App| {
+                        cancel(&(), window, app)
+                    },
+                ))
+                .child(
+                    crate::ui::components::button(
+                        id("forge-comment-save"),
+                        "Stage",
+                        theme,
+                        move |_: &ClickEvent, window: &mut Window, app: &mut App| {
+                            stage(&(), window, app)
+                        },
+                    )
+                    .kind(design::Kind::Primary),
+                )
+        }
+        (NoteKind::Field | NoteKind::Actions, None) | (NoteKind::Closing(_), _) => slice,
+    };
+    div()
+        .id(id(note.key.clone()))
+        .w_full()
+        .h(ROW_H)
+        .flex()
+        // under the code, past the gutters and the marker
+        .pl(GUTTER_W * 2. + MARKER_W + design::space::BLOCK + design::space::SM)
+        .pr(design::space::BLOCK)
+        .child(slice)
         .into_any_element()
 }
 
@@ -777,7 +1102,8 @@ fn gutter(
     row: &Painted,
     new_side: bool,
     reviewable: bool,
-    active: bool,
+    // the keys' claim is on it; it is drawn once the arrows walked there
+    (active, walked): (bool, bool),
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -815,7 +1141,7 @@ fn gutter(
         .flex()
         .items_center()
         .hover(|style| style.bg(theme.accent_soft))
-        .when(active, |button| button.bg(theme.accent_soft))
+        .when(active && walked, |button| button.bg(theme.accent_soft))
         .aria_label("Comment on this line")
         .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| {
             comment(&at, window, app)
@@ -829,67 +1155,6 @@ fn gutter(
         .role(Role::GridCell)
         .child(design::item(button, Role::Button, active))
         .into_any_element()
-}
-
-/// The composer for the one anchor whose gutter was clicked.
-pub(crate) fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let Some(review) = forge.review() else {
-        return div().into_any_element();
-    };
-    let Some(open) = review.open.clone() else {
-        return div().into_any_element();
-    };
-    let save = cx.listener(|forge, _: &ClickEvent, _, cx| forge.stage_comment(cx));
-    let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.discard_comment(cx));
-    let mut card = div()
-        .id(id("forge-comment"))
-        .flex()
-        .flex_col()
-        .gap_2()
-        .m_2()
-        .p_2()
-        .border_1()
-        .border_color(theme.border_strong)
-        .bg(theme.surface)
-        .child(quiet(open.anchor(), theme))
-        .child(
-            Input::new(id("forge-comment-body"), &open.body, "Line comment")
-                .h(design::size::CONTROL)
-                .w_full()
-                .px_2()
-                .border_1()
-                .border_color(theme.border_strong)
-                .bg(theme.background)
-                .text_color(theme.foreground)
-                .placeholder("What should change here?")
-                .on_submit(cx.listener(|forge, _: &(), _, cx| forge.stage_comment(cx))),
-        );
-    if !review.error.is_empty() {
-        card = card.child(
-            div()
-                .id(id("forge-comment-error"))
-                .text_size(design::text::SECONDARY)
-                .text_color(theme.danger)
-                .child(review.error.clone()),
-        );
-    }
-    card.child(
-        div()
-            .flex()
-            .gap_2()
-            .child(div().flex_1())
-            .child(crate::ui::components::button(
-                id("forge-comment-cancel"),
-                "Cancel",
-                theme,
-                cancel,
-            ))
-            .child(
-                crate::ui::components::button(id("forge-comment-save"), "Stage", theme, save)
-                    .kind(design::Kind::Primary),
-            ),
-    )
-    .into_any_element()
 }
 
 #[cfg(test)]
@@ -991,7 +1256,7 @@ mod tests {
                 (Kind::Hunk, "@@ -0,0 +1,2 @@".into()),
                 (Kind::Line, "one".into()),
                 (Kind::Line, "two".into()),
-                (Kind::File, "b.bin · added · +0 −0".into()),
+                (Kind::File, "b.bin · added".into()),
                 (Kind::Hunk, "Binary file — no lines to show".into()),
                 (Kind::File, "c.rs · added · +1 −0".into()),
                 (Kind::Hunk, "@@ -0,0 +1,1 @@".into()),
@@ -1013,16 +1278,17 @@ mod tests {
     fn a_diff_past_the_list_ceiling_closes_with_the_files_left_out() {
         let lines: Vec<String> = (0..1000).map(|n| n.to_string()).collect();
         let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
-        // 70 files of 1002 rows each: 65 fit under 65,536 with the closing row
+        // 70 files of 1002 rows each: 64 fit under 64,512 with the closing
+        // row, the rest of the list's 65,536 kept for notes
         let files = (0..70).map(|n| file(&format!("f{n}.rs"), &lines)).collect();
         let rows = Rows::layout(reply(files), None);
-        assert_eq!(rows.left_out, 5);
-        assert_eq!(rows.count, 65 * 1002 + 1);
-        assert!(rows.count <= LIST_CEILING);
+        assert_eq!(rows.left_out, 6);
+        assert_eq!(rows.count, 64 * 1002 + 1);
+        assert!(rows.count <= ROWS_CEILING);
         let closing = rows.painted(rows.count - 1);
         assert_eq!(
             closing.text,
-            "5 more files not drawn here: open one from the file list"
+            "6 more files not drawn here: open one from the file list"
         );
         assert_eq!(rows.painted(rows.count - 2).text, "999");
     }
@@ -1038,25 +1304,150 @@ mod tests {
         let whole = Rows::layout(diff.clone(), None);
         assert_eq!((whole.count, whole.left_out), (1, 2));
         let alone = Rows::layout(diff, Some(b"data.txt"));
-        assert_eq!(alone.count, LIST_CEILING);
-        assert_eq!(alone.lines, LIST_CEILING - 3);
+        assert_eq!(alone.count, ROWS_CEILING);
+        assert_eq!(alone.lines, ROWS_CEILING - 3);
         assert_eq!(
             alone.painted(alone.count - 1).text,
-            "4,467 more lines not drawn here"
+            "5,491 more lines not drawn here"
         );
-        assert_eq!(alone.painted(alone.count - 2).text, "65532");
+        assert_eq!(alone.painted(alone.count - 2).text, "64508");
         assert_eq!(alone.row_of_line(alone.lines - 1), alone.count - 2);
     }
 
-    /// A comment sits on a line by its path, the side it is anchored on and
-    /// its number there, never on a header row.
+    /// A comment sits on the line whose gutter on its side carries its
+    /// number: a context line by either, an added line by its new number
+    /// alone, a removed line by its old; never another file's line.
     #[test]
     fn a_note_finds_its_line() {
-        let rows = Rows::layout(reply(vec![file("a.rs", &["one", "two"])]), None);
-        assert!(anchored(&rows.painted(3), b"a.rs", true, 2));
-        assert!(!anchored(&rows.painted(3), b"a.rs", false, 2));
-        assert!(!anchored(&rows.painted(3), b"b.rs", true, 2));
-        assert!(!anchored(&rows.painted(0), b"a.rs", true, 2));
-        assert_eq!(anchors(&rows.painted(3)), [(b"a.rs".to_vec(), true, 2)]);
+        let line = |kind, old, new| forge::DiffLine {
+            kind,
+            old_line: old,
+            new_line: new,
+            bytes: b"x\n".to_vec(),
+        };
+        let mut edited = file("a.rs", &[]);
+        edited.hunks[0].lines = vec![
+            line(LineKind::Context, Some(1), Some(1)),
+            line(LineKind::Deleted, Some(2), None),
+            line(LineKind::Added, None, Some(2)),
+        ];
+        let rows = Rows::layout(reply(vec![edited, file("b.rs", &["one"])]), None);
+        let of = |path: &[u8], new_side, number| rows.row_of_anchor(path, new_side, number);
+        assert_eq!(of(b"a.rs", false, 1), Some(2));
+        assert_eq!(of(b"a.rs", true, 1), Some(2));
+        assert_eq!(of(b"a.rs", false, 2), Some(3));
+        assert_eq!(of(b"a.rs", true, 2), Some(4));
+        assert_eq!(of(b"a.rs", true, 3), None);
+        assert_eq!(of(b"b.rs", true, 1), Some(7));
+        assert_eq!(of(b"c.rs", true, 1), None);
+        assert_eq!(anchors(&rows.painted(2)).len(), 2, "both gutters");
+    }
+
+    /// Note rows follow their line in the list and the diff's own rows keep
+    /// theirs: a list index finds either, and a row finds its list index.
+    #[test]
+    fn note_rows_follow_their_line() {
+        let zone = |rows: usize| boxed("n", (0..rows).map(|_| NoteKind::Text(String::new())));
+        let notes = Notes::laid(BTreeMap::from([(2, zone(3)), (5, zone(2))]), 100, 6);
+        assert_eq!(notes.added(), 5);
+        let drawn: Vec<String> = (0..12)
+            .map(|index| match notes.slot(index) {
+                Slot::Row(row) => format!("r{row}"),
+                Slot::Note(note) => note.key.clone(),
+            })
+            .collect();
+        assert_eq!(
+            drawn,
+            [
+                "r0", "r1", "r2", "n-0", "n-1", "n-2", "r3", "r4", "r5", "n-0", "n-1", "r6"
+            ]
+        );
+        for (row, index) in [(0, 0), (2, 2), (3, 6), (5, 8), (6, 11)] {
+            assert_eq!(notes.index_of(row), index, "row {row}");
+        }
+    }
+
+    /// Notes take the room the diff leaves under the list ceiling and no
+    /// more: the open composer first, then each line's notes in order until
+    /// one does not fit; what is left out is counted after the last row.
+    #[test]
+    fn notes_past_their_room_are_counted_not_dropped() {
+        let comment = |key: &str| {
+            boxed(
+                key,
+                [
+                    NoteKind::Head(String::new(), false),
+                    NoteKind::Text(String::new()),
+                ],
+            )
+        };
+        let composer = boxed(
+            "c",
+            [
+                NoteKind::Head(String::new(), false),
+                NoteKind::Field,
+                NoteKind::Actions,
+            ],
+        );
+        let mut two = comment("a");
+        two.extend(comment("b"));
+        let zones = BTreeMap::from([
+            (2, two),
+            (5, comment("d")),
+            (7, composer),
+            (8, comment("e")),
+        ]);
+        // 8 rows: one kept for the count, the composer's 3, then line 2's 4;
+        // line 5's 2 do not fit, and line 8's come after them
+        let notes = Notes::laid(zones, 8, 9);
+        let drawn: Vec<String> = (0..18)
+            .map(|index| match notes.slot(index) {
+                Slot::Row(row) => format!("r{row}"),
+                Slot::Note(note) => note.key.clone(),
+            })
+            .collect();
+        assert_eq!(
+            drawn,
+            [
+                "r0",
+                "r1",
+                "r2",
+                "a-0",
+                "a-1",
+                "b-0",
+                "b-1",
+                "r3",
+                "r4",
+                "r5",
+                "r6",
+                "r7",
+                "c-0",
+                "c-1",
+                "c-2",
+                "r8",
+                "r9",
+                "forge-diff-notes-left-out-0"
+            ]
+        );
+        assert_eq!(notes.composer, Some(14));
+        let Slot::Note(closing) = notes.slot(17) else {
+            panic!("the count");
+        };
+        assert!(
+            matches!(&closing.kind, NoteKind::Closing(text) if text == "2 more comments not drawn here")
+        );
+    }
+
+    /// A note's text breaks between words under the budget, keeps its own
+    /// line breaks, and counts a wide character twice.
+    #[test]
+    fn a_note_breaks_between_words() {
+        let words = "word ".repeat(30);
+        let lines = wrap(&format!("{words}\nnext"));
+        assert!(lines.iter().all(|line| line.chars().count() <= NOTE_CHARS));
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(lines.last().map(String::as_str), Some("next"));
+        let wide = "\u{d55c}".repeat(NOTE_CHARS / 2 + 1);
+        assert_eq!(wrap(&format!("{wide} a")), [wide.clone(), "a".to_owned()]);
     }
 }

@@ -40,7 +40,7 @@ impl Forge {
     }
 
     /// The gutter number is the button: it opens the composer for one anchor,
-    /// carrying whatever is already staged there.
+    /// carrying whatever is already staged there, under its line.
     pub(crate) fn open_comment(
         &mut self,
         path: Vec<u8>,
@@ -68,6 +68,7 @@ impl Forge {
                 body,
             });
         }
+        crate::ui::diff::reveal_composer(self);
         window.focus(crate::ui::components::id("forge-comment-body"));
         cx.notify();
     }

@@ -14,6 +14,7 @@ impl Forge {
         self.list_cursor = None;
         self.repos_cursor = None;
         self.rail_cursor = None;
+        self.diff_cursor = None;
         self.tree_walked = false;
         cx.notify();
         self.sync(cx);
@@ -250,6 +251,7 @@ impl Forge {
         self.change_tab_cursor = None;
         self.nav.change_tab = tab;
         self.nav.diff_path = None;
+        self.nav.commit = None;
         self.moved(cx);
     }
 
