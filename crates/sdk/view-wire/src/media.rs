@@ -38,11 +38,6 @@ pub enum MicCommand {
     Record { seconds: u8 },
     /// Ends a recording or its playback.
     Stop,
-    /// Plays the host's test chime (a short two-note tone) on the piece's
-    /// `output`: the person hears whether that speaker works. Replaces a
-    /// recording or playback under way; the playback reads
-    /// [`Playback::Playing`] while it sounds.
-    Chime,
 }
 
 /// Where a camera or microphone piece's device is, as the host holds it.

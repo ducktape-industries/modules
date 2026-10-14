@@ -251,12 +251,11 @@ pub(super) fn gen_media(rng: &mut Rng) -> Node {
         };
     }
     let commands = (0..=rng.next_range(MIC_COMMANDS))
-        .map(|_| match rng.next_range(3) {
-            0 => view_wire::MicCommand::Record {
+        .map(|_| match rng.next_bool() {
+            true => view_wire::MicCommand::Record {
                 seconds: rng.next_u64() as u8,
             },
-            1 => view_wire::MicCommand::Stop,
-            _ => view_wire::MicCommand::Chime,
+            false => view_wire::MicCommand::Stop,
         })
         .collect();
     Node::Microphone {

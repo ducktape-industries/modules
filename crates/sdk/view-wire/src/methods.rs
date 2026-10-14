@@ -591,6 +591,13 @@ methods! {
     /// open, as listed now. Refused [`refusal::MEDIA_UNSUPPORTED`] by a
     /// host that captures nothing.
     MicrophoneDevices, "microphone.devices", (), AudioDevices;
+    /// `microphone.chime`: the host's test chime (0.6 s, two notes) on a
+    /// speaker, by an output id `microphone.devices` listed (`None`: the
+    /// system's), answered once it has sounded. Apart from any microphone
+    /// piece: the speaker test works muted. Refused
+    /// [`refusal::MEDIA_UNSUPPORTED`] by a host that captures nothing,
+    /// [`refusal::HOST_FAULT`] when the speaker does not play.
+    MicrophoneChime, "microphone.chime", Option<String>, ();
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
@@ -623,8 +630,9 @@ pub enum Capability {
     /// system asks for each apart: a voice-only view never gets a camera.
     Camera,
     /// The view places microphone pieces ([`crate::Node::Microphone`]),
-    /// which also play on a speaker, and lists the microphones and
-    /// speakers (`microphone.devices`).
+    /// which also play on a speaker, lists the microphones and speakers
+    /// (`microphone.devices`) and plays the test chime on a speaker
+    /// (`microphone.chime`).
     Microphone,
 }
 

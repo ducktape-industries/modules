@@ -20,6 +20,7 @@ host.visible None () -> bool
 host.widget None TypeName("WidgetCommand") -> Unit tree
 invite.create None CreateInvite -> Invite
 link.open None String -> ()
+microphone.chime None Option<String> -> ()
 microphone.devices None () -> AudioDevices
 notify.post None Notification -> Delivery
 notify.seen None String -> ()
@@ -63,6 +64,7 @@ Option<Change> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", 
 Option<Description> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Description")] }
 Option<Located> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Located")] }
 Option<Receipt> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Receipt")] }
+Option<String> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "String")] }
 Option<Vec<u8>> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Vec<u8>")] }
 Option<u64> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "u64")] }
 Outcome = Enum { tag_width: 1, variants: [(0, "Applied", "Outcome__Applied"), (1, "Rejected", "Outcome__Rejected")] }
@@ -670,7 +672,6 @@ MicCommand enum
   0 Record struct
     seconds: U8
   1 Stop: Unit
-  2 Chime: Unit
 Modifiers struct
   control: Bool
   alt: Bool

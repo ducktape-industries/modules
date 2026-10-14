@@ -458,6 +458,7 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<HostTitle>(d),
         borsh::<CameraDevices>(d),
         borsh::<MicrophoneDevices>(d),
+        borsh::<MicrophoneChime>(d),
         borsh::<LinkOpen>(d),
         borsh::<HostRoute>(d),
         borsh::<HostId>(d),
