@@ -70,7 +70,7 @@ fn commit(store: &mut MemoryObjects, parents: &[Oid], files: &[(&str, &[u8])]) -
 }
 
 /// A receive-pack request: `refs` set from nothing, every object packed.
-fn push_request(store: &MemoryObjects, refs: &[(Oid, &str)]) -> Vec<u8> {
+fn push_request(store: &MemoryObjects, refs: &[(Oid, &str)]) -> (Vec<u8>, Vec<u8>) {
     let zero = Oid::Sha1([0; 20]);
     let mut request = Vec::new();
     for (index, (new, name)) in refs.iter().enumerate() {
@@ -82,8 +82,8 @@ fn push_request(store: &MemoryObjects, refs: &[(Oid, &str)]) -> Vec<u8> {
     }
     request.extend_from_slice(pktline::flush());
     let objects = store.ids().map(|id| store.get(id).unwrap().unwrap());
-    request.extend_from_slice(&pack::write(objects.collect::<Vec<_>>(), store.hash()).unwrap());
-    request
+    let pack = pack::write(objects.collect::<Vec<_>>(), store.hash()).unwrap();
+    (request, pack)
 }
 
 #[test]
@@ -113,14 +113,26 @@ fn a_change_and_its_channel_land_in_one_block() {
             &[main],
             &[("README.md", b"# Project\n\nMore.\n")],
         );
+        let (request, pack) = push_request(
+            &store,
+            &[(main, "refs/heads/main"), (feature, "refs/heads/feature")],
+        );
+        let pack = net.held(forge::PACK_KIND, &pack);
         let push = forge::Op::Push {
             repo: REPO.into(),
-            request: push_request(
-                &store,
-                &[(main, "refs/heads/main"), (feature, "refs/heads/feature")],
-            ),
+            request,
+            pack: Some(pack.id),
         };
-        net.apply(&author, forge::MODULE, &push).await;
+        let attaching = net.attaching(forge::MODULE, &push, pack);
+        net.apply(&author, ATTACH, &attaching).await;
+        net.tick().await;
+        assert_eq!(
+            net.host.blob(&pack.id).unwrap(),
+            None,
+            "the pack is not kept"
+        );
+        let object = forge::blob_id_of(&feature);
+        assert!(net.host.blob(&object).unwrap().is_some(), "its objects are");
 
         let open = forge::Op::ChangeOpen {
             repo: REPO.into(),

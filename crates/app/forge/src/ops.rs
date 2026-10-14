@@ -3,10 +3,14 @@
 
 use gitcore::server::{Policy, RefUpdate};
 use gitcore::{Error as GitError, Limits, server};
-use guest::{Error, HashKind};
-use guest::{ExecCtx, QueryCtx, already_exists, capacity, decoded, invalid, unauthorized};
+use guest::{BlobId, Error, HashKind};
+use guest::{
+    ExecCtx, QueryCtx, already_exists, capacity, decoded, invalid, not_found, unauthorized,
+};
 
-use crate::contract::{Bounds, MAX_PATH_BYTES, Principal, Repo, Settings, valid_repo_name};
+use crate::contract::{
+    Bounds, MAX_PATH_BYTES, PACK_KIND, Principal, Repo, Settings, valid_repo_name,
+};
 use crate::objects::{ObjectWriter, object_not_held};
 use crate::state::{
     WRITERS, delete_ref, is_writer, load_bounds, load_refs, load_repo, repo_exists, repo_hash,
@@ -127,9 +131,14 @@ pub(crate) fn push(
     actor: &Principal,
     name: &str,
     request: &[u8],
+    pack: Option<BlobId>,
 ) -> Result<(), Error> {
     let mut repo = load_repo(ctx, name)?;
     require_writer(ctx, name, &repo, actor)?;
+    let pack = match pack {
+        Some(id) => attached_pack(ctx, id)?,
+        None => Vec::new(),
+    };
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
     let refs = load_refs(ctx, name, hash)?;
@@ -142,6 +151,7 @@ pub(crate) fn push(
         &mut objects,
         &refs,
         request,
+        &pack,
         hash,
         &limits_of(&bounds),
         &policy,
@@ -177,15 +187,31 @@ pub(crate) fn stage(
     ctx: &ExecCtx,
     actor: &Principal,
     name: &str,
-    pack: &[u8],
+    pack: BlobId,
 ) -> Result<(), Error> {
     let repo = load_repo(ctx, name)?;
     require_writer(ctx, name, &repo, actor)?;
+    let pack = attached_pack(ctx, pack)?;
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
     let mut objects = ObjectWriter::new(ctx, hash);
-    server::admit_pack(&mut objects, pack, hash, &limits_of(&bounds)).map_err(refusal_of)?;
+    server::admit_pack(&mut objects, &pack, hash, &limits_of(&bounds)).map_err(refusal_of)?;
     objects.flush()
+}
+
+fn attached_pack(ctx: &ExecCtx, id: BlobId) -> Result<Vec<u8>, Error> {
+    let Some(blob) = ctx.blob_get(id) else {
+        return Err(not_found(format!(
+            "pack {id:?} is neither attached to this frame nor stored"
+        )));
+    };
+    if blob.kind != PACK_KIND {
+        return Err(invalid(format!(
+            "pack {id:?} is a {:?} blob, not {PACK_KIND:?}",
+            blob.kind
+        )));
+    }
+    Ok(blob.body)
 }
 
 fn require_owner(repo: &Repo, actor: &Principal) -> Result<(), Error> {

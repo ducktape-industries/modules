@@ -32,3 +32,4 @@ ducktape-view-guest = { workspace = true, features = ["live"] }
 # the example's seeded history, under the bounds a founding gives forge
 gitcore.workspace = true
 founding = { path = "../../sdk/founding" }
+guest.workspace = true

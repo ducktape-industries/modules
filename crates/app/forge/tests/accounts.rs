@@ -143,7 +143,8 @@ fn a_key_writes_only_once_it_holds_an_account() {
         },
         Op::Push {
             repo: REPO.into(),
-            request: push_request(&[], &[]),
+            request: push_request(&[]),
+            pack: None,
         },
         Op::Configure {
             repo: REPO.into(),

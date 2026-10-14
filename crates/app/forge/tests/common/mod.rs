@@ -12,7 +12,7 @@ pub use gitcore::{
     Commit, Hash, Kind, Limits, MemoryObjects, Mode, Object, Objects, Oid, Signature, Tree,
     TreeEntry, pack,
 };
-pub use guest::{Cause, Env, HashKind, Origin, code};
+pub use guest::{Blob, BlobId, Cause, Env, HashKind, Origin, code};
 pub use guest::{MockHost, Module};
 
 pub mod sandbox;
@@ -172,7 +172,7 @@ pub fn all_ids(store: &MemoryObjects) -> Vec<Oid> {
     store.ids().copied().collect()
 }
 
-pub fn push_request(commands: &[(Oid, Oid, &str)], pack_bytes: &[u8]) -> Vec<u8> {
+pub fn push_request(commands: &[(Oid, Oid, &str)]) -> Vec<u8> {
     let mut request = Vec::new();
     for (index, (old, new, name)) in commands.iter().enumerate() {
         let mut line = format!("{old} {new} {name}").into_bytes();
@@ -183,8 +183,37 @@ pub fn push_request(commands: &[(Oid, Oid, &str)], pack_bytes: &[u8]) -> Vec<u8>
         pktline::push(&mut request, &line);
     }
     request.extend_from_slice(pktline::flush());
-    request.extend_from_slice(pack_bytes);
     request
+}
+
+pub fn attach(sandbox: &MemorySandbox, kind: &str, body: &[u8]) -> BlobId {
+    let id = guest::blob_id(HashKind::Sha256, kind, body).unwrap();
+    let blob = Blob {
+        kind: kind.into(),
+        body: body.to_vec(),
+    };
+    sandbox.forge.borrow_mut().blobs.insert(id, blob);
+    id
+}
+
+pub fn detach(sandbox: &MemorySandbox, id: BlobId) {
+    for host in [&sandbox.forge, &sandbox.chat] {
+        host.borrow_mut().blobs.remove(&id);
+    }
+}
+
+pub fn with_pack<T>(
+    sandbox: &MemorySandbox,
+    pack: &[u8],
+    run: impl FnOnce(Option<BlobId>) -> T,
+) -> T {
+    let carries_objects = !pack.is_empty();
+    let id = carries_objects.then(|| attach(sandbox, forge::PACK_KIND, pack));
+    let ran = run(id);
+    if let Some(id) = id {
+        detach(sandbox, id);
+    }
+    ran
 }
 
 pub fn push(
@@ -194,14 +223,14 @@ pub fn push(
     commands: &[(Oid, Oid, &str)],
     pack_bytes: &[u8],
 ) -> Result<Vec<String>, guest::Error> {
-    let report = act(
-        sandbox,
-        actor,
-        &Op::Push {
+    let report = with_pack(sandbox, pack_bytes, |pack| {
+        let op = Op::Push {
             repo: repo.into(),
-            request: push_request(commands, pack_bytes),
-        },
-    )?;
+            request: push_request(commands),
+            pack,
+        };
+        act(sandbox, actor, &op)
+    })?;
     Ok(report_lines(&report))
 }
 

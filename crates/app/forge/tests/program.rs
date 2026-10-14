@@ -450,14 +450,13 @@ fn a_log_exclude_spends_its_own_walk_budget() {
 }
 
 fn stage(sandbox: &MemorySandbox, actor: &[u8], pack: Vec<u8>) -> Result<Vec<u8>, guest::Error> {
-    act(
-        sandbox,
-        actor,
-        &Op::Stage {
+    with_pack(sandbox, &pack, |pack| {
+        let op = Op::Stage {
             repo: "project".into(),
-            pack,
-        },
-    )
+            pack: pack.expect("a stage carries objects"),
+        };
+        act(sandbox, actor, &op)
+    })
 }
 
 /// The ids under `commit` that `source` gained for it: its tree and blobs,
@@ -499,6 +498,49 @@ fn a_stage_stores_objects_and_moves_no_ref() {
     // a pack that is no pack is refused as one
     let garbage = stage(&sandbox, OWNER, b"PACK not really".to_vec());
     assert_eq!(garbage.unwrap_err().code, code::INVALID_INPUT);
+}
+
+#[test]
+fn a_push_and_a_stage_read_their_pack_only_from_what_their_frame_attaches() {
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let tip = file_commit(&mut source, &[], 1, &[("a", b"1")]);
+    let pack = pack_of(&source, &all_ids(&source));
+    let commands = [(Hash::Sha1.zero(), tip, "refs/heads/main")];
+    let push_with = |request: Vec<u8>, pack: Option<BlobId>| Op::Push {
+        repo: "project".into(),
+        request,
+        pack,
+    };
+
+    let unattached = guest::blob_id(HashKind::Sha256, forge::PACK_KIND, &pack).unwrap();
+    let missing = push_with(push_request(&commands), Some(unattached));
+    assert_eq!(refused(&sandbox, OWNER, &missing).code, code::NOT_FOUND);
+    let missing = Op::Stage {
+        repo: "project".into(),
+        pack: unattached,
+    };
+    assert_eq!(refused(&sandbox, OWNER, &missing).code, code::NOT_FOUND);
+
+    let page = attach(&sandbox, "page", &pack);
+    let not_a_pack = push_with(push_request(&commands), Some(page));
+    assert_eq!(
+        refused(&sandbox, OWNER, &not_a_pack).code,
+        code::INVALID_INPUT
+    );
+    detach(&sandbox, page);
+
+    let mut inline = push_request(&commands);
+    inline.extend_from_slice(&pack);
+    let inline = push_with(inline, None);
+    assert_eq!(refused(&sandbox, OWNER, &inline).code, code::INVALID_INPUT);
+    assert_eq!(sandbox.blob_count(), 0);
+    assert!(refs_of(&sandbox, "project").is_empty());
+
+    let moved = push(&sandbox, OWNER, "project", &commands, &pack).unwrap();
+    assert_eq!(moved, ["unpack ok", "ok refs/heads/main"]);
+    assert_eq!(sandbox.blob_count(), source.count());
 }
 
 #[test]
@@ -613,13 +655,9 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
         .collect()
 }
 
-/// A commit like the font bundles in ducktape's history: its own objects
-/// take more than a block carries (16 MiB, core's `node::BLOCK_BYTES`), so
-/// no one push holds it. Staged a blob at a time, it lands, and the push
-/// that moves the ref holds the tree and the commit alone.
 #[test]
-fn a_commit_bigger_than_a_frame_lands_in_parts() {
-    const FRAME: usize = 16 << 20;
+fn a_commit_bigger_than_one_part_lands_in_parts() {
+    const PART: usize = 16 << 20;
     let sandbox = MemorySandbox::default();
     Forge::init(
         &sandbox.exec(1),
@@ -641,15 +679,15 @@ fn a_commit_bigger_than_a_frame_lands_in_parts() {
     let tip = file_commit(&mut source, &[], 1, &files);
     let (below, _) = objects_of(&source, tip);
     let (tree, blobs) = below.split_first().unwrap();
-    assert!(pack_of(&source, &all_ids(&source)).len() > FRAME);
+    assert!(pack_of(&source, &all_ids(&source)).len() > PART);
 
     for blob in blobs {
         let part = pack_of(&source, &[*blob]);
-        assert!(part.len() < FRAME);
+        assert!(part.len() < PART);
         stage(&sandbox, OWNER, part).unwrap();
     }
     let last = pack_of(&source, &[*tree, tip]);
-    assert!(last.len() < FRAME);
+    assert!(last.len() < PART);
     let moved = push(
         &sandbox,
         OWNER,

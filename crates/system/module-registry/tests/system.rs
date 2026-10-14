@@ -265,20 +265,20 @@ impl Net {
         }
     }
 
-    fn attaching(&self, attachment: Attachment) -> Attached {
-        let publish = module_registry::Op::Publish {
-            code: attachment.id,
-        };
+    fn attaching<T: BorshSerialize>(&self, target: &str, op: &T, blob: Attachment) -> Attached {
         Attached {
-            target: module_registry::MODULE.into(),
-            payload: abi::encode(&publish),
-            blobs: vec![attachment],
+            target: target.into(),
+            payload: abi::encode(op),
+            blobs: vec![blob],
         }
     }
 
     async fn publish(&mut self, signer: &[u8], code: &[u8]) -> BlobId {
         let attachment = self.held(module_registry::CODE_KIND, code);
-        let attaching = self.attaching(attachment);
+        let publish = module_registry::Op::Publish {
+            code: attachment.id,
+        };
+        let attaching = self.attaching(module_registry::MODULE, &publish, attachment);
         let output = self.apply(signer, ATTACH, &attaching).await;
         abi::decode(&output).unwrap()
     }
