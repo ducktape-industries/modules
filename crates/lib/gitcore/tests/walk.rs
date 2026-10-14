@@ -1,12 +1,17 @@
-// Walk tests on a hand-built DAG: ancestry, wants minus haves, reachable objects, path lookup.
+// Walk tests on hand-built DAGs (ancestry, wants minus haves, reachable objects, path lookup)
+// and on generated histories with reverts and merges, whose paged closures are checked against
+// `git rev-list --objects`.
 
 #[path = "common/mod.rs"]
 mod common;
 
-use common::{blob, commit, file_tree, tree};
+use common::{blob, commit, file_tree, git_binary, temp_dir, tree};
 use gitcore::walk::{Listing, Verdict, closure, commits, is_ancestor, tree_at_path};
-use gitcore::{Error, Hash, MemoryObjects, Mode, Oid};
-use std::collections::BTreeSet;
+use gitcore::{Commit, Error, Hash, Kind, MemoryObjects, Mode, Objects as _, Oid, Tree};
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write as _;
+use std::path::Path;
+use std::process::{Command, Stdio};
 
 struct Dag {
     store: MemoryObjects,
@@ -238,6 +243,359 @@ fn a_tree_wider_than_a_page_is_listed_across_pages() {
     assert_eq!(listed, whole);
     assert!(pages.iter().all(|named| *named <= 5), "{pages:?}");
     assert!(pages.len() >= 3, "{pages:?}");
+}
+
+const PAGES: [usize; 6] = [1, 2, 3, 5, 8, usize::MAX];
+
+fn reachable(store: &MemoryObjects, wants: &[Oid]) -> BTreeSet<Oid> {
+    let mut found = BTreeSet::new();
+    let mut stack = wants.to_vec();
+    while let Some(id) = stack.pop() {
+        if !found.insert(id) {
+            continue;
+        }
+        let object = store.get(&id).unwrap().unwrap();
+        match object.kind {
+            Kind::Commit => {
+                let commit = Commit::parse(&object.body, Hash::Sha1).unwrap();
+                stack.push(commit.tree);
+                stack.extend(commit.parents);
+            }
+            Kind::Tree => {
+                let tree = Tree::parse(&object.body, Hash::Sha1).unwrap();
+                let held = tree
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.mode != Mode::Gitlink);
+                stack.extend(held.map(|entry| entry.id));
+            }
+            Kind::Blob | Kind::Tag => {}
+        }
+    }
+    found
+}
+
+#[test]
+fn a_commit_that_repeats_an_earlier_tree_still_has_every_object_listed() {
+    let mut store = MemoryObjects::new(Hash::Sha1);
+    let first_a = blob(&mut store, b"a1\n");
+    let second_a = blob(&mut store, b"a2\n");
+    let b = blob(&mut store, b"b\n");
+    let first_dir = tree(
+        &mut store,
+        &[("a", Mode::Regular, first_a), ("b", Mode::Regular, b)],
+    );
+    let second_dir = tree(
+        &mut store,
+        &[("a", Mode::Regular, second_a), ("b", Mode::Regular, b)],
+    );
+    let first_root = tree(&mut store, &[("dir", Mode::Directory, first_dir)]);
+    let second_root = tree(&mut store, &[("dir", Mode::Directory, second_dir)]);
+    let added = commit(&mut store, first_root, &[], 100, "add a and b");
+    let edited = commit(&mut store, second_root, &[added], 200, "edit a");
+    let reverted = commit(&mut store, first_root, &[edited], 300, "revert a");
+    let every: BTreeSet<Oid> = [
+        added,
+        edited,
+        reverted,
+        first_root,
+        second_root,
+        first_dir,
+        second_dir,
+        first_a,
+        second_a,
+        b,
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(every.len(), 10);
+    for most in PAGES {
+        assert_eq!(
+            paged(&store, &[reverted], &[], most).0,
+            every,
+            "pages of {most}"
+        );
+    }
+    let past_the_add: BTreeSet<Oid> = [edited, reverted, second_root, second_dir, second_a]
+        .into_iter()
+        .collect();
+    for most in PAGES {
+        let listed = paged(&store, &[reverted], &[added], most).0;
+        assert!(
+            listed.is_superset(&past_the_add),
+            "pages of {most}: {listed:?}"
+        );
+        assert!(
+            !listed.contains(&added) && !listed.contains(&b),
+            "pages of {most}"
+        );
+    }
+}
+
+#[test]
+fn a_merge_whose_parents_share_a_subtree_has_every_object_listed() {
+    let mut store = MemoryObjects::new(Hash::Sha1);
+    let base_tree = file_tree(&mut store, &[("x", "1\n"), ("y", "1\n")]);
+    let shared = file_tree(&mut store, &[("x", "2\n"), ("y", "1\n")]);
+    let root = |store: &mut MemoryObjects, top: &str, sub: Oid| {
+        let top = blob(store, top.as_bytes());
+        tree(
+            store,
+            &[
+                ("shared", Mode::Directory, sub),
+                ("top", Mode::Regular, top),
+            ],
+        )
+    };
+    let base_root = root(&mut store, "base\n", base_tree);
+    let left_root = root(&mut store, "left\n", shared);
+    let right_root = root(&mut store, "right\n", shared);
+    let merged_root = root(&mut store, "merged\n", shared);
+    let base = commit(&mut store, base_root, &[], 100, "base");
+    let left = commit(&mut store, left_root, &[base], 200, "left");
+    let right = commit(&mut store, right_root, &[base], 210, "right");
+    let merged = commit(&mut store, merged_root, &[left, right], 300, "merge");
+    let back = commit(&mut store, base_root, &[merged], 400, "back to the base");
+    for tip in [merged, back] {
+        let every = reachable(&store, &[tip]);
+        for most in PAGES {
+            assert_eq!(paged(&store, &[tip], &[], most).0, every, "pages of {most}");
+        }
+    }
+    let past_left = reachable(&store, &[back])
+        .difference(&reachable(&store, &[left]))
+        .copied()
+        .collect::<BTreeSet<Oid>>();
+    for most in PAGES {
+        let listed = paged(&store, &[back], &[left], most).0;
+        assert!(listed.is_superset(&past_left), "pages of {most}");
+        assert!(
+            listed.is_subset(&reachable(&store, &[back])),
+            "pages of {most}"
+        );
+        assert!(
+            !listed.contains(&left) && !listed.contains(&base),
+            "pages of {most}"
+        );
+    }
+}
+
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+}
+
+const PATHS: [&str; 6] = ["top", "dir/a", "dir/b", "dir/sub/c", "x/y/z", "x/w"];
+const BRANCHES: usize = 3;
+
+struct History {
+    import: Vec<u8>,
+    commits: usize,
+    heads: Vec<usize>,
+}
+
+fn history(rng: &mut Rng) -> History {
+    let commits = 6 + rng.below(30);
+    let mut states: Vec<BTreeMap<&str, usize>> = Vec::new();
+    let mut heads: Vec<Option<usize>> = vec![None; BRANCHES];
+    let mut import = Vec::new();
+    for n in 0..commits {
+        let branch = rng.below(BRANCHES);
+        let first = match (heads[branch], states.len()) {
+            (Some(head), _) => Some(head),
+            (None, 0) => None,
+            (None, made) => Some(rng.below(made)),
+        };
+        let other = heads[rng.below(BRANCHES)];
+        let merges = rng.below(4) == 0;
+        let second = other.filter(|other| merges && first.is_some_and(|first| first != *other));
+        let mut state = first.map(|first| states[first].clone()).unwrap_or_default();
+        let reverts = rng.below(4) == 0 && !states.is_empty();
+        if reverts {
+            state = states[rng.below(states.len())].clone();
+        } else {
+            for _ in 0..=rng.below(2) {
+                let path = PATHS[rng.below(PATHS.len())];
+                match rng.below(4) {
+                    0 => state.remove(path),
+                    value => state.insert(path, value),
+                };
+            }
+        }
+        if let Some(second) = second {
+            for path in PATHS {
+                if rng.below(2) == 0 {
+                    match states[second].get(path) {
+                        Some(value) => state.insert(path, *value),
+                        None => state.remove(path),
+                    };
+                }
+            }
+        }
+        let message = format!("commit {n}\n");
+        write!(
+            import,
+            "commit refs/heads/b{branch}\nmark :{}\ncommitter Ada <ada@example.com> {} +0000\ndata {}\n{message}",
+            n + 1,
+            1_000_000 + n * 60,
+            message.len()
+        )
+        .unwrap();
+        if let Some(first) = first {
+            writeln!(import, "from :{}", first + 1).unwrap();
+        }
+        if let Some(second) = second {
+            writeln!(import, "merge :{}", second + 1).unwrap();
+        }
+        writeln!(import, "deleteall").unwrap();
+        for (path, value) in &state {
+            write!(import, "M 100644 inline {path}\ndata 2\n{value}\n").unwrap();
+        }
+        writeln!(import).unwrap();
+        states.push(state);
+        heads[branch] = Some(n);
+    }
+    History {
+        import,
+        commits,
+        heads: heads.into_iter().flatten().collect(),
+    }
+}
+
+fn git(git: &Path, dir: &Path, args: &[&str], input: &[u8]) -> Vec<u8> {
+    let mut child = Command::new(git)
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "git {args:?}");
+    output.stdout
+}
+
+fn loaded(objects: &[u8]) -> MemoryObjects {
+    let mut store = MemoryObjects::new(Hash::Sha1);
+    let mut rest = objects;
+    while !rest.is_empty() {
+        let line_end = rest.iter().position(|byte| *byte == b'\n').unwrap();
+        let header = std::str::from_utf8(&rest[..line_end]).unwrap();
+        let mut fields = header.split(' ');
+        let (id, kind, size) = (
+            fields.next().unwrap(),
+            fields.next().unwrap(),
+            fields.next().unwrap().parse::<usize>().unwrap(),
+        );
+        let body = &rest[line_end + 1..line_end + 1 + size];
+        let kind = Kind::parse(kind.as_bytes()).unwrap();
+        assert_eq!(store.put(kind, body).unwrap().to_hex(), id);
+        rest = &rest[line_end + 1 + size + 1..];
+    }
+    store
+}
+
+fn ids(listing: &[u8]) -> BTreeSet<Oid> {
+    String::from_utf8_lossy(listing)
+        .lines()
+        .filter_map(|line| line.split(' ').next())
+        .filter(|id| !id.is_empty())
+        .map(|id| Oid::from_hex(Hash::Sha1, id).unwrap())
+        .collect()
+}
+
+#[test]
+fn paged_closures_of_generated_histories_list_what_git_lists() {
+    let Some(git_path) = git_binary() else {
+        return;
+    };
+    let root = temp_dir("gitcore-closure");
+    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+    for seed in 0..120 {
+        let made = history(&mut rng);
+        let dir = root.join(format!("history-{seed}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        git(&git_path, &dir, &["init", "-q", "--bare"], b"");
+        let marks = dir.join("marks");
+        let export = format!("--export-marks={}", marks.display());
+        git(
+            &git_path,
+            &dir,
+            &["fast-import", "--quiet", &export],
+            &made.import,
+        );
+        let marked: BTreeMap<usize, Oid> = std::fs::read_to_string(&marks)
+            .unwrap()
+            .lines()
+            .map(|line| {
+                let (mark, id) = line.split_once(' ').unwrap();
+                let mark = mark.trim_start_matches(':').parse::<usize>().unwrap();
+                (mark - 1, Oid::from_hex(Hash::Sha1, id).unwrap())
+            })
+            .collect();
+        assert_eq!(marked.len(), made.commits);
+        let all = git(
+            &git_path,
+            &dir,
+            &["cat-file", "--batch-all-objects", "--batch"],
+            b"",
+        );
+        let store = loaded(&all);
+        let tip = made.heads[rng.below(made.heads.len())];
+        let mut wants = vec![marked[&tip]];
+        let another = made.heads[rng.below(made.heads.len())];
+        if another != tip {
+            wants.push(marked[&another]);
+        }
+        let haves: Vec<Oid> = match rng.below(3) {
+            0 => Vec::new(),
+            count => (0..count)
+                .map(|_| marked[&rng.below(made.commits)])
+                .collect(),
+        };
+        let hex = |list: &[Oid]| list.iter().map(Oid::to_hex).collect::<Vec<_>>();
+        let mut asked: Vec<String> = vec!["rev-list".into(), "--objects".into()];
+        asked.extend(hex(&wants));
+        let reached = ids(&git(&git_path, &dir, &args(&asked), b""));
+        asked.push("--not".into());
+        asked.extend(hex(&haves));
+        let git_listed = ids(&git(&git_path, &dir, &args(&asked), b""));
+        asked.remove(1);
+        let git_commits = ids(&git(&git_path, &dir, &args(&asked), b""));
+        assert_eq!(reachable(&store, &wants), reached, "history {seed}");
+        let commits: BTreeSet<Oid> = marked.values().copied().collect();
+        for most in PAGES {
+            let listed = paged(&store, &wants, &haves, most).0;
+            let context = format!("history {seed}, pages of {most}, haves {}", haves.len());
+            if haves.is_empty() {
+                assert_eq!(listed, git_listed, "{context}");
+                continue;
+            }
+            let listed_commits: BTreeSet<Oid> = listed.intersection(&commits).copied().collect();
+            assert_eq!(listed_commits, git_commits, "{context}");
+            assert!(listed.is_superset(&git_listed), "{context}");
+            assert!(listed.is_subset(&reached), "{context}");
+        }
+    }
+    std::fs::remove_dir_all(&root).ok();
+}
+
+fn args(asked: &[String]) -> Vec<&str> {
+    asked.iter().map(String::as_str).collect()
 }
 
 #[test]

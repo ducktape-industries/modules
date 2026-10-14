@@ -490,7 +490,7 @@ impl<'a, S: Objects + ?Sized> Page<'a, S> {
 
     fn expand_tree(&mut self, pending: &Pending) -> Result<()> {
         let room = self.most.saturating_sub(self.named()).max(1);
-        let expansion = tree_expansion(self.store, pending, &self.seen, room)?;
+        let expansion = tree_expansion(self.store, pending, room)?;
         for item in expansion.listed {
             self.list(item.id, item.kind);
         }
@@ -585,9 +585,6 @@ impl Listing {
         self.walk = closed.next;
         self.walk.objects.retain(|id| !received.contains(id));
         self.walk
-            .trees
-            .retain(|pending| pending.begun() || !received.contains(&pending.tree));
-        self.walk
             .commits
             .retain(|queued| queued.uninteresting || !received.contains(&queued.id));
     }
@@ -600,10 +597,9 @@ impl Listing {
 fn tree_expansion<S: Objects + ?Sized>(
     store: &S,
     pending: &Pending,
-    seen: &BTreeSet<Oid>,
     room: usize,
 ) -> Result<Expansion> {
-    let unchanged = pending.against.contains(&pending.tree) || seen.contains(&pending.tree);
+    let unchanged = pending.against.contains(&pending.tree);
     let fresh = !pending.begun();
     if fresh && unchanged {
         return Ok(Expansion::default());
