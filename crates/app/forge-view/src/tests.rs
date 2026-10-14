@@ -1247,6 +1247,63 @@ fn an_oversize_blob_is_a_header_not_a_body() {
     assert!(cx.has_text("Binary file"));
 }
 
+/// Each text under `node` and whether it is drawn in a list marker
+/// (`Role::ListMarker`): the host leaves a marker's words out of the
+/// window's text selection, so a drag copies the rest.
+fn marked(node: &wire::Node) -> Vec<(String, bool)> {
+    fn walk(node: &wire::Node, inside: bool, out: &mut Vec<(String, bool)>) {
+        let inside = inside
+            || node
+                .interactivity()
+                .and_then(|interactivity| interactivity.role)
+                == Some(ducktape_view_guest::Role::ListMarker);
+        match node {
+            wire::Node::Text(text) => out.push((text.content.to_string(), inside)),
+            wire::Node::RichText { text, .. } => out.push((text.to_string(), inside)),
+            _ => {}
+        }
+        for child in node.children() {
+            walk(child, inside, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(node, false, &mut out);
+    out
+}
+
+/// A drag down a file or a diff copies its code alone: a line's number and
+/// its +/- are the line's markers, its code is not.
+#[test]
+fn line_numbers_and_diff_signs_are_markers_and_the_code_is_not() {
+    let (mut cx, _view) = opened("default");
+    cx.simulate_click("forge-tab-code");
+    cx.run_until_parked();
+    cx.simulate_click("forge-tree-empty.txt");
+    cx.run_until_parked();
+    let file = marked(cx.find("forge-blob-lines").expect("the file is open"));
+    assert!(file.contains(&("1".into(), true)), "{file:?}");
+    assert!(file.contains(&("one".into(), false)), "{file:?}");
+    cx.simulate_click("forge-tab-commits");
+    cx.run_until_parked();
+    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
+    cx.run_until_parked();
+    let diff = marked(cx.find("forge-commit-diff").expect("the commit's diff"));
+    assert!(
+        diff.iter().any(|(text, marker)| text == "+" && *marker),
+        "{diff:?}"
+    );
+    assert!(
+        diff.iter().any(|(text, marker)| text == "1" && *marker),
+        "{diff:?}"
+    );
+    let code: Vec<_> = diff.iter().filter(|(_, marker)| !marker).collect();
+    assert!(
+        code.iter()
+            .all(|(text, _)| text.parse::<u64>().is_err() && text != "+"),
+        "no number or sign outside a marker: {code:?}"
+    );
+}
+
 #[test]
 fn commits_follows_the_cursor_and_opens_one_commit_with_its_diff() {
     let (mut cx, view) = opened("default");

@@ -462,10 +462,14 @@ fn lines(lines: Rc<Lines>, theme: &Theme) -> AnyElement {
             .id(id(format!("forge-blob-line-{}", index + 1)))
             .flex()
             .gap_3()
+            // the line's number is its marker, not its code: a drag down
+            // the file copies the code alone
             .child(
                 div()
+                    .id(id(format!("forge-blob-number-{}", index + 1)))
                     .w(gutter)
                     .flex_none()
+                    .role(Role::ListMarker)
                     .pr_2()
                     .flex()
                     .justify_end()

@@ -658,7 +658,9 @@ fn line_row(
         ))
         .child(
             div()
+                .id(id(format!("forge-diff-sign-{index}")))
                 .w(MARKER_W)
+                .role(Role::ListMarker)
                 .font_family(design::fonts::FAMILY_MONO)
                 .text_size(design::text::SECONDARY)
                 .text_color(theme.muted)
@@ -769,7 +771,8 @@ fn comment_box(
 }
 
 /// A gutter number. Under a review it is the button that anchors a comment
-/// at `path:line (side)`; otherwise it is a number.
+/// at `path:line (side)`; otherwise it is the line's marker. Either way a
+/// drag down the diff copies the code without it.
 fn gutter(
     row: &Painted,
     new_side: bool,
@@ -787,14 +790,21 @@ fn gutter(
             .text_color(theme.muted)
     };
     let Some(number) = number else {
-        return cell().child(" ").into_any_element();
+        return cell().into_any_element();
     };
+    let side = if new_side { "new" } else { "old" };
     if !reviewable {
-        return cell().child(number.to_string()).into_any_element();
+        return cell()
+            .id(id(format!(
+                "forge-gutter-{}-{side}-{number}-cell",
+                path_text(&row.path)
+            )))
+            .role(Role::ListMarker)
+            .child(number.to_string())
+            .into_any_element();
     }
     let at = (row.path.clone(), new_side, number);
     let comment = comment.clone();
-    let side = if new_side { "new" } else { "old" };
     let button = div()
         .id(id(format!(
             "forge-gutter-{}-{side}-{number}",
