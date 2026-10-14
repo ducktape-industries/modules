@@ -1315,5 +1315,115 @@
       ]
     ],
     "reply": null
+  },
+  {
+    "kind": "live.publish",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "presence/3"
+      },
+      "mode": "Datagram",
+      "priority": 128
+    },
+    "reply": {
+      "Subscribers": 2
+    }
+  },
+  {
+    "kind": "live.send",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "group": 4,
+      "object": 0,
+      "body": [
+        1,
+        2
+      ],
+      "end": true
+    },
+    "reply": null
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "latest": true
+    },
+    "reply": {
+      "Opened": {
+        "by": 3,
+        "mode": "Stream",
+        "latest": 4
+      }
+    }
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "presence/3"
+      },
+      "latest": false
+    },
+    "reply": {
+      "Opened": {
+        "by": 3,
+        "mode": "Datagram",
+        "latest": null
+      }
+    }
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "latest": true
+    },
+    "reply": {
+      "Object": {
+        "group": 4,
+        "object": 1,
+        "body": [
+          7
+        ]
+      }
+    }
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "latest": true
+    },
+    "reply": {
+      "GroupEnd": {
+        "group": 4,
+        "complete": false
+      }
+    }
+  },
+  {
+    "kind": "live.tracks",
+    "request": "lobby",
+    "reply": {
+      "name": "presence/3",
+      "by": 3,
+      "mode": "Datagram",
+      "up": true
+    }
   }
 ]

@@ -479,6 +479,114 @@ pub enum Delivery {
     /// The person blocked this view's notices: dropped, not logged.
     Blocked,
 }
+
+// ---------- live: tracks through the connected node, off consensus ----------
+
+/// What a view publishes or subscribes to. `room` is the view's; the host
+/// stamps `<chain>/<module>/` in front, so a view names only its own
+/// module's rooms. `name` is `/`-separated, at most 128 bytes, no empty
+/// segment (`presence/42`, `doc`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct LiveTrack {
+    pub room: String,
+    pub name: String,
+}
+
+/// How a track's objects travel, chosen at `live.publish` for the track's
+/// life. `Stream`: ordered and reliable within a group, groups independent,
+/// the latest group replayed to a late subscriber. `Datagram`: unordered,
+/// unreliable, the newest wins, the newest object replayed.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum LiveMode {
+    Stream,
+    Datagram,
+}
+
+/// `live.publish`'s request. `priority` is the track's, 0 highest, 128 the
+/// default: the node sends a subscriber's higher-priority tracks first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct LivePublish {
+    pub track: LiveTrack,
+    pub mode: LiveMode,
+    pub priority: u8,
+}
+
+/// Items of a `live.publish` subscription: the track is up while the
+/// subscription lives; dropping it unpublishes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum Publishing {
+    /// How many are listening (every node counted). 0: stop producing what
+    /// costs; a rise in stream mode: start a new group (a keyframe, a full
+    /// state), so the newcomer has one to start from.
+    Subscribers(u32),
+}
+
+/// `live.send`'s request: one object. `group` must not decrease per track,
+/// and an object of a newer group closes the one before it. In stream mode
+/// `end` closes the group after this object, and an empty `body` with `end`
+/// closes it adding none; `object` is ignored (objects are in send order).
+/// In datagram mode `object` numbers the object within its group.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct LiveSend {
+    pub track: LiveTrack,
+    pub group: u64,
+    pub object: u32,
+    #[serde(with = "crate::codec::bin")]
+    pub body: Vec<u8>,
+    pub end: bool,
+}
+
+/// `live.subscribe`'s request. `latest`: the group the node holds first (a
+/// late joiner's state), then everything new; else only what comes next.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct LiveSubscribe {
+    pub track: LiveTrack,
+    pub latest: bool,
+}
+
+/// Items of a `live.subscribe` subscription.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum LiveItem {
+    /// The track as the node has it: who publishes it, how, and the group
+    /// the node replays first. Comes again when the host opened the track
+    /// anew (a reconnect, a publisher that published it again): what was
+    /// built from the items before it starts over.
+    Opened {
+        by: u64,
+        mode: LiveMode,
+        latest: Option<u64>,
+    },
+    Object {
+        group: u64,
+        object: u32,
+        #[serde(with = "crate::codec::bin")]
+        body: Vec<u8>,
+    },
+    /// A stream-mode group closed (`end` on the publisher's side,
+    /// `complete`) or was cut short.
+    GroupEnd { group: u64, complete: bool },
+}
+
+/// Items of a `live.tracks` subscription: the tracks of a room, now and as
+/// they come and go. A person's presence is their own track being up.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct LiveAnnounce {
+    pub name: String,
+    pub by: u64,
+    pub mode: LiveMode,
+    pub up: bool,
+}
+
 methods! {
     also: ["module.query", "op.submit", "module.changes", HostWidget::KIND];
     /// `chain.status`: the connected node's status.
@@ -561,6 +669,28 @@ methods! {
     /// chars; the host trims longer names and drops control characters,
     /// bidi controls and line or paragraph separators.
     HostTitle, "host.title", String, ();
+    /// `live.publish`: a subscription that IS the published track; its
+    /// items are [`Publishing`]. An object the host or the node refused
+    /// (`too_large`, `rate_limit`) is an `Err` item that does not end it;
+    /// it ends with a refusal when the track ends (`not_granted`,
+    /// `duplicate_track`, `subscription_limit`, `live_unavailable`). A
+    /// reconnect publishes the track again on the new connection.
+    LivePublishTrack, "live.publish", LivePublish, Publishing;
+    /// `live.send`: one object onto a track this view publishes. Answered
+    /// only when it names no track the view publishes
+    /// (`live_not_published`) or does not decode: a 60 Hz sender pays no
+    /// reply per frame. A refused object is told on the track's
+    /// `live.publish` subscription.
+    LiveSendObject, "live.send", LiveSend, ();
+    /// `live.subscribe`: a subscription to a track; items [`LiveItem`].
+    /// Ends with a refusal when the track ends (`track_ended`,
+    /// `publisher_gone`, `unknown_track`, `not_granted`,
+    /// `live_unavailable`). A reconnect subscribes again with `latest`, and
+    /// the next item is a fresh [`LiveItem::Opened`].
+    LiveSubscribeTrack, "live.subscribe", LiveSubscribe, LiveItem;
+    /// `live.tracks`: a subscription to a room's track list; items
+    /// [`LiveAnnounce`]; the tracks up at subscribe come first, `up: true`.
+    LiveTracks, "live.tracks", String, LiveAnnounce;
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
@@ -587,10 +717,14 @@ pub enum Capability {
     /// has no web view. When more than one installed view declares it, the
     /// first by module name gets the links. No method starts with it.
     Web,
+    /// Tracks through the connected node, off consensus (`live.*`): the
+    /// node lets an account publish or subscribe in a room only as the
+    /// module's program granted it.
+    Live,
 }
 
 impl Capability {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Chain,
         Self::Module,
         Self::Op,
@@ -603,6 +737,7 @@ impl Capability {
         Self::Notify,
         Self::Store,
         Self::Web,
+        Self::Live,
     ];
 
     /// The name a manifest and a kind spell it with.
@@ -620,6 +755,7 @@ impl Capability {
             Self::Notify => "notify",
             Self::Store => "store",
             Self::Web => "web",
+            Self::Live => "live",
         }
     }
 
@@ -687,6 +823,27 @@ pub mod refusal {
     /// The host closed the request with no answer; written on the view's
     /// side, by the SDK.
     pub const REQUEST_CLOSED: &str = "request_closed";
+    /// The connected node serves no live tracks (a node from before them),
+    /// or the host could not open its live session with it.
+    pub const LIVE_UNAVAILABLE: &str = "live_unavailable";
+    /// A `live.send` onto a track this view does not publish (never, or no
+    /// longer: its publication was refused or ended).
+    pub const LIVE_NOT_PUBLISHED: &str = "live_not_published";
+    /// The module's program wrote no grant that lets this account publish
+    /// or subscribe to this track in this room, or took it back.
+    pub const NOT_GRANTED: &str = "not_granted";
+    /// Another account publishes this track already.
+    pub const DUPLICATE_TRACK: &str = "duplicate_track";
+    /// A subscription to a track no one publishes: subscribe again when
+    /// `live.tracks` announces it.
+    pub const UNKNOWN_TRACK: &str = "unknown_track";
+    /// The publisher ended the track.
+    pub const TRACK_ENDED: &str = "track_ended";
+    /// The publisher's connection went away with the track up.
+    pub const PUBLISHER_GONE: &str = "publisher_gone";
+    /// More objects or bytes from this account than the node takes per
+    /// second.
+    pub const RATE_LIMIT: &str = "rate_limit";
 }
 
 #[cfg(test)]
@@ -786,6 +943,14 @@ mod tests {
             (LINK_LIMIT, "link_limit"),
             (INVITE_UNSUPPORTED, "invite_unsupported"),
             (REQUEST_CLOSED, "request_closed"),
+            (LIVE_UNAVAILABLE, "live_unavailable"),
+            (LIVE_NOT_PUBLISHED, "live_not_published"),
+            (NOT_GRANTED, "not_granted"),
+            (DUPLICATE_TRACK, "duplicate_track"),
+            (UNKNOWN_TRACK, "unknown_track"),
+            (TRACK_ENDED, "track_ended"),
+            (PUBLISHER_GONE, "publisher_gone"),
+            (RATE_LIMIT, "rate_limit"),
         ];
         for (code, wire) in codes {
             assert_eq!(code, wire);

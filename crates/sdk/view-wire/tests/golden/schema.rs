@@ -457,6 +457,10 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<StoreSet>(d),
         borsh::<ChainHeads>(d),
         borsh::<ModuleDescribe>(d),
+        borsh::<LivePublishTrack>(d),
+        borsh::<LiveSendObject>(d),
+        borsh::<LiveSubscribeTrack>(d),
+        borsh::<LiveTracks>(d),
     ]
     .into();
     let kinds: BTreeSet<&str> = shapes.keys().copied().collect();
