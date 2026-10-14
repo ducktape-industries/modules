@@ -186,7 +186,7 @@ pub fn push_request(commands: &[(Oid, Oid, &str)]) -> Vec<u8> {
     request
 }
 
-pub fn attach(sandbox: &MemorySandbox, kind: &str, body: &[u8]) -> BlobId {
+pub fn held_blob(sandbox: &MemorySandbox, kind: &str, body: &[u8]) -> BlobId {
     let id = program::blob_id(HashKind::Sha256, kind, body).unwrap();
     let blob = Blob {
         kind: kind.into(),
@@ -196,7 +196,7 @@ pub fn attach(sandbox: &MemorySandbox, kind: &str, body: &[u8]) -> BlobId {
     id
 }
 
-pub fn detach(sandbox: &MemorySandbox, id: BlobId) {
+pub fn forget(sandbox: &MemorySandbox, id: BlobId) {
     for host in [&sandbox.forge, &sandbox.chat] {
         host.borrow_mut().blobs.remove(&id);
     }
@@ -208,10 +208,10 @@ pub fn with_pack<T>(
     run: impl FnOnce(Option<BlobId>) -> T,
 ) -> T {
     let carries_objects = !pack.is_empty();
-    let id = carries_objects.then(|| attach(sandbox, forge::PACK_KIND, pack));
+    let id = carries_objects.then(|| held_blob(sandbox, forge::PACK_KIND, pack));
     let ran = run(id);
     if let Some(id) = id {
-        detach(sandbox, id);
+        forget(sandbox, id);
     }
     ran
 }

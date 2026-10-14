@@ -68,6 +68,7 @@ fn world() -> World {
         validators: vec![Member {
             key: NODE.to_vec(),
             address: None,
+            halo: "node.example.org:9100".into(),
         }],
         member_cap: 8,
     };

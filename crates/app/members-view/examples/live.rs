@@ -24,6 +24,7 @@ fn main() {
             valset::PROGRAM,
             &Op::Enroll {
                 address: Some("10.0.0.2:4000".into()),
+                halo: "10.0.0.2:9100".into(),
                 invite: None,
             },
         )?;

@@ -206,7 +206,7 @@ impl Story {
             (zero, unrelated, "refs/heads/unrelated"),
             (zero, v1, "refs/tags/v1"),
         ];
-        let pack = attach(
+        let pack = held_blob(
             &rig.sandbox,
             forge::PACK_KIND,
             &pack_of(&store, &all_ids(&store)),
@@ -217,7 +217,7 @@ impl Story {
             pack: Some(pack),
         })
         .unwrap();
-        detach(&rig.sandbox, pack);
+        forget(&rig.sandbox, pack);
         Story {
             objects: store,
             root: root.to_hex(),
@@ -271,7 +271,7 @@ impl Story {
         tree.entries.push(entry(Mode::Regular, name, file));
         let new_tree = put_tree(s, tree.entries);
         let tip = commit(s, new_tree, &[old], TIME as i64, name);
-        let pack = attach(
+        let pack = held_blob(
             &rig.sandbox,
             forge::PACK_KIND,
             &pack_of(s, &[file, new_tree, tip]),
@@ -282,7 +282,7 @@ impl Story {
             pack: Some(pack),
         })
         .unwrap();
-        detach(&rig.sandbox, pack);
+        forget(&rig.sandbox, pack);
         self.feature = tip.to_hex();
         tip.to_hex()
     }

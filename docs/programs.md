@@ -7,7 +7,7 @@ thing; nothing here is generated. The crate is what a reader follows: plain
 types, plain functions, one host call per context method.
 
 Read [README.md](../README.md) for the map of the repository and
-[roles.md](roles.md) for the three roles and the account model first.
+[roles.md](roles.md) for the four roles and the account model first.
 
 ## 1. The crate
 
@@ -510,7 +510,7 @@ and `make wasm-publish` releases the result as `founding.tar.gz`, which
    or `"poll"` in `UNVIEWED` for a program with no screen of its own.
 2. `crates/sdk/founding/founding.toml`: a `[[programs]]` entry,
    `id = "poll"`, `code = "poll.wasm"` (and `params = …` if `init` takes
-   any). The three `[roles]` stay bound to the boot set.
+   any). The four `[roles]` stay bound to the boot set.
 3. qa's `founding.toml`: the same entry with `code = "@PROGRAMS@/poll.wasm"`.
    `kit up NAME` founds a fresh network with the program admitted at
    genesis and its account registered with identity.
@@ -519,5 +519,5 @@ A hook is also named in both files' top-level `hooks = [...]`, as
 `activity` is.
 
 A program added to a running network goes through the programs role instead
-(`Publish`, then `Schedule` at a height; [roles.md](roles.md), "Updating a
+(`ducktape blob put --kind program --wait`, then `Schedule` at a height; [roles.md](roles.md), "Updating a
 program"): its `init` runs with the scheduled params when the height comes.

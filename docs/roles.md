@@ -1,18 +1,20 @@
 # Roles, accounts and updates
 
-The kernel knows three programs by what they do, never by their ids. Genesis
+The kernel knows four programs by what they do, never by their ids. Genesis
 binds each role to a founding program; every call the kernel makes goes to the
 program bound to that role, speaking the role's interface in
-`crates/sdk/abi` (`abi::role::{programs, validators, identity}`). The
-programs in `crates/system/` are one implementation of each.
+`crates/sdk/abi` (`abi::role::{programs, validators, identity}`) or, for
+blobs, ducktape's `blob::contract`. The programs in `crates/system/` are one
+implementation of each.
 
-## The three roles
+## The four roles
 
 | Role | Bound here to | What the kernel does with it |
 |---|---|---|
 | `programs` | `programs` | at founding, writes its params (`role::programs::Genesis`: every founding program and view, and the founding hooks); at each block, before any frame, asks `At(height)` and admits, swaps or drops programs to match the answer, then asks `Hooks(height)` for the programs it tells of each frame the block carries ("Hooks", below) |
-| `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there. The node (`ducktape join`, `invite`, `vote`, `leave`) signs the role's `Op` with its identity key |
+| `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there. The node (`ducktape join`, `invite`, `vote`, `halo`, `leave`) signs the role's `Op` with its identity key. Each member registers the halo address other members dial it at (`Member.halo`, host:port): `Enroll` and `SetHalo` refuse an unspecified or loopback host as `invalid_input` |
 | `identity` | `identity` | as it admits a program (at founding, and later off the programs role), executes `RegisterProgram { program }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfProgram(sender)`, and for a message a program sends as another account asks `Runs { program, account }` |
+| `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
 
 The founding file binds them (ducktape's `[roles]` table; qa's
 `founding.toml` is a working one):
@@ -22,9 +24,10 @@ The founding file binds them (ducktape's `[roles]` table; qa's
 programs = "programs"
 validators = "valset"
 identity = "identity"
+blobs = "blobs"
 ```
 
-All three are required. Founding refuses a role bound to a program the
+All four are required. Founding refuses a role bound to a program the
 founding does not list, and a node refuses a network that records no roles.
 Every frame's `Env` carries the bindings (`env.roles`), so a program that asks
 a role asks `ctx.env().roles.identity`, not a name it assumes; chat's roster
@@ -96,14 +99,13 @@ the one place that happens.
 
 `programs` holds the roster and the changes scheduled to it:
 
-1. `Publish { code }` keeps the code blob its own frame attaches and returns
-   its id. The publisher puts the code on its node as a `"program"` blob,
-   then submits Publish to the kernel's `$attach` envelope naming that blob
-   (`ducktape submit programs PAYLOAD --attach FILE --kind program`).
-   The programs role refuses code that is neither attached to the frame nor
-   already published, and a blob of any other kind. A Publish is never a
-   validators' motion: an enacted vote runs in a later frame, which attaches
-   nothing.
+1. `ducktape blob put FILE --kind program --wait` uploads the code to the
+   node, which submits the blobs role's `Put` naming it. Every member gathers
+   it; each validator's node receipts it once it holds it; the command
+   returns once two thirds of the current validators have receipted it, and
+   the blobs role answers `Held` for it. The programs role refuses to schedule code
+   the blobs role does not hold, and a held blob of any kind but
+   `"program"`.
 2. `Schedule(Scheduled { height, change: Change::Set(Entry { program, code, params }) })`
    lands it at a later height.
 3. At that height the kernel's `At(height)` sees the new code. Under an id
@@ -141,7 +143,7 @@ the block goes on. `activity` (`crates/app/activity`) is the hook this
 repo founds: it indexes who signed what, by key and by account, and keeps
 the newest 1,000 frames of each.
 
-Who may schedule or cancel (publishing a blob is open to anyone):
+Who may schedule or cancel (putting a blob is open to any account):
 
 - The validators' vote, any change: `Env::authority()` in `program` admits
   only a message from the program bound to the validators role, and
@@ -179,13 +181,16 @@ done thing.
 `valset` takes `abi::role::validators::Op`, signed by a node's identity
 key (`env.signer()`); every other origin is refused.
 
-- `Enroll { address, invite }`: `address` is where peers dial the node,
-  or none for a node that only dials out. A member enrolling again only
-  moves its address. A new key joins as a Resident while the door is open, or with an
+- `Enroll { address, halo, invite }`: `address` is where peers dial the
+  node, or none for a node that only dials out; `halo` is the host:port
+  other members dial it at over QUIC, refused as `invalid_input` when its
+  host is unspecified (`0.0.0.0`, `::`) or loopback. A member enrolling
+  again only moves its addresses. A new key joins as a Resident while the door is open, or with an
   `Invite`: a `Grant { network, nonce, expires }` that names this network,
   has not expired, and is signed under `INVITE_NAMESPACE` over
   `grant.preimage()` by a current validator. Each (issuer, nonce) admits
   once. The door starts closed, and the member cap holds.
+- `SetHalo { halo }`: a member moves its halo address, under the same rule.
 - `Leave`: the signer leaves; the last validator cannot.
 - `Vote(motion)`: a validator votes for `Promote` (a resident),
   `Demote` (a validator), `Remove` (a member), `Door { open }` (the other

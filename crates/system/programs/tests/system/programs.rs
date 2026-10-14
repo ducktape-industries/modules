@@ -1,71 +1,60 @@
 use super::*;
 
 #[test]
-fn a_publish_reads_only_code_its_own_frame_attaches_and_keeps_it_past_the_frame() {
+fn a_schedule_is_refused_until_a_quorum_of_validators_holds_the_code() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
-        let held = net.held(programs::CODE_KIND, &program("chat"));
-        let unattached = programs::Op::Publish { code: held.id };
-        let refused = net.refuse(&public(7), programs::PROGRAM, &unattached).await;
-        assert_eq!(refused, reason::NOT_FOUND, "a held blob is no attached one");
-        let attaching = net.attaching(programs::PROGRAM, &unattached, held);
-        let output = net.apply(&public(7), ATTACH, &attaching).await;
-        let code: BlobId = abi::decode(&output).unwrap();
+        let code = net.stored(programs::CODE_KIND, &program("chat"));
+        let id = code.id;
+        let bundle = net.put(vec![code]).await;
+        let schedule = programs::Op::Schedule(programs::Scheduled {
+            height: net.height + 10,
+            change: programs::Change::Set(programs::Entry {
+                program: "identity2".into(),
+                code: id,
+                params: Vec::new(),
+            }),
+        });
+        assert_eq!(net.blob(&id).await, None, "a put blob is no held one");
+        assert_eq!(refusal_of(&net.govern(&schedule).await), reason::NOT_FOUND);
+
+        net.receipted(bundle, &FOUNDERS[..1]).await;
+        assert_eq!(net.blob(&id).await, None, "one receipt of two is no quorum");
+        assert_eq!(refusal_of(&net.govern(&schedule).await), reason::NOT_FOUND);
+
+        net.receipted(bundle, &FOUNDERS[1..]).await;
+        assert!(net.blob(&id).await.is_some(), "the host serves held code");
+        output_of(&net.govern(&schedule).await);
+
+        let pack = net.hold("pack", b"PACK not code").await;
+        let not_code = programs::Op::Schedule(programs::Scheduled {
+            height: net.height + 10,
+            change: programs::Change::Set(programs::Entry {
+                program: "packed".into(),
+                code: pack,
+                params: Vec::new(),
+            }),
+        });
         assert_eq!(
-            code, held.id,
-            "the programs role keeps the code under its id"
-        );
-        net.tick().await;
-        let output = net.apply(&public(7), programs::PROGRAM, &unattached).await;
-        let again: BlobId = abi::decode(&output).unwrap();
-        assert_eq!(
-            again, code,
-            "published code outlives the frame that attached it"
+            refusal_of(&net.govern(&not_code).await),
+            reason::INVALID_INPUT
         );
     });
 }
 
 #[test]
-fn a_publish_refuses_an_attached_blob_that_is_no_program() {
+fn a_held_program_is_scheduled_by_the_validators_vote_and_seated_at_its_height() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
-        let page = net.held("page", b"not code");
-        let publish = programs::Op::Publish { code: page.id };
-        let attaching = net.attaching(programs::PROGRAM, &publish, page);
-        let refused = net.refuse(&public(7), ATTACH, &attaching).await;
-        assert_eq!(refused, reason::INVALID_INPUT);
-    });
-}
-
-#[test]
-fn a_publish_is_no_motion_the_validators_can_vote_on() {
-    deterministic::Runner::default().start(|context| async move {
-        let dir = tempfile::tempdir().unwrap();
-        let mut net = Net::found(context, dir.path()).await;
-        let code = net.publish(&public(7), &program("identity")).await;
-        let publish = abi::encode(&programs::Op::Publish { code });
-        let vote = valset::Op::Vote(valset::Motion::Programs { op: publish });
-        let refused = net
-            .refuse(&public(FOUNDERS[0]), valset::PROGRAM, &vote)
-            .await;
-        assert_eq!(refused, reason::INVALID_INPUT);
-    });
-}
-
-#[test]
-fn a_published_program_is_scheduled_by_the_validators_vote_and_seated_at_its_height() {
-    deterministic::Runner::default().start(|context| async move {
-        let dir = tempfile::tempdir().unwrap();
-        let mut net = Net::found(context, dir.path()).await;
-        let code = net.publish(&public(7), &program("identity")).await;
+        let code = net.hold(programs::CODE_KIND, &program("identity")).await;
         let entry = programs::Entry {
             program: "identity2".into(),
             code,
             params: Vec::new(),
         };
-        let unpublished = net
+        let unheld = net
             .govern(&programs::Op::Schedule(programs::Scheduled {
                 height: net.height + 3,
                 change: programs::Change::Set(programs::Entry {
@@ -75,7 +64,7 @@ fn a_published_program_is_scheduled_by_the_validators_vote_and_seated_at_its_hei
                 }),
             }))
             .await;
-        assert_eq!(refusal_of(&unpublished), reason::NOT_FOUND);
+        assert_eq!(refusal_of(&unheld), reason::NOT_FOUND);
         // a change at or below the block is refused at the first vote, as
         // the programs role would refuse it at enactment
         let past = programs::Op::Schedule(programs::Scheduled {
@@ -211,7 +200,7 @@ fn schedule_pages_and_missing_programs_report_the_answering_height() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
-        let code = net.publish(&public(7), &program("identity")).await;
+        let code = net.hold(programs::CODE_KIND, &program("identity")).await;
         for program in ["z", "a", "m"] {
             let receipt = net
                 .govern(&programs::Op::Schedule(programs::Scheduled {
@@ -275,7 +264,7 @@ fn a_schedule_from_a_key_or_another_program_is_refused() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
-        let code = net.publish(&public(7), &program("identity")).await;
+        let code = net.hold(programs::CODE_KIND, &program("identity")).await;
         let schedule = programs::Op::Schedule(programs::Scheduled {
             height: net.height + 5,
             change: programs::Change::Set(programs::Entry {
@@ -328,7 +317,7 @@ fn a_maintainer_the_vote_granted_upgrades_a_program_with_no_vote() {
         };
         let output = net.apply(&public(7), identity::PROGRAM, &create).await;
         let seven: AccountNumber = abi::decode(&output).unwrap();
-        let code = net.publish(&public(7), &program("chat")).await;
+        let code = net.hold(programs::CODE_KIND, &program("chat")).await;
         let upgrade = |height| {
             programs::Op::Schedule(programs::Scheduled {
                 height,
@@ -400,7 +389,7 @@ fn the_vote_overrules_a_maintainers_change_at_its_own_key() {
         };
         let output = net.apply(&public(7), identity::PROGRAM, &create).await;
         let seven: AccountNumber = abi::decode(&output).unwrap();
-        let code = net.publish(&public(7), &program("chat")).await;
+        let code = net.hold(programs::CODE_KIND, &program("chat")).await;
         let granted = net
             .govern(&programs::Op::Grant(programs::Grant {
                 scope: programs::Scope::Program("probe".into()),

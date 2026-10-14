@@ -501,7 +501,7 @@ fn a_stage_stores_objects_and_moves_no_ref() {
 }
 
 #[test]
-fn a_push_and_a_stage_read_their_pack_only_from_what_their_frame_attaches() {
+fn a_push_and_a_stage_read_only_a_held_pack() {
     let sandbox = founded();
     create(&sandbox, "project", HashKind::Sha1);
     let mut source = MemoryObjects::new(Hash::Sha1);
@@ -514,22 +514,22 @@ fn a_push_and_a_stage_read_their_pack_only_from_what_their_frame_attaches() {
         pack,
     };
 
-    let unattached = program::blob_id(HashKind::Sha256, forge::PACK_KIND, &pack).unwrap();
-    let missing = push_with(push_request(&commands), Some(unattached));
+    let unheld = program::blob_id(HashKind::Sha256, forge::PACK_KIND, &pack).unwrap();
+    let missing = push_with(push_request(&commands), Some(unheld));
     assert_eq!(refused(&sandbox, OWNER, &missing).code, code::NOT_FOUND);
     let missing = Op::Stage {
         repo: "project".into(),
-        pack: unattached,
+        pack: unheld,
     };
     assert_eq!(refused(&sandbox, OWNER, &missing).code, code::NOT_FOUND);
 
-    let page = attach(&sandbox, "page", &pack);
+    let page = held_blob(&sandbox, "page", &pack);
     let not_a_pack = push_with(push_request(&commands), Some(page));
     assert_eq!(
         refused(&sandbox, OWNER, &not_a_pack).code,
         code::INVALID_INPUT
     );
-    detach(&sandbox, page);
+    forget(&sandbox, page);
 
     let mut inline = push_request(&commands);
     inline.extend_from_slice(&pack);

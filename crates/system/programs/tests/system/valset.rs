@@ -57,6 +57,7 @@ fn a_founding_validator_enrolling_again_moves_its_address() {
         let mut net = Net::found(context, dir.path()).await;
         let moved = valset::Op::Enroll {
             address: Some("elsewhere:1".into()),
+            halo: halo(1),
             invite: None,
         };
         net.apply(&public(1), valset::PROGRAM, &moved).await;

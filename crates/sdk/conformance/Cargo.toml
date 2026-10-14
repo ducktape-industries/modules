@@ -13,6 +13,8 @@ program = { workspace = true }
 
 # The suite proven on the reference programs (tests/).
 [dev-dependencies]
+blob = { workspace = true }
+blobs = { workspace = true }
 identity = { workspace = true }
 valset = { workspace = true }
 programs = { workspace = true }

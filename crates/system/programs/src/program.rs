@@ -4,7 +4,7 @@
 use ::program::{Error, ExecCtx, Program, QueryCtx, decoded};
 
 use crate::rules::{
-    BY, GRANTS, Roster, SCHEDULE, at, cancel, fold, grant, hooks_at, init, publish, revoke, roster,
+    BY, GRANTS, Roster, SCHEDULE, at, cancel, fold, grant, hooks_at, init, revoke, roster,
     schedule, views_at,
 };
 use crate::{Genesis, Grant, Op, PROGRAM, PageResponse, Pending, Query, Reply};
@@ -25,7 +25,6 @@ impl Program for Programs {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         fold(ctx, ctx.env().height)?;
         match op {
-            Op::Publish { code } => publish(ctx, code),
             Op::Schedule(scheduled) => schedule(ctx, scheduled),
             Op::Cancel { height, program } => cancel(ctx, height, program),
             Op::Grant(granted) => grant(ctx, granted),

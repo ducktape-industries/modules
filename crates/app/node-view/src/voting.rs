@@ -243,7 +243,6 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
             Ok(programs::Op::Revoke(grant)) => {
                 format!("Revoke {} {}", named(names, grant.account), grant.scope)
             }
-            Ok(op) => programs::describe(&op).title,
             Err(_) => "A program change this screen can't read".into(),
         },
     }

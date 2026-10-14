@@ -21,7 +21,14 @@ pub const PROGRAMS: [(&str, &str); 5] = [
     ("chat", "chat_view"),
     ("forge", "forge_view"),
 ];
-pub const UNVIEWED: [&str; 5] = ["activity", "files", "provider", "attribution", "harness"];
+pub const UNVIEWED: [&str; 6] = [
+    "blobs",
+    "activity",
+    "files",
+    "provider",
+    "attribution",
+    "harness",
+];
 pub const VIEWS: [&str; 1] = ["explorer_view"];
 
 pub fn forge_bounds() -> forge::Bounds {

@@ -95,20 +95,20 @@ fn programs_swapping(program: &str, at: u64) -> (program::MockHost, BlobId, Blob
         &abi::encode(&genesis),
     )
     .unwrap();
-    let kind = programs::CODE_KIND;
-    let code = program::blob_id(program::HashKind::Sha256, kind, b"scheduled code").unwrap();
-    let blob = program::Blob {
-        kind: kind.into(),
-        body: b"scheduled code".to_vec(),
-    };
-    store.borrow_mut().blobs.insert(code, blob);
-    let publish = programs::Op::Publish { code };
-    Programs::execute(
-        &store.exec(programs_env(1, Origin::Signed(ADA.to_vec()))),
-        publish,
-    )
-    .unwrap();
-    let scheduled: BlobId = abi::decode(&store.take_output()).unwrap();
+    let scheduled =
+        program::blob_id(program::HashKind::Sha256, programs::CODE_KIND, b"code").unwrap();
+    let held: program::Sibling = Box::new(|_, _| {
+        Ok(abi::encode(&blobs::Reply::Held(Some(blobs::Holding {
+            bundle: 0,
+            len: 9,
+            kind: programs::CODE_KIND.into(),
+            since: 1,
+        }))))
+    });
+    store
+        .borrow_mut()
+        .siblings
+        .insert(MockHost::roles().blobs, held);
     let swap = programs::Op::Schedule(programs::Scheduled {
         height: at,
         change: programs::Change::Set(entry(scheduled)),
@@ -209,6 +209,7 @@ fn a_change_reached_by_the_head_is_running_not_scheduled() {
                 programs: programs::PROGRAM.into(),
                 validators: valset::PROGRAM.into(),
                 identity: identity::PROGRAM.into(),
+                blobs: "blobs".into(),
             }),
             other => panic!("unexpected query: {other:?}"),
         })

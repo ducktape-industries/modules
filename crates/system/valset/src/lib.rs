@@ -29,6 +29,7 @@ pub enum Role {
 pub struct Membership {
     pub key: Vec<u8>,
     pub address: Option<String>,
+    pub halo: String,
     pub role: Role,
 }
 
@@ -37,6 +38,7 @@ impl Membership {
         Member {
             key: self.key.clone(),
             address: self.address.clone(),
+            halo: self.halo.clone(),
         }
     }
 }
@@ -104,12 +106,17 @@ pub fn role(ctx: &::program::QueryCtx, key: &[u8]) -> Result<Option<Role>, ::pro
 pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let (title, fields) = match op {
-        Op::Enroll { address, invite } => (
+        Op::Enroll {
+            address,
+            halo,
+            invite,
+        } => (
             address
                 .as_ref()
                 .map_or("Enroll".into(), |address| format!("Enroll · {address}")),
             vec![
                 field("address", Value::text(address.as_deref().unwrap_or("none"))),
+                field("halo", Value::text(halo)),
                 field(
                     "invite",
                     invite.as_ref().map_or(Value::text("none"), |invite| {
@@ -119,6 +126,10 @@ pub fn describe(op: &Op) -> describe::Description {
             ],
         ),
         Op::Leave => ("Leave".into(), vec![]),
+        Op::SetHalo { halo } => (
+            format!("Halo · {halo}"),
+            vec![field("halo", Value::text(halo))],
+        ),
         Op::Vote(motion) => {
             let key = |key: &Vec<u8>| vec![field("key", Value::Key(key.clone()))];
             let (verb, fields) = match motion {
@@ -148,5 +159,5 @@ describe::export!(Op, describe);
 /// enum only grows at its end. Append a new variant here; never reorder.
 #[test]
 fn op_variants_only_append() {
-    assert_eq!(describe::variants::<Op>(), ["Enroll", "Leave", "Vote"]);
+    assert_eq!(describe::variants::<Op>(), ["Enroll", "Leave", "Vote", "SetHalo"]);
 }

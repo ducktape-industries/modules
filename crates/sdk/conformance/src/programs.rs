@@ -6,14 +6,14 @@ use program::{BlobId, Error, MockHost, Program, ProgramId};
 
 use crate::{ask, init, same_bytes};
 
-/// What the suite needs from the program beyond the role: publishing code
-/// and scheduling changes, which the role leaves to it. Each op is sent at
-/// `height`; a change lands at `at`.
+/// What the suite needs from the program beyond the role: code it may
+/// schedule and scheduling changes, which the role leaves to it. Each op is
+/// sent at `height`; a change lands at `at`.
 pub trait Fixture {
     type Program: Program;
 
-    /// Stores `body` as code; its blob id.
-    fn publish(&self, host: &MockHost, height: u64, body: &[u8]) -> Result<BlobId, Error>;
+    /// Makes `body` code the program may schedule; its blob id.
+    fn hold(&self, host: &MockHost, body: &[u8]) -> Result<BlobId, Error>;
 
     /// Schedules `entry` to run from `at`.
     fn set(&self, host: &MockHost, height: u64, at: u64, entry: Entry) -> Result<(), Error>;
@@ -166,13 +166,13 @@ pub fn genesis_programs_run_and_views_are_apart<F: Fixture>(fixture: &F) {
     );
 }
 
-/// Published code scheduled for a height runs from that height, not
+/// Held code scheduled for a height runs from that height, not
 /// before: a new program is admitted, a running one's code swapped.
 pub fn a_set_lands_at_its_height_and_not_before<F: Fixture>(fixture: &F) {
     let host = founded::<F>();
     let code = fixture
-        .publish(&host, 1, b"new code")
-        .unwrap_or_else(|e| panic!("programs: publishing code: {e:?}"));
+        .hold(&host, b"new code")
+        .unwrap_or_else(|e| panic!("programs: holding code: {e:?}"));
     for program in ["new", "a"] {
         fixture
             .set(&host, 1, 5, entry(program, code))
@@ -216,9 +216,12 @@ pub fn a_remove_drops_at_its_height<F: Fixture>(fixture: &F) {
         ["a"],
         "programs: b is dropped at 6"
     );
+    let later = fixture
+        .hold(&host, b"later")
+        .unwrap_or_else(|e| panic!("programs: holding code: {e:?}"));
     fixture
-        .publish(&host, 7, b"later")
-        .unwrap_or_else(|e| panic!("programs: publishing at 7: {e:?}"));
+        .set(&host, 7, 9, entry("c", later))
+        .unwrap_or_else(|e| panic!("programs: scheduling c at 9 from 7: {e:?}"));
     assert_eq!(
         programs::<F>(&host, 7),
         ["a"],

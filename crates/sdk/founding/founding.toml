@@ -8,10 +8,12 @@ hooks = ["activity"]
 programs = "programs"
 validators = "valset"
 identity = "identity"
+blobs = "blobs"
 
 [[validators]]
 key = "KEY"                   # this node's key: `ducktape identity`
 address = "ADDRESS"           # where peers dial it: tcp://, tls://, ws:// or wss://; drop the line if none can
+halo = "HALO"                 # host:port other members dial it at over QUIC; the same as `ducktape init --halo`
 
 [[programs]]
 id = "programs"
@@ -24,6 +26,10 @@ code = "valset.wasm"
 [[programs]]
 id = "identity"
 code = "identity.wasm"
+
+[[programs]]
+id = "blobs"
+code = "blobs.wasm"
 
 [[programs]]
 id = "chat"

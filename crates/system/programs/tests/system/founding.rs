@@ -24,11 +24,21 @@ fn founding_seats_the_validators_and_every_program_answers() {
             panic!()
         };
         assert_eq!(
-            [roles.programs, roles.validators, roles.identity],
-            [programs::PROGRAM, valset::PROGRAM, identity::PROGRAM]
+            [
+                roles.programs,
+                roles.validators,
+                roles.identity,
+                roles.blobs
+            ],
+            [
+                programs::PROGRAM,
+                valset::PROGRAM,
+                identity::PROGRAM,
+                blobs::PROGRAM
+            ]
         );
         assert_eq!(
-            net.host.blob(&views[0].view).unwrap().as_deref(),
+            net.blob(&views[0].view).await.as_deref(),
             Some(&b"program 6\0a view"[..]),
             "the founding stored the view's bytes"
         );
@@ -69,6 +79,7 @@ fn founding_seats_the_validators_and_every_program_answers() {
                 program(programs::PROGRAM),
                 program(valset::PROGRAM),
                 program(identity::PROGRAM),
+                program(blobs::PROGRAM),
                 program("probe"),
             ]
         );

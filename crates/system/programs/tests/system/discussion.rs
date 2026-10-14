@@ -87,6 +87,69 @@ fn push_request(store: &MemoryObjects, refs: &[(Oid, &str)]) -> (Vec<u8>, Vec<u8
 }
 
 #[test]
+fn a_push_and_a_stage_read_their_pack_only_once_a_quorum_holds_it() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found_with(context, dir.path(), apps(), Vec::new(), MEMBER_CAP).await;
+        let author = public(AUTHOR);
+        let create = identity::Op::Create {
+            name: "Ada".into(),
+            scheme: Scheme::Ed25519,
+        };
+        net.apply(&author, identity::PROGRAM, &create).await;
+        let repo = forge::Op::Create {
+            repo: REPO.into(),
+            hash: HashKind::Sha1,
+        };
+        net.apply(&author, forge::PROGRAM, &repo).await;
+        let mut store = MemoryObjects::new(Hash::Sha1);
+        let main = commit(&mut store, &[], &[("README.md", b"# Project\n")]);
+        let (request, pack) = push_request(&store, &[(main, "refs/heads/main")]);
+        let stored = net.stored(forge::PACK_KIND, &pack);
+        let pack = stored.id;
+        let bundle = net.put(vec![stored]).await;
+        let push = forge::Op::Push {
+            repo: REPO.into(),
+            request,
+            pack: Some(pack),
+        };
+        let stage = forge::Op::Stage {
+            repo: REPO.into(),
+            pack,
+        };
+        for unheld in [&push, &stage] {
+            let refused = net.refuse(&author, forge::PROGRAM, unheld).await;
+            assert_eq!(refused, reason::NOT_FOUND, "{unheld:?}");
+        }
+        let object = forge::blob_id_of(&main);
+        assert_eq!(net.blob(&object).await, None);
+
+        net.receipted(bundle, &FOUNDERS).await;
+        net.apply(&author, forge::PROGRAM, &stage).await;
+        assert!(
+            net.blob(&object).await.is_some(),
+            "a stage stores the objects"
+        );
+        let report = net.apply(&author, forge::PROGRAM, &push).await;
+        assert!(
+            report
+                .windows(b"ok refs/heads/main".len())
+                .any(|line| line == b"ok refs/heads/main"),
+            "{}",
+            String::from_utf8_lossy(&report)
+        );
+        let refs = forge::Query::Refs {
+            repo: REPO.into(),
+            page: PageRequest::default(),
+        };
+        let forge::Reply::Refs { page, .. } = net.ask(forge::PROGRAM, &refs).await else {
+            panic!("Refs answers Refs");
+        };
+        assert_eq!(page.items.len(), 1, "{page:?}");
+    });
+}
+
+#[test]
 fn a_change_and_its_channel_land_in_one_block() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
@@ -117,22 +180,15 @@ fn a_change_and_its_channel_land_in_one_block() {
             &store,
             &[(main, "refs/heads/main"), (feature, "refs/heads/feature")],
         );
-        let pack = net.held(forge::PACK_KIND, &pack);
+        let pack = net.hold(forge::PACK_KIND, &pack).await;
         let push = forge::Op::Push {
             repo: REPO.into(),
             request,
-            pack: Some(pack.id),
+            pack: Some(pack),
         };
-        let attaching = net.attaching(forge::PROGRAM, &push, pack);
-        net.apply(&author, ATTACH, &attaching).await;
-        net.tick().await;
-        assert_eq!(
-            net.host.blob(&pack.id).unwrap(),
-            None,
-            "the pack is not kept"
-        );
+        net.apply(&author, forge::PROGRAM, &push).await;
         let object = forge::blob_id_of(&feature);
-        assert!(net.host.blob(&object).unwrap().is_some(), "its objects are");
+        assert!(net.blob(&object).await.is_some(), "its objects are stored");
 
         let open = forge::Op::ChangeOpen {
             repo: REPO.into(),

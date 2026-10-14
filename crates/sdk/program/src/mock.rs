@@ -96,6 +96,7 @@ impl MockHost {
             programs: "programs".into(),
             validators: "valset".into(),
             identity: "identity".into(),
+            blobs: "blobs".into(),
         }
     }
 

@@ -29,7 +29,7 @@ fn profile(number: AccountNumber, kind: Kind) -> Profile {
 }
 
 /// chat, forge and activity (a hook) running, the view `lens`; identity
-/// profiling the accounts above; code published at `TIP + 1`.
+/// profiling the accounts above; code held by the blobs role.
 fn seated() -> (MockHost, BlobId) {
     let store = MockHost::default();
     crate::rules::init(
@@ -45,6 +45,7 @@ fn seated() -> (MockHost, BlobId) {
             hooks: vec!["activity".into()],
         },
     );
+    let blobs = blobs_role(&store);
     store.identity(vec![
         profile(CAROL, Kind::Person),
         profile(DAN, Kind::Person),
@@ -62,8 +63,8 @@ fn seated() -> (MockHost, BlobId) {
     ]);
     // at the frames' height, so the fold every op starts with has run
     // and a refusal below writes nothing
-    let code = publish(&store, env(TIP + 1, Origin::Signed(vec![9])), b"wasm");
-    (store, code)
+    fold_to(&store, TIP + 1);
+    (store, held(&blobs, CODE_KIND, b"wasm"))
 }
 
 /// A frame signed by `account`'s key, made at `TIP + 1`.
@@ -179,11 +180,6 @@ fn view_of(name: &str, code: BlobId) -> Change {
         name: name.into(),
         view: code,
     })
-}
-
-/// An op at `height`, which folds every change due by then.
-fn fold_to(store: &MockHost, height: u64) {
-    publish(store, env(height, Origin::Signed(vec![9])), &[1]);
 }
 
 #[test]

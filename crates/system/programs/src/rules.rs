@@ -69,21 +69,24 @@ pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) {
     FOLDED.put(ctx, &0);
 }
 
-pub(crate) fn publish(ctx: &ExecCtx, code: BlobId) -> Result<(), Error> {
-    let Some(blob) = ctx.blob_get(code) else {
+fn held_code(ctx: &QueryCtx, code: BlobId) -> Result<(), Error> {
+    let role = ctx.env().roles.blobs.clone();
+    let holding = match ctx.query(role.clone(), &blob::contract::Query::Held { blob: code })? {
+        blob::contract::Reply::Held(holding) => holding,
+        other => return Err(unexpected_reply(&role, "Held", &other)),
+    };
+    let Some(holding) = holding else {
         return Err(not_found(format!(
-            "code {code:?} is neither attached to this frame nor published"
+            "code {code:?} is not held: put it as a {CODE_KIND:?} blob and wait for a quorum of validators to hold it"
         )));
     };
-    let program = blob.kind == CODE_KIND;
+    let program = holding.kind == CODE_KIND;
     if !program {
         return Err(invalid(format!(
-            "code {code:?} is a {:?} blob, not {CODE_KIND:?}",
-            blob.kind
+            "code {code:?} is held as a {:?} blob, not {CODE_KIND:?}",
+            holding.kind
         )));
     }
-    let id = ctx.blob_put(code.kind(), CODE_KIND, blob.body)?;
-    ctx.set_return_data(abi::encode(&id));
     Ok(())
 }
 
@@ -204,10 +207,8 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
             env.height
         )));
     }
-    if let Some(blob) = scheduled.change.code()
-        && ctx.blob_stat(blob).is_none()
-    {
-        return Err(not_found(format!("code {blob:?} is not published")));
+    if let Some(code) = scheduled.change.code() {
+        held_code(ctx, code)?;
     }
     let name = scheduled.change.program();
     // an id lands in its one spelling (`program::is_name`), so no id reads
