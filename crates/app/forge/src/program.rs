@@ -8,7 +8,7 @@ use crate::change_queries::{change, changes, judgment};
 use crate::changes::{Draft, Edit, MergeRequest, close, edit, merge_heads, open, submit_review};
 use crate::contract::*;
 use crate::ops::{configure, create, grant, init, push, revoke, signed_account, stage, touch};
-use crate::queries::{advertise, listing, objects, refs, repos, upload};
+use crate::queries::{advertise, closure, listing, refs, repos, upload};
 use crate::reads::{blob, comparison, diff, log, tree};
 use crate::state::{WRITERS, load_bounds, load_repo};
 
@@ -197,11 +197,7 @@ impl Module for Forge {
                 height,
                 page: judgment(ctx, principal, &listing(page)?)?,
             },
-            Query::Objects {
-                repo,
-                ids,
-                ancestors,
-            } => objects(ctx, height, &bounds, repo, ids, *ancestors)?,
+            Query::Closure { repo, walk } => closure(ctx, height, &bounds, repo, walk)?,
         })
     }
 }

@@ -40,6 +40,7 @@ mod program;
 
 pub use contract::*;
 pub use description::describe;
+pub use objects::blob_id_of;
 pub use ops::MODULE;
 pub use program::Forge;
 

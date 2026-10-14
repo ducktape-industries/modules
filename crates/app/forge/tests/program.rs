@@ -687,89 +687,83 @@ fn history(bounds: Bounds) -> (MemorySandbox, MemoryObjects, [Oid; 5]) {
     (sandbox, source, [c1, c2, side, c3, c4])
 }
 
-fn objects(sandbox: &MemorySandbox, ids: &[Oid], ancestors: bool) -> (Vec<Oid>, Vec<String>) {
-    let query = Query::Objects {
+fn closure_page(sandbox: &MemorySandbox, walk: gitcore::walk::Walk) -> Reply {
+    let query = Query::Closure {
         repo: "project".into(),
-        ids: ids.iter().map(|id| id.to_hex()).collect(),
-        ancestors,
+        walk: forge::Walk::of(walk),
     };
-    let Reply::Objects {
-        objects, missing, ..
-    } = abi::decode(&ask(sandbox, &query).unwrap()).unwrap()
-    else {
-        panic!("objects");
-    };
-    let ids = objects
-        .iter()
-        .map(|object| Oid::from_hex(Hash::Sha1, &object.oid).unwrap())
-        .collect();
-    (ids, missing)
+    abi::decode(&ask(sandbox, &query).unwrap()).unwrap()
+}
+
+fn listed_ids(sandbox: &MemorySandbox, wants: &[Oid], haves: &[Oid]) -> BTreeSet<Oid> {
+    closure_of(sandbox, "project", HashKind::Sha1, wants, haves)
+        .into_iter()
+        .map(|item| item.id)
+        .collect()
 }
 
 #[test]
-fn objects_come_by_id_as_git_stores_them_and_the_unheld_are_named() {
-    let (sandbox, source, [c1, _, _, _, c4]) = history(bounds());
-    let tree = Commit::parse(&source.get(&c4).unwrap().unwrap().body, Hash::Sha1)
-        .unwrap()
-        .tree;
+fn a_closure_lists_every_object_of_a_history_and_never_its_bytes() {
+    let (sandbox, source, [_, _, _, _, c4]) = history(bounds());
+    let listed = closure_of(&sandbox, "project", HashKind::Sha1, &[c4], &[]);
+    let ids: BTreeSet<Oid> = listed.iter().map(|item| item.id).collect();
+    assert_eq!(ids, source.ids().copied().collect());
+    assert_eq!(ids.len(), listed.len(), "each object once");
+    for item in &listed {
+        assert_eq!(source.get(&item.id).unwrap().unwrap().kind, item.kind);
+    }
+}
+
+#[test]
+fn a_closure_stops_at_the_commits_the_client_holds() {
+    let (sandbox, source, [_, c2, side, c3, c4]) = history(bounds());
+    let (below_c3, _) = objects_of(&source, c3);
+    let (below_c4, _) = objects_of(&source, c4);
+    let mut expected: BTreeSet<Oid> = [c3, c4].into_iter().collect();
+    expected.extend(below_c3);
+    expected.extend(below_c4);
+    assert_eq!(listed_ids(&sandbox, &[c4], &[c2, side]), expected);
+    assert!(listed_ids(&sandbox, &[c4], &[c4]).is_empty());
+}
+
+#[test]
+fn a_closure_pages_under_the_read_budget_and_lists_the_same_objects() {
+    let (sandbox, _, [.., c4]) = history(bounds());
+    let whole = listed_ids(&sandbox, &[c4], &[]);
+    let (sandbox, _, [.., c4]) = history(Bounds {
+        tree_walk: 3,
+        ..bounds()
+    });
+    let first = closure_page(&sandbox, gitcore::walk::Walk::of(&[c4], &[]));
+    let Reply::Closure { listed, next, .. } = first else {
+        panic!("a closure answers Closure");
+    };
+    assert!(!listed.is_empty());
+    assert!(!next.parse(HashKind::Sha1).unwrap().is_done(), "{next:?}");
+    assert_eq!(listed_ids(&sandbox, &[c4], &[]), whole);
+}
+
+#[test]
+fn a_closure_names_each_object_by_the_blob_the_node_holds_it_as() {
+    let (sandbox, _, [.., c4]) = history(bounds());
+    for item in closure_of(&sandbox, "project", HashKind::Sha1, &[c4], &[]) {
+        let id = forge::blob_id_of(&item.id);
+        let held = sandbox.forge.borrow().blobs.get(&id).cloned();
+        let blob = held.unwrap_or_else(|| panic!("{} is held as {id:?}", item.id));
+        let framed = gitcore::oid_of(Hash::Sha1, item.kind, &blob.body).unwrap();
+        assert_eq!(framed, item.id);
+    }
+}
+
+#[test]
+fn a_closure_of_an_object_the_node_does_not_hold_is_refused() {
+    let (sandbox, _, _) = history(bounds());
     let absent = Oid::from_hex(Hash::Sha1, "ab".repeat(20)).unwrap();
-    let query = Query::Objects {
+    let query = Query::Closure {
         repo: "project".into(),
-        ids: [tree, absent, c1].iter().map(|id| id.to_hex()).collect(),
-        ancestors: false,
+        walk: forge::Walk::of(gitcore::walk::Walk::of(&[absent], &[])),
     };
-    let Reply::Objects {
-        objects, missing, ..
-    } = abi::decode(&ask(&sandbox, &query).unwrap()).unwrap()
-    else {
-        panic!("objects");
-    };
-    assert_eq!(missing, [absent.to_hex()]);
-    let held: Vec<_> = objects
-        .iter()
-        .map(|object| (object.oid.clone(), object.kind, object.body.clone()))
-        .collect();
-    let body = |id: &Oid| source.get(id).unwrap().unwrap().body;
-    assert_eq!(
-        held,
-        [
-            (tree.to_hex(), forge::ObjectKind::Tree, body(&tree)),
-            (c1.to_hex(), forge::ObjectKind::Commit, body(&c1)),
-        ]
-    );
-}
-
-/// The budget is a query's read budget: `tree_walk` reads, `diff_bytes`
-/// bytes. An id past it is in neither list, to ask again; the first held
-/// object comes whatever its size, so no object is out of reach.
-#[test]
-fn the_read_budget_cuts_the_ids_and_the_first_held_comes_past_it() {
-    let (sandbox, _, [c1, c2, _, c3, c4]) = history(Bounds {
-        tree_walk: 3,
-        ..bounds()
-    });
-    assert_eq!(objects(&sandbox, &[c4, c3, c2, c1], false).0, [c4, c3, c2]);
-    let (sandbox, source, [c1, c2, ..]) = history(Bounds {
-        diff_bytes: 10,
-        blob_bytes: 10,
-        ..bounds()
-    });
-    assert!(source.get(&c1).unwrap().unwrap().body.len() > 10);
-    assert_eq!(objects(&sandbox, &[c1, c2], false), (vec![c1], vec![]));
-}
-
-/// With `ancestors`, what the budget leaves brings the commits the named
-/// ones descend from, breadth first: only commits, each once.
-#[test]
-fn ancestors_come_breadth_first_while_the_budget_lasts() {
-    let (sandbox, _, [c1, c2, side, c3, c4]) = history(bounds());
-    assert_eq!(objects(&sandbox, &[c4], true).0, [c4, c3, side, c2, c1]);
-    assert_eq!(objects(&sandbox, &[c4], false).0, [c4]);
-    let (sandbox, _, [_, _, side, c3, c4]) = history(Bounds {
-        tree_walk: 3,
-        ..bounds()
-    });
-    assert_eq!(objects(&sandbox, &[c4], true).0, [c4, c3, side]);
+    assert_eq!(ask(&sandbox, &query).unwrap_err().code, code::NOT_FOUND);
 }
 
 /// A diff is held to `merge_cost` per file, and only an interleaved edit

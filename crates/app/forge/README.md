@@ -79,11 +79,25 @@ and decode a `forge::Reply` from the concatenated `Respond` bytes.
 | `Change { repo: r, n: 1, cursor: None, limit: 20 }` | full change record/body/channel, optional current source/target heads, `reviews: PageResponse<Review>` |
 | `Judgment { principal: reviewer, cursor: None, limit: 20 }` | `page<Judgment>`: open changes requesting this account at the current head or containing an answered thread it authored |
 | `Advertise { repo: r, service: Service::UploadPack }` | raw Git protocol v2 advertisement |
-| `Upload { repo: r, request: git_v2_request_bytes }` | streamed raw Git protocol response/pack |
+| `Upload { repo: r, request: git_v2_ls_refs_bytes }` | raw Git protocol v2 `ls-refs` response |
+| `Closure { repo: r, walk: Walk::of(gitcore::walk::Walk::of(&wants, &haves)) }` | `listed`: the ids and kinds of the objects `wants` reach less what `haves` reach, and `next`, the walk to send back for the next page |
 
-`Advertise` and `Upload` are the existing smart-HTTP protocol, with Git's own
-framing. They cannot carry a Borsh height envelope without breaking real Git.
-They are not UI list APIs. Fetch/walk bounds continue to apply to them.
+`Advertise` and `Upload` speak Git's own smart-HTTP framing, so they carry no
+Borsh height envelope. They are not UI list APIs. `Upload` answers `ls-refs`
+and refuses `fetch`: a git client fetches by listing the objects with
+`Closure` and reading their bytes from its node's blobs.
+
+`Closure` lists ids, never bytes. Each page reads at most `Bounds.tree_walk`
+objects and `Bounds.diff_bytes` bytes. Commits are walked newest first, as
+git's upload-pack walks them: a commit `haves` reaches is the client's, and so
+are its ancestors, so the walk stops wherever the client's history begins,
+not only at the commits it named. Each listed commit's tree is compared with
+its parents' trees, so an unchanged subtree is not listed again. The client
+keeps the walk: it sends `next` back, less the objects it has already been
+listed, until `next` is done (`gitcore::walk::Listing`). A git object is stored as the blob git
+would hash it as (`<kind> <len>\0<body>`), under the repository's hash, so an
+object's blob id is its oid: `forge::blob_id_of(&oid)` names the blob a node
+serves at `/v1/blobs`.
 
 An unborn ref returns `not_found`; an empty directory/list is a successful empty
 page. Missing current change refs are `None` on the detail, so a deleted branch

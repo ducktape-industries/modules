@@ -3,23 +3,17 @@
 
 use gitcore::wire::receive::advertise_refs;
 use gitcore::wire::smart_http_service_header;
-use gitcore::wire::upload::{
-    Command, capability_advertisement, fetch, ls_refs_response, parse_command,
-};
+use gitcore::wire::upload::{Command, capability_advertisement, ls_refs_response, parse_command};
 use guest::Error;
-use guest::{QueryCtx, stale};
+use guest::{QueryCtx, invalid, stale};
 use store::Listing;
 
-use std::collections::{BTreeSet, VecDeque};
-
-use gitcore::{Commit, Kind, Objects as _, Oid};
+use gitcore::walk::{Closed, closure as close};
 
 use crate::contract::*;
-use crate::objects::{ObjectStore, blob_id_of};
+use crate::objects::ObjectStore;
 use crate::ops::{cap, refusal_of};
-use crate::state::{
-    ACTIVITY, REFS, load_bounds, load_refs, load_repo, parse_oid, repo_hash, storage, writes,
-};
+use crate::state::{ACTIVITY, REFS, load_bounds, load_refs, load_repo, repo_hash, storage, writes};
 
 const AGENT: &[u8] = b"ducktape-forge";
 
@@ -104,8 +98,7 @@ pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u
     let Some(command) = parse_command(request, hash).map_err(refusal_of)? else {
         return Ok(Vec::new());
     };
-    let mut response = Vec::new();
-    let served = match command {
+    match command {
         Command::LsRefs(command) => ls_refs_response(
             &objects,
             &refs,
@@ -113,108 +106,31 @@ pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u
             &command,
             cap(bounds.fetch_walk),
         )
-        .map(|body| response = body),
-        Command::Fetch(command) => fetch(
-            &objects,
-            &refs,
-            &command,
-            cap(bounds.fetch_walk),
-            &mut |chunk| response.extend_from_slice(chunk),
-        ),
-    };
-    served.map_err(refusal_of)?;
-    Ok(response)
+        .map_err(refusal_of),
+        Command::Fetch(_) => Err(invalid(
+            "a fetch lists its objects with Closure and reads their bytes from the node's blobs",
+        )),
+    }
 }
 
-/// Git objects by id ([`Query::Objects`]): the ids in order while the read
-/// budget lasts (the first held one past it), then, asked for, the commits
-/// they descend from, breadth first, while it still lasts.
-pub(crate) fn objects(
+pub(crate) fn closure(
     ctx: &QueryCtx,
     height: u64,
     bounds: &Bounds,
     name: &str,
-    ids: &[String],
-    ancestors: bool,
+    walk: &Walk,
 ) -> Result<Reply, Error> {
-    let hash = repo_hash(&load_repo(ctx, name)?);
-    let store = ObjectStore::new(ctx, hash);
-    let (mut reads, mut bytes) = (bounds.tree_walk, bounds.diff_bytes);
-    let mut objects = Vec::new();
-    let mut missing = Vec::new();
-    let mut parents = VecDeque::new();
-    let mut known = BTreeSet::new();
-    for hex in ids {
-        let id = parse_oid(hash, hex)?;
-        let len = ctx.blob_stat(blob_id_of(&id)).map(|header| header.len);
-        let spent = reads == 0 || len.is_some_and(|len| len > bytes && !objects.is_empty());
-        if spent {
-            return Ok(Reply::Objects {
-                height,
-                objects,
-                missing,
-            });
-        }
-        reads -= 1;
-        known.insert(id);
-        let Some(len) = len else {
-            missing.push(hex.clone());
-            continue;
-        };
-        bytes = bytes.saturating_sub(len);
-        let object = read(&store, &id)?;
-        if ancestors && object.kind == ObjectKind::Commit {
-            parents.extend(
-                Commit::parse(&object.body, hash)
-                    .map_err(refusal_of)?
-                    .parents,
-            );
-        }
-        objects.push(object);
-    }
-    while let Some(id) = parents.pop_front() {
-        if !known.insert(id) {
-            continue;
-        }
-        let Some(header) = ctx.blob_stat(blob_id_of(&id)) else {
-            continue;
-        };
-        if reads == 0 || header.len > bytes {
-            break;
-        }
-        reads -= 1;
-        bytes -= header.len;
-        let object = read(&store, &id)?;
-        if object.kind == ObjectKind::Commit {
-            parents.extend(
-                Commit::parse(&object.body, hash)
-                    .map_err(refusal_of)?
-                    .parents,
-            );
-        }
-        objects.push(object);
-    }
-    Ok(Reply::Objects {
-        height,
-        objects,
-        missing,
-    })
-}
-
-fn read(store: &ObjectStore<'_>, id: &Oid) -> Result<GitObject, Error> {
-    let object = store
-        .get(id)
-        .map_err(refusal_of)?
-        .ok_or_else(|| crate::objects::object_not_held(id))?;
-    let kind = match object.kind {
-        Kind::Commit => ObjectKind::Commit,
-        Kind::Tree => ObjectKind::Tree,
-        Kind::Blob => ObjectKind::Blob,
-        Kind::Tag => ObjectKind::Tag,
+    let repo = load_repo(ctx, name)?;
+    let store = ObjectStore::querying(ctx, repo_hash(&repo), bounds, bounds.tree_walk);
+    let Some(asked) = walk.parse(repo.hash) else {
+        return Err(invalid(
+            "a walk names an id that is not an object id of this repository",
+        ));
     };
-    Ok(GitObject {
-        oid: id.to_hex(),
-        kind,
-        body: object.body,
+    let Closed { listed, next } = close(&store, asked).map_err(refusal_of)?;
+    Ok(Reply::Closure {
+        height,
+        listed: listed.into_iter().map(Listed::of).collect(),
+        next: Walk::of(next),
     })
 }

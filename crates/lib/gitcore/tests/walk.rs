@@ -4,7 +4,7 @@
 mod common;
 
 use common::{blob, commit, file_tree, tree};
-use gitcore::walk::{Verdict, commits, is_ancestor, reachable_objects, tree_at_path};
+use gitcore::walk::{Listing, Verdict, closure, commits, is_ancestor, tree_at_path};
 use gitcore::{Error, Hash, MemoryObjects, Mode, Oid};
 use std::collections::BTreeSet;
 
@@ -128,30 +128,69 @@ fn commits_handles_clock_skew_between_have_and_want() {
     assert_eq!(commits(&store, &[new], &[mid], 100).unwrap(), vec![new]);
 }
 
+fn listed_in(store: &MemoryObjects, wants: &[Oid], haves: &[Oid]) -> BTreeSet<Oid> {
+    let mut listing = Listing::of(wants, haves);
+    while let Some(walk) = listing.pending() {
+        listing.receive(closure(store, walk).unwrap());
+    }
+    listing
+        .into_listed()
+        .into_iter()
+        .map(|item| item.id)
+        .collect()
+}
+
+fn listed(d: &Dag, wants: &[Oid], haves: &[Oid]) -> BTreeSet<Oid> {
+    listed_in(&d.store, wants, haves)
+}
+
+fn blobs(contents: &[&[u8]]) -> BTreeSet<Oid> {
+    let mut scratch = MemoryObjects::new(Hash::Sha1);
+    contents
+        .iter()
+        .map(|body| blob(&mut scratch, body))
+        .collect()
+}
+
 #[test]
-fn reachable_trees_and_blobs() {
+fn a_closure_lists_a_history_once_whatever_its_merges() {
     let d = dag();
-    let objects = reachable_objects(&d.store, &[d.merge], &BTreeSet::new()).unwrap();
-    let t3_blobs: BTreeSet<Oid> = {
-        let mut set = BTreeSet::new();
-        let mut scratch = MemoryObjects::new(Hash::Sha1);
-        set.insert(blob(&mut scratch, b"3\n"));
-        set.insert(blob(&mut scratch, b"g\n"));
-        set
-    };
-    let mut expected = t3_blobs;
-    expected.insert(d.trees[3]);
-    assert_eq!(objects, expected);
+    let mut expected: BTreeSet<Oid> = [d.root, d.a, d.b, d.c, d.merge].into_iter().collect();
+    expected.extend(d.trees.iter().copied());
+    expected.extend(blobs(&[b"0\n", b"1\n", b"2\n", b"3\n", b"g\n"]));
+    assert_eq!(listed(&d, &[d.merge], &[]), expected);
+}
 
-    let seen: BTreeSet<Oid> = [d.trees[3]].into_iter().collect();
-    assert!(
-        reachable_objects(&d.store, &[d.merge], &seen)
-            .unwrap()
-            .is_empty()
-    );
+#[test]
+fn a_closure_stops_at_the_commits_the_client_holds() {
+    let d = dag();
+    let mut expected: BTreeSet<Oid> = [d.merge, d.b].into_iter().collect();
+    expected.insert(d.trees[2]);
+    expected.extend(blobs(&[b"2\n"]));
+    assert_eq!(listed(&d, &[d.merge], &[d.c, d.root]), expected);
+    let only_the_merge: BTreeSet<Oid> = [d.merge].into_iter().collect();
+    assert_eq!(listed(&d, &[d.merge], &[d.c, d.b]), only_the_merge);
+}
 
-    let both = reachable_objects(&d.store, &[d.a, d.b], &BTreeSet::new()).unwrap();
-    assert_eq!(both.len(), 4);
+#[test]
+fn a_closure_stops_at_what_the_client_holds_below_its_haves() {
+    let mut store = MemoryObjects::new(Hash::Sha1);
+    let first = file_tree(&mut store, &[("f", "0\n")]);
+    let mut main = vec![commit(&mut store, first, &[], 100, "root")];
+    for n in 1..10 {
+        let tree = file_tree(&mut store, &[("f", &format!("{n}\n"))]);
+        let parent = main[n - 1];
+        main.push(commit(&mut store, tree, &[parent], 100 + n as i64, "main"));
+    }
+    let side_tree = file_tree(&mut store, &[("f", "1\n"), ("side", "s\n")]);
+    let side = commit(&mut store, side_tree, &[main[1]], 500, "side");
+    let mut expected: BTreeSet<Oid> = [side, side_tree].into_iter().collect();
+    expected.extend(blobs(&[b"s\n"]));
+    assert_eq!(listed_in(&store, &[side], &[main[9]]), expected);
+
+    let merged = commit(&mut store, side_tree, &[main[9], side], 600, "merge");
+    expected.insert(merged);
+    assert_eq!(listed_in(&store, &[merged], &[main[9]]), expected);
 }
 
 #[test]
@@ -168,8 +207,10 @@ fn nested_reachability_and_path_lookup() {
         ],
     );
     let head = commit(&mut store, root, &[], 1, "head");
-    let objects = reachable_objects(&store, &[head], &BTreeSet::new()).unwrap();
-    assert_eq!(objects, [root, inner, leaf].into_iter().collect());
+    assert_eq!(
+        listed_in(&store, &[head], &[]),
+        [head, root, inner, leaf].into_iter().collect()
+    );
 
     let found = tree_at_path(&store, &root, b"dir/leaf.txt")
         .unwrap()

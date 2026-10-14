@@ -194,18 +194,16 @@ fn a_sha256_repository_keeps_its_own_ids() {
     assert_eq!(refs_of(&sandbox, "modern")["refs/heads/main"], tip.to_hex());
     assert_eq!(tip.to_hex().len(), 64);
 
-    let clone = ask(
+    let clone = fetch(
         &sandbox,
-        &Query::Upload {
-            repo: "modern".into(),
-            request: v2_request(
-                "fetch",
-                Hash::Sha256,
-                &[format!("want {tip}"), "done".into()],
-            ),
-        },
-    )
-    .unwrap();
+        "modern",
+        HashKind::Sha256,
+        &v2_request(
+            "fetch",
+            Hash::Sha256,
+            &[format!("want {tip}"), "done".into()],
+        ),
+    );
     let (_, pack_bytes) = fetched_pack(&clone);
     assert_eq!(
         ids_in_pack(&pack_bytes, Hash::Sha256),

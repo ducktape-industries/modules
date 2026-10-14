@@ -1,9 +1,9 @@
-// History walks over the store: ancestry checks, wants-minus-haves, reachable trees and blobs, path lookup.
+// History walks over the store: ancestry checks, wants-minus-haves, the paged closure a fetch lists, path lookup.
 
 use super::error::{Error, Result};
-use crate::object::{Commit, Kind, Tree, TreeEntry};
+use crate::object::{Commit, Kind, Mode, Tag, Tree, TreeEntry};
 use crate::oid::Oid;
-use crate::store::{Objects, load_kind};
+use crate::store::{Objects, load, load_kind};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque};
 
@@ -180,56 +180,452 @@ pub fn commits<S: Objects + ?Sized>(
     Ok(found.into_iter().map(|(_, id)| id).collect())
 }
 
-pub fn reachable_objects<S: Objects + ?Sized>(
-    store: &S,
-    commits: &[Oid],
-    seen: &BTreeSet<Oid>,
-) -> Result<BTreeSet<Oid>> {
-    let mut roots = Vec::with_capacity(commits.len());
-    for commit in commits {
-        roots.push(commit_of(store, commit)?.tree);
-    }
-    reachable_from_trees(store, &roots, seen)
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Walk {
+    pub haves: Vec<Oid>,
+    pub commits: Vec<Queued>,
+    pub objects: Vec<Oid>,
+    pub trees: Vec<Pending>,
 }
 
-/// The trees and blobs under `trees`, less what `seen` holds. Breadth
-/// first, each tree's subtrees announced ([`Objects::prefetch`]) as it is
-/// read, so a store across a network fetches a level together.
-pub fn reachable_from_trees<S: Objects + ?Sized>(
-    store: &S,
-    trees: &[Oid],
-    seen: &BTreeSet<Oid>,
-) -> Result<BTreeSet<Oid>> {
-    let mut found = BTreeSet::new();
-    let mut queue: VecDeque<Oid> = trees.iter().copied().collect();
-    store.prefetch(trees)?;
-    while let Some(tree_id) = queue.pop_front() {
-        let skip = seen.contains(&tree_id) || !found.insert(tree_id);
-        if skip {
-            continue;
+impl Walk {
+    pub fn of(wants: &[Oid], haves: &[Oid]) -> Walk {
+        Walk {
+            haves: haves.to_vec(),
+            commits: Vec::new(),
+            objects: wants.to_vec(),
+            trees: Vec::new(),
         }
-        let mut subtrees = Vec::new();
-        for entry in tree_of(store, &tree_id)?.entries {
-            match entry.mode {
-                crate::object::Mode::Directory => {
-                    let unread = !seen.contains(&entry.id) && !found.contains(&entry.id);
-                    if unread {
-                        subtrees.push(entry.id);
-                    }
-                }
-                crate::object::Mode::Gitlink => {}
-                _ => {
-                    let skip_blob = seen.contains(&entry.id);
-                    if !skip_blob {
-                        found.insert(entry.id);
-                    }
-                }
+    }
+
+    pub fn is_done(&self) -> bool {
+        let history_walked = self.commits.iter().all(|queued| queued.uninteresting);
+        self.haves.is_empty() && self.objects.is_empty() && self.trees.is_empty() && history_walked
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Queued {
+    pub id: Oid,
+    pub time: i64,
+    pub uninteresting: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pending {
+    pub tree: Oid,
+    pub against: Vec<Oid>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub id: Oid,
+    pub kind: Kind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Closed {
+    pub listed: Vec<Listed>,
+    pub next: Walk,
+}
+
+enum Unit {
+    Seed(Oid),
+    Object(Oid),
+    Tree(Pending),
+    Commit(i64, Oid),
+}
+
+#[derive(Default)]
+struct Expansion {
+    listed: Vec<Listed>,
+    trees: Vec<Pending>,
+}
+
+struct Info {
+    time: i64,
+    tree: Oid,
+    parents: Vec<Oid>,
+}
+
+impl Info {
+    fn of(commit: &Commit) -> Info {
+        Info {
+            time: commit.committer.time,
+            tree: commit.tree,
+            parents: commit.parents.clone(),
+        }
+    }
+}
+
+struct CommitMark {
+    time: i64,
+    uninteresting: bool,
+    popped: bool,
+}
+
+struct Page<'a, S: ?Sized> {
+    store: &'a S,
+    haves: Vec<Oid>,
+    objects: VecDeque<Oid>,
+    trees: Vec<Pending>,
+    marks: BTreeMap<Oid, CommitMark>,
+    queue: BinaryHeap<(i64, Reverse<Oid>)>,
+    interesting: usize,
+    infos: BTreeMap<Oid, Option<Info>>,
+    listed: Vec<Listed>,
+    seen: BTreeSet<Oid>,
+}
+
+pub fn closure<S: Objects + ?Sized>(store: &S, walk: Walk) -> Result<Closed> {
+    let mut page = Page::open(store, walk);
+    let mut ran = 0usize;
+    while let Some(unit) = page.next_unit() {
+        let Err(error) = page.run(&unit) else {
+            ran += 1;
+            continue;
+        };
+        let page_full = error == Error::CapReached && ran > 0;
+        if !page_full {
+            return Err(error);
+        }
+        page.put_back(unit);
+        break;
+    }
+    Ok(page.close())
+}
+
+impl<'a, S: Objects + ?Sized> Page<'a, S> {
+    fn open(store: &'a S, walk: Walk) -> Page<'a, S> {
+        let mut page = Page {
+            store,
+            haves: walk.haves,
+            objects: walk.objects.into(),
+            trees: walk.trees,
+            marks: BTreeMap::new(),
+            queue: BinaryHeap::new(),
+            interesting: 0,
+            infos: BTreeMap::new(),
+            listed: Vec::new(),
+            seen: BTreeSet::new(),
+        };
+        for queued in walk.commits {
+            let known = page.marks.contains_key(&queued.id);
+            if !known {
+                page.enqueue(queued.id, queued.time, queued.uninteresting);
             }
         }
-        store.prefetch(&subtrees)?;
-        queue.extend(subtrees);
+        page
     }
-    Ok(found)
+
+    fn next_unit(&mut self) -> Option<Unit> {
+        if let Some(have) = self.haves.pop() {
+            return Some(Unit::Seed(have));
+        }
+        if let Some(id) = self.objects.pop_front() {
+            return Some(Unit::Object(id));
+        }
+        if let Some(pending) = self.trees.pop() {
+            return Some(Unit::Tree(pending));
+        }
+        if self.interesting == 0 {
+            return None;
+        }
+        let (time, Reverse(id)) = self.queue.pop()?;
+        Some(Unit::Commit(time, id))
+    }
+
+    fn run(&mut self, unit: &Unit) -> Result<()> {
+        match unit {
+            Unit::Seed(have) => {
+                self.mark_uninteresting(*have, i64::MAX);
+                Ok(())
+            }
+            Unit::Object(id) => self.expand_object(*id),
+            Unit::Tree(pending) => self.expand_tree(pending),
+            Unit::Commit(time, id) => self.pop_commit(*time, *id),
+        }
+    }
+
+    fn put_back(&mut self, unit: Unit) {
+        match unit {
+            Unit::Seed(have) => self.haves.push(have),
+            Unit::Object(id) => self.objects.push_front(id),
+            Unit::Tree(pending) => self.trees.push(pending),
+            Unit::Commit(time, id) => self.queue.push((time, Reverse(id))),
+        }
+    }
+
+    fn close(self) -> Closed {
+        let history_walked =
+            self.interesting == 0 && self.objects.is_empty() && self.haves.is_empty();
+        let commits = if history_walked {
+            Vec::new()
+        } else {
+            self.queue
+                .into_iter()
+                .map(|(time, Reverse(id))| Queued {
+                    id,
+                    time,
+                    uninteresting: self.marks.get(&id).is_some_and(|mark| mark.uninteresting),
+                })
+                .collect()
+        };
+        Closed {
+            listed: self.listed,
+            next: Walk {
+                haves: self.haves,
+                commits,
+                objects: self.objects.into(),
+                trees: self.trees,
+            },
+        }
+    }
+
+    fn enqueue(&mut self, id: Oid, time: i64, uninteresting: bool) {
+        let mark = CommitMark {
+            time,
+            uninteresting,
+            popped: false,
+        };
+        self.marks.insert(id, mark);
+        self.queue.push((time, Reverse(id)));
+        if !uninteresting {
+            self.interesting += 1;
+        }
+    }
+
+    fn mark_uninteresting(&mut self, id: Oid, time: i64) {
+        let mut stack = vec![(id, time)];
+        while let Some((id, time)) = stack.pop() {
+            let Some(mark) = self.marks.get_mut(&id) else {
+                self.enqueue(id, time, true);
+                continue;
+            };
+            if mark.uninteresting {
+                continue;
+            }
+            mark.uninteresting = true;
+            if !mark.popped {
+                self.interesting -= 1;
+                continue;
+            }
+            if let Some(Some(info)) = self.infos.get(&id) {
+                stack.extend(info.parents.iter().map(|parent| (*parent, info.time)));
+            }
+        }
+    }
+
+    fn info(&mut self, id: &Oid) -> Result<Option<&Info>> {
+        if !self.infos.contains_key(id) {
+            let commit = self
+                .store
+                .get(id)?
+                .filter(|object| object.kind == Kind::Commit);
+            let info = match commit {
+                Some(object) => Some(Info::of(&Commit::parse(&object.body, id.hash())?)),
+                None => None,
+            };
+            self.infos.insert(*id, info);
+        }
+        Ok(self.infos.get(id).and_then(Option::as_ref))
+    }
+
+    fn list(&mut self, id: Oid, kind: Kind) {
+        if self.seen.insert(id) {
+            self.listed.push(Listed { id, kind });
+        }
+    }
+
+    fn expand_object(&mut self, id: Oid) -> Result<()> {
+        let known = self.marks.contains_key(&id) || self.seen.contains(&id);
+        if known {
+            return Ok(());
+        }
+        let object = load(self.store, &id)?;
+        match object.kind {
+            Kind::Commit => {
+                let info = Info::of(&Commit::parse(&object.body, id.hash())?);
+                let time = info.time;
+                self.infos.insert(id, Some(info));
+                self.enqueue(id, time, false);
+            }
+            Kind::Tag => {
+                let target = Tag::parse(&object.body, id.hash())?.object;
+                self.list(id, Kind::Tag);
+                self.objects.push_back(target);
+            }
+            Kind::Tree => self.trees.push(Pending {
+                tree: id,
+                against: Vec::new(),
+            }),
+            Kind::Blob => self.list(id, Kind::Blob),
+        }
+        Ok(())
+    }
+
+    fn expand_tree(&mut self, pending: &Pending) -> Result<()> {
+        let expansion = tree_expansion(self.store, pending, &self.seen)?;
+        for item in expansion.listed {
+            self.list(item.id, item.kind);
+        }
+        self.trees.extend(expansion.trees.into_iter().rev());
+        Ok(())
+    }
+
+    fn pop_commit(&mut self, time: i64, id: Oid) -> Result<()> {
+        let uninteresting = self.marks.get(&id).is_some_and(|mark| mark.uninteresting);
+        let Some(info) = self.info(&id)? else {
+            if !uninteresting {
+                return Err(Error::MissingObject(id));
+            }
+            self.popped(&id);
+            return Ok(());
+        };
+        let (own_time, tree, parents) = (info.time, info.tree, info.parents.clone());
+        let early = own_time < time;
+        if early {
+            if let Some(mark) = self.marks.get_mut(&id) {
+                mark.time = own_time;
+            }
+            self.queue.push((own_time, Reverse(id)));
+            return Ok(());
+        }
+        if uninteresting {
+            self.popped(&id);
+            for parent in parents {
+                self.mark_uninteresting(parent, own_time);
+            }
+            return Ok(());
+        }
+        let mut against = Vec::with_capacity(parents.len());
+        let mut times = Vec::with_capacity(parents.len());
+        for parent in &parents {
+            let Some(parent_info) = self.info(parent)? else {
+                return Err(Error::MissingObject(*parent));
+            };
+            against.push(parent_info.tree);
+            times.push(parent_info.time);
+        }
+        self.popped(&id);
+        self.interesting -= 1;
+        self.list(id, Kind::Commit);
+        for (parent, parent_time) in parents.into_iter().zip(times) {
+            let known = self.marks.contains_key(&parent);
+            if !known {
+                self.enqueue(parent, parent_time, false);
+            }
+        }
+        self.trees.push(Pending { tree, against });
+        Ok(())
+    }
+
+    fn popped(&mut self, id: &Oid) {
+        if let Some(mark) = self.marks.get_mut(id) {
+            mark.popped = true;
+        }
+    }
+}
+
+pub struct Listing {
+    walk: Walk,
+    received: BTreeSet<Oid>,
+    listed: Vec<Listed>,
+}
+
+impl Listing {
+    pub fn of(wants: &[Oid], haves: &[Oid]) -> Listing {
+        Listing {
+            walk: Walk::of(wants, haves),
+            received: BTreeSet::new(),
+            listed: Vec::new(),
+        }
+    }
+
+    pub fn pending(&mut self) -> Option<Walk> {
+        if self.walk.is_done() {
+            return None;
+        }
+        Some(std::mem::take(&mut self.walk))
+    }
+
+    pub fn receive(&mut self, closed: Closed) {
+        for item in closed.listed {
+            if self.received.insert(item.id) {
+                self.listed.push(item);
+            }
+        }
+        let received = &self.received;
+        self.walk = closed.next;
+        self.walk.objects.retain(|id| !received.contains(id));
+        self.walk
+            .trees
+            .retain(|pending| !received.contains(&pending.tree));
+        self.walk
+            .commits
+            .retain(|queued| queued.uninteresting || !received.contains(&queued.id));
+    }
+
+    pub fn into_listed(self) -> Vec<Listed> {
+        self.listed
+    }
+}
+
+fn tree_expansion<S: Objects + ?Sized>(
+    store: &S,
+    pending: &Pending,
+    seen: &BTreeSet<Oid>,
+) -> Result<Expansion> {
+    let unchanged = pending.against.contains(&pending.tree) || seen.contains(&pending.tree);
+    if unchanged {
+        return Ok(Expansion::default());
+    }
+    let tree = tree_of(store, &pending.tree)?;
+    let mut against = Vec::with_capacity(pending.against.len());
+    for id in &pending.against {
+        against.push(tree_of(store, id)?);
+    }
+    let mut expansion = Expansion {
+        listed: vec![Listed {
+            id: pending.tree,
+            kind: Kind::Tree,
+        }],
+        ..Expansion::default()
+    };
+    for entry in tree.entries {
+        let held_by_a_parent = against.iter().any(|parent| {
+            parent
+                .entries
+                .iter()
+                .any(|old| old.name == entry.name && old.id == entry.id)
+        });
+        let skipped = held_by_a_parent || entry.mode == Mode::Gitlink;
+        if skipped {
+            continue;
+        }
+        if !entry.mode.is_directory() {
+            expansion.listed.push(Listed {
+                id: entry.id,
+                kind: Kind::Blob,
+            });
+            continue;
+        }
+        let against = against
+            .iter()
+            .filter_map(|parent| {
+                parent
+                    .entries
+                    .iter()
+                    .find(|old| old.name == entry.name && old.mode.is_directory())
+                    .map(|old| old.id)
+            })
+            .collect();
+        expansion.trees.push(Pending {
+            tree: entry.id,
+            against,
+        });
+    }
+    Ok(expansion)
 }
 
 pub fn tree_at_path<S: Objects + ?Sized>(
