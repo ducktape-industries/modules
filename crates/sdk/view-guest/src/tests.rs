@@ -318,6 +318,65 @@ fn uniform_list_lowers_a_screenful_before_the_host_asks_and_grows_to_what_it_sho
     );
 }
 
+thread_local! {
+    /// The rows [`CountedRows`] painted, in order.
+    static PAINTED: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct CountedRows;
+
+impl View for CountedRows {
+    const NAME: &'static str = "CountedRows";
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self
+    }
+}
+
+impl Render for CountedRows {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        uniform_list("rows", 2_000, |range, _, _| {
+            range
+                .map(|index| {
+                    PAINTED.with(|painted| painted.borrow_mut().push(index));
+                    div()
+                        .id(format!("row-{index}"))
+                        .child(format!("row {index}"))
+                })
+                .collect::<Vec<_>>()
+        })
+    }
+}
+
+/// Each row a frame sends is painted once: the measurement row, which is
+/// sent whatever the window, is painted on its own only when the window
+/// does not hold it (a list at its top painted its first row twice a
+/// render, the copy thrown away).
+#[test]
+fn a_uniform_list_paints_each_row_it_sends_once() {
+    let painted = || PAINTED.with(|painted| std::mem::take(&mut *painted.borrow_mut()));
+    painted();
+    let (mut cx, _) = opened::<CountedRows>();
+    let rows = painted();
+    let (_, indices, _) = uniform_rows(&cx);
+    assert_eq!(
+        rows,
+        indices
+            .iter()
+            .map(|index| *index as usize)
+            .collect::<Vec<_>>()
+    );
+    cx.simulate_range("rows", 1_000..1_020);
+    let rows = painted();
+    let (_, indices, _) = uniform_rows(&cx);
+    assert_eq!(rows.iter().filter(|index| **index == 0).count(), 1);
+    assert_eq!(
+        rows.len(),
+        indices.len(),
+        "far down: the window and the measurement row"
+    );
+}
+
 /// A filter leaves one row and is cleared: the rows that came back are in
 /// the frame that shows them, a screenful of them, with no host ask
 /// between.
