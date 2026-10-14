@@ -331,9 +331,11 @@ pub(crate) fn render(
     // Under a review the lines are a grid: ↑ ↓ walk the lines with a
     // gutter, ← → a line's gutters (old, new), Enter comments there. The
     // active line is scrolled into view before its gutter claims, since a
-    // virtual row off screen has no node to claim with.
+    // virtual row off screen has no node to claim with. At rest the first
+    // gutter is claimed and drawn like any other.
     let lines = if reviewable { rows.lines } else { 0 };
-    let (at, cell) = forge.diff_cursor;
+    let walked = forge.diff_cursor.is_some();
+    let (at, cell) = forge.diff_cursor.unwrap_or_default();
     let at = at.min(lines.saturating_sub(1));
     let cells = if lines > 0 {
         anchors(&rows.painted(rows.row_of_line(at))).len()
@@ -352,7 +354,7 @@ pub(crate) fn render(
         move |index| {
             let active = active
                 .filter(|(line, _)| *line == index)
-                .map(|(_, cell)| cell);
+                .map(|(_, cell)| (cell, walked));
             let row = painted.painted(index);
             let notes = Notes {
                 draft: drafts
@@ -379,14 +381,15 @@ pub(crate) fn render(
                 .active(at, lines)
                 .cells(cell, cells)
                 .on_move(cx.processor(move |forge, index: usize, _, cx| {
-                    forge.diff_cursor = (index, 0);
+                    forge.diff_cursor = Some((index, 0));
                     forge
                         .diff_scroll
                         .scroll_to_item(reveal.row_of_line(index), ScrollStrategy::Nearest);
                     cx.notify();
                 }))
                 .on_move_cell(cx.processor(|forge, cell: usize, _, cx| {
-                    forge.diff_cursor.1 = cell;
+                    let (line, _) = forge.diff_cursor.unwrap_or_default();
+                    forge.diff_cursor = Some((line, cell));
                     cx.notify();
                 }))
                 .on_press(move |index, window, app| {
@@ -578,7 +581,7 @@ fn paint_row(
     row: &Painted,
     index: usize,
     reviewable: bool,
-    active: Option<usize>,
+    active: Option<(usize, bool)>,
     notes: Notes,
     comment: &Route<Anchor>,
     theme: &Theme,
@@ -608,12 +611,13 @@ fn paint_row(
     }
 }
 
-/// `active`: which of the line's gutters the arrows are on, under a review.
+/// `active`: which of the line's gutters the arrows are on, under a review,
+/// and whether they have walked there: only then is it drawn.
 fn line_row(
     row: &Painted,
     index: usize,
     reviewable: bool,
-    active: Option<usize>,
+    active: Option<(usize, bool)>,
     notes: Notes,
     comment: &Route<Anchor>,
     theme: &Theme,
@@ -631,6 +635,10 @@ fn line_row(
     // the gutters are the row's cells, in paint order: the old side, then
     // the new; a line with one number has one cell
     let cells = usize::from(row.old.is_some());
+    let (claimed, walked) = match active {
+        Some((cell, walked)) => (Some(cell), walked),
+        None => (None, false),
+    };
     let body = div()
         .id(id(format!("forge-diff-line-{index}")))
         .w_full()
@@ -644,7 +652,7 @@ fn line_row(
             row,
             false,
             reviewable,
-            active == Some(0),
+            (claimed == Some(0), walked),
             comment,
             theme,
         ))
@@ -652,7 +660,7 @@ fn line_row(
             row,
             true,
             reviewable,
-            active == Some(cells),
+            (claimed == Some(cells), walked),
             comment,
             theme,
         ))
@@ -777,7 +785,8 @@ fn gutter(
     row: &Painted,
     new_side: bool,
     reviewable: bool,
-    active: bool,
+    // the keys' claim is on it; it is drawn once the arrows walked there
+    (active, walked): (bool, bool),
     comment: &Route<Anchor>,
     theme: &Theme,
 ) -> AnyElement {
@@ -815,7 +824,7 @@ fn gutter(
         .flex()
         .items_center()
         .hover(|style| style.bg(theme.accent_soft))
-        .when(active, |button| button.bg(theme.accent_soft))
+        .when(active && walked, |button| button.bg(theme.accent_soft))
         .aria_label("Comment on this line")
         .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| {
             comment(&at, window, app)

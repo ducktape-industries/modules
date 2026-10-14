@@ -96,9 +96,11 @@ pub struct Forge {
     /// cells: Open, Copy, activity
     #[serde(skip)]
     pub(crate) repos_cursor: Option<(String, usize)>,
-    /// the reviewable diff line the arrows are on, and which of its gutters
+    /// the reviewable diff line the arrows are on, and which of its
+    /// gutters; none until they walk it, when the first gutter is claimed
+    /// for the keys and none is drawn
     #[serde(skip)]
-    pub(crate) diff_cursor: (usize, usize),
+    pub(crate) diff_cursor: Option<(usize, usize)>,
     /// the repository the arrows are on in the rail
     #[serde(skip)]
     pub(crate) rail_cursor: Option<String>,

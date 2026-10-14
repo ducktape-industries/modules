@@ -567,6 +567,31 @@ fn the_diff_gutters_are_a_grid_the_arrows_walk() {
     });
 }
 
+/// At rest no gutter of the diff is lit: the first is claimed for the
+/// keys, but a reader who has not touched the arrows sees no line picked,
+/// nor one left lit after pressing another line's number. The arrows
+/// light the gutter they walk to.
+#[test]
+fn no_gutter_is_lit_until_the_arrows_walk_it() {
+    let (mut cx, _) = change_screen("reviewed", ChangeTab::Files);
+    let lit = |cx: &ducktape_view_guest::testing::TestAppContext| {
+        super::lit_rows(cx, "forge-diff-lines", ducktape_view_guest::Role::Button)
+    };
+    assert_eq!(lit(&cx), Vec::<String>::new(), "the diff at rest");
+    cx.simulate_click("forge-gutter-src/lib.rs-new-5");
+    cx.run_until_parked();
+    assert_eq!(lit(&cx), Vec::<String>::new(), "a press lights nothing");
+    cx.simulate_focus("forge-diff-lines");
+    cx.simulate_key_down("forge-diff-lines", "down");
+    assert_eq!(lit(&cx).len(), 1, "{:?}", lit(&cx));
+    // a move elsewhere and back: the walk is over, nothing stays lit
+    cx.simulate_click("forge-change-tab-conversation");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-tab-files");
+    cx.run_until_parked();
+    assert_eq!(lit(&cx), Vec::<String>::new(), "a walk ends with a move");
+}
+
 #[test]
 fn the_gutter_of_a_drawn_line_is_the_comment_button() {
     let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
