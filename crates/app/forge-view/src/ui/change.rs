@@ -319,7 +319,6 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .flex_col()
         .min_h(px(0.))
         .child(review_bar(forge, cx, theme))
-        .child(diff::composer(forge, cx, theme))
         .child(diff::render(forge, &query, "forge-diff", true, cx, theme));
     columns.child(pane).into_any_element()
 }

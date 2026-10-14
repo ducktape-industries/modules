@@ -567,6 +567,119 @@ fn the_diff_gutters_are_a_grid_the_arrows_walk() {
     });
 }
 
+/// The diff list's row count, and its rows held, by index.
+fn diff_rows(cx: &ducktape_view_guest::testing::TestAppContext) -> (usize, Vec<(usize, &Node)>) {
+    let Some(Node::UniformList {
+        count,
+        indices,
+        children,
+        ..
+    }) = cx.find("forge-diff")
+    else {
+        panic!("the diff list");
+    };
+    let mut rows: Vec<(usize, &Node)> = indices
+        .iter()
+        .map(|index| *index as usize)
+        .zip(children)
+        .collect();
+    rows.sort_by_key(|(index, _)| *index);
+    (*count, rows)
+}
+
+/// The keys of the diff list's rows from `index`, `n` of them.
+fn keys_from(
+    cx: &ducktape_view_guest::testing::TestAppContext,
+    index: usize,
+    n: usize,
+) -> Vec<String> {
+    let (_, rows) = diff_rows(cx);
+    (index..index + n)
+        .map(|at| {
+            let row = rows.iter().find(|(held, _)| *held == at);
+            row.and_then(|(_, row)| row.key())
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// The list index of the diff row that holds `key`.
+fn row_holding(cx: &ducktape_view_guest::testing::TestAppContext, key: &str) -> usize {
+    fn holds(node: &Node, key: &str) -> bool {
+        node.key() == Some(key) || node.children().iter().any(|child| holds(child, key))
+    }
+    let (_, rows) = diff_rows(cx);
+    rows.iter()
+        .find(|(_, row)| holds(row, key))
+        .map(|(index, _)| *index)
+        .unwrap_or_else(|| panic!("no row holds {key}"))
+}
+
+/// What a reader writes on a line takes rows of its own right after it,
+/// and the lines below move down: in a list that draws every row one
+/// height, a box nested in its line's row spilled under the lines after
+/// it, which drew over it (a staged comment vanished but on a last line).
+/// The composer opens there too, not above the diff.
+#[test]
+fn a_comment_takes_rows_of_its_own_under_its_line() {
+    let (mut cx, _) = change_screen("reviewed", ChangeTab::Files);
+    let count = diff_rows(&cx).0;
+    let line = row_holding(&cx, "forge-gutter-src/lib.rs-old-1");
+    let next = keys_from(&cx, line + 1, 1).remove(0);
+    cx.simulate_click("forge-gutter-src/lib.rs-old-1");
+    cx.run_until_parked();
+    assert_eq!(diff_rows(&cx).0, count + 3);
+    assert_eq!(
+        keys_from(&cx, line + 1, 4),
+        [
+            "forge-comment-0",
+            "forge-comment-1",
+            "forge-comment-2",
+            &next
+        ],
+        "the composer, then the next line"
+    );
+    assert_eq!(row_holding(&cx, "forge-comment-body"), line + 2);
+    cx.simulate_input("forge-comment-body", "rename this");
+    cx.simulate_click("forge-comment-save");
+    cx.run_until_parked();
+    assert_eq!(diff_rows(&cx).0, count + 2);
+    assert_eq!(
+        keys_from(&cx, line + 1, 3),
+        ["forge-diff-draft-0-0", "forge-diff-draft-0-1", &next],
+        "the staged comment, then the next line"
+    );
+    assert!(cx.has_text("Your pending comment") && cx.has_text("rename this"));
+}
+
+/// The keys typed in the composer's field reach the grid around it too:
+/// while the composer is open the grid walks and presses nothing, so a
+/// Space or an Enter typed there leaves the composer on its line.
+#[test]
+fn the_grid_keeps_still_while_its_composer_is_open() {
+    let (mut cx, view) = change_screen("reviewed", ChangeTab::Files);
+    cx.simulate_click("forge-gutter-src/lib.rs-new-5");
+    cx.run_until_parked();
+    cx.simulate_input("forge-comment-body", "keep this");
+    for key in ["space", "enter", "down"] {
+        cx.simulate_key_down("forge-diff-lines", key);
+        cx.run_until_parked();
+    }
+    view.read(|forge| {
+        let open = forge.review().and_then(|review| review.open.as_ref());
+        let open = open.expect("the composer stays open");
+        assert_eq!((open.line, open.new_side), (5, true));
+        assert_eq!(open.body.text(), "keep this");
+        assert_eq!(forge.diff_cursor, None, "no walk either");
+    });
+    cx.simulate_click("forge-comment-cancel");
+    cx.run_until_parked();
+    cx.simulate_focus("forge-diff-lines");
+    cx.simulate_key_down("forge-diff-lines", "down");
+    view.read(|forge| assert!(forge.diff_cursor.is_some(), "walks again"));
+}
+
 /// At rest no gutter of the diff is lit: the first is claimed for the
 /// keys, but a reader who has not touched the arrows sees no line picked,
 /// nor one left lit after pressing another line's number. The arrows
@@ -575,12 +688,16 @@ fn the_diff_gutters_are_a_grid_the_arrows_walk() {
 fn no_gutter_is_lit_until_the_arrows_walk_it() {
     let (mut cx, _) = change_screen("reviewed", ChangeTab::Files);
     let lit = |cx: &ducktape_view_guest::testing::TestAppContext| {
-        super::lit_rows(cx, "forge-diff-lines", ducktape_view_guest::Role::Button)
+        let mut lit = super::lit_rows(cx, "forge-diff-lines", ducktape_view_guest::Role::Button);
+        lit.retain(|key| key.starts_with("forge-gutter-"));
+        lit
     };
     assert_eq!(lit(&cx), Vec::<String>::new(), "the diff at rest");
     cx.simulate_click("forge-gutter-src/lib.rs-new-5");
     cx.run_until_parked();
     assert_eq!(lit(&cx), Vec::<String>::new(), "a press lights nothing");
+    cx.simulate_click("forge-comment-cancel");
+    cx.run_until_parked();
     cx.simulate_focus("forge-diff-lines");
     cx.simulate_key_down("forge-diff-lines", "down");
     assert_eq!(lit(&cx).len(), 1, "{:?}", lit(&cx));
