@@ -1,9 +1,10 @@
 //! `cargo run -p forge-view --example live`: Forge in the real app over a
 //! fake node with a repository and the people who may push to it, under the
 //! bounds a founding gives forge. `web` holds a history: a long branch and
-//! tag list, a long source file, and three open changes: a large diff, a
-//! small one, and a release the size of a real one (280 files, +78k −21k,
-//! binaries, a file too long to diff); `docs` is empty; `mine` is the
+//! tag list, a long source file, three open changes (a large diff, a small
+//! one, and a release the size of a real one: 280 files, +78k −21k,
+//! binaries, a file too long to diff), and a past of 300 more: 60 open, 60
+//! closed and 180 merged into `dev`; `docs` is empty; `mine` is the
 //! reader's own.
 use ducktape_view_guest::live;
 use forge::{Op, Revision};
@@ -46,7 +47,12 @@ fn main() {
                 hash: abi::HashKind::Sha256,
             },
         )?;
-        let (request, pack) = history();
+        let History {
+            request,
+            pack,
+            main,
+            branches,
+        } = history();
         let pack = attached(net, &pack);
         for (who, repo) in [(net.me(), "mine"), (ada, "web")] {
             net.submit(
@@ -77,8 +83,90 @@ fn main() {
                 },
             )?;
         }
+        past(net, ada, main, &branches)?;
         Ok(())
     })
+}
+
+/// How many changes `web` holds past the three above.
+const PAST: usize = 300;
+
+/// `web`'s past: [`PAST`] changes from its small branches, each fifth one
+/// left open, each fifth closed, the rest merged into `dev` (a branch of
+/// its own, so `main` and the three changes above keep their diffs).
+fn past(
+    net: &live::Network,
+    ada: guest::AccountNumber,
+    main: Oid,
+    branches: &[(String, Oid)],
+) -> Result<(), ducktape_view_guest::host::Error> {
+    let verbs = [
+        "Fix", "Speed up", "Tidy", "Document", "Test", "Rename", "Split", "Guard",
+    ];
+    let things = [
+        "the cache key",
+        "search ranking",
+        "the login form",
+        "theme tokens",
+        "the CI matrix",
+        "the docs index",
+        "a deps bump",
+        "the page layout",
+        "a slow render",
+    ];
+    let mut dev = main;
+    for i in 0..PAST {
+        let (name, tip) = &branches[i % branches.len()];
+        let merged = i % 5 < 3;
+        let into = match merged {
+            true => "refs/heads/dev",
+            false => "refs/heads/main",
+        };
+        let from = Revision::Ref(format!("refs/heads/{name}").into_bytes());
+        let opened = net.submit(
+            ada,
+            forge::MODULE,
+            &Op::ChangeOpen {
+                repo: "web".into(),
+                from: from.clone(),
+                into: into.as_bytes().to_vec(),
+                title: format!(
+                    "{} {} ({})",
+                    verbs[i % verbs.len()],
+                    things[i % things.len()],
+                    i + 1
+                ),
+                body: String::new(),
+                reviewers: Vec::new(),
+            },
+        )?;
+        let forge::OpReply::Change { n, .. } = borsh::from_slice(&opened).expect("a change") else {
+            panic!("ChangeOpen answers its change");
+        };
+        let op = match (merged, i % 5) {
+            // the source's tip becomes `dev`: forge checks both heads
+            (true, _) => {
+                let op = Op::Merge {
+                    repo: "web".into(),
+                    into: into.as_bytes().to_vec(),
+                    from,
+                    expected_into: dev.to_string(),
+                    expected_from: tip.to_string(),
+                    result: tip.to_string(),
+                    change: Some(n),
+                };
+                dev = *tip;
+                op
+            }
+            (false, 3) => Op::ChangeClose {
+                repo: "web".into(),
+                n,
+            },
+            _ => continue,
+        };
+        net.submit(ada, forge::MODULE, &op)?;
+    }
+    Ok(())
 }
 
 /// How many modules `src/` holds, and the lines of each.
@@ -105,7 +193,16 @@ fn attached(net: &live::Network, pack: &[u8]) -> abi::BlobId {
     id
 }
 
-fn history() -> (Vec<u8>, Vec<u8>) {
+/// `web`'s push and its pack, with `main`'s commit and the small branches'
+/// names and tips for the changes opened from them.
+struct History {
+    request: Vec<u8>,
+    pack: Vec<u8>,
+    main: Oid,
+    branches: Vec<(String, Oid)>,
+}
+
+fn history() -> History {
     let mut store = MemoryObjects::new(Hash::Sha256);
     let s = &mut store;
     let readme = blob(s, b"# web\n\nThe site, its search and its docs.\n");
@@ -151,7 +248,11 @@ fn history() -> (Vec<u8>, Vec<u8>) {
     let main = commit(s, main_tree, &[], "Start the site");
 
     let zero = Hash::Sha256.zero();
-    let mut commands = vec![(zero, main, "refs/heads/main".to_owned())];
+    let mut commands = vec![
+        (zero, main, "refs/heads/main".to_owned()),
+        (zero, main, "refs/heads/dev".to_owned()),
+    ];
+    let mut branches = Vec::new();
     let words = [
         "search", "login", "cache", "theme", "ci", "docs", "deps", "layout", "perf",
     ];
@@ -173,6 +274,7 @@ fn history() -> (Vec<u8>, Vec<u8>) {
         let tree = tree_of(s, &files);
         let tip = commit(s, tree, &[main], &name);
         commands.push((zero, tip, format!("refs/heads/{name}")));
+        branches.push((name, tip));
     }
     for n in 1..=12 {
         commands.push((zero, main, format!("refs/tags/v0.{n}.0")));
@@ -252,7 +354,12 @@ fn history() -> (Vec<u8>, Vec<u8>) {
         pktline::push(&mut request, &line);
     }
     request.extend_from_slice(pktline::flush());
-    (request, pack)
+    History {
+        request,
+        pack,
+        main,
+        branches,
+    }
 }
 
 /// `lines` lines of Rust-looking source, distinct per `prefix` and `n`.
