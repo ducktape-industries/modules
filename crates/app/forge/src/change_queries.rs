@@ -3,7 +3,7 @@
 
 use guest::{Error, Range};
 use guest::{QueryCtx, capacity};
-use store::Listing;
+use store::{Listing, PAGE_BYTES};
 
 use crate::contract::*;
 use crate::discussion;
@@ -23,9 +23,13 @@ pub fn change(
 ) -> Result<Reply, Error> {
     let change = load_change(ctx, repo, n)?;
     let (source_head, target_head) = heads(ctx, repo, &change)?;
-    let reviews = REVIEWS
-        .page_of(ctx, &(repo.to_owned(), n), listing)?
-        .map(|(_, review)| review);
+    let reviews = REVIEWS.page_within(
+        ctx,
+        &(repo.to_owned(), n),
+        listing,
+        PAGE_BYTES,
+        |(_, review)| Ok(review),
+    )?;
     Ok(Reply::Change {
         height,
         change,
@@ -44,30 +48,24 @@ pub fn changes(
     listing: &Listing,
 ) -> Result<PageResponse<ChangeSummary>, Error> {
     load_repo(ctx, repo)?;
-    let PageResponse {
-        height,
-        items,
-        next,
-    } = CHANGES.page_of(ctx, &repo.to_owned(), listing)?;
-    let items = items
-        .into_iter()
-        .filter(|((repo, n), change)| {
-            filter.state.is_none_or(|state| change.state == state)
+    let page = CHANGES.page_within(
+        ctx,
+        &repo.to_owned(),
+        listing,
+        PAGE_BYTES,
+        |((repo, n), change)| {
+            let kept = filter.state.is_none_or(|state| change.state == state)
                 && filter
                     .author
                     .as_ref()
                     .is_none_or(|principal| &change.author == principal)
                 && filter.involves.as_ref().is_none_or(|principal| {
-                    INVOLVED.has(ctx, &(principal.clone(), repo.clone(), *n))
-                })
-        })
-        .map(|((repo, _), change)| summary(&repo, &change))
-        .collect();
-    Ok(PageResponse {
-        height,
-        items,
-        next,
-    })
+                    INVOLVED.has(ctx, &(principal.clone(), repo.clone(), n))
+                });
+            Ok(kept.then(|| summary(&repo, &change)))
+        },
+    )?;
+    Ok(page.flatten())
 }
 
 /// One page of every open change, across repositories, that waits on
@@ -83,21 +81,14 @@ pub fn judgment(
 ) -> Result<PageResponse<Judgment>, Error> {
     require_named(principal)?;
     let mut budget = load_bounds(ctx)?.log_walk;
-    let page = CHANGES.page_of(ctx, &(), listing)?;
-    let mut items = Vec::new();
-    for ((repo, _), change) in &page.items {
-        if change.state != ChangeState::Open {
-            continue;
+    let page = CHANGES.page_within(ctx, &(), listing, PAGE_BYTES, |((repo, _), change)| {
+        let open = change.state == ChangeState::Open;
+        if !open {
+            return Ok(None);
         }
-        if let Some(judgment) = judge(ctx, repo, change, principal, &mut budget)? {
-            items.push(judgment);
-        }
-    }
-    Ok(PageResponse {
-        height: page.height,
-        items,
-        next: page.next,
-    })
+        judge(ctx, &repo, &change, principal, &mut budget)
+    })?;
+    Ok(page.flatten())
 }
 
 /// What `principal` owes one open change, if anything.

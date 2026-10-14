@@ -891,3 +891,168 @@ fn a_long_one_sided_edit_shows_and_a_too_long_search_marks_the_file() {
     );
     assert_eq!(page.items.len(), 3);
 }
+
+fn project(bounds: Bounds) -> MemorySandbox {
+    let sandbox = MemorySandbox::default();
+    Forge::init(&sandbox.exec(1), &abi::encode(&bounds)).unwrap();
+    create(&sandbox, "project", HashKind::Sha1);
+    sandbox
+}
+
+fn pushed_main(sandbox: &MemorySandbox, source: &MemoryObjects, tip: Oid) {
+    let report = push(
+        sandbox,
+        OWNER,
+        "project",
+        &[(Hash::Sha1.zero(), tip, "refs/heads/main")],
+        &pack_of(source, &all_ids(source)),
+    )
+    .unwrap();
+    assert_eq!(report, ["unpack ok", "ok refs/heads/main"]);
+}
+
+#[test]
+fn a_log_refuses_a_commit_whose_message_passes_its_limit_and_names_it() {
+    let sandbox = project(Bounds {
+        max_object_size: 2 << 20,
+        ..bounds()
+    });
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let empty = tree(&mut source, &[]);
+    let message = "x".repeat(forge::MAX_MESSAGE_BYTES + 1);
+    let tip = commit(&mut source, empty, &[], 1, &message);
+    pushed_main(&sandbox, &source, tip);
+    let log = Query::Log {
+        repo: "project".into(),
+        from: forge::Revision::Oid(tip.to_hex()),
+        exclude: None,
+        page: PageRequest::first(10),
+    };
+    let refused = ask(&sandbox, &log).unwrap_err();
+    assert_eq!(refused.code, code::CAPACITY);
+    assert!(refused.message.contains(&tip.to_hex()), "{refused:?}");
+    let limit = forge::MAX_MESSAGE_BYTES.to_string();
+    assert!(refused.message.contains(&limit), "{refused:?}");
+}
+
+#[test]
+fn a_diff_page_ends_where_its_files_pass_the_page_bytes() {
+    let sandbox = project(Bounds {
+        diff_bytes: 8 << 20,
+        ..bounds()
+    });
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let base = file_commit(&mut source, &[], 1, &[("seed", b"s\n")]);
+    let bodies: Vec<String> = (0..5)
+        .map(|file| (0..20_000).map(|n| format!("{file} line {n}\n")).collect())
+        .collect();
+    let names: Vec<String> = (0..5).map(|file| format!("file-{file}")).collect();
+    let mut files: Vec<(&str, &[u8])> = vec![("seed", b"s\n")];
+    files.extend(
+        names
+            .iter()
+            .zip(&bodies)
+            .map(|(n, b)| (n.as_str(), b.as_bytes())),
+    );
+    let tip = file_commit(&mut source, &[base], 2, &files);
+    pushed_main(&sandbox, &source, tip);
+    let mut pages = Vec::new();
+    let mut after = None;
+    loop {
+        let query = Query::Diff {
+            repo: "project".into(),
+            base: Some(base.to_hex()),
+            head: tip.to_hex(),
+            path: None,
+            page: PageRequest { after, limit: None },
+        };
+        let Reply::Diff { page, .. } = abi::decode(&ask(&sandbox, &query).unwrap()).unwrap() else {
+            panic!("a diff");
+        };
+        let one_file_or_within =
+            page.items.len() == 1 || abi::encode(&page.items).len() <= store::PAGE_BYTES;
+        assert!(one_file_or_within);
+        pages.push(page.items.len());
+        let Some(next) = page.next else {
+            break;
+        };
+        after = Some(next);
+    }
+    assert!(pages.len() > 1, "{pages:?}");
+    assert_eq!(pages.iter().sum::<usize>(), 5);
+}
+
+#[test]
+fn a_tree_wider_than_a_closure_page_is_listed_across_pages() {
+    let sandbox = project(Bounds {
+        max_objects: 2 * forge::CLOSURE_NAMES as u64,
+        ..bounds()
+    });
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let bodies: Vec<String> = (0..forge::CLOSURE_NAMES + 10)
+        .map(|n| format!("{n}\n"))
+        .collect();
+    let names: Vec<String> = (0..bodies.len()).map(|n| format!("f{n:06}")).collect();
+    let files: Vec<(&str, &[u8])> = names
+        .iter()
+        .zip(&bodies)
+        .map(|(name, body)| (name.as_str(), body.as_bytes()))
+        .collect();
+    let tip = file_commit(&mut source, &[], 1, &files);
+    pushed_main(&sandbox, &source, tip);
+    let listed: BTreeSet<Oid> = closure_of(&sandbox, "project", HashKind::Sha1, &[tip], &[])
+        .into_iter()
+        .map(|item| item.id)
+        .collect();
+    assert_eq!(listed, all_ids(&source).into_iter().collect());
+    let first = Query::Closure {
+        repo: "project".into(),
+        walk: forge::Walk::of(gitcore::walk::Walk::of(&[tip], &[])),
+    };
+    let Reply::Closure { listed, next, .. } = abi::decode(&ask(&sandbox, &first).unwrap()).unwrap()
+    else {
+        panic!("a closure answers Closure");
+    };
+    assert!(listed.len() <= forge::CLOSURE_NAMES + 1);
+    assert_eq!(next.trees.len(), 1);
+    assert!(next.trees[0].from > 0);
+}
+
+#[test]
+fn a_repository_past_its_ref_cap_refuses_to_advertise_and_says_how_many() {
+    let sandbox = project(bounds());
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let tip = file_commit(&mut source, &[], 1, &[("a", b"a\n")]);
+    let names: Vec<String> = (0..=forge::MAX_ADVERTISED_REFS)
+        .map(|n| format!("refs/heads/b{n:05}"))
+        .collect();
+    let commands: Vec<(Oid, Oid, &str)> = names
+        .iter()
+        .map(|name| (Hash::Sha1.zero(), tip, name.as_str()))
+        .collect();
+    with_pack(&sandbox, &pack_of(&source, &all_ids(&source)), |pack| {
+        let op = Op::Push {
+            repo: "project".into(),
+            request: push_request(&commands),
+            pack,
+        };
+        act(&sandbox, OWNER, &op)
+    })
+    .unwrap();
+    let advertise = Query::Advertise {
+        repo: "project".into(),
+        service: Service::ReceivePack,
+    };
+    let ls_refs = Query::Upload {
+        repo: "project".into(),
+        request: v2_request("ls-refs", Hash::Sha1, &[]),
+    };
+    let count = (forge::MAX_ADVERTISED_REFS + 1).to_string();
+    let most = forge::MAX_ADVERTISED_REFS.to_string();
+    for query in [advertise, ls_refs] {
+        let refused = ask(&sandbox, &query).unwrap_err();
+        assert_eq!(refused.code, code::CAPACITY);
+        assert!(refused.message.contains(&count), "{refused:?}");
+        assert!(refused.message.contains(&most), "{refused:?}");
+    }
+}

@@ -29,6 +29,10 @@ pub const MODULE: &str = <::program::role::Identity as ::program::Program>::NAME
 /// What a key signs to consent to a key joining an account ([`Admission`]).
 pub const CONSENT_NAMESPACE: &[u8] = b"ducktape:identity:consent";
 pub const MAX_AUDIENCE: usize = 64;
+pub const MAX_NAME_BYTES: usize = 128;
+pub const MAX_BIO_BYTES: usize = 2048;
+pub const MAX_LABEL_BYTES: usize = 64;
+pub const MAX_KEYS: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Key {

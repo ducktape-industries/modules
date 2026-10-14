@@ -10,6 +10,8 @@ use guest::{ExecCtx, QueryCtx, corrupt};
 use crate::key::KeyCodec;
 use crate::page::{Listing, PageRequest, PageResponse};
 
+type Keyed<T> = (Vec<u8>, T);
+
 /// A table of `V` rows keyed by `K`, every key under one `prefix` of this
 /// module's state. Declare it once as a `const`; each method takes the
 /// context. Two tables' prefixes must not be prefixes of each other
@@ -115,16 +117,46 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
         head: &H,
         listing: &Listing,
     ) -> Result<PageResponse<(K, V)>, Error> {
-        let rows = ctx
-            .scan(listing.scan_ahead(&self.key(head)))
+        Ok(listing.reply(self.rows(ctx, head, listing)?))
+    }
+
+    pub fn range_within<H: KeyCodec, T: BorshSerialize>(
+        &self,
+        ctx: &QueryCtx,
+        head: &H,
+        page: &PageRequest,
+        budget: usize,
+        row: impl FnMut((K, V)) -> Result<T, Error>,
+    ) -> Result<PageResponse<T>, Error> {
+        let listing = page.listing(ctx, self.key(head))?;
+        self.page_within(ctx, head, &listing, budget, row)
+    }
+
+    pub fn page_within<H: KeyCodec, T: BorshSerialize>(
+        &self,
+        ctx: &QueryCtx,
+        head: &H,
+        listing: &Listing,
+        budget: usize,
+        row: impl FnMut((K, V)) -> Result<T, Error>,
+    ) -> Result<PageResponse<T>, Error> {
+        listing.reply_within(self.rows(ctx, head, listing)?, budget, row)
+    }
+
+    fn rows<H: KeyCodec>(
+        &self,
+        ctx: &QueryCtx,
+        head: &H,
+        listing: &Listing,
+    ) -> Result<Vec<Keyed<(K, V)>>, Error> {
+        ctx.scan(listing.scan_ahead(&self.key(head)))
             .into_iter()
             .map(|entry| {
                 let key = decode_key(self.prefix, &entry.key)?;
                 let value = decode_value(self.prefix, &entry.key, &entry.value)?;
                 Ok((entry.key, (key, value)))
             })
-            .collect::<Result<Vec<_>, Error>>()?;
-        Ok(listing.reply(rows))
+            .collect()
     }
 
     pub fn prefix(&self) -> &'static str {
@@ -202,6 +234,18 @@ impl<K: KeyCodec> Set<K> {
         listing: &Listing,
     ) -> Result<PageResponse<K>, Error> {
         Ok(self.map.page_of(ctx, head, listing)?.map(|(k, ())| k))
+    }
+
+    pub fn range_within<H: KeyCodec, T: BorshSerialize>(
+        &self,
+        ctx: &QueryCtx,
+        head: &H,
+        page: &PageRequest,
+        budget: usize,
+        mut row: impl FnMut(K) -> Result<T, Error>,
+    ) -> Result<PageResponse<T>, Error> {
+        self.map
+            .range_within(ctx, head, page, budget, |(k, ())| row(k))
     }
 
     pub fn prefix(&self) -> &'static str {

@@ -5,7 +5,7 @@ use gitcore::wire::receive::advertise_refs;
 use gitcore::wire::smart_http_service_header;
 use gitcore::wire::upload::{Command, capability_advertisement, ls_refs_response, parse_command};
 use guest::Error;
-use guest::{QueryCtx, invalid, stale};
+use guest::{QueryCtx, capacity, invalid, stale};
 use store::Listing;
 
 use gitcore::walk::{Closed, closure as close};
@@ -65,9 +65,10 @@ pub(crate) fn advertise(ctx: &QueryCtx, name: &str, service: Service) -> Result<
     let body = match service {
         Service::ReceivePack => {
             let refs = load_refs(ctx, name, hash)?;
+            advertisable(name, refs.len())?;
             let object_format = format!("object-format={}", hash.name());
             let agent = format!("agent={}", String::from_utf8_lossy(AGENT));
-            advertise_refs(
+            let body = advertise_refs(
                 &refs,
                 hash,
                 &[
@@ -78,7 +79,8 @@ pub(crate) fn advertise(ctx: &QueryCtx, name: &str, service: Service) -> Result<
                     object_format.as_bytes(),
                     agent.as_bytes(),
                 ],
-            )
+            );
+            within_advertisement(name, refs.len(), body)?
         }
         Service::UploadPack => {
             let mut body = smart_http_service_header(b"git-upload-pack");
@@ -87,6 +89,28 @@ pub(crate) fn advertise(ctx: &QueryCtx, name: &str, service: Service) -> Result<
         }
     };
     Ok(body)
+}
+
+fn advertisable(name: &str, refs: usize) -> Result<(), Error> {
+    let too_many = refs > MAX_ADVERTISED_REFS;
+    if too_many {
+        return Err(unadvertisable(name, refs));
+    }
+    Ok(())
+}
+
+fn within_advertisement(name: &str, refs: usize, body: Vec<u8>) -> Result<Vec<u8>, Error> {
+    let too_long = body.len() > ADVERTISEMENT_BYTES;
+    if too_long {
+        return Err(unadvertisable(name, refs));
+    }
+    Ok(body)
+}
+
+fn unadvertisable(name: &str, refs: usize) -> Error {
+    capacity(format!(
+        "{name} has {refs} refs: a repository advertises at most {MAX_ADVERTISED_REFS} refs, in at most {ADVERTISEMENT_BYTES} bytes"
+    ))
 }
 
 pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u8>, Error> {
@@ -99,14 +123,18 @@ pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u
         return Ok(Vec::new());
     };
     match command {
-        Command::LsRefs(command) => ls_refs_response(
-            &objects,
-            &refs,
-            Some(&repo.settings.head),
-            &command,
-            cap(bounds.fetch_walk),
-        )
-        .map_err(refusal_of),
+        Command::LsRefs(command) => {
+            advertisable(name, refs.len())?;
+            let body = ls_refs_response(
+                &objects,
+                &refs,
+                Some(&repo.settings.head),
+                &command,
+                cap(bounds.fetch_walk),
+            )
+            .map_err(refusal_of)?;
+            within_advertisement(name, refs.len(), body)
+        }
         Command::Fetch(_) => Err(invalid(
             "a fetch lists its objects with Closure and reads their bytes from the node's blobs",
         )),
@@ -127,7 +155,7 @@ pub(crate) fn closure(
             "a walk names an id that is not an object id of this repository",
         ));
     };
-    let Closed { listed, next } = close(&store, asked).map_err(refusal_of)?;
+    let Closed { listed, next } = close(&store, asked, CLOSURE_NAMES).map_err(refusal_of)?;
     Ok(Reply::Closure {
         height,
         listed: listed.into_iter().map(Listed::of).collect(),

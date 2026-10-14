@@ -10,5 +10,5 @@ mod page;
 mod table;
 
 pub use key::KeyCodec;
-pub use page::{Cursor, Listing, PageRequest, PageResponse};
+pub use page::{Cursor, Listing, PAGE_BYTES, PageRequest, PageResponse, within};
 pub use table::{Item, Map, Set};

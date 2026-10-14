@@ -272,7 +272,7 @@ fn listing(store: &MemoryObjects, command: &Fetch, reads: u64) -> (Vec<Listed>, 
             store,
             reads: Cell::new(reads),
         };
-        listing.receive(closure(&budgeted, walk).unwrap());
+        listing.receive(closure(&budgeted, walk, usize::MAX).unwrap());
     }
     (listing.into_listed(), pages)
 }
@@ -478,7 +478,7 @@ fn a_closure_refuses_a_page_that_cannot_read_one_object() {
         reads: Cell::new(0),
     };
     assert_eq!(
-        closure(&starved, Walk::of(&[tip], &[])),
+        closure(&starved, Walk::of(&[tip], &[]), usize::MAX),
         Err(Error::CapReached)
     );
 }
