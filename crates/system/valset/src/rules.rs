@@ -24,6 +24,7 @@ pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) -> Result<(), Error> {
         let membership = Membership {
             key: member.key,
             address: member.address,
+            halo: member.halo,
             role: Role::Validator,
         };
         fits(ctx, &membership.key)?;
@@ -35,9 +36,14 @@ pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) -> Result<(), Error> {
 pub(crate) fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
     let signer = ctx.env().signer()?;
     match op {
-        Op::Enroll { address, invite } => enroll(ctx, signer, address, invite),
+        Op::Enroll {
+            address,
+            halo,
+            invite,
+        } => enroll(ctx, signer, address, halo, invite),
         Op::Leave => leave(ctx, signer),
         Op::Vote(motion) => vote(ctx, signer, motion),
+        Op::SetHalo { halo } => set_halo(ctx, signer, halo),
     }
 }
 
@@ -61,10 +67,17 @@ fn enroll(
     ctx: &ExecCtx,
     key: Vec<u8>,
     address: Option<String>,
+    halo: String,
     invite: Option<Invite>,
 ) -> Result<(), Error> {
+    registered(&halo)?;
     if let Some(held) = MEMBERS.get(ctx, &key)? {
-        MEMBERS.put(ctx, &key, &Membership { address, ..held });
+        let membership = Membership {
+            address,
+            halo,
+            ..held
+        };
+        MEMBERS.put(ctx, &key, &membership);
         return Ok(());
     }
     fits(ctx, &key)?;
@@ -72,6 +85,7 @@ fn enroll(
     let membership = Membership {
         key,
         address,
+        halo,
         role: Role::Resident,
     };
     MEMBERS.put(ctx, &membership.key, &membership);
@@ -128,6 +142,17 @@ fn redeem(ctx: &ExecCtx, invite: &Invite) -> Result<(), Error> {
         return Err(wrong_state("the invite was already redeemed"));
     }
     SPENT.insert(ctx, &nonce);
+    Ok(())
+}
+
+fn registered(halo: &str) -> Result<(), Error> {
+    abi::role::validators::registered_halo(halo).map_err(::program::kernel::error_from)
+}
+
+fn set_halo(ctx: &ExecCtx, key: Vec<u8>, halo: String) -> Result<(), Error> {
+    registered(&halo)?;
+    let held = member(ctx, &key)?;
+    MEMBERS.put(ctx, &key, &Membership { halo, ..held });
     Ok(())
 }
 
@@ -287,9 +312,6 @@ fn programs_motion(ctx: &QueryCtx, op: &[u8]) -> Result<programs::Op, Error> {
 
 fn votable(op: &programs::Op) -> Result<(), Error> {
     match op {
-        programs::Op::Publish { .. } => Err(invalid(
-            "a publish is a frame of its own that attaches the code: the vote schedules published code by its id",
-        )),
         programs::Op::Schedule(_)
         | programs::Op::Cancel { .. }
         | programs::Op::Grant(_)
@@ -315,7 +337,7 @@ fn programs_op(op: &[u8]) -> Result<programs::Op, Error> {
 /// programs, and the motion would sit one vote short for good.
 fn timely(ctx: &QueryCtx, op: &programs::Op) -> Result<(), Error> {
     let at = match op {
-        programs::Op::Publish { .. } | programs::Op::Grant(_) | programs::Op::Revoke(_) => {
+        programs::Op::Grant(_) | programs::Op::Revoke(_) => {
             return Ok(());
         }
         programs::Op::Schedule(scheduled) => scheduled.height,

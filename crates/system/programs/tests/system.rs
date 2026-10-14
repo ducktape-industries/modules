@@ -1,9 +1,8 @@
 use abi::reason;
-use abi::{BlobId, HashKind, HostOp, Message, Origin, Outcome, Scheme};
+use abi::{BlobId, HostOp, Message, Origin, Outcome, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
-use host::attach::{ATTACH, Attached, Attachment};
 use host::{
     Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, Receipt, Roles,
     Submission, Tip,
@@ -84,10 +83,15 @@ fn public(seed: u64) -> Vec<u8> {
     key(seed).public_key().as_ref().to_vec()
 }
 
+fn halo(seed: u64) -> String {
+    format!("v{seed}.example.org:9100")
+}
+
 fn member(seed: u64) -> valset::Member {
     valset::Member {
         key: public(seed),
         address: Some(format!("v{seed}:1")),
+        halo: halo(seed),
     }
 }
 
@@ -95,6 +99,7 @@ fn membership(seed: u64, role: valset::Role) -> valset::Membership {
     valset::Membership {
         key: public(seed),
         address: Some(format!("v{seed}:1")),
+        halo: halo(seed),
         role,
     }
 }
@@ -116,6 +121,7 @@ fn invite(issuer: u64, nonce: u8, expires: u64) -> valset::Invite {
 fn enroll(seed: u64, invite: Option<valset::Invite>) -> valset::Op {
     valset::Op::Enroll {
         address: Some(format!("v{seed}:1")),
+        halo: halo(seed),
         invite,
     }
 }
@@ -166,12 +172,14 @@ impl Net {
                 programs: programs::PROGRAM.into(),
                 validators: valset::PROGRAM.into(),
                 identity: identity::PROGRAM.into(),
+                blobs: blobs::PROGRAM.into(),
             },
             validators: FOUNDERS.iter().map(|seed| member(*seed)).collect(),
             programs: vec![
                 founding(programs::PROGRAM, &program("programs")),
                 founding(valset::PROGRAM, &program("valset")),
                 founding(identity::PROGRAM, &program("identity")),
+                founding(blobs::PROGRAM, &program("blobs")),
                 probe("probe"),
             ]
             .into_iter()
@@ -255,32 +263,40 @@ impl Net {
         }
     }
 
-    fn held(&self, kind: &str, body: &[u8]) -> Attachment {
-        let framed = blobs::frame(kind, body).unwrap();
-        let id = blobs::id_of(HashKind::Sha256, &framed);
-        self.host.blobs().write(&id, &framed).unwrap();
-        Attachment {
-            id,
-            len: framed.len() as u64,
+    fn stored(&self, kind: &str, body: &[u8]) -> blobs::Entry {
+        let framed = blob::frame(kind, body).unwrap();
+        let entry = blobs::Entry::of(&framed).unwrap();
+        self.host.blobs().write(&entry.id, &framed).unwrap();
+        entry
+    }
+
+    async fn put(&mut self, entries: Vec<blobs::Entry>) -> u64 {
+        let put = blobs::Op::Put { blobs: entries };
+        let receipt = self.as_anyone(blobs::PROGRAM, &put).await;
+        abi::decode(output_of(&receipt)).unwrap()
+    }
+
+    async fn receipted(&mut self, bundle: u64, by: &[u64]) {
+        let receipt = abi::encode(&blobs::Op::Receipt { bundle });
+        let submissions = by
+            .iter()
+            .map(|seed| self.submission(&public(*seed), blobs::PROGRAM, receipt.clone()))
+            .collect();
+        for receipt in self.block(submissions).await.submissions {
+            output_of(&receipt);
         }
     }
 
-    fn attaching<T: BorshSerialize>(&self, target: &str, op: &T, blob: Attachment) -> Attached {
-        Attached {
-            target: target.into(),
-            payload: abi::encode(op),
-            blobs: vec![blob],
-        }
+    async fn hold(&mut self, kind: &str, body: &[u8]) -> BlobId {
+        let entry = self.stored(kind, body);
+        let id = entry.id;
+        let bundle = self.put(vec![entry]).await;
+        self.receipted(bundle, &FOUNDERS).await;
+        id
     }
 
-    async fn publish(&mut self, signer: &[u8], code: &[u8]) -> BlobId {
-        let attachment = self.held(programs::CODE_KIND, code);
-        let publish = programs::Op::Publish {
-            code: attachment.id,
-        };
-        let attaching = self.attaching(programs::PROGRAM, &publish, attachment);
-        let output = self.apply(signer, ATTACH, &attaching).await;
-        abi::decode(&output).unwrap()
+    async fn blob(&self, id: &BlobId) -> Option<Vec<u8>> {
+        self.host.blob(id, self.time()).await.unwrap()
     }
 
     async fn refuse<T: BorshSerialize>(&mut self, signer: &[u8], target: &str, op: &T) -> String {

@@ -410,6 +410,7 @@ pub(crate) fn programs_granting(
                 programs: programs::PROGRAM.into(),
                 validators: valset::PROGRAM.into(),
                 identity: identity::PROGRAM.into(),
+                blobs: "blobs".into(),
             }),
             other => panic!("unexpected query: {other:?}"),
         })

@@ -57,19 +57,7 @@ fn main() {
         }
         let kind = programs::CODE_KIND;
         let body = b"chat, the next release".to_vec();
-        let attached = program::blob_id(program::HashKind::Sha256, kind, &body).expect("a blob id");
-        let blob = program::Blob {
-            kind: kind.into(),
-            body,
-        };
-        let programs = net.host(programs::PROGRAM);
-        programs.borrow_mut().blobs.insert(attached, blob);
-        let code = net.submit(
-            me,
-            programs::PROGRAM,
-            &programs::Op::Publish { code: attached },
-        )?;
-        let code: abi::BlobId = abi::decode(&code).expect("a blob id");
+        let code = net.hold(kind, &body)?;
         let at = |height: u64, change: Change| programs::Op::Schedule(Scheduled { height, change });
         let set = |program: &str| {
             Change::Set(programs::Entry {

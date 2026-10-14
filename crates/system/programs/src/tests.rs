@@ -3,7 +3,7 @@
 
 mod access;
 
-use ::program::{Blob, BlobId, Env, HashKind, MockHost, Origin, Program, code};
+use ::program::{BlobId, Env, MockHost, Origin, Program, code};
 use store::PageRequest;
 
 use crate::{CODE_KIND, Change, Entry, Genesis, Op, Programs, Query, Reply, Scheduled, View};
@@ -18,20 +18,50 @@ fn env(height: u64, origin: Origin) -> Env {
     }
 }
 
-fn attached(store: &MockHost, kind: &str, body: &[u8]) -> BlobId {
-    let code = ::program::blob_id(HashKind::Sha256, kind, body).unwrap();
-    let blob = Blob {
-        kind: kind.into(),
-        body: body.to_vec(),
+const VALIDATOR: u8 = 5;
+
+fn blobs_role(store: &MockHost) -> MockHost {
+    let valset = MockHost::default();
+    let genesis = valset::Genesis {
+        validators: vec![valset::Member {
+            key: vec![VALIDATOR; 32],
+            address: None,
+            halo: "validator.example.org:9100".into(),
+        }],
+        member_cap: 4,
     };
-    store.borrow_mut().blobs.insert(code, blob);
-    code
+    valset::Valset::init(
+        &valset.exec(MockHost::env(valset::PROGRAM).root()),
+        &abi::encode(&genesis),
+    )
+    .unwrap();
+    let blobs = MockHost::default();
+    blobs.sibling::<valset::Valset>(MockHost::roles().validators, &valset);
+    store.sibling::<blobs::Blobs>(MockHost::roles().blobs, &blobs);
+    blobs
 }
 
-fn publish(store: &MockHost, env: Env, body: &[u8]) -> BlobId {
-    let code = attached(store, CODE_KIND, body);
-    Programs::execute(&store.exec(env), Op::Publish { code }).unwrap();
-    abi::decode(&store.take_output()).unwrap()
+fn put(blobs: &MockHost, kind: &str, body: &[u8]) -> (BlobId, u64) {
+    let entry = blobs::Entry::of(&blob::frame(kind, body).unwrap()).unwrap();
+    let id = entry.id;
+    let put = blobs::Op::Put { blobs: vec![entry] };
+    blobs::Blobs::execute(&blobs.exec(MockHost::env(blobs::PROGRAM)), put).unwrap();
+    (id, abi::decode(&blobs.take_output()).unwrap())
+}
+
+fn receipted(blobs: &MockHost, bundle: u64) {
+    let validator = MockHost::env(blobs::PROGRAM).signed(vec![VALIDATOR; 32], None);
+    blobs::Blobs::execute(&blobs.exec(validator), blobs::Op::Receipt { bundle }).unwrap();
+}
+
+fn held(blobs: &MockHost, kind: &str, body: &[u8]) -> BlobId {
+    let (id, bundle) = put(blobs, kind, body);
+    receipted(blobs, bundle);
+    id
+}
+
+fn fold_to(store: &MockHost, height: u64) {
+    crate::rules::fold(&store.exec(env(height, Origin::Root)), height).unwrap();
 }
 
 fn authority(height: u64) -> Env {
@@ -47,6 +77,11 @@ fn entry(program: &str, code: BlobId) -> Entry {
 }
 
 fn founded() -> (MockHost, BlobId) {
+    let (store, blobs) = founded_with_blobs();
+    (store, held(&blobs, CODE_KIND, b"wasm"))
+}
+
+fn founded_with_blobs() -> (MockHost, MockHost) {
     let store = MockHost::default();
     crate::rules::init(
         &store.exec(env(0, Origin::Root)),
@@ -59,8 +94,9 @@ fn founded() -> (MockHost, BlobId) {
             hooks: vec!["boot".into()],
         },
     );
-    let code = publish(&store, env(1, Origin::Signed(vec![9])), b"wasm");
-    (store, code)
+    let blobs = blobs_role(&store);
+    fold_to(&store, 1);
+    (store, blobs)
 }
 
 fn programs(store: &MockHost, height: u64) -> Vec<String> {
@@ -87,13 +123,6 @@ fn schedule(store: &MockHost, height: u64, change: Change) -> Result<(), ::progr
         &store.exec(authority(1)),
         Op::Schedule(Scheduled { height, change }),
     )
-}
-
-#[test]
-fn publishing_stores_the_code_under_its_blob_id() {
-    let (store, code) = founded();
-    assert_eq!(store.borrow().blobs[&code].kind, crate::CODE_KIND);
-    assert_eq!(store.borrow().blobs[&code].body, b"wasm");
 }
 
 #[test]
@@ -124,16 +153,16 @@ fn only_the_validators_vote_schedules_or_cancels() {
 }
 
 #[test]
-fn a_change_lands_only_published_code_in_the_future() {
+fn a_change_lands_only_held_code_in_the_future() {
     let (store, code) = founded();
     let set = Change::Set(entry("new", code));
     assert_eq!(
         schedule(&store, 1, set.clone()).unwrap_err().code,
         code::INVALID_INPUT
     );
-    let unpublished = Change::Set(entry("new", BlobId::Sha256([7; 32])));
+    let unheld = Change::Set(entry("new", BlobId::Sha256([7; 32])));
     assert_eq!(
-        schedule(&store, 5, unpublished).unwrap_err().code,
+        schedule(&store, 5, unheld).unwrap_err().code,
         code::NOT_FOUND
     );
     schedule(&store, 5, set.clone()).unwrap();
@@ -151,7 +180,7 @@ fn a_scheduled_change_is_seen_at_its_height_and_folded_by_the_next_op() {
     assert_eq!(programs(&store, 4), ["boot"]);
     assert_eq!(programs(&store, 5), ["boot", "new"]);
     assert_eq!(programs(&store, 6), ["new"]);
-    publish(&store, env(6, Origin::Signed(vec![9])), &[1]);
+    fold_to(&store, 6);
     assert_eq!(programs(&store, 6), ["new"]);
     let Reply::Scheduled(page) = Programs::query(
         &store.query(env(6, Origin::Root)),
@@ -296,12 +325,12 @@ fn a_view_is_listed_apart_from_the_programs_and_scheduled_like_one() {
         name: "explorer".into(),
         view: code,
     });
-    let unpublished = Change::SetView(View {
+    let unheld = Change::SetView(View {
         name: "explorer".into(),
         view: BlobId::Sha256([7; 32]),
     });
     assert_eq!(
-        schedule(&store, 5, unpublished).unwrap_err().code,
+        schedule(&store, 5, unheld).unwrap_err().code,
         code::NOT_FOUND
     );
     let over_a_program = Change::SetView(View {
@@ -322,7 +351,7 @@ fn a_view_is_listed_apart_from_the_programs_and_scheduled_like_one() {
             ("lens".into(), BlobId::Sha256([2; 32]))
         ]
     );
-    publish(&store, env(6, Origin::Signed(vec![9])), &[1]);
+    fold_to(&store, 6);
     assert_eq!(views(&store, 6), [("explorer".into(), code)]);
     assert_eq!(programs(&store, 6), ["boot"]);
 }
@@ -429,6 +458,7 @@ fn the_roles_are_answered_as_the_kernel_binds_them() {
         programs: "programs-b".into(),
         validators: "validators-b".into(),
         identity: "identity-b".into(),
+        blobs: "blobs-b".into(),
     };
     let asked = Env {
         roles: roles.clone(),
@@ -532,7 +562,7 @@ fn a_hook_is_set_and_removed_at_its_height_and_goes_with_its_program() {
     assert_eq!(hooks(&store, 6), ["activity", "boot"]);
     assert_eq!(hooks(&store, 7), ["activity"]);
     assert_eq!(hooks(&store, 8), Vec::<String>::new());
-    publish(&store, env(8, Origin::Signed(vec![9])), &[1]);
+    fold_to(&store, 8);
     assert_eq!(hooks(&store, 8), Vec::<String>::new());
     schedule(&store, 9, Change::Set(entry("activity", code))).unwrap();
     assert_eq!(
@@ -543,40 +573,18 @@ fn a_hook_is_set_and_removed_at_its_height_and_goes_with_its_program() {
 }
 
 #[test]
-fn a_publish_rosters_the_code_its_frame_attaches_under_the_same_id() {
-    let (store, _) = founded();
-    let code = attached(&store, CODE_KIND, b"attached wasm");
-    Programs::execute(
-        &store.exec(env(2, Origin::Signed(vec![9]))),
-        Op::Publish { code },
-    )
-    .unwrap();
-    let published: BlobId = abi::decode(&store.take_output()).unwrap();
-    assert_eq!(published, code);
-}
-
-#[test]
-fn a_publish_of_code_its_frame_does_not_attach_is_refused() {
-    let (store, _) = founded();
-    let code = ::program::blob_id(HashKind::Sha256, CODE_KIND, b"never attached").unwrap();
-    let refused = store.refused(|| {
-        Programs::execute(
-            &store.exec(env(1, Origin::Signed(vec![9]))),
-            Op::Publish { code },
-        )
-    });
+fn a_schedule_is_refused_until_the_blobs_role_holds_its_code_as_a_program() {
+    let (store, blobs) = founded_with_blobs();
+    let (code, bundle) = put(&blobs, CODE_KIND, b"new wasm");
+    let set = Change::Set(entry("new", code));
+    let refused = store.refused(|| schedule(&store, 5, set.clone()));
     assert_eq!(refused.code, code::NOT_FOUND);
-}
+    assert!(refused.message.contains("not held"), "{refused:?}");
+    receipted(&blobs, bundle);
+    schedule(&store, 5, set).unwrap();
+    assert_eq!(programs(&store, 5), ["boot", "new"]);
 
-#[test]
-fn a_publish_of_a_blob_that_is_not_a_program_is_refused() {
-    let (store, _) = founded();
-    let page = attached(&store, "page", b"not code");
-    let refused = store.refused(|| {
-        Programs::execute(
-            &store.exec(env(1, Origin::Signed(vec![9]))),
-            Op::Publish { code: page },
-        )
-    });
+    let pack = held(&blobs, "pack", b"not code");
+    let refused = store.refused(|| schedule(&store, 6, Change::Set(entry("pack", pack))));
     assert_eq!(refused.code, code::INVALID_INPUT);
 }

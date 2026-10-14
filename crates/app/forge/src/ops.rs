@@ -136,7 +136,7 @@ pub(crate) fn push(
     let mut repo = load_repo(ctx, name)?;
     require_writer(ctx, name, &repo, actor)?;
     let pack = match pack {
-        Some(id) => attached_pack(ctx, id)?,
+        Some(id) => held_pack(ctx, id)?,
         None => Vec::new(),
     };
     let bounds = load_bounds(ctx)?;
@@ -191,7 +191,7 @@ pub(crate) fn stage(
 ) -> Result<(), Error> {
     let repo = load_repo(ctx, name)?;
     require_writer(ctx, name, &repo, actor)?;
-    let pack = attached_pack(ctx, pack)?;
+    let pack = held_pack(ctx, pack)?;
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
     let mut objects = ObjectWriter::new(ctx, hash);
@@ -199,10 +199,10 @@ pub(crate) fn stage(
     objects.flush()
 }
 
-fn attached_pack(ctx: &ExecCtx, id: BlobId) -> Result<Vec<u8>, Error> {
+fn held_pack(ctx: &ExecCtx, id: BlobId) -> Result<Vec<u8>, Error> {
     let Some(blob) = ctx.blob_get(id) else {
         return Err(not_found(format!(
-            "pack {id:?} is neither attached to this frame nor stored"
+            "pack {id:?} is not held: put it as a {PACK_KIND:?} blob and wait for a quorum of validators to hold it"
         )));
     };
     if blob.kind != PACK_KIND {

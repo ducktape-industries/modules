@@ -34,6 +34,7 @@ fn member(n: u8) -> Member {
     Member {
         key: vec![n; 32],
         address: Some(format!("node-{n}")),
+        halo: format!("node-{n}.example.org:9100"),
     }
 }
 

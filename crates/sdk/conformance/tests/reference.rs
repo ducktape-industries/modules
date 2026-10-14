@@ -5,6 +5,8 @@ use abi::role::validators::Member;
 use conformance::env;
 use program::{AccountNumber, BlobId, Error, MockHost, Origin, Principal, Program, Scheme};
 
+const VALIDATOR: u8 = 5;
+
 struct Identity;
 
 impl Identity {
@@ -181,6 +183,7 @@ impl conformance::validators::Fixture for Valset {
     fn seat(&self, host: &MockHost, member: Member) -> Result<(), Error> {
         let enroll = valset::Op::Enroll {
             address: member.address,
+            halo: member.halo,
             invite: Some(Self::invite(host, &member.key)),
         };
         Self::run(host, &member.key, enroll)?;
@@ -197,9 +200,42 @@ fn valset_fills_the_validators_role() {
     conformance::validators::run(&Valset);
 }
 
-struct Programs;
+struct Programs {
+    blobs: MockHost,
+}
 
 impl Programs {
+    fn new() -> Programs {
+        let valset = MockHost::default();
+        let genesis = valset::Genesis {
+            validators: vec![Member {
+                key: vec![VALIDATOR; 32],
+                address: None,
+                halo: "validator.example.org:9100".into(),
+            }],
+            member_cap: 4,
+        };
+        valset::Valset::init(
+            &valset.exec(conformance::root("valset", 0)),
+            &abi::encode(&genesis),
+        )
+        .unwrap();
+        let blobs = MockHost::default();
+        blobs.sibling::<valset::Valset>(MockHost::roles().validators, &valset);
+        Programs { blobs }
+    }
+
+    fn blobs(&self, op: blobs::Op, signer: Vec<u8>) -> Result<Vec<u8>, Error> {
+        let env = env(
+            "blobs",
+            1,
+            Origin::Signed(signer),
+            Some(Principal::Account(1)),
+        );
+        blobs::Blobs::execute(&self.blobs.exec(env), op)?;
+        Ok(self.blobs.take_output())
+    }
+
     fn run(host: &MockHost, height: u64, op: programs::Op) -> Result<(), Error> {
         let validators = Origin::Program(MockHost::roles().validators);
         let env = env("programs", height, validators, None);
@@ -220,16 +256,15 @@ impl Programs {
 impl conformance::programs::Fixture for Programs {
     type Program = programs::Programs;
 
-    fn publish(&self, host: &MockHost, height: u64, body: &[u8]) -> Result<BlobId, Error> {
-        let kind = programs::CODE_KIND;
-        let code = program::blob_id(program::HashKind::Sha256, kind, body)?;
-        let blob = program::Blob {
-            kind: kind.into(),
-            body: body.to_vec(),
-        };
-        host.borrow_mut().blobs.insert(code, blob);
-        Self::run(host, height, programs::Op::Publish { code })?;
-        Ok(abi::decode(&host.take_output()).unwrap())
+    fn hold(&self, host: &MockHost, body: &[u8]) -> Result<BlobId, Error> {
+        host.sibling::<blobs::Blobs>(MockHost::roles().blobs, &self.blobs);
+        let framed = blob::frame(programs::CODE_KIND, body).unwrap();
+        let entry = blobs::Entry::of(&framed).unwrap();
+        let code = entry.id;
+        let put = blobs::Op::Put { blobs: vec![entry] };
+        let bundle: u64 = abi::decode(&self.blobs(put, vec![1; 32])?).unwrap();
+        self.blobs(blobs::Op::Receipt { bundle }, vec![VALIDATOR; 32])?;
+        Ok(code)
     }
 
     fn set(&self, host: &MockHost, height: u64, at: u64, entry: Entry) -> Result<(), Error> {
@@ -269,5 +304,5 @@ impl conformance::programs::Fixture for Programs {
 
 #[test]
 fn program_programs_fills_the_programs_role() {
-    conformance::programs::run(&Programs);
+    conformance::programs::run(&Programs::new());
 }

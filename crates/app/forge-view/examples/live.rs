@@ -53,7 +53,7 @@ fn main() {
             main,
             branches,
         } = history();
-        let pack = attached(net, &pack);
+        let pack = net.hold(forge::PACK_KIND, &pack)?;
         for (who, repo) in [(net.me(), "mine"), (ada, "web")] {
             net.submit(
                 who,
@@ -177,21 +177,6 @@ const LEGACY: usize = 52;
 
 /// A file's path and blob.
 type File = (String, Oid);
-
-/// `web`'s push: `main` (a long `src/lib.rs`, `PROGRAMS` programs, `LEGACY`
-/// old files, two binary fonts and a lock file too large to show), 90
-/// branches one commit off it, twelve tags, a branch rewriting every program
-/// and adding as many again, and `release`: a merge commit shaped like a
-/// real release (192 files added, 52 deleted, 15 modified, the fonts moved).
-fn attached(net: &live::Network, pack: &[u8]) -> abi::BlobId {
-    let id = program::blob_id(abi::HashKind::Sha256, forge::PACK_KIND, pack).unwrap();
-    let blob = program::Blob {
-        kind: forge::PACK_KIND.into(),
-        body: pack.to_vec(),
-    };
-    net.host(forge::PROGRAM).borrow_mut().blobs.insert(id, blob);
-    id
-}
 
 /// `web`'s push and its pack, with `main`'s commit and the small branches'
 /// names and tips for the changes opened from them.

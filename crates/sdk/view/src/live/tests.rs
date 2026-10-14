@@ -8,7 +8,7 @@ fn a_network_is_founded_with_the_boot_set_and_a_signed_in_person() {
     let net = Network::new();
     assert_eq!(
         net.seats(),
-        ["identity", "valset", "programs"].map(String::from)
+        ["identity", "valset", "programs", "blobs"].map(String::from)
     );
     let me = net.me();
     let asked: identity::Reply = net
@@ -31,7 +31,7 @@ fn a_network_is_founded_with_the_boot_set_and_a_signed_in_person() {
     };
     let mut listed: Vec<_> = entries.into_iter().map(|entry| entry.program).collect();
     listed.sort();
-    assert_eq!(listed, ["identity", "programs", "valset"]);
+    assert_eq!(listed, ["blobs", "identity", "programs", "valset"]);
     assert_eq!(net.session().account, Some(me));
 }
 
@@ -215,12 +215,27 @@ fn a_typed_handler_on_the_host_wins_over_the_chain() {
 }
 
 #[test]
+fn a_held_blob_is_put_receipted_by_the_dev_validator_and_served() {
+    let net = Network::new();
+    let id = net.hold("pack", b"PACK").unwrap();
+    let held: blobs::Reply = net
+        .query(blobs::PROGRAM, &blobs::Query::Held { blob: id })
+        .unwrap();
+    let blobs::Reply::Held(Some(holding)) = held else {
+        panic!("{held:?}");
+    };
+    assert_eq!(holding.kind, "pack");
+    assert_eq!(net.blob(&id), Some(wire::framed("pack", b"PACK")));
+}
+
+#[test]
 fn the_dev_validator_opens_the_door_alone_and_a_person_enrolls_as_a_resident() {
     let net = Network::new();
     assert_eq!(net.roles(), MockHost::roles());
     let ada = net.person("ada");
     let enroll = valset::Op::Enroll {
         address: Some("10.0.0.2:4000".into()),
+        halo: "10.0.0.2:9100".into(),
         invite: None,
     };
     let closed = net.submit(ada, valset::PROGRAM, &enroll).unwrap_err();

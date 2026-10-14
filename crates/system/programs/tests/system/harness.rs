@@ -32,14 +32,10 @@ impl Net {
             .collect()
     }
 
-    fn joined(&self, row: &RequestRow) -> Value {
+    async fn joined(&self, row: &RequestRow) -> Value {
         let mut body = Vec::new();
         for part in &row.parts {
-            let framed = self
-                .host
-                .blob(part)
-                .unwrap()
-                .expect("a part is on the network");
+            let framed = self.blob(part).await.expect("a part is on the network");
             let start = framed.iter().position(|byte| *byte == 0).unwrap() + 1;
             body.extend(&framed[start..]);
         }
@@ -138,7 +134,7 @@ fn a_mentioned_agent_answers_through_elected_providers_and_writes_as_itself() {
 
         let [thread] = net.threads(agent).await.try_into().unwrap();
         let [asked] = net.assigned(MODEL_SERVICE).await.try_into().unwrap();
-        let sent = net.joined(&asked);
+        let sent = net.joined(&asked).await;
         let text = sent["messages"][0]["content"][0]["text"].as_str().unwrap();
         assert!(
             text.contains("mentioned you in chat channel general"),
@@ -164,7 +160,7 @@ fn a_mentioned_agent_answers_through_elected_providers_and_writes_as_itself() {
         let [relay] = net.assigned(RELAY).await.try_into().unwrap();
         let [next] = net.assigned(MODEL_SERVICE).await.try_into().unwrap();
         assert_eq!(
-            net.joined(&next)["messages"][2]["content"][0]["type"],
+            net.joined(&next).await["messages"][2]["content"][0]["type"],
             "tool_result"
         );
 
@@ -192,7 +188,10 @@ fn a_mentioned_agent_answers_through_elected_providers_and_writes_as_itself() {
         let done = json!([{ "type": "text", "text": "Noted." }]);
         net.provide(next.id, model_reply(done, "end_turn")).await;
         let [last] = net.assigned(MODEL_SERVICE).await.try_into().unwrap();
-        let messages = net.joined(&last)["messages"].as_array().unwrap().clone();
+        let messages = net.joined(&last).await["messages"]
+            .as_array()
+            .unwrap()
+            .clone();
         let result = messages.last().unwrap()["content"][0]["text"]
             .as_str()
             .unwrap()

@@ -6,7 +6,7 @@
 //! It fills the kernel's programs role: each block the kernel asks
 //! `Query::At(height)` and runs what it answers. A client asks
 //! `Query::Roster`: what runs and is listed at the query's own height. An
-//! update is a `Change::Set` of published code under a running id: the
+//! update is a `Change::Set` of held code under a running id: the
 //! kernel swaps the code and keeps the program's state and account; `init`
 //! does not run again.
 //!
@@ -87,9 +87,14 @@ pub struct Pending {
 /// Whether `program` fills a role the kernel calls by its genesis binding:
 /// only the vote changes it.
 pub fn role_bound(roles: &Roles, program: &str) -> bool {
-    [&roles.programs, &roles.validators, &roles.identity]
-        .iter()
-        .any(|role| role.as_str() == program)
+    [
+        &roles.programs,
+        &roles.validators,
+        &roles.identity,
+        &roles.blobs,
+    ]
+    .iter()
+    .any(|role| role.as_str() == program)
 }
 
 /// Whether `grants` make `account` a maintainer of `program`: it holds
@@ -183,9 +188,6 @@ pub struct Scheduled {
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
-    Publish {
-        code: abi::BlobId,
-    },
     Schedule(Scheduled),
     Cancel {
         height: u64,
@@ -250,10 +252,6 @@ pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let height = |height: &u64| field("height", Value::Text(height.to_string()));
     let (title, fields) = match op {
-        Op::Publish { code } => (
-            "Publish".into(),
-            vec![field("code", Value::Hash(code.digest().to_vec()))],
-        ),
         Op::Schedule(Scheduled { height: at, change }) => {
             let mut fields = vec![
                 field("change", Value::text(change.verb())),
@@ -306,6 +304,6 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Publish", "Schedule", "Cancel", "Grant", "Revoke"]
+        ["Schedule", "Cancel", "Grant", "Revoke"]
     );
 }

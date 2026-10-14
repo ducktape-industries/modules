@@ -10,19 +10,20 @@ fn main() {
     live::run(valset::PROGRAM, |net| {
         let me = net.me();
         net.submit(me, valset::PROGRAM, &Op::Vote(Motion::Door { open: true }))?;
-        let enroll = |address: &str| Op::Enroll {
-            address: Some(address.into()),
+        let enroll = |host: &str| Op::Enroll {
+            address: Some(format!("{host}:4000")),
+            halo: format!("{host}:9100"),
             invite: None,
         };
         // a validator's node key, on an agent the dev account operates
         let vps = net.agent(me, "validator vps")?;
-        net.submit(vps, valset::PROGRAM, &enroll("10.0.0.3:4000"))?;
+        net.submit(vps, valset::PROGRAM, &enroll("10.0.0.3"))?;
         let seat = Motion::Promote {
             key: net.key_of(vps),
         };
         net.submit(me, valset::PROGRAM, &Op::Vote(seat))?;
         let ada = net.person("ada");
-        net.submit(ada, valset::PROGRAM, &enroll("10.0.0.2:4000"))?;
+        net.submit(ada, valset::PROGRAM, &enroll("10.0.0.2"))?;
         // two validators now: each of the dev key's votes waits for the other
         let promote = Motion::Promote {
             key: net.key_of(ada),

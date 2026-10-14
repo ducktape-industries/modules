@@ -108,6 +108,7 @@ fn membership(key: &[u8], address: &str, role: valset::Role) -> valset::Membersh
     valset::Membership {
         key: key.to_vec(),
         address: Some(address.into()),
+        halo: "node.example.org:9100".into(),
         role,
     }
 }

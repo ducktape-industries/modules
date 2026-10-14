@@ -10,6 +10,7 @@ fn member(key: u8, role: valset::Role) -> valset::Membership {
     valset::Membership {
         key: vec![key],
         address: Some(format!("10.0.0.{key}:4000")),
+        halo: format!("10.0.0.{key}:9100"),
         role,
     }
 }

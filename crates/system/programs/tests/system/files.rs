@@ -98,7 +98,7 @@ fn files_keeps_its_bytes_as_kernel_blobs_and_its_refs_in_state() {
         );
         assert_eq!(across.snapshot, snapshot);
         assert_eq!(net.read("/shared/a", 0, 100).await.bytes, b"hello");
-        assert!(net.host.blob(&first).unwrap().is_some());
+        assert!(net.blob(&first).await.is_some());
 
         let doomed = b"never stored".to_vec();
         let doomed_id = program::blob_id(abi::HashKind::Sha256, files::CHUNK, &doomed).unwrap();
@@ -113,7 +113,7 @@ fn files_keeps_its_bytes_as_kernel_blobs_and_its_refs_in_state() {
             net.refuse(&ada, files::PROGRAM, &refused).await,
             reason::WRONG_STATE
         );
-        assert_eq!(net.host.blob(&doomed_id).unwrap(), None);
+        assert_eq!(net.blob(&doomed_id).await, None);
         let Reply::Head(Some(head)) = net.ask(files::PROGRAM, &Query::Head).await else {
             panic!()
         };

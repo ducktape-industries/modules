@@ -1,6 +1,6 @@
 use super::*;
 
-const ALICE: AccountNumber = 6;
+const ALICE: AccountNumber = 7;
 const ALICE_KEY: u64 = 7;
 
 fn apps() -> Vec<Founding> {

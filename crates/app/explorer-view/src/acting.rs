@@ -373,7 +373,7 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
     })
 }
 
-/// A published code's id as a release names it: `sha256:<64 hex>`, or the
+/// A held code's id as a release names it: `sha256:<64 hex>`, or the
 /// hex alone.
 fn code(text: &str) -> Result<abi::BlobId, String> {
     let text = text.trim();

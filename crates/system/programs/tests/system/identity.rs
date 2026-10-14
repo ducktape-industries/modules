@@ -29,15 +29,16 @@ fn consent(
 
 /// The founding programs, in admission order: identity numbers their
 /// accounts first, so a person's account comes after them.
-const FOUNDED: [&str; 4] = [
+const FOUNDED: [&str; 5] = [
     programs::PROGRAM,
     valset::PROGRAM,
     identity::PROGRAM,
+    blobs::PROGRAM,
     "probe",
 ];
 
-/// The first person's account: the founding programs hold 1..=4.
-const ALICE: AccountNumber = 5;
+/// The first person's account: the founding programs hold 1..=5.
+const ALICE: AccountNumber = 6;
 
 impl Net {
     async fn account(&self, number: AccountNumber) -> identity::Account {
@@ -216,7 +217,7 @@ fn every_program_has_its_account_from_its_admission() {
         }
 
         // a program installed later has its account once it runs
-        let code = net.publish(&public(7), PROBE).await;
+        let code = net.hold(programs::CODE_KIND, PROBE).await;
         let lands_at = net.height + 3;
         let entry = programs::Entry {
             program: "late".into(),
@@ -565,9 +566,9 @@ fn account_lists_resume_with_the_answering_height() {
             assert_eq!(
                 numbers,
                 if managed {
-                    vec![8, 9, 10]
+                    vec![9, 10, 11]
                 } else {
-                    (1..=10).collect::<Vec<_>>()
+                    (1..=11).collect::<Vec<_>>()
                 }
             );
         }

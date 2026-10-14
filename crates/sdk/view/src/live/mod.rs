@@ -158,6 +158,7 @@ impl Network {
         identity.borrow_mut().verifier = Some(Box::new(verify));
         net.seat::<valset::Valset>(valset::PROGRAM);
         net.seat::<programs::Programs>(programs::PROGRAM);
+        net.seat::<blobs::Blobs>(blobs::PROGRAM);
         let dev = key_from_seed(DEV_SEED);
         net.0
             .borrow()
@@ -168,6 +169,7 @@ impl Network {
                     validators: vec![Member {
                         key: dev.public_key().as_ref().to_vec(),
                         address: Some("127.0.0.1:1".into()),
+                        halo: "dev.example.org:9100".into(),
                     }],
                     member_cap: 8,
                 },
@@ -281,6 +283,27 @@ impl Network {
         state.keys.insert(number, key);
         state.names.insert(name.to_owned(), number);
         Ok(number)
+    }
+
+    pub fn hold(&self, kind: &str, body: &[u8]) -> Result<abi::BlobId, Error> {
+        let framed = wire::framed(kind, body);
+        let entry = blobs::Entry::of(&framed)
+            .ok_or_else(|| Error::new(program::code::INVALID_INPUT, "a blob kind is one word"))?;
+        let id = entry.id;
+        let blob = program::Blob {
+            kind: kind.to_owned(),
+            body: body.to_vec(),
+        };
+        self.host(blobs::PROGRAM)
+            .borrow_mut()
+            .blobs
+            .insert(id, blob);
+        let me = self.me();
+        let put = blobs::Op::Put { blobs: vec![entry] };
+        let bundle: u64 =
+            methods::decode(&self.submit(me, blobs::PROGRAM, &put)?).expect("a bundle number");
+        self.submit(me, blobs::PROGRAM, &blobs::Op::Receipt { bundle })?;
+        Ok(id)
     }
 
     /// The dev account: the one the app signs in as.

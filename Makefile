@@ -19,7 +19,7 @@ DUCKTAPE ?= ../core
 # One cargo invocation per program: forge links chat and identity links
 # programs, and `-p a -p b --features program` in one call would unify
 # `program` into the other's link (two `alloc`/`call`).
-PROGRAMS := programs valset identity chat forge activity files provider attribution harness
+PROGRAMS := programs valset identity blobs chat forge activity files provider attribution harness
 
 # Views are wasm32 cdylibs. Chat and Forge ride their own programs;
 # Settings rides the programs role. These are the views that ship: `wasm-views`

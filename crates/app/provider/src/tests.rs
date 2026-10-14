@@ -64,6 +64,7 @@ fn chain() -> MockChain {
     let members = [ADA, BO].map(|key| Member {
         key: key.to_vec(),
         address: None,
+        halo: "node.example.org:9100".into(),
     });
     let genesis = Genesis {
         validators: members.to_vec(),

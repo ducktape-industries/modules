@@ -28,10 +28,15 @@ fn env(origin: Origin) -> Env {
     }
 }
 
+fn halo(n: u8) -> String {
+    format!("node-{n}.example.org:9100")
+}
+
 fn member(n: u8) -> Member {
     Member {
         key: key(n),
         address: Some(format!("node-{n}")),
+        halo: halo(n),
     }
 }
 
@@ -39,6 +44,7 @@ fn membership(n: u8, role: Role) -> Membership {
     Membership {
         key: key(n),
         address: Some(format!("node-{n}")),
+        halo: halo(n),
         role,
     }
 }
@@ -73,6 +79,7 @@ fn refused(store: &MockHost, signer: u8, op: Op) -> String {
 fn enroll(n: u8, invite: Option<Invite>) -> Op {
     Op::Enroll {
         address: Some(format!("node-{n}")),
+        halo: halo(n),
         invite,
     }
 }
@@ -237,6 +244,7 @@ fn a_member_enrolling_again_moves_its_address_and_keeps_its_role() {
     let store = founded();
     let moved = Op::Enroll {
         address: Some("elsewhere".into()),
+        halo: halo(1),
         invite: None,
     };
     run(&store, 1, moved).unwrap();
@@ -254,6 +262,7 @@ fn a_member_enrolling_without_an_address_is_held_without_one() {
     let store = founded();
     let undialed = Op::Enroll {
         address: None,
+        halo: halo(1),
         invite: None,
     };
     run(&store, 1, undialed).unwrap();
@@ -406,13 +415,44 @@ fn a_programs_motion_emits_its_op_to_the_programs_once_enacted() {
 }
 
 #[test]
-fn a_publish_is_no_motion_since_the_vote_cannot_carry_the_code_it_attaches() {
+fn a_member_registers_a_halo_address_other_members_dial_and_moves_it_alone() {
     let store = founded();
-    let op = abi::encode(&programs::Op::Publish {
-        code: abi::BlobId::Sha256([7; 32]),
-    });
-    let motion = Motion::Programs { op };
-    assert_eq!(refused(&store, 1, Op::Vote(motion)), code::INVALID_INPUT);
+    for unregistrable in [
+        "0.0.0.0:9100",
+        "[::]:9100",
+        "127.0.0.1:9100",
+        "[::1]:9100",
+        "localhost:9100",
+        "node-3.example.org",
+    ] {
+        let enroll = Op::Enroll {
+            address: None,
+            halo: unregistrable.into(),
+            invite: Some(invite(1, 1)),
+        };
+        let refusal =
+            store.refused(|| Valset::execute(&store.exec(env(Origin::Signed(key(3)))), enroll));
+        assert_eq!(refusal.code, code::INVALID_INPUT, "{unregistrable}");
+        assert!(refusal.message.starts_with("halo: "), "{refusal:?}");
+        let moved = Op::SetHalo {
+            halo: unregistrable.into(),
+        };
+        assert_eq!(refused(&store, 1, moved), code::INVALID_INPUT);
+    }
+    assert_eq!(held(&store, 3), None);
+
+    let moved = Op::SetHalo {
+        halo: "203.0.113.7:9100".into(),
+    };
+    run(&store, 1, moved.clone()).unwrap();
+    assert_eq!(
+        held(&store, 1),
+        Some(Membership {
+            halo: "203.0.113.7:9100".into(),
+            ..membership(1, Role::Validator)
+        })
+    );
+    assert_eq!(refused(&store, 7, moved), code::NOT_FOUND);
 }
 
 #[test]
