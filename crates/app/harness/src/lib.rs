@@ -1,6 +1,6 @@
 //! The `harness` program: agents that consensus runs. A manager hires an agent it handed to
 //! harness; a mention or a direct message reaches it through `attribution`, the model is
-//! asked through `provider`, and every tool call runs in a later block, as the agent.
+//! called through `provider`, and every tool call runs in a later block, as the agent.
 mod agents;
 mod anthropic;
 mod program;
@@ -15,7 +15,6 @@ pub use ::program::{BlobId, Principal};
 pub use abi::role::identity::AccountNumber;
 pub use attribution::Change;
 pub use program::Harness;
-pub use provider::Delivery;
 pub use store::{PageRequest, PageResponse};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -48,15 +47,6 @@ pub enum Op {
     },
     Close {
         thread: u64,
-    },
-    Turned {
-        thread: u64,
-        delivery: Delivery,
-    },
-    Relayed {
-        thread: u64,
-        call: String,
-        delivery: Delivery,
     },
     Attributed(Box<Change>),
 }
@@ -92,10 +82,6 @@ pub enum Body {
         stop: Stop,
         usage: Usage,
     },
-    Receipt {
-        call: String,
-        tool: String,
-    },
     Refused {
         call: String,
         tool: String,
@@ -121,10 +107,7 @@ pub enum Role {
 impl Body {
     pub fn role(&self) -> Option<Role> {
         match self {
-            Body::Post { .. }
-            | Body::Receipt { .. }
-            | Body::Refused { .. }
-            | Body::Result { .. } => Some(Role::User),
+            Body::Post { .. } | Body::Refused { .. } | Body::Result { .. } => Some(Role::User),
             Body::Turn { .. } => Some(Role::Assistant),
             Body::Notice { .. } => None,
         }
@@ -168,6 +151,7 @@ pub struct Usage {
 pub enum Asking {
     Idle,
     Asked { upto: u64 },
+    Running,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -272,21 +256,8 @@ pub enum Reply {
     Tools(Vec<ToolInfo>),
 }
 
-pub fn turned_as(thread: u64) -> Vec<u8> {
-    let mut prefix = vec![3];
-    prefix.extend(abi::encode(&thread));
-    prefix
-}
-
 pub fn attributed_as() -> Vec<u8> {
-    vec![5]
-}
-
-pub fn relayed_as(thread: u64, call: &str) -> Vec<u8> {
-    let mut prefix = vec![4];
-    prefix.extend(abi::encode(&thread));
-    prefix.extend(abi::encode(&call.to_owned()));
-    prefix
+    vec![3]
 }
 
 pub fn describe(op: &Op) -> describe::Description {
@@ -304,18 +275,6 @@ pub fn describe(op: &Op) -> describe::Description {
             vec![field("agent", Value::Account(*agent))],
         ),
         Op::Close { thread } => (format!("Close thread {thread}"), Vec::new()),
-        Op::Turned { thread, delivery } => (
-            format!("Model answer for thread {thread}"),
-            vec![field("request", Value::count(delivery.id))],
-        ),
-        Op::Relayed {
-            thread,
-            call,
-            delivery,
-        } => (
-            format!("Run tool call {call} of thread {thread}"),
-            vec![field("request", Value::count(delivery.id))],
-        ),
         Op::Attributed(change) => (
             format!("Account {} is related to an object", change.recipient),
             vec![field("change", Value::count(change.seq))],
@@ -330,39 +289,33 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        [
-            "Hire",
-            "Dismiss",
-            "Close",
-            "Turned",
-            "Relayed",
-            "Attributed"
-        ]
+        ["Hire", "Dismiss", "Close", "Attributed"]
     );
 }
 
 #[test]
-fn a_delivery_prefix_decodes_as_the_op_it_names() {
-    let delivery = Delivery {
-        id: 7,
-        service: MODEL_SERVICE.into(),
-        outcome: provider::Outcome::Expired,
+fn the_delivery_prefix_decodes_as_attributed() {
+    let change = Change {
+        seq: 7,
+        source: attribution::Source {
+            program: "chat".into(),
+            object: attribution::Object {
+                kind: "message".into(),
+                id: "m1".into(),
+            },
+        },
+        revision: 1,
+        recipient: 4,
+        reason: attribution::Reason::Mention,
+        kind: attribution::Kind::Added,
+        detail: Vec::new(),
+        actor: attribution::Actor::Account(2),
+        cause: attribution::Cause::Direct,
+        height: 1,
     };
-    let turned = provider::Delivery::payload(&turned_as(5), &delivery);
+    let delivered = Change::payload(&attributed_as(), &change);
     assert_eq!(
-        abi::decode::<Op>(&turned).unwrap(),
-        Op::Turned {
-            thread: 5,
-            delivery: delivery.clone()
-        }
-    );
-    let relayed = provider::Delivery::payload(&relayed_as(5, "toolu_1"), &delivery);
-    assert_eq!(
-        abi::decode::<Op>(&relayed).unwrap(),
-        Op::Relayed {
-            thread: 5,
-            call: "toolu_1".into(),
-            delivery
-        }
+        abi::decode::<Op>(&delivered).unwrap(),
+        Op::Attributed(Box::new(change))
     );
 }

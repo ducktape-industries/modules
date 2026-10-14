@@ -33,4 +33,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+awaits = { workspace = true }
 valset = { workspace = true }

@@ -86,6 +86,7 @@ pub struct Called {
     pub ticket: Ticket,
     pub target: ProgramId,
     pub payload: Vec<u8>,
+    pub acting: Option<AccountNumber>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -347,13 +348,18 @@ impl MockHost {
                 mock.response = bytes;
                 HostReply::Done
             }
-            HostOp::Await { target, payload } => {
+            HostOp::Await {
+                target,
+                payload,
+                acting,
+            } => {
                 let ticket = mock.next_ticket;
                 mock.next_ticket += 1;
                 mock.calls.push(Called {
                     ticket,
                     target,
                     payload,
+                    acting,
                 });
                 HostReply::Ticket(ticket)
             }

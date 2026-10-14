@@ -39,6 +39,7 @@ pub const MAX_DEPTH: u32 = 8;
 /// [`crate::query`] of one `Program`, over the context the chain makes.
 type Entry<Ctx> = Rc<dyn Fn(Ctx, &[u8]) -> Result<(), Error>>;
 type Execute = Rc<dyn Fn(ExecCtx, &[u8]) -> Step>;
+type Sender = Result<Option<Principal>, Error>;
 
 /// A program seated on the chain: its host and its entry points, typed away
 /// so the chain holds any program.
@@ -472,11 +473,21 @@ impl MockChain {
         Ok(account.map(Principal::Account))
     }
 
-    fn run_by(
-        &self,
-        program: &ProgramId,
-        account: AccountNumber,
-    ) -> Result<Option<Principal>, Error> {
+    fn own_sender(&self, program: &ProgramId, asked: bool) -> Sender {
+        match asked {
+            true => self.account(Query::OfProgram(program.clone())),
+            false => Ok(None),
+        }
+    }
+
+    fn sender(&self, program: &ProgramId, acting: Option<AccountNumber>, own: &Sender) -> Sender {
+        match acting {
+            None => own.clone(),
+            Some(account) => self.run_by(program, account),
+        }
+    }
+
+    fn run_by(&self, program: &ProgramId, account: AccountNumber) -> Sender {
         let asked = Query::Runs {
             program: program.clone(),
             account,
@@ -565,21 +576,13 @@ impl MockChain {
     ) -> Result<(), Error> {
         // the emitter's account, asked once for all its messages
         let as_itself = emitted.iter().any(|message| message.acting.is_none());
-        let emitter = if as_itself {
-            self.account(Query::OfProgram(env.program.clone()))
-        } else {
-            Ok(None)
-        };
+        let emitter = self.own_sender(&env.program, as_itself);
         for (seq, message) in emitted.into_iter().enumerate() {
             let id = MessageId {
                 program: env.program.clone(),
                 seq: first + seq as u64,
             };
-            let sender = match message.acting {
-                None => emitter.clone(),
-                Some(account) => self.run_by(&env.program, account),
-            };
-            let ran = match sender {
+            let ran = match self.sender(&env.program, message.acting, &emitter) {
                 Err(refusal) => Run::finished(Err(refusal)),
                 Ok(sender) => {
                     let env = self.nested(
@@ -691,14 +694,16 @@ impl MockChain {
         if calls.is_empty() {
             return;
         }
-        let caller = self.account(Query::OfProgram(env.program.clone()));
+        let as_itself = calls.iter().any(|call| call.acting.is_none());
+        let caller = self.own_sender(&env.program, as_itself);
         for Called {
             ticket,
             target,
             payload,
+            acting,
         } in calls
         {
-            let ran = match caller.clone() {
+            let ran = match self.sender(&env.program, acting, &caller) {
                 Err(refusal) => Run::finished(Err(refusal)),
                 Ok(sender) => {
                     let env =

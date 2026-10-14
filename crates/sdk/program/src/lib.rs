@@ -60,7 +60,7 @@ pub use abi::hook;
 pub use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, Message, Root, Scheme,
 };
-pub use awaiting::{Awaiting, Ctx};
+pub use awaiting::{Awaiting, Ctx, all};
 #[cfg(not(target_arch = "wasm32"))]
 pub use chain::{MAX_DEPTH, MockChain, Roster};
 pub use ctx::{ExecCtx, QueryCtx, Reply};

@@ -1,5 +1,6 @@
 //! Programs whose execute awaits other programs: [`Awaiting`], the owned [`Ctx`] it runs with,
-//! the [`Call`] future a call is, and the executor that polls a frame and parks it while it waits.
+//! the [`Call`] future a call is, [`all`] for calls awaited together, and the executor that polls
+//! a frame and parks it while it waits.
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -12,7 +13,7 @@ use abi::{HostOp, HostReply};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::ctx::Frame;
-use crate::{Cause, Env, Error, ExecCtx, Program, ProgramId, Ticket, decoded};
+use crate::{AccountNumber, Cause, Env, Error, ExecCtx, Program, ProgramId, Ticket, decoded};
 
 pub type Answer = Result<Vec<u8>, Error>;
 
@@ -36,15 +37,29 @@ impl Deref for Ctx {
 }
 
 impl Ctx {
-    pub fn call_raw(&self, target: impl Into<ProgramId>, payload: impl Into<Vec<u8>>) -> Call {
+    fn unsent(&self, target: ProgramId, payload: Vec<u8>, acting: Option<AccountNumber>) -> Call {
         Call {
             frame: self.exec.frame().clone(),
             answers: self.answers.clone(),
             state: State::Unsent {
-                target: target.into(),
-                payload: payload.into(),
+                target,
+                payload,
+                acting,
             },
         }
+    }
+
+    pub fn call_raw(&self, target: impl Into<ProgramId>, payload: impl Into<Vec<u8>>) -> Call {
+        self.unsent(target.into(), payload.into(), None)
+    }
+
+    pub fn call_raw_as(
+        &self,
+        account: AccountNumber,
+        target: impl Into<ProgramId>,
+        payload: impl Into<Vec<u8>>,
+    ) -> Call {
+        self.unsent(target.into(), payload.into(), Some(account))
     }
 
     pub async fn call<O: BorshSerialize, R: BorshDeserialize>(
@@ -55,6 +70,43 @@ impl Ctx {
         let answer = self.call_raw(target, abi::encode(op)).await?;
         abi::decode(&answer).map_err(crate::kernel::error_from)
     }
+
+    pub async fn call_as<O: BorshSerialize, R: BorshDeserialize>(
+        &self,
+        account: AccountNumber,
+        target: impl Into<ProgramId>,
+        op: &O,
+    ) -> Result<R, Error> {
+        let answer = self.call_raw_as(account, target, abi::encode(op)).await?;
+        abi::decode(&answer).map_err(crate::kernel::error_from)
+    }
+}
+
+type Pending<F> = (Pin<Box<F>>, Option<<F as Future>::Output>);
+
+pub async fn all<F: Future>(futures: impl IntoIterator<Item = F>) -> Vec<F::Output> {
+    let mut pending: Vec<Pending<F>> = futures
+        .into_iter()
+        .map(|future| (Box::pin(future), None))
+        .collect();
+    std::future::poll_fn(|context| {
+        for (future, output) in pending.iter_mut() {
+            let waiting = output.is_none();
+            if waiting && let Poll::Ready(ready) = future.as_mut().poll(context) {
+                *output = Some(ready);
+            }
+        }
+        let every = pending.iter().all(|(_, output)| output.is_some());
+        match every {
+            true => Poll::Ready(()),
+            false => Poll::Pending,
+        }
+    })
+    .await;
+    pending
+        .into_iter()
+        .filter_map(|(_, output)| output)
+        .collect()
 }
 
 pub struct Call {
@@ -64,13 +116,22 @@ pub struct Call {
 }
 
 enum State {
-    Unsent { target: ProgramId, payload: Vec<u8> },
+    Unsent {
+        target: ProgramId,
+        payload: Vec<u8>,
+        acting: Option<AccountNumber>,
+    },
     Waiting(Ticket),
 }
 
 impl Call {
     fn ticket(&mut self) -> Result<Ticket, Error> {
-        let State::Unsent { target, payload } = &mut self.state else {
+        let State::Unsent {
+            target,
+            payload,
+            acting,
+        } = &mut self.state
+        else {
             let State::Waiting(ticket) = self.state else {
                 unreachable!("a call is unsent or waiting")
             };
@@ -79,6 +140,7 @@ impl Call {
         let op = HostOp::Await {
             target: std::mem::take(target),
             payload: std::mem::take(payload),
+            acting: *acting,
         };
         let ticket = match self.frame.host(op) {
             HostReply::Ticket(ticket) => ticket,

@@ -460,7 +460,7 @@ dependencies = [
 [[package]]
 name = "blob"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=18fd53e904e5c38c34ff4d0123994db2ba4aaf6a#18fd53e904e5c38c34ff4d0123994db2ba4aaf6a"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
 dependencies = [
  "abi",
  "borsh",
@@ -2604,6 +2604,7 @@ dependencies = [
  "abi",
  "activity",
  "attribution",
+ "awaits",
  "borsh",
  "chat",
  "describe",
@@ -2698,7 +2699,7 @@ dependencies = [
 [[package]]
 name = "host"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=18fd53e904e5c38c34ff4d0123994db2ba4aaf6a#18fd53e904e5c38c34ff4d0123994db2ba4aaf6a"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
 dependencies = [
  "abi",
  "async-trait",
@@ -3156,7 +3157,7 @@ dependencies = [
 [[package]]
 name = "keyscheme"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=18fd53e904e5c38c34ff4d0123994db2ba4aaf6a#18fd53e904e5c38c34ff4d0123994db2ba4aaf6a"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
 dependencies = [
  "base64 0.22.1",
  "borsh",
@@ -4263,6 +4264,7 @@ name = "provider"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "awaits",
  "borsh",
  "describe",
  "program",
@@ -4746,7 +4748,7 @@ dependencies = [
 [[package]]
 name = "runtime"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=18fd53e904e5c38c34ff4d0123994db2ba4aaf6a#18fd53e904e5c38c34ff4d0123994db2ba4aaf6a"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
 dependencies = [
  "abi",
  "async-trait",
@@ -5261,7 +5263,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "state"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=18fd53e904e5c38c34ff4d0123994db2ba4aaf6a#18fd53e904e5c38c34ff4d0123994db2ba4aaf6a"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
 dependencies = [
  "abi",
  "borsh",

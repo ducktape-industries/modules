@@ -239,7 +239,7 @@ impl Tool for Post {
             blocks: chat::parse_message(&args.text),
             thread: args.reply_to,
         };
-        Ok(Run::Emit {
+        Ok(Run::Write {
             target: chat::PROGRAM.into(),
             payload: abi::encode(&op),
         })
@@ -278,7 +278,7 @@ impl Tool for React {
             seq: args.seq,
             emoji: args.emoji,
         };
-        Ok(Run::Emit {
+        Ok(Run::Write {
             target: chat::PROGRAM.into(),
             payload: abi::encode(&op),
         })

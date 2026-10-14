@@ -23,7 +23,7 @@ pub(crate) struct Seat<'a> {
 
 pub(crate) enum Run {
     Done(Value),
-    Emit { target: ProgramId, payload: Vec<u8> },
+    Write { target: ProgramId, payload: Vec<u8> },
 }
 
 pub(crate) trait Tool {

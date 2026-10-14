@@ -1,6 +1,5 @@
-//! The program: every op and every query, each handed to its rule. A delivery the
-//! requester refuses is absorbed, so a requester never fails its provider's answer.
-use ::program::{Error, ExecCtx, MessageId, Outcome, Program, QueryCtx};
+//! The program: every op and every query, each handed to its rule.
+use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::rules::{
     answer, assigned, expire, overdue, providers, request, request_row, serve, serving,
@@ -22,10 +21,6 @@ impl Program for Provider {
             Op::Answer { id, answer: given } => answer(ctx, id, given),
             Op::Expire { id } => expire(ctx, id),
         }
-    }
-
-    fn reply(_ctx: &ExecCtx, _id: &MessageId, _outcome: &Outcome) -> Result<(), Error> {
-        Ok(())
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
