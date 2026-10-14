@@ -2114,6 +2114,7 @@ dependencies = [
  "ducklink",
  "ducktape-view-guest",
  "forge",
+ "founding",
  "futures",
  "gitcore",
  "program",

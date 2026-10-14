@@ -113,8 +113,9 @@ merge-base diff, first use `Compare.base`, then `Diff { base, head: from, ... }`
 An optional path selects one exact changed file. Each file carries old/new paths,
 OIDs, modes, sizes, status, content classification, additions/deletions and hunks.
 Renames appear as delete/add, with no heuristic rename tracking. Gitlinks have
-headers, not blob reads. Binary/oversize files have no hunks; line stats are zero
-and not applicable to those classifications.
+headers, not blob reads. A file is `Oversize` when either side is above
+`blob_bytes` or its edit is too long to search under `merge_cost`. Binary/oversize
+files have no hunks; line stats are zero and not applicable to those classifications.
 
 Hunks have three context lines on each edge. A range starts at a **one-based**
 line, except a zero-length range names the preceding line (0 at file start).
@@ -174,8 +175,10 @@ refuses rather than inventing partial ancestry; each page repeats the bounded
 walk. `tree_walk` bounds object reads in tree/blob/diff queries; log and compare
 have derived read budgets (`2 * log_walk + 1` and `8 * log_walk + tree_walk`).
 `diff_bytes` bounds aggregate object bytes read, including metadata; existing
-`merge_cost` bounds Myers edit distance per file. `record_bytes` bounds each
-encoded change/review; `MAX_REVIEW_COMMENTS`, `MAX_REVIEWERS`, `MAX_TITLE_BYTES`,
+`merge_cost` bounds the Myers edit distance searched per file: the common head and
+tail are matched first and a one-sided middle (a file added, deleted or grown in one
+place) is not searched; a file past it is answered `Oversize`, the rest of its page
+comes. `record_bytes` bounds each encoded change/review; `MAX_REVIEW_COMMENTS`, `MAX_REVIEWERS`, `MAX_TITLE_BYTES`,
 `MAX_PATH_BYTES` and `MAX_REPO_NAME`
 are exported contract constants; a configured head is at most `MAX_PATH_BYTES`. Repo names
 are at most `MAX_REPO_NAME`, derived from chat's `MAX_ID_BYTES` so even `forge:<repo>:<u64::MAX>` fits.

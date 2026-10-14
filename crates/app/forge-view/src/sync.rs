@@ -208,6 +208,7 @@ impl Forge {
         let needed = self.needed();
         let keys: BTreeSet<&Query> = needed.iter().collect();
         self.data.retain(|query, _| keys.contains(query));
+        self.diff_cache.drop_unshared();
         self.logs.retain(|query, _| keys.contains(query));
         self.rereading.retain(|query, _| keys.contains(query));
         for query in needed {

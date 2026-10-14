@@ -16,7 +16,9 @@ pub struct Bounds {
     pub max_object_size: u64,
     pub push_walk: u64,
     pub fetch_walk: u64,
-    /// Maximum Myers edit distance for one file.
+    /// Largest edit distance searched for one file's diff; a file past it
+    /// is answered `Oversize`, without hunks. A one-sided edit (a file
+    /// added, deleted or grown in one place) costs nothing.
     pub merge_cost: u64,
     pub page_size: u32,
     /// Maximum commits in a history/compare walk; a log's `exclude` side

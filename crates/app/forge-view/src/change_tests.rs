@@ -437,6 +437,40 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     view.read(|forge| assert!(forge.nav().diff_path.is_none()));
 }
 
+/// A change the size of a release opens: its files list, the first file's
+/// lines on screen, and a list the host draws whole, closed by a row that
+/// names the files past the host's ceiling (each opens from the list).
+#[test]
+fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
+    let (mut cx, _view) = change_screen("release", ChangeTab::Files);
+    assert!(cx.has_text("100 files · +100000 −0"), "{:?}", cx.texts());
+    assert!(cx.has_text("src/gen/file_000.rs · added · +1000 −0"));
+    assert!(cx.has_text("pub fn f0_0(x: u64) -> u64 { x ^ 0 }"));
+    let Some(wire::Node::UniformList { count, .. }) = cx.find("forge-diff") else {
+        panic!("the diff list");
+    };
+    // 65 files of 1002 rows and the closing row fit the host's ceiling
+    let count = *count;
+    assert_eq!(count, 65 * 1002 + 1);
+    cx.simulate_range("forge-diff", count - 20..count);
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("35 more files not drawn here: open one from the file list"),
+        "{:?}",
+        cx.texts()
+    );
+    // a file past the ceiling opens alone from the list
+    cx.simulate_click("forge-file-src/gen/file_099.rs-open");
+    cx.run_until_parked();
+    assert!(
+        cx.texts()
+            .iter()
+            .any(|text| text.starts_with("pub fn f99_")),
+        "{:?}",
+        cx.texts()
+    );
+}
+
 #[test]
 fn the_diff_draws_typed_lines_and_believes_the_program_about_a_literal_plus_plus() {
     let (cx, _view) = change_screen("reviewed", ChangeTab::Files);
