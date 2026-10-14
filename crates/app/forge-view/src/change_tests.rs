@@ -449,13 +449,14 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
     let Some(wire::Node::UniformList { count, .. }) = cx.find("forge-diff") else {
         panic!("the diff list");
     };
-    // 65 files of 1002 rows and the closing row fit the host's ceiling
+    // 64 files of 1002 rows and the closing row fit under the host's
+    // ceiling with the room kept for comments
     let count = *count;
-    assert_eq!(count, 65 * 1002 + 1);
+    assert_eq!(count, 64 * 1002 + 1);
     cx.simulate_range("forge-diff", count - 20..count);
     cx.run_until_parked();
     assert!(
-        cx.has_text("35 more files not drawn here: open one from the file list"),
+        cx.has_text("36 more files not drawn here: open one from the file list"),
         "{:?}",
         cx.texts()
     );
@@ -466,6 +467,48 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
         cx.texts()
             .iter()
             .any(|text| text.starts_with("pub fn f99_")),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+/// A diff that fills the host's list still has room for what readers
+/// write: the composer opens on any line, comments are drawn while they
+/// fit, and the ones past that are counted at the list's end, never
+/// silently gone; the list stays under the host's ceiling.
+#[test]
+fn comments_past_the_lists_room_are_counted_at_its_end() {
+    let (mut cx, view) = change_screen("release", ChangeTab::Files);
+    let path = b"src/gen/file_000.rs".to_vec();
+    // 64 long comments, 30 rows a box: more than the room the diff leaves
+    let body = "word ".repeat(400);
+    cx.update(&view, |forge, _, cx| {
+        forge.start_review(cx);
+        let review = forge.review_mut().expect("a review");
+        for line in 1..=64 {
+            review.stage(crate::state::PendingComment {
+                path: path.clone(),
+                new_side: true,
+                line,
+                body: ducktape_view_guest::TextField::new(body.clone()),
+            });
+        }
+    });
+    // the composer on the last of them, past where the comments run out
+    cx.update(&view, |forge, window, cx| {
+        forge.open_comment(path.clone(), true, 64, window, cx)
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-comment-body").is_some(),
+        "the composer opens"
+    );
+    let (count, _) = diff_rows(&cx);
+    assert!(count <= wire::MAX_UNIFORM_LIST_COUNT, "{count}");
+    cx.simulate_range("forge-diff", count - 3..count);
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("17 more comments not drawn here"),
         "{:?}",
         cx.texts()
     );

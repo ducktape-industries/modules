@@ -84,10 +84,16 @@ struct FileRows {
     hunks: Vec<(usize, usize)>,
 }
 
-/// The most rows one list may hold on the host, by the wire. A diff past
-/// it lays out whole files up to it and closes with a row naming the rest;
-/// a file past it shown alone draws its lines up to it, the rest counted.
+/// The most rows one list may hold on the host, by the wire: the diff's
+/// own rows and the notes after its lines share them.
 const LIST_CEILING: usize = ducktape_view_guest::wire::MAX_UNIFORM_LIST_COUNT;
+/// The rows of the list kept for notes ([`Notes`]): however long the diff,
+/// the open composer and a few hundred comment boxes fit beside it.
+const NOTE_ROOM: usize = 1024;
+/// The most rows a diff lays out. A diff past it lays out whole files up to
+/// it and closes with a row naming the rest; a file past it shown alone
+/// draws its lines up to it, the rest counted.
+const ROWS_CEILING: usize = LIST_CEILING - NOTE_ROOM;
 
 /// The rows of the diff on screen, by the reply landed and the one file
 /// shown, if one: the same reply lays out the same, so a frame reuses them.
@@ -126,7 +132,7 @@ impl DiffCache {
 
 impl Rows {
     /// Lays out the files of the reply (one, under `only`) in order, whole
-    /// files while they fit the list ceiling with the closing row; the one
+    /// files while they fit [`ROWS_CEILING`] with the closing row; the one
     /// file under `only` up to that ceiling.
     fn layout(reply: Rc<Reply>, only: Option<&[u8]>) -> Rows {
         let mut rows = Rows {
@@ -154,7 +160,7 @@ impl Rows {
                     .map(|hunk| 1 + hunk.lines.len())
                     .sum::<usize>()
                 + usize::from(file.hunks.is_empty());
-            let fits = rows.count + span < LIST_CEILING;
+            let fits = rows.count + span < ROWS_CEILING;
             if rows.left_out > 0 || (!fits && only.is_none()) {
                 rows.left_out += 1;
                 continue;
@@ -169,7 +175,7 @@ impl Rows {
             for hunk in &file.hunks {
                 // the rows left before the closing row, this hunk's header
                 // first; only a file shown alone runs out of them
-                let room = (LIST_CEILING - 1).saturating_sub(row + 1);
+                let room = (ROWS_CEILING - 1).saturating_sub(row + 1);
                 let shown = hunk.lines.len().min(room);
                 rows.cut_lines += hunk.lines.len() - shown;
                 if room == 0 {
@@ -342,6 +348,8 @@ enum NoteKind {
     /// the composer's field, then its error and buttons
     Field,
     Actions,
+    /// after the list's last row: the notes there was no room for
+    Closing(String),
 }
 
 /// A list index: one of the diff's own rows, or a row of a note.
@@ -400,30 +408,63 @@ impl Notes {
                 boxed("forge-comment", parts),
             );
         }
-        Notes::laid(zones, LIST_CEILING.saturating_sub(rows.count))
+        let last = rows.count.saturating_sub(1);
+        Notes::laid(zones, LIST_CEILING.saturating_sub(rows.count), last)
     }
 
-    /// Each line's note rows after it, in row order, while they fit `room`.
-    // ponytail: the notes of a diff laid out up to the list ceiling take
-    // what room is left; a line's notes past it are not drawn inline (the
-    // file list and the review bar still count them).
-    fn laid(zones: BTreeMap<usize, Vec<NoteRow>>, room: usize) -> Notes {
+    /// Each line's note rows after it, in row order, while they fit `room`:
+    /// the open composer's first, as it is where the keys go. The boxes past
+    /// the first that does not fit are counted in a row of their own after
+    /// `last`, the list's last row, for which one row of the room is kept.
+    // ponytail: the room is what the diff leaves under the list ceiling, at
+    // least [`NOTE_ROOM`]; notes past it on a diff that long are counted at
+    // its end, not drawn (opened alone, their file has room for them).
+    fn laid(zones: BTreeMap<usize, Vec<NoteRow>>, room: usize, last: usize) -> Notes {
+        let composes =
+            |zone: &[NoteRow]| zone.iter().any(|note| matches!(note.kind, NoteKind::Field));
+        let mut left = room.saturating_sub(1);
+        let composer = zones
+            .values()
+            .find(|zone| composes(zone))
+            .map(Vec::len)
+            .filter(|rows| *rows <= left);
+        left -= composer.unwrap_or(0);
         let mut notes = Notes::default();
-        let mut added = 0;
+        let (mut added, mut left_out) = (0, 0);
         for (row, rows_of_zone) in zones {
-            if added + rows_of_zone.len() > room {
+            let fits = if composes(&rows_of_zone) {
+                composer.is_some()
+            } else if left_out == 0 && rows_of_zone.len() <= left {
+                left -= rows_of_zone.len();
+                true
+            } else {
+                false
+            };
+            if !fits {
+                let boxes = rows_of_zone.iter().filter(|note| note.first).count();
+                left_out += boxes - usize::from(composes(&rows_of_zone));
                 continue;
             }
             notes.before.push(added);
             notes.starts.push(row + 1 + added);
-            if rows_of_zone
-                .iter()
-                .any(|note| matches!(note.kind, NoteKind::Field))
-            {
+            if composes(&rows_of_zone) {
                 notes.composer = Some(row + added + rows_of_zone.len());
             }
             added += rows_of_zone.len();
             notes.zones.push((row, rows_of_zone));
+        }
+        if left_out > 0 {
+            let text = design::plural(left_out as u64, "more comment", "more comments");
+            notes.before.push(added);
+            notes.starts.push(last + 1 + added);
+            notes.zones.push((
+                last,
+                boxed(
+                    "forge-diff-notes-left-out",
+                    [NoteKind::Closing(format!("{text} not drawn here"))],
+                ),
+            ));
+            added += 1;
         }
         notes.before.push(added);
         notes
@@ -944,6 +985,18 @@ fn line_row(
 /// One row of a note box, under the line it is on: the box's edges, and
 /// what this row of it holds.
 fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyElement {
+    if let NoteKind::Closing(text) = &note.kind {
+        // drawn as the diff's own closing row is
+        return div()
+            .id(id(note.key.clone()))
+            .w_full()
+            .px(design::space::BLOCK)
+            .font_family(design::fonts::FAMILY_MONO)
+            .text_size(design::text::CAPTION)
+            .text_color(theme.faint)
+            .child(text.clone())
+            .into_any_element();
+    }
     let slice = div()
         .flex_1()
         .min_w(px(0.))
@@ -1027,7 +1080,7 @@ fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyEl
                     .kind(design::Kind::Primary),
                 )
         }
-        (NoteKind::Field | NoteKind::Actions, None) => slice,
+        (NoteKind::Field | NoteKind::Actions, None) | (NoteKind::Closing(_), _) => slice,
     };
     div()
         .id(id(note.key.clone()))
@@ -1224,16 +1277,17 @@ mod tests {
     fn a_diff_past_the_list_ceiling_closes_with_the_files_left_out() {
         let lines: Vec<String> = (0..1000).map(|n| n.to_string()).collect();
         let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
-        // 70 files of 1002 rows each: 65 fit under 65,536 with the closing row
+        // 70 files of 1002 rows each: 64 fit under 64,512 with the closing
+        // row, the rest of the list's 65,536 kept for notes
         let files = (0..70).map(|n| file(&format!("f{n}.rs"), &lines)).collect();
         let rows = Rows::layout(reply(files), None);
-        assert_eq!(rows.left_out, 5);
-        assert_eq!(rows.count, 65 * 1002 + 1);
-        assert!(rows.count <= LIST_CEILING);
+        assert_eq!(rows.left_out, 6);
+        assert_eq!(rows.count, 64 * 1002 + 1);
+        assert!(rows.count <= ROWS_CEILING);
         let closing = rows.painted(rows.count - 1);
         assert_eq!(
             closing.text,
-            "5 more files not drawn here: open one from the file list"
+            "6 more files not drawn here: open one from the file list"
         );
         assert_eq!(rows.painted(rows.count - 2).text, "999");
     }
@@ -1249,13 +1303,13 @@ mod tests {
         let whole = Rows::layout(diff.clone(), None);
         assert_eq!((whole.count, whole.left_out), (1, 2));
         let alone = Rows::layout(diff, Some(b"data.txt"));
-        assert_eq!(alone.count, LIST_CEILING);
-        assert_eq!(alone.lines, LIST_CEILING - 3);
+        assert_eq!(alone.count, ROWS_CEILING);
+        assert_eq!(alone.lines, ROWS_CEILING - 3);
         assert_eq!(
             alone.painted(alone.count - 1).text,
-            "4,467 more lines not drawn here"
+            "5,491 more lines not drawn here"
         );
-        assert_eq!(alone.painted(alone.count - 2).text, "65532");
+        assert_eq!(alone.painted(alone.count - 2).text, "64508");
         assert_eq!(alone.row_of_line(alone.lines - 1), alone.count - 2);
     }
 
@@ -1293,7 +1347,7 @@ mod tests {
     #[test]
     fn note_rows_follow_their_line() {
         let zone = |rows: usize| boxed("n", (0..rows).map(|_| NoteKind::Text(String::new())));
-        let notes = Notes::laid(BTreeMap::from([(2, zone(3)), (5, zone(2))]), 100);
+        let notes = Notes::laid(BTreeMap::from([(2, zone(3)), (5, zone(2))]), 100, 6);
         assert_eq!(notes.added(), 5);
         let drawn: Vec<String> = (0..12)
             .map(|index| match notes.slot(index) {
@@ -1310,9 +1364,77 @@ mod tests {
         for (row, index) in [(0, 0), (2, 2), (3, 6), (5, 8), (6, 11)] {
             assert_eq!(notes.index_of(row), index, "row {row}");
         }
-        // a zone that does not fit the room left under the ceiling waits
-        let full = Notes::laid(BTreeMap::from([(2, zone(3)), (5, zone(2))]), 4);
-        assert_eq!((full.added(), full.zones.len()), (3, 1));
+    }
+
+    /// Notes take the room the diff leaves under the list ceiling and no
+    /// more: the open composer first, then each line's notes in order until
+    /// one does not fit; what is left out is counted after the last row.
+    #[test]
+    fn notes_past_their_room_are_counted_not_dropped() {
+        let comment = |key: &str| {
+            boxed(
+                key,
+                [
+                    NoteKind::Head(String::new(), false),
+                    NoteKind::Text(String::new()),
+                ],
+            )
+        };
+        let composer = boxed(
+            "c",
+            [
+                NoteKind::Head(String::new(), false),
+                NoteKind::Field,
+                NoteKind::Actions,
+            ],
+        );
+        let mut two = comment("a");
+        two.extend(comment("b"));
+        let zones = BTreeMap::from([
+            (2, two),
+            (5, comment("d")),
+            (7, composer),
+            (8, comment("e")),
+        ]);
+        // 8 rows: one kept for the count, the composer's 3, then line 2's 4;
+        // line 5's 2 do not fit, and line 8's come after them
+        let notes = Notes::laid(zones, 8, 9);
+        let drawn: Vec<String> = (0..18)
+            .map(|index| match notes.slot(index) {
+                Slot::Row(row) => format!("r{row}"),
+                Slot::Note(note) => note.key.clone(),
+            })
+            .collect();
+        assert_eq!(
+            drawn,
+            [
+                "r0",
+                "r1",
+                "r2",
+                "a-0",
+                "a-1",
+                "b-0",
+                "b-1",
+                "r3",
+                "r4",
+                "r5",
+                "r6",
+                "r7",
+                "c-0",
+                "c-1",
+                "c-2",
+                "r8",
+                "r9",
+                "forge-diff-notes-left-out-0"
+            ]
+        );
+        assert_eq!(notes.composer, Some(14));
+        let Slot::Note(closing) = notes.slot(17) else {
+            panic!("the count");
+        };
+        assert!(
+            matches!(&closing.kind, NoteKind::Closing(text) if text == "2 more comments not drawn here")
+        );
     }
 
     /// A note's text breaks between words under the budget, keeps its own
