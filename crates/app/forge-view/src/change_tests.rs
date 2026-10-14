@@ -794,19 +794,27 @@ fn a_comment_takes_rows_of_its_own_under_its_line() {
     let next = keys_from(&cx, line + 1, 1).remove(0);
     cx.simulate_click("forge-gutter-src/lib.rs-old-1");
     cx.run_until_parked();
-    assert_eq!(diff_rows(&cx).0, count + 3);
+    assert_eq!(diff_rows(&cx).0, count + 5);
     assert_eq!(
-        keys_from(&cx, line + 1, 4),
+        keys_from(&cx, line + 1, 6),
         [
             "forge-comment-0",
             "forge-comment-1",
             "forge-comment-2",
+            "forge-comment-3",
+            "forge-comment-4",
             &next
         ],
         "the composer, then the next line"
     );
+    // where it anchors, the field, its error's line, the buttons, and a row
+    // of room: the buttons clear both the field and the box's edge
     assert_eq!(row_holding(&cx, "forge-comment-body"), line + 2);
+    assert_eq!(row_holding(&cx, "forge-comment-error"), line + 3);
+    assert_eq!(row_holding(&cx, "forge-comment-save"), line + 4);
     cx.simulate_input("forge-comment-body", "rename this");
+    cx.run_until_parked();
+    assert_eq!(diff_rows(&cx).0, count + 5, "typing moves no row");
     cx.simulate_click("forge-comment-save");
     cx.run_until_parked();
     assert_eq!(diff_rows(&cx).0, count + 2);

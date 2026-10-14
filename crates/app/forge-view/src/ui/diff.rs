@@ -29,6 +29,11 @@ const MARKER_W: Pixels = px(12.);
 /// A reviewable diff's row: its gutter's press target. Every row of it,
 /// a note's included, is this tall, so a note's rows meet edge to edge.
 const ROW_H: Pixels = PRESS_TARGET;
+/// The composer's buttons' label line: on it an SDK button, its padding
+/// and edge around the label, is a row tall (measured on the host); on the
+/// text's own line it is 27 px and stood past its row, onto the field's
+/// edge above and the box's below.
+const BUTTON_LINE: Pixels = px(16.);
 /// How wide a note box grows.
 const NOTE_W: Pixels = px(520.);
 /// What one line of a note box holds, in character widths (a wide CJK
@@ -346,8 +351,9 @@ enum NoteKind {
     /// review was pinned at another head
     Head(String, bool),
     Text(String),
-    /// the composer's field, then its error and buttons
+    /// the composer's field, the line its error shows on, and its buttons
     Field,
+    Error,
     Actions,
     /// after the list's last row: the notes there was no room for
     Closing(String),
@@ -397,16 +403,11 @@ impl Notes {
             place(&draft.path, draft.new_side, draft.line, rows_of_box);
         }
         if let Some(open) = open {
-            let parts = [
-                NoteKind::Head(open.anchor(), false),
-                NoteKind::Field,
-                NoteKind::Actions,
-            ];
             place(
                 &open.path,
                 open.new_side,
                 open.line,
-                boxed("forge-comment", parts),
+                boxed("forge-comment", composer_parts(open.anchor())),
             );
         }
         let last = rows.count.saturating_sub(1);
@@ -501,6 +502,20 @@ impl Notes {
 
 /// A box's rows, keyed under `key`: its parts in order, the first its top
 /// edge and the last its bottom.
+/// The open composer's rows, under where it anchors: its field, its error's
+/// line, its buttons, then a row of room. On rows one height the gaps are
+/// rows too: the buttons clear the field by the error's line and the box's
+/// edge by the last row, and typing or an error moves none of them.
+fn composer_parts(anchor: String) -> [NoteKind; 5] {
+    [
+        NoteKind::Head(anchor, false),
+        NoteKind::Field,
+        NoteKind::Error,
+        NoteKind::Actions,
+        NoteKind::Text(String::new()),
+    ]
+}
+
 fn boxed(key: &str, parts: impl IntoIterator<Item = NoteKind>) -> Vec<NoteRow> {
     let mut rows: Vec<NoteRow> = parts
         .into_iter()
@@ -1099,7 +1114,6 @@ fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyEl
         (NoteKind::Field, Some(composer)) => {
             let stage = composer.stage.clone();
             slice.child(
-                // short of the row, so the buttons under it clear its edge
                 Input::new(id("forge-comment-body"), &composer.body, "Line comment")
                     .h(ROW_H - px(4.))
                     .flex_1()
@@ -1115,19 +1129,21 @@ fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyEl
                     }),
             )
         }
+        (NoteKind::Error, Some(composer)) => slice.child(
+            div()
+                .id(id("forge-comment-error"))
+                .flex_1()
+                .min_w(px(0.))
+                .truncate()
+                .text_size(design::text::SECONDARY)
+                .text_color(theme.danger)
+                .child(composer.error.clone()),
+        ),
         (NoteKind::Actions, Some(composer)) => {
             let (stage, cancel) = (composer.stage.clone(), composer.cancel.clone());
             slice
-                .child(
-                    div()
-                        .id(id("forge-comment-error"))
-                        .flex_1()
-                        .min_w(px(0.))
-                        .truncate()
-                        .text_size(design::text::SECONDARY)
-                        .text_color(theme.danger)
-                        .child(composer.error.clone()),
-                )
+                .justify_end()
+                .line_height(BUTTON_LINE)
                 .child(crate::ui::components::button(
                     id("forge-comment-cancel"),
                     "Cancel",
@@ -1148,7 +1164,8 @@ fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyEl
                     .kind(design::Kind::Primary),
                 )
         }
-        (NoteKind::Field | NoteKind::Actions, None) | (NoteKind::Closing(_), _) => slice,
+        (NoteKind::Field | NoteKind::Error | NoteKind::Actions, None)
+        | (NoteKind::Closing(_), _) => slice,
     };
     div()
         .id(id(note.key.clone()))
@@ -1448,14 +1465,7 @@ mod tests {
                 ],
             )
         };
-        let composer = boxed(
-            "c",
-            [
-                NoteKind::Head(String::new(), false),
-                NoteKind::Field,
-                NoteKind::Actions,
-            ],
-        );
+        let composer = boxed("c", composer_parts(String::new()));
         let mut two = comment("a");
         two.extend(comment("b"));
         let zones = BTreeMap::from([
@@ -1464,10 +1474,10 @@ mod tests {
             (7, composer),
             (8, comment("e")),
         ]);
-        // 8 rows: one kept for the count, the composer's 3, then line 2's 4;
+        // 10 rows: one kept for the count, the composer's 5, then line 2's 4;
         // line 5's 2 do not fit, and line 8's come after them
-        let notes = Notes::laid(zones, 8, 9);
-        let drawn: Vec<String> = (0..18)
+        let notes = Notes::laid(zones, 10, 9);
+        let drawn: Vec<String> = (0..20)
             .map(|index| match notes.slot(index) {
                 Slot::Row(row) => format!("r{row}"),
                 Slot::Note(note) => note.key.clone(),
@@ -1491,13 +1501,15 @@ mod tests {
                 "c-0",
                 "c-1",
                 "c-2",
+                "c-3",
+                "c-4",
                 "r8",
                 "r9",
                 "forge-diff-notes-left-out-0"
             ]
         );
-        assert_eq!(notes.composer, Some(14));
-        let Slot::Note(closing) = notes.slot(17) else {
+        assert_eq!(notes.composer, Some(16));
+        let Slot::Note(closing) = notes.slot(19) else {
             panic!("the count");
         };
         assert!(
