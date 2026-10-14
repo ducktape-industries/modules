@@ -32,8 +32,9 @@ const ROW_H: Pixels = PRESS_TARGET;
 /// How wide a note box grows.
 const NOTE_W: Pixels = px(520.);
 /// What one line of a note box holds, in character widths (a wide CJK
-/// character counts two).
-const NOTE_CHARS: usize = 72;
+/// character counts two): a line of capitals, about 8 px a character at
+/// the note's size, still fits the box's 498 px of text.
+const NOTE_CHARS: usize = 60;
 
 /// The anchor a gutter button carries: path, new side, line.
 pub(crate) type Anchor = (Vec<u8>, bool, u64);
