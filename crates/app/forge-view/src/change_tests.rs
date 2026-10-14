@@ -471,6 +471,13 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
     cx.run_until_parked();
     cx.simulate_click("forge-file-src/gen/file_099.rs-open");
     cx.run_until_parked();
+    // "100 files · +100000 −0" gives way to All files, which keeps its
+    // width in the 240 px column instead of being cut off its edge
+    assert_eq!(cx.style("forge-files-all-box").flex_shrink, Some(0.));
+    assert_eq!(
+        super::pixels(cx.style("forge-files-title").min_size.width),
+        Some(0.)
+    );
     assert!(
         cx.texts()
             .iter()

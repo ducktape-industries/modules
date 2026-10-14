@@ -377,14 +377,18 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
                 design::plural(*total_files, "file", "files")
             ))
             .id(id("forge-files-title"))
+            // a release's counts give way to All files, the way back to
+            // every file, rather than push it out of the column
+            .min_w(px(0.))
+            .truncate()
             .text_size(design::text::CAPTION)
             .text_color(theme.muted),
         )
         .child(div().flex_1())
         .when(forge.nav().diff_path.is_some(), |header| {
-            header.child(
+            header.child(div().id(id("forge-files-all-box")).flex_none().child(
                 button(id("forge-files-all"), "All files", theme, all).kind(design::Kind::Quiet),
-            )
+            ))
         });
     // what marks the rows, read once a render for the rows the list draws:
     // a render pays for the rows on screen, not for every file
