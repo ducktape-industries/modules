@@ -1,21 +1,36 @@
-//! The Anthropic Messages API as JSON: a thread's request in parts (a header, one part per
-//! message, a close) so earlier messages are reused blobs, and a reply read back as a turn.
-use provider::http::{Head, Method};
+//! The Anthropic API as JSON: a thread's request in parts (a header, one part per message,
+//! separators, a close) so earlier messages are reused blobs, a reply read back as a turn, an
+//! on-demand compaction's summary, and a model's context window from the models endpoint.
+use provider::http::{Head, Method, Response};
 use serde_json::{Map, Value, json};
 
 use crate::{Body, Frame, Role, Said, Stop, ThreadRow, Usage};
 
 pub(crate) const VERSION: &str = "2023-06-01";
+pub(crate) const COMPACTION_BETA: &str = "compact-2026-09-04";
 pub(crate) const CLOSE: &str = "]}";
+pub(crate) const SUMMARIZE: &str = r#"],"compaction":{"type":"summarize"}}"#;
 
-pub(crate) fn head() -> Head {
+pub(crate) fn head(summarized: bool) -> Head {
+    let mut headers = vec![
+        ("anthropic-version".into(), VERSION.into()),
+        ("content-type".into(), "application/json".into()),
+    ];
+    if summarized {
+        headers.push(("anthropic-beta".into(), COMPACTION_BETA.into()));
+    }
     Head {
         method: Method::Post,
         path: "/v1/messages".into(),
-        headers: vec![
-            ("anthropic-version".into(), VERSION.into()),
-            ("content-type".into(), "application/json".into()),
-        ],
+        headers,
+    }
+}
+
+pub(crate) fn model(model: &str) -> Head {
+    Head {
+        method: Method::Get,
+        path: format!("/v1/models/{model}"),
+        headers: vec![("anthropic-version".into(), VERSION.into())],
     }
 }
 
@@ -61,7 +76,7 @@ fn blocks(body: &Body) -> Vec<Value> {
             "is_error": failed,
             "content": text,
         })],
-        Body::Notice { .. } => Vec::new(),
+        Body::Notice { .. } | Body::Compaction { .. } => Vec::new(),
     }
 }
 
@@ -104,11 +119,26 @@ pub(crate) fn message(role: Role, frames: &[Frame], first: bool, last: bool) -> 
     }
 }
 
+pub(crate) fn summary_message(block: &str) -> String {
+    format!(r#"{{"role":"assistant","content":[{block}]}}"#)
+}
+
 pub(crate) struct Reply {
     pub model: String,
     pub said: Vec<Said>,
     pub stop: Stop,
     pub usage: Usage,
+}
+
+pub(crate) enum Answered {
+    Reply(Reply),
+    Overflow,
+    Failed(String),
+}
+
+pub(crate) struct Summary {
+    pub block: String,
+    pub tokens: u64,
 }
 
 fn stop(reason: Option<&str>) -> Stop {
@@ -143,15 +173,17 @@ fn read_said(block: &Value) -> Option<Said> {
     }
 }
 
-pub(crate) fn reply(body: &[u8]) -> Result<Reply, String> {
-    let value: Value = serde_json::from_slice(body)
-        .map_err(|error| format!("the model's reply is not JSON: {error}"))?;
+fn json(body: &[u8]) -> Result<Value, String> {
+    serde_json::from_slice(body).map_err(|error| format!("the model's answer is not JSON: {error}"))
+}
+
+fn reply(value: &Value) -> Result<Reply, String> {
     let content = value["content"]
         .as_array()
         .ok_or("the model's reply has no content")?;
     let count = |key: &str| value["usage"][key].as_u64().unwrap_or(0);
     Ok(Reply {
-        model: text_of(&value, "model"),
+        model: text_of(value, "model"),
         said: content.iter().filter_map(read_said).collect(),
         stop: stop(value["stop_reason"].as_str()),
         usage: Usage {
@@ -161,6 +193,78 @@ pub(crate) fn reply(body: &[u8]) -> Result<Reply, String> {
             cache_write: count("cache_creation_input_tokens"),
         },
     })
+}
+
+fn overflowed(response: &Response) -> bool {
+    let value: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    let invalid = value["error"]["type"] == "invalid_request_error";
+    let too_long = value["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.starts_with("prompt is too long"));
+    response.status == 400 && invalid && too_long
+}
+
+pub(crate) fn answered(response: &Response) -> Answered {
+    if response.status != 200 {
+        return match overflowed(response) {
+            true => Answered::Overflow,
+            false => Answered::Failed(failure(response.status, &response.body)),
+        };
+    }
+    let value = match json(&response.body) {
+        Ok(value) => value,
+        Err(text) => return Answered::Failed(text),
+    };
+    if value["stop_reason"] == "model_context_window_exceeded" {
+        return Answered::Overflow;
+    }
+    match reply(&value) {
+        Ok(reply) => Answered::Reply(reply),
+        Err(text) => Answered::Failed(text),
+    }
+}
+
+pub(crate) fn summary(response: &Response) -> Result<Summary, String> {
+    if response.status != 200 {
+        return Err(failure(response.status, &response.body));
+    }
+    let value = json(&response.body)?;
+    let stopped = value["stop_reason"].as_str().unwrap_or_default();
+    if stopped != "compaction" {
+        return Err(format!(
+            "the model did not summarize the thread: it stopped with {stopped}"
+        ));
+    }
+    let block = &value["content"][0];
+    let summarized = block["type"] == "compaction" && block["content"].is_string();
+    let Some(fields) = block.as_object().filter(|_| summarized) else {
+        return Err("the model answered no summary".to_owned());
+    };
+    let present: Map<String, Value> = fields
+        .iter()
+        .filter(|(_, value)| !value.is_null())
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let tokens = value["usage"]["iterations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|iteration| iteration["type"] == "compaction")
+        .filter_map(|iteration| iteration["output_tokens"].as_u64())
+        .sum();
+    Ok(Summary {
+        block: Value::Object(present).to_string(),
+        tokens,
+    })
+}
+
+pub(crate) fn window(response: &Response) -> Result<Option<u64>, String> {
+    if response.status != 200 {
+        return Err(failure(response.status, &response.body));
+    }
+    let value = json(&response.body)?;
+    let tokens = value["max_input_tokens"].as_u64();
+    Ok(tokens.filter(|tokens| *tokens > 0))
 }
 
 pub(crate) fn failure(status: u16, body: &[u8]) -> String {

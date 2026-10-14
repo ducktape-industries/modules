@@ -1,6 +1,6 @@
 //! Tools over `forge`, the network's git server: repositories, history, trees, file
 //! contents and changes under review, all read.
-use ::program::{Error, ExecCtx};
+use ::program::{Error, ExecCtx, invalid};
 use forge::{ChangeFilter, ChangeState, Query, Reply, Revision};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -8,8 +8,16 @@ use store::PageRequest;
 
 use super::{Run, Seat, Tool, cursor_schema, next, object, page, principal, unexpected};
 
-const READ_BYTES: u64 = 16 << 10;
-const MAX_READ: u64 = 24 << 10;
+fn range(offset: Option<u64>, length: Option<u64>) -> Result<Option<forge::ByteRange>, Error> {
+    match (offset, length) {
+        (None, None) => Ok(None),
+        (offset, Some(len)) => Ok(Some(forge::ByteRange {
+            offset: offset.unwrap_or(0),
+            len,
+        })),
+        (Some(_), None) => Err(invalid("an offset is read with a length")),
+    }
+}
 
 fn ask(ctx: &ExecCtx, query: Query) -> Result<Reply, Error> {
     ctx.query(forge::PROGRAM, &query)
@@ -256,7 +264,7 @@ pub(crate) struct Read;
 
 impl Tool for Read {
     const NAME: &'static str = "forge_read";
-    const DESCRIPTION: &'static str = "Read a file of a repository by its object id (from forge_tree) as text, at most 24 KiB at a time.";
+    const DESCRIPTION: &'static str = "Read a file of a repository by its object id (from forge_tree) as text: the whole file, or a byte range of it. Forge refuses a range longer than it serves at once, and answers a file larger than that as oversize.";
     type Args = ReadArgs;
 
     fn schema() -> Value {
@@ -264,8 +272,8 @@ impl Tool for Read {
             json!({
                 "repo": repo_schema(),
                 "id": { "type": "string", "description": "the file's object id" },
-                "offset": { "type": "integer", "minimum": 0 },
-                "length": { "type": "integer", "minimum": 1 },
+                "offset": { "type": "integer", "minimum": 0, "description": "the first byte to read; give a length with it" },
+                "length": { "type": "integer", "minimum": 1, "description": "how many bytes; the whole file if both are omitted" },
             }),
             &["repo", "id"],
         )
@@ -275,10 +283,7 @@ impl Tool for Read {
         let asked = Query::Blob {
             repo: args.repo,
             oid: args.id,
-            range: Some(forge::ByteRange {
-                offset: args.offset.unwrap_or(0),
-                len: args.length.unwrap_or(READ_BYTES).min(MAX_READ),
-            }),
+            range: range(args.offset, args.length)?,
         };
         match ask(ctx, asked)? {
             Reply::Blob { blob, .. } => {

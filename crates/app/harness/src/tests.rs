@@ -9,6 +9,7 @@ use valset::{Genesis, Member, Valset};
 use crate::*;
 
 const NODE: [u8; 32] = [1; 32];
+const WINDOW: u64 = 200_000;
 const ADA: &[u8] = b"ada-key";
 const BO: &[u8] = b"bo-key";
 
@@ -129,6 +130,13 @@ impl World {
         self.threads()[0].id
     }
 
+    fn opened(&self, id: &str, text: &str, window: Option<u64>) -> u64 {
+        let thread = self.mention(id, text);
+        self.chain.at(2, 0);
+        learn(&self.chain, window);
+        thread
+    }
+
     fn threads(&self) -> Vec<ThreadRow> {
         let asked = Query::Threads {
             agent: self.agent,
@@ -164,7 +172,15 @@ fn body(chain: &MockChain, row: &RequestRow) -> Value {
     serde_json::from_slice(&bytes).expect("the parts join into one JSON request")
 }
 
-fn reply(content: Value, stop: &str) -> Vec<u8> {
+fn response(status: u16, body: Value) -> Vec<u8> {
+    abi::encode(&http::Response {
+        status,
+        headers: Vec::new(),
+        body: body.to_string().into_bytes(),
+    })
+}
+
+fn reply(content: Value, stop: &str, input_tokens: u64) -> Vec<u8> {
     let body = json!({
         "id": "msg_1",
         "type": "message",
@@ -172,13 +188,27 @@ fn reply(content: Value, stop: &str) -> Vec<u8> {
         "model": "claude-test",
         "content": content,
         "stop_reason": stop,
-        "usage": { "input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 3 },
+        "usage": { "input_tokens": input_tokens, "output_tokens": 5, "cache_read_input_tokens": 3 },
     });
-    abi::encode(&http::Response {
-        status: 200,
-        headers: Vec::new(),
-        body: body.to_string().into_bytes(),
-    })
+    response(200, body)
+}
+
+fn open_request(chain: &MockChain) -> (RequestRow, http::Head) {
+    let [request] = assigned(chain, MODEL_SERVICE)
+        .try_into()
+        .expect("one model call open");
+    let head = abi::decode(&request.input).unwrap();
+    (request, head)
+}
+
+fn learn(chain: &MockChain, window: Option<u64>) {
+    let (request, head) = open_request(chain);
+    assert_eq!(
+        (head.method, head.path.as_str()),
+        (http::Method::Get, "/v1/models/claude-test")
+    );
+    let info = json!({ "type": "model", "id": "claude-test", "max_input_tokens": window });
+    answer(chain, request.id, Answer::Output(response(200, info)));
 }
 
 fn answer(chain: &MockChain, id: u64, answer: Answer) {
@@ -189,10 +219,14 @@ fn answer(chain: &MockChain, id: u64, answer: Answer) {
 }
 
 fn model_says(chain: &MockChain, content: Value, stop: &str) {
-    let [request] = assigned(chain, MODEL_SERVICE)
-        .try_into()
-        .expect("one model call open");
-    answer(chain, request.id, Answer::Output(reply(content, stop)));
+    model_says_after(chain, content, stop, 10);
+}
+
+fn model_says_after(chain: &MockChain, content: Value, stop: &str, input_tokens: u64) {
+    let (request, head) = open_request(chain);
+    assert_eq!(head.path, "/v1/messages");
+    let said = reply(content, stop, input_tokens);
+    answer(chain, request.id, Answer::Output(said));
 }
 
 fn relay_back(chain: &MockChain, call: &str) {
@@ -253,9 +287,8 @@ fn tool_use(id: &str, name: &str, input: Value) -> Value {
 fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel() {
     let world = world();
     let chain = &world.chain;
-    let thread = world.mention("m1", "note that the network is up");
-    let [request] = assigned(chain, MODEL_SERVICE).try_into().unwrap();
-    let head: http::Head = abi::decode(&request.input).unwrap();
+    let thread = world.opened("m1", "note that the network is up", Some(WINDOW));
+    let (request, head) = open_request(chain);
     assert_eq!(
         (head.method, head.path.as_str()),
         (http::Method::Post, "/v1/messages")
@@ -301,7 +334,7 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
     assert!(
         matches!(&held(chain, thread)[..], [Body::Post { text, .. }] if text.ends_with("still there?"))
     );
-    chain.at(2, 0);
+    chain.at(3, 0);
     model_says(
         chain,
         json!([{ "type": "text", "text": "Hi." }]),
@@ -391,8 +424,8 @@ fn only_its_manager_hires_an_agent_handed_to_harness_and_a_dismissed_one_hears_n
 fn every_tool_call_runs_a_block_later_and_the_model_is_asked_once_all_results_are_back() {
     let world = world();
     let chain = &world.chain;
-    let thread = world.mention("m1", "note it");
-    chain.at(2, 0);
+    let thread = world.opened("m1", "note it", Some(WINDOW));
+    chain.at(3, 0);
     let calls = json!([
         { "type": "text", "text": "On it." },
         tool_use("toolu_w", "files_write", json!({ "path": "/shared/note.md", "content": "hello" })),
@@ -418,7 +451,7 @@ fn every_tool_call_runs_a_block_later_and_the_model_is_asked_once_all_results_ar
     let refused = chain.submit(signed(&NODE), provider::PROGRAM, &same_block);
     assert_eq!(refused.unwrap_err().code, code::WRONG_STATE);
 
-    chain.at(3, 0);
+    chain.at(4, 0);
     relay_back(chain, "toolu_l");
     let (listed, failed) = result_of(chain, thread, "toolu_l");
     assert!(!failed);
@@ -486,13 +519,13 @@ fn every_tool_call_runs_a_block_later_and_the_model_is_asked_once_all_results_ar
 fn input_that_arrives_while_a_call_runs_is_held_and_follows_its_result() {
     let world = world();
     let chain = &world.chain;
-    let thread = world.mention("m1", "look");
-    chain.at(2, 0);
+    let thread = world.opened("m1", "look", Some(WINDOW));
+    chain.at(3, 0);
     let call = tool_use("toolu_l", "files_list", json!({ "path": "/" }));
     model_says(chain, json!([call]), "tool_use");
     world.mention("m2", "and also");
     assert_eq!(held(chain, thread).len(), 1);
-    chain.at(3, 0);
+    chain.at(4, 0);
     relay_back(chain, "toolu_l");
     let [again] = assigned(chain, MODEL_SERVICE).try_into().unwrap();
     let sent = body(chain, &again);
@@ -501,7 +534,7 @@ fn input_that_arrives_while_a_call_runs_is_held_and_follows_its_result() {
     assert_eq!(last["content"][0]["type"], "tool_result");
     let text = last["content"][1]["text"].as_str().unwrap();
     assert!(text.ends_with("and also"), "{text}");
-    chain.at(4, 0);
+    chain.at(5, 0);
     model_says(
         chain,
         json!([{ "type": "text", "text": "Done." }]),
@@ -514,21 +547,20 @@ fn input_that_arrives_while_a_call_runs_is_held_and_follows_its_result() {
 }
 
 #[test]
-fn a_call_whose_relay_never_comes_back_fails_after_the_attempts() {
+fn a_call_whose_relay_fails_fails_once_and_the_model_hears_it() {
     let world = world();
     let chain = &world.chain;
-    let thread = world.mention("m1", "look");
-    chain.at(2, 0);
+    let thread = world.opened("m1", "look", Some(WINDOW));
+    chain.at(3, 0);
     let call = tool_use("toolu_l", "files_list", json!({ "path": "/" }));
     model_says(chain, json!([call]), "tool_use");
-    for attempt in 0..MAX_ATTEMPTS {
-        chain.at(3 + u64::from(attempt), 0);
-        let [row] = assigned(chain, RELAY).try_into().unwrap();
-        answer(chain, row.id, Answer::Failed("no route".into()));
-    }
-    assert!(assigned(chain, RELAY).is_empty());
+    chain.at(4, 0);
+    let [row] = assigned(chain, RELAY).try_into().unwrap();
+    answer(chain, row.id, Answer::Failed("no route".into()));
+    assert!(assigned(chain, RELAY).is_empty(), "a relay is not repeated");
     let (text, failed) = result_of(chain, thread, "toolu_l");
-    assert!(failed && text.contains("no provider relayed"), "{text}");
+    assert!(failed && text.contains("the relay failed"), "{text}");
+    assert!(text.contains("no route"), "{text}");
     assert_eq!(assigned(chain, MODEL_SERVICE).len(), 1);
 }
 
@@ -536,8 +568,8 @@ fn a_call_whose_relay_never_comes_back_fails_after_the_attempts() {
 fn a_call_in_flight_when_its_agent_is_dismissed_does_not_run() {
     let world = world();
     let chain = &world.chain;
-    let thread = world.mention("m1", "write");
-    chain.at(2, 0);
+    let thread = world.opened("m1", "write", Some(WINDOW));
+    chain.at(3, 0);
     let write = tool_use(
         "toolu_w",
         "files_write",
@@ -547,7 +579,7 @@ fn a_call_in_flight_when_its_agent_is_dismissed_does_not_run() {
     chain
         .submit(signed(ADA), PROGRAM, &Op::Dismiss { agent: world.agent })
         .unwrap();
-    chain.at(3, 0);
+    chain.at(4, 0);
     relay_back(chain, "toolu_w");
     let (text, failed) = result_of(chain, thread, "toolu_w");
     assert!(failed && text.contains("dismissed"), "{text}");
@@ -573,8 +605,8 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
         post_policy: chat::PostPolicy::MembersOnly,
     };
     chain.submit(signed(BO), chat::PROGRAM, &closed).unwrap();
-    let thread = world.mention("m1", "post");
-    chain.at(2, 0);
+    let thread = world.opened("m1", "post", Some(WINDOW));
+    chain.at(3, 0);
     let calls = json!([
         tool_use(
             "toolu_p",
@@ -593,7 +625,7 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
         ),
     ]);
     model_says(chain, calls, "tool_use");
-    chain.at(3, 0);
+    chain.at(4, 0);
     for call in ["toolu_p", "toolu_c", "toolu_e"] {
         relay_back(chain, call);
     }
@@ -616,51 +648,221 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
         runner: None,
     };
     identity_op(chain, ADA, take_back).unwrap();
-    chain.at(4, 0);
+    chain.at(5, 0);
     let again = tool_use(
         "toolu_q",
         "chat_post",
         json!({ "channel": "general", "text": "still me?" }),
     );
     model_says(chain, json!([again]), "tool_use");
-    chain.at(5, 0);
+    chain.at(6, 0);
     relay_back(chain, "toolu_q");
     let (taken, failed) = result_of(chain, thread, "toolu_q");
     assert!(failed && taken.starts_with(code::UNAUTHORIZED), "{taken}");
 }
 
-#[test]
-fn a_failed_model_call_is_noticed_and_tried_again_up_to_the_limit() {
-    let world = world();
-    let chain = &world.chain;
-    let thread = world.mention("m1", "hello");
-    for attempt in 0..MAX_ATTEMPTS {
-        chain.at(2 + u64::from(attempt), 0);
-        let [request] = assigned(chain, MODEL_SERVICE).try_into().unwrap();
-        let overloaded = http::Response {
-            status: 529,
-            headers: Vec::new(),
-            body: br#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#
-                .to_vec(),
-        };
-        answer(chain, request.id, Answer::Output(abi::encode(&overloaded)));
-    }
-    assert!(assigned(chain, MODEL_SERVICE).is_empty());
-    let notices: Vec<String> = frames(chain, thread)
+fn notices(chain: &MockChain, thread: u64) -> Vec<String> {
+    frames(chain, thread)
         .into_iter()
         .filter_map(|body| match body {
             Body::Notice { text } => Some(text),
             _ => None,
         })
-        .collect();
-    assert_eq!(notices.len(), MAX_ATTEMPTS as usize);
+        .collect()
+}
+
+#[test]
+fn a_failed_model_call_is_noticed_once_and_the_next_input_asks_again() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "hello", Some(WINDOW));
+    chain.at(3, 0);
+    let (request, _) = open_request(chain);
+    let overloaded = json!({ "type": "error", "error": { "type": "overloaded_error", "message": "Overloaded" } });
+    answer(chain, request.id, Answer::Output(response(529, overloaded)));
     assert!(
-        notices[0].contains("overloaded_error: Overloaded"),
+        assigned(chain, MODEL_SERVICE).is_empty(),
+        "a failed call is not repeated"
+    );
+    let told = notices(chain, thread);
+    assert_eq!(told.len(), 1);
+    assert!(
+        told[0].contains("overloaded_error: Overloaded"),
         "{}",
-        notices[0]
+        told[0]
     );
     world.mention("m2", "again");
-    assert_eq!(assigned(chain, MODEL_SERVICE).len(), 1);
+    let (_, head) = open_request(chain);
+    assert_eq!(head.path, "/v1/messages");
+}
+
+fn beta(head: &http::Head) -> Option<&str> {
+    head.headers
+        .iter()
+        .find(|(name, _)| name == "anthropic-beta")
+        .map(|(_, value)| value.as_str())
+}
+
+fn summarized(chain: &MockChain, summary: &str) {
+    let (request, head) = open_request(chain);
+    assert_eq!(beta(&head), Some(anthropic::COMPACTION_BETA));
+    let body = json!({
+        "type": "message",
+        "role": "assistant",
+        "content": [{ "type": "compaction", "content": summary, "signature": "sig", "citations": null }],
+        "stop_reason": "compaction",
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "iterations": [{ "type": "compaction", "input_tokens": 1500, "output_tokens": 276 }],
+        },
+    });
+    answer(chain, request.id, Answer::Output(response(200, body)));
+}
+
+#[test]
+fn a_thread_whose_next_answer_would_not_fit_the_window_is_summarized_first() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "remember the plan", Some(2_000));
+    chain.at(3, 0);
+    model_says_after(
+        chain,
+        json!([{ "type": "text", "text": "Noted." }]),
+        "end_turn",
+        1000,
+    );
+    assert_eq!(
+        thread_row(chain, thread).context,
+        Context::Measured(1008),
+        "input, cache reads and output all count"
+    );
+    world.mention("m2", "and now?");
+    let (request, head) = open_request(chain);
+    assert_eq!(beta(&head), Some(anthropic::COMPACTION_BETA));
+    let sent = body(chain, &request);
+    assert_eq!(sent["compaction"], json!({ "type": "summarize" }));
+    let messages = sent["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1, "the summary covers what the model saw");
+    assert!(
+        messages[0]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("remember the plan")
+    );
+    assert_eq!(
+        thread_row(chain, thread).asking,
+        Asking::Compacting { through: 1 }
+    );
+
+    chain.at(4, 0);
+    summarized(chain, "Ada set out the plan.");
+    let row = thread_row(chain, thread);
+    assert_eq!(row.context, Context::Measured(276));
+    let summary = row.summary.expect("the thread keeps its summary");
+    assert!(matches!(
+        &frames(chain, thread)[summary as usize - 1],
+        Body::Compaction { block } if block.contains("Ada set out the plan.")
+    ));
+    let (request, head) = open_request(chain);
+    assert_eq!(head.path, "/v1/messages");
+    assert_eq!(beta(&head), Some(anthropic::COMPACTION_BETA));
+    let sent = body(chain, &request);
+    assert!(sent.get("compaction").is_none());
+    let messages = sent["messages"].as_array().unwrap();
+    assert_eq!(
+        messages[0],
+        json!({
+            "role": "assistant",
+            "content": [{ "type": "compaction", "content": "Ada set out the plan.", "signature": "sig" }],
+        }),
+        "the summary stands in for what it covers, with no null fields"
+    );
+    assert_eq!(messages[1]["role"], "assistant");
+    assert_eq!(messages[1]["content"][0]["text"], "Noted.");
+    assert_eq!(messages[2]["role"], "user");
+    assert!(
+        messages[2]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("and now?")
+    );
+    assert_eq!(messages.len(), 3);
+
+    chain.at(5, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "Still on it." }]),
+        "end_turn",
+    );
+    world.mention("m3", "once more");
+    let (request, _) = open_request(chain);
+    let sent = body(chain, &request);
+    let messages = sent["messages"].as_array().unwrap();
+    assert_eq!(
+        messages[0]["content"][0]["type"], "compaction",
+        "every later request carries the summary"
+    );
+    assert_eq!(messages.len(), 5);
+}
+
+#[test]
+fn a_request_the_model_finds_too_long_is_summarized_even_with_no_window_known() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "first", None);
+    chain.at(3, 0);
+    model_says_after(
+        chain,
+        json!([{ "type": "text", "text": "Ok." }]),
+        "end_turn",
+        1_000_000,
+    );
+    world.mention("m2", "second");
+    let (request, head) = open_request(chain);
+    assert_eq!(
+        (head.path.as_str(), beta(&head)),
+        ("/v1/messages", None),
+        "no window, no early summary"
+    );
+    chain.at(4, 0);
+    let too_long = json!({
+        "type": "error",
+        "error": { "type": "invalid_request_error", "message": "prompt is too long: 1000002 tokens > 1000000 maximum" },
+    });
+    answer(chain, request.id, Answer::Output(response(400, too_long)));
+    assert_eq!(thread_row(chain, thread).context, Context::Overflowed);
+    let (request, _) = open_request(chain);
+    assert_eq!(
+        body(chain, &request)["compaction"],
+        json!({ "type": "summarize" })
+    );
+    chain.at(5, 0);
+    summarized(chain, "First, then Ok.");
+    chain.at(6, 0);
+    let (request, _) = open_request(chain);
+    let cut_short = json!({
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-test",
+        "content": [{ "type": "text", "text": "I was say" }],
+        "stop_reason": "model_context_window_exceeded",
+        "usage": { "input_tokens": 999_000, "output_tokens": 1000 },
+    });
+    answer(chain, request.id, Answer::Output(response(200, cut_short)));
+    assert!(
+        assigned(chain, MODEL_SERVICE).is_empty(),
+        "with nothing new to summarize, the thread gives up"
+    );
+    let told = notices(chain, thread);
+    assert!(told.last().unwrap().contains("does not fit"), "{told:?}");
+    assert!(
+        !frames(chain, thread)
+            .iter()
+            .any(|body| matches!(body, Body::Turn { said, .. } if said.contains(&Said::Text("I was say".into())))),
+        "a turn cut short by the window is not kept"
+    );
+    assert_eq!(thread_row(chain, thread).asking, Asking::Idle);
 }
 
 #[test]

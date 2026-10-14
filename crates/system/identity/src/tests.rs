@@ -6,7 +6,7 @@ use store::PageRequest;
 
 use crate::{
     Account, Admission, Audience, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind,
-    Life, MAX_AUDIENCE, Op, Query, Reply, Standing,
+    Life, Op, Query, Reply, Standing,
 };
 
 const ALICE: &[u8] = b"alice-key";
@@ -771,24 +771,22 @@ fn only_a_live_agent_has_an_audience() {
 }
 
 #[test]
-fn an_agent_answers_at_most_the_cap_besides_its_manager() {
+fn an_audience_keeps_each_account_once_and_never_the_manager() {
     let store = memory();
     create(&store, ALICE, "Alice");
     let agent = create_agent(&store, ALICE, "Scout");
-    let people: Vec<u64> = (0..=MAX_AUDIENCE as u8)
+    let people: Vec<u64> = (0..3u8)
         .map(|i| create(&store, &[i], &format!("p{i}")))
         .collect();
     let alice = signed(&store, ALICE);
-    let mut full = people[..MAX_AUDIENCE].to_vec();
-    full.extend([1, people[0]]);
-    run(&store, &alice, answers(agent, Audience::Accounts(full))).unwrap();
+    let mut named = people.clone();
+    named.extend([1, people[0]]);
+    run(&store, &alice, answers(agent, Audience::Accounts(named))).unwrap();
     assert_eq!(
         audience_of(&store, agent),
-        Ok(Audience::Accounts(people[..MAX_AUDIENCE].to_vec())),
+        Ok(Audience::Accounts(people)),
         "duplicates and the manager do not count"
     );
-    let over = refused(&store, &alice, answers(agent, Audience::Accounts(people)));
-    assert_eq!(over.code, code::CAPACITY);
 }
 
 fn runs(store: &MockHost, program: &str, account: u64) -> Result<Option<u64>, ::program::Error> {

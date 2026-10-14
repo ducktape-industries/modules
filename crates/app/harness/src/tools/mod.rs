@@ -13,8 +13,6 @@ use store::PageRequest;
 
 use crate::ToolInfo;
 
-pub(crate) const PAGE: u64 = 50;
-
 pub(crate) struct Seat<'a> {
     pub thread: u64,
     pub agent: AccountNumber,
@@ -136,11 +134,14 @@ pub(crate) fn cursor_schema() -> Value {
 
 pub(crate) fn page(cursor: &Option<String>) -> Result<PageRequest, Error> {
     match cursor {
-        None => Ok(PageRequest::first(PAGE)),
+        None => Ok(PageRequest::default()),
         Some(cursor) => {
             let after = abi::unhex(cursor)
                 .ok_or_else(|| invalid("a cursor is the hex `next` of a page"))?;
-            Ok(PageRequest::resume(Some(after), PAGE))
+            Ok(PageRequest {
+                after: Some(after),
+                ..PageRequest::default()
+            })
         }
     }
 }

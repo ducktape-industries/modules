@@ -5,7 +5,7 @@ use abi::role::identity::{self as role, Category, Kind, Profile, Standing};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{PAGE, Run, Seat, Tool, cursor_schema, next, object, page, unexpected};
+use super::{Run, Seat, Tool, cursor_schema, next, object, page, unexpected};
 
 fn kind(kind: &Kind) -> Value {
     match kind {
@@ -63,7 +63,7 @@ impl Tool for Accounts {
             .map_err(|_| invalid("an accounts cursor is the account number to list after"))?;
         let asked = role::Query::Profiles {
             after,
-            limit: PAGE as u32,
+            limit: u32::MAX,
         };
         match ask(ctx, asked)? {
             role::Reply::Profiles { profiles, next } => Ok(Run::Done(json!({

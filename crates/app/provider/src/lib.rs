@@ -19,13 +19,6 @@ pub const PROGRAM: &str = "provider";
 pub const RELAY: &str = "relay";
 
 pub const EXPIRY_BLOCKS: u64 = abi::role::awaits::EXPIRY_BLOCKS;
-pub const MAX_SERVICE_BYTES: usize = 64;
-pub const MAX_SERVICES: usize = 32;
-pub const MAX_INPUT_BYTES: usize = 64 << 10;
-pub const MAX_PARTS: usize = 4096;
-pub const MAX_BODY_BYTES: u64 = 32 << 20;
-pub const MAX_OUTPUT_BYTES: usize = 8 << 20;
-pub const MAX_REASON_BYTES: usize = 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {

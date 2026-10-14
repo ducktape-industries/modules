@@ -222,16 +222,6 @@ fn a_program_reports_only_its_own_objects_and_only_forward() {
     ] {
         assert_eq!(report(&chain, bad).unwrap_err().code, code::INVALID_INPUT);
     }
-    let batch = (0..=MAX_BATCH as u64)
-        .map(
-            |n| match update(&format!("b{n}"), 1, Vec::new(), Vec::new()) {
-                Op::Attribute(update) => update,
-                _ => unreachable!(),
-            },
-        )
-        .collect();
-    let full = report(&chain, Op::AttributeBatch { updates: batch });
-    assert_eq!(full.unwrap_err().code, code::INVALID_INPUT);
 }
 
 fn told(chain: &MockChain) -> Vec<Change> {

@@ -1,14 +1,14 @@
 // The rules: who acts as an account, then the ops and queries.
 
 use ::program::{
-    Error, ExecCtx, Origin, ProgramId, QueryCtx, Scheme, already_exists, capacity, invalid,
-    not_found, unauthorized, wrong_state,
+    Error, ExecCtx, Origin, ProgramId, QueryCtx, Scheme, already_exists, invalid, not_found,
+    unauthorized, wrong_state,
 };
 use store::{Item, Map, PageRequest, Set};
 
 use crate::{
     Account, AccountNumber, Admission, Audience, CONSENT_NAMESPACE, Card, Category, Consent,
-    Control, Key, Life, MAX_AUDIENCE, Reference, Reply,
+    Control, Key, Life, Reference, Reply,
 };
 
 pub(crate) const ACCOUNTS: Map<AccountNumber, Account> = Map::new("a/");
@@ -532,11 +532,6 @@ fn settled(ctx: &ExecCtx, manager: AccountNumber, audience: Audience) -> Result<
     numbers.sort_unstable();
     numbers.dedup();
     numbers.retain(|number| *number != manager);
-    if numbers.len() > MAX_AUDIENCE {
-        return Err(capacity(format!(
-            "an agent answers at most {MAX_AUDIENCE} accounts besides its manager"
-        )));
-    }
     if let Some(missing) = numbers.iter().find(|number| !ACCOUNTS.has(ctx, number)) {
         return Err(not_found(format!("account {missing}")));
     }
