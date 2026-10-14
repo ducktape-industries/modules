@@ -1461,6 +1461,12 @@ fn a_commit_with_many_files_keeps_its_diff_under_a_scrolling_strip() {
     cx.run_until_parked();
     view.read(|forge| assert!(forge.nav().diff_path.is_none()));
     assert!(cx.find("forge-commit-files-all").is_none());
+    // as on the Files tab, All files starts the strip's keys over: the
+    // file the arrows opened is not left lit
+    assert_eq!(
+        lit_rows(&cx, "forge-commit-diff-files", Role::ListBoxOption),
+        Vec::<String>::new()
+    );
     // a commit opened again starts on all its files
     cx.simulate_click("forge-commit-diff-file-src/gen/file_000.rs");
     cx.run_until_parked();

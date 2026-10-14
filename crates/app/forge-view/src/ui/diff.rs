@@ -772,7 +772,7 @@ const STRIP_ROWS: usize = 8;
 /// The strip's inset above and below its rows.
 const STRIP_PAD: f32 = 4.;
 /// The strip's list: its id, and its cursor's.
-const STRIP_ID: &str = "forge-commit-diff-files";
+pub(crate) const STRIP_ID: &str = "forge-commit-diff-files";
 
 /// Which files a commit's diff touches, above the rows themselves. Each
 /// one shows its file alone; the commit's All files shows them all again. A virtual list, so a commit touching a

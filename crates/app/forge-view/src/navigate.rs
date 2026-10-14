@@ -270,9 +270,10 @@ impl Forge {
     }
 
     pub(crate) fn single_file(&mut self, path: Option<Vec<u8>>, cx: &mut Context<Self>) {
-        // all files again: the file list's keys start over, no row left lit
-        let list = crate::ui::change::FILE_LIST_ID;
-        if path.is_none() && matches!(self.list_cursor, Some((on, ..)) if on == list) {
+        // all files again: the file list's keys (a change's, a commit's
+        // strip) start over, no row left lit
+        let lists = [crate::ui::change::FILE_LIST_ID, crate::ui::diff::STRIP_ID];
+        if path.is_none() && matches!(self.list_cursor, Some((on, ..)) if lists.contains(&on)) {
             self.list_cursor = None;
         }
         self.reveal = path.clone();
