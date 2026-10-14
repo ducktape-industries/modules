@@ -33,7 +33,7 @@ const ROW_H: Pixels = PRESS_TARGET;
 const NOTE_W: Pixels = px(520.);
 /// What one line of a note box holds, in character widths (a wide CJK
 /// character counts two).
-const NOTE_CHARS: usize = 60;
+const NOTE_CHARS: usize = 72;
 
 /// The anchor a gutter button carries: path, new side, line.
 pub(crate) type Anchor = (Vec<u8>, bool, u64);
@@ -736,10 +736,7 @@ fn file_strip(
                 .on_click(pick)
                 .child(crate::ui::bold(label))
                 .child(quiet(status_label(file.status), theme))
-                .child(quiet(
-                    format!("+{} −{}", file.additions, file.deletions),
-                    theme,
-                )),
+                .children(counts(file).map(|counts| quiet(counts, theme))),
         );
     }
     strip.into_any_element()
@@ -791,12 +788,17 @@ fn file_header(file: &FileDiff) -> String {
         }
         _ => path_text(&path_of(file).unwrap_or_default()),
     };
-    format!(
-        "{header} · {} · +{} −{}",
-        status_label(file.status),
-        file.additions,
-        file.deletions
-    )
+    let status = status_label(file.status);
+    match counts(file) {
+        Some(counts) => format!("{header} · {status} · {counts}"),
+        None => format!("{header} · {status}"),
+    }
+}
+
+/// The lines a file adds and removes, when they were counted: a binary,
+/// an oversize file or a submodule has none to count, not zero.
+fn counts(file: &FileDiff) -> Option<String> {
+    (file.content == Content::Text).then(|| format!("+{} −{}", file.additions, file.deletions))
 }
 
 /// Why a file has no lines to show.
@@ -1200,7 +1202,7 @@ mod tests {
                 (Kind::Hunk, "@@ -0,0 +1,2 @@".into()),
                 (Kind::Line, "one".into()),
                 (Kind::Line, "two".into()),
-                (Kind::File, "b.bin · added · +0 −0".into()),
+                (Kind::File, "b.bin · added".into()),
                 (Kind::Hunk, "Binary file — no lines to show".into()),
                 (Kind::File, "c.rs · added · +1 −0".into()),
                 (Kind::Hunk, "@@ -0,0 +1,1 @@".into()),
