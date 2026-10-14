@@ -1051,6 +1051,47 @@ fn a_merged_change_lists_the_commits_it_merged() {
     );
 }
 
+/// A commit pressed on a change's Commits tab opens its page in the
+/// change, as the repository's Commits tab does: its message, its parent
+/// and its diff. Back, or another tab, returns to the change's commits.
+#[test]
+fn a_change_opens_one_of_its_commits_and_comes_back() {
+    let (mut cx, view) = change_screen("default", ChangeTab::Commits);
+    let oid = "26607f522099476177a45a8058a93108fba5a84d";
+    cx.simulate_click(&format!("forge-commit-{oid}"));
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("Feature\n\nReview these bytes.\n"),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.has_text("ebfb8b62…4e16"), "the parent is named");
+    assert!(
+        cx.find("forge-commit-diff-file-src/lib.rs").is_some(),
+        "its diff: {:?}",
+        cx.texts()
+    );
+    assert!(
+        cx.find("forge-change-log").is_none(),
+        "the page replaces the list"
+    );
+    view.read(|forge| assert_eq!(forge.nav().change, Some(1), "still in the change"));
+    cx.simulate_click("forge-commit-close");
+    cx.run_until_parked();
+    assert!(cx.find("forge-change-log").is_some(), "{:?}", cx.texts());
+    cx.simulate_click(&format!("forge-commit-{oid}"));
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-tab-files");
+    cx.run_until_parked();
+    cx.simulate_click("forge-change-tab-commits");
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-change-log").is_some(),
+        "a tab left drops the commit: {:?}",
+        cx.texts()
+    );
+}
+
 /// The finish form is a dialog: Tab from its last stop comes round to its
 /// first, and Shift-Tab back, instead of walking out into the diff.
 #[test]

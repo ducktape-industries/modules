@@ -250,6 +250,7 @@ impl Forge {
         self.change_tab_cursor = None;
         self.nav.change_tab = tab;
         self.nav.diff_path = None;
+        self.nav.commit = None;
         self.moved(cx);
     }
 

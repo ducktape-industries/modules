@@ -50,15 +50,10 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     let tab = forge.nav().change_tab;
     let body: AnyElement = match tab {
         ChangeTab::Conversation => crate::ui::conversation::render(forge, cx, theme),
-        ChangeTab::Commits => match forge.endpoints() {
-            Some((from, into)) => commits::log(
-                forge,
-                &commits::query(forge, from, Some(into)),
-                "forge-change-log",
-                cx,
-                theme,
-            ),
-            None => div().into_any_element(),
+        ChangeTab::Commits => match (forge.nav().commit.clone(), forge.shown_log()) {
+            (Some(oid), _) => commits::detail(forge, &oid, cx, theme),
+            (None, Some(log)) => commits::log(forge, &log, "forge-change-log", cx, theme),
+            (None, None) => div().into_any_element(),
         },
         ChangeTab::Files => files(forge, cx, theme),
     };

@@ -299,7 +299,8 @@ impl Forge {
     /// is known.
     fn commit_reads(&self, oid: &str) -> Vec<Query> {
         let mut wanted = Vec::new();
-        let held = self.logs.get(&self.log_query()).is_none_or(|(log, _)| {
+        let shown = self.shown_log().and_then(|log| self.logs.get(&log));
+        let held = shown.is_none_or(|(log, _)| {
             log.read(|log| log.is_loading() || log.rows().iter().any(|commit| commit.oid == oid))
         });
         if !held {
@@ -317,14 +318,15 @@ impl Forge {
             n,
             page: PAGE,
         }];
-        let (Some((_, source_head, _, _)), Some((from, into))) = (self.change(), self.endpoints())
-        else {
+        let (Some((_, source_head, _, _)), Some(_)) = (self.change(), self.endpoints()) else {
             return wanted;
         };
         wanted.extend(self.compare_query());
         if self.nav.change_tab == ChangeTab::Commits {
-            // the change's own commits: what its target does not reach
-            wanted.push(crate::ui::commits::query(self, from, Some(into)));
+            // the change's own commits, and the one open from them
+            wanted.extend(self.shown_log());
+            let open = self.nav.commit.as_deref();
+            wanted.extend(open.into_iter().flat_map(|oid| self.commit_reads(oid)));
         }
         if let (ChangeTab::Files, Some(head), Some(comparison)) =
             (self.nav.change_tab, source_head.clone(), self.compare())
