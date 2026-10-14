@@ -1,11 +1,11 @@
-//! The module: every op and every query, each handed to its rule.
+//! The program: every op and every query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+use ::program::{Error, ExecCtx, Program, QueryCtx};
 use store::PAGE_BYTES;
 
 use crate::rules::{
-    ACCOUNTS, MANAGED, OF_MODULE, account, add_key, audience, create, create_agent, generation,
-    of_key, profiles, register_module, remove_key, resolve, resume, revoke, runs, set_audience,
+    ACCOUNTS, MANAGED, OF_PROGRAM, account, add_key, audience, create, create_agent, generation,
+    of_key, profiles, register_program, remove_key, resolve, resume, revoke, runs, set_audience,
     set_name, set_profile, set_runner, suspend,
 };
 use crate::{Op, Query, Reply};
@@ -13,16 +13,14 @@ use crate::{Op, Query, Reply};
 pub struct Identity;
 
 impl Program for Identity {
-    const NAME: &'static str = crate::MODULE;
+    const NAME: &'static str = crate::PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Identity {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         match op {
-            Op::RegisterModule { module } => register_module(ctx, module),
+            Op::RegisterProgram { program } => register_program(ctx, program),
             Op::Create { name, scheme } => create(ctx, name, scheme),
             Op::CreateAgent { name } => create_agent(ctx, name),
             Op::AddKey {
@@ -48,7 +46,7 @@ impl Module for Identity {
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
         Ok(match query {
             Query::OfKey { key } => Reply::Number(of_key(ctx, &key)?),
-            Query::OfModule { module } => Reply::Number(OF_MODULE.get(ctx, &module)?),
+            Query::OfProgram { program } => Reply::Number(OF_PROGRAM.get(ctx, &program)?),
             Query::Profile { number } => {
                 Reply::Profile(ACCOUNTS.get(ctx, &number)?.map(|account| account.profile()))
             }
@@ -81,5 +79,5 @@ impl Module for Identity {
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Identity);
+#[cfg(feature = "program")]
+::program::export!(Identity);

@@ -1,8 +1,8 @@
 //! A change's details, one sidebar beside its conversation: who reviewed
 //! it and how, what stands between it and its target ref, every line
 //! comment in one place, and the channel it talks in.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
 use crate::ui::components::{badge, id, path_text, quiet, short_hex};

@@ -3,9 +3,9 @@
 use crate::contract::*;
 use crate::ops::cap;
 use crate::reads::{Reading, entry_kind};
+use ::program::Error;
+use ::program::invalid;
 use gitcore::{Mode, Oid, diff};
-use guest::Error;
-use guest::invalid;
 use store::{Listing, PAGE_BYTES};
 
 pub fn query(

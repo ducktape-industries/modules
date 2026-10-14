@@ -16,8 +16,8 @@ pub(crate) mod refs;
 pub(crate) mod repos;
 pub(crate) mod settings;
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
 use crate::state::{Dock, Menu, Progress, RepoTab};
@@ -236,7 +236,7 @@ fn title(forge: &Forge, name: &str, cx: &mut Context<Forge>, theme: &Theme) -> A
         let (name, url) = (name.to_owned(), url.clone());
         move |forge, _: &ClickEvent, _, cx| {
             cx.host()
-                .notify::<ducktape_view_guest::methods::ClipboardWrite>(url.clone());
+                .notify::<view::methods::ClipboardWrite>(url.clone());
             forge.copied = Some(name.clone());
             cx.notify();
         }
@@ -301,7 +301,7 @@ fn title(forge: &Forge, name: &str, cx: &mut Context<Forge>, theme: &Theme) -> A
 /// minted by ducklink from the session's chain id (`<label>#<salt>`); a
 /// placeholder `duck://<network>/forge/<name>` while no chain is known.
 pub(crate) fn repo_link(forge: &Forge, name: &str) -> String {
-    ducklink::mint(&forge.session.chain_id, forge::MODULE, &[name])
+    ducklink::mint(&forge.session.chain_id, forge::PROGRAM, &[name])
         .unwrap_or_else(|| format!("duck://<network>/forge/{name}"))
 }
 
@@ -528,13 +528,13 @@ pub(crate) fn reading(element_id: &str, text: &str, theme: &Theme) -> AnyElement
 pub(crate) fn refused(
     query: &forge::Query,
     element_id: &str,
-    refusal: &ducktape_view_guest::host::Error,
+    refusal: &view::host::Error,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
     let query = query.clone();
     let retry = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
-    ducktape_view_guest::design::refused(element_id, refusal.message.clone(), theme, retry)
+    view::design::refused(element_id, refusal.message.clone(), theme, retry)
         .m_2()
         .into_any_element()
 }

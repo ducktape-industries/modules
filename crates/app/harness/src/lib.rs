@@ -1,4 +1,4 @@
-//! The `harness` module: agents that consensus runs. A manager hires an agent it handed to
+//! The `harness` program: agents that consensus runs. A manager hires an agent it handed to
 //! harness; a mention or a direct message reaches it through `attribution`, the model is
 //! asked through `provider`, and every tool call runs in a later block, as the agent.
 mod agents;
@@ -11,16 +11,16 @@ mod tests;
 mod tools;
 mod turns;
 
+pub use ::program::{BlobId, Principal};
 pub use abi::role::identity::AccountNumber;
 pub use attribution::Change;
-pub use guest::{BlobId, Principal};
 pub use program::Harness;
 pub use provider::Delivery;
 pub use store::{PageRequest, PageResponse};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub const MODULE: &str = "harness";
+pub const PROGRAM: &str = "harness";
 pub const MODEL_SERVICE: &str = "anthropic";
 pub const PART: &str = "part";
 

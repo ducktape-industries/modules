@@ -1,12 +1,12 @@
 //! The execute path: who acts, which op, and the repository ops (create,
 //! configure, grant, revoke, push, stage). Change ops live in `changes`.
 
-use gitcore::server::{Policy, RefUpdate};
-use gitcore::{Error as GitError, Limits, server};
-use guest::{BlobId, Error, HashKind};
-use guest::{
+use ::program::{BlobId, Error, HashKind};
+use ::program::{
     ExecCtx, QueryCtx, already_exists, capacity, decoded, invalid, not_found, unauthorized,
 };
+use gitcore::server::{Policy, RefUpdate};
+use gitcore::{Error as GitError, Limits, server};
 
 use crate::contract::{
     Bounds, MAX_PATH_BYTES, PACK_KIND, Principal, Repo, Settings, valid_repo_name,
@@ -17,10 +17,10 @@ use crate::state::{
     save_bounds, save_repo, set_ref, storage,
 };
 
-pub const MODULE: &str = "forge";
+pub const PROGRAM: &str = "forge";
 
 pub(crate) fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
-    let bounds: Bounds = decoded(MODULE, "Bounds", params)?;
+    let bounds: Bounds = decoded(PROGRAM, "Bounds", params)?;
     let usable = bounds.page_size > 0
         && bounds.log_walk > 0
         && bounds.tree_walk > 0
@@ -37,9 +37,9 @@ pub(crate) fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
 }
 
 /// Forge is written by keys (a person's or an agent's account), never by a
-/// module or the system: the frame is signed, and acts as the account its
+/// program or the system: the frame is signed, and acts as the account its
 /// key holds. The host rejects a frame whose key's account is not live
-/// before it gets here; [`ExecCtx::sender`](guest::ExecCtx::sender) refuses
+/// before it gets here; [`ExecCtx::sender`](program::ExecCtx::sender) refuses
 /// a key that holds no account.
 pub(crate) fn signed_account(ctx: &ExecCtx) -> Result<Principal, Error> {
     ctx.env()

@@ -4,9 +4,9 @@ use std::rc::Rc;
 
 use super::{answer, block, followed, ref_key, reply, review_key};
 use crate::api::Ask;
-use ducktape_view_guest::testing::TestAppContext;
-use ducktape_view_guest::wire::Node;
 use forge::{CommitInfo, PageResponse, Query, Reply, Revision};
+use view::testing::TestAppContext;
+use view::wire::Node;
 
 /// The history the tests browse: eight pages of 64.
 const COMMITS: usize = 500;
@@ -107,7 +107,7 @@ fn a_long_log_reads_the_pages_its_list_shows() {
     cx.run_until_parked();
     let opened = (pages(&cx), bytes.get(), listed(&cx));
     eprintln!(
-        "AUDIT opening a log of {COMMITS} commits: {} module.query asks, {} reply bytes",
+        "AUDIT opening a log of {COMMITS} commits: {} program.query asks, {} reply bytes",
         opened.0.len(),
         opened.1
     );
@@ -126,7 +126,7 @@ fn a_long_log_reads_the_pages_its_list_shows() {
     cx.run_until_parked();
     let pushed = (pages(&cx), bytes.get(), listed(&cx));
     eprintln!(
-        "AUDIT a ref moved under a log of {COMMITS} commits: {} module.query asks, {} reply bytes",
+        "AUDIT a ref moved under a log of {COMMITS} commits: {} program.query asks, {} reply bytes",
         pushed.0.len() - held.0,
         pushed.1 - held.1
     );

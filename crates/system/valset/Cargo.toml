@@ -3,25 +3,24 @@ name = "valset"
 version.workspace = true
 edition.workspace = true
 
-# The types, the rules over `store` and the ask another module makes of
-# valset (`role`) are always built; a view links them with `module` off.
-# `module` adds its wasm exports
-# (`guest::export!`), which only its own wasm build turns on.
+# The types, the rules over `store` and the ask another program makes of
+# valset (`role`) are always built; a view links them with `program` off.
+# `program` adds its wasm exports
+# (`program::export!`), which only its own wasm build turns on.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
-module = []
+program = []
 # `describe` makes this crate\'s wasm build the `ducktape.describe` module:
-# the `describe` export alone, no module, no imports.
+# the `describe` export alone, no program, no imports.
 describe = []
 
 [dependencies]
 abi = { workspace = true }
 describe = { workspace = true }
 borsh = { workspace = true }
-guest = { workspace = true }
-# a Registry motion's op is the registry's: its height is checked at the vote
-module-registry = { workspace = true }
 program = { workspace = true }
+# a Programs motion's op is the programs role's: its height is checked at the vote
+programs = { workspace = true }
 store = { workspace = true }

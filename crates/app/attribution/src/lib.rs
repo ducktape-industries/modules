@@ -1,5 +1,5 @@
-//! The `attribution` module: which accounts each module's objects relate to (a mention,
-//! an author, an owner, an assignee), every change to those relations, and the modules
+//! The `attribution` program: which accounts each program's objects relate to (a mention,
+//! an author, an owner, an assignee), every change to those relations, and the programs
 //! told of each change as it happens.
 mod program;
 mod rules;
@@ -7,13 +7,13 @@ mod state;
 #[cfg(test)]
 mod tests;
 
-pub use guest::{AccountNumber, Cause, ModuleId};
+pub use ::program::{AccountNumber, Cause, ProgramId};
 pub use program::Attribution;
 pub use store::{PageRequest, PageResponse};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub const MODULE: &str = "attribution";
+pub const PROGRAM: &str = "attribution";
 
 pub const MAX_NAME_BYTES: usize = 256;
 pub const MAX_RELATIONS: usize = 256;
@@ -30,7 +30,7 @@ pub struct Object {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
 pub struct Source {
-    pub program: ModuleId,
+    pub program: ProgramId,
     pub object: Object,
 }
 
@@ -38,7 +38,7 @@ pub struct Source {
 pub enum Actor {
     Account(AccountNumber),
     Key(Vec<u8>),
-    Program(ModuleId),
+    Program(ProgramId),
     System,
 }
 
@@ -131,7 +131,7 @@ pub enum Query {
     #[ask(Reply::Changes(PageResponse<Change>))]
     #[reads(state::OF, state::CHANGES)]
     ChangesOf { source: Source, page: PageRequest },
-    #[ask(Reply::Subscribers(Vec<ModuleId>))]
+    #[ask(Reply::Subscribers(Vec<ProgramId>))]
     #[reads(state::SUBSCRIBERS)]
     Subscribers,
 }
@@ -140,7 +140,7 @@ pub enum Query {
 pub enum Reply {
     Relations(Option<Relations>),
     Changes(PageResponse<Change>),
-    Subscribers(Vec<ModuleId>),
+    Subscribers(Vec<ProgramId>),
 }
 
 impl Change {

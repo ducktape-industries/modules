@@ -1,5 +1,5 @@
 //! The calling convention between the host and a view: a plain core wasm
-//! module, bytes through the guest's own memory, the shape `crates/sdk/guest`
+//! module, bytes through the view's own memory, the shape `crates/sdk/program`
 //! gives a program.
 //!
 //! ```text
@@ -11,13 +11,13 @@
 //! export restore(ptr: u32, len: u32) -> u64
 //! ```
 //!
-//! The host writes an argument into a buffer `alloc` handed it, and the guest
+//! The host writes an argument into a buffer `alloc` handed it, and the view
 //! owns that buffer from the call on. A `u64` answer is [`pack`]ed: it names
-//! bytes the guest keeps until the next export is entered, so the host copies
+//! bytes the view keeps until the next export is entered, so the host copies
 //! them out before it calls again. `tick` answers an encoded `Frame`;
 //! `snapshot` and `restore` answer a [`encode_result`].
 
-/// The module the guest's one import lives in.
+/// The module the view's one import lives in.
 pub const IMPORT_MODULE: &str = "ducktape_view";
 
 pub fn pack(ptr: u32, len: u32) -> u64 {
@@ -40,7 +40,7 @@ pub fn encode_result(result: Result<Vec<u8>, String>) -> Vec<u8> {
     out
 }
 
-/// `None` is an answer no guest built on this crate writes.
+/// `None` is an answer no view built on this crate writes.
 pub fn decode_result(bytes: &[u8]) -> Option<Result<Vec<u8>, String>> {
     let (tag, body) = bytes.split_first()?;
     match tag {

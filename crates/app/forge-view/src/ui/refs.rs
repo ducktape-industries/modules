@@ -2,7 +2,7 @@
 //! the Change a comparison can become.
 use std::rc::Rc;
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::Forge;
 use crate::ui::components::{
@@ -167,7 +167,7 @@ fn ref_row(
             name_cell(label.clone())
                 .id(id(format!("forge-ref-name-{label}")))
                 .w(NAME_W)
-                .font_weight(ducktape_view_guest::FontWeight::MEDIUM),
+                .font_weight(view::FontWeight::MEDIUM),
             label.clone(),
             theme,
         ))

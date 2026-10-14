@@ -1,8 +1,8 @@
-//! The module: the signer resolved to its principal, then every op and
+//! The program: the signer resolved to its principal, then every op and
 //! every query, each handed to its function (`ops.rs`, `changes.rs`,
 //! `queries.rs`, `reads.rs`, `change_queries.rs`).
 
-use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::change_queries::{change, changes, judgment};
 use crate::changes::{Draft, Edit, MergeRequest, close, edit, merge_heads, open, submit_review};
@@ -15,13 +15,11 @@ use crate::state::{WRITERS, load_bounds, load_repo};
 pub struct Forge;
 
 impl Program for Forge {
-    const NAME: &'static str = crate::MODULE;
+    const NAME: &'static str = crate::PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Forge {
     fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
         init(ctx, params)
     }
@@ -125,7 +123,7 @@ impl Module for Forge {
         Ok(match &query {
             // `answer` takes git's two queries before `query` sees them
             Query::Advertise { .. } | Query::Upload { .. } => {
-                return Err(guest::invalid(
+                return Err(::program::invalid(
                     "a git-wire query answers git's bytes, not a Reply",
                 ));
             }
@@ -206,5 +204,5 @@ impl Module for Forge {
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Forge);
+#[cfg(feature = "program")]
+::program::export!(Forge);

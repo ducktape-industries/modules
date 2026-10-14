@@ -1,9 +1,9 @@
 //! Everything harness keeps: the agents it runs, their threads by agent and by place, every
 //! transcript frame, input held while the model answers, sealed request parts, tool calls,
 //! and writes awaiting a reply.
+use ::program::BlobId;
 use abi::role::identity::AccountNumber;
 use attribution::Source;
-use guest::BlobId;
 use store::{Item, Map, Set};
 
 use crate::{AgentRow, Body, CallRow, Frame, ThreadRow};

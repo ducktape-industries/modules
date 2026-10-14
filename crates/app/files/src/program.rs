@@ -1,6 +1,6 @@
-//! The module: every op acts as the account the host resolved, and every op and
+//! The program: every op acts as the account the host resolved, and every op and
 //! query is handed to its function in `ops.rs`, `commit.rs` or `queries.rs`.
-use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::commit::commit;
 use crate::ops::{pin, stage, unpin};
@@ -10,13 +10,11 @@ use crate::{Op, Query, Reply};
 pub struct Files;
 
 impl Program for Files {
-    const NAME: &'static str = crate::MODULE;
+    const NAME: &'static str = crate::PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Files {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         let writer = ctx.sender()?;
         match op {
@@ -79,5 +77,5 @@ impl Module for Files {
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Files);
+#[cfg(feature = "program")]
+::program::export!(Files);

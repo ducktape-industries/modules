@@ -1,9 +1,9 @@
 //! The loaders: the head and the window it pulls (`chain.status`,
 //! `chain.blocks`), the lists the system programs answer, and what an op
-//! says it does (`module.describe`). A list is read with `cx.load`,
+//! says it does (`program.describe`). A list is read with `cx.load`,
 //! which keeps what is on screen while it reads again and draws only what
 //! changed.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::chain::{BlockRow, TxRow};
 use crate::state::Route;
@@ -28,8 +28,8 @@ impl Explorer {
     /// and draws once) and cost a full render of the page that was up, 74M
     /// fuel on Transactions, every block.
     pub(crate) fn at_head(&mut self, head: Head, cx: &mut Context<Self>) {
-        // a change lands at its height without a write to the registry, so
-        // the registry's live heads say nothing: the head that reaches it
+        // a change lands at its height without a write to the programs role, so
+        // the programs role's live heads say nothing: the head that reaches it
         // reads the roster again
         if let Loadable::Ready(network) = &self.network
             && network
@@ -179,7 +179,7 @@ impl Explorer {
         }
         let ask = cx
             .host()
-            .ask::<ModuleDescribe>((tx.target.clone(), payload.clone()));
+            .ask::<ProgramDescribe>((tx.target.clone(), payload.clone()));
         let (hash, target, payload) = (tx.hash, tx.target.clone(), payload.clone());
         cx.land(ask, move |view, described, cx| {
             let op = worded(&target, &payload, described, cx);
@@ -209,7 +209,7 @@ impl Explorer {
             let Some(payload) = located.and_then(|located| located.tx.payload) else {
                 return Ok(None);
             };
-            let described = host.ask::<ModuleDescribe>((target, payload.clone())).await;
+            let described = host.ask::<ProgramDescribe>((target, payload.clone())).await;
             Ok::<_, Error>(Some((payload, described)))
         };
         let (hash, target, size) = (tx.hash, tx.target.clone(), u64::from(tx.size));

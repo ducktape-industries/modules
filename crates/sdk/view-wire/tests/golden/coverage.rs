@@ -377,8 +377,8 @@ fn read(
 /// of every enum a method's request or reply reaches, read off the
 /// exchanges' own bytes against the definitions `schema.txt` prints, each
 /// read to its last byte. Only the methods with no target: a node method's
-/// bytes are not its declared type's (`module.query` and `op.submit` wrap
-/// the request in a `Call`, `op.submit`'s reply and `module.changes`'
+/// bytes are not its declared type's (`program.query` and `op.submit` wrap
+/// the request in a `Call`, `op.submit`'s reply and `program.changes`'
 /// request are raw), and `host.widget`'s are the tree's.
 #[test]
 fn every_borsh_variant_is_sampled() {

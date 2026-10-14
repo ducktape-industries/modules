@@ -1,12 +1,12 @@
-//! Borsh is the module contract; the view links these types as they are.
+//! Borsh is the program contract; the view links these types as they are.
+use ::program::{BlobId, HashKind};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{BlobId, HashKind};
 
 use crate::state::{ACTIVITY, AUTHORED, CHANGES, INVOLVED, REFS, REPOS, REVIEWS, WRITERS};
 
 pub use crate::read_contract::*;
 pub use crate::review_contract::*;
-pub use guest::Principal;
+pub use ::program::Principal;
 pub use store::{PageRequest, PageResponse};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -149,7 +149,7 @@ pub enum Service {
 }
 
 /// A read. Each variant names the tables it is answered from (`#[reads]`,
-/// [`program::Reads`]), so a view following `module.changes` re-reads it
+/// [`program::Reads`]), so a view following `program.changes` re-reads it
 /// only for a block that wrote to one of them; a judgment is answered
 /// partly from chat's and names those too. Git objects are not keys: a
 /// view reaches one through a ref, and the push or merge that moves the ref
@@ -546,9 +546,9 @@ pub const MAX_ADVERTISED_REFS: usize = 10_000;
 pub const ADVERTISEMENT_BYTES: usize = 3 << 20;
 
 /// The longest repository name whose change channels fit chat's id limit:
-/// `forge:<repo>:<n>` is the module, two `:` and up to 20 digits of `n`.
+/// `forge:<repo>:<n>` is the program, two `:` and up to 20 digits of `n`.
 pub const MAX_REPO_NAME: usize =
-    chat::MAX_ID_BYTES - crate::MODULE.len() - 2 - (u64::MAX.ilog10() as usize + 1);
+    chat::MAX_ID_BYTES - crate::PROGRAM.len() - 2 - (u64::MAX.ilog10() as usize + 1);
 
 pub fn valid_repo_name(name: &str) -> bool {
     !name.is_empty()

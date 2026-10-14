@@ -1,7 +1,7 @@
 //! A page over a walk of names or paths: the cursor is the last name or path the
 //! previous page reached, bound to the listing and the snapshot it walked.
+use ::program::{Error, QueryCtx, invalid};
 use borsh::BorshSerialize;
-use guest::{Error, QueryCtx, invalid};
 use store::{Cursor, PageRequest, PageResponse};
 
 pub(crate) struct Walk {

@@ -1,17 +1,17 @@
-//! The module natively over `MockHost`: commits, reads at the head and at older
+//! The program natively over `MockHost`: commits, reads at the head and at older
 //! snapshots, staged chunks, paging, diffs and pins.
 use std::collections::BTreeMap;
 
-use guest::{BlobId, Env, Error, MockHost, Module, code};
+use ::program::{BlobId, Env, Error, MockHost, Program, code};
 
 use crate::*;
 
 fn ada() -> Env {
-    MockHost::env(MODULE)
+    MockHost::env(PROGRAM)
 }
 
 fn bo() -> Env {
-    MockHost::env(MODULE).signed(vec![2; 32], Some(2))
+    MockHost::env(PROGRAM).signed(vec![2; 32], Some(2))
 }
 
 fn put(path: &str, text: &str) -> Change {
@@ -43,7 +43,7 @@ fn refused(host: &MockHost, env: Env, op: Op) -> Error {
 }
 
 fn ask(host: &MockHost, query: Query) -> Result<Reply, Error> {
-    Files::query(&host.query(MockHost::env(MODULE)), query)
+    Files::query(&host.query(MockHost::env(PROGRAM)), query)
 }
 
 fn head(host: &MockHost) -> Option<BlobId> {

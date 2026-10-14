@@ -75,8 +75,8 @@ fn a_dm_seats_both_accounts_opens_once_and_keeps_others_out() {
         code::UNAUTHORIZED
     );
     assert_eq!(chat.refused(&ADA, open_dm(1)), code::INVALID_INPUT);
-    let module = Principal::Account(902);
-    assert_eq!(chat.refused(&module, open_dm(1)), code::UNAUTHORIZED);
+    let program = Principal::Account(902);
+    assert_eq!(chat.refused(&program, open_dm(1)), code::UNAUTHORIZED);
 }
 
 #[test]

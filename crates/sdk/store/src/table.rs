@@ -4,8 +4,8 @@
 use std::marker::PhantomData;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{Error, Range};
-use guest::{ExecCtx, QueryCtx, corrupt};
+use program::{Error, Range};
+use program::{ExecCtx, QueryCtx, corrupt};
 
 use crate::key::KeyCodec;
 use crate::page::{Listing, PageRequest, PageResponse};
@@ -13,7 +13,7 @@ use crate::page::{Listing, PageRequest, PageResponse};
 type Keyed<T> = (Vec<u8>, T);
 
 /// A table of `V` rows keyed by `K`, every key under one `prefix` of this
-/// module's state. Declare it once as a `const`; each method takes the
+/// program's state. Declare it once as a `const`; each method takes the
 /// context. Two tables' prefixes must not be prefixes of each other
 /// (`"m/"` beside `"m/x/"` would read each other's rows).
 pub struct Map<K, V> {
@@ -109,7 +109,7 @@ impl<K: KeyCodec, V: BorshSerialize + BorshDeserialize> Map<K, V> {
     }
 
     /// One page of the keys whose leading elements are `head`, over a
-    /// listing the module opened itself (one whose cursors are bound to
+    /// listing the program opened itself (one whose cursors are bound to
     /// more than the prefix: the whole query, a height).
     pub fn page_of<H: KeyCodec>(
         &self,
@@ -258,7 +258,7 @@ impl<K: KeyCodec> Set<K> {
     }
 }
 
-/// One value at one key of this module's state: a counter, the params
+/// One value at one key of this program's state: a counter, the params
 /// genesis gave.
 pub struct Item<T> {
     key: &'static str,
@@ -321,7 +321,7 @@ fn decode_value<V: BorshDeserialize>(table: &str, key: &[u8], value: &[u8]) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use guest::MockHost;
+    use program::MockHost;
 
     /// A context over a fresh host.
     fn exec() -> ExecCtx {
@@ -369,7 +369,7 @@ mod tests {
 
         ctx.set(b"n/short".to_vec(), abi::encode(&"x".to_string()));
         let refusal = NUMBERS.all(&ctx).unwrap_err();
-        assert_eq!(refusal.code, guest::code::CORRUPT);
+        assert_eq!(refusal.code, program::code::CORRUPT);
         assert!(refusal.message.starts_with("n/["), "{refusal}");
     }
 
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn a_range_pages_with_lookahead() {
         let host = MockHost::default();
-        let ctx = host.exec(guest::Env {
+        let ctx = host.exec(program::Env {
             height: 3,
             ..MockHost::env("test")
         });

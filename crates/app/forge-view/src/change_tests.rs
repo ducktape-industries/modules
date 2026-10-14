@@ -3,12 +3,12 @@
 use super::{answer, booted, change_screen, change_screen_as, focused, opened, opened_as, refusal};
 use crate::api::{Ask, SubmitForge};
 use crate::state::ChangeTab;
-use ducktape_view_guest::methods::Submit;
-use ducktape_view_guest::wire;
-use ducktape_view_guest::wire::Node;
 use forge::{LineComment, Op, PageRequest, Query, Side, Verdict};
 use std::cell::Cell;
 use std::rc::Rc;
+use view::methods::Submit;
+use view::wire;
+use view::wire::Node;
 
 /// The change tabs read a log or a whole diff on open, so → only moves and
 /// Enter opens; the state filter is a radio group and checks on the arrow.
@@ -41,10 +41,7 @@ fn the_change_state_filter_checks_on_an_arrow() {
     cx.run_until_parked();
     view.read(|forge| assert_eq!(forge.filter, Filter::Merged));
     let merged = cx.interactivity("forge-filter-merged");
-    assert_eq!(
-        merged.aria.toggled,
-        Some(ducktape_view_guest::Toggled::True)
-    );
+    assert_eq!(merged.aria.toggled, Some(view::Toggled::True));
     assert!(merged.aria.active_descendant);
 }
 
@@ -64,7 +61,7 @@ fn a_filter_about_me_checks_no_state() {
             cx.interactivity(&format!("forge-filter-{state}"))
                 .aria
                 .toggled,
-            Some(ducktape_view_guest::Toggled::False),
+            Some(view::Toggled::False),
             "{state} is not checked"
         );
     }
@@ -116,7 +113,7 @@ fn the_change_header_carries_its_endpoints_and_a_merge_the_program_allows() {
     assert!(cx.has_text("#1") && cx.has_text("open"));
     assert!(cx.has_text("Ada wants feature → main · head 26607f52…a84d"));
     // `compare` says FastForward, so the merge is offered.
-    let Some(ducktape_view_guest::wire::Node::Container(node)) = cx.find("forge-merge") else {
+    let Some(view::wire::Node::Container(node)) = cx.find("forge-merge") else {
         panic!("the merge button is a native container");
     };
     assert!(node.interactivity.as_ref().unwrap().on_click.is_some());
@@ -125,8 +122,7 @@ fn the_change_header_carries_its_endpoints_and_a_merge_the_program_allows() {
         Some(true)
     );
     // The reader is not the author, so editing is closed to them.
-    let Some(ducktape_view_guest::wire::Node::Container(edit)) = cx.find("forge-edit-change")
-    else {
+    let Some(view::wire::Node::Container(edit)) = cx.find("forge-edit-change") else {
         panic!("the edit button stays visible")
     };
     assert_eq!(
@@ -145,7 +141,7 @@ fn a_diverged_comparison_says_why_it_cannot_merge() {
         "{:?}",
         cx.texts()
     );
-    let Some(ducktape_view_guest::wire::Node::Container(node)) = cx.find("forge-merge") else {
+    let Some(view::wire::Node::Container(node)) = cx.find("forge-merge") else {
         panic!("the merge button stays visible");
     };
     assert_eq!(
@@ -287,7 +283,7 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
     // forge's own lines read from its records, never from their text
     assert!(cx.has_text("Ada") && cx.has_text("opened this change"));
     assert!(!cx.has_text("raw forge text"), "{:?}", cx.texts());
-    assert!(!cx.texts().iter().any(|text| text.contains("module:")));
+    assert!(!cx.texts().iter().any(|text| text.contains("program:")));
     assert!(cx.has_text("Reading it now"));
     assert!(cx.has_text("Rae"), "a chat handle resolves to a name");
     // Three reviews across two pages of the Change reply.
@@ -310,7 +306,7 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
     assert!(
         matches!(
             cx.find("forge-reply"),
-            Some(ducktape_view_guest::wire::Node::Field {
+            Some(view::wire::Node::Field {
                 multiline: true,
                 ..
             })
@@ -319,7 +315,7 @@ fn the_conversation_is_the_hidden_chat_channel_and_the_forge_body() {
     );
     // what the host's editor holds once the reply is typed
     cx.update(&view, |forge, _, cx| {
-        forge.reply = ducktape_view_guest::TextField::new("looks right to me");
+        forge.reply = view::TextField::new("looks right to me");
         cx.notify();
     });
     cx.run_until_parked();
@@ -414,7 +410,7 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     let row = super::control(&cx, "forge-file-src/lib.rs");
     assert_eq!(
         row.interactivity.as_ref().unwrap().role,
-        Some(ducktape_view_guest::Role::Row)
+        Some(view::Role::Row)
     );
     assert!(
         !row.interactivity.as_ref().unwrap().focusable
@@ -423,11 +419,11 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     let open = super::control(&cx, "forge-file-src/lib.rs-open");
     assert_eq!(
         open.interactivity.as_ref().unwrap().role,
-        Some(ducktape_view_guest::Role::Button)
+        Some(view::Role::Button)
     );
     assert_eq!(
         open.interactivity.as_ref().unwrap().aria.current,
-        Some(ducktape_view_guest::accesskit::AriaCurrent::True)
+        Some(view::accesskit::AriaCurrent::True)
     );
     assert!(!super::holds(
         &wire::Node::Container(open),
@@ -438,7 +434,7 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     view.read(|forge| assert!(forge.nav().diff_path.is_none()));
     // the arrows never walked the list: no file is left lit
     assert_eq!(
-        super::lit_rows(&cx, "forge-file-tree-list", ducktape_view_guest::Role::Row),
+        super::lit_rows(&cx, "forge-file-tree-list", view::Role::Row),
         Vec::<String>::new()
     );
 }
@@ -488,7 +484,7 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
 }
 
 /// The file rows the Files tab's list has drawn.
-fn file_rows_drawn(cx: &ducktape_view_guest::testing::TestAppContext) -> usize {
+fn file_rows_drawn(cx: &view::testing::TestAppContext) -> usize {
     fn count(node: &Node) -> usize {
         let own = node
             .key()
@@ -517,7 +513,7 @@ fn a_264_file_change_lists_the_files_on_screen_and_opens_one_by_keyboard() {
         "a row is as wide as the list: a long path is cut, its counts stay in view"
     );
     let list = cx.interactivity("forge-file-tree-list");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::Grid));
+    assert_eq!(list.role, Some(view::Role::Grid));
     assert!(
         list.focusable && list.tab_stop == Some(true),
         "one Tab stop"
@@ -574,10 +570,7 @@ fn a_file_picked_elsewhere_is_scrolled_into_the_list() {
     cx.simulate_viewport(20);
     let row = "forge-file-src/gen/file_230.rs-open";
     let press = cx.interactivity(row);
-    assert_eq!(
-        press.aria.current,
-        Some(ducktape_view_guest::accesskit::AriaCurrent::True)
-    );
+    assert_eq!(press.aria.current, Some(view::accesskit::AriaCurrent::True));
     assert!(press.aria.active_descendant, "the keys go on from it");
     cx.simulate_focus("forge-file-tree-list");
     cx.simulate_key_down("forge-file-tree-list", "down");
@@ -609,7 +602,7 @@ fn comments_past_the_lists_room_are_counted_at_its_end() {
                 path: path.clone(),
                 new_side: true,
                 line,
-                body: ducktape_view_guest::TextField::new(body.clone()),
+                body: view::TextField::new(body.clone()),
             });
         }
     });
@@ -661,9 +654,7 @@ fn the_diff_draws_typed_lines_and_believes_the_program_about_a_literal_plus_plus
         cx.has_text("+") && cx.has_text("\u{2212}"),
         "an added and a removed marker"
     );
-    let Some(ducktape_view_guest::wire::Node::Container(gutter)) =
-        cx.find("forge-gutter-src/lib.rs-new-5")
-    else {
+    let Some(view::wire::Node::Container(gutter)) = cx.find("forge-gutter-src/lib.rs-new-5") else {
         panic!("the gutter number is the comment button");
     };
     assert_eq!(
@@ -682,10 +673,10 @@ fn the_diff_gutters_are_a_grid_the_arrows_walk() {
     cx.simulate_click("forge-start-review");
     cx.run_until_parked();
     let grid = cx.interactivity("forge-diff-lines");
-    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert_eq!(grid.role, Some(view::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
-    let active_gutter = |cx: &ducktape_view_guest::testing::TestAppContext| -> String {
-        fn find(node: &ducktape_view_guest::wire::Node) -> Option<String> {
+    let active_gutter = |cx: &view::testing::TestAppContext| -> String {
+        fn find(node: &view::wire::Node) -> Option<String> {
             if node
                 .interactivity()
                 .is_some_and(|i| i.aria.active_descendant)
@@ -701,7 +692,7 @@ fn the_diff_gutters_are_a_grid_the_arrows_walk() {
     assert!(!cx.interactivity(&first).focusable);
     assert_eq!(
         cx.interactivity(&format!("{first}-cell")).role,
-        Some(ducktape_view_guest::Role::GridCell)
+        Some(view::Role::GridCell)
     );
     cx.simulate_focus("forge-diff-lines");
     cx.simulate_key_down("forge-diff-lines", "right");
@@ -733,7 +724,7 @@ fn the_diff_gutters_are_a_grid_the_arrows_walk() {
 }
 
 /// The diff list's row count, and its rows held, by index.
-fn diff_rows(cx: &ducktape_view_guest::testing::TestAppContext) -> (usize, Vec<(usize, &Node)>) {
+fn diff_rows(cx: &view::testing::TestAppContext) -> (usize, Vec<(usize, &Node)>) {
     let Some(Node::UniformList {
         count,
         indices,
@@ -753,11 +744,7 @@ fn diff_rows(cx: &ducktape_view_guest::testing::TestAppContext) -> (usize, Vec<(
 }
 
 /// The keys of the diff list's rows from `index`, `n` of them.
-fn keys_from(
-    cx: &ducktape_view_guest::testing::TestAppContext,
-    index: usize,
-    n: usize,
-) -> Vec<String> {
+fn keys_from(cx: &view::testing::TestAppContext, index: usize, n: usize) -> Vec<String> {
     let (_, rows) = diff_rows(cx);
     (index..index + n)
         .map(|at| {
@@ -770,7 +757,7 @@ fn keys_from(
 }
 
 /// The list index of the diff row that holds `key`.
-fn row_holding(cx: &ducktape_view_guest::testing::TestAppContext, key: &str) -> usize {
+fn row_holding(cx: &view::testing::TestAppContext, key: &str) -> usize {
     fn holds(node: &Node, key: &str) -> bool {
         node.key() == Some(key) || node.children().iter().any(|child| holds(child, key))
     }
@@ -860,8 +847,8 @@ fn the_grid_keeps_still_while_its_composer_is_open() {
 #[test]
 fn no_gutter_is_lit_until_the_arrows_walk_it() {
     let (mut cx, _) = change_screen("reviewed", ChangeTab::Files);
-    let lit = |cx: &ducktape_view_guest::testing::TestAppContext| {
-        let mut lit = super::lit_rows(cx, "forge-diff-lines", ducktape_view_guest::Role::Button);
+    let lit = |cx: &view::testing::TestAppContext| {
+        let mut lit = super::lit_rows(cx, "forge-diff-lines", view::Role::Button);
         lit.retain(|key| key.starts_with("forge-gutter-"));
         lit
     };
@@ -912,7 +899,7 @@ fn the_verdicts_check_on_an_arrow() {
     cx.simulate_click("forge-finish-review");
     cx.run_until_parked();
     let group = cx.interactivity("forge-verdicts");
-    assert_eq!(group.role, Some(ducktape_view_guest::Role::RadioGroup));
+    assert_eq!(group.role, Some(view::Role::RadioGroup));
     assert!(group.focusable && group.tab_stop == Some(true));
     assert!(!cx.interactivity("forge-verdict-approve").focusable);
     cx.simulate_focus("forge-verdicts");
@@ -922,10 +909,7 @@ fn the_verdicts_check_on_an_arrow() {
         assert_eq!(forge.review().unwrap().verdict, Some(Verdict::Approve));
     });
     let approve = cx.interactivity("forge-verdict-approve");
-    assert_eq!(
-        approve.aria.toggled,
-        Some(ducktape_view_guest::Toggled::True)
-    );
+    assert_eq!(approve.aria.toggled, Some(view::Toggled::True));
     assert!(approve.aria.active_descendant);
     assert!(
         !cx.interactivity("forge-verdict-comment")
@@ -964,7 +948,7 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
     assert!(
         matches!(
             cx.find("forge-review-body"),
-            Some(ducktape_view_guest::wire::Node::Field {
+            Some(view::wire::Node::Field {
                 multiline: true,
                 ..
             })
@@ -972,7 +956,7 @@ fn a_review_batches_every_anchor_into_exactly_one_operation() {
         "the review body is the host's multi-line editor"
     );
     cx.update(&view, |forge, _, cx| {
-        forge.review_mut().unwrap().body = ducktape_view_guest::TextField::new("one batch, one op");
+        forge.review_mut().unwrap().body = view::TextField::new("one batch, one op");
         cx.notify();
     });
     cx.run_until_parked();
@@ -1153,7 +1137,7 @@ fn editing_a_change_keeps_the_paragraphs_of_its_body() {
     cx.update(&view, |forge, window, cx| {
         forge.start_edit(window, cx);
         // what the host's editor holds once the paragraphs are typed
-        forge.form.as_mut().unwrap().body = ducktape_view_guest::TextField::new(body);
+        forge.form.as_mut().unwrap().body = view::TextField::new(body);
     });
     cx.run_until_parked();
     assert!(
@@ -1457,7 +1441,7 @@ fn a_reader_without_write_picks_no_verdict() {
 fn a_reader_without_write_gets_no_close_or_merge() {
     let (cx, _) = change_screen("default", ChangeTab::Conversation);
     for id in ["forge-close-change", "forge-merge"] {
-        let Some(ducktape_view_guest::wire::Node::Container(node)) = cx.find(id) else {
+        let Some(view::wire::Node::Container(node)) = cx.find(id) else {
             panic!("{id} is a native container");
         };
         assert_eq!(

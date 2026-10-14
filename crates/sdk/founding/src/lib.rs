@@ -15,7 +15,7 @@ pub const DESCRIBE_SECTION: &str = "ducktape.describe";
 pub const FOUNDING: &str = include_str!("../founding.toml");
 
 pub const PROGRAMS: [(&str, &str); 5] = [
-    ("module_registry", "settings_view"),
+    ("programs", "settings_view"),
     ("valset", "node_view"),
     ("identity", "members_view"),
     ("chat", "chat_view"),

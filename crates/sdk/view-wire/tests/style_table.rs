@@ -388,7 +388,7 @@ fn a_table_is_held_to_the_bounds_a_tree_is() {
     assert_eq!(held.len(), MAX_STYLES);
 }
 
-/// An entry is bytes the guest wrote: one that does not read as a style
+/// An entry is bytes the view wrote: one that does not read as a style
 /// refuses its frame.
 #[test]
 fn an_entry_that_is_no_style_is_refused() {

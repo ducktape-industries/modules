@@ -1,5 +1,5 @@
 #![allow(dead_code, unused_imports)]
-//! The forge module end to end over MemorySandbox: founding, access,
+//! The forge program end to end over MemorySandbox: founding, access,
 //! pushes in steps, advertisement, fetch, merge, sha256.
 
 pub use std::collections::{BTreeMap, BTreeSet};
@@ -12,8 +12,8 @@ pub use gitcore::{
     Commit, Hash, Kind, Limits, MemoryObjects, Mode, Object, Objects, Oid, Signature, Tree,
     TreeEntry, pack,
 };
-pub use guest::{Blob, BlobId, Cause, Env, HashKind, Origin, code};
-pub use guest::{MockHost, Module};
+pub use program::{Blob, BlobId, Cause, Env, HashKind, Origin, code};
+pub use program::{MockHost, Program};
 
 pub mod sandbox;
 pub mod story;
@@ -68,23 +68,23 @@ pub fn signed_op(
     actor: &[u8],
     height: u64,
     op: &Op,
-) -> Result<Vec<u8>, guest::Error> {
+) -> Result<Vec<u8>, program::Error> {
     sandbox.frame(Origin::Signed(actor.to_vec()), height, TIME, op)
 }
 
 /// `actor`'s op; a refusal left forge's store as it was.
 #[track_caller]
-pub fn act(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, guest::Error> {
+pub fn act(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, program::Error> {
     sandbox.forge.attempt(|| signed_op(sandbox, actor, 1, op))
 }
 
 /// The refusal of `actor`'s op, which left forge's store as it was.
 #[track_caller]
-pub fn refused(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> guest::Error {
+pub fn refused(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> program::Error {
     sandbox.forge.refused(|| signed_op(sandbox, actor, 1, op))
 }
 
-pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, guest::Error> {
+pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, program::Error> {
     Forge::answer(&sandbox.reads(1), query.clone())
 }
 
@@ -187,7 +187,7 @@ pub fn push_request(commands: &[(Oid, Oid, &str)]) -> Vec<u8> {
 }
 
 pub fn attach(sandbox: &MemorySandbox, kind: &str, body: &[u8]) -> BlobId {
-    let id = guest::blob_id(HashKind::Sha256, kind, body).unwrap();
+    let id = program::blob_id(HashKind::Sha256, kind, body).unwrap();
     let blob = Blob {
         kind: kind.into(),
         body: body.to_vec(),
@@ -222,7 +222,7 @@ pub fn push(
     repo: &str,
     commands: &[(Oid, Oid, &str)],
     pack_bytes: &[u8],
-) -> Result<Vec<String>, guest::Error> {
+) -> Result<Vec<String>, program::Error> {
     let report = with_pack(sandbox, pack_bytes, |pack| {
         let op = Op::Push {
             repo: repo.into(),

@@ -1,7 +1,7 @@
 //! Tools over the network's people and what they did: accounts as the identity role
 //! profiles them, and an account's recent frames as `activity` indexes them.
+use ::program::{Error, ExecCtx, invalid};
 use abi::role::identity::{self as role, Category, Kind, Profile, Standing};
-use guest::{Error, ExecCtx, invalid};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -22,12 +22,12 @@ fn kind(kind: &Kind) -> Value {
                 Standing::Revoked => "revoked",
             };
             let run = match runner {
-                Some(module) => format!(", run by module {module}"),
+                Some(program) => format!(", run by program {program}"),
                 None => String::new(),
             };
             json!(format!("agent of account {manager}, {standing}{run}"))
         }
-        Kind::Module(program) => json!(format!("module {program}")),
+        Kind::Program(program) => json!(format!("program {program}")),
     }
 }
 
@@ -48,7 +48,7 @@ pub(crate) struct Accounts;
 
 impl Tool for Accounts {
     const NAME: &'static str = "network_accounts";
-    const DESCRIPTION: &'static str = "List the network's accounts in number order: each one's name and whether it is a person, an agent or a module.";
+    const DESCRIPTION: &'static str = "List the network's accounts in number order: each one's name and whether it is a person, an agent or a program.";
     type Args = AccountsArgs;
 
     fn schema() -> Value {
@@ -111,7 +111,7 @@ pub(crate) struct Activity;
 
 impl Tool for Activity {
     const NAME: &'static str = "network_activity";
-    const DESCRIPTION: &'static str = "An account's recent frames on the network, newest first: the block, the module it targeted, and whether it applied.";
+    const DESCRIPTION: &'static str = "An account's recent frames on the network, newest first: the block, the program it targeted, and whether it applied.";
     type Args = ActivityArgs;
 
     fn schema() -> Value {
@@ -126,7 +126,7 @@ impl Tool for Activity {
             account: args.account,
             page: page(&args.cursor)?,
         };
-        match ctx.query(activity::MODULE, &asked)? {
+        match ctx.query(activity::PROGRAM, &asked)? {
             activity::Reply::Frames(frames) => {
                 let acted: Vec<Value> = frames
                     .items
@@ -136,7 +136,7 @@ impl Tool for Activity {
                             "height": frame.height,
                             "position": frame.position,
                             "time": frame.time,
-                            "module": frame.target,
+                            "program": frame.target,
                             "applied": frame.applied,
                         })
                     })
@@ -145,7 +145,7 @@ impl Tool for Activity {
                     json!({ "frames": acted, "next": next(&frames.next) }),
                 ))
             }
-            other => Err(unexpected(activity::MODULE, "Acted", &other)),
+            other => Err(unexpected(activity::PROGRAM, "Acted", &other)),
         }
     }
 }

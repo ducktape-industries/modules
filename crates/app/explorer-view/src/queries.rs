@@ -1,8 +1,7 @@
 //! Typed reads of the system programs: accounts (identity), validators
-//! (valset), programs (module-registry) and what each account did
+//! (valset), programs (programs) and what each account did
 //! (activity). The window's blocks are the host's (`load.rs`).
-use ducktape_view_guest::prelude::*;
-use module_registry as registry;
+use view::prelude::*;
 
 use crate::chain::{ROW_PAYLOAD, TxRow, located};
 use crate::state::{Accounts, Acted, Network, Used};
@@ -22,22 +21,22 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
     host.query(valset::ask::Validators).await
 }
 
-/// What the registry runs and lists at its height, and what it will
+/// What the programs role runs and lists at its height, and what it will
 /// after it; who may change it. A change keeps its place in the schedule
-/// until the registry's next op folds it, landed or not, so one due by that
+/// until the programs role's next op folds it, landed or not, so one due by that
 /// height is left out: it is in the roster.
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
-    let (height, programs, views) = host.query(registry::ask::Roster).await?;
-    let hooks = host.query(registry::ask::Hooks(height)).await?;
-    let roles = host.query(registry::ask::Roles).await?;
+    let (height, programs, views) = host.query(programs::ask::Roster).await?;
+    let hooks = host.query(programs::ask::Hooks(height)).await?;
+    let roles = host.query(programs::ask::Roles).await?;
     let grants = host
-        .query_all(|after| registry::ask::Grants {
-            page: registry::PageRequest { after, limit: None },
+        .query_all(|after| programs::ask::Grants {
+            page: programs::PageRequest { after, limit: None },
         })
         .await?;
     let mut changes = host
-        .query_all(|after| registry::ask::Scheduled {
-            page: registry::PageRequest { after, limit: None },
+        .query_all(|after| programs::ask::Scheduled {
+            page: programs::PageRequest { after, limit: None },
         })
         .await?;
     changes.retain(|change| change.height > height);

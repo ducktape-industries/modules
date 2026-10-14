@@ -3,7 +3,7 @@
 //! edge set, the text style) is a field like any other, with a bitmap of
 //! its own. No name crosses, and a field that says nothing costs a bit.
 //!
-//! The guest writes these bytes for every node it lowers, since they are
+//! The view writes these bytes for every node it lowers, since they are
 //! what [`Interner`](super::Interner) tells two styles apart by: so nothing
 //! here formats a number or converts a colour on the way out. A length is
 //! one tag and one `f32`; a colour is its four `f32`.
@@ -358,7 +358,7 @@ impl Value for Pixels {
 }
 
 /// A colour is its four floats on the way out: rounding one costs a colour
-/// conversion, and the guest writes these bytes for every node it lowers.
+/// conversion, and the view writes these bytes for every node it lowers.
 /// On this wire a colour has eight bits a channel (gpui's own serde writes
 /// `#rrggbbaa`), so the host rounds it to that here, once per entry.
 impl Value for Hsla {

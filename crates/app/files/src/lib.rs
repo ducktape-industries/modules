@@ -1,4 +1,4 @@
-//! The `files` module: duckfs, the network's versioned filesystem. Its wire types live
+//! The `files` program: duckfs, the network's versioned filesystem. Its wire types live
 //! here; `program.rs` dispatches them, `ops.rs`/`commit.rs` write, `queries.rs` reads.
 mod commit;
 mod cursor;
@@ -16,12 +16,12 @@ use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub use guest::{BlobId, Principal};
+pub use ::program::{BlobId, Principal};
 pub use objects::{CHUNK, FILE, FileObj, SNAPSHOT, SnapshotObj, TREE, Tree};
 pub use program::Files;
 pub use store::{PageRequest, PageResponse};
 
-pub const MODULE: &str = "files";
+pub const PROGRAM: &str = "files";
 
 pub const CHUNK_SIZE: u64 = 1 << 20;
 pub const MAX_NAME_BYTES: usize = 255;

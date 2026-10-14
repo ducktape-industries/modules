@@ -14,14 +14,14 @@ crate-type = ["cdylib", "rlib"]
 futures.workspace = true
 # `abi::hex` is how a key reaches the screen.
 abi.workspace = true
-ducktape-view-guest.workspace = true
+view.workspace = true
 # who operates a node (an agent's manager) and the roster a change names
 identity.workspace = true
-module-registry.workspace = true
+programs.workspace = true
 valset.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs`: the view in the real app over the fake node
-ducktape-view-guest = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["live"] }
 serde_json.workspace = true

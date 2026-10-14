@@ -1,18 +1,18 @@
 //! The agents harness runs: a manager hires one it handed to harness, a mention or a direct
 //! message it answers opens or continues its thread for that place, and its manager
 //! dismisses it or closes a thread.
-use abi::role::identity::{AccountNumber, Kind, Profile, Standing};
-use attribution::{Actor, Change, Kind as Changed, Reason, Source};
-use guest::{
+use ::program::{
     BlobId, Error, ExecCtx, HashKind, Principal, QueryCtx, invalid, not_found, unauthorized,
     unexpected_reply, wrong_state,
 };
+use abi::role::identity::{AccountNumber, Kind, Profile, Standing};
+use attribution::{Actor, Change, Kind as Changed, Reason, Source};
 
 use crate::state::{AGENTS, BY_AGENT, COUNT, LAST, PLACES, THREADS, newest_first};
 use crate::turns::{advance, say};
 use crate::{
     AgentRow, Asking, Body, MAX_MODEL_BYTES, MAX_OUTPUT_TOKENS, MAX_POST_BYTES, MAX_SYSTEM_BYTES,
-    MODULE, PART, ThreadRow, anthropic, attributed_as, tools,
+    PART, PROGRAM, ThreadRow, anthropic, attributed_as, tools,
 };
 
 fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
@@ -38,7 +38,7 @@ fn runs_here(profile: &Profile) -> Option<AccountNumber> {
             standing: Standing::Active,
             runner: Some(runner),
             ..
-        } if runner == MODULE => Some(*manager),
+        } if runner == PROGRAM => Some(*manager),
         _ => None,
     }
 }
@@ -111,7 +111,7 @@ pub(crate) fn hire(
     }
     if runs_here(&profile).is_none() {
         return Err(wrong_state(format!(
-            "account {agent} is not an active agent handed to {MODULE}: its manager sets identity's SetRunner first"
+            "account {agent} is not an active agent handed to {PROGRAM}: its manager sets identity's SetRunner first"
         )));
     }
     let row = AgentRow {
@@ -127,7 +127,7 @@ pub(crate) fn hire(
     let subscribe = attribution::Op::Subscribe {
         deliver: attributed_as(),
     };
-    ctx.emit(attribution::MODULE, &subscribe, guest::Reply::None);
+    ctx.emit(attribution::PROGRAM, &subscribe, ::program::Reply::None);
     Ok(())
 }
 
@@ -251,16 +251,16 @@ fn designation(
     actor: AccountNumber,
 ) -> Result<Designation, Error> {
     let who = name_of(ctx, actor);
-    let from_chat = change.source.program == chat::MODULE
+    let from_chat = change.source.program == chat::PROGRAM
         && change.source.object.kind == chat::attributed::MESSAGE;
     let message = match from_chat {
         true => {
             let asked = chat::Query::MessageById {
                 message_id: change.source.object.id.clone(),
             };
-            match ctx.query(chat::MODULE, &asked)? {
+            match ctx.query(chat::PROGRAM, &asked)? {
                 chat::Reply::Message(row) => row,
-                other => return Err(unexpected_reply(chat::MODULE, "MessageById", &other)),
+                other => return Err(unexpected_reply(chat::PROGRAM, "MessageById", &other)),
             }
         }
         false => None,
@@ -293,7 +293,7 @@ fn designation(
         body = row.text,
     );
     Ok(Designation {
-        place: format!("{}/{}", chat::MODULE, row.channel_id),
+        place: format!("{}/{}", chat::PROGRAM, row.channel_id),
         title: format!("chat channel {}", row.channel_id),
         text: clipped(text),
     })
@@ -308,7 +308,7 @@ fn designates(reason: &Reason) -> bool {
 }
 
 pub(crate) fn attributed(ctx: &ExecCtx, change: Change) -> Result<(), Error> {
-    ctx.env().sent_by(attribution::MODULE)?;
+    ctx.env().sent_by(attribution::PROGRAM)?;
     let Some(agent) = AGENTS.get(ctx, &change.recipient)? else {
         return Ok(());
     };

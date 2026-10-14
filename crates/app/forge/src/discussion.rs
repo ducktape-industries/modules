@@ -1,9 +1,9 @@
 //! Chat owns conversations: forge opens a change's channel, posts its
 //! system lines into it, and asks chat about the replies a review drew.
 
+use ::program::Principal;
+use ::program::{Error, ExecCtx, QueryCtx, unexpected_reply};
 use chat::{Block, MsgRow, Op, PostPolicy, Query, Reply};
-use guest::Principal;
-use guest::{Error, ExecCtx, QueryCtx, unexpected_reply};
 
 use crate::Change;
 
@@ -53,7 +53,7 @@ pub fn post(ctx: &ExecCtx, change: &Change, message_id: String, event: Event) {
             channel_id: change.channel.clone(),
             message_id,
             blocks: vec![Block::Code {
-                lang: Some(crate::MODULE.into()),
+                lang: Some(crate::PROGRAM.into()),
                 text: event.code(),
             }],
             thread: None,
@@ -62,7 +62,7 @@ pub fn post(ctx: &ExecCtx, change: &Change, message_id: String, event: Event) {
 }
 
 fn emit(ctx: &ExecCtx, message: Op) {
-    ctx.emit(chat::MODULE, &message, guest::Reply::None);
+    ctx.emit(chat::PROGRAM, &message, ::program::Reply::None);
 }
 
 /// The chat root a review posted, by its message id.
@@ -70,9 +70,9 @@ pub fn message(ctx: &QueryCtx, id: &str) -> Result<Option<MsgRow>, Error> {
     let query = Query::MessageById {
         message_id: id.into(),
     };
-    match ctx.query::<Query, Reply>(chat::MODULE, &query)? {
+    match ctx.query::<Query, Reply>(chat::PROGRAM, &query)? {
         Reply::Message(row) => Ok(row),
-        other => Err(unexpected_reply(chat::MODULE, "MessageById", &other)),
+        other => Err(unexpected_reply(chat::PROGRAM, "MessageById", &other)),
     }
 }
 
@@ -86,8 +86,8 @@ pub fn attention(
         channel_id: channel.into(),
         author: principal.clone(),
     };
-    match ctx.query::<Query, Reply>(chat::MODULE, &query)? {
+    match ctx.query::<Query, Reply>(chat::PROGRAM, &query)? {
         Reply::Attention(row) => Ok(row),
-        other => Err(unexpected_reply(chat::MODULE, "ThreadAttention", &other)),
+        other => Err(unexpected_reply(chat::PROGRAM, "ThreadAttention", &other)),
     }
 }

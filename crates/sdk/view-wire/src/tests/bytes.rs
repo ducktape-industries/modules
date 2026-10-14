@@ -42,7 +42,7 @@ fn a_reply_crosses_as_bin() {
 fn a_request_payload_crosses_as_bin() {
     let request = || Request {
         id: 1,
-        kind: "module.query".into(),
+        kind: "program.query".into(),
         payload: mixed(),
     };
     crosses_as_bin(request(), &mixed());
@@ -128,7 +128,7 @@ fn bytes_read_back_from_json() {
         root: Some(picture(Some(vec![1, 2, 200]))),
         requests: vec![Request {
             id: 1,
-            kind: "module.query".into(),
+            kind: "program.query".into(),
             payload: vec![1, 2, 200],
         }],
         ..Default::default()

@@ -26,7 +26,7 @@ pub struct Interactivity {
     pub in_focus: Option<StyleId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_visible: Option<StyleId>,
-    /// Guest-app-local opaque focus allocation. It is never an authored element ID.
+    /// View-local opaque focus allocation. It is never an authored element ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_handle: Option<u64>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]

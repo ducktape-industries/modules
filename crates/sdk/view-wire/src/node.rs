@@ -131,7 +131,7 @@ pub enum Node {
         children: Vec<Node>,
     },
     /// A GPUI uniform-height list. The host owns the native viewport; the
-    /// guest carries the rows of the window it lowered: a viewport-sized
+    /// view carries the rows of the window it lowered: a viewport-sized
     /// window around the rows the host shows, and the measurement row.
     UniformList {
         id: ElementIdWire,
@@ -222,7 +222,7 @@ pub enum Node {
     /// A vector picture. Its bytes cross ONCE: the frame that first shows a
     /// picture carries them under `hash`, and every frame after — a changed
     /// tree re-sends every node — names the hash alone. The host keeps what
-    /// it decoded by hash for as long as the guest runs; a hash it has not
+    /// it decoded by hash for as long as the view runs; a hash it has not
     /// seen draws as empty space of the node's size.
     Svg {
         id: Option<ElementIdWire>,
@@ -234,12 +234,12 @@ pub enum Node {
         interactivity: Option<Box<Interactivity>>,
     },
     /// A text field, one line or many, whose text the host's editing engine
-    /// owns. `value`, `cursor` and `tokens` are the guest's copy: the host
+    /// owns. `value`, `cursor` and `tokens` are the view's copy: the host
     /// adopts them on a fresh mount and whenever `generation` moves (a reset
-    /// the guest means), and otherwise reports its own text through
+    /// the view means), and otherwise reports its own text through
     /// `on_change` as [`Event::Text`]. `revision` is the host's, as of the
-    /// last change the guest applied, so the host can let go of the edits
-    /// before it. A key in `claims` reaches the guest as [`Event::KeyDown`]
+    /// last change the view applied, so the host can let go of the edits
+    /// before it. A key in `claims` reaches the view as [`Event::KeyDown`]
     /// on `on_key` instead of editing; the engine's own keys cannot be
     /// claimed ([`KeyClaim::engine_owned`]). Enter in a one-line field is
     /// `on_submit`, as [`Event::Message`].

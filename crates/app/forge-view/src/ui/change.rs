@@ -4,8 +4,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
+use view::prelude::*;
+use view::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
 
 use crate::Forge;
 use crate::state::{ChangeTab, verdict_label};
@@ -289,8 +289,9 @@ fn tab_count(forge: &Forge, tab: ChangeTab) -> Option<u64> {
         ChangeTab::Conversation => {
             let (change, _, _, _) = forge.change()?;
             match forge.messages.get(&change.channel)? {
-                ducktape_view_guest::Loadable::Ready(rows)
-                | ducktape_view_guest::Loadable::Reloading(rows, _) => Some(rows.len() as u64),
+                view::Loadable::Ready(rows) | view::Loadable::Reloading(rows, _) => {
+                    Some(rows.len() as u64)
+                }
                 _ => None,
             }
         }
@@ -545,7 +546,7 @@ fn file_row(
         .items_center()
         .gap(design::space::SM)
         .when(selected, |press| {
-            press.aria_current(ducktape_view_guest::accesskit::AriaCurrent::True)
+            press.aria_current(view::accesskit::AriaCurrent::True)
         })
         .on_click(pick)
         .child(
@@ -790,7 +791,7 @@ fn finish_panel(
                 x: px(0.),
                 y: design::size::CONTROL + design::space::XXS,
             })
-            .snap_to_window_with_margin(ducktape_view_guest::Edges::all(design::space::SM))
+            .snap_to_window_with_margin(view::Edges::all(design::space::SM))
             .child(panel),
     )
     .into_any_element()

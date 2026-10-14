@@ -82,7 +82,7 @@ fn holding(view: &Entity<Chat>) -> Vec<String> {
 }
 
 fn submit_in_flight(cx: &TestAppContext) -> u64 {
-    use ducktape_view_guest::methods::Method;
+    use view::methods::Method;
     let requests = &cx.last_frame().requests;
     let submit = requests
         .iter()
@@ -148,7 +148,7 @@ fn a_greyed_post_keeps_its_place_and_height_when_it_lands() {
 
 #[test]
 fn a_post_the_room_shows_before_its_receipt_is_shown_once() {
-    use ducktape_view_guest::methods::Method;
+    use view::methods::Method;
     let (mut cx, view, receipt) = post_in_flight("on its way");
     // its block lands first, and the re-read serves it
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
@@ -466,9 +466,7 @@ fn types(cx: &mut TestAppContext, view: &Entity<Chat>, key: &str, text: &str) {
 fn the_first_key_is_kept_however_the_room_came_on_screen() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
-    let routes = cx
-        .host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
+    let routes = cx.host().stream::<view::methods::HostRoute>();
     let view = cx.open::<Chat>();
     seat(&mut cx);
     let link = crate::links::channel_link("testnet#0a1b2c3d", "forge:web:3", None).unwrap();

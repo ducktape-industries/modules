@@ -22,7 +22,7 @@
 //!
 //! The method half is borsh's own schema of each method's request and
 //! reply. What no half holds: the encode functions (`Call` wrapping a node
-//! method's body, `op.submit`'s raw reply, `module.changes` sending the
+//! method's body, `op.submit`'s raw reply, `program.changes` sending the
 //! program's name) are `methods.bin`'s alone, an entry's own value grammar
 //! (a length, a colour: `styles/entry.rs`) is `frame.bin`'s, and a type the
 //! tree writes as a string (a colour in a text run) is `STR` whatever its
@@ -362,21 +362,29 @@ fn a_style_entry_counts_its_fields_as_the_shape_lists_them() {
 }
 
 /// The program a node method addresses, as [`Program`] declares it: each of
-/// its types is a marker, so the schema reads `ModuleQuery` where a view's
+/// its types is a marker, so the schema reads `ProgramQuery` where a view's
 /// program puts its own.
 struct P;
 impl Program for P {
     const NAME: &'static str = "P";
-    type Op = ModuleOp;
-    type Query = ModuleQuery;
-    type Reply = ModuleReply;
+    type Op = ProgramOp;
+    type Query = ProgramQuery;
+    type Reply = ProgramReply;
+
+    fn execute(_: &program::ExecCtx, _: Self::Op) -> Result<(), program::Error> {
+        unreachable!()
+    }
+
+    fn query(_: &program::QueryCtx, _: Self::Query) -> Result<Self::Reply, program::Error> {
+        unreachable!()
+    }
 }
 #[derive(Debug, BorshSerialize, BorshDeserialize, BorshSchema)]
-struct ModuleOp;
+struct ProgramOp;
 #[derive(Debug, BorshSerialize, BorshDeserialize, BorshSchema)]
-struct ModuleQuery;
+struct ProgramQuery;
 #[derive(Debug, BorshSerialize, BorshDeserialize, BorshSchema)]
-struct ModuleReply;
+struct ProgramReply;
 
 pub(super) type Definitions = BTreeMap<Declaration, Definition>;
 
@@ -456,7 +464,7 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<StoreGet>(d),
         borsh::<StoreSet>(d),
         borsh::<ChainHeads>(d),
-        borsh::<ModuleDescribe>(d),
+        borsh::<ProgramDescribe>(d),
     ]
     .into();
     let kinds: BTreeSet<&str> = shapes.keys().copied().collect();

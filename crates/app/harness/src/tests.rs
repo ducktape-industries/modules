@@ -1,7 +1,7 @@
 //! The agents on a `MockChain` with identity, attribution, chat, files, provider and valset
 //! seated: a mention or a direct message reaches a hired agent, a provider node answers as
 //! the model would, and every tool call runs once its relay comes back, as the agent.
-use guest::{Error, MockChain, Origin, Principal, code};
+use ::program::{Error, MockChain, Origin, Principal, code};
 use provider::{Answer, Provider, RELAY, RequestRow, http};
 use serde_json::{Value, json};
 use valset::{Genesis, Member, Valset};
@@ -28,7 +28,7 @@ fn number(output: Vec<u8>) -> AccountNumber {
 }
 
 fn identity_op(chain: &MockChain, key: &[u8], op: identity::Op) -> Result<Vec<u8>, Error> {
-    chain.submit(signed(key), identity::MODULE, &op)
+    chain.submit(signed(key), identity::PROGRAM, &op)
 }
 
 fn hire(agent: AccountNumber) -> Op {
@@ -42,26 +42,26 @@ fn hire(agent: AccountNumber) -> Op {
 
 fn world() -> World {
     let mut chain = MockChain::default();
-    chain.seat::<identity::Identity>(identity::MODULE);
+    chain.seat::<identity::Identity>(identity::PROGRAM);
     chain.seat::<Valset>("valset");
-    chain.seat::<Provider>(provider::MODULE);
-    chain.seat::<attribution::Attribution>(attribution::MODULE);
-    chain.seat::<Harness>(MODULE);
-    chain.seat::<files::Files>(files::MODULE);
-    chain.seat::<chat::Chat>(chat::MODULE);
-    for module in [
+    chain.seat::<Provider>(provider::PROGRAM);
+    chain.seat::<attribution::Attribution>(attribution::PROGRAM);
+    chain.seat::<Harness>(PROGRAM);
+    chain.seat::<files::Files>(files::PROGRAM);
+    chain.seat::<chat::Chat>(chat::PROGRAM);
+    for program in [
         "valset",
-        provider::MODULE,
-        attribution::MODULE,
-        MODULE,
-        files::MODULE,
-        chat::MODULE,
+        provider::PROGRAM,
+        attribution::PROGRAM,
+        PROGRAM,
+        files::PROGRAM,
+        chat::PROGRAM,
     ] {
-        let register = identity::Op::RegisterModule {
-            module: module.into(),
+        let register = identity::Op::RegisterProgram {
+            program: program.into(),
         };
         chain
-            .submit(Origin::Root, identity::MODULE, &register)
+            .submit(Origin::Root, identity::PROGRAM, &register)
             .unwrap();
     }
     let genesis = Genesis {
@@ -76,12 +76,12 @@ fn world() -> World {
         services: vec![MODEL_SERVICE.into(), RELAY.into()],
     };
     chain
-        .submit(signed(&NODE), provider::MODULE, &serve)
+        .submit(signed(&NODE), provider::PROGRAM, &serve)
         .unwrap();
     let person = |key, name: &str| {
         let create = identity::Op::Create {
             name: name.into(),
-            scheme: guest::Scheme::Ed25519,
+            scheme: ::program::Scheme::Ed25519,
         };
         number(identity_op(&chain, key, create).unwrap())
     };
@@ -93,16 +93,16 @@ fn world() -> World {
     let agent = number(identity_op(&chain, ADA, create).unwrap());
     let hand = identity::Op::SetRunner {
         account: agent,
-        runner: Some(MODULE.into()),
+        runner: Some(PROGRAM.into()),
     };
     identity_op(&chain, ADA, hand).unwrap();
-    chain.submit(signed(ADA), MODULE, &hire(agent)).unwrap();
+    chain.submit(signed(ADA), PROGRAM, &hire(agent)).unwrap();
     let general = chat::Op::CreateChannel {
         channel_id: "general".into(),
         name: "general".into(),
         post_policy: chat::PostPolicy::Open,
     };
-    chain.submit(signed(ADA), chat::MODULE, &general).unwrap();
+    chain.submit(signed(ADA), chat::PROGRAM, &general).unwrap();
     World {
         chain,
         ada,
@@ -119,7 +119,7 @@ impl World {
             blocks: chat::parse_message(text),
             thread: None,
         };
-        self.chain.submit(signed(key), chat::MODULE, &op).unwrap();
+        self.chain.submit(signed(key), chat::PROGRAM, &op).unwrap();
     }
 
     fn mention(&self, id: &str, text: &str) -> u64 {
@@ -132,7 +132,7 @@ impl World {
             agent: self.agent,
             page: PageRequest::default(),
         };
-        let Reply::Threads(page) = self.chain.query(MODULE, &asked).unwrap() else {
+        let Reply::Threads(page) = self.chain.query(PROGRAM, &asked).unwrap() else {
             panic!()
         };
         page.items
@@ -144,7 +144,7 @@ fn assigned(chain: &MockChain, service: &str) -> Vec<RequestRow> {
         key: NODE.to_vec(),
         page: PageRequest::default(),
     };
-    let provider::Reply::Requests(page) = chain.query(provider::MODULE, &asked).unwrap() else {
+    let provider::Reply::Requests(page) = chain.query(provider::PROGRAM, &asked).unwrap() else {
         panic!()
     };
     page.items
@@ -154,7 +154,7 @@ fn assigned(chain: &MockChain, service: &str) -> Vec<RequestRow> {
 }
 
 fn body(chain: &MockChain, row: &RequestRow) -> Value {
-    let host = chain.host(provider::MODULE).borrow();
+    let host = chain.host(provider::PROGRAM).borrow();
     let mut bytes = Vec::new();
     for part in &row.parts {
         bytes.extend(&host.blobs[part].body);
@@ -182,7 +182,7 @@ fn reply(content: Value, stop: &str) -> Vec<u8> {
 fn answer(chain: &MockChain, id: u64, answer: Answer) {
     let op = provider::Op::Answer { id, answer };
     chain
-        .submit(Origin::Signed(NODE.to_vec()), provider::MODULE, &op)
+        .submit(Origin::Signed(NODE.to_vec()), provider::PROGRAM, &op)
         .unwrap();
 }
 
@@ -207,14 +207,14 @@ fn frames(chain: &MockChain, thread: u64) -> Vec<Body> {
         thread,
         page: PageRequest::default(),
     };
-    let Reply::Frames(page) = chain.query(MODULE, &asked).unwrap() else {
+    let Reply::Frames(page) = chain.query(PROGRAM, &asked).unwrap() else {
         panic!()
     };
     page.items.into_iter().map(|frame| frame.body).collect()
 }
 
 fn held(chain: &MockChain, thread: u64) -> Vec<Body> {
-    let Reply::Held(held) = chain.query(MODULE, &Query::Held { thread }).unwrap() else {
+    let Reply::Held(held) = chain.query(PROGRAM, &Query::Held { thread }).unwrap() else {
         panic!()
     };
     held
@@ -237,7 +237,7 @@ fn result_of(chain: &MockChain, thread: u64, call: &str) -> (String, bool) {
 }
 
 fn thread_row(chain: &MockChain, thread: u64) -> ThreadRow {
-    let Reply::Thread(Some(row)) = chain.query(MODULE, &Query::Thread { thread }).unwrap() else {
+    let Reply::Thread(Some(row)) = chain.query(PROGRAM, &Query::Thread { thread }).unwrap() else {
         panic!()
     };
     row
@@ -333,7 +333,7 @@ fn a_direct_message_reaches_the_agent_and_only_its_audience_is_heard() {
         counterpart: world.agent,
         name: "scout".into(),
     };
-    chain.submit(signed(ADA), chat::MODULE, &open).unwrap();
+    chain.submit(signed(ADA), chat::PROGRAM, &open).unwrap();
     let room = chat::dm_channel_id(world.ada, world.agent);
     world.post(ADA, &room, "d1", &format!("a word, <@{}>", world.agent));
     let [thread] = world.threads().try_into().unwrap();
@@ -365,21 +365,21 @@ fn a_direct_message_reaches_the_agent_and_only_its_audience_is_heard() {
 fn only_its_manager_hires_an_agent_handed_to_harness_and_a_dismissed_one_hears_nothing() {
     let world = world();
     let chain = &world.chain;
-    let stranger = chain.submit(signed(BO), MODULE, &hire(world.agent));
+    let stranger = chain.submit(signed(BO), PROGRAM, &hire(world.agent));
     assert_eq!(stranger.unwrap_err().code, code::UNAUTHORIZED);
-    let person = chain.submit(signed(ADA), MODULE, &hire(world.bo));
+    let person = chain.submit(signed(ADA), PROGRAM, &hire(world.bo));
     assert_eq!(person.unwrap_err().code, code::WRONG_STATE);
     let create = identity::Op::CreateAgent {
         name: "Idle".into(),
     };
     let idle = number(identity_op(chain, ADA, create).unwrap());
-    let unhanded = chain.submit(signed(ADA), MODULE, &hire(idle));
+    let unhanded = chain.submit(signed(ADA), PROGRAM, &hire(idle));
     assert_eq!(unhanded.unwrap_err().code, code::WRONG_STATE);
 
-    let dismissed = chain.submit(signed(BO), MODULE, &Op::Dismiss { agent: world.agent });
+    let dismissed = chain.submit(signed(BO), PROGRAM, &Op::Dismiss { agent: world.agent });
     assert_eq!(dismissed.unwrap_err().code, code::UNAUTHORIZED);
     chain
-        .submit(signed(ADA), MODULE, &Op::Dismiss { agent: world.agent })
+        .submit(signed(ADA), PROGRAM, &Op::Dismiss { agent: world.agent })
         .unwrap();
     world.post(ADA, "general", "m1", &format!("<@{}> hello?", world.agent));
     assert!(world.threads().is_empty());
@@ -419,7 +419,7 @@ fn every_tool_call_is_receipted_at_once_and_runs_only_after_its_relay_comes_back
         id: assigned(chain, RELAY)[0].id,
         answer: Answer::Output(Vec::new()),
     };
-    let refused = chain.submit(signed(&NODE), provider::MODULE, &same_block);
+    let refused = chain.submit(signed(&NODE), provider::PROGRAM, &same_block);
     assert_eq!(refused.unwrap_err().code, code::WRONG_STATE);
 
     chain.at(3, 0);
@@ -439,11 +439,11 @@ fn every_tool_call_is_receipted_at_once_and_runs_only_after_its_relay_comes_back
         offset: 0,
         len: 100,
     };
-    let files::Reply::Contents(contents) = chain.query(files::MODULE, &asked).unwrap() else {
+    let files::Reply::Contents(contents) = chain.query(files::PROGRAM, &asked).unwrap() else {
         panic!()
     };
     assert_eq!(contents.bytes, b"hello");
-    let files::Reply::Head(Some(head)) = chain.query(files::MODULE, &files::Query::Head).unwrap()
+    let files::Reply::Head(Some(head)) = chain.query(files::PROGRAM, &files::Query::Head).unwrap()
     else {
         panic!()
     };
@@ -503,7 +503,7 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
         name: "closed".into(),
         post_policy: chat::PostPolicy::MembersOnly,
     };
-    chain.submit(signed(BO), chat::MODULE, &closed).unwrap();
+    chain.submit(signed(BO), chat::PROGRAM, &closed).unwrap();
     let thread = world.mention("m1", "post");
     chain.at(2, 0);
     let calls = json!([
@@ -536,7 +536,7 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
     let asked = chat::Query::MessageById {
         message_id: format!("harness-{thread}-toolu_p"),
     };
-    let chat::Reply::Message(Some(posted)) = chain.query(chat::MODULE, &asked).unwrap() else {
+    let chat::Reply::Message(Some(posted)) = chain.query(chat::PROGRAM, &asked).unwrap() else {
         panic!()
     };
     assert_eq!(posted.author, Principal::Account(world.agent));
@@ -608,13 +608,16 @@ fn only_provider_and_attribution_deliver_and_only_the_manager_closes() {
         },
     };
     assert_eq!(
-        chain.submit(signed(ADA), MODULE, &forged).unwrap_err().code,
+        chain
+            .submit(signed(ADA), PROGRAM, &forged)
+            .unwrap_err()
+            .code,
         code::UNAUTHORIZED
     );
     let change = attribution::Change {
         seq: 99,
         source: attribution::Source {
-            program: chat::MODULE.into(),
+            program: chat::PROGRAM.into(),
             object: attribution::Object {
                 kind: "message".into(),
                 id: "m1".into(),
@@ -631,15 +634,18 @@ fn only_provider_and_attribution_deliver_and_only_the_manager_closes() {
     };
     let forged = Op::Attributed(Box::new(change));
     assert_eq!(
-        chain.submit(signed(ADA), MODULE, &forged).unwrap_err().code,
+        chain
+            .submit(signed(ADA), PROGRAM, &forged)
+            .unwrap_err()
+            .code,
         code::UNAUTHORIZED
     );
     let close = Op::Close { thread };
     assert_eq!(
-        chain.submit(signed(BO), MODULE, &close).unwrap_err().code,
+        chain.submit(signed(BO), PROGRAM, &close).unwrap_err().code,
         code::UNAUTHORIZED
     );
-    chain.submit(signed(ADA), MODULE, &close).unwrap();
+    chain.submit(signed(ADA), PROGRAM, &close).unwrap();
     let thread = world.mention("m2", "a fresh start");
     assert_eq!(
         world.threads().len(),
@@ -657,7 +663,7 @@ fn with_no_provider_serving_the_model_a_mention_says_so() {
         services: Vec::new(),
     };
     chain
-        .submit(signed(&NODE), provider::MODULE, &stop)
+        .submit(signed(&NODE), provider::PROGRAM, &stop)
         .unwrap();
     let thread = world.mention("m1", "hello");
     assert!(

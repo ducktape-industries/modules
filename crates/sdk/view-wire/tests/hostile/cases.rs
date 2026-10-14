@@ -145,7 +145,7 @@ fn payload_message(payload: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "non-string panic payload".to_string())
 }
 
-/// Bytes a hostile guest could have written — a sound frame with random
+/// Bytes a hostile view could have written — a sound frame with random
 /// bit flips, byte overwrites, truncations, insertions, and corrupted
 /// length prefixes — never make `decode` panic. `decode`'s own depth budget
 /// (checked before each level is even built) is what makes this safe on a
@@ -306,7 +306,7 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
 /// and the diff has to find moves, inserts, removes and field changes
 /// inside lists whose keys come from a five-entry pool — and, one time in
 /// eight, an unrelated tree, which is a `Replace` at the root. A pair whose
-/// diff runs past `MAX_PATCHES` is the guest's cue to send the tree whole,
+/// diff runs past `MAX_PATCHES` is the view's cue to send the tree whole,
 /// so it is only checked for that refusal.
 #[test]
 fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
@@ -417,7 +417,7 @@ fn a_length_prefix_bomb_is_refused_without_the_allocation() {
 
 /// `sanitize` is idempotent: running it again on its own output changes
 /// nothing, which is what lets a host call it on every frame without
-/// worrying whether the guest already sent a clean one.
+/// worrying whether the view already sent a clean one.
 #[test]
 fn sanitize_is_idempotent() {
     const SEED: u64 = 0x1DE4_1DE4_5EED_5EED;

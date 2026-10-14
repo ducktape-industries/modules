@@ -1,5 +1,5 @@
-//! The `provider` module: a module's request to the world outside the chain, served by a
-//! member node the chain elects and answered back into the module that asked.
+//! The `provider` program: a program's request to the world outside the chain, served by a
+//! member node the chain elects and answered back into the program that asked.
 mod program;
 mod rules;
 mod state;
@@ -8,13 +8,13 @@ mod tests;
 
 pub mod http;
 
-pub use guest::{BlobId, ModuleId};
+pub use ::program::{BlobId, ProgramId};
 pub use program::Provider;
 pub use store::{PageRequest, PageResponse};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub const MODULE: &str = "provider";
+pub const PROGRAM: &str = "provider";
 
 pub const RELAY: &str = "relay";
 
@@ -75,7 +75,7 @@ impl Delivery {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct RequestRow {
     pub id: u64,
-    pub requester: ModuleId,
+    pub requester: ProgramId,
     pub service: String,
     pub input: Vec<u8>,
     pub parts: Vec<BlobId>,

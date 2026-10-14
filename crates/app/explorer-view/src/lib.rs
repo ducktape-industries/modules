@@ -2,7 +2,7 @@
 //! transactions they carry come from `chain.blocks` and `chain.block`, a
 //! transaction's whole payload from `chain.tx`; who signed them from
 //! `identity`; the validators from `valset`; the programs from
-//! `module-registry`; what each account did from `activity`, whose frames
+//! `programs`; what each account did from `activity`, whose frames
 //! are read by their place (`chain.tx`).
 //!
 //! What the node does not keep is not shown: there are no receipts, so a
@@ -29,7 +29,7 @@ mod watch;
 pub use chain::{BlockRow, Chain, TxRow};
 pub use state::{Accounts, Explorer, Network, Note, Route};
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 pub const WINDOW: usize = 1_000;
 /// Blocks per `chain.blocks` page (the node caps a page at 100). Small, so
@@ -43,18 +43,18 @@ impl View for Explorer {
     const ICON: &'static str = "icons/compass.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
-        Capability::Module,
-        // the registry changed by grant, or by a motion to valset
+        Capability::Program,
+        // the programs role changed by grant, or by a motion to valset
         Capability::Op,
         Capability::Host,
         Capability::Clock,
         Capability::Clipboard,
     ];
     const TARGETS: &'static [&'static str] = &[
-        identity::MODULE,
-        valset::MODULE,
-        module_registry::MODULE,
-        activity::MODULE,
+        identity::PROGRAM,
+        valset::PROGRAM,
+        programs::PROGRAM,
+        activity::PROGRAM,
     ];
     // at 560 a block's hash is cut at the right edge
     const MIN_WINDOW_WIDTH: u32 = 640;

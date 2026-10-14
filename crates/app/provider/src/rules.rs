@@ -1,10 +1,10 @@
-//! What each op checks and writes: a member node serving, a module requesting and the
+//! What each op checks and writes: a member node serving, a program requesting and the
 //! chain electing its provider, the provider answering, and an overdue request expiring.
-use abi::role::validators;
-use guest::{
+use ::program::{
     BlobId, Error, ExecCtx, QueryCtx, Reply as Wanted, capacity, invalid, not_found, unauthorized,
     unexpected_reply, wrong_state,
 };
+use abi::role::validators;
 use store::{PageRequest, PageResponse};
 
 use crate::state::{ASSIGNED, COUNT, DEADLINES, PROVIDERS, REQUESTS, SERVING, Stored, TURNS};
@@ -127,7 +127,7 @@ fn elect(ctx: &ExecCtx, service: &str) -> Result<Vec<u8>, Error> {
 }
 
 pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
-    let requester = ctx.env().sending_module()?;
+    let requester = ctx.env().sending_program()?;
     service_name(&request.service)?;
     if request.input.len() > MAX_INPUT_BYTES {
         return Err(capacity(format!(

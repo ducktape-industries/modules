@@ -1,9 +1,9 @@
 use super::super::Send;
 use super::super::draft::host;
 use super::*;
-use ducktape_view_guest::testing::{self, TestAppContext};
-use ducktape_view_guest::{Keystroke, Modifiers};
 use serde::{Deserialize, Serialize};
+use view::testing::{self, TestAppContext};
+use view::{Keystroke, Modifiers};
 use wire::keyboard::{Key, Named};
 
 #[derive(Default, Serialize, Deserialize)]

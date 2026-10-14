@@ -11,16 +11,16 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-ducktape-view-guest.workspace = true
+view.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ducklink.workspace = true
 chat = { path = "../chat" }
-# `role::Identity`: the identity program, followed by role, not linked
+identity.workspace = true
 program.workspace = true
 abi.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs` and the chain-backed tests: the fake node
-ducktape-view-guest = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["live"] }

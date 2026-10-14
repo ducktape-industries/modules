@@ -55,7 +55,7 @@ impl Rig {
     /// The actor's op in a new block, and what it emitted run in its frame;
     /// a refusal left forge's store as it was.
     #[track_caller]
-    pub fn execute(&mut self, op: &Op) -> Result<Vec<u8>, guest::Error> {
+    pub fn execute(&mut self, op: &Op) -> Result<Vec<u8>, program::Error> {
         self.advance();
         let (actor, height) = (self.actor.clone(), self.height);
         self.sandbox
@@ -65,7 +65,7 @@ impl Rig {
 
     /// The refusal of the actor's op, which left forge's store as it was.
     #[track_caller]
-    pub fn refused(&mut self, op: &Op) -> guest::Error {
+    pub fn refused(&mut self, op: &Op) -> program::Error {
         self.advance();
         let (actor, height) = (self.actor.clone(), self.height);
         self.sandbox
@@ -73,7 +73,7 @@ impl Rig {
             .refused(|| signed_op(&self.sandbox, &actor, height, op))
     }
 
-    pub fn query(&self, query: &Query) -> Result<Vec<u8>, guest::Error> {
+    pub fn query(&self, query: &Query) -> Result<Vec<u8>, program::Error> {
         Forge::answer(&self.sandbox.reads(self.height), query.clone())
     }
 
@@ -82,8 +82,8 @@ impl Rig {
     pub fn chat_execute(&mut self, principal: Principal, msg: chat::Op) {
         self.advance();
         let origin = match principal {
-            Principal::Account(number) => match sandbox::module_of(number) {
-                Some(module) => Origin::Module(module.into()),
+            Principal::Account(number) => match sandbox::program_of(number) {
+                Some(program) => Origin::Program(program.into()),
                 None => {
                     let roster = self.sandbox.chain.roster();
                     let (key, _) = roster

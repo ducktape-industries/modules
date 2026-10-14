@@ -1,6 +1,6 @@
 //! A change's conversation: its body, its reviews, and the replies in
 //! chat's hidden channel beneath them, with a composer at the end.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::Forge;
 use crate::state::verdict_verb;
@@ -113,7 +113,7 @@ fn timeline_head(
     what: &str,
     height: u64,
     theme: &Theme,
-) -> ducktape_view_guest::Div {
+) -> view::Div {
     div()
         .flex()
         .items_center()
@@ -122,7 +122,7 @@ fn timeline_head(
             design::avatar(avatar, design::size::AVATAR, theme)
                 .border_1()
                 .border_color(theme.border)
-                .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD),
+                .font_weight(view::FontWeight::SEMIBOLD),
         )
         .children(who.map(crate::ui::bold))
         .child(
@@ -211,11 +211,11 @@ fn forge_line(
 /// forge's own line: written in its room by the account identity names
 /// forge's ([`chat::program_author`]).
 fn is_forge(forge: &Forge, row: &chat::MsgRow) -> bool {
-    let module = forge
+    let program = forge
         .names
         .ready()
-        .and_then(|names| names.module(&row.author));
-    chat::program_author(row, module) == Some(forge::MODULE)
+        .and_then(|names| names.program(&row.author));
+    chat::program_author(row, program) == Some(forge::PROGRAM)
 }
 
 /// The hidden chat channel of this change, in chat's row shape.

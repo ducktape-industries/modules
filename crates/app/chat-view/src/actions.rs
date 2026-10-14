@@ -1,7 +1,7 @@
 //! What a press does: the message menus, the writes (reactions, deletes,
 //! the channel's details, new channels), copying and links.
 use chat::{MsgRow, Op, PostPolicy, Principal};
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::composer::Target;
 use crate::message::{ChatMessage, chat_message, mark_message_groups, zone};
@@ -76,7 +76,7 @@ impl Chat {
         seq: u64,
         rev: u32,
         mode: Mode,
-        window: &mut ducktape_view_guest::Window,
+        window: &mut view::Window,
         _cx: &mut Context<Self>,
     ) {
         if seq == 0 {
@@ -135,7 +135,7 @@ impl Chat {
         seq: u64,
         rev: u32,
         control: Control,
-        window: &mut ducktape_view_guest::Window,
+        window: &mut view::Window,
         cx: &mut Context<Self>,
     ) {
         match control {
@@ -220,7 +220,7 @@ impl Chat {
     }
 
     /// Whether the reader wrote the message at `seq`: only its author
-    /// edits it, and the chat module refuses anyone else.
+    /// edits it, and the chat program refuses anyone else.
     pub(crate) fn wrote(&self, pane: Pane, seq: u64) -> bool {
         let Some(me) = self.me() else { return false };
         self.shown(pane)
@@ -358,7 +358,7 @@ impl Chat {
                     .map(|info| info.channel.name.clone())
                     .unwrap_or_default();
                 self.details = Some(crate::Details {
-                    name_draft: ducktape_view_guest::TextField::new(name),
+                    name_draft: view::TextField::new(name),
                     member_draft: Default::default(),
                 });
             }
@@ -386,7 +386,7 @@ impl Chat {
         if lines.is_empty() {
             return;
         }
-        let label = ducktape_view_guest::design::plural(lines.len() as u64, "message", "messages");
+        let label = view::design::plural(lines.len() as u64, "message", "messages");
         self.copy_text(lines.join("\n"), &label, cx);
     }
 

@@ -1,4 +1,4 @@
-//! Commands applied only to the requesting guest's mounted widget tree.
+//! Commands applied only to the requesting view's mounted widget tree.
 use crate::TextRange;
 use serde::{Deserialize, Serialize};
 
@@ -9,13 +9,13 @@ pub type WidgetTarget = Vec<crate::ElementIdWire>;
 /// an encoded unit. Targets are the tree's qualified keys.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum WidgetCommand {
-    /// Replace `range` of a field's text, as the guest read it at the
+    /// Replace `range` of a field's text, as the view read it at the
     /// host's `revision` of its document `generation`, with `text` — one
     /// atomic span when `token` names it — and put the cursor at `cursor`.
     /// Edits the engine made since `revision` are rebased over, never lost,
     /// and the edit is one the writer can undo. The host holds an ask for a
     /// generation it has not adopted yet until it has, and an ask for a
-    /// generation the guest has since left edits a document that is gone.
+    /// generation the view has since left edits a document that is gone.
     Replace {
         target: WidgetTarget,
         generation: u64,

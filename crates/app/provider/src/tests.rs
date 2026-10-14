@@ -1,10 +1,10 @@
-//! provider on a `MockChain` beside valset and a module that asks: serving, the
+//! provider on a `MockChain` beside valset and a program that asks: serving, the
 //! election's turns, answers delivered back, refusals and expiry.
-use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{
-    Blob, Error, ExecCtx, HashKind, MockChain, Module, Origin, Program, QueryCtx, Reply as Wanted,
-    blob_id, code,
+use ::program::{
+    Blob, Error, ExecCtx, HashKind, MockChain, Origin, Program, QueryCtx, Reply as Wanted, blob_id,
+    code,
 };
+use borsh::{BorshDeserialize, BorshSerialize};
 use store::Item;
 use valset::{Genesis, Member, Valset};
 
@@ -30,20 +30,18 @@ impl Program for Asker {
     type Op = Ask;
     type Query = ();
     type Reply = Vec<Delivery>;
-}
 
-impl Module for Asker {
     fn execute(ctx: &ExecCtx, op: Ask) -> Result<(), Error> {
         match op {
             Ask::Ask(request) => {
-                ctx.emit(MODULE, &Op::Request(request), Wanted::None);
+                ctx.emit(PROGRAM, &Op::Request(request), Wanted::None);
                 Ok(())
             }
             Ask::Delivered(delivery) => {
-                ctx.env().sent_by(MODULE)?;
+                ctx.env().sent_by(PROGRAM)?;
                 let fail = delivery.outcome == Outcome::Answered(b"refuse me".to_vec());
                 if fail {
-                    return Err(guest::invalid("the asker refuses this delivery"));
+                    return Err(::program::invalid("the asker refuses this delivery"));
                 }
                 let mut seen = DELIVERED.get(ctx)?.unwrap_or_default();
                 seen.push(delivery);
@@ -61,7 +59,7 @@ impl Module for Asker {
 fn chain() -> MockChain {
     let mut chain = MockChain::default();
     chain.seat::<Valset>("valset");
-    chain.seat::<Provider>(MODULE);
+    chain.seat::<Provider>(PROGRAM);
     chain.seat::<Asker>(ASKER);
     let members = [ADA, BO].map(|key| Member {
         key: key.to_vec(),
@@ -79,7 +77,7 @@ fn serve(chain: &MockChain, key: [u8; 32], services: &[&str]) -> Result<Vec<u8>,
     let services = services.iter().map(|service| service.to_string()).collect();
     chain.submit(
         Origin::Signed(key.to_vec()),
-        MODULE,
+        PROGRAM,
         &Op::Serve { services },
     )
 }
@@ -99,7 +97,7 @@ fn assigned(chain: &MockChain, key: [u8; 32]) -> Vec<RequestRow> {
         key: key.to_vec(),
         page: PageRequest::default(),
     };
-    let Reply::Requests(page) = chain.query(MODULE, &asked).unwrap() else {
+    let Reply::Requests(page) = chain.query(PROGRAM, &asked).unwrap() else {
         panic!()
     };
     page.items
@@ -108,7 +106,7 @@ fn assigned(chain: &MockChain, key: [u8; 32]) -> Vec<RequestRow> {
 fn answer(chain: &MockChain, key: [u8; 32], id: u64, answer: Answer) -> Result<Vec<u8>, Error> {
     chain.submit(
         Origin::Signed(key.to_vec()),
-        MODULE,
+        PROGRAM,
         &Op::Answer { id, answer },
     )
 }
@@ -163,7 +161,7 @@ fn the_election_takes_turns_and_only_the_elected_provider_answers() {
 }
 
 #[test]
-fn only_a_member_node_serves_and_only_a_module_requests() {
+fn only_a_member_node_serves_and_only_a_program_requests() {
     let chain = chain();
     assert_eq!(
         serve(&chain, STRANGER, &[RELAY]).unwrap_err().code,
@@ -178,7 +176,7 @@ fn only_a_member_node_serves_and_only_a_module_requests() {
         deliver: Vec::new(),
     });
     let signed = chain
-        .submit(Origin::Signed(ADA.to_vec()), MODULE, &direct)
+        .submit(Origin::Signed(ADA.to_vec()), PROGRAM, &direct)
         .unwrap_err();
     assert_eq!(signed.code, code::UNAUTHORIZED);
     assert_eq!(
@@ -188,7 +186,7 @@ fn only_a_member_node_serves_and_only_a_module_requests() {
     serve(&chain, ADA, &[]).unwrap();
     let Reply::Serving(keys) = chain
         .query(
-            MODULE,
+            PROGRAM,
             &Query::Serving {
                 service: RELAY.into(),
             },
@@ -207,13 +205,13 @@ fn an_unanswered_request_expires_after_its_window_and_tells_the_requester() {
     ask(&chain, RELAY, b"").unwrap();
     let expire = Op::Expire { id: 1 };
     let early = chain
-        .submit(Origin::Signed(STRANGER.to_vec()), MODULE, &expire)
+        .submit(Origin::Signed(STRANGER.to_vec()), PROGRAM, &expire)
         .unwrap_err();
     assert_eq!(early.code, code::WRONG_STATE);
     chain.at(1 + EXPIRY_BLOCKS, 0);
     let Reply::Requests(none) = chain
         .query(
-            MODULE,
+            PROGRAM,
             &Query::Overdue {
                 page: PageRequest::default(),
             },
@@ -228,7 +226,7 @@ fn an_unanswered_request_expires_after_its_window_and_tells_the_requester() {
     assert_eq!(late.code, code::WRONG_STATE);
     let Reply::Requests(due) = chain
         .query(
-            MODULE,
+            PROGRAM,
             &Query::Overdue {
                 page: PageRequest::default(),
             },
@@ -239,10 +237,10 @@ fn an_unanswered_request_expires_after_its_window_and_tells_the_requester() {
     };
     assert_eq!(due.items.len(), 1);
     chain
-        .submit(Origin::Signed(STRANGER.to_vec()), MODULE, &expire)
+        .submit(Origin::Signed(STRANGER.to_vec()), PROGRAM, &expire)
         .unwrap();
     assert_eq!(delivered(&chain)[0].outcome, Outcome::Expired);
-    let Reply::Request(gone) = chain.query(MODULE, &Query::Request { id: 1 }).unwrap() else {
+    let Reply::Request(gone) = chain.query(PROGRAM, &Query::Request { id: 1 }).unwrap() else {
         panic!()
     };
     assert_eq!(gone, None);
@@ -283,7 +281,7 @@ fn a_request_names_parts_already_on_the_network() {
         )
         .unwrap_err();
     assert_eq!(missing.code, code::NOT_FOUND);
-    chain.host(MODULE).borrow_mut().blobs.insert(
+    chain.host(PROGRAM).borrow_mut().blobs.insert(
         part,
         Blob {
             kind: "part".into(),

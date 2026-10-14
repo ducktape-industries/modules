@@ -1,11 +1,11 @@
 //! What chat tells attribution, with attribution seated beside it on a `MockChain`: each
 //! message's mentions, and a direct message's counterpart.
+use ::program::{MockChain, Origin};
 use abi::role::identity::{Kind, Profile};
 use attribution::{
     Actor, Attribution, Cause, Change, Kind as Changed, Object, PageRequest, Reason, Relations,
     Source,
 };
-use guest::{MockChain, Origin};
 
 use crate::attributed::{DIRECT, MESSAGE};
 
@@ -14,10 +14,10 @@ const BO: &[u8] = b"bo-key";
 
 fn chain() -> MockChain {
     let mut chain = MockChain::default();
-    chain.seat::<Attribution>(attribution::MODULE);
-    chain.seat::<crate::Chat>(crate::MODULE);
-    chain.register(attribution::MODULE, 900);
-    chain.register(crate::MODULE, 901);
+    chain.seat::<Attribution>(attribution::PROGRAM);
+    chain.seat::<crate::Chat>(crate::PROGRAM);
+    chain.register(attribution::PROGRAM, 900);
+    chain.register(crate::PROGRAM, 901);
     for (key, number, name) in [(ADA, 1, "Ada"), (BO, 2, "Bo")] {
         chain.hold(key.to_vec(), number);
         chain.profile(Profile {
@@ -35,7 +35,7 @@ fn signed(key: &[u8]) -> Origin {
 
 fn chat_source(message: &str) -> Source {
     Source {
-        program: crate::MODULE.into(),
+        program: crate::PROGRAM.into(),
         object: Object {
             kind: MESSAGE.into(),
             id: message.into(),
@@ -46,7 +46,7 @@ fn chat_source(message: &str) -> Source {
 fn relations(chain: &MockChain, source: Source) -> Option<Relations> {
     let asked = attribution::Query::Relations { source };
     let attribution::Reply::Relations(relations) =
-        chain.query(attribution::MODULE, &asked).unwrap()
+        chain.query(attribution::PROGRAM, &asked).unwrap()
     else {
         panic!()
     };
@@ -65,7 +65,7 @@ fn held(chain: &MockChain, source: Source) -> Vec<(u64, Reason)> {
 }
 
 fn changes(chain: &MockChain, asked: attribution::Query) -> Vec<Change> {
-    let attribution::Reply::Changes(page) = chain.query(attribution::MODULE, &asked).unwrap()
+    let attribution::Reply::Changes(page) = chain.query(attribution::PROGRAM, &asked).unwrap()
     else {
         panic!()
     };
@@ -90,7 +90,7 @@ fn post(chain: &MockChain, key: &[u8], channel: &str, id: &str, text: &str) {
         blocks: crate::parse_message(text),
         thread: None,
     };
-    chain.submit(signed(key), crate::MODULE, &op).unwrap();
+    chain.submit(signed(key), crate::PROGRAM, &op).unwrap();
 }
 
 fn direct() -> Reason {
@@ -105,7 +105,7 @@ fn chat_reports_each_messages_mentions_and_a_direct_messages_counterpart() {
         name: "general".into(),
         post_policy: crate::PostPolicy::Open,
     };
-    chain.submit(signed(ADA), crate::MODULE, &create).unwrap();
+    chain.submit(signed(ADA), crate::PROGRAM, &create).unwrap();
     post(&chain, ADA, "general", "plain", "no one in particular");
     assert_eq!(relations(&chain, chat_source("plain")), None);
 
@@ -117,13 +117,13 @@ fn chat_reports_each_messages_mentions_and_a_direct_messages_counterpart() {
         blocks: crate::parse_message("only you, <@3>"),
         base_rev: Some(0),
     };
-    chain.submit(signed(ADA), crate::MODULE, &edit).unwrap();
+    chain.submit(signed(ADA), crate::PROGRAM, &edit).unwrap();
     assert_eq!(held(&chain, chat_source("m1")), [(3, Reason::Mention)]);
     let delete = crate::Op::DeleteMessage {
         channel_id: "general".into(),
         seq: 2,
     };
-    chain.submit(signed(ADA), crate::MODULE, &delete).unwrap();
+    chain.submit(signed(ADA), crate::PROGRAM, &delete).unwrap();
     let row = relations(&chain, chat_source("m1")).unwrap();
     assert_eq!((row.revision, row.relations), (3, Vec::new()));
     assert_eq!(
@@ -145,7 +145,7 @@ fn chat_reports_each_messages_mentions_and_a_direct_messages_counterpart() {
         counterpart: 2,
         name: "us".into(),
     };
-    chain.submit(signed(ADA), crate::MODULE, &dm).unwrap();
+    chain.submit(signed(ADA), crate::PROGRAM, &dm).unwrap();
     let room = crate::dm_channel_id(1, 2);
     post(&chain, ADA, &room, "d1", "a word");
     post(&chain, BO, &room, "d2", "back to you, <@1>");
@@ -166,19 +166,19 @@ fn chat_reports_each_messages_mentions_and_a_direct_messages_counterpart() {
 #[test]
 fn a_post_stands_when_no_attribution_is_seated() {
     let mut chain = MockChain::default();
-    chain.seat::<crate::Chat>(crate::MODULE);
+    chain.seat::<crate::Chat>(crate::PROGRAM);
     chain.hold(ADA.to_vec(), 1);
     let create = crate::Op::CreateChannel {
         channel_id: "general".into(),
         name: "general".into(),
         post_policy: crate::PostPolicy::Open,
     };
-    chain.submit(signed(ADA), crate::MODULE, &create).unwrap();
+    chain.submit(signed(ADA), crate::PROGRAM, &create).unwrap();
     post(&chain, ADA, "general", "m1", "hi <@2>");
     let asked = crate::Query::MessageById {
         message_id: "m1".into(),
     };
-    let crate::Reply::Message(Some(_)) = chain.query(crate::MODULE, &asked).unwrap() else {
+    let crate::Reply::Message(Some(_)) = chain.query(crate::PROGRAM, &asked).unwrap() else {
         panic!()
     };
 }

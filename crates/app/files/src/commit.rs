@@ -2,7 +2,7 @@
 //! and the head, then the head's tree edited, written back and named by a new snapshot.
 use std::collections::{BTreeMap, BTreeSet};
 
-use guest::{BlobId, Error, ExecCtx, Principal, QueryCtx, capacity, invalid, stale};
+use ::program::{BlobId, Error, ExecCtx, Principal, QueryCtx, capacity, invalid, stale};
 
 use crate::objects::{
     FileObj, SnapshotObj, check_chunks, digest, put_bytes, put_file, put_snapshot,

@@ -34,7 +34,7 @@ mod budget {
     /// One node being decoded. Descending past what the host walks, or
     /// building more nodes than it will hold, refuses the whole frame:
     /// there is no partial tree to keep, and a truncated one would be a
-    /// tree the guest did not write.
+    /// tree the view did not write.
     pub(super) struct Node(());
 
     impl Node {
@@ -148,7 +148,7 @@ pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {
 /// whatever it derives or writes by hand. It is written with its field
 /// names, so the build that reads it back may have added a field, and a
 /// `Serialize` that refuses (a custom error) is an answer, not a panic
-/// inside the guest.
+/// inside the view.
 pub fn try_encode<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     value

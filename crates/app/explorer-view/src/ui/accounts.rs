@@ -4,7 +4,7 @@ use crate::decode::scheme;
 use identity::Account;
 
 /// What `account` is, its manager named from the list: "Person", "Agent ·
-/// managed by Dev · suspended", "Module · forge" (identity's own wording,
+/// managed by Dev · suspended", "Program · forge" (identity's own wording,
 /// [`identity::view::kind`], over `Kind::badge` and `Kind::note`).
 fn kind(view: &Explorer, account: &Account) -> String {
     identity::view::kind(&account.kind(), |manager| {

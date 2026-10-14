@@ -15,7 +15,7 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
     assert!(cx.has_text("Post in #design") && cx.has_text("Ada") && cx.has_text("#3"));
     assert!(cx.has_text("mystery · 4 bytes") && cx.has_text("02020202…0202"));
     // the page tabs sit in a named tab list
-    let Some(ducktape_view_guest::wire::Node::Container(bar)) = cx.find("explorer-tabs") else {
+    let Some(view::wire::Node::Container(bar)) = cx.find("explorer-tabs") else {
         panic!("a tab list");
     };
     assert_eq!(
@@ -23,7 +23,7 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
             bar.interactivity.as_ref().unwrap().role,
             bar.interactivity.as_ref().unwrap().aria.label.as_deref()
         ),
-        (Some(ducktape_view_guest::Role::TabList), Some("Pages"))
+        (Some(view::Role::TabList), Some("Pages"))
     );
     assert!(
         cx.has_text("6f6f6f6f…6f6f"),
@@ -51,7 +51,7 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
 fn an_arrow_on_the_pages_opens_the_next_page() {
     let (mut cx, _) = ready();
     let tabs = cx.interactivity("explorer-tabs");
-    assert_eq!(tabs.role, Some(ducktape_view_guest::Role::TabList));
+    assert_eq!(tabs.role, Some(view::Role::TabList));
     assert!(tabs.focusable && tabs.tab_stop == Some(true));
     assert!(!cx.interactivity("explorer-tab-blocks").focusable);
     cx.simulate_focus("explorer-tabs");
@@ -216,7 +216,7 @@ fn an_arrow_and_enter_on_the_accounts_opens_the_second_account() {
     cx.simulate_click("explorer-tab-accounts");
     cx.run_until_parked();
     let list = cx.interactivity("explorer-accounts-list");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(list.role, Some(view::Role::ListBox));
     assert_eq!(list.aria.label.as_deref(), Some("Accounts"));
     assert!(list.focusable && list.tab_stop == Some(true));
     let rows: Vec<String> = cx
@@ -228,7 +228,7 @@ fn an_arrow_and_enter_on_the_accounts_opens_the_second_account() {
         .collect();
     assert!(rows.len() >= 2, "{rows:?}");
     let first = cx.interactivity(&rows[0]);
-    assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert_eq!(first.role, Some(view::Role::ListBoxOption));
     assert!(!first.focusable && first.aria.active_descendant);
     assert_eq!(first.aria.selected, Some(false));
     cx.simulate_focus("explorer-accounts-list");
@@ -373,8 +373,8 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
             pack: None,
         };
         Tx {
-            receipt: Some(receipt(forge::MODULE, None, Vec::new())),
-            ..tx(seed, ADA, forge::MODULE, borsh::to_vec(&op).unwrap())
+            receipt: Some(receipt(forge::PROGRAM, None, Vec::new())),
+            ..tx(seed, ADA, forge::PROGRAM, borsh::to_vec(&op).unwrap())
         }
     };
     let mut blocks = chain(12);
@@ -384,7 +384,7 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
     cx.open::<Explorer>();
     cx.run_until_parked();
     let name = |id: &str| match cx.find(id) {
-        Some(ducktape_view_guest::wire::Node::Container(row)) => {
+        Some(view::wire::Node::Container(row)) => {
             row.interactivity.as_ref().unwrap().aria.label.clone()
         }
         _ => panic!("no row {id}"),
@@ -483,7 +483,7 @@ fn the_scheduled_changes_survive_a_snapshot() {
 /// narrowest; narrower, their titles went to nothing.
 #[test]
 fn the_latest_panels_stack_where_the_transactions_would_squeeze() {
-    use ducktape_view_guest::{StyleRefinement, Styled as _, design, px};
+    use view::{StyleRefinement, Styled as _, design, px};
     let (mut cx, _) = ready();
     let style = |cx: &TestAppContext, id: &str| -> StyleRefinement { cx.style(id).clone() };
     let column = StyleRefinement::default().flex_col().flex_direction;
@@ -549,7 +549,7 @@ fn the_latest_panels_stack_where_the_transactions_would_squeeze() {
 #[test]
 fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();
-    let dark = ducktape_view_guest::Theme::dark();
+    let dark = view::Theme::dark();
     cx.set_global(dark);
     let style = cx.style("explorer");
     assert_eq!(
@@ -573,7 +573,7 @@ fn accounts_say_what_each_is_as_members_does() {
     for text in [
         "Person",
         "Agent · managed by Ada · suspended",
-        "Module · forge",
+        "Program · forge",
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
@@ -593,8 +593,8 @@ fn accounts_say_what_each_is_as_members_does() {
 /// opens at its top again.
 #[test]
 fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
-    use ducktape_view_guest::wire::Node;
-    use ducktape_view_guest::wire::list::UniformListScrollStrategy as Strategy;
+    use view::wire::Node;
+    use view::wire::list::UniformListScrollStrategy as Strategy;
     let mut cx = TestAppContext::new();
     heavy(&mut cx);
     cx.open::<Explorer>();
@@ -620,7 +620,7 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
     );
     assert!(cx.find(&row(0)).is_some() && cx.find(&row(49)).is_none());
     let first = cx.interactivity(&row(0));
-    assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert_eq!(first.role, Some(view::Role::ListBoxOption));
     assert!(first.aria.active_descendant && !first.focusable);
 
     // the host scrolled to rows 30..44: they come with a margin, the rows
@@ -664,8 +664,8 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
 /// Every other page scrolls, with the gutter the SDK keeps.
 #[test]
 fn the_transactions_list_reaches_the_panes_edge_and_writes_no_gutter() {
-    use ducktape_view_guest::wire::Node;
-    let bar = ducktape_view_guest::design::size::SCROLLBAR;
+    use view::wire::Node;
+    let bar = view::design::size::SCROLLBAR;
     let mut cx = TestAppContext::new();
     heavy(&mut cx);
     cx.open::<Explorer>();

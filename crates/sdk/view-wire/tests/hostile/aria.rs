@@ -1,4 +1,4 @@
-//! The aria a guest writes: every list it carries is bounded at decode, and
+//! The aria a view writes: every list it carries is bounded at decode, and
 //! `sanitize` pulls the rest into what the host maps.
 use super::*;
 

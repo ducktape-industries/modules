@@ -1,6 +1,6 @@
 //! The checks an op passes before it writes. Each refuses with the reason a
-//! view can act on (`guest::refuse`); none writes.
-use guest::{Env, Error, Origin, QueryCtx, invalid, unauthorized, wrong_state};
+//! view can act on (`program::refuse`); none writes.
+use ::program::{Env, Error, Origin, QueryCtx, invalid, unauthorized, wrong_state};
 
 use crate::state::MEMBERS;
 use crate::{
@@ -24,7 +24,7 @@ pub(crate) fn namespace(id: &str, env: &Env) -> Result<(), Error> {
         return Ok(());
     };
     let allowed = match &env.origin {
-        Origin::Module(program) => prefix == program,
+        Origin::Program(program) => prefix == program,
         Origin::Root => true,
         Origin::Signed(_) => false,
     };

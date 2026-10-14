@@ -1,5 +1,5 @@
 use super::*;
-use ducktape_view_guest::{StyleRefinement, Styled};
+use view::{StyleRefinement, Styled};
 
 /// The strip hangs half over the card's top edge (Slack's), and the
 /// message under it stays where it is; the card's ground hugs the message,
@@ -10,7 +10,7 @@ use ducktape_view_guest::{StyleRefinement, Styled};
 /// this frame went through the sanitizer.
 #[test]
 fn the_action_strip_hangs_over_the_rows_top_and_stays_under_the_pointer() {
-    use ducktape_view_guest::px;
+    use view::px;
     let (mut cx, _view) = opened();
     assert!(
         cx.find("chat-message-m1-actions").is_none(),
@@ -44,7 +44,7 @@ fn the_action_strip_hangs_over_the_rows_top_and_stays_under_the_pointer() {
         style.visibility, None,
         "drawn only while the pointer is on the row"
     );
-    let raised = ducktape_view_guest::Theme::default().surface_raised;
+    let raised = view::Theme::default().surface_raised;
     let ground = |cx: &TestAppContext| {
         cx.style("chat-message-m1-card")
             .background
@@ -117,7 +117,7 @@ fn copy_range_keeps_its_distinct_message_plate() {
         cx.notify();
     });
     cx.run_until_parked();
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
+    let Some(wire::Node::Container(view::wire::ContainerNode { style, .. })) =
         cx.find("chat-message-m1-card")
     else {
         panic!("message card")
@@ -129,7 +129,7 @@ fn copy_range_keeps_its_distinct_message_plate() {
             .as_ref()
             .and_then(|fill| fill.color())
             .and_then(|color| color.as_solid()),
-        Some(ducktape_view_guest::Theme::light().surface_raised)
+        Some(view::Theme::light().surface_raised)
     );
 }
 
@@ -137,7 +137,7 @@ fn copy_range_keeps_its_distinct_message_plate() {
 fn reaction_rows_keep_add_action_and_selected_accessibility() {
     let (mut cx, view) = opened();
     fire(&mut cx, &view, true);
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         interactivity: Some(interactivity),
         ..
     })) = cx.find("chat-message-m1-reaction-🔥")
@@ -177,7 +177,7 @@ fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
     cx.run_until_parked();
     hover(&mut cx, &view, 1);
     let aria = |key: &str| match cx.find(key) {
-        Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+        Some(wire::Node::Container(view::wire::ContainerNode {
             interactivity: Some(interactivity),
             ..
         })) => interactivity.aria.clone(),
@@ -207,7 +207,7 @@ fn a_reaction_chip_is_named_by_its_emoji_whether_toggled_or_not() {
 /// in under it, whatever the text inside.
 #[test]
 fn the_small_press_targets_are_at_least_24_px_each_way() {
-    use ducktape_view_guest::px;
+    use view::px;
     let (mut cx, view) = opened();
     fire(&mut cx, &view, true);
     let style = |key: &str| cx.style(key).clone();
@@ -238,7 +238,7 @@ fn the_small_press_targets_are_at_least_24_px_each_way() {
 /// controls above: the box's declared floor.
 #[test]
 fn the_strip_and_the_glyph_buttons_are_at_least_24_px_each_way() {
-    use ducktape_view_guest::{design, px};
+    use view::{design, px};
     let (mut cx, view) = opened();
     cx.update(&view, |chat, _, cx| {
         chat.search.draft.reset("hello");
@@ -304,7 +304,7 @@ fn replies_read_as_a_button() {
         cx.notify();
     });
     cx.run_until_parked();
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         style,
         interactivity: Some(interactivity),
         ..
@@ -313,13 +313,10 @@ fn replies_read_as_a_button() {
         panic!("replies button")
     };
     let style = &cx.styles()[*style];
-    assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Button));
+    assert_eq!(interactivity.role, Some(view::Role::Button));
     // a cell of the timeline grid, not a stop of its own
     assert!(!interactivity.focusable && interactivity.hover.is_some());
-    assert_eq!(
-        style.mouse_cursor,
-        Some(ducktape_view_guest::CursorStyle::PointingHand)
-    );
+    assert_eq!(style.mouse_cursor, Some(view::CursorStyle::PointingHand));
     assert!(cx.has_text("Open thread →"));
     cx.simulate_click("chat-message-m1-replies");
     view.read(|chat| {
@@ -337,7 +334,7 @@ fn an_arrow_on_the_emoji_tabs_opens_the_next_category() {
     hover(&mut cx, &view, 1);
     cx.simulate_click("chat-message-m1-react");
     let tabs = cx.interactivity("chat-reaction-tabs");
-    assert_eq!(tabs.role, Some(ducktape_view_guest::Role::TabList));
+    assert_eq!(tabs.role, Some(view::Role::TabList));
     assert!(tabs.focusable && tabs.tab_stop == Some(true));
     assert!(!cx.interactivity("chat-reaction-tab-Smileys").focusable);
     assert!(
@@ -398,16 +395,16 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     let (mut cx, view) = opened();
     fire(&mut cx, &view, false);
     let grid = cx.interactivity("chat-message-list");
-    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert_eq!(grid.role, Some(view::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
     // Grid > Row > GridCell: the message is cell 0, under the whole card,
     // and keeps the pointer's click; the row holds the name and never claims
     let newest = cx.interactivity("chat-message-m2");
-    assert_eq!(newest.role, Some(ducktape_view_guest::Role::GridCell));
+    assert_eq!(newest.role, Some(view::Role::GridCell));
     assert!(newest.aria.active_descendant, "the newest message on entry");
     assert!(!newest.focusable && newest.on_click.is_some());
     let row = cx.interactivity("chat-message-m2-row");
-    assert_eq!(row.role, Some(ducktape_view_guest::Role::Row));
+    assert_eq!(row.role, Some(view::Role::Row));
     assert!(!row.focusable && !row.aria.active_descendant && row.on_click.is_none());
     assert!(
         row.aria
@@ -439,21 +436,21 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     // button that stays one
     cx.simulate_key_down("chat-message-list", "right");
     let avatar = cx.interactivity("chat-message-m1-avatar");
-    assert_eq!(avatar.role, Some(ducktape_view_guest::Role::Link));
+    assert_eq!(avatar.role, Some(view::Role::Link));
     assert!(avatar.aria.active_descendant && !avatar.focusable);
     cx.simulate_key_down("chat-message-list", "right");
     let link = cx.interactivity("chat-message-m1-height");
-    assert_eq!(link.role, Some(ducktape_view_guest::Role::Link));
+    assert_eq!(link.role, Some(view::Role::Link));
     assert!(link.aria.active_descendant && !link.focusable);
     let cell = cx.interactivity("chat-message-m1-height-cell");
-    assert_eq!(cell.role, Some(ducktape_view_guest::Role::GridCell));
+    assert_eq!(cell.role, Some(view::Role::GridCell));
     assert!(
         !cell.aria.active_descendant,
         "the control claims, not its cell"
     );
     cx.simulate_key_down("chat-message-list", "right");
     let chip = cx.interactivity("chat-message-m1-reaction-🔥");
-    assert_eq!(chip.role, Some(ducktape_view_guest::Role::Button));
+    assert_eq!(chip.role, Some(view::Role::Button));
     assert!(chip.aria.active_descendant && !chip.focusable);
     assert!(!cx.interactivity("chat-message-m1").aria.active_descendant);
     cx.simulate_key_down("chat-message-list", "enter");
@@ -485,7 +482,7 @@ fn the_timeline_is_a_grid_whose_arrows_walk_messages_and_their_controls() {
     let strip = cx.find("chat-message-m1-actions").expect("the strip");
     assert!(strip.children().iter().all(|cell| {
         cell.interactivity()
-            .is_some_and(|cell| cell.role == Some(ducktape_view_guest::Role::GridCell))
+            .is_some_and(|cell| cell.role == Some(view::Role::GridCell))
             && cell.children().len() == 1
     }));
     assert!(
@@ -540,7 +537,7 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
     cx.run_until_parked();
     fn is_cell(node: &wire::Node) -> bool {
         node.interactivity()
-            .is_some_and(|node| node.role == Some(ducktape_view_guest::Role::GridCell))
+            .is_some_and(|node| node.role == Some(view::Role::GridCell))
     }
     fn holds(node: &wire::Node, key: &str) -> bool {
         node.children()
@@ -573,8 +570,7 @@ fn a_reaction_chip_is_its_own_cell_of_the_row() {
         let message = cx.find(&format!("chat-message-{m}")).unwrap();
         assert!(is_cell(message) && message.children().is_empty(), "{pane}");
         // under the whole card, and no slot of the card's flex
-        let wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. }) = message
-        else {
+        let wire::Node::Container(view::wire::ContainerNode { style, .. }) = message else {
             panic!("{pane}: the message's cell")
         };
         let style = &cx.styles()[*style];
@@ -721,7 +717,7 @@ fn two_arrows_and_enter_on_the_emoji_grid_add_the_third_emoji() {
     hover(&mut cx, &view, 1);
     cx.simulate_click("chat-message-m1-react");
     let grid = cx.interactivity("chat-reaction-grid");
-    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert_eq!(grid.role, Some(view::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
     let rows = cx.find("chat-reaction-grid").unwrap().children();
     assert_eq!(rows.len(), emoji::PER_TAB.div_ceil(8));

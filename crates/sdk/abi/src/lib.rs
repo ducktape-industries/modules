@@ -120,7 +120,7 @@ pub enum Principal {
 /// its binding, never by a name it assumes.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Roles {
-    pub registry: ProgramId,
+    pub programs: ProgramId,
     pub validators: ProgramId,
     /// Asked, once per frame, which account the frame acts as.
     pub identity: ProgramId,
@@ -373,11 +373,11 @@ pub enum HostReply {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Invocation {
     pub env: Env,
-    pub call: GuestCall,
+    pub call: ProgramCall,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum GuestCall {
+pub enum ProgramCall {
     Init(Vec<u8>),
     Execute(Vec<u8>),
     Query(Vec<u8>),
@@ -398,14 +398,14 @@ pub mod hook {
     }
 }
 
-pub type GuestReply = Result<(), Refusal>;
+pub type ProgramReply = Result<(), Refusal>;
 
 /// The kernel calls programs by role, never by id: genesis binds each role
-/// (registry, validators, identity) to a founding program. Each module here is
+/// (programs, validators, identity) to a founding program. Each module here is
 /// the interface the kernel speaks to the program in that role.
 pub mod role {
     /// Which code runs at a height.
-    pub mod registry {
+    pub mod programs {
         use crate::{BlobId, BorshDeserialize, BorshSerialize, ProgramId};
 
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -498,7 +498,7 @@ pub mod role {
             Demote { key: Vec<u8> },
             Remove { key: Vec<u8> },
             Door { open: bool },
-            Registry { op: Vec<u8> },
+            Programs { op: Vec<u8> },
         }
 
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -538,7 +538,7 @@ pub mod role {
         /// What an account is, in one field, so no account is two things
         /// at once: a person holds their own keys; a managed account holds
         /// the keys its `manager`, a person, gives it and acts only while
-        /// its `standing` is `Active`; a module's account is its program's
+        /// its `standing` is `Active`; a program's account is the program's own
         /// and holds no keys.
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub enum Kind {
@@ -549,7 +549,7 @@ pub mod role {
                 standing: Standing,
                 runner: Option<ProgramId>,
             },
-            Module(ProgramId),
+            Program(ProgramId),
         }
 
         /// What a manager declares a managed account to be. The enum only
@@ -581,7 +581,7 @@ pub mod role {
         /// program that has one changes nothing.
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub enum Op {
-            RegisterModule { module: ProgramId },
+            RegisterProgram { program: ProgramId },
         }
 
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -594,7 +594,7 @@ pub mod role {
             Account(Vec<u8>),
             /// The kernel's: the account of a program, answered as
             /// `Account`.
-            OfModule(ProgramId),
+            OfProgram(ProgramId),
             /// One account's profile, `None` for a number no account has.
             Profile(AccountNumber),
             /// Every account's profile, ascending by number from past
@@ -628,7 +628,7 @@ pub mod role {
 /// this crate: the kernel shows no one anything.
 impl role::identity::Kind {
     /// The badge beside an account's name: `"Agent · managed by <name>"` or
-    /// `"Module · <program>"`. A person wears none. `name_of` names the
+    /// `"Program · <program>"`. A person wears none. `name_of` names the
     /// manager.
     pub fn badge(
         &self,
@@ -642,7 +642,7 @@ impl role::identity::Kind {
                 category: Category::Agent,
                 ..
             } => Some(format!("Agent · managed by {}", name_of(*manager))),
-            Kind::Module(module) => Some(format!("Module · {module}")),
+            Kind::Program(program) => Some(format!("Program · {program}")),
         }
     }
 
@@ -660,7 +660,7 @@ impl role::identity::Kind {
                 ..
             } => Some("revoked"),
             Kind::Person
-            | Kind::Module(_)
+            | Kind::Program(_)
             | Kind::Managed {
                 standing: Standing::Active,
                 ..
@@ -714,8 +714,8 @@ mod tests {
     }
 
     #[test]
-    fn the_registry_role_keeps_at_on_tag_zero_and_asks_hooks_on_tag_five() {
-        use role::registry::{Query, Reply};
+    fn the_programs_role_keeps_at_on_tag_zero_and_asks_hooks_on_tag_five() {
+        use role::programs::{Query, Reply};
         let at = Query::At(7);
         let hooks = Query::Hooks(7);
         assert_eq!(encode(&at), [&[0u8][..], &7u64.to_le_bytes()].concat());
@@ -743,7 +743,7 @@ mod tests {
             origin: Origin::Program("b".into()),
             sender: Some(Principal::Account(4)),
             roles: Roles {
-                registry: "r".into(),
+                programs: "r".into(),
                 validators: "v".into(),
                 identity: "i".into(),
             },
@@ -762,7 +762,7 @@ mod tests {
         let reply = HostReply::Query(Err(Refusal::new("r", "s")));
         let invocation = Invocation {
             env: env.clone(),
-            call: GuestCall::Hook(hook::Record {
+            call: ProgramCall::Hook(hook::Record {
                 height: 7,
                 position: 2,
                 signer: vec![1],
@@ -771,7 +771,7 @@ mod tests {
                 applied: false,
             }),
         };
-        let guest_reply: GuestReply = Ok(());
+        let program_reply: ProgramReply = Ok(());
         assert_eq!(decode::<Env>(&encode(&env)).unwrap(), env);
         assert_eq!(decode::<HostOp>(&encode(&op)).unwrap(), op);
         assert_eq!(decode::<HostReply>(&encode(&reply)).unwrap(), reply);
@@ -780,8 +780,8 @@ mod tests {
             invocation
         );
         assert_eq!(
-            decode::<GuestReply>(&encode(&guest_reply)).unwrap(),
-            guest_reply
+            decode::<ProgramReply>(&encode(&program_reply)).unwrap(),
+            program_reply
         );
         assert_eq!(decode::<Env>(&[9, 9]).unwrap_err().reason, reason::PROTOCOL);
     }

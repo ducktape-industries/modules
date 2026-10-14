@@ -7,14 +7,14 @@
 use super::*;
 use crate::api::{Ask, SubmitForge};
 use crate::state::{ChangeTab, Filter, RepoTab};
-use ducktape_view_guest::methods::{HostId, HostSession, Session};
-use ducktape_view_guest::methods::{Query as ProgramQuery, Submit};
-use ducktape_view_guest::testing::{StreamSender, TestAppContext};
-use ducktape_view_guest::{Entity, Theme, wire};
 use forge::{ChangeFilter, ChangeState, Op, PageRequest, PageResponse, Query, Reply};
+use view::methods::{HostId, HostSession, Session};
+use view::methods::{Query as ProgramQuery, Submit};
+use view::testing::{StreamSender, TestAppContext};
+use view::{Entity, Theme, wire};
 
-use ducktape_view_guest::methods::{Change, Changes};
-use program::role::Identity;
+use identity::Identity;
+use view::methods::{Change, Changes};
 
 #[path = "../../forge/fixtures/loader.rs"]
 mod loader;
@@ -30,10 +30,10 @@ fn reply(name: &str) -> Reply {
 }
 
 /// One committed refusal, as the host hands the program's `Err` to a view.
-fn refusal(name: &str) -> ducktape_view_guest::host::Error {
+fn refusal(name: &str) -> view::host::Error {
     let refusal: abi::Refusal =
         borsh::from_slice(&bytes(name)).unwrap_or_else(|error| panic!("decode {name}: {error}"));
-    ducktape_view_guest::host::Error::new(&refusal.reason, &refusal.sentence)
+    view::host::Error::new(&refusal.reason, &refusal.sentence)
 }
 
 /// Which change record the program is holding in a given scenario.
@@ -203,8 +203,8 @@ fn accounts() -> chat::PageResponse<chat::Profile> {
         kind: chat::Kind::Person,
     };
     let forge = chat::Profile {
-        kind: chat::Kind::Module(forge::MODULE.into()),
-        ..row(FORGE, forge::MODULE)
+        kind: chat::Kind::Program(forge::PROGRAM.into()),
+        ..row(FORGE, forge::PROGRAM)
     };
     chat::PageResponse {
         height: 1,
@@ -325,7 +325,7 @@ pub(crate) fn booted_as(mode: &'static str, account: u64) -> (TestAppContext, En
     (cx, view)
 }
 
-/// A block at `height` that wrote `keys`, as `module.changes` carries it.
+/// A block at `height` that wrote `keys`, as `program.changes` carries it.
 fn block(height: u64, keys: Vec<Vec<u8>>) -> Option<Change> {
     Some(Change { height, keys })
 }
@@ -483,7 +483,7 @@ fn a_refused_conversation_is_asked_again_with_each_block_until_it_answers() {
     let (mut cx, heads) = followed("default");
     cx.host()
         .handle::<ProgramQuery<::chat::Chat>>(|query| match query {
-            chat::Query::Roots { .. } => Err(ducktape_view_guest::host::Error::new(
+            chat::Query::Roots { .. } => Err(view::host::Error::new(
                 "not_connected",
                 "the node is not connected",
             )),
@@ -527,7 +527,7 @@ fn a_refused_conversation_is_asked_again_with_each_block_until_it_answers() {
 /// them.)
 #[test]
 fn a_reader_change_shows_the_conversation_being_read_until_the_names_land() {
-    use ducktape_view_guest::methods::Method;
+    use view::methods::Method;
     let mut cx = TestAppContext::new();
     configure(&mut cx, "default");
     let props = cx.host().stream::<HostSession>();
@@ -637,7 +637,7 @@ pub(crate) fn opened_as(mode: &'static str, account: u64) -> (TestAppContext, En
 }
 
 fn disabled(cx: &TestAppContext, id: &str) -> bool {
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         interactivity: Some(interactivity),
         ..
     })) = cx.find(id)
@@ -773,8 +773,7 @@ fn the_repositories_list_shows_every_column_of_the_plan() {
     );
     cx.simulate_click("forge-repo-project-activity");
     assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        cx.host().requests::<view::methods::LinkOpen>(),
         ["duck://explorer/block/2"]
     );
 }
@@ -976,7 +975,7 @@ fn the_changes_tab_counts_on_every_tab() {
 fn the_repository_tabs_move_on_an_arrow_and_open_on_enter() {
     let (mut cx, view) = opened("default");
     let list = cx.interactivity("forge-tab-list");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::TabList));
+    assert_eq!(list.role, Some(view::Role::TabList));
     assert!(list.focusable && list.tab_stop == Some(true));
     assert!(!cx.interactivity("forge-tab-code").focusable);
     // the repository opens on its README; the arrows start there
@@ -1130,8 +1129,7 @@ fn a_relative_link_opens_its_file_in_the_code_tab() {
     // the web still goes to the host
     follow(&mut cx, b"", "https://x.example");
     assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        cx.host().requests::<view::methods::LinkOpen>(),
         vec!["https://x.example"]
     );
 }
@@ -1294,7 +1292,7 @@ fn marked(node: &wire::Node) -> Vec<(String, bool)> {
             || node
                 .interactivity()
                 .and_then(|interactivity| interactivity.role)
-                == Some(ducktape_view_guest::Role::ListMarker);
+                == Some(view::Role::ListMarker);
         match node {
             wire::Node::Text(text) => out.push((text.content.to_string(), inside)),
             wire::Node::RichText { text, .. } => out.push((text.to_string(), inside)),
@@ -1419,7 +1417,7 @@ fn a_commit_with_many_files_keeps_its_diff_under_a_scrolling_strip() {
         "a row is as wide as the strip"
     );
     let list = cx.interactivity("forge-commit-diff-files");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(list.role, Some(view::Role::ListBox));
     assert!(
         list.focusable && list.tab_stop == Some(true),
         "one Tab stop"
@@ -1542,7 +1540,7 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
     assert!(cx.find("forge-grant-pick-1").is_none(), "Ada does not");
     assert!(
         cx.find(&format!("forge-grant-pick-{FORGE}")).is_none(),
-        "no module"
+        "no program"
     );
     cx.simulate_click("forge-grant-pick-2");
     cx.run_until_parked();
@@ -1697,7 +1695,7 @@ fn the_repositories_keep_their_table_at_the_width_a_window_opens() {
         panic!("the repos fixture")
     };
     for info in &page.items {
-        let refs = ducktape_view_guest::design::plural(info.repo.refs_count, "ref", "refs");
+        let refs = view::design::plural(info.repo.refs_count, "ref", "refs");
         assert!(cx.has_text(&refs), "{refs}: {:?}", cx.texts());
     }
 }
@@ -1708,10 +1706,10 @@ fn the_repositories_keep_their_table_at_the_width_a_window_opens() {
 fn the_rail_is_a_list_box_whose_enter_opens_the_active_repository() {
     let (mut cx, view) = opened("default");
     let rail = cx.interactivity("forge-rail-list");
-    assert_eq!(rail.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(rail.role, Some(view::Role::ListBox));
     assert!(rail.focusable && rail.tab_stop == Some(true));
     let project = cx.interactivity("forge-rail-repo-project");
-    assert_eq!(project.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert_eq!(project.role, Some(view::Role::ListBoxOption));
     assert!(!project.focusable && project.aria.active_descendant);
     assert_eq!(project.aria.selected, Some(true));
     let rows: Vec<String> = cx
@@ -1850,7 +1848,7 @@ fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {
     let copied = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
     let seen = copied.clone();
     cx.host()
-        .handle::<ducktape_view_guest::methods::ClipboardWrite>(move |text| {
+        .handle::<view::methods::ClipboardWrite>(move |text| {
             *seen.borrow_mut() = text;
             Ok(())
         });
@@ -1908,7 +1906,7 @@ fn a_repository_row_is_a_grid_row_whose_press_is_a_button_beside_its_controls() 
     let row = control(&cx, "forge-repo-project");
     assert_eq!(
         row.interactivity.as_ref().unwrap().role,
-        Some(ducktape_view_guest::Role::Row)
+        Some(view::Role::Row)
     );
     assert!(
         !row.interactivity.as_ref().unwrap().focusable
@@ -1917,7 +1915,7 @@ fn a_repository_row_is_a_grid_row_whose_press_is_a_button_beside_its_controls() 
     let open = control(&cx, "forge-repo-project-open");
     assert_eq!(
         open.interactivity.as_ref().unwrap().role,
-        Some(ducktape_view_guest::Role::Button)
+        Some(view::Role::Button)
     );
     // the grid holds the focus; its first row's press is active on entry
     assert!(
@@ -1942,12 +1940,12 @@ fn the_repositories_grid_walks_cells_and_enter_presses_the_active_one() {
     let copied = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
     let seen = copied.clone();
     cx.host()
-        .handle::<ducktape_view_guest::methods::ClipboardWrite>(move |text| {
+        .handle::<view::methods::ClipboardWrite>(move |text| {
             *seen.borrow_mut() = text;
             Ok(())
         });
     let grid = cx.interactivity("forge-repos-list");
-    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert_eq!(grid.role, Some(view::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
     let rows: Vec<String> = cx
         .find("forge-repos-list")
@@ -1956,17 +1954,17 @@ fn the_repositories_grid_walks_cells_and_enter_presses_the_active_one() {
         .iter()
         .filter(|node| {
             node.interactivity()
-                .is_some_and(|row| row.role == Some(ducktape_view_guest::Role::Row))
+                .is_some_and(|row| row.role == Some(view::Role::Row))
         })
         .filter_map(|node| node.key().map(str::to_owned))
         .filter(|key| key != "forge-repos-columns")
         .collect();
     assert!(!rows.is_empty(), "{:?}", cx.texts());
     let header = cx.interactivity("forge-repos-columns");
-    assert_eq!(header.role, Some(ducktape_view_guest::Role::Row));
+    assert_eq!(header.role, Some(view::Role::Row));
     assert_eq!(
         cx.interactivity("forge-repos-column-Name").role,
-        Some(ducktape_view_guest::Role::ColumnHeader)
+        Some(view::Role::ColumnHeader)
     );
     // the second repository when there is one, else the first
     let at = usize::from(rows.len() > 1);
@@ -2005,12 +2003,7 @@ fn the_repositories_grid_walks_cells_and_enter_presses_the_active_one() {
     );
     cx.simulate_key_down("forge-repos-list", "enter");
     cx.run_until_parked();
-    assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>()
-            .len(),
-        1
-    );
+    assert_eq!(cx.host().requests::<view::methods::LinkOpen>().len(), 1);
     // Home: back to the press; Enter opens the repository
     cx.simulate_key_down("forge-repos-list", "home");
     cx.simulate_key_down("forge-repos-list", "enter");
@@ -2029,7 +2022,7 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
     let (mut cx, view) = opened("default");
     let focused = |cx: &TestAppContext| -> Vec<String> {
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .requests::<view::methods::HostWidget>()
             .iter()
             .filter_map(|command| match command {
                 wire::WidgetCommand::Focus { target } => target.last().and_then(|id| match id {
@@ -2058,7 +2051,7 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
         "Enter submits"
     );
     let menu = cx.interactivity("forge-ref-picker-menu");
-    assert_eq!(menu.role, Some(ducktape_view_guest::Role::Menu));
+    assert_eq!(menu.role, Some(view::Role::Menu));
     assert!(menu.focusable && menu.on_key_down.is_some());
     assert!(
         cx.find("forge-menu-overlay").is_some(),
@@ -2069,7 +2062,7 @@ fn the_ref_menu_takes_the_keys_on_open_and_gives_them_back() {
         fn gather(node: &wire::Node, items: &mut Vec<String>) {
             if node
                 .interactivity()
-                .is_some_and(|item| item.role == Some(ducktape_view_guest::Role::MenuItemRadio))
+                .is_some_and(|item| item.role == Some(view::Role::MenuItemRadio))
             {
                 items.push(node.key().unwrap_or_default().to_owned());
             }
@@ -2135,7 +2128,7 @@ fn escape_in_a_menu_closes_it_once() {
     let (mut cx, _view) = opened("default");
     let back_to_picker = |cx: &TestAppContext| -> usize {
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .requests::<view::methods::HostWidget>()
             .iter()
             .filter(|command| {
                 matches!(command, wire::WidgetCommand::Focus { target }
@@ -2219,7 +2212,7 @@ fn the_tree_claims_a_row_on_entry_and_end_reaches_the_last() {
     cx.simulate_click("forge-tab-code");
     cx.run_until_parked();
     let tree = cx.interactivity("forge-tree-rows");
-    assert_eq!(tree.role, Some(ducktape_view_guest::Role::Tree));
+    assert_eq!(tree.role, Some(view::Role::Tree));
     assert!(tree.focusable && tree.tab_stop == Some(true));
     let rows = view.read(|forge| forge.tree_rows());
     let first = format!("forge-tree-{}", path_of(&rows[0].path));
@@ -2288,9 +2281,7 @@ fn a_forge_link_opens_its_repository() {
     let mut cx = TestAppContext::new();
     configure(&mut cx, "default");
     let props = cx.host().stream::<HostSession>();
-    let routes = cx
-        .host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
+    let routes = cx.host().stream::<view::methods::HostRoute>();
     let view = cx.open::<Forge>();
     cx.run_until_parked();
     props.send(seat(b"", None));
@@ -2319,10 +2310,10 @@ fn the_commit_list_is_a_list_box_whose_enter_opens_the_active_commit() {
     cx.simulate_click("forge-tab-commits");
     cx.run_until_parked();
     let list = cx.interactivity("forge-log-list");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(list.role, Some(view::Role::ListBox));
     assert!(list.focusable && list.tab_stop == Some(true));
     let first = cx.interactivity("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
-    assert_eq!(first.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert_eq!(first.role, Some(view::Role::ListBoxOption));
     assert!(!first.focusable && first.aria.active_descendant);
     cx.simulate_focus("forge-log-list");
     cx.simulate_key_down("forge-log-list", "down");
@@ -2386,7 +2377,7 @@ fn no_list_row_is_lit_until_the_arrows_walk_it() {
 
 /// The style of the list box or grid `id`, which says whether it scrolls
 /// and what room it keeps on its right.
-fn list_box<'a>(cx: &'a TestAppContext, id: &str) -> &'a ducktape_view_guest::StyleRefinement {
+fn list_box<'a>(cx: &'a TestAppContext, id: &str) -> &'a view::StyleRefinement {
     assert!(
         matches!(cx.find(id), Some(wire::Node::Container(_))),
         "no list {id}"
@@ -2560,10 +2551,10 @@ fn the_change_list_is_a_list_box_whose_enter_opens_the_active_change() {
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
     let list = cx.interactivity("forge-changes-list");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(list.role, Some(view::Role::ListBox));
     assert!(list.focusable && list.tab_stop == Some(true));
     let row = cx.interactivity("forge-change-1");
-    assert_eq!(row.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert_eq!(row.role, Some(view::Role::ListBoxOption));
     assert!(!row.focusable && row.aria.active_descendant);
     cx.simulate_focus("forge-changes-list");
     cx.simulate_key_down("forge-changes-list", "enter");
@@ -2577,7 +2568,7 @@ fn the_ref_list_is_a_grid_whose_right_reaches_compare() {
     cx.simulate_click("forge-tab-refs");
     cx.run_until_parked();
     let grid = cx.interactivity("forge-refs-list");
-    assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
+    assert_eq!(grid.role, Some(view::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
     let rows = ref_rows(&cx);
     assert!(
@@ -2644,19 +2635,15 @@ fn a_ref_without_compare_is_a_grid_row_of_one_cell() {
     let rows = ref_rows(&cx);
     for label in ["main", "v1"] {
         let key = format!("forge-ref-row-{label}");
-        assert_eq!(
-            cx.interactivity(&key).role,
-            Some(ducktape_view_guest::Role::Row),
-            "{key}"
-        );
+        assert_eq!(cx.interactivity(&key).role, Some(view::Role::Row), "{key}");
         assert_eq!(
             cx.interactivity(&format!("{key}-open-cell")).role,
-            Some(ducktape_view_guest::Role::GridCell),
+            Some(view::Role::GridCell),
             "{key}"
         );
         assert_eq!(
             cx.interactivity(&format!("{key}-open")).role,
-            Some(ducktape_view_guest::Role::Button),
+            Some(view::Role::Button),
             "{key}"
         );
         assert!(cx.find(&format!("forge-compare-{label}")).is_none());
@@ -2664,7 +2651,7 @@ fn a_ref_without_compare_is_a_grid_row_of_one_cell() {
     // the browsed default head says so on its press
     assert_eq!(
         cx.interactivity("forge-ref-row-main-open").aria.current,
-        Some(ducktape_view_guest::accesskit::AriaCurrent::True)
+        Some(view::accesskit::AriaCurrent::True)
     );
     let at = |label: &str| {
         rows.iter()
@@ -2740,7 +2727,7 @@ fn costs(
         *by_kind.entry(kind(query)).or_insert(0) += 1;
     }
     eprintln!(
-        "AUDIT {label}: {} module.query asks, {} reply bytes, by kind {by_kind:?}",
+        "AUDIT {label}: {} program.query asks, {} reply bytes, by kind {by_kind:?}",
         asked.len() - before,
         *costed.reply_bytes.borrow() - bytes_before
     );
@@ -2895,7 +2882,7 @@ fn a_chat_block_that_answered_a_thread_re_reads_the_judgment() {
 /// goes to the host once.
 #[test]
 fn the_window_is_named_for_the_screen() {
-    use ducktape_view_guest::methods::HostTitle;
+    use view::methods::HostTitle;
     let (mut cx, _) = opened("default");
     assert_eq!(
         cx.host().requests::<HostTitle>(),
@@ -2929,7 +2916,7 @@ fn picker_items(cx: &TestAppContext) -> Vec<String> {
     fn gather(node: &wire::Node, items: &mut Vec<String>) {
         if node
             .interactivity()
-            .is_some_and(|item| item.role == Some(ducktape_view_guest::Role::MenuItemRadio))
+            .is_some_and(|item| item.role == Some(view::Role::MenuItemRadio))
         {
             items.push(node.key().unwrap_or_default().to_owned());
         }
@@ -2988,7 +2975,7 @@ fn the_ref_picker_filters_its_branches_and_tags() {
     assert_eq!(picker_items(&cx), ["forge-ref-refs/tags/v1"]);
     assert_eq!(
         cx.interactivity("forge-ref-refs/tags/v1").aria.toggled,
-        Some(ducktape_view_guest::Toggled::True)
+        Some(view::Toggled::True)
     );
 }
 
@@ -3021,7 +3008,7 @@ fn the_ref_pickers_tabs_keep_their_arrows_and_a_press_goes_back_to_the_filter() 
 /// list of every branch, opened scrolled to the picked one.
 #[test]
 fn a_long_ref_list_keeps_the_picker_in_the_window() {
-    use ducktape_view_guest::px;
+    use view::px;
     // the rows the open picker's list is as tall as
     let rows = |cx: &TestAppContext| {
         let height = cx.style("forge-ref-picker-rows").size.height;
@@ -3077,7 +3064,7 @@ fn a_long_ref_list_keeps_the_picker_in_the_window() {
 fn a_long_ref_name_is_cut_in_the_middle_and_whole_on_hover() {
     use crate::ui::components::{name_cell, whole_name};
     let long = "people/ada/a-rather-long-branch-name-about-the-perf-work-35";
-    let (node, styles) = ducktape_view_guest::testing::lower::<Forge, _>(|_| {
+    let (node, styles) = view::testing::lower::<Forge, _>(|_| {
         div()
             .id("names")
             .child(whole_name(

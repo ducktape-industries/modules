@@ -220,7 +220,7 @@ fn a_frame_round_trips() {
         },
         Event::Response {
             id: 1,
-            result: Err(Error::new("module", "nope")),
+            result: Err(Error::new("program", "nope")),
             done: true,
         },
         Event::Resync,

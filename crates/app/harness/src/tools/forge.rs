@@ -1,7 +1,7 @@
 //! Tools over `forge`, the network's git server: repositories, history, trees, file
 //! contents and changes under review, all read.
+use ::program::{Error, ExecCtx};
 use forge::{ChangeFilter, ChangeState, Query, Reply, Revision};
-use guest::{Error, ExecCtx};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use store::PageRequest;
@@ -12,7 +12,7 @@ const READ_BYTES: u64 = 16 << 10;
 const MAX_READ: u64 = 24 << 10;
 
 fn ask(ctx: &ExecCtx, query: Query) -> Result<Reply, Error> {
-    ctx.query(forge::MODULE, &query)
+    ctx.query(forge::PROGRAM, &query)
 }
 
 fn repo_schema() -> Value {
@@ -52,7 +52,7 @@ fn head_of(ctx: &ExecCtx, repo: &str) -> Result<Revision, Error> {
     };
     match ask(ctx, asked)? {
         Reply::Repo { repo, .. } => Ok(Revision::Ref(repo.repo.settings.head)),
-        other => Err(unexpected(forge::MODULE, "Repo", &other)),
+        other => Err(unexpected(forge::PROGRAM, "Repo", &other)),
     }
 }
 
@@ -75,7 +75,7 @@ fn commit_of(ctx: &ExecCtx, repo: &str, rev: Revision) -> Result<String, Error> 
     };
     match ask(ctx, asked)? {
         Reply::Log { tip, .. } => Ok(tip),
-        other => Err(unexpected(forge::MODULE, "Log", &other)),
+        other => Err(unexpected(forge::PROGRAM, "Log", &other)),
     }
 }
 
@@ -128,7 +128,7 @@ impl Tool for Repos {
                     json!({ "repos": repos, "next": next(&page.next) }),
                 ))
             }
-            other => Err(unexpected(forge::MODULE, "Repos", &other)),
+            other => Err(unexpected(forge::PROGRAM, "Repos", &other)),
         }
     }
 }
@@ -180,7 +180,7 @@ impl Tool for Log {
                     json!({ "tip": tip, "commits": commits, "next": next(&page.next) }),
                 ))
             }
-            other => Err(unexpected(forge::MODULE, "Log", &other)),
+            other => Err(unexpected(forge::PROGRAM, "Log", &other)),
         }
     }
 }
@@ -239,7 +239,7 @@ impl Tool for Tree {
                     json!({ "commit": at, "entries": entries, "next": next(&page.next) }),
                 ))
             }
-            other => Err(unexpected(forge::MODULE, "Tree", &other)),
+            other => Err(unexpected(forge::PROGRAM, "Tree", &other)),
         }
     }
 }
@@ -293,7 +293,7 @@ impl Tool for Read {
                 }
                 Ok(Run::Done(value))
             }
-            other => Err(unexpected(forge::MODULE, "Blob", &other)),
+            other => Err(unexpected(forge::PROGRAM, "Blob", &other)),
         }
     }
 }
@@ -329,7 +329,7 @@ impl Tool for Changes {
             Some("open") => Some(ChangeState::Open),
             Some("closed") => Some(ChangeState::Closed),
             Some("merged") => Some(ChangeState::Merged),
-            Some(other) => return Err(guest::invalid(format!("no change state {other}"))),
+            Some(other) => return Err(::program::invalid(format!("no change state {other}"))),
         };
         let asked = Query::Changes {
             repo: args.repo,
@@ -362,7 +362,7 @@ impl Tool for Changes {
                     json!({ "changes": changes, "next": next(&page.next) }),
                 ))
             }
-            other => Err(unexpected(forge::MODULE, "Changes", &other)),
+            other => Err(unexpected(forge::PROGRAM, "Changes", &other)),
         }
     }
 }
@@ -426,7 +426,7 @@ impl Tool for Change {
                     "reviews": reviews,
                 })))
             }
-            other => Err(unexpected(forge::MODULE, "Change", &other)),
+            other => Err(unexpected(forge::PROGRAM, "Change", &other)),
         }
     }
 }

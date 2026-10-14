@@ -1,6 +1,8 @@
 //! The writes besides a commit: staging one chunk of a large file, and naming a
 //! snapshot with a pin or dropping one.
-use guest::{BlobId, Error, ExecCtx, Principal, already_exists, invalid, not_found, unauthorized};
+use ::program::{
+    BlobId, Error, ExecCtx, Principal, already_exists, invalid, not_found, unauthorized,
+};
 
 use crate::objects::put_chunk;
 use crate::state::{PINS, minted};

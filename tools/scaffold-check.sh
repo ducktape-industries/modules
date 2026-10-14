@@ -1,9 +1,9 @@
 #!/bin/sh
-# `make scaffold-check`: `make new-module` and `make new-view` still write a
-# module and a view that build, gate and test. In a throwaway worktree of this
+# `make scaffold-check`: `make new-program` and `make new-view` still write a
+# program and a view that build, gate and test. In a throwaway worktree of this
 # checkout (HEAD plus its tracked edits), removed on any exit, it scaffolds
-# both and runs what their author runs: `make dev` over the pair (module
-# wasm, view wasm and its ABI gate, native tests) and the module's describe
+# both and runs what their author runs: `make dev` over the pair (program
+# wasm, view wasm and its ABI gate, native tests) and the program's describe
 # build and ABI check. It shares $CARGO_TARGET_DIR (default: this checkout's
 # target/), and the worktree sits at a fixed path under it so a second run
 # is warm. Unlocked: the scaffold adds workspace members to Cargo.lock.
@@ -27,9 +27,9 @@ edits=$(git -C "$repo" stash create)
 git -C "$repo" worktree add --detach "$wt" "${edits:-HEAD}"
 cd "$wt"
 
-make new-module NAME=$name
+make new-program NAME=$name
 make new-view NAME=$name-view
-grep -q "^PROGRAMS := .* $name\$" Makefile || { echo "new-module did not register $name in PROGRAMS" >&2; exit 1; }
+grep -q "^PROGRAMS := .* $name\$" Makefile || { echo "new-program did not register $name in PROGRAMS" >&2; exit 1; }
 grep -q "^VIEWS := .* $name-view\$" Makefile || { echo "new-view did not register $name-view in VIEWS" >&2; exit 1; }
 make dev P=$name V=$name-view
 make wasm-describes PROGRAMS=$name

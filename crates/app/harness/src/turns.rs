@@ -1,6 +1,6 @@
 //! The loop consensus runs: ask the model when a thread has input it has not seen, hold
 //! input while it answers, record its turn, receipt and relay each tool call, then run it.
-use guest::{
+use ::program::{
     BlobId, Error, ExecCtx, HashKind, Outcome as Written, QueryCtx, Range, Reply as Wanted,
     unexpected_reply,
 };
@@ -57,9 +57,9 @@ fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
     let asked = provider::Query::Serving {
         service: service.into(),
     };
-    match ctx.query(provider::MODULE, &asked)? {
+    match ctx.query(provider::PROGRAM, &asked)? {
         provider::Reply::Serving(keys) => Ok(!keys.is_empty()),
-        other => Err(unexpected_reply(provider::MODULE, "Serving", &other)),
+        other => Err(unexpected_reply(provider::PROGRAM, "Serving", &other)),
     }
 }
 
@@ -71,7 +71,7 @@ fn request(ctx: &ExecCtx, service: &str, input: Vec<u8>, parts: Vec<BlobId>, del
         deliver,
     };
     ctx.emit(
-        provider::MODULE,
+        provider::PROGRAM,
         &provider::Op::Request(request),
         Wanted::None,
     );
@@ -100,7 +100,7 @@ fn render(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Vec<BlobId>, Error> {
     let tail = Range::new(FRAMES.key(&(thread.id, thread.tail_from)), whole.end);
     let mut groups = grouped(FRAMES.scan(ctx, tail)?.into_iter().map(|(_, frame)| frame));
     let Some((last_role, last_frames)) = groups.pop() else {
-        return Err(guest::wrong_state(
+        return Err(::program::wrong_state(
             "a thread with nothing said asks no model",
         ));
     };
@@ -158,7 +158,7 @@ fn answered(bytes: &[u8]) -> Result<anthropic::Reply, String> {
 }
 
 pub(crate) fn turned(ctx: &ExecCtx, id: u64, delivery: Delivery) -> Result<(), Error> {
-    ctx.env().sent_by(provider::MODULE)?;
+    ctx.env().sent_by(provider::PROGRAM)?;
     let mut thread = thread(ctx, id)?;
     let Asking::Asked { upto } = thread.asking else {
         return Ok(());
@@ -376,7 +376,7 @@ pub(crate) fn relayed(
     call_id: String,
     delivery: Delivery,
 ) -> Result<(), Error> {
-    ctx.env().sent_by(provider::MODULE)?;
+    ctx.env().sent_by(provider::PROGRAM)?;
     let mut thread = thread(ctx, id)?;
     let key = (id, call_id);
     let Some(mut call) = CALLS.get(ctx, &key)? else {

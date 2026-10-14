@@ -2,10 +2,10 @@
 //! a chain reads in: short hashes, grouped numbers, dates and ages.
 //!
 //! A payload is described by the program it targets, through the host
-//! (`module.describe`: the describe module the program's own code
+//! (`program.describe`: the describe module the program's own code
 //! carries). A program with none, or bytes it cannot read, reads as its
 //! size and a short hex preview: [`bytes`].
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 /// The longest a field's value runs before it is clipped.
 const MAX_VALUE: usize = 160;
@@ -67,7 +67,7 @@ pub fn short(raw: &[u8]) -> String {
     short_hex(&abi::hex(raw))
 }
 
-pub use ducktape_view_guest::design::{ago, date, grouped, plural, short_hex};
+pub use view::design::{ago, date, grouped, plural, short_hex};
 
 /// A signing scheme by its short name: `ed25519`, `p256`.
 pub fn scheme(scheme: abi::Scheme) -> String {

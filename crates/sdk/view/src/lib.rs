@@ -1,0 +1,400 @@
+//! The view half of the view wire: gpui-shaped contexts and elements lowered
+//! to `view_wire::Node`, and the host methods a wasm view asks through.
+pub use gpui::prelude::FluentBuilder;
+pub use gpui::{AccessibleAction, accesskit};
+// `#[derive(IntoElement)]` names this crate by its absolute path; this lets
+// that path resolve inside the crate too, so its own components derive.
+extern crate self as view;
+
+pub use gpui::{
+    Anchor, AnchoredPositionMode, Bounds, ClickEvent, CursorStyle, Edges, ElementId, EventEmitter,
+    FileDropEvent, FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode,
+    Hsla, KeyDownEvent, KeyUpEvent, Keystroke, ListAlignment, ListHorizontalSizingBehavior,
+    ListOffset, ListScrollEvent, ListSizingBehavior, Modifiers, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit,
+    PinchEvent, Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
+    StrikethroughStyle, StyleRefinement, Styled, Subscription, TextRun, TextStyle, Toggled,
+    UnderlineStyle, hsla, px, rems, rgb,
+};
+pub use view_derive::IntoElement;
+pub use view_wire as wire;
+mod theme;
+pub use theme::Theme;
+mod behavior;
+mod element;
+mod interactivity;
+mod list;
+mod primitives;
+mod rich_text;
+mod view_element;
+pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
+mod web;
+pub use element::{
+    AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, Textarea,
+    UniformList, UniformListScrollHandle, div, uniform_list,
+};
+pub use interactivity::{
+    FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
+    StatefulInteractiveElement,
+};
+pub use list::{List, ListState, list};
+pub use primitives::{
+    Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img, StyledImage, Svg, Transformation,
+    anchored, canvas, deferred, img, svg,
+};
+pub use rich_text::{InteractiveText, StyledText};
+pub use view_element::{AnyView, ViewElement};
+pub use web::{Web, WebHandle, WebState, web};
+
+/// Every SDK name a view file writes, in one import:
+/// `use view::prelude::*;`. gpui's names (elements, styles,
+/// `Render`, `Context`, `Window`), the view's own ([`View`], [`Loadable`],
+/// [`Task`], [`Host`], [`Error`](crate::host::Error), `export_view!`), the
+/// [`design`](crate::design) program, and the [`methods`](crate::methods)
+/// program whole: the method markers (`HostSession`, `Changes`, `Submit`)
+/// and the request and reply types beside them. A program's types come
+/// from the program's crate; an explicit import of a name wins over this
+/// glob (`use forge::Query;`).
+pub mod prelude {
+    pub use crate::host::Error;
+    pub use crate::methods::*;
+    pub use crate::{
+        AnyElement, AnyView, App, Bounds, ClickEvent, Context, Element, ElementId, Entity,
+        EventEmitter, FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, Host,
+        HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText, IntoElement,
+        KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
+        ListScrollEvent, ListSizingBehavior, ListState, Loadable, ModifiersChangedEvent,
+        MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent,
+        MouseUpEvent, ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle,
+        ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
+        StyledImage, StyledText, Subscription, Task, TextField, Textarea, Theme,
+        UniformListScrollHandle, View, WebHandle, WebState, Window, anchored, canvas, deferred,
+        design, div, export_view, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb,
+        sensor, svg, uniform_list, web,
+    };
+}
+mod text;
+pub use text::TextField;
+pub mod borsh_bytes;
+pub mod design;
+pub mod host;
+#[cfg(feature = "live")]
+pub mod live;
+pub mod store;
+pub mod testing;
+mod window;
+
+mod root;
+mod snapshot;
+pub use root::{Loadable, Render, View};
+mod paged;
+pub use paged::Paged;
+pub use wire::methods;
+mod context;
+pub use context::{App, AppContext, AsyncApp, Callback, Context, Entity, Released, WeakEntity};
+mod executor;
+pub use executor::Task;
+pub use host::Host;
+pub use window::Window;
+mod slots;
+
+mod driver;
+pub(crate) use driver::Driver;
+
+const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
+
+/// The length of [`manifest_bytes`] for the same view.
+pub const fn manifest_len<V: View>() -> usize {
+    let mut len = MANIFEST_HEADER.len()
+        + V::NAME.len()
+        + 1
+        + V::DESCRIPTION.len()
+        + 1
+        + 1
+        + digits(V::MIN_WINDOW_WIDTH)
+        + 1
+        + wire::WIRE_ID.len();
+    let mut i = 0;
+    while i < V::CAPABILITIES.len() {
+        len += V::CAPABILITIES[i].as_str().len() + 1;
+        i += 1;
+    }
+    len += 1;
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        len += V::TARGETS[i].len() + 1;
+        i += 1;
+    }
+    len + 1 + V::ICON.len()
+}
+
+// the lines written below, in this order: a line added to the manifest
+// is added here and to `Manifest::parse` together
+const _: () = assert!(wire::manifest::LINES.len() == 8);
+
+/// The manifest text (`view_wire::manifest`: header, [`View::NAME`],
+/// [`View::DESCRIPTION`], [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`],
+/// [`wire::WIRE_ID`], [`View::TARGETS`], [`View::ICON`]), at compile time: a
+/// width outside `1..=8192`, a target that is not a program name, no target
+/// where the capabilities could address a program, or an icon that is not
+/// an asset path ([`wire::manifest::is_icon`]), fails the build.
+pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
+    assert!(
+        V::MIN_WINDOW_WIDTH >= 1 && V::MIN_WINDOW_WIDTH <= wire::MAX_PIXELS as u32,
+        "MIN_WINDOW_WIDTH is 1..=8192"
+    );
+    assert!(
+        !V::TARGETS.is_empty() || !wire::manifest::needs_targets(V::CAPABILITIES),
+        "a view with the op or program capability names its TARGETS"
+    );
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        assert!(
+            program::is_name(V::TARGETS[i]),
+            "a target is a program id: 1..=64 of [a-z0-9_-]"
+        );
+        i += 1;
+    }
+    assert!(
+        wire::manifest::is_icon(V::ICON),
+        "ICON is empty or the path of an asset the app bundles (icons/hammer.svg), at most 64 bytes"
+    );
+    let mut out = [0u8; N];
+    let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
+    at = put(&mut out, at, V::NAME.as_bytes());
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, V::DESCRIPTION.as_bytes());
+    at = put(&mut out, at, b"\n");
+    let mut i = 0;
+    while i < V::CAPABILITIES.len() {
+        at = put(&mut out, at, V::CAPABILITIES[i].as_str().as_bytes());
+        at = put(&mut out, at, b",");
+        i += 1;
+    }
+    at = put(&mut out, at, b"\n");
+    at = put_number(&mut out, at, V::MIN_WINDOW_WIDTH);
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, wire::WIRE_ID.as_bytes());
+    at = put(&mut out, at, b"\n");
+    let mut i = 0;
+    while i < V::TARGETS.len() {
+        at = put(&mut out, at, V::TARGETS[i].as_bytes());
+        at = put(&mut out, at, b",");
+        i += 1;
+    }
+    at = put(&mut out, at, b"\n");
+    at = put(&mut out, at, V::ICON.as_bytes());
+    assert!(at == N);
+    out
+}
+
+const fn put(out: &mut [u8], at: usize, bytes: &[u8]) -> usize {
+    let mut i = 0;
+    while i < bytes.len() {
+        out[at + i] = bytes[i];
+        i += 1;
+    }
+    at + bytes.len()
+}
+
+const fn digits(number: u32) -> usize {
+    match number.checked_ilog10() {
+        Some(log) => log as usize + 1,
+        None => 1,
+    }
+}
+
+const fn put_number(out: &mut [u8], at: usize, mut number: u32) -> usize {
+    let end = at + digits(number);
+    let mut i = end;
+    while i > at {
+        i -= 1;
+        out[i] = b'0' + (number % 10) as u8;
+        number /= 10;
+    }
+    end
+}
+
+/// The manifest section and the wasm32 exports ([`wire::abi`]) for a view,
+/// from what its [`View`] impl says: `export_view!(Chat);`.
+#[macro_export]
+macro_rules! export_view {
+    ($app:ty) => {
+        const MANIFEST_LEN: usize = $crate::manifest_len::<$app>();
+
+        #[cfg_attr(
+            target_arch = "wasm32",
+            unsafe(link_section = "ducktape.view.manifest")
+        )]
+        #[used]
+        static MANIFEST_SECTION: [u8; MANIFEST_LEN] =
+            $crate::manifest_bytes::<$app, MANIFEST_LEN>();
+
+        #[cfg(target_arch = "wasm32")]
+        mod wasm_exports {
+            use super::*;
+
+            #[unsafe(export_name = "alloc")]
+            extern "C" fn alloc(len: u32) -> u32 {
+                $crate::exports::alloc(len)
+            }
+
+            #[unsafe(export_name = "init")]
+            extern "C" fn init() {
+                $crate::exports::init::<$app>()
+            }
+
+            #[unsafe(export_name = "tick")]
+            extern "C" fn tick(ptr: u32, len: u32) -> u64 {
+                $crate::exports::tick::<$app>(ptr, len)
+            }
+
+            #[unsafe(export_name = "snapshot")]
+            extern "C" fn snapshot() -> u64 {
+                $crate::exports::snapshot::<$app>()
+            }
+
+            #[unsafe(export_name = "restore")]
+            extern "C" fn restore(ptr: u32, len: u32) -> u64 {
+                $crate::exports::restore::<$app>(ptr, len)
+            }
+        }
+    };
+}
+
+/// The view's half of [`wire::abi`]: what `export_view!` builds the five
+/// exports from. A program runs one app, so its driver lives here.
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub mod exports {
+    use std::any::Any;
+    use std::cell::RefCell;
+
+    use crate::{Driver, View, wire};
+
+    #[link(wasm_import_module = "ducktape_view")]
+    unsafe extern "C" {
+        fn panicked(ptr: u32, len: u32);
+    }
+
+    /// The most a panic message may carry across the `panicked` import. A host
+    /// shows one line of it, and every byte over that is one the host lifts out
+    /// of view memory before it can refuse anything — so the message is cut
+    /// here, where the view still owns it, on a char boundary.
+    const MAX_PANIC_BYTES: usize = 1024;
+
+    /// The line the panic hook hands the host: the payload and where it came
+    /// from, cut to [`MAX_PANIC_BYTES`].
+    fn panic_line(message: &str, at: &str) -> String {
+        let mut line = format!("{message} at {at}");
+        if line.len() > MAX_PANIC_BYTES {
+            let cut = (0..=MAX_PANIC_BYTES)
+                .rev()
+                .find(|at| line.is_char_boundary(*at))
+                .unwrap_or(0);
+            line.truncate(cut);
+        }
+        line
+    }
+
+    thread_local! {
+        // The last answer, kept until the next export is entered: the host
+        // copies it out before it calls again.
+        static ANSWER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static DRIVER: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
+    }
+
+    fn driver<A: View, R>(run: impl FnOnce(&mut Driver<A>) -> R) -> R {
+        DRIVER.with_borrow_mut(|driver| {
+            run(driver
+                .as_mut()
+                .and_then(|driver| driver.downcast_mut())
+                .expect("init or restore first"))
+        })
+    }
+
+    pub fn init<A: View>() {
+        install_panic_hook();
+        let driver = Driver::<A>::new();
+        DRIVER.set(Some(Box::new(driver)));
+    }
+
+    pub fn tick<A: View>(ptr: u32, len: u32) -> u64 {
+        let events: Vec<wire::Event> =
+            wire::decode(&take(ptr, len)).expect("invalid host event frame");
+        // The host keeps the tree it has, or patches it; the whole tree
+        // crosses only when neither will do (the driver leaves it out then).
+        answer(driver::<A, _>(|driver| {
+            driver.tick_with(events, wire::encode)
+        }))
+    }
+
+    pub fn snapshot<A: View>() -> u64 {
+        answer(wire::abi::encode_result(driver::<A, _>(|driver| {
+            driver.snapshot()
+        })))
+    }
+
+    /// A refused state leaves the driver that was there in place.
+    pub fn restore<A: View>(ptr: u32, len: u32) -> u64 {
+        install_panic_hook();
+        let restored = Driver::<A>::from_snapshot_in(crate::App::for_driver(), &take(ptr, len))
+            .map(|driver| {
+                DRIVER.set(Some(Box::new(driver)));
+                Vec::new()
+            });
+        answer(wire::abi::encode_result(restored))
+    }
+
+    /// A buffer the host fills and the next export [`take`]s. `0` for none.
+    pub fn alloc(len: u32) -> u32 {
+        if len == 0 {
+            return 0;
+        }
+        Box::into_raw(vec![0u8; len as usize].into_boxed_slice()) as *mut u8 as u32
+    }
+
+    /// The argument the host wrote into what [`alloc`] gave it.
+    fn take(ptr: u32, len: u32) -> Vec<u8> {
+        if len == 0 {
+            return Vec::new();
+        }
+        let bytes = std::ptr::slice_from_raw_parts_mut(ptr as *mut u8, len as usize);
+        unsafe { Box::from_raw(bytes) }.into_vec()
+    }
+
+    fn answer(bytes: Vec<u8>) -> u64 {
+        ANSWER.with_borrow_mut(|answer| {
+            *answer = bytes;
+            wire::abi::pack(answer.as_ptr() as u32, answer.len() as u32)
+        })
+    }
+
+    /// A trapped instance can never be entered again, so the message leaves
+    /// through the host's import before the abort that follows the hook.
+    fn install_panic_hook() {
+        std::panic::set_hook(Box::new(|info| {
+            let payload = info.payload();
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(|text| text.as_str()))
+                .unwrap_or("panicked");
+            let at = info
+                .location()
+                .map(|location| format!("{}:{}", location.file(), location.line()))
+                .unwrap_or_else(|| "unknown".into());
+            let line = panic_line(message, &at);
+            unsafe { panicked(line.as_ptr() as u32, line.len() as u32) };
+        }));
+    }
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod stale_routes_tests;
+
+#[cfg(test)]
+mod row_identity_tests;

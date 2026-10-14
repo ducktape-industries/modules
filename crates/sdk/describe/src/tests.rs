@@ -40,7 +40,7 @@ fn an_op_round_trips_to_its_description() {
     };
     let bytes = describe_bytes(&borsh::to_vec(&op).unwrap(), describe).unwrap();
     assert_eq!(Description::decode(&bytes), Some(describe(&op)));
-    // not an op of this module, or one with bytes after it
+    // not an op of this program, or one with bytes after it
     assert_eq!(describe_bytes(&[9], describe), None);
     let mut long = borsh::to_vec(&Op::Say("hi".into())).unwrap();
     long.push(0);

@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use guest::{BlobId, Error, QueryCtx, capacity, invalid, not_found};
+use ::program::{BlobId, Error, QueryCtx, capacity, invalid, not_found};
 
 use crate::cursor::Walk;
 use crate::objects::{CHUNK, digest, file, read as read_file, tree};

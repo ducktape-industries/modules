@@ -1,11 +1,11 @@
 //! What the reader changes on the Programs page, and how: by a grant it
-//! holds (the op goes to the registry), else by the validators' vote (the
-//! op goes to valset wrapped in a `Registry` motion), else not at all. The
+//! holds (the op goes to the programs role), else by the validators' vote (the
+//! op goes to valset wrapped in a `Programs` motion), else not at all. The
 //! app's confirm card is the yes for every op; nothing here asks again.
 //! The forms' ops are built by pure functions, each a unit test.
-use ducktape_view_guest::prelude::*;
-use module_registry::{self as registry, Change, Grant, Modules, NOTICE, Scheduled, Scope};
+use programs::{Change, Grant, NOTICE, Programs, Scheduled, Scope};
 use valset::{Motion, Valset, Voted};
+use view::prelude::*;
 
 use crate::Explorer;
 use crate::state::{Network, Note};
@@ -16,10 +16,10 @@ const SLACK: u64 = 30;
 /// How far past the tip a vote's change lands by default: about ten minutes.
 const LEAD_MS: u64 = 10 * 60 * 1000;
 
-/// The way an op takes to the registry.
+/// The way an op takes to the programs role.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Path {
-    /// the reader's grant: straight to the registry
+    /// the reader's grant: straight to the programs role
     Grant,
     /// the validators' vote: a motion to valset
     Vote,
@@ -62,7 +62,7 @@ pub(crate) struct Form {
     pub(crate) path: Path,
     pub(crate) code: TextField,
     pub(crate) height: TextField,
-    /// Add: the new id; Grant: the module, empty for every module
+    /// Add: the new id; Grant: the program, empty for every program
     pub(crate) name: TextField,
     /// Add: params as hex, empty for none
     pub(crate) params: TextField,
@@ -90,7 +90,7 @@ impl Explorer {
         self.acting.votes().then_some(Path::Vote)
     }
 
-    /// Whether the reader's grants cover `program`, as the registry reads them.
+    /// Whether the reader's grants cover `program`, as the programs role reads them.
     pub(crate) fn maintains(&self, program: &str) -> bool {
         let (Some(network), Some(account)) = (self.network.ready(), self.acting.account) else {
             return false;
@@ -98,11 +98,11 @@ impl Explorer {
         network
             .roles
             .as_ref()
-            .is_some_and(|roles| registry::covers(&network.grants, roles, account, program))
+            .is_some_and(|roles| programs::covers(&network.grants, roles, account, program))
     }
 
-    /// Whether the reader may add a module by grant: it holds every module,
-    /// or a module that runs nothing yet.
+    /// Whether the reader may add a program by grant: it holds every program,
+    /// or a program that runs nothing yet.
     pub(crate) fn adds(&self) -> bool {
         let (Some(network), Some(account)) = (self.network.ready(), self.acting.account) else {
             return false;
@@ -111,7 +111,7 @@ impl Explorer {
             grant.account == account
                 && match &grant.scope {
                     Scope::All => true,
-                    Scope::Module(id) => !network.names(id),
+                    Scope::Program(id) => !network.names(id),
                 }
         })
     }
@@ -210,29 +210,29 @@ impl Explorer {
     }
 
     /// A press with no form: a cancel, a revoke, stepping down.
-    pub(crate) fn press(&mut self, path: Path, op: registry::Op, cx: &mut Context<Self>) {
+    pub(crate) fn press(&mut self, path: Path, op: programs::Op, cx: &mut Context<Self>) {
         self.acting.form = None;
         self.send(path, op, cx);
     }
 
-    fn send(&mut self, path: Path, op: registry::Op, cx: &mut Context<Self>) {
+    fn send(&mut self, path: Path, op: programs::Op, cx: &mut Context<Self>) {
         if self.acting.busy {
             return;
         }
         self.acting.busy = true;
         self.note = None;
-        let title = registry::describe(&op).title;
+        let title = programs::describe(&op).title;
         let landed =
             move |view: &mut Self, answer: Result<Vec<u8>, Error>, cx: &mut Context<Self>| {
                 view.landed(path, &title, answer, cx)
             };
         match path {
             Path::Grant => {
-                let ask = cx.host().ask::<Submit<Modules>>(op);
+                let ask = cx.host().ask::<Submit<Programs>>(op);
                 cx.land(ask, landed).detach();
             }
             Path::Vote => {
-                let motion = Motion::Registry {
+                let motion = Motion::Programs {
                     op: abi::encode(&op),
                 };
                 let ask = cx.host().ask::<Submit<Valset>>(valset::Op::Vote(motion));
@@ -279,7 +279,7 @@ impl Network {
 /// What an op that landed did, in words.
 fn sent(path: Path, output: &[u8], title: &str) -> String {
     match (path, abi::decode::<Voted>(output)) {
-        (Path::Grant, _) => format!("Sent to the registry: {title}."),
+        (Path::Grant, _) => format!("Sent to the programs role: {title}."),
         (Path::Vote, Ok(Voted::Enacted)) => format!("Enacted: {title}."),
         (Path::Vote, Ok(Voted::Counted { votes, needed })) => {
             format!("Vote counted, {votes} of {needed}: {title}.")
@@ -305,8 +305,8 @@ pub(crate) fn earliest(tip: u64) -> u64 {
 }
 
 /// The op a form builds, or why it builds none.
-pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<registry::Op, String> {
-    let at = |height: u64, change: Change| registry::Op::Schedule(Scheduled { height, change });
+pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs::Op, String> {
+    let at = |height: u64, change: Change| programs::Op::Schedule(Scheduled { height, change });
     Ok(match &form.edit {
         Edit::Upgrade { name, view: false } => {
             let current = network
@@ -314,14 +314,14 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<registry
                 .iter()
                 .find(|entry| &entry.program == name)
                 .ok_or_else(|| format!("{name} no longer runs here."))?;
-            let entry = registry::Entry {
+            let entry = programs::Entry {
                 code: code(&form.code.text())?,
                 ..current.clone()
             };
             at(height(&form.height.text(), tip)?, Change::Set(entry))
         }
         Edit::Upgrade { name, view: true } => {
-            let view = registry::View {
+            let view = programs::View {
                 name: name.clone(),
                 view: code(&form.code.text())?,
             };
@@ -337,16 +337,16 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<registry
         Edit::Add => {
             let name = form.name.text().trim().to_owned();
             if name.is_empty() {
-                return Err("Name the module.".into());
+                return Err("Name the program.".into());
             }
             let code = code(&form.code.text())?;
             let change = match form.view {
-                true => Change::SetView(registry::View { name, view: code }),
+                true => Change::SetView(programs::View { name, view: code }),
                 false => {
                     let params = form.params.text();
                     let params = params.trim().trim_start_matches("0x");
                     let params = abi::unhex(params).ok_or("Params are hex digits, or nothing.")?;
-                    Change::Set(registry::Entry {
+                    Change::Set(programs::Entry {
                         program: name,
                         code,
                         params,
@@ -363,12 +363,12 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<registry
                 .trim_start_matches('#')
                 .parse()
                 .map_err(|_| "An account is its number.".to_owned())?;
-            let module = form.name.text().trim().to_owned();
-            let scope = match module.is_empty() {
+            let program = form.name.text().trim().to_owned();
+            let scope = match program.is_empty() {
                 true => Scope::All,
-                false => Scope::Module(module),
+                false => Scope::Program(program),
             };
-            registry::Op::Grant(Grant { scope, account })
+            programs::Op::Grant(Grant { scope, account })
         }
     })
 }
@@ -400,8 +400,8 @@ fn height(text: &str, tip: u64) -> Result<u64, String> {
 }
 
 /// The cancel of a waiting change.
-pub(crate) fn cancel(pending: &registry::Pending) -> registry::Op {
-    registry::Op::Cancel {
+pub(crate) fn cancel(pending: &programs::Pending) -> programs::Op {
+    programs::Op::Cancel {
         height: pending.height,
         program: pending.change.program().to_owned(),
     }
