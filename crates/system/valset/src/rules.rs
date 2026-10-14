@@ -21,6 +21,7 @@ const KEY_LEN: usize = 32;
 pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) -> Result<(), Error> {
     CAP.put(ctx, &genesis.member_cap);
     for member in genesis.validators {
+        registered(&member.halo)?;
         let membership = Membership {
             key: member.key,
             address: member.address,

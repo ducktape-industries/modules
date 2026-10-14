@@ -153,6 +153,26 @@ fn founding_more_validators_than_the_cap_is_refused() {
 }
 
 #[test]
+fn founding_a_validator_at_a_halo_address_no_member_dials_is_refused() {
+    for unregistrable in ["0.0.0.0:9100", "127.0.0.1:9100", "[::1]:9100", "localhost:9100"] {
+        let genesis = abi::encode(&Genesis {
+            validators: vec![
+                member(1),
+                Member {
+                    halo: unregistrable.into(),
+                    ..member(2)
+                },
+            ],
+            member_cap: 8,
+        });
+        let store = MockHost::default();
+        let refused = Valset::init(&store.exec(env(Origin::Root)), &genesis).unwrap_err();
+        assert_eq!(refused.code, code::INVALID_INPUT, "{unregistrable}");
+        assert!(refused.message.starts_with("halo: "), "{refused:?}");
+    }
+}
+
+#[test]
 fn only_a_signed_frame_writes() {
     let store = founded();
     for origin in [Origin::Root, Origin::Program("probe".into())] {
