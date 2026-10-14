@@ -1445,6 +1445,31 @@ fn a_commit_with_many_files_keeps_its_diff_under_a_scrolling_strip() {
         )
     });
     assert!(cx.has_text("src/gen/file_150.rs · added · +3 −0"));
+    // the file shown alone narrows the diff, not the strip: every file is
+    // still listed, that one marked, and All files shows them all again
+    let Some(wire::Node::UniformList { count, .. }) = cx.find("forge-commit-diff-strip") else {
+        panic!("the strip");
+    };
+    assert_eq!(*count, 264, "the strip lists every file still");
+    assert!(
+        cx.interactivity("forge-commit-diff-file-src/gen/file_150.rs")
+            .aria
+            .selected
+            == Some(true)
+    );
+    cx.simulate_click("forge-commit-files-all");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.nav().diff_path.is_none()));
+    assert!(cx.find("forge-commit-files-all").is_none());
+    // a commit opened again starts on all its files
+    cx.simulate_click("forge-commit-diff-file-src/gen/file_000.rs");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.nav().diff_path.is_some()));
+    cx.simulate_click("forge-commit-close");
+    cx.run_until_parked();
+    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.nav().diff_path.is_none()));
 }
 
 #[test]

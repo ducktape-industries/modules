@@ -621,7 +621,17 @@ pub(crate) fn render(
     }
     // A screen with no file tree beside it (a commit's own diff) carries the
     // file headers above the virtual list, where they stay in view.
-    let strip = (!reviewable).then(|| file_strip(shared.clone(), files, forge, cx, theme));
+    // it lists every file, the one shown alone marked, as the Files tab's
+    // list does: a press narrows the diff, not the list
+    let strip = (!reviewable).then(|| {
+        file_strip(
+            shared.clone(),
+            (0..page.items.len()).collect(),
+            forge,
+            cx,
+            theme,
+        )
+    });
     let rows = forge.diff_cache.rows(&shared, only);
     // what readers have written on these lines, as rows after each line
     let notes = Rc::new(match reviewable {
@@ -750,7 +760,7 @@ const STRIP_PAD: f32 = 4.;
 const STRIP_ID: &str = "forge-commit-diff-files";
 
 /// Which files a commit's diff touches, above the rows themselves. Each
-/// one narrows the list to itself. A virtual list, so a commit touching a
+/// one shows its file alone; the commit's All files shows them all again. A virtual list, so a commit touching a
 /// release's files draws the ones on screen; one Tab stop: ↑ ↓ walk the
 /// files, Enter shows the active one.
 fn file_strip(
@@ -818,7 +828,10 @@ fn file_strip(
                 .items_center()
                 .gap_2()
                 .text_size(design::text::SECONDARY)
-                .when(walked && index == active, |row| row.bg(theme.hover))
+                .when(shown, |row| row.bg(theme.surface_raised))
+                .when(walked && index == active && !shown, |row| {
+                    row.bg(theme.hover)
+                })
                 .aria_selected(shown)
                 .on_click(click)
                 .child(crate::ui::bold(label))

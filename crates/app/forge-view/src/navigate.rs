@@ -232,6 +232,8 @@ impl Forge {
     }
 
     pub(crate) fn open_commit(&mut self, oid: Option<String>, cx: &mut Context<Self>) {
+        // a commit opens on all its files, not on one another showed alone
+        self.nav.diff_path = None;
         self.nav.commit = oid;
         self.moved(cx);
     }
