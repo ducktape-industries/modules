@@ -416,7 +416,7 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
         forge,
         cx,
         move |forge, index, cell, _, cx| {
-            let Some(path) = file_at(&pressed, index).and_then(diff::path_of) else {
+            let Some(path) = diff::file_at(&pressed, index).and_then(diff::path_of) else {
                 return;
             };
             match cell {
@@ -436,7 +436,7 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
         count,
         None,
         Some(&forge.files_scroll),
-        move |index| match file_at(&shared, index) {
+        move |index| match diff::file_at(&shared, index) {
             Some(file) => file_row(file, index, &marks, &open, &tick, &theme),
             None => div().into_any_element(),
         },
@@ -452,14 +452,6 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
                 .child(quiet("Tick a file once you have read it.", &theme)),
         )
         .into_any_element()
-}
-
-/// File `index` of a diff reply.
-fn file_at(reply: &Reply, index: usize) -> Option<&FileDiff> {
-    match reply {
-        Reply::Diff { page, .. } => page.items.get(index),
-        _ => None,
-    }
 }
 
 /// What marks the file list's rows: the files ticked, the comments on

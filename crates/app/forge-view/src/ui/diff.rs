@@ -30,9 +30,10 @@ const MARKER_W: Pixels = px(12.);
 /// a note's included, is this tall, so a note's rows meet edge to edge.
 const ROW_H: Pixels = PRESS_TARGET;
 /// The composer's buttons' label line: on it an SDK button, its padding
-/// and edge around the label, is a row tall (measured on the host); on the
-/// text's own line it is 27 px and stood past its row, onto the field's
-/// edge above and the box's below.
+/// and edge around the label, is a row tall (measured on the host: Cancel
+/// 24 px, Stage 22). On the text's own line it is 27 px, sized for a
+/// control's 28 px row (`design::size::CONTROL`), and stood past this
+/// shorter row onto the field's edge above and the box's below.
 const BUTTON_LINE: Pixels = px(16.);
 /// How wide a note box grows.
 const NOTE_W: Pixels = px(520.);
@@ -500,8 +501,6 @@ impl Notes {
     }
 }
 
-/// A box's rows, keyed under `key`: its parts in order, the first its top
-/// edge and the last its bottom.
 /// The open composer's rows, under where it anchors: its field, its error's
 /// line, its buttons, then a row of room. On rows one height the gaps are
 /// rows too: the buttons clear the field by the error's line and the box's
@@ -516,6 +515,8 @@ fn composer_parts(anchor: String) -> [NoteKind; 5] {
     ]
 }
 
+/// A box's rows, keyed under `key`: its parts in order, the first its top
+/// edge and the last its bottom.
 fn boxed(key: &str, parts: impl IntoIterator<Item = NoteKind>) -> Vec<NoteRow> {
     let mut rows: Vec<NoteRow> = parts
         .into_iter()
@@ -613,15 +614,8 @@ pub(crate) fn render(
         return div().into_any_element();
     };
     let only = forge.nav().diff_path.clone();
-    // the files shown, by their place in the reply
-    let files: Vec<usize> = page
-        .items
-        .iter()
-        .enumerate()
-        .filter(|(_, file)| only.is_none() || only.as_deref() == path_of(file).as_deref())
-        .map(|(at, _)| at)
-        .collect();
-    if files.is_empty() {
+    let shown = |file: &FileDiff| only.is_none() || only.as_deref() == path_of(file).as_deref();
+    if !page.items.iter().any(shown) {
         return empty_state(
             id(format!("{element_id}-empty")),
             "No changes",
@@ -635,18 +629,11 @@ pub(crate) fn render(
         .into_any_element();
     }
     // A screen with no file tree beside it (a commit's own diff) carries the
-    // file headers above the virtual list, where they stay in view.
-    // it lists every file, the one shown alone marked, as the Files tab's
-    // list does: a press narrows the diff, not the list
-    let strip = (!reviewable).then(|| {
-        file_strip(
-            shared.clone(),
-            (0..page.items.len()).collect(),
-            forge,
-            cx,
-            theme,
-        )
-    });
+    // file headers above the virtual list, where they stay in view. It lists
+    // every file, the one shown alone marked, as the Files tab's list does:
+    // a press narrows the diff, not the list.
+    let strip =
+        (!reviewable).then(|| file_strip(shared.clone(), page.items.len(), forge, cx, theme));
     let rows = forge.diff_cache.rows(&shared, only);
     // what readers have written on these lines, as rows after each line
     let notes = Rc::new(match reviewable {
@@ -774,24 +761,23 @@ const STRIP_PAD: f32 = 4.;
 /// The strip's list: its id, and its cursor's.
 pub(crate) const STRIP_ID: &str = "forge-commit-diff-files";
 
-/// Which files a commit's diff touches, above the rows themselves. Each
-/// one shows its file alone; the commit's All files shows them all again. A virtual list, so a commit touching a
-/// release's files draws the ones on screen; one Tab stop: ↑ ↓ walk the
-/// files, Enter shows the active one.
+/// Which files a commit's diff touches (`count` of them), above the rows
+/// themselves. Each one shows its file alone; the commit's All files shows
+/// them all again. A virtual list, so a commit touching a release's files
+/// draws the ones on screen; one Tab stop: ↑ ↓ walk the files, Enter shows
+/// the active one.
 fn file_strip(
     shared: Rc<Reply>,
-    files: Vec<usize>,
+    count: usize,
     forge: &Forge,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
-    let count = files.len();
-    let files = Rc::new(files);
     let (at, _) = crate::ui::components::cursor(forge, STRIP_ID);
     let active = at.min(count.saturating_sub(1));
     let walked = crate::ui::components::walked(forge, STRIP_ID);
     let selected = forge.nav().diff_path.clone();
-    let pressed = (shared.clone(), files.clone());
+    let pressed = shared.clone();
     let list = crate::ui::components::list(
         STRIP_ID,
         "Files",
@@ -800,9 +786,7 @@ fn file_strip(
         forge,
         cx,
         move |forge, index, _, cx| {
-            let (reply, files) = &pressed;
-            let file = files.get(index).and_then(|at| file_of(reply, *at));
-            if let Some(path) = file.and_then(path_of) {
+            if let Some(path) = file_at(&pressed, index).and_then(path_of) {
                 forge.single_file(Some(path), cx)
             }
         },
@@ -825,7 +809,7 @@ fn file_strip(
         None,
         Some(&forge.strip_scroll),
         move |index| {
-            let file = files.get(index).and_then(|at| file_of(&shared, *at));
+            let file = file_at(&shared, index);
             let Some((file, path)) = file.and_then(|file| Some((file, path_of(file)?))) else {
                 return div().h(px(STRIP_ROW_H)).into_any_element();
             };
@@ -858,10 +842,10 @@ fn file_strip(
     list.child(rows).into_any_element()
 }
 
-/// File `at` of a diff reply.
-fn file_of(reply: &Reply, at: usize) -> Option<&FileDiff> {
+/// File `index` of a diff reply.
+pub(crate) fn file_at(reply: &Reply, index: usize) -> Option<&FileDiff> {
     match reply {
-        Reply::Diff { page, .. } => page.items.get(at),
+        Reply::Diff { page, .. } => page.items.get(index),
         _ => None,
     }
 }
