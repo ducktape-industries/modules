@@ -60,6 +60,10 @@ fn answer(query: &Query, mode: &str) -> Reply {
         Query::Refs {
             page: PageRequest { after: None, .. },
             ..
+        } if mode == "many-refs" => many_refs(),
+        Query::Refs {
+            page: PageRequest { after: None, .. },
+            ..
         } => reply("refs"),
         Query::Refs { .. } => reply("refs-next"),
         Query::Activity { .. } => reply("activity"),
@@ -80,7 +84,8 @@ fn answer(query: &Query, mode: &str) -> Reply {
             ..
         } => reply("log"),
         Query::Log { .. } => reply("log-next"),
-        Query::Diff { .. } if mode == "release" => release_diff(),
+        Query::Diff { .. } if mode == "release" => release_diff(100, 1000),
+        Query::Diff { .. } if mode == "wide" => release_diff(264, 3),
         Query::Diff { .. } => reply("diff-text"),
         Query::Compare { .. } if mode == "diverged" => reply("compare-diverged"),
         Query::Compare { .. } => reply("compare"),
@@ -92,6 +97,7 @@ fn answer(query: &Query, mode: &str) -> Reply {
                 },
             ..
         } => reply("changes-filtered"),
+        Query::Changes { .. } if mode == "many-changes" => many_changes(),
         Query::Changes { .. } if mode == "empty" => reply("changes-empty"),
         Query::Changes { .. } => reply("changes"),
         Query::Change {
@@ -105,12 +111,44 @@ fn answer(query: &Query, mode: &str) -> Reply {
     }
 }
 
-/// A diff the size of a release: 100 files of 1000 added lines each, more
-/// rows than the host draws in one list.
-fn release_diff() -> Reply {
-    let files: Vec<forge::FileDiff> = (0..100)
+/// The changes of a repository with a long past: the first one listed,
+/// 300 times over, numbered 1 to 300.
+fn many_changes() -> Reply {
+    let mut changes = reply("changes");
+    if let Reply::Changes { page, .. } = &mut changes {
+        let first = page.items[0].clone();
+        page.items = (1..=300)
+            .map(|n| forge::ChangeSummary {
+                n,
+                title: format!("{} ({n})", first.title),
+                ..first.clone()
+            })
+            .collect();
+        page.next = None;
+    }
+    changes
+}
+
+/// The refs of a repository with a long history of branches: the first
+/// page's, then 120 more.
+fn many_refs() -> Reply {
+    let mut refs = reply("refs");
+    if let Reply::Refs { page, .. } = &mut refs {
+        page.items.extend((0..120).map(|n| forge::RefInfo {
+            name: format!("refs/heads/feature/many-{n:03}").into_bytes(),
+            target: format!("{n:040x}"),
+        }));
+    }
+    refs
+}
+
+/// A diff the size of a release: `files` files of `lines` added lines each
+/// (100 of 1000 are more rows than the host draws in one list; 264 files
+/// are a release's file list).
+fn release_diff(files: u64, lines: u64) -> Reply {
+    let files: Vec<forge::FileDiff> = (0..files)
         .map(|n| {
-            let lines = (0..1000)
+            let rows = (0..lines)
                 .map(|at| forge::DiffLine {
                     kind: forge::LineKind::Added,
                     old_line: None,
@@ -129,15 +167,15 @@ fn release_diff() -> Reply {
                 old_size: 0,
                 new_size: 40_000,
                 content: forge::Content::Text,
-                additions: 1000,
+                additions: lines,
                 deletions: 0,
                 hunks: vec![forge::DiffHunk {
                     old: forge::LineRange { start: 0, count: 0 },
                     new: forge::LineRange {
                         start: 1,
-                        count: 1000,
+                        count: lines,
                     },
-                    lines,
+                    lines: rows,
                 }],
             }
         })
@@ -1347,18 +1385,97 @@ fn commits_follows_the_cursor_and_opens_one_commit_with_its_diff() {
     view.read(|forge| assert!(forge.nav().commit.is_none()));
 }
 
-/// A commit touching many files: the file strip is capped and scrolls, so
-/// the diff under it keeps its height instead of being pushed off screen.
+/// A commit touching a release's files (264): the file strip is capped at
+/// eight rows and scrolls, so the diff under it keeps its height, and it
+/// draws the files on screen, not one row per file on every render (19M
+/// fuel a key on the live rig); the keys reach every file: ↓ walks the
+/// strip, scrolled to the file it reaches, Enter shows that file.
 #[test]
 fn a_commit_with_many_files_keeps_its_diff_under_a_scrolling_strip() {
-    let (mut cx, _) = opened("default");
+    let (mut cx, view) = opened("wide");
     cx.simulate_click("forge-tab-commits");
     cx.run_until_parked();
     cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
     cx.run_until_parked();
     let strip = cx.style("forge-commit-diff-files");
-    assert!(strip.max_size.height.is_some(), "the strip is capped");
-    assert!(strip.overflow.y.is_some(), "and scrolls past its cap");
+    assert_eq!(pixels(strip.size.height), Some(8. * 21. + 8.), "capped");
+    assert!(
+        matches!(
+            cx.find("forge-commit-diff-strip"),
+            Some(wire::Node::UniformList { count: 264, .. })
+        ),
+        "and scrolls its rows past the cap"
+    );
+    let drawn = |cx: &TestAppContext| {
+        cx.find("forge-commit-diff-strip")
+            .map_or(0, |strip| strip.children().len())
+    };
+    assert!(drawn(&cx) < 64, "{} of 264 files drawn", drawn(&cx));
+    assert!(
+        cx.style("forge-commit-diff-file-src/gen/file_000.rs")
+            .size
+            .width
+            .is_some(),
+        "a row is as wide as the strip"
+    );
+    let list = cx.interactivity("forge-commit-diff-files");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(
+        list.focusable && list.tab_stop == Some(true),
+        "one Tab stop"
+    );
+    cx.simulate_focus("forge-commit-diff-files");
+    for _ in 0..150 {
+        cx.simulate_key_down("forge-commit-diff-files", "down");
+    }
+    cx.run_until_parked();
+    cx.simulate_viewport(8);
+    assert!(
+        cx.interactivity("forge-commit-diff-file-src/gen/file_150.rs")
+            .aria
+            .active_descendant,
+        "the file walked to is drawn and claimed"
+    );
+    cx.simulate_key_down("forge-commit-diff-files", "enter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(
+            forge.nav().diff_path.as_deref(),
+            Some(b"src/gen/file_150.rs".as_slice())
+        )
+    });
+    assert!(cx.has_text("src/gen/file_150.rs · added · +3 −0"));
+    // the file shown alone narrows the diff, not the strip: every file is
+    // still listed, that one marked, and All files shows them all again
+    let Some(wire::Node::UniformList { count, .. }) = cx.find("forge-commit-diff-strip") else {
+        panic!("the strip");
+    };
+    assert_eq!(*count, 264, "the strip lists every file still");
+    assert!(
+        cx.interactivity("forge-commit-diff-file-src/gen/file_150.rs")
+            .aria
+            .selected
+            == Some(true)
+    );
+    cx.simulate_click("forge-commit-files-all");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.nav().diff_path.is_none()));
+    assert!(cx.find("forge-commit-files-all").is_none());
+    // as on the Files tab, All files starts the strip's keys over: the
+    // file the arrows opened is not left lit
+    assert_eq!(
+        lit_rows(&cx, "forge-commit-diff-files", Role::ListBoxOption),
+        Vec::<String>::new()
+    );
+    // a commit opened again starts on all its files
+    cx.simulate_click("forge-commit-diff-file-src/gen/file_000.rs");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.nav().diff_path.is_some()));
+    cx.simulate_click("forge-commit-close");
+    cx.run_until_parked();
+    cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.nav().diff_path.is_none()));
 }
 
 #[test]
@@ -2312,23 +2429,129 @@ fn an_arrow_on_the_commit_list_scrolls_its_rows_to_the_commit_moved_to() {
     assert_eq!(scroll_request.map(|request| request.index), Some(1));
 }
 
-/// Changes and refs are drawn whole, so their list box and grid are the
-/// scrollers: the host reveals the row an arrow moves to inside them, and
-/// the SDK keeps their one gutter.
+/// The changes are a virtual list, which scrolls itself with the host's
+/// bar: the list box around it is no scroller, and the arrows scroll the
+/// rows to the change they move to.
 #[test]
-fn the_change_and_ref_lists_drawn_whole_scroll_themselves() {
-    let bar = Some(ducktape_view_guest::design::size::SCROLLBAR.into());
-    let (mut cx, _) = opened("default");
-    for (tab, id) in [
-        ("forge-tab-changes", "forge-changes-list"),
-        ("forge-tab-refs", "forge-refs-list"),
-    ] {
-        cx.simulate_click(tab);
-        cx.run_until_parked();
-        let list = list_box(&cx, id);
-        assert!(list.overflow.y.is_some(), "{id} scrolls");
-        assert_eq!(list.padding.right, bar, "{id} keeps its bar's gutter");
+fn the_change_list_leaves_the_scrolling_to_its_rows() {
+    let (mut cx, _) = opened("many-changes");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    let list = list_box(&cx, "forge-changes-list");
+    assert_eq!(list.overflow.y, None);
+    cx.simulate_focus("forge-changes-list");
+    cx.simulate_key_down("forge-changes-list", "down");
+    let Some(wire::Node::UniformList { scroll_request, .. }) = cx.find("forge-changes-rows") else {
+        panic!("the changes are a virtual list");
+    };
+    assert_eq!(scroll_request.map(|request| request.index), Some(1));
+}
+
+/// A repository with a long past: the app repository has some 520 changes,
+/// most of them merged. The list draws the changes on screen, not one row
+/// per change on every render (180 merged rows cost 20M fuel a key), and
+/// the keys still reach every one: ↓ walks to a change far down, scrolled
+/// to, and Enter opens it.
+#[test]
+fn a_long_change_list_draws_the_changes_on_screen_and_opens_one_by_keyboard() {
+    let (mut cx, view) = opened("many-changes");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    let Some(wire::Node::UniformList {
+        count, children, ..
+    }) = cx.find("forge-changes-rows")
+    else {
+        panic!("the changes are a virtual list");
+    };
+    assert_eq!(*count, 300, "every change is listed");
+    assert!(
+        children.len() < 64,
+        "{} of 300 changes drawn",
+        children.len()
+    );
+    assert!(
+        cx.style("forge-change-1").size.width.is_some(),
+        "a row is as wide as the list: its counts on the right, its rule across"
+    );
+    cx.simulate_focus("forge-changes-list");
+    for _ in 0..250 {
+        cx.simulate_key_down("forge-changes-list", "down");
     }
+    cx.run_until_parked();
+    cx.simulate_viewport(12);
+    assert!(
+        cx.interactivity("forge-change-251").aria.active_descendant,
+        "the change walked to is drawn and claimed"
+    );
+    cx.simulate_key_down("forge-changes-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.nav().change, Some(251)));
+}
+
+#[test]
+fn the_ref_list_leaves_the_scrolling_to_its_rows() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    let grid = list_box(&cx, "forge-refs-list");
+    assert_eq!(grid.overflow.y, None);
+    assert!(
+        matches!(
+            cx.find("forge-refs-rows"),
+            Some(wire::Node::UniformList { .. })
+        ),
+        "the refs are a virtual list"
+    );
+    cx.simulate_focus("forge-refs-list");
+    cx.simulate_key_down("forge-refs-list", "down");
+    let Some(wire::Node::UniformList { scroll_request, .. }) = cx.find("forge-refs-rows") else {
+        panic!("the refs are a virtual list");
+    };
+    assert_eq!(scroll_request.map(|request| request.index), Some(1));
+}
+
+/// The app repository has well over a hundred refs: the Refs tab draws the
+/// ones on screen, not one row per ref on every render (105 refs cost
+/// 23M fuel a key), and the keys still reach every ref: ↓ walks to one far
+/// down, scrolled to, and Enter browses it.
+#[test]
+fn a_long_ref_list_draws_the_refs_on_screen_and_picks_one_by_keyboard() {
+    let (mut cx, view) = opened("many-refs");
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    let total = view.read(|forge| forge.refs().map_or(0, <[_]>::len));
+    assert!(total > 120, "{total} refs");
+    let drawn = ref_rows(&cx).len();
+    assert!(drawn > 0 && drawn < 64, "{drawn} of {total} refs drawn");
+    cx.simulate_focus("forge-refs-list");
+    for _ in 0..110 {
+        cx.simulate_key_down("forge-refs-list", "down");
+    }
+    cx.run_until_parked();
+    cx.simulate_viewport(20);
+    let name = view.read(|forge| forge.refs().unwrap()[110].name.clone());
+    let label = crate::ui::components::ref_label(&name);
+    assert!(
+        cx.interactivity(&format!("forge-ref-row-{label}-open"))
+            .aria
+            .active_descendant,
+        "the ref walked to is drawn and claimed"
+    );
+    cx.simulate_key_down("forge-refs-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.head_name(), name));
+    assert!(ref_rows(&cx).len() < 64);
+}
+
+/// The keys of the refs grid's rows drawn, in order.
+fn ref_rows(cx: &TestAppContext) -> Vec<String> {
+    cx.find("forge-refs-rows")
+        .expect("the refs")
+        .children()
+        .iter()
+        .filter_map(|slot| slot.children().first()?.key().map(str::to_owned))
+        .filter(|key| key.starts_with("forge-ref-row-"))
+        .collect()
 }
 
 #[test]
@@ -2356,14 +2579,7 @@ fn the_ref_list_is_a_grid_whose_right_reaches_compare() {
     let grid = cx.interactivity("forge-refs-list");
     assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
-    let rows: Vec<String> = cx
-        .find("forge-refs-list")
-        .expect("the refs")
-        .children()
-        .iter()
-        .filter_map(|row| row.key().map(str::to_owned))
-        .filter(|key| key.starts_with("forge-ref-row-"))
-        .collect();
+    let rows = ref_rows(&cx);
     assert!(
         cx.interactivity(&format!("{}-open", rows[0]))
             .aria
@@ -2398,14 +2614,7 @@ fn a_reader_who_may_not_write_has_no_compare_cell() {
     view.read(|forge| assert!(!forge.may_write()));
     cx.simulate_click("forge-tab-refs");
     cx.run_until_parked();
-    let rows: Vec<String> = cx
-        .find("forge-refs-list")
-        .expect("the refs")
-        .children()
-        .iter()
-        .filter_map(|row| row.key().map(str::to_owned))
-        .filter(|key| key.starts_with("forge-ref-row-"))
-        .collect();
+    let rows = ref_rows(&cx);
     cx.simulate_focus("forge-refs-list");
     cx.simulate_key_down("forge-refs-list", "down");
     cx.simulate_key_down("forge-refs-list", "right");
@@ -2432,14 +2641,7 @@ fn a_ref_without_compare_is_a_grid_row_of_one_cell() {
     let (mut cx, view) = opened("default");
     cx.simulate_click("forge-tab-refs");
     cx.run_until_parked();
-    let rows: Vec<String> = cx
-        .find("forge-refs-list")
-        .expect("the refs")
-        .children()
-        .iter()
-        .filter_map(|row| row.key().map(str::to_owned))
-        .filter(|key| key.starts_with("forge-ref-row-"))
-        .collect();
+    let rows = ref_rows(&cx);
     for label in ["main", "v1"] {
         let key = format!("forge-ref-row-{label}");
         assert_eq!(

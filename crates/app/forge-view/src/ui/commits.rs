@@ -252,6 +252,7 @@ pub(crate) fn detail(
     theme: &Theme,
 ) -> AnyElement {
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_commit(None, cx));
+    let all = cx.listener(|forge, _: &ClickEvent, _, cx| forge.single_file(None, cx));
     let commit = forge.commit(oid);
     let mut column = div()
         .id(id("forge-commit-detail"))
@@ -276,6 +277,14 @@ pub(crate) fn detail(
                     theme,
                 ))
                 .child(div().flex_1())
+                // one file shown alone: the way back to every file, as the
+                // Files tab's list has it
+                .when(forge.nav().diff_path.is_some(), |header| {
+                    header.child(
+                        button(id("forge-commit-files-all"), "All files", theme, all)
+                            .kind(design::Kind::Quiet),
+                    )
+                })
                 .child(button(id("forge-commit-close"), "Back", theme, close)),
         );
     if let Some(commit) = &commit {

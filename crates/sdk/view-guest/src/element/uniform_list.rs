@@ -386,8 +386,13 @@ impl UniformLists {
             state.shown = Some(target.clone());
         }
         state.window = window(&held, target, count, measure_index);
+        // the measurement row on its own only where the window does not
+        // hold it: a row painted twice is paid for twice
         let measurement = measure_index..measure_index.saturating_add(1).min(count);
-        let mut ranges = vec![measurement];
+        let mut ranges = Vec::new();
+        if !state.window.contains(&measure_index) {
+            ranges.push(measurement);
+        }
         if !state.window.is_empty() {
             ranges.push(state.window.clone());
         }

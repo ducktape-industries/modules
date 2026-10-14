@@ -69,6 +69,23 @@ pub struct Forge {
     pub(crate) log_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) tree_scroll: UniformListScrollHandle,
+    /// the Files tab's list, kept on the file picked and the row the
+    /// arrows are on
+    #[serde(skip)]
+    pub(crate) files_scroll: UniformListScrollHandle,
+    /// the Refs tab's list, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) refs_scroll: UniformListScrollHandle,
+    /// the Changes tab's list, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) changes_scroll: UniformListScrollHandle,
+    /// a commit's file strip, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) strip_scroll: UniformListScrollHandle,
+    /// a file picked to show alone whose row the Files tab's list has
+    /// not yet been scrolled to: its diff is on its way
+    #[serde(skip)]
+    pub(crate) reveal: Option<Vec<u8>>,
     #[serde(skip)]
     pub(crate) next_pending: u64,
     /// the change whose Close waits for a second press: closing is final
