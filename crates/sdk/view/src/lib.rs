@@ -40,7 +40,7 @@ pub use interactivity::{
 };
 pub use list::{List, ListState, list};
 pub use media::{
-    Camera, MediaState, MediaStatus, MicHandle, Microphone, Playback, camera, microphone,
+    Camera, Fit, MediaState, MediaStatus, MicHandle, Microphone, Playback, camera, microphone,
 };
 pub use primitives::{
     Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img, StyledImage, Svg, Transformation,
@@ -64,7 +64,7 @@ pub mod prelude {
     pub use crate::methods::*;
     pub use crate::{
         AnyElement, AnyView, App, Bounds, ClickEvent, Context, Element, ElementId, Entity,
-        EventEmitter, FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, Host,
+        EventEmitter, FileDropEvent, Fit, FluentBuilder, FocusHandle, FollowMode, Global, Host,
         HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText, IntoElement,
         KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
         ListScrollEvent, ListSizingBehavior, ListState, Loadable, MediaState, MediaStatus,

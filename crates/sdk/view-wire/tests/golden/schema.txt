@@ -474,6 +474,9 @@ Event enum
   35 Media struct
     handler: U32
     state: TypeName("MediaState")
+Fit enum
+  0 Contain: Unit
+  1 Cover: Unit
 FontFallbacks NewTypeStruct(Seq(Str))
 FontStyle enum
   0 Normal: Unit
@@ -652,6 +655,8 @@ MediaState struct
   device: Str
   playback: TypeName("Playback")
   detail: Str
+  speaking: Bool
+  settings: Bool
 MediaStatus enum
   0 Starting: Unit
   1 Live: Unit
@@ -665,6 +670,7 @@ MicCommand enum
   0 Record struct
     seconds: U8
   1 Stop: Unit
+  2 Chime: Unit
 Modifiers struct
   control: Bool
   alt: Bool
@@ -892,6 +898,7 @@ Node enum
     style: U32
     device: Option(Str)
     mirror: Bool
+    fit: TypeName("Fit")
     on_state: Option(U32)
   17 Microphone struct
     id: TypeName("WireRepr")

@@ -243,15 +243,20 @@ pub(super) fn gen_media(rng: &mut Rng) -> Node {
             style: PLAIN,
             device: gen_device(rng),
             mirror: rng.next_bool(),
+            fit: match rng.next_bool() {
+                true => view_wire::Fit::Cover,
+                false => view_wire::Fit::Contain,
+            },
             on_state: rng.next_bool().then(|| rng.next_u64() as u32),
         };
     }
     let commands = (0..=rng.next_range(MIC_COMMANDS))
-        .map(|_| match rng.next_bool() {
-            true => view_wire::MicCommand::Record {
+        .map(|_| match rng.next_range(3) {
+            0 => view_wire::MicCommand::Record {
                 seconds: rng.next_u64() as u8,
             },
-            false => view_wire::MicCommand::Stop,
+            1 => view_wire::MicCommand::Stop,
+            _ => view_wire::MicCommand::Chime,
         })
         .collect();
     Node::Microphone {
