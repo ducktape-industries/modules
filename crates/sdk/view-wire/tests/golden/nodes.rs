@@ -356,6 +356,7 @@ fn first_nodes() -> Vec<Node> {
             style: style(),
             device: Some("0".into()),
             mirror: true,
+            fit: view_wire::Fit::Cover,
             on_state: Some(18),
         },
         Node::Microphone {
@@ -365,7 +366,11 @@ fn first_nodes() -> Vec<Node> {
             output: Some("Headphones".into()),
             monitor: true,
             revision: 2,
-            commands: vec![MicCommand::Record { seconds: 5 }, MicCommand::Stop],
+            commands: vec![
+                MicCommand::Record { seconds: 5 },
+                MicCommand::Stop,
+                MicCommand::Chime,
+            ],
             on_state: Some(19),
         },
         text("plain"),

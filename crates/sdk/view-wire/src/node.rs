@@ -310,10 +310,11 @@ pub enum Node {
         commands: Vec<crate::web::WebCommand>,
         on_state: Option<u32>,
     },
-    /// A camera's picture, drawn by the host in the node's box: the whole
-    /// picture, centred, the box's background on the sides it does not
-    /// fill, flipped left to right when `mirror` (a person checking
-    /// themselves expects a mirror). No picture crosses to the view. Only
+    /// A camera's picture, drawn by the host in the node's box as `fit`
+    /// says (the whole picture, centred, the box's background on the sides
+    /// it does not fill; or the box covered, the picture cut centred),
+    /// flipped left to right when `mirror` (a person checking themselves
+    /// expects a mirror). No picture crosses to the view. Only
     /// a view whose manifest declares the `camera` capability may send one;
     /// a host refuses the frame of any other
     /// ([`crate::media::carries_camera`]).
@@ -330,6 +331,7 @@ pub enum Node {
         style: StyleId,
         device: Option<String>,
         mirror: bool,
+        fit: crate::media::Fit,
         on_state: Option<u32>,
     },
     /// A microphone's level, drawn by the host as a meter in the node's

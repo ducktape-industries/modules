@@ -14,6 +14,25 @@ pub const MAX_DEVICE_BYTES: usize = 256;
 pub const MAX_MIC_COMMANDS: usize = 4;
 /// The longest recording a [`MicCommand::Record`] asks for, in seconds.
 pub const MAX_RECORD_SECONDS: u8 = 10;
+/// The system's privacy settings for the camera and for the microphone
+/// (macOS): the only links besides `duck://` and `https://` a host opens,
+/// and only where [`MediaState::settings`] says it can.
+pub const SETTINGS_CAMERA: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera";
+pub const SETTINGS_MICROPHONE: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+
+/// How a [`crate::Node::Camera`]'s picture fills its box.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Fit {
+    /// The whole picture, centred; the box's background shows where the
+    /// picture's shape leaves it (a person checking their own frame).
+    #[default]
+    Contain,
+    /// The box filled, the picture scaled to cover it and cut centred (a
+    /// call's tile, which never shows bars).
+    Cover,
+}
 
 /// One thing the view asks of its microphone piece, applied once by the
 /// host when the node's `revision` moves.
@@ -26,6 +45,11 @@ pub enum MicCommand {
     Record { seconds: u8 },
     /// Ends a recording or its playback.
     Stop,
+    /// Plays the host's test chime (a short two-note tone) on the piece's
+    /// `output`: the person hears whether that speaker works. Replaces a
+    /// recording or playback under way; the playback reads
+    /// [`Playback::Playing`] while it sounds.
+    Chime,
 }
 
 /// Where a camera or microphone piece's device is, as the host holds it.
@@ -72,9 +96,18 @@ pub struct MediaState {
     pub device: String,
     /// A microphone piece's recording; a camera's is always `Idle`.
     pub playback: Playback,
-    /// The host's words for a [`MediaStatus::Failed`], else empty: one
-    /// line, at most 200 bytes.
+    /// The host's words for a [`MediaStatus::Failed`], and for a
+    /// [`MediaStatus::Denied`] how to allow the device on this platform;
+    /// else empty: one line, at most 200 bytes.
     pub detail: String,
+    /// A microphone's: the person is speaking (the level held over the
+    /// host's threshold, with the host's hysteresis), else `false`. The
+    /// level itself never crosses.
+    pub speaking: bool,
+    /// On [`MediaStatus::Denied`]: the host can open the system's settings
+    /// page that allows the device (`link.open` of [`SETTINGS_CAMERA`] or
+    /// [`SETTINGS_MICROPHONE`]); `false` elsewhere.
+    pub settings: bool,
 }
 
 /// Whether `frame` carries a camera piece. A host refuses such a frame
@@ -172,6 +205,7 @@ mod tests {
             style: StyleId(0),
             device: Some(long),
             mirror: true,
+            fit: Fit::Cover,
             on_state: None,
         };
         crate::sanitize_tree(&mut camera, &crate::styles::testing::held()).unwrap();

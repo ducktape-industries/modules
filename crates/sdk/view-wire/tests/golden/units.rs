@@ -30,6 +30,7 @@ pub struct Units {
     cursor: Vec<mouse::Cursor>,
     cursor_style: Vec<gpui::CursorStyle>,
     display: Vec<gpui::Display>,
+    fit: Vec<view_wire::Fit>,
     flex_direction: Vec<gpui::FlexDirection>,
     flex_wrap: Vec<gpui::FlexWrap>,
     font_style: Vec<gpui::FontStyle>,

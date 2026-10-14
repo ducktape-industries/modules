@@ -548,6 +548,7 @@
               "style": 0,
               "device": "0",
               "mirror": true,
+              "fit": "Cover",
               "on_state": 18
             }
           },
@@ -567,7 +568,8 @@
                     "seconds": 5
                   }
                 },
-                "Stop"
+                "Stop",
+                "Chime"
               ],
               "on_state": 19
             }
@@ -2497,7 +2499,9 @@
           "status": "Failed",
           "device": "FaceTime HD Camera",
           "playback": "Recording",
-          "detail": "the driver stopped"
+          "detail": "the driver stopped",
+          "speaking": true,
+          "settings": true
         }
       }
     }
@@ -2915,6 +2919,10 @@
       "Grid",
       "None"
     ],
+    "Fit": [
+      "Contain",
+      "Cover"
+    ],
     "FlexDirection": [
       "Row",
       "Column",
@@ -3000,7 +3008,8 @@
       "Failed"
     ],
     "MicCommand": [
-      "Stop"
+      "Stop",
+      "Chime"
     ],
     "MouseButton": [
       "Left",
