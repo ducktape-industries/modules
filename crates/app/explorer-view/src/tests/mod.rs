@@ -459,6 +459,7 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
                 let push = forge::Op::Push {
                     repo: "app".into(),
                     request: vec![0x50; 1 << 20],
+                    pack: None,
                 };
                 tx(0xfe, ADA, forge::MODULE, borsh::to_vec(&push).unwrap())
             } else {

@@ -370,6 +370,7 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
         let op = forge::Op::Push {
             repo: "big-history".into(),
             request: vec![1],
+            pack: None,
         };
         Tx {
             receipt: Some(receipt(forge::MODULE, None, Vec::new())),

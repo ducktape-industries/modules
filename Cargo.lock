@@ -2117,6 +2117,7 @@ dependencies = [
  "founding",
  "futures",
  "gitcore",
+ "guest",
  "program",
  "pulldown-cmark",
  "serde",

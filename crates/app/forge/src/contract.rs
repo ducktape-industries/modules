@@ -1,6 +1,6 @@
 //! Borsh is the module contract; the view links these types as they are.
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::HashKind;
+use guest::{BlobId, HashKind};
 
 use crate::state::{ACTIVITY, AUTHORED, CHANGES, INVOLVED, REFS, REPOS, REVIEWS, WRITERS};
 
@@ -81,6 +81,7 @@ pub enum Op {
     Push {
         repo: String,
         request: Vec<u8>,
+        pack: Option<BlobId>,
     },
     /// The client publishes immutable objects first. Consensus only checks both heads.
     Merge {
@@ -116,16 +117,9 @@ pub enum Op {
         n: u64,
         review: ReviewDraft,
     },
-    /// A pack's objects, stored without moving a ref: a push bigger than a
-    /// frame sends its objects in parts, then a `Push` moves the refs onto
-    /// them. Each object's references are held when it lands (in the pack
-    /// or already stored), so the parts go in the order git's objects
-    /// reference each other (blobs and trees before the commits naming
-    /// them); a delta may be against an object already stored. The owner
-    /// and its writers stage.
     Stage {
         repo: String,
-        pack: Vec<u8>,
+        pack: BlobId,
     },
 }
 
@@ -539,6 +533,8 @@ pub enum OpReply {
         change: Option<u64>,
     },
 }
+
+pub const PACK_KIND: &str = "pack";
 
 /// The longest repository name whose change channels fit chat's id limit:
 /// `forge:<repo>:<n>` is the module, two `:` and up to 20 digits of `n`.

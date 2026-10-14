@@ -213,22 +213,28 @@ pub struct PushOutcome {
     pub refusals: Vec<(Vec<u8>, Refusal)>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn push<S: Objects + ?Sized>(
     store: &mut S,
     current_refs: &BTreeMap<Vec<u8>, Oid>,
     request: &[u8],
+    pack: &[u8],
     hash: Hash,
     limits: &Limits,
     policy: &Policy,
     cap: usize,
 ) -> Result<PushOutcome> {
     let request = parse_request(request, hash)?;
+    let carries_a_pack = !request.pack.is_empty();
+    if carries_a_pack {
+        return Err(Error::BadRequest);
+    }
     let wants_report =
         request.has_capability(b"report-status") || request.has_capability(b"report-status-v2");
     let sideband = request.has_capability(b"side-band-64k");
-    let has_pack = !request.pack.is_empty();
+    let has_pack = !pack.is_empty();
     let admitted = if has_pack {
-        admit_pack(store, request.pack, hash, limits)
+        admit_pack(store, pack, hash, limits)
     } else {
         Ok(Vec::new())
     };

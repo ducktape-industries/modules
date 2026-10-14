@@ -46,22 +46,19 @@ fn main() {
                 hash: abi::HashKind::Sha256,
             },
         )?;
-        net.submit(
-            net.me(),
-            forge::MODULE,
-            &Op::Push {
-                repo: "mine".into(),
-                request: history(),
-            },
-        )?;
-        net.submit(
-            ada,
-            forge::MODULE,
-            &Op::Push {
-                repo: "web".into(),
-                request: history(),
-            },
-        )?;
+        let (request, pack) = history();
+        let pack = attached(net, &pack);
+        for (who, repo) in [(net.me(), "mine"), (ada, "web")] {
+            net.submit(
+                who,
+                forge::MODULE,
+                &Op::Push {
+                    repo: repo.into(),
+                    request: request.clone(),
+                    pack: Some(pack),
+                },
+            )?;
+        }
         for (from, title) in [
             ("refactor/split-every-module", "Split every module in two"),
             ("feature/search-0", "Search the index"),
@@ -98,7 +95,17 @@ type File = (String, Oid);
 /// branches one commit off it, twelve tags, a branch rewriting every module
 /// and adding as many again, and `release`: a merge commit shaped like a
 /// real release (192 files added, 52 deleted, 15 modified, the fonts moved).
-fn history() -> Vec<u8> {
+fn attached(net: &live::Network, pack: &[u8]) -> abi::BlobId {
+    let id = guest::blob_id(abi::HashKind::Sha256, forge::PACK_KIND, pack).unwrap();
+    let blob = guest::Blob {
+        kind: forge::PACK_KIND.into(),
+        body: pack.to_vec(),
+    };
+    net.host(forge::MODULE).borrow_mut().blobs.insert(id, blob);
+    id
+}
+
+fn history() -> (Vec<u8>, Vec<u8>) {
     let mut store = MemoryObjects::new(Hash::Sha256);
     let s = &mut store;
     let readme = blob(s, b"# web\n\nThe site, its search and its docs.\n");
@@ -245,8 +252,7 @@ fn history() -> Vec<u8> {
         pktline::push(&mut request, &line);
     }
     request.extend_from_slice(pktline::flush());
-    request.extend_from_slice(&pack);
-    request
+    (request, pack)
 }
 
 /// `lines` lines of Rust-looking source, distinct per `prefix` and `n`.

@@ -217,17 +217,14 @@ fn a_sha1_pack_is_refused_by_a_sha256_repository() {
     create(&sandbox, "modern", HashKind::Sha256);
     let mut source = MemoryObjects::new(Hash::Sha1);
     let tip = file_commit(&mut source, &[], 1, &[("a", b"1")]);
-    let request = push_request(
-        &[(Hash::Sha1.zero(), tip, "refs/heads/main")],
-        &pack_of(&source, &all_ids(&source)),
-    );
-    let refused = act(
-        &sandbox,
-        OWNER,
-        &Op::Push {
+    let request = push_request(&[(Hash::Sha1.zero(), tip, "refs/heads/main")]);
+    let refused = with_pack(&sandbox, &pack_of(&source, &all_ids(&source)), |pack| {
+        let op = Op::Push {
             repo: "modern".into(),
             request,
-        },
-    );
+            pack,
+        };
+        act(&sandbox, OWNER, &op)
+    });
     assert_eq!(refused.unwrap_err().code, code::INVALID_INPUT);
 }

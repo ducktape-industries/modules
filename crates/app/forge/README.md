@@ -159,12 +159,30 @@ Closing is terminal; there is no reopen operation.
 | `Configure { repo: r, settings: Settings::default() }` | owner configures default ref and force/delete policy; empty output |
 | `Grant { repo: r, principal: writer }` | owner grants writes to an account; empty output |
 | `Revoke { repo: r, principal: writer }` | owner revokes writes; empty output |
-| `Push { repo: r, request: receive_pack_bytes }` | existing Git receive-pack operation/report |
+| `Push { repo: r, request: receive_pack_commands, pack: Some(pack) }` | Git receive-pack: the ref commands in `request`, the objects in the attached `pack`; Git's report |
+| `Stage { repo: r, pack }` | stores the attached pack's objects and moves no ref; empty output |
 | `ChangeOpen { repo: r, from: feature, into: b"refs/heads/main".to_vec(), title: "Fix parser".into(), body: "Why this changes".into(), reviewers: vec![reviewer] }` | assigns `n`, stores body, queues channel/opened line; `OpReply::Change { height, n }` |
 | `ChangeEdit { repo: r, n: 1, title: None, body: Some("Updated rationale".into()), reviewers: None }` | `None` leaves a field unchanged; `Some(vec![])` clears requests; `OpReply::Change` |
 | `ChangeClose { repo: r, n: 1 }` | open to closed, queues system line; `OpReply::Change` |
 | `ReviewSubmit { repo: r, n: 1, review: ReviewDraft { commit_oid: b, base_oid: Some(a), verdict: Verdict::RequestChanges, body: "Please check this".into(), comments: vec![LineComment { path: b"src/lib.rs".to_vec(), side: Side::New, line: 12, body: "Check this bound".into() }] } }` | one immutable review and all comments, one chat root; `OpReply::Review { height, n, id }` |
 | `Merge { repo: r, into: b"refs/heads/main".to_vec(), from: feature, expected_into: a, expected_from: b, result: client_result_oid, change: Some(1) }` | both-head CAS and open to merged together; `OpReply::Merged { height, oid, change }` |
+
+A push's objects never ride inside its frame. The client puts git's pack on its
+node as a blob of kind `pack` (`forge::PACK_KIND`) and submits the op through
+`$attach`, naming the blob both in the op and in the frame's attachments, so
+the validators fetch it over halo before the block runs. `request` holds only
+git's ref commands and capabilities, through their flush; a request with bytes
+after the flush is refused. forge reads the pack, checks it as git's
+receive-pack does, and puts each object; the pack itself is not kept. A pack
+named by an op but neither attached to its frame nor stored is `not_found`; a
+blob of another kind is `invalid`.
+
+A pack bigger than one attachment goes in parts: each part a `Stage`, then a
+`Push` with the last part moves the refs. Every object a part names must be
+held when the part lands, in that part or already stored, so the parts go in
+the order git's objects reference each other: blobs and trees before the
+commits naming them. A delta may be against an object already stored. The
+owner and its writers push and stage.
 
 A merge requires a nonzero result that advances the target, correct endpoint
 hash kinds, writer authority and matching current heads. It does not validate

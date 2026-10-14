@@ -206,12 +206,18 @@ impl Story {
             (zero, unrelated, "refs/heads/unrelated"),
             (zero, v1, "refs/tags/v1"),
         ];
-        let pack = pack_of(&store, &all_ids(&store));
+        let pack = attach(
+            &rig.sandbox,
+            forge::PACK_KIND,
+            &pack_of(&store, &all_ids(&store)),
+        );
         rig.execute(&Op::Push {
             repo: REPO.into(),
-            request: push_request(&commands, &pack),
+            request: push_request(&commands),
+            pack: Some(pack),
         })
         .unwrap();
+        detach(&rig.sandbox, pack);
         Story {
             objects: store,
             root: root.to_hex(),
@@ -265,12 +271,18 @@ impl Story {
         tree.entries.push(entry(Mode::Regular, name, file));
         let new_tree = put_tree(s, tree.entries);
         let tip = commit(s, new_tree, &[old], TIME as i64, name);
-        let pack = pack_of(s, &[file, new_tree, tip]);
+        let pack = attach(
+            &rig.sandbox,
+            forge::PACK_KIND,
+            &pack_of(s, &[file, new_tree, tip]),
+        );
         rig.execute(&Op::Push {
             repo: REPO.into(),
-            request: push_request(&[(old, tip, "refs/heads/feature")], &pack),
+            request: push_request(&[(old, tip, "refs/heads/feature")]),
+            pack: Some(pack),
         })
         .unwrap();
+        detach(&rig.sandbox, pack);
         self.feature = tip.to_hex();
         tip.to_hex()
     }

@@ -38,7 +38,11 @@ impl Module for Forge {
             }
             Op::Grant { repo, principal } => grant(ctx, actor, &repo, principal).map(|()| None),
             Op::Revoke { repo, principal } => revoke(ctx, actor, &repo, principal).map(|()| None),
-            Op::Push { repo, request } => push(ctx, actor, &repo, &request).map(|()| None),
+            Op::Push {
+                repo,
+                request,
+                pack,
+            } => push(ctx, actor, &repo, &request, pack).map(|()| None),
             Op::Merge {
                 repo,
                 into,
@@ -93,7 +97,7 @@ impl Module for Forge {
             Op::ReviewSubmit { repo, n, review } => {
                 submit_review(ctx, actor, &repo, n, review).map(Some)
             }
-            Op::Stage { repo, pack } => stage(ctx, actor, &repo, &pack).map(|()| None),
+            Op::Stage { repo, pack } => stage(ctx, actor, &repo, pack).map(|()| None),
         }?;
         if let Some(reply) = reply {
             ctx.set_return_data(abi::encode(&reply));

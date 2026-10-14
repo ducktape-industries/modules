@@ -11,7 +11,7 @@ fn a_publish_reads_only_code_its_own_frame_attaches_and_keeps_it_past_the_frame(
             .refuse(&public(7), module_registry::MODULE, &unattached)
             .await;
         assert_eq!(refused, reason::NOT_FOUND, "a held blob is no attached one");
-        let attaching = net.attaching(held);
+        let attaching = net.attaching(module_registry::MODULE, &unattached, held);
         let output = net.apply(&public(7), ATTACH, &attaching).await;
         let code: BlobId = abi::decode(&output).unwrap();
         assert_eq!(code, held.id, "the registry keeps the code under its id");
@@ -33,7 +33,8 @@ fn a_publish_refuses_an_attached_blob_that_is_no_program() {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
         let page = net.held("page", b"not code");
-        let attaching = net.attaching(page);
+        let publish = module_registry::Op::Publish { code: page.id };
+        let attaching = net.attaching(module_registry::MODULE, &publish, page);
         let refused = net.refuse(&public(7), ATTACH, &attaching).await;
         assert_eq!(refused, reason::INVALID_INPUT);
     });
