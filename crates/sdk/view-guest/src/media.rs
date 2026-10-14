@@ -12,11 +12,13 @@ use gpui::{StyleRefinement, Styled};
 
 /// What a camera or microphone piece tells its view: whether its device is
 /// live, refused, busy or gone, the device's name, a microphone's
-/// recording.
-pub use wire::{MediaState, MediaStatus, Playback};
+/// recording and whether the person is speaking; how a camera's picture
+/// fills its box.
+pub use wire::{Fit, MediaState, MediaStatus, Playback};
 
 /// A camera's picture the host draws in this element's box: the whole
-/// picture, centred, flipped left to right with [`Camera::mirror`]. The
+/// picture, centred, or the box covered with [`Camera::fit`]; flipped
+/// left to right with [`Camera::mirror`]. The
 /// camera opens the first time the host sees the element under `id` and
 /// is released (its light off) when a frame no longer has it: a view turns
 /// its camera off by not placing the piece. Only a view whose manifest
@@ -34,6 +36,7 @@ pub struct Camera {
     id: ElementId,
     device: Option<String>,
     mirror: bool,
+    fit: Fit,
     on_state: Option<EventListener<MediaState>>,
     style: Box<StyleRefinement>,
 }
@@ -43,6 +46,7 @@ pub fn camera(id: impl Into<ElementId>) -> Camera {
         id: id.into(),
         device: None,
         mirror: false,
+        fit: Fit::Contain,
         on_state: None,
         style: Box::default(),
     }
@@ -59,6 +63,13 @@ impl Camera {
     /// Flips the picture left to right, as a mirror shows a face.
     pub fn mirror(mut self, mirror: bool) -> Self {
         self.mirror = mirror;
+        self
+    }
+
+    /// How the picture fills the box: whole ([`Fit::Contain`], the
+    /// default) or covering it, cut centred ([`Fit::Cover`]).
+    pub fn fit(mut self, fit: Fit) -> Self {
+        self.fit = fit;
         self
     }
 
@@ -107,6 +118,11 @@ impl MicHandle {
     /// Ends a recording or its playback.
     pub fn stop(&self) {
         self.push(wire::MicCommand::Stop);
+    }
+
+    /// Plays the host's test chime on the piece's output.
+    pub fn chime(&self) {
+        self.push(wire::MicCommand::Chime);
     }
 }
 
@@ -218,6 +234,7 @@ impl Element for Camera {
             style: lowering.style(&self.style),
             device: self.device,
             mirror: self.mirror,
+            fit: self.fit,
             on_state: self
                 .on_state
                 .map(|listener| lowering.route(crate::slots::Kind::MediaState, listener)),
@@ -301,7 +318,13 @@ mod tests {
                 cx.notify();
             });
             div()
-                .child(camera("camera").device("1").mirror(true).on_state(heard))
+                .child(
+                    camera("camera")
+                        .device("1")
+                        .mirror(true)
+                        .fit(Fit::Cover)
+                        .on_state(heard),
+                )
                 .child(
                     microphone("mic")
                         .output("headphones")
@@ -321,6 +344,7 @@ mod tests {
         let wire::Node::Camera {
             device,
             mirror: true,
+            fit: Fit::Cover,
             on_state: Some(_),
             ..
         } = cx.node("camera").clone()
@@ -344,6 +368,7 @@ mod tests {
         assert!(commands.is_empty());
         cx.update(&view, |view, _, cx| {
             view.mic.record(5);
+            view.mic.chime();
             cx.notify();
         });
         cx.run_until_parked();
@@ -355,8 +380,14 @@ mod tests {
         else {
             unreachable!()
         };
-        assert_eq!(moved, revision + 1);
-        assert_eq!(commands, vec![wire::MicCommand::Record { seconds: 5 }]);
+        assert_eq!(moved, revision + 2);
+        assert_eq!(
+            commands,
+            vec![
+                wire::MicCommand::Record { seconds: 5 },
+                wire::MicCommand::Chime
+            ]
+        );
         cx.simulate_media_state(
             "camera",
             MediaState {
