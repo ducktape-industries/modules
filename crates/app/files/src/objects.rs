@@ -2,8 +2,10 @@
 //! their chunks, trees of named nodes, and snapshots naming a root tree.
 use std::collections::BTreeMap;
 
+use ::program::{
+    BlobId, Error, ExecCtx, HashKind, Principal, QueryCtx, capacity, corrupt, invalid,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{BlobId, Error, ExecCtx, HashKind, Principal, QueryCtx, capacity, corrupt, invalid};
 
 use crate::{CHUNK_SIZE, MAX_CHUNKS_PER_FILE, MAX_DIR_ENTRIES, Node};
 
@@ -120,7 +122,7 @@ pub(crate) fn check_chunks(ctx: &QueryCtx, size: u64, chunks: &[BlobId]) -> Resu
     for (index, id) in chunks.iter().enumerate() {
         digest(id)?;
         let Some(header) = ctx.blob_stat(*id) else {
-            return Err(guest::not_found(format!(
+            return Err(::program::not_found(format!(
                 "chunk {} is not on the network: stage it first",
                 abi::hex(id.digest())
             )));

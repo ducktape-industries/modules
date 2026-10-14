@@ -9,10 +9,10 @@
 //! The rows of a diff are laid out once per reply and kept ([`DiffCache`])
 //! as indices into it: a frame paints the rows on screen, not the diff,
 //! and no line is copied out of the reply.
-use ducktape_view_guest::prelude::*;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use view::prelude::*;
 
 use crate::Forge;
 use crate::ui::components::{PRESS_TARGET, badge, empty_state, id, path_text, quiet};
@@ -93,7 +93,7 @@ struct FileRows {
 
 /// The most rows one list may hold on the host, by the wire: the diff's
 /// own rows and the notes after its lines share them.
-const LIST_CEILING: usize = ducktape_view_guest::wire::MAX_UNIFORM_LIST_COUNT;
+const LIST_CEILING: usize = view::wire::MAX_UNIFORM_LIST_COUNT;
 /// The rows of the list kept for notes ([`Notes`]): however long the diff,
 /// the open composer and a few hundred comment boxes fit beside it.
 const NOTE_ROOM: usize = 1024;
@@ -962,7 +962,7 @@ fn paint_row(
             .px(design::space::BLOCK)
             .font_family(design::fonts::FAMILY_MONO)
             .text_size(design::text::CAPTION)
-            .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+            .font_weight(view::FontWeight::MEDIUM)
             .child(row.text.clone())
             .into_any_element(),
         Kind::Hunk => div()
@@ -1041,7 +1041,7 @@ fn line_row(
                 .child(marker),
         )
         .child(
-            ducktape_view_guest::design::mono(row.text.clone())
+            view::design::mono(row.text.clone())
                 .flex_1()
                 .min_w(px(0.))
                 .text_color(colour),

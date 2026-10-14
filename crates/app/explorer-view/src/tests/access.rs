@@ -1,19 +1,19 @@
 //! What a reader changes on the Programs page: by its grant, the op goes to
-//! the registry; by its voices, a motion goes to valset; with neither,
+//! the programs role; by its voices, a motion goes to valset; with neither,
 //! nothing is pressable. The ops are read as the host receives them:
 //! `requests::<Submit<P>>` answers only an `op.submit` addressed to `P`,
 //! decoded from the bytes the view sent.
 use super::*;
 use crate::acting::{self, Edit, Form, Path};
-use ducktape_view_guest::methods::Submit;
-use registry::{Change, Grant, Pending, Scope};
+use programs::{Change, Grant, Pending, Scope};
 use valset::{Motion, Voted};
+use view::methods::Submit;
 
-/// Ada (account 3) maintains chat; Scout, her agent (5), every module.
+/// Ada (account 3) maintains chat; Scout, her agent (5), every program.
 fn grants() -> Vec<Grant> {
     vec![
         Grant {
-            scope: Scope::Module("chat".into()),
+            scope: Scope::Program("chat".into()),
             account: 3,
         },
         Grant {
@@ -43,7 +43,7 @@ fn waiting() -> Vec<Pending> {
 const CODE: [u8; 32] = [0x7e; 32];
 
 /// The Programs page for a reader whose key is `signer`, acting as
-/// `account`, voting for the validator when `votes`; the registry holding
+/// `account`, voting for the validator when `votes`; the programs role holding
 /// `grants` and `scheduled`, chat a hook-free program, identity a role's.
 fn reader(
     account: Option<u64>,
@@ -55,7 +55,7 @@ fn reader(
     reader_on(account, signer, votes, grants, scheduled, Vec::new(), 1000)
 }
 
-/// [`reader`] on a node whose blocks come every `block_ms`, the registry
+/// [`reader`] on a node whose blocks come every `block_ms`, the programs role
 /// listing `hooks`.
 fn reader_on(
     account: Option<u64>,
@@ -74,10 +74,10 @@ fn reader_on(
             ..status(12)
         })
     });
-    registry_granting(
+    programs_granting(
         &cx,
         vec![entry("chat", 0xab), entry("identity", 0xcd)],
-        vec![registry::View {
+        vec![programs::View {
             name: "explorer".into(),
             view: BlobId::Sha256([0xef; 32]),
         }],
@@ -94,7 +94,7 @@ fn reader_on(
             _ => valset::Reply::Validators(vec![VALIDATOR.to_vec()]),
         })
     });
-    cx.host().handle::<Submit<Modules>>(|_| Ok(Vec::new()));
+    cx.host().handle::<Submit<Programs>>(|_| Ok(Vec::new()));
     cx.host().handle::<Submit<Valset>>(|_| {
         Ok(abi::encode(&Voted::Counted {
             votes: 1,
@@ -120,20 +120,20 @@ fn maintainer() -> TestAppContext {
     reader(Some(3), ADA, false, grants(), waiting())
 }
 
-fn upgrade(height: u64) -> registry::Op {
-    registry::Op::Schedule(registry::Scheduled {
+fn upgrade(height: u64) -> programs::Op {
+    programs::Op::Schedule(programs::Scheduled {
         height,
-        change: Change::Set(registry::Entry {
+        change: Change::Set(programs::Entry {
             code: BlobId::Sha256(CODE),
             ..entry("chat", 0xab)
         }),
     })
 }
 
-/// The headline: a maintainer's Upgrade lands in the registry with no vote,
+/// The headline: a maintainer's Upgrade lands in the programs role with no vote,
 /// its params kept, at the tip + `NOTICE` + slack.
 #[test]
-fn a_maintainers_upgrade_goes_to_the_registry_as_it_was_typed() {
+fn a_maintainers_upgrade_goes_to_the_programs_as_it_was_typed() {
     let mut cx = maintainer();
     cx.simulate_click("explorer-upgrade-chat");
     cx.run_until_parked();
@@ -144,20 +144,20 @@ fn a_maintainers_upgrade_goes_to_the_registry_as_it_was_typed() {
     assert!(cx.has_text("Upgrade chat"), "{:?}", cx.texts());
     assert!(cx.has_text("Close"), "the form closes; Cancel is a row's");
     assert!(cx.has_text("Params kept: 3 bytes, as chat runs now."));
-    let earliest = 12 + 1 + registry::NOTICE;
+    let earliest = 12 + 1 + programs::NOTICE;
     assert!(cx.has_text(&format!(
         "Block {earliest} or later: the validators get 60 blocks to look, and can cancel it by vote until it lands."
     )));
     cx.simulate_input("explorer-form-code", &format!("sha256:{}", abi::hex(&CODE)));
     cx.simulate_click("explorer-form-submit");
     cx.run_until_parked();
-    let sent = cx.host().requests::<Submit<Modules>>();
-    let height = 12 + registry::NOTICE + 30;
+    let sent = cx.host().requests::<Submit<Programs>>();
+    let height = 12 + programs::NOTICE + 30;
     assert_eq!(sent, [upgrade(height)]);
     assert_eq!(abi::encode(&sent[0]), abi::encode(&upgrade(height)));
     assert!(cx.host().requests::<Submit<Valset>>().is_empty());
     assert!(cx.find("explorer-form").is_none(), "the form closes");
-    assert!(cx.has_text("Sent to the registry: Schedule · chat."));
+    assert!(cx.has_text("Sent to the programs role: Schedule · chat."));
 }
 
 #[test]
@@ -177,9 +177,9 @@ fn a_reader_with_voices_and_no_grant_proposes_the_same_change_to_the_vote() {
     let op = abi::encode(&upgrade(12 + 600));
     assert_eq!(
         cx.host().requests::<Submit<Valset>>(),
-        [valset::Op::Vote(Motion::Registry { op })]
+        [valset::Op::Vote(Motion::Programs { op })]
     );
-    assert!(cx.host().requests::<Submit<Modules>>().is_empty());
+    assert!(cx.host().requests::<Submit<Programs>>().is_empty());
     assert!(cx.has_text("Vote counted, 1 of 2: Schedule · chat."));
 }
 
@@ -209,13 +209,13 @@ fn access_lists_every_grant_by_name_and_the_reader_steps_down_from_its_own() {
     let mut cx = maintainer();
     assert!(cx.has_text("Access"));
     assert!(cx.has_text("changes by a maintainer wait 60 blocks (about 1 min)"));
-    assert!(cx.has_text("every module") && cx.has_text("Scout"));
+    assert!(cx.has_text("every program") && cx.has_text("Scout"));
     assert!(cx.has_text("agent"), "Scout is an agent");
     assert!(cx.has_text("Ada (you)"));
     let every = cx
         .texts()
         .iter()
-        .filter(|text| *text == "every-module maintainers")
+        .filter(|text| *text == "every-program maintainers")
         .count();
     assert_eq!(
         every, 2,
@@ -224,8 +224,8 @@ fn access_lists_every_grant_by_name_and_the_reader_steps_down_from_its_own() {
     cx.simulate_click("explorer-revoke-0");
     cx.run_until_parked();
     assert_eq!(
-        cx.host().requests::<Submit<Modules>>(),
-        [registry::Op::Revoke(grants()[0].clone())]
+        cx.host().requests::<Submit<Programs>>(),
+        [programs::Op::Revoke(grants()[0].clone())]
     );
 }
 
@@ -258,22 +258,22 @@ fn a_hook_is_upgraded_by_its_maintainer_and_removed_only_by_vote() {
     assert!(cx.has_text("Propose remove · chat"), "{:?}", cx.texts());
     cx.simulate_click("explorer-form-submit");
     cx.run_until_parked();
-    let op = abi::encode(&registry::Op::Schedule(registry::Scheduled {
+    let op = abi::encode(&programs::Op::Schedule(programs::Scheduled {
         height: 12 + 600,
         change: Change::Remove("chat".into()),
     }));
     assert_eq!(
         cx.host().requests::<Submit<Valset>>(),
-        [valset::Op::Vote(Motion::Registry { op })]
+        [valset::Op::Vote(Motion::Programs { op })]
     );
-    assert!(cx.host().requests::<Submit<Modules>>().is_empty());
+    assert!(cx.host().requests::<Submit<Programs>>().is_empty());
 }
 
 #[test]
 fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
     let mut cx = reader(None, VALIDATOR, true, Vec::new(), Vec::new());
     assert!(cx.has_text(
-        "No account maintains a module: only the validators' vote changes the registry."
+        "No account maintains a program: only the validators' vote changes the programs role."
     ));
     cx.simulate_click("explorer-propose-grant");
     cx.run_until_parked();
@@ -287,13 +287,13 @@ fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
     cx.simulate_input("explorer-form-name", "trade");
     cx.simulate_click("explorer-form-submit");
     cx.run_until_parked();
-    let op = abi::encode(&registry::Op::Grant(Grant {
-        scope: Scope::Module("trade".into()),
+    let op = abi::encode(&programs::Op::Grant(Grant {
+        scope: Scope::Program("trade".into()),
         account: 5,
     }));
     assert_eq!(
         cx.host().requests::<Submit<Valset>>(),
-        [valset::Op::Vote(Motion::Registry { op })]
+        [valset::Op::Vote(Motion::Programs { op })]
     );
 }
 
@@ -301,7 +301,8 @@ fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
 fn a_refusal_shows_in_the_form_in_the_hosts_words() {
     let mut cx = maintainer();
     let refusal = "account 3 may not change chat: no grant, and not the validators' vote";
-    cx.host().refuse::<Submit<Modules>>("unauthorized", refusal);
+    cx.host()
+        .refuse::<Submit<Programs>>("unauthorized", refusal);
     cx.simulate_click("explorer-remove-chat");
     cx.run_until_parked();
     cx.simulate_click("explorer-form-submit");
@@ -314,7 +315,7 @@ fn a_refusal_shows_in_the_form_in_the_hosts_words() {
     assert!(cx.has_text(refusal), "{:?}", cx.texts());
     // pressed again, the old refusal goes at the press, not when the
     // answer lands: the app's confirm card waits over the form meanwhile
-    cx.host().never::<Submit<Modules>>();
+    cx.host().never::<Submit<Programs>>();
     cx.simulate_click("explorer-form-submit");
     cx.run_until_parked();
     assert!(
@@ -344,8 +345,8 @@ fn a_scheduled_change_says_who_made_it_and_its_maintainer_cancels_it() {
     cx.simulate_click("explorer-cancel-1");
     cx.run_until_parked();
     assert_eq!(
-        cx.host().requests::<Submit<Modules>>(),
-        [registry::Op::Cancel {
+        cx.host().requests::<Submit<Programs>>(),
+        [programs::Op::Cancel {
             height: 700,
             program: "chat".into(),
         }]
@@ -353,22 +354,22 @@ fn a_scheduled_change_says_who_made_it_and_its_maintainer_cancels_it() {
     let mut cx = reader(None, VALIDATOR, true, grants(), waiting());
     cx.simulate_click("explorer-cancel-0");
     cx.run_until_parked();
-    let op = abi::encode(&registry::Op::Cancel {
+    let op = abi::encode(&programs::Op::Cancel {
         height: 120,
         program: "forge".into(),
     });
     assert_eq!(
         cx.host().requests::<Submit<Valset>>(),
-        [valset::Op::Vote(Motion::Registry { op })]
+        [valset::Op::Vote(Motion::Programs { op })]
     );
 }
 
 #[test]
-fn every_module_and_an_unseated_module_let_their_maintainer_add() {
+fn every_program_and_an_unseated_program_let_their_maintainer_add() {
     let cx = maintainer();
     assert!(cx.find("explorer-add").is_none(), "chat runs already");
     let trade = Grant {
-        scope: Scope::Module("trade".into()),
+        scope: Scope::Program("trade".into()),
         account: 3,
     };
     let cx = reader(Some(3), ADA, false, vec![trade], Vec::new());
@@ -441,9 +442,9 @@ fn a_form_builds_its_op_or_says_why_not() {
     let added = acting::built(&form(Edit::Add, &code, "1000"), &network, 12).unwrap();
     assert_eq!(
         added,
-        registry::Op::Schedule(registry::Scheduled {
+        programs::Op::Schedule(programs::Scheduled {
             height: 1000,
-            change: Change::Set(registry::Entry {
+            change: Change::Set(programs::Entry {
                 program: "trade".into(),
                 code: BlobId::Sha256(CODE),
                 params: vec![10, 11],
@@ -452,8 +453,8 @@ fn a_form_builds_its_op_or_says_why_not() {
     );
     assert_eq!(
         acting::built(&form(Edit::Grant, "", ""), &network, 12),
-        Ok(registry::Op::Grant(Grant {
-            scope: Scope::Module("trade".into()),
+        Ok(programs::Op::Grant(Grant {
+            scope: Scope::Program("trade".into()),
             account: 7,
         }))
     );

@@ -2,8 +2,8 @@
 //! commits the agent makes, which files allows where it allows the agent's account.
 use std::collections::BTreeMap;
 
+use ::program::{BlobId, Error, ExecCtx, invalid};
 use files::{Change, Content, EntryInfo, Node, Query, Reply};
-use guest::{BlobId, Error, ExecCtx, invalid};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -27,7 +27,7 @@ fn snapshot_schema() -> Value {
 }
 
 fn ask(ctx: &ExecCtx, query: Query) -> Result<Reply, Error> {
-    ctx.query(files::MODULE, &query)
+    ctx.query(files::PROGRAM, &query)
 }
 
 fn entry(entry: &EntryInfo) -> Value {
@@ -87,7 +87,7 @@ impl Tool for List {
         };
         match ask(ctx, query)? {
             Reply::Listing { snapshot, entries } => Ok(Run::Done(listing(snapshot, &entries))),
-            other => Err(unexpected(files::MODULE, "List", &other)),
+            other => Err(unexpected(files::PROGRAM, "List", &other)),
         }
     }
 }
@@ -176,7 +176,7 @@ impl Tool for Find {
         };
         match ask(ctx, query)? {
             Reply::Listing { snapshot, entries } => Ok(Run::Done(listing(snapshot, &entries))),
-            other => Err(unexpected(files::MODULE, "Find", &other)),
+            other => Err(unexpected(files::PROGRAM, "Find", &other)),
         }
     }
 }
@@ -288,7 +288,7 @@ fn commit(
         Some(base) => Some(base),
         None => match ask(ctx, Query::Head)? {
             Reply::Head(head) => head.map(|row| row.id),
-            other => return Err(unexpected(files::MODULE, "Head", &other)),
+            other => return Err(unexpected(files::PROGRAM, "Head", &other)),
         },
     };
     let message =
@@ -299,7 +299,7 @@ fn commit(
         changes,
     };
     Ok(Run::Emit {
-        target: files::MODULE.into(),
+        target: files::PROGRAM.into(),
         payload: abi::encode(&op),
     })
 }

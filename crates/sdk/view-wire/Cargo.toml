@@ -1,6 +1,6 @@
 # The wire between the gpui host and a ducktape view running in wasm: a widget
-# tree out, meaning-level events in, requests and responses beside. The guest
-# half is here (`ducktape-view-guest` and the views under `crates/app/*-view`); the host
+# tree out, meaning-level events in, requests and responses beside. The view
+# half is here (`view` and the views under `crates/app/*-view`); the host
 # half is the app repo, which pins this crate by git rev. The format is ours,
 # and `tests/golden.rs` holds it: the bytes of what its fixtures sample, and the
 # shape of every type that crosses (`schema.txt`). A change to either trips the
@@ -13,10 +13,10 @@ edition.workspace = true
 
 [features]
 # Reads the manifest custom section out of a built view: host-only, so the
-# guests skip `wasmparser` entirely.
+# views skip `wasmparser` entirely.
 manifest = ["dep:wasmparser"]
 # Derives borsh's schema on every method type, for the golden's
-# `schema.txt`: the tests turn it on, nothing built for a guest does.
+# `schema.txt`: the tests turn it on, nothing built for a view does.
 schema = ["borsh/unstable__schema", "error/schema", "describe/schema"]
 
 [dependencies]
@@ -31,17 +31,17 @@ rmp-serde = "1"
 borsh.workspace = true
 slotmap = "1.0.6"
 uuid = "1.1.2"
-# `Error` is the one error type: the same for an error a module wrote and one
+# `Error` is the one error type: the same for an error a program wrote and one
 # the host wrote.
 error = { workspace = true, features = ["serde"] }
-# `module.describe` answers what a program says its op means.
+# `program.describe` answers what a program says its op means.
 describe = { workspace = true, features = ["serde"] }
 # `Program`: the one trait a node method is addressed to.
 program = { workspace = true }
 memchr = "2"
 unicode-segmentation = "1"
 
-# Honor the actual Serde shapes in guests without carrying unrelated parser arms.
+# Honor the actual Serde shapes in views without carrying unrelated parser arms.
 # Native hosts retain the full MessagePack deserializer.
 [target.'cfg(target_family = "wasm")'.dependencies]
 rmp-serde = { version = "1", features = ["typed"] }

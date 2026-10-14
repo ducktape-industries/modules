@@ -1,4 +1,4 @@
-//! Bounds applied before a guest refinement reaches native layout or painting.
+//! Bounds applied before a view refinement reaches native layout or painting.
 //!
 //! The rule for this file: clamp magnitudes, refuse a shape it cannot keep,
 //! and never silently delete a valid value. A number is held to a finite

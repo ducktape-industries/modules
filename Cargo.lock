@@ -28,7 +28,6 @@ dependencies = [
  "abi",
  "borsh",
  "describe",
- "guest",
  "program",
  "store",
 ]
@@ -232,7 +231,6 @@ dependencies = [
  "abi",
  "borsh",
  "describe",
- "guest",
  "program",
  "store",
 ]
@@ -451,7 +449,7 @@ dependencies = [
 [[package]]
 name = "blobs"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=9a37089fce2dda956e0e9d394123fd297ab88810#9a37089fce2dda956e0e9d394123fd297ab88810"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
 dependencies = [
  "abi",
  "sha1",
@@ -614,7 +612,6 @@ dependencies = [
  "attribution",
  "borsh",
  "describe",
- "guest",
  "program",
  "serde",
  "store",
@@ -628,11 +625,12 @@ dependencies = [
  "abi",
  "chat",
  "ducklink",
- "ducktape-view-guest",
  "futures",
+ "identity",
  "program",
  "serde",
  "serde_json",
+ "view",
 ]
 
 [[package]]
@@ -990,9 +988,9 @@ version = "0.1.0"
 dependencies = [
  "abi",
  "borsh",
- "guest",
  "identity",
- "module-registry",
+ "program",
+ "programs",
  "valset",
 ]
 
@@ -1609,33 +1607,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ducktape-view-guest"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "borsh",
- "commonware-cryptography",
- "design",
- "error",
- "futures",
- "gpui-pre",
- "guest",
- "identity",
- "keyscheme",
- "module-registry",
- "program",
- "serde",
- "serde_json",
- "sha1",
- "sha2 0.10.9",
- "store",
- "unicode-segmentation",
- "valset",
- "view-guest-derive",
- "view-wire",
-]
-
-[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1880,9 +1851,9 @@ dependencies = [
 name = "example-view"
 version = "0.1.0"
 dependencies = [
- "ducktape-view-guest",
  "identity",
  "serde",
+ "view",
 ]
 
 [[package]]
@@ -1894,13 +1865,13 @@ dependencies = [
  "borsh",
  "chat",
  "ducklink",
- "ducktape-view-guest",
  "forge",
- "guest",
  "identity",
- "module-registry",
+ "program",
+ "programs",
  "serde",
  "valset",
+ "view",
 ]
 
 [[package]]
@@ -1980,7 +1951,6 @@ dependencies = [
  "abi",
  "borsh",
  "describe",
- "guest",
  "program",
  "store",
  "unicode-normalization",
@@ -2097,7 +2067,6 @@ dependencies = [
  "chat",
  "describe",
  "gitcore",
- "guest",
  "program",
  "sha2 0.10.9",
  "store",
@@ -2112,16 +2081,16 @@ dependencies = [
  "borsh",
  "chat",
  "ducklink",
- "ducktape-view-guest",
  "forge",
  "founding",
  "futures",
  "gitcore",
- "guest",
+ "identity",
  "program",
  "pulldown-cmark",
  "serde",
  "serde_json",
+ "view",
 ]
 
 [[package]]
@@ -2590,19 +2559,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "guest"
-version = "0.1.0"
-dependencies = [
- "abi",
- "borsh",
- "error",
- "program",
- "serde",
- "sha1",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2625,7 +2581,6 @@ dependencies = [
  "describe",
  "files",
  "forge",
- "guest",
  "identity",
  "program",
  "provider",
@@ -2715,7 +2670,7 @@ dependencies = [
 [[package]]
 name = "host"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=9a37089fce2dda956e0e9d394123fd297ab88810#9a37089fce2dda956e0e9d394123fd297ab88810"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
 dependencies = [
  "abi",
  "async-trait",
@@ -2953,7 +2908,6 @@ dependencies = [
  "abi",
  "borsh",
  "describe",
- "guest",
  "program",
  "serde",
  "store",
@@ -3174,7 +3128,7 @@ dependencies = [
 [[package]]
 name = "keyscheme"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=9a37089fce2dda956e0e9d394123fd297ab88810#9a37089fce2dda956e0e9d394123fd297ab88810"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
 dependencies = [
  "base64 0.22.1",
  "borsh",
@@ -3399,12 +3353,12 @@ dependencies = [
  "activity",
  "chat",
  "ducklink",
- "ducktape-view-guest",
  "futures",
  "identity",
- "module-registry",
+ "programs",
  "serde",
  "valset",
+ "view",
 ]
 
 [[package]]
@@ -3469,35 +3423,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "module-registry"
-version = "0.1.0"
-dependencies = [
- "abi",
- "activity",
- "attribution",
- "blobs",
- "borsh",
- "chat",
- "commonware-cryptography",
- "commonware-runtime",
- "describe",
- "files",
- "forge",
- "gitcore",
- "guest",
- "harness",
- "host",
- "identity",
- "keyscheme",
- "program",
- "provider",
- "serde_json",
- "store",
- "tempfile",
- "valset",
-]
-
-[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3554,13 +3479,13 @@ name = "node-view"
 version = "0.1.0"
 dependencies = [
  "abi",
- "ducktape-view-guest",
  "futures",
  "identity",
- "module-registry",
+ "programs",
  "serde",
  "serde_json",
  "valset",
+ "view",
 ]
 
 [[package]]
@@ -4198,7 +4123,11 @@ version = "0.1.0"
 dependencies = [
  "abi",
  "borsh",
+ "error",
  "program-derive",
+ "serde",
+ "sha1",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -4208,6 +4137,34 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "programs"
+version = "0.1.0"
+dependencies = [
+ "abi",
+ "activity",
+ "attribution",
+ "blobs",
+ "borsh",
+ "chat",
+ "commonware-cryptography",
+ "commonware-runtime",
+ "describe",
+ "files",
+ "forge",
+ "gitcore",
+ "harness",
+ "host",
+ "identity",
+ "keyscheme",
+ "program",
+ "provider",
+ "serde_json",
+ "store",
+ "tempfile",
+ "valset",
 ]
 
 [[package]]
@@ -4278,7 +4235,6 @@ dependencies = [
  "abi",
  "borsh",
  "describe",
- "guest",
  "program",
  "store",
  "valset",
@@ -4760,7 +4716,7 @@ dependencies = [
 [[package]]
 name = "runtime"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=9a37089fce2dda956e0e9d394123fd297ab88810#9a37089fce2dda956e0e9d394123fd297ab88810"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
 dependencies = [
  "abi",
  "async-trait",
@@ -5035,11 +4991,11 @@ name = "settings-view"
 version = "0.1.0"
 dependencies = [
  "abi",
- "ducktape-view-guest",
  "identity",
  "serde",
  "serde_json",
  "valset",
+ "view",
 ]
 
 [[package]]
@@ -5275,7 +5231,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "state"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=9a37089fce2dda956e0e9d394123fd297ab88810#9a37089fce2dda956e0e9d394123fd297ab88810"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
 dependencies = [
  "abi",
  "borsh",
@@ -5296,7 +5252,7 @@ version = "0.1.0"
 dependencies = [
  "abi",
  "borsh",
- "guest",
+ "program",
  "serde",
 ]
 
@@ -6023,9 +5979,8 @@ dependencies = [
  "abi",
  "borsh",
  "describe",
- "guest",
- "module-registry",
  "program",
+ "programs",
  "store",
 ]
 
@@ -6042,7 +5997,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "view-guest-derive"
+name = "view"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "borsh",
+ "commonware-cryptography",
+ "design",
+ "error",
+ "futures",
+ "gpui-pre",
+ "identity",
+ "keyscheme",
+ "program",
+ "programs",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "store",
+ "unicode-segmentation",
+ "valset",
+ "view-derive",
+ "view-wire",
+]
+
+[[package]]
+name = "view-derive"
 version = "0.1.0"
 dependencies = [
  "quote",

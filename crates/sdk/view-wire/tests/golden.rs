@@ -187,13 +187,21 @@ fn frame_and_events_are_the_committed_bytes() {
     );
 }
 
-/// The program a golden `module.query`/`op.submit`/`module.changes` addresses.
+/// The program a golden `program.query`/`op.submit`/`program.changes` addresses.
 struct Golden;
 impl Program for Golden {
     const NAME: &'static str = "golden";
     type Op = String;
     type Query = (u64, String);
     type Reply = Vec<u32>;
+
+    fn execute(_: &program::ExecCtx, _: Self::Op) -> Result<(), program::Error> {
+        unreachable!()
+    }
+
+    fn query(_: &program::QueryCtx, _: Self::Query) -> Result<Self::Reply, program::Error> {
+        unreachable!()
+    }
 }
 
 /// The kind, the request bytes and the reply bytes of one exchange.
@@ -416,7 +424,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 id: [4; 32],
             },
         ),
-        exchange::<ModuleDescribe>(
+        exchange::<ProgramDescribe>(
             ("chat".into(), vec![1, 2]),
             Some(Description {
                 title: "Post in #design".into(),
@@ -426,7 +434,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 }],
             }),
         ),
-        exchange::<ModuleDescribe>(
+        exchange::<ProgramDescribe>(
             ("chat".into(), vec![1, 2]),
             Some(Description {
                 title: "Post in #design".into(),
@@ -445,7 +453,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                     },
                     Field {
                         label: "program".into(),
-                        value: Value::Module("chat".into()),
+                        value: Value::Program("chat".into()),
                     },
                     Field {
                         label: "commit".into(),
@@ -465,7 +473,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 ],
             }),
         ),
-        exchange::<ModuleDescribe>(("chat".into(), vec![3]), None),
+        exchange::<ProgramDescribe>(("chat".into(), vec![3]), None),
     ]
 }
 

@@ -1,7 +1,7 @@
 //! The README tab: the root README rendered whole, the repository's front
 //! page. The Code tab is where the tree lives.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use view::prelude::*;
+use view::{Div, Stateful};
 
 use crate::Forge;
 use crate::ui::code::{links, no_commits};

@@ -1,14 +1,14 @@
 //! Tools over `chat`: channels, messages, threads and search read as the agent reads them,
 //! and posts and reactions the agent makes, which chat allows where it allows the agent.
+use ::program::{Error, ExecCtx, Principal};
 use chat::{ChannelInfo, MsgRow, Query, Reply};
-use guest::{Error, ExecCtx, Principal};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Run, Seat, Tool, cursor_schema, next, object, page, principal, unexpected};
 
 fn ask(ctx: &ExecCtx, query: Query) -> Result<Reply, Error> {
-    ctx.query(chat::MODULE, &query)
+    ctx.query(chat::PROGRAM, &query)
 }
 
 fn agent(seat: &Seat) -> Principal {
@@ -82,7 +82,7 @@ impl Tool for Channels {
                 "channels": rows.items.iter().map(channel).collect::<Vec<_>>(),
                 "next": next(&rows.next),
             }))),
-            other => Err(unexpected(chat::MODULE, "Channels", &other)),
+            other => Err(unexpected(chat::PROGRAM, "Channels", &other)),
         }
     }
 }
@@ -115,7 +115,7 @@ impl Tool for Messages {
         };
         match ask(ctx, asked)? {
             Reply::Roots(rows) => Ok(Run::Done(messages(&rows))),
-            other => Err(unexpected(chat::MODULE, "Roots", &other)),
+            other => Err(unexpected(chat::PROGRAM, "Roots", &other)),
         }
     }
 }
@@ -158,7 +158,7 @@ impl Tool for Thread {
                 "replies": replies.items.iter().map(message).collect::<Vec<_>>(),
                 "next": next(&replies.next),
             }))),
-            other => Err(unexpected(chat::MODULE, "Thread", &other)),
+            other => Err(unexpected(chat::PROGRAM, "Thread", &other)),
         }
     }
 }
@@ -201,7 +201,7 @@ impl Tool for Search {
                 "messages": hits.hits.iter().map(message).collect::<Vec<_>>(),
                 "capped": hits.capped,
             }))),
-            other => Err(unexpected(chat::MODULE, "Search", &other)),
+            other => Err(unexpected(chat::PROGRAM, "Search", &other)),
         }
     }
 }
@@ -240,7 +240,7 @@ impl Tool for Post {
             thread: args.reply_to,
         };
         Ok(Run::Emit {
-            target: chat::MODULE.into(),
+            target: chat::PROGRAM.into(),
             payload: abi::encode(&op),
         })
     }
@@ -279,7 +279,7 @@ impl Tool for React {
             emoji: args.emoji,
         };
         Ok(Run::Emit {
-            target: chat::MODULE.into(),
+            target: chat::PROGRAM.into(),
             payload: abi::encode(&op),
         })
     }

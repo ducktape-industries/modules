@@ -1,7 +1,7 @@
 //! Every read: the agents hired, a thread, an agent's threads newest first, a transcript in
 //! order, the input held while the model answers, a thread's tool calls, and the tool catalog.
+use ::program::{Error, QueryCtx, corrupt};
 use abi::role::identity::AccountNumber;
-use guest::{Error, QueryCtx, corrupt};
 use store::{PageRequest, PageResponse};
 
 use crate::state::{AGENTS, BY_AGENT, CALLS, FRAMES, HELD, THREADS};

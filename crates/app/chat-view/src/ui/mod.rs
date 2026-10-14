@@ -1,4 +1,4 @@
-//! Native GPUI composition for Chat. State and module operations stay in the
+//! Native GPUI composition for Chat. State and program operations stay in the
 //! root view; this module only builds the element tree and installs listeners.
 
 pub mod dialogs;
@@ -9,8 +9,8 @@ pub mod side;
 pub mod sidebar;
 pub(crate) mod timeline;
 
-pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, quiet};
-use ducktape_view_guest::prelude::*;
+pub(crate) use view::design::{badge, button, empty_state, quiet};
+use view::prelude::*;
 
 use crate::Chat;
 

@@ -1,12 +1,12 @@
-//! The tools a thread's model may call, each over one module of the network: its schema,
+//! The tools a thread's model may call, each over one program of the network: its schema,
 //! the check a call's input passes when the model makes it, and the run in a later block.
 mod chat;
 mod files;
 mod forge;
 mod network;
 
+use ::program::{BlobId, Error, ExecCtx, Principal, ProgramId, invalid, unexpected_reply};
 use abi::role::identity::AccountNumber;
-use guest::{BlobId, Error, ExecCtx, ModuleId, Principal, invalid, unexpected_reply};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use store::PageRequest;
@@ -23,7 +23,7 @@ pub(crate) struct Seat<'a> {
 
 pub(crate) enum Run {
     Done(Value),
-    Emit { target: ModuleId, payload: Vec<u8> },
+    Emit { target: ProgramId, payload: Vec<u8> },
 }
 
 pub(crate) trait Tool {
@@ -160,6 +160,6 @@ pub(crate) fn blob(id: &BlobId) -> Value {
     json!(abi::hex(id.digest()))
 }
 
-pub(crate) fn unexpected(module: &str, asked: &str, reply: &impl std::fmt::Debug) -> Error {
-    unexpected_reply(module, asked, reply)
+pub(crate) fn unexpected(program: &str, asked: &str, reply: &impl std::fmt::Debug) -> Error {
+    unexpected_reply(program, asked, reply)
 }

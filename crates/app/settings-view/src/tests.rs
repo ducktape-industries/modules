@@ -1,10 +1,10 @@
 use crate::Settings;
-use ducktape_view_guest::methods::{Change, Changes, ClipboardWrite, Query};
-use ducktape_view_guest::methods::{HostSession, Invite, InviteCreate, Session, Submit};
-use ducktape_view_guest::testing::{StreamSender, TestAppContext};
-use ducktape_view_guest::{Theme, wire};
 use identity::Identity;
 use valset::Valset;
+use view::methods::{Change, Changes, ClipboardWrite, Query};
+use view::methods::{HostSession, Invite, InviteCreate, Session, Submit};
+use view::testing::{StreamSender, TestAppContext};
+use view::{Theme, wire};
 
 fn account(number: u64, name: &str, control: identity::Control) -> identity::Account {
     identity::Account {
@@ -144,7 +144,7 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
                 assert_eq!(request.ttl_days, 7);
                 Ok(Invite {
                     invite: "duck-invite:workshop-loopback-example".into(),
-                    notes: vec![ducktape_view_guest::host::Error {
+                    notes: vec![view::host::Error {
                         code: "expires".into(),
                         message: "This invite expires in 7 days.".into(),
                     }],
@@ -203,11 +203,11 @@ fn the_menu_opens_one_pane_at_a_time() {
 fn an_arrow_on_the_menu_opens_the_next_section() {
     let mut cx = fixture("ready", false);
     let nav = cx.interactivity("settings/nav");
-    assert_eq!(nav.role, Some(ducktape_view_guest::Role::TabList));
+    assert_eq!(nav.role, Some(view::Role::TabList));
     assert_eq!(nav.aria.label.as_deref(), Some("Settings"));
     assert_eq!(
         nav.aria.orientation,
-        Some(ducktape_view_guest::design::Orientation::Vertical)
+        Some(view::design::Orientation::Vertical)
     );
     assert!(nav.focusable && nav.tab_stop == Some(true));
     assert!(!cx.interactivity("settings/nav/account").focusable);
@@ -263,14 +263,14 @@ fn invite_ttl_copy_and_refusal() {
 fn the_invite_lifetime_checks_the_next_choice_on_an_arrow() {
     let mut cx = fixture("invite-ready", false);
     let group = cx.interactivity("settings/ttl");
-    assert_eq!(group.role, Some(ducktape_view_guest::Role::RadioGroup));
+    assert_eq!(group.role, Some(view::Role::RadioGroup));
     assert!(group.focusable && group.tab_stop == Some(true));
     assert!(!cx.interactivity("settings/ttl/1").focusable);
     let checked = |cx: &TestAppContext| {
         [1, 7, 30].map(|days| {
             let segment = cx.interactivity(&format!("settings/ttl/{days}"));
             (
-                segment.aria.toggled == Some(ducktape_view_guest::Toggled::True),
+                segment.aria.toggled == Some(view::Toggled::True),
                 segment.aria.active_descendant,
             )
         })
@@ -772,7 +772,7 @@ fn answering(audience: identity::Audience) -> (TestAppContext, Answers) {
         person(9, "Eve"),
         person(10, "Sam"),
         person(11, "sam"),
-        profile(3, "Bob", identity::Kind::Module("bob".into())),
+        profile(3, "Bob", identity::Kind::Program("bob".into())),
     ];
     cx.host().handle::<Query<Identity>>(move |q| {
         Ok(match q {
@@ -841,7 +841,7 @@ fn picked(cx: &TestAppContext) -> Vec<&'static str> {
         .into_iter()
         .filter(|choice| {
             let segment = cx.interactivity(&format!("settings/agents/12/answers/{choice}"));
-            segment.aria.toggled == Some(ducktape_view_guest::Toggled::True)
+            segment.aria.toggled == Some(view::Toggled::True)
         })
         .collect()
 }
@@ -920,7 +920,7 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
     assert_eq!(
         *answers.borrow(),
         identity::Audience::Accounts(vec![8]),
-        "a module named Bob is not a person"
+        "a program named Bob is not a person"
     );
     assert!(cx.has_text("account 8"), "{:?}", cx.texts());
 

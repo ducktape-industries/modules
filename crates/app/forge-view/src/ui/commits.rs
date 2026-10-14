@@ -1,8 +1,8 @@
 //! Commits: a virtualized log of the picked ref, read a page at a time as
 //! it is scrolled, and one commit's own diff against its first parent.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Paged, Stateful};
 use std::rc::Rc;
+use view::prelude::*;
+use view::{Div, Paged, Stateful};
 
 use crate::Forge;
 use crate::queries::PAGE;

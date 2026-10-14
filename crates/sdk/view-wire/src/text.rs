@@ -1,8 +1,8 @@
-//! One text model. The host's editing engine owns a field's text; the guest
+//! One text model. The host's editing engine owns a field's text; the view
 //! holds a copy that follows every [`TextChange`] and asks for edits with
 //! [`WidgetCommand::Replace`](crate::WidgetCommand::Replace) against the
 //! `revision` it has seen. The host rebases a stale ask over what was typed
-//! since, so no key waits on the guest and nothing typed is lost.
+//! since, so no key waits on the view and nothing typed is lost.
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
@@ -108,18 +108,18 @@ impl Edit {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rebased {
     /// The span of the text as it stands that the replacement covers: from
-    /// the first byte the guest read that still stands to the last.
+    /// the first byte the view read that still stands to the last.
     pub range: TextRange,
-    /// The bytes inside `range` typed since the guest read, in order: not
-    /// the guest's to replace, they stay, after its text.
+    /// The bytes inside `range` typed since the view read, in order: not
+    /// the view's to replace, they stay, after its text.
     pub kept: Vec<TextRange>,
-    /// Where the cursor the guest gave, in the text after its own edit,
+    /// Where the cursor the view gave, in the text after its own edit,
     /// stands once the replacement has landed.
     pub cursor: TextRange,
 }
 
 impl Rebased {
-    /// What goes in place of `range`: the guest's `text`, then what was
+    /// What goes in place of `range`: the view's `text`, then what was
     /// typed into the span since, as it reads in `current`.
     pub fn replacement(&self, current: &str, text: &str) -> String {
         let mut replacement = text.to_owned();
@@ -132,8 +132,8 @@ impl Rebased {
 
 /// A `Replace` read at an older text, carried over the `edits` made since,
 /// oldest first: the ask replaces only the bytes that existed when the
-/// guest read, so a letter typed into the span since stays. The cursor is
-/// the one the guest gave in the text after the replace's own edit of
+/// view read, so a letter typed into the span since stays. The cursor is
+/// the one the view gave in the text after the replace's own edit of
 /// `len` bytes.
 pub fn rebase(
     range: TextRange,
@@ -154,7 +154,7 @@ pub fn rebase(
             .into_iter()
             .fold(offset, |at, edit| edit.map_after(at))
     };
-    // the bytes the guest read that still stand, as pieces of the text now
+    // the bytes the view read that still stand, as pieces of the text now
     let mut pieces = if range.is_empty() {
         Vec::new()
     } else {
@@ -216,14 +216,14 @@ pub fn rebase(
 }
 
 /// An atomic span of a field's text (a mention): the engine moves over,
-/// selects and deletes it whole. `id` is what the span means to the guest.
+/// selects and deletes it whole. `id` is what the span means to the view.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextToken {
     pub range: TextRange,
     pub id: String,
 }
 
-/// A key the guest hears (`on_key`) instead of the engine, matched after
+/// A key the view hears (`on_key`) instead of the engine, matched after
 /// IME processing against the key's state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyClaim {
@@ -246,7 +246,7 @@ impl KeyClaim {
         self.key == key.key && modifiers == key.modifiers
     }
 
-    /// The engine's own keys, which no guest claims: Backspace, Delete, Tab
+    /// The engine's own keys, which no view claims: Backspace, Delete, Tab
     /// and the undo and redo chords, under the command key or either
     /// modifier it stands for. Editing and history are the engine's.
     pub fn engine_owned(&self) -> bool {
@@ -263,14 +263,14 @@ impl KeyClaim {
 }
 
 /// The host's word on a field's text: the whole text as the engine holds it
-/// at `revision`, the guest's `generation` that text is a document of, the
+/// at `revision`, the view's `generation` that text is a document of, the
 /// edit that made that revision from the text before it, its cursor, the
 /// span an IME is still composing in, and the atomic spans where they now
-/// lie. The edit is told, not left for the guest to diff out: two texts
+/// lie. The edit is told, not left for the view to diff out: two texts
 /// cannot say which of two equal bytes went. It is `None` when only the
 /// cursor or the preedit moved, and when the change is the adopt of
 /// `generation`: a new document in the field, not an edit of the old one,
-/// so nothing the guest holds in the new document's bytes moves with it.
+/// so nothing the view holds in the new document's bytes moves with it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextChange {
     pub generation: u64,
@@ -307,7 +307,7 @@ pub(crate) fn decode_claim_slice<'de, D: serde::Deserializer<'de>>(
     decode_claims(d).map(Vec::into_boxed_slice)
 }
 
-/// What is wrong with a field as the guest sent it, if anything: text over
+/// What is wrong with a field as the view sent it, if anything: text over
 /// the cap, a cursor or token off the text's character boundaries, tokens
 /// out of order or overlapping, a claim on a key the engine owns.
 pub fn validate_field(
@@ -411,7 +411,7 @@ mod tests {
     }
 
     /// The asks a composer makes, each rebased over what the engine did
-    /// since the guest read the text: the ask takes only the bytes the guest
+    /// since the view read the text: the ask takes only the bytes the view
     /// read, what was typed into or at the end of them since stays, and the
     /// caret lands after it.
     #[test]
@@ -453,7 +453,7 @@ mod tests {
         // "ll" typed over as "L": "he" and "o" are the clear's, "L" stays
         assert_eq!(at(0..5, 0, 0, &[edit(2..4, 1)]), (0..4, vec![(2, 3)], 1..1));
         // a mention over "@na" (4..7) became "@Label" (6 bytes); the space
-        // the guest asked for at 7, cursor 8, lands after the label
+        // the view asked for at 7, cursor 8, lands after the label
         assert_eq!(at(7..7, 1, 8, &[edit(4..7, 6)]), (10..10, vec![], 11..11));
         // "z" typed right after "@na" before the label landed: the label
         // takes "@na" only, the caret lands after "z"; the space then goes in

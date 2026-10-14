@@ -1,11 +1,11 @@
 //! The repository answers [`Forge::query`](crate::Forge) names, and git's
 //! own bytes for a git client.
 
+use ::program::Error;
+use ::program::{QueryCtx, capacity, invalid, stale};
 use gitcore::wire::receive::advertise_refs;
 use gitcore::wire::smart_http_service_header;
 use gitcore::wire::upload::{Command, capability_advertisement, ls_refs_response, parse_command};
-use guest::Error;
-use guest::{QueryCtx, capacity, invalid, stale};
 use store::Listing;
 
 use gitcore::walk::{Closed, closure as close};

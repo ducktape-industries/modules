@@ -1,7 +1,7 @@
 //! Message cards and their native GPUI actions.
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{FontStyle, FontWeight, HighlightStyle, UnderlineStyle};
+use view::prelude::*;
+use view::{FontStyle, FontWeight, HighlightStyle, UnderlineStyle};
 
 use crate::message::{ChatMessage, SpanStyle};
 use crate::ui::badge;
@@ -79,7 +79,7 @@ pub fn card(
         .id(format!("chat-message-{id}"))
         .absolute()
         .inset_0()
-        .role(ducktape_view_guest::Role::GridCell)
+        .role(view::Role::GridCell)
         .aria_label(format!("{}: {}", message.author, message.body))
         .when(cells.active == Some(0), |cell| {
             cell.aria_active_descendant()
@@ -125,7 +125,7 @@ pub fn card(
         .pt(gap(&message))
         .on_hover(row_hover)
         // a row of the pane's grid; it never claims
-        .role(ducktape_view_guest::Role::Row)
+        .role(view::Role::Row)
         .aria_label(format!(
             "Select message, shows its actions: {}: {}",
             message.author, message.body
@@ -157,7 +157,7 @@ fn acts(
     rev: u32,
     control: Control,
     cx: &mut Context<Chat>,
-) -> impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static {
+) -> impl Fn(&ClickEvent, &mut Window, &mut view::App) + 'static {
     cx.listener(move |chat, event: &ClickEvent, window, cx| {
         let position = event.position();
         chat.layout.press = (position.x.into(), position.y.into());
@@ -173,7 +173,7 @@ fn press(
     pane: Pane,
     seq: u64,
     cx: &mut Context<Chat>,
-) -> impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static {
+) -> impl Fn(&ClickEvent, &mut Window, &mut view::App) + 'static {
     cx.listener(move |chat, event: &ClickEvent, _window, cx| {
         let position = event.position();
         let at = (position.x.into(), position.y.into());
@@ -191,7 +191,7 @@ fn hovers(
     key: (Pane, u64),
     strip: bool,
     cx: &mut Context<Chat>,
-) -> impl Fn(&bool, &mut Window, &mut ducktape_view_guest::App) + 'static {
+) -> impl Fn(&bool, &mut Window, &mut view::App) + 'static {
     let at = Some(crate::state::Hovered { key, strip });
     cx.listener(move |chat, over: &bool, _window, cx| {
         if *over && chat.hovered != at {
@@ -210,7 +210,7 @@ fn hovers(
 fn cell(control_id: &str, enabled: bool, control: impl IntoElement) -> AnyElement {
     div()
         .id(format!("{control_id}-cell"))
-        .role(ducktape_view_guest::Role::GridCell)
+        .role(view::Role::GridCell)
         .when(!enabled, |cell| cell.aria_disabled(true))
         .child(control)
         .into_any_element()
@@ -250,7 +250,7 @@ fn avatar(
         } else {
             theme.muted
         })
-        .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+        .font_weight(view::FontWeight::SEMIBOLD)
         .text_size(design::text::CAPTION)
         .child(message.initial.clone());
     let Principal::Account(account) = message.from else {
@@ -264,11 +264,7 @@ fn avatar(
         .aria_label(format!("Open {}’s profile", message.author))
         .on_click(open)
         .consumes_click();
-    cell(
-        &id,
-        true,
-        design::item(face, ducktape_view_guest::Role::Link, active),
-    )
+    cell(&id, true, design::item(face, view::Role::Link, active))
 }
 
 /// The strip over a row the pointer is on (or a chosen one): thread,
@@ -482,7 +478,7 @@ fn replies(
 }
 
 /// A run's first message names its author, what the author is (an agent
-/// and its manager, a module), when it was posted and its block.
+/// and its manager, a program), when it was posted and its block.
 fn header(message: &ChatMessage, cells: &mut Cells, theme: &Theme) -> AnyElement {
     let mut header = div()
         .id(format!("chat-message-{}-header", message.id))
@@ -492,7 +488,7 @@ fn header(message: &ChatMessage, cells: &mut Cells, theme: &Theme) -> AnyElement
         .child(
             div()
                 .text_size(design::text::BODY)
-                .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+                .font_weight(view::FontWeight::MEDIUM)
                 .child(message.author.clone()),
         );
     if let Some(label) = &message.badge {
@@ -533,7 +529,7 @@ fn header(message: &ChatMessage, cells: &mut Cells, theme: &Theme) -> AnyElement
         header = header.child(cell(
             &id,
             true,
-            design::item(link, ducktape_view_guest::Role::Link, active),
+            design::item(link, view::Role::Link, active),
         ));
     }
     header.into_any_element()
@@ -581,7 +577,7 @@ fn program_post(
         line = line.child(cell(
             &id,
             true,
-            design::item(open, ducktape_view_guest::Role::Link, active),
+            design::item(open, view::Role::Link, active),
         ));
     }
     line.into_any_element()

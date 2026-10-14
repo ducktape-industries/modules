@@ -5,9 +5,9 @@
 //! Words: the host is the app that runs the view. A program is the code on
 //! the node the view talks to, here identity. The reader is whoever looks
 //! at the view. A refusal is an `Error` in place of an answer.
-use ducktape_view_guest::prelude::*;
 use identity::{Identity, Kind, PageRequest};
 use serde::{Deserialize, Serialize};
+use view::prelude::*;
 
 // The state. The host saves it with serde before a redeploy and hands it to
 // the new build, so what is here survives one.
@@ -35,7 +35,7 @@ struct Agent {
     number: u64,
     name: String,
     // A type of the program that derives borsh only, saved as its bytes.
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    #[serde(with = "view::borsh_bytes")]
     kind: Kind,
 }
 
@@ -45,10 +45,10 @@ impl View for Agents {
     const NAME: &'static str = "Agents";
     const DESCRIPTION: &'static str = "The agents your account manages.";
     // One per prefix of the methods' kinds: `host.session` and `host.log`,
-    // `module.query` and `module.changes`, `op.submit`.
+    // `program.query` and `program.changes`, `op.submit`.
     const CAPABILITIES: &'static [Capability] =
-        &[Capability::Host, Capability::Module, Capability::Op];
-    const TARGETS: &'static [&'static str] = &[identity::MODULE];
+        &[Capability::Host, Capability::Program, Capability::Op];
+    const TARGETS: &'static [&'static str] = &[identity::PROGRAM];
     // The app never lays the view out narrower than this, in px. Unset, 480.
     const MIN_WINDOW_WIDTH: u32 = 320;
 
@@ -246,7 +246,7 @@ export_view!(Agents);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ducktape_view_guest::testing::TestAppContext;
+    use view::testing::TestAppContext;
 
     /// Scout, an agent account 7 manages.
     fn scout() -> identity::Account {

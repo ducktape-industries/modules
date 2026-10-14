@@ -2,7 +2,7 @@
 //! with the name directory into author lines, bodies and styled runs, and
 //! grouped into runs the way Slack groups them.
 use chat::{Block, Mark, MsgRow, Principal, Reaction, Span};
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::names::mention_token;
 use chat::view::Names;
@@ -36,7 +36,7 @@ pub struct ChatMessage {
     /// the author is an agent: its face wears the agent tint
     pub agent: bool,
     /// what the author is beside a person, by its name: "Agent · managed
-    /// by Dev", "Module · forge" ([`Names::badge`])
+    /// by Dev", "Program · forge" ([`Names::badge`])
     pub badge: Option<String>,
     pub height: u64,
     /// block time in milliseconds; 0 for a pending row
@@ -63,13 +63,13 @@ pub enum SpanStyle {
     Italic,
     BoldItalic,
     Link(String),
-    /// the account the mention names, in decimal ("" for a module)
+    /// the account the mention names, in decimal ("" for a program)
     Mention(String),
     Code,
 }
 
 pub fn chat_message(row: MsgRow, names: &Names) -> ChatMessage {
-    let system = chat::program_post(&row, names.module(&row.author))
+    let system = chat::program_post(&row, names.program(&row.author))
         .map(|(program, code)| (program.into(), code.into()));
     let edited = row.rev > 0;
     let (body, edit_body, blocks) = if row.deleted {

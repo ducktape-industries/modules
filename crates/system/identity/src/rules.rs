@@ -1,7 +1,7 @@
 // The rules: who acts as an account, then the ops and queries.
 
-use guest::{
-    Error, ExecCtx, ModuleId, Origin, QueryCtx, Scheme, already_exists, capacity, invalid,
+use ::program::{
+    Error, ExecCtx, Origin, ProgramId, QueryCtx, Scheme, already_exists, capacity, invalid,
     not_found, unauthorized, wrong_state,
 };
 use store::{Item, Map, PAGE_BYTES, PageRequest, Set, within};
@@ -14,7 +14,7 @@ use crate::{
 
 pub(crate) const ACCOUNTS: Map<AccountNumber, Account> = Map::new("a/");
 pub(crate) const OF_KEY: Map<Vec<u8>, AccountNumber> = Map::new("k/");
-pub(crate) const OF_MODULE: Map<ModuleId, AccountNumber> = Map::new("m/");
+pub(crate) const OF_PROGRAM: Map<ProgramId, AccountNumber> = Map::new("m/");
 const GENERATION: Map<Vec<u8>, u64> = Map::new("g/");
 /// `(manager, managed)`: the agents an account manages, revoked ones too,
 /// so a manager's list keeps what they answered for.
@@ -29,7 +29,7 @@ pub(crate) fn account(ctx: &QueryCtx, number: AccountNumber) -> Result<Account, 
 }
 
 /// The account a frame signed by `key` acts as: refused while it does not
-/// act, so the host rejects the frame. A person and a module always act;
+/// act, so the host rejects the frame. A person and a program always act;
 /// an agent while its manager keeps it active (a revoked one holds no key
 /// to be asked about).
 pub(crate) fn of_key(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Option<AccountNumber>, Error> {
@@ -38,7 +38,7 @@ pub(crate) fn of_key(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Option<AccountNumb
     };
     match account(ctx, number)?.control {
         Control::Person { .. }
-        | Control::Module { .. }
+        | Control::Program { .. }
         | Control::Managed {
             life: Life::Active { .. },
             ..
@@ -148,26 +148,26 @@ fn save(ctx: &ExecCtx, mut account: Account) {
     ACCOUNTS.put(ctx, &account.number, &account);
 }
 
-/// The kernel, admitting `module`, gives it its account, named after it.
-/// A module that has one keeps it.
-pub(crate) fn register_module(ctx: &ExecCtx, module: ModuleId) -> Result<(), Error> {
+/// The kernel, admitting `program`, gives it its account, named after it.
+/// A program that has one keeps it.
+pub(crate) fn register_program(ctx: &ExecCtx, program: ProgramId) -> Result<(), Error> {
     if ctx.env().origin != Origin::Root {
-        return Err(unauthorized("only the system registers a module"));
+        return Err(unauthorized("only the system registers a program"));
     }
-    if OF_MODULE.has(ctx, &module) {
+    if OF_PROGRAM.has(ctx, &program) {
         return Ok(());
     }
-    let card = card(ctx, trimmed(module.clone())?);
+    let card = card(ctx, trimmed(program.clone())?);
     let number = next_number(ctx)?;
     let account = Account {
         number,
         card,
-        control: Control::Module {
-            module: module.clone(),
+        control: Control::Program {
+            program: program.clone(),
         },
     };
     ACCOUNTS.put(ctx, &number, &account);
-    OF_MODULE.put(ctx, &module, &number);
+    OF_PROGRAM.put(ctx, &program, &number);
     Ok(())
 }
 
@@ -209,8 +209,8 @@ fn person(ctx: &ExecCtx, number: AccountNumber) -> Result<Account, Error> {
     let account = account(ctx, number)?;
     match account.control {
         Control::Person { .. } => Ok(account),
-        Control::Managed { .. } | Control::Module { .. } => Err(unauthorized(format!(
-            "account {number} is not a person's: an agent or a module manages no one"
+        Control::Managed { .. } | Control::Program { .. } => Err(unauthorized(format!(
+            "account {number} is not a person's: an agent or a program manages no one"
         ))),
     }
 }
@@ -258,7 +258,7 @@ fn not_an_agent(number: AccountNumber) -> Error {
 /// A person's new key signs the frame and a key already on their account
 /// consents; an agent's manager signs the frame and the new key consents to
 /// itself. Either way the consent proves a key agreed to the admission. A
-/// module's account holds no keys; a revoked agent takes none.
+/// program's account holds no keys; a revoked agent takes none.
 pub(crate) fn add_key(
     ctx: &ExecCtx,
     scheme: Scheme,
@@ -292,8 +292,8 @@ pub(crate) fn add_key(
             managing(ctx, *manager, consent.account)?;
             return Err(revoked(consent.account));
         }
-        Control::Module { .. } => {
-            return Err(wrong_state("a module's account holds no keys"));
+        Control::Program { .. } => {
+            return Err(wrong_state("a program's account holds no keys"));
         }
     };
     if env.time > consent.expires_at {
@@ -377,8 +377,8 @@ pub(crate) fn remove_key(ctx: &ExecCtx, number: AccountNumber, key: &Vec<u8>) ->
             managing(ctx, *manager, number)?;
             return Err(revoked(number));
         }
-        Control::Module { .. } => {
-            return Err(wrong_state("a module's account holds no keys"));
+        Control::Program { .. } => {
+            return Err(wrong_state("a program's account holds no keys"));
         }
     };
     keys.retain(|held| &held.key != key);
@@ -387,13 +387,13 @@ pub(crate) fn remove_key(ctx: &ExecCtx, number: AccountNumber, key: &Vec<u8>) ->
     Ok(())
 }
 
-/// The account whose card the frame may edit: a person's or a module's
+/// The account whose card the frame may edit: a person's or a program's
 /// own, an agent's by its manager alone.
 fn editable(ctx: &ExecCtx, number: AccountNumber) -> Result<Account, Error> {
     let account = account(ctx, number)?;
     let acting = acting(ctx)?;
     let editor = match &account.control {
-        Control::Person { .. } | Control::Module { .. } => number,
+        Control::Person { .. } | Control::Program { .. } => number,
         Control::Managed {
             life: Life::Revoked,
             ..
@@ -486,7 +486,7 @@ pub(crate) fn revoke(ctx: &ExecCtx, number: AccountNumber) -> Result<(), Error> 
 pub(crate) fn set_runner(
     ctx: &ExecCtx,
     number: AccountNumber,
-    runner: Option<ModuleId>,
+    runner: Option<ProgramId>,
 ) -> Result<(), Error> {
     let mut account = account(ctx, number)?;
     let Control::Managed {
@@ -502,10 +502,10 @@ pub(crate) fn set_runner(
     if *life == Life::Revoked {
         return Err(revoked(number));
     }
-    if let Some(module) = &runner
-        && !OF_MODULE.has(ctx, module)
+    if let Some(program) = &runner
+        && !OF_PROGRAM.has(ctx, program)
     {
-        return Err(not_found(format!("module {module} has no account")));
+        return Err(not_found(format!("program {program} has no account")));
     }
     *current = runner;
     save(ctx, account);
@@ -514,7 +514,7 @@ pub(crate) fn set_runner(
 
 pub(crate) fn runs(
     ctx: &QueryCtx,
-    program: &ModuleId,
+    program: &ProgramId,
     number: AccountNumber,
 ) -> Result<Option<AccountNumber>, Error> {
     let not_run = || unauthorized(format!("{program} does not run account {number}"));

@@ -1,17 +1,17 @@
 //! The repeated shapes of this view; the ones every view shares (button,
-//! empty state, heading, quiet line) come from `ducktape_view_guest::design`.
+//! empty state, heading, quiet line) come from `view::design`.
 use std::ops::Range;
 use std::rc::Rc;
 
 use crate::Forge;
 use crate::state::Menu;
-pub(crate) use ducktape_view_guest::design::{badge, button, empty_state, heading, short_hex};
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::wire::{
+pub(crate) use view::design::{badge, button, empty_state, heading, short_hex};
+use view::prelude::*;
+use view::wire::{
     self,
     keyboard::{Key, Named},
 };
-use ducktape_view_guest::{AnchoredPositionMode, Div, Edges, Point, Stateful, accesskit};
+use view::{AnchoredPositionMode, Div, Edges, Point, Stateful, accesskit};
 
 /// The smallest box a pointer presses, each way (the door's AX-017).
 pub(crate) const PRESS_TARGET: Pixels = px(24.);
@@ -412,7 +412,7 @@ const WHOLE_UP_TO: usize = 24;
 /// `element`, which shows `name` in a column that may cut it short, says
 /// it whole on hover; a name short enough to be shown whole says nothing
 /// more.
-// ponytail: counts characters, not the drawn width (the guest does not
+// ponytail: counts characters, not the drawn width (the view does not
 // measure text); a name of wide glyphs, or a menu squeezed by a window
 // under ~340 px, can be cut below the count with no tip. The host knows
 // when it cut a text: a tip it shows only then would replace the count.
@@ -763,7 +763,7 @@ pub(crate) fn tab(
         .px_0()
         .gap(design::space::XS)
         .text_size(design::text::BODY)
-        .font_weight(ducktape_view_guest::FontWeight::NORMAL)
+        .font_weight(view::FontWeight::NORMAL)
         // the arrows' tab, not yet open: a quiet fill says where they are
         .when(active && !selected, |tab| tab.bg(theme.surface_raised))
         .children(count.map(|count| {

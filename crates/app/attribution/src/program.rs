@@ -1,20 +1,18 @@
-//! The module: every op and every query, each handed to its rule. A subscriber that
+//! The program: every op and every query, each handed to its rule. A subscriber that
 //! refuses a change is absorbed, so no subscriber fails the write that reported it.
-use guest::{Error, ExecCtx, MessageId, Module, Outcome, Program, QueryCtx};
+use ::program::{Error, ExecCtx, MessageId, Outcome, Program, QueryCtx};
 
 use crate::rules::{attribute, changes, changes_of, changes_to, relations, subscribe, subscribers};
-use crate::{MODULE, Op, Query, Reply};
+use crate::{Op, PROGRAM, Query, Reply};
 
 pub struct Attribution;
 
 impl Program for Attribution {
-    const NAME: &'static str = MODULE;
+    const NAME: &'static str = PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Attribution {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         match op {
             Op::Attribute(update) => attribute(ctx, vec![update]),
@@ -42,5 +40,5 @@ impl Module for Attribution {
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Attribution);
+#[cfg(feature = "program")]
+::program::export!(Attribution);

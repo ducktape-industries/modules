@@ -1,4 +1,4 @@
-//! Typed storage over `guest`'s contexts, optional: `const` [`Map`]/[`Set`]/
+//! Typed storage over `program`'s contexts, optional: `const` [`Map`]/[`Set`]/
 //! [`Item`] descriptors whose keys encode through [`KeyCodec`] and whose
 //! methods take the context (`CHANNELS.get(ctx, &id)`, `CHANNELS.put(ctx,
 //! &id, &row)`), and the bounded, resumable [`PageRequest`]/[`PageResponse`]. A read

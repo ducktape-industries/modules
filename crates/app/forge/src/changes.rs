@@ -3,8 +3,8 @@
 
 use std::collections::BTreeSet;
 
-use guest::Env;
-use guest::{Error, ExecCtx, QueryCtx, capacity, invalid, stale, unauthorized, wrong_state};
+use ::program::Env;
+use ::program::{Error, ExecCtx, QueryCtx, capacity, invalid, stale, unauthorized, wrong_state};
 
 use crate::contract::*;
 use crate::discussion::{self, Event};

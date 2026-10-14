@@ -1,7 +1,9 @@
 //! One function per [`Op`](crate::Op), each named by [`Chat::execute`](crate::Chat)'s
 //! match. Each checks first (`rules`), then writes, so a refused op leaves
 //! the store as it found it.
-use guest::{Error, ExecCtx, Origin, already_exists, capacity, invalid, unauthorized, wrong_state};
+use ::program::{
+    Error, ExecCtx, Origin, already_exists, capacity, invalid, unauthorized, wrong_state,
+};
 
 use crate::attributed::report;
 use crate::rules;
@@ -60,7 +62,7 @@ pub(crate) fn open_dm(
     name: String,
 ) -> Result<(), Error> {
     if !matches!(ctx.env().origin, Origin::Signed(_)) {
-        return Err(unauthorized("only a key opens a dm, not a module"));
+        return Err(unauthorized("only a key opens a dm, not a program"));
     }
     let me = ctx.sender_account()?;
     if me == counterpart {

@@ -1,4 +1,4 @@
-//! The `activity` module: where each frame a block carried sits on the chain, kept under the key
+//! The `activity` program: where each frame a block carried sits on the chain, kept under the key
 //! that signed it and the account it acted as (the newest `KEPT` of each), as the kernel tells
 //! its hooks. Views list what an account did and read each frame by its place (`chain.tx`).
 mod program;
@@ -9,10 +9,10 @@ mod tests;
 pub use program::Activity;
 pub use store::{PageRequest, PageResponse};
 
+use ::program::{AccountNumber, ProgramId};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{AccountNumber, ModuleId};
 
-pub const MODULE: &str = "activity";
+pub const PROGRAM: &str = "activity";
 
 pub type Op = ();
 
@@ -21,14 +21,14 @@ pub struct Frame {
     pub height: u64,
     pub position: u32,
     pub time: u64,
-    pub target: ModuleId,
+    pub target: ProgramId,
     pub applied: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Used {
     pub account: AccountNumber,
-    pub program: ModuleId,
+    pub program: ProgramId,
     pub frames: u64,
 }
 

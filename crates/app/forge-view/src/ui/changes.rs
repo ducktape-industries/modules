@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, wire};
+use view::prelude::*;
+use view::{Div, wire};
 
 use crate::Forge;
 use crate::state::{ChangeForm, Filter};
@@ -238,7 +238,7 @@ fn change_row(
                             div()
                                 .min_w(px(0.))
                                 .truncate()
-                                .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+                                .font_weight(view::FontWeight::MEDIUM)
                                 .child(summary.title.clone()),
                         )
                         .child(div().text_color(theme.muted).child(format!("#{n}"))),
@@ -534,7 +534,7 @@ fn reviewers(
 }
 
 /// The identity picker: the people and agents chat's mentions offer — no
-/// module's account, none suspended ([`chat::view::Names::people`]) — whose
+/// program's account, none suspended ([`chat::view::Names::people`]) — whose
 /// name holds `needle`, each a button `{key}-{number}` that `pick`s it.
 /// Nothing while the roster is still being read.
 pub(crate) fn people_picker(

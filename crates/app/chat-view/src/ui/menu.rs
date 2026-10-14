@@ -1,8 +1,8 @@
 //! Message menus at the pointer and the edit composer under its stream.
 use crate::emoji;
 use crate::{Chat, Menu, Mode, Pane};
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Anchor, AnchoredPositionMode, Edges, Point};
+use view::prelude::*;
+use view::{Anchor, AnchoredPositionMode, Edges, Point};
 
 // A popup's size is fixed from these, so it never jumps under the pointer.
 const ROW: f32 = design::height::CONTROL as f32;
@@ -178,7 +178,7 @@ fn message_menu(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
 }
 
 /// What the "More" menu offers on this message: only what the reader may
-/// do to it — an edit or a delete the chat module would refuse is not
+/// do to it — an edit or a delete the chat program would refuse is not
 /// offered, and "Reply in thread" not for the thread already open.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Action {

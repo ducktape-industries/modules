@@ -1,8 +1,8 @@
 //! The Account screen: a left menu (Account, Agents, Invites) and the one
 //! pane it has open. `render` reads the state and changes nothing; presses
 //! land in `actions.rs`.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::Settings;
 use crate::queries::Seat;

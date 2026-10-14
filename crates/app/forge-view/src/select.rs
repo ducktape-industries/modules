@@ -1,7 +1,7 @@
 //! What the screens read out of the view: the replies that have landed,
 //! picked by the query that asked them, and the reader's own identity.
-use ducktape_view_guest::prelude::*;
 use std::rc::Rc;
+use view::prelude::*;
 
 use crate::queries::PAGE;
 use crate::state::{self, ChangeTab, Forge, Menu, Nav, change_key};

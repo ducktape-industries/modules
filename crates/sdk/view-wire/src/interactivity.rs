@@ -1,6 +1,6 @@
 //! Lossless payloads for GPUI element listeners.
 //!
-//! These values describe the platform event data that a guest callback can
+//! These values describe the platform event data that a view callback can
 //! observe. They intentionally do not contain native hitboxes, focus handles,
 //! windows, or action objects: those stay on the host side of the wire.
 
@@ -134,7 +134,7 @@ pub struct Tooltip {
     pub delay_ms: u64,
 }
 
-/// What the guest built for a tooltip request: the content for the route,
+/// What the view built for a tooltip request: the content for the route,
 /// or `None` where the builder had nothing to show.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TooltipResponse {

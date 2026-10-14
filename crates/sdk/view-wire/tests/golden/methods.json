@@ -1,6 +1,6 @@
 [
   {
-    "kind": "module.query",
+    "kind": "program.query",
     "request": [
       7,
       "q"
@@ -238,7 +238,7 @@
     }
   },
   {
-    "kind": "module.changes",
+    "kind": "program.changes",
     "request": null,
     "reply": {
       "height": 9,
@@ -255,7 +255,7 @@
     }
   },
   {
-    "kind": "module.changes",
+    "kind": "program.changes",
     "request": null,
     "reply": null
   },
@@ -1118,7 +1118,7 @@
     }
   },
   {
-    "kind": "module.describe",
+    "kind": "program.describe",
     "request": [
       "chat",
       [
@@ -1160,7 +1160,7 @@
     }
   },
   {
-    "kind": "module.describe",
+    "kind": "program.describe",
     "request": [
       "chat",
       [
@@ -1246,7 +1246,7 @@
         {
           "label": "program",
           "value": {
-            "Module": "chat"
+            "Program": "chat"
           }
         },
         {
@@ -1307,7 +1307,7 @@
     }
   },
   {
-    "kind": "module.describe",
+    "kind": "program.describe",
     "request": [
       "chat",
       [

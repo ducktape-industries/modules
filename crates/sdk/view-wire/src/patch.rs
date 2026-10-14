@@ -1,4 +1,4 @@
-//! Patches: the mutation list a guest sends instead of a whole tree, the
+//! Patches: the mutation list a view sends instead of a whole tree, the
 //! host-side [`apply`], and the [`diff`] that produces one.
 
 use crate::*;
@@ -62,14 +62,14 @@ impl Node {
 }
 
 /// The most patches one frame may carry. A diff of a tree the host holds
-/// needs at most one patch per node it keeps, and a guest past that sends
+/// needs at most one patch per node it keeps, and a view past that sends
 /// the tree whole; a host applying more would spend, per patch, a walk of
 /// a path and a shift of a child list, which is a frame's worth of work at
 /// this count already.
 pub const MAX_PATCHES: usize = 1024;
 
 /// Applies a patch frame to the tree the host holds, then pulls the result
-/// inside every bound [`sanitize`] promises — a patch is the guest's, so an
+/// inside every bound [`sanitize`] promises — a patch is the view's, so an
 /// inserted subtree can push the tree past [`MAX_NODES`] or [`MAX_DEPTH`],
 /// reuse a key the tree already has or name a style `styles` does not hold,
 /// and the bounds are on the whole. `styles` is the table the frame's own
@@ -78,7 +78,7 @@ pub const MAX_PATCHES: usize = 1024;
 /// `Err` names a patch the tree cannot take: a path to no node, an index
 /// past a list, a list operation on a node with no list, a [`Patch::Props`]
 /// whose arity is not the node's, or more patches than [`MAX_PATCHES`]. The
-/// tree is then part-way through the sequence and not one the guest ever
+/// tree is then part-way through the sequence and not one the view ever
 /// sent: the host drops it and asks for a whole one with [`Event::Resync`].
 pub fn apply(
     root: &mut Node,
@@ -168,12 +168,12 @@ pub fn diff(old: &mut Node, new: &mut Node) -> Vec<Patch> {
 
 /// [`diff`], except that every subtree a [`Patch::Replace`] or
 /// [`Patch::Insert`] carries is taken out of `new` instead of copied, and an
-/// empty stand-in is left in its place. A guest that sends the patches and
+/// empty stand-in is left in its place. A view that sends the patches and
 /// keeps `new` as the next frame's base moves each changed subtree out and
 /// back instead of cloning it: a patch's path and index are the position of
 /// its node in `new`, since removes come first at every level and the
 /// inserts and moves before an index have already been emitted when it is
-/// reached. Plumbing for ducktape-view-guest's driver, not a view's API.
+/// reached. Plumbing for view's driver, not a view's API.
 #[doc(hidden)]
 pub fn diff_taking(old: &mut Node, new: &mut Node) -> Vec<Patch> {
     let mut patches = Vec::new();

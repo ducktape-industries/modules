@@ -2,7 +2,7 @@
 //! session (`Session.account`); no view asks identity for it.
 
 /// What an account is, as members and explorer label it: "Person",
-/// "Agent · managed by eddy · suspended", "Module · chat". The badge and
+/// "Agent · managed by eddy · suspended", "Program · chat". The badge and
 /// the note are [`Kind`](crate::Kind)'s; `name_of` names the manager, or
 /// its number stands in.
 pub fn kind(

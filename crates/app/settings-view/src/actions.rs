@@ -1,6 +1,6 @@
 //! What the reader's presses do: reads again, each form's submit, and the
 //! invite. A refusal lands on the form it came from.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::queries::Found;
 use crate::state::{Answering, Choice, Form, Problem, Section, TTL};
@@ -39,8 +39,7 @@ impl Settings {
     fn account_query(
         &self,
         cx: &mut Context<Self>,
-    ) -> impl Future<Output = Result<Option<queries::Seat>, ducktape_view_guest::host::Error>> + 'static
-    {
+    ) -> impl Future<Output = Result<Option<queries::Seat>, view::host::Error>> + 'static {
         let (signer, number) = (self.session.signer.clone(), self.session.account);
         queries::account(cx.host(), signer, number)
     }
@@ -194,7 +193,7 @@ impl Settings {
     fn found(
         &mut self,
         number: u64,
-        found: Result<Found, ducktape_view_guest::host::Error>,
+        found: Result<Found, view::host::Error>,
         cx: &mut Context<Self>,
     ) {
         let form = &mut self.answering.entry(number).or_default().form;

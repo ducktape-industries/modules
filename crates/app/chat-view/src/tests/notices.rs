@@ -6,7 +6,7 @@ use super::*;
 /// the room; opening it reads the host's rows under the notice's tag.
 #[test]
 fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
-    use ducktape_view_guest::methods::{HostBadge, NotifyPost, NotifySeen};
+    use view::methods::{HostBadge, NotifyPost, NotifySeen};
     let (mut cx, view) = opened();
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
@@ -52,7 +52,7 @@ fn a_direct_message_elsewhere_is_a_notice_and_a_badge_until_read() {
 /// posts nothing a second time.
 #[test]
 fn the_badge_is_counted_again_from_the_read_cursors() {
-    use ducktape_view_guest::methods::{HostBadge, NotifyPost};
+    use view::methods::{HostBadge, NotifyPost};
     let (mut cx, view) = opened();
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
@@ -93,8 +93,8 @@ fn the_badge_is_counted_again_from_the_read_cursors() {
 /// badge and dot their rooms, and reading a room keeps its new cursor.
 #[test]
 fn kept_cursors_bring_the_badge_back_after_a_relaunch() {
-    use ducktape_view_guest::methods::{self, HostBadge, StoreGet, StoreSet};
     use std::collections::BTreeMap;
+    use view::methods::{self, HostBadge, StoreGet, StoreSet};
     let mut cx = TestAppContext::new();
     configure(&mut cx);
     cx.host().handle::<StoreGet>(|key| {
@@ -158,8 +158,8 @@ fn kept_cursors_bring_the_badge_back_after_a_relaunch() {
 /// runs without another chat write to prompt it.
 #[test]
 fn the_relaunch_recount_waits_for_the_readers_account() {
-    use ducktape_view_guest::methods::{self, HostBadge, StoreGet};
     use std::collections::BTreeMap;
+    use view::methods::{self, HostBadge, StoreGet};
     let mut cx = TestAppContext::new();
     configure(&mut cx);
     cx.host().handle::<StoreGet>(|key| {
@@ -198,9 +198,9 @@ fn the_relaunch_recount_waits_for_the_readers_account() {
 /// starts from what it sees: reading a room still keeps its cursor.
 #[test]
 fn a_refused_store_read_still_keeps_cursors() {
-    use ducktape_view_guest::host::malformed;
-    use ducktape_view_guest::methods::{self, StoreGet, StoreSet};
     use std::collections::BTreeMap;
+    use view::host::malformed;
+    use view::methods::{self, StoreGet, StoreSet};
     let mut cx = TestAppContext::new();
     configure(&mut cx);
     cx.host().handle::<StoreGet>(|key| match key.as_str() {

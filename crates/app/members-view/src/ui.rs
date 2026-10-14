@@ -2,9 +2,9 @@
 //! Colour is kept for what it says: the agent tint on an agent's avatar, and
 //! the badges of a standing. Everything else is the window, grey captions
 //! and hairlines.
-use ducktape_view_guest::design::{size, space, text};
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::design::{size, space, text};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::{Group, Members, Row};
 
@@ -140,7 +140,7 @@ fn list_pane(
         .child(rows(view, cx, theme))
 }
 
-/// All, People, Agents, Modules, each with how many the network holds.
+/// All, People, Agents, Programs, each with how many the network holds.
 fn chips(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoElement {
     let rows = view.rows.ready().map_or(&[][..], Vec::as_slice);
     let count = |group: Option<Group>| {
@@ -152,7 +152,7 @@ fn chips(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoE
         (None, "All"),
         (Some(Group::People), "People"),
         (Some(Group::Agents), "Agents"),
-        (Some(Group::Modules), "Modules"),
+        (Some(Group::Programs), "Programs"),
     ];
     div()
         .flex()
@@ -303,8 +303,8 @@ fn member_row(
     let dim = row.kind.note().is_some();
     let name_of = |manager| name(all, manager);
     let kind = match &row.kind {
-        // a module named for its program says so once
-        identity::Kind::Module(program) if *program == row.name => "Module".into(),
+        // a program named for its program says so once
+        identity::Kind::Program(program) if *program == row.name => "Program".into(),
         kind => identity::view::kind(kind, name_of),
     };
     let me = view.me == Some(number);
@@ -366,14 +366,14 @@ fn member_row(
 }
 
 /// An account's initial: round for a person, tinted for an agent, square
-/// and monospaced for a module; faint when it no longer acts.
+/// and monospaced for a program; faint when it no longer acts.
 fn avatar(row: &Row, size: Pixels, dim: bool, theme: &Theme) -> Div {
     let avatar = design::avatar(&row.name, size, theme);
     match row.group() {
         _ if dim => avatar.bg(theme.background).text_color(theme.faint),
         Group::People => avatar,
         Group::Agents => avatar.bg(theme.agent_soft).text_color(theme.agent),
-        Group::Modules => avatar
+        Group::Programs => avatar
             .rounded_none()
             .font_family(design::fonts::FAMILY_MONO),
     }
@@ -445,10 +445,10 @@ fn head(
     let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(format!("account {}", row.number))]];
     match &row.kind {
         identity::Kind::Person => caption.push(vec![text("Person".into())]),
-        identity::Kind::Module(program) if *program == row.name => {
-            caption.push(vec![text("Module".into())])
+        identity::Kind::Program(program) if *program == row.name => {
+            caption.push(vec![text("Program".into())])
         }
-        identity::Kind::Module(_) => caption.push(vec![text(
+        identity::Kind::Program(_) => caption.push(vec![text(
             row.kind.badge(|_| String::new()).unwrap_or_default(),
         )]),
         identity::Kind::Managed {
@@ -475,7 +475,7 @@ fn head(
             ]);
         }
     }
-    if row.group() != Group::Modules {
+    if row.group() != Group::Programs {
         let devices = design::plural(row.devices.len() as u64, "device", "devices");
         caption.push(vec![text(devices)]);
     }
@@ -512,7 +512,7 @@ fn head(
         (Some(me), identity::Kind::Person | identity::Kind::Managed { .. }) if me != number => {
             ducklink::mint(
                 &view.chain,
-                chat::MODULE,
+                chat::PROGRAM,
                 &[&chat::dm_channel_id(me, number)],
             )
         }

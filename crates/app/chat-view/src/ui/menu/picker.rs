@@ -1,7 +1,7 @@
 //! The reaction picker: a search field that takes the keys, the reader's
 //! frequent row, one tab of emoji at a time, or the search's matches.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use view::prelude::*;
+use view::{Div, Stateful};
 
 use super::{
     CAPTION, CELL, COLUMNS, GRID_ROWS, PICKER_GAP, PICKER_INSET, Press, SEARCH, STACK_GAP, TABS,

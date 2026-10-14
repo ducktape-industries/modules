@@ -1,7 +1,7 @@
-//! The module: the signer resolved to its principal, then every op and
+//! The program: the signer resolved to its principal, then every op and
 //! every query, each handed to its function in `ops.rs` or `queries.rs`.
 
-use guest::{Error, ExecCtx, MessageId, Module, Outcome, Program, QueryCtx};
+use ::program::{Error, ExecCtx, MessageId, Outcome, Program, QueryCtx};
 
 use crate::ops::{
     create_channel, delete, edit, open_dm, post, react, rename, set_archived, set_membership,
@@ -15,13 +15,11 @@ use crate::{Op, Query, Reply};
 pub struct Chat;
 
 impl Program for Chat {
-    const NAME: &'static str = crate::MODULE;
+    const NAME: &'static str = crate::PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Chat {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         let sender = ctx.sender()?;
         match op {
@@ -127,5 +125,5 @@ impl Module for Chat {
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Chat);
+#[cfg(feature = "program")]
+::program::export!(Chat);

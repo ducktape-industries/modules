@@ -1,22 +1,20 @@
-//! The module: every op and every query, each handed to its rule.
+//! The program: every op and every query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
+use ::program::{Error, ExecCtx, Program, QueryCtx, decoded};
 
 use crate::rules::{MEMBERS, account_of, execute, init, memberships, motions, validators, voices};
-use crate::{Genesis, MODULE, Membership, Op, Query, Reply};
+use crate::{Genesis, Membership, Op, PROGRAM, Query, Reply};
 
 pub struct Valset;
 
 impl Program for Valset {
-    const NAME: &'static str = MODULE;
+    const NAME: &'static str = PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Valset {
     fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
-        init(ctx, decoded::<Genesis>(MODULE, "Genesis", params)?)
+        init(ctx, decoded::<Genesis>(PROGRAM, "Genesis", params)?)
     }
 
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
@@ -43,5 +41,5 @@ impl Module for Valset {
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Valset);
+#[cfg(feature = "program")]
+::program::export!(Valset);

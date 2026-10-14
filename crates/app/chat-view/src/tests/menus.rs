@@ -65,10 +65,10 @@ fn a_chosen_message_lets_go_on_escape_a_press_elsewhere_or_an_arrow() {
     // a press anywhere else
     cx.simulate_click("chat-message-m1");
     assert_eq!(chosen(&view), Some((1, Mode::Toolbar)));
-    let down = |shift| ducktape_view_guest::MouseDownEvent {
-        button: ducktape_view_guest::MouseButton::Left,
+    let down = |shift| view::MouseDownEvent {
+        button: view::MouseButton::Left,
         position: Default::default(),
-        modifiers: ducktape_view_guest::Modifiers {
+        modifiers: view::Modifiers {
             shift,
             ..Default::default()
         },
@@ -98,7 +98,7 @@ fn a_chosen_message_lets_go_on_escape_a_press_elsewhere_or_an_arrow() {
     let button = |shift| wire::click::ButtonEvent {
         button: wire::click::MouseButton::Left,
         position: Default::default(),
-        modifiers: ducktape_view_guest::Modifiers {
+        modifiers: view::Modifiers {
             shift,
             ..Default::default()
         },
@@ -132,12 +132,12 @@ fn the_copy_range_copies_from_its_bar() {
     let copied = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
     let seen = copied.clone();
     cx.host()
-        .handle::<ducktape_view_guest::methods::ClipboardWrite>(move |text| {
+        .handle::<view::methods::ClipboardWrite>(move |text| {
             *seen.borrow_mut() = text;
             Ok(())
         });
     cx.simulate_click("chat-message-m1");
-    let shift = ducktape_view_guest::Modifiers {
+    let shift = view::Modifiers {
         shift: true,
         ..Default::default()
     };
@@ -160,8 +160,8 @@ fn the_copy_range_copies_from_its_bar() {
     assert!(cx.has_text("2 messages selected"));
     cx.simulate_mouse_down(
         "chat-selection-copy",
-        ducktape_view_guest::MouseDownEvent {
-            button: ducktape_view_guest::MouseButton::Left,
+        view::MouseDownEvent {
+            button: view::MouseButton::Left,
             position: Default::default(),
             modifiers: Default::default(),
             click_count: 1,
@@ -228,7 +228,7 @@ fn message_menu_offers_only_what_the_reader_may_do_and_executes_it() {
     // also fires the card's row-select handler, which resets `chat.menu`
     // to `Mode::Toolbar` before `delete_armed` reads it, so the delete is
     // silently dropped (no submit, no error).
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         interactivity: Some(interactivity),
         ..
     })) = cx.find("chat-room-message-delete-frame")
@@ -272,7 +272,7 @@ fn delete_confirmation_opens_with_the_keys_on_its_first_button() {
     // keeps the message
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .requests::<view::methods::HostWidget>()
             .iter()
             .any(|command| matches!(
                 command,
@@ -289,7 +289,7 @@ fn delete_confirmation_opens_with_the_keys_on_its_first_button() {
     // the frame offers no focus: one it offered and no Tab reached was
     // the door's AX-021 on it
     let dialog = cx.interactivity("chat-room-message-delete-frame");
-    assert_eq!(dialog.role, Some(ducktape_view_guest::Role::AlertDialog));
+    assert_eq!(dialog.role, Some(view::Role::AlertDialog));
     assert_eq!(dialog.aria.label.as_deref(), Some("Delete this message?"));
     assert!(!dialog.focusable, "the frame offers no focus");
 }
@@ -308,7 +308,7 @@ fn reaction_picker_keeps_labels_and_its_stable_action_id() {
         cx.notify();
     });
     cx.run_until_parked();
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         interactivity: Some(interactivity),
         ..
     })) = cx.find("chat-reaction-🔥")
@@ -385,7 +385,7 @@ fn the_edit_field_saves() {
     let editor = format!("{key}/editor");
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .requests::<view::methods::HostWidget>()
             .iter()
             .any(|command| matches!(
                 command,
@@ -407,11 +407,11 @@ fn the_message_menu_walks_its_items_and_enter_runs_one() {
     message::hover(&mut cx, &view, 1);
     cx.simulate_click("chat-message-m1-more");
     let menu = cx.interactivity("chat-room-message-action-focus");
-    assert_eq!(menu.role, Some(ducktape_view_guest::Role::Menu));
+    assert_eq!(menu.role, Some(view::Role::Menu));
     assert!(menu.focusable && menu.tab_stop == Some(true));
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .requests::<view::methods::HostWidget>()
             .iter()
             .any(|command| matches!(
                 command,
@@ -421,7 +421,7 @@ fn the_message_menu_walks_its_items_and_enter_runs_one() {
         "the menu takes the keys on open"
     );
     let reply = cx.interactivity("chat-menu-reply");
-    assert_eq!(reply.role, Some(ducktape_view_guest::Role::MenuItem));
+    assert_eq!(reply.role, Some(view::Role::MenuItem));
     assert!(!reply.focusable && reply.aria.active_descendant);
     cx.simulate_key_down("chat-room-message-action-focus", "down");
     assert!(
@@ -441,7 +441,7 @@ fn the_message_menu_walks_its_items_and_enter_runs_one() {
     // offers no focus (a focus offered that no Tab reaches is AX-021)
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .requests::<view::methods::HostWidget>()
             .iter()
             .any(|command| matches!(
                 command,

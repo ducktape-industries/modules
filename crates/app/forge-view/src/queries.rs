@@ -4,9 +4,9 @@
 //! the four states of a `Loadable` slot stay honest. A log is the one list
 //! read a page at a time ([`log_page`]): a history is as long as the
 //! repository is old, and its list shows a screenful.
-use ducktape_view_guest::host::{Page, all_pages, malformed};
-use ducktape_view_guest::prelude::*;
 use std::rc::Rc;
+use view::host::{Page, all_pages, malformed};
+use view::prelude::*;
 
 use crate::api::Ask as Forge;
 use forge::{CommitInfo, PageRequest, PageResponse, Query, Reply};
@@ -48,7 +48,7 @@ pub(crate) async fn fetch(host: Host, query: Query) -> Result<Rc<Reply>, Error> 
 }
 
 /// One page of the log `query` asks, as a
-/// [`Paged`](ducktape_view_guest::Paged) reads it: the page after `after`,
+/// [`Paged`](view::Paged) reads it: the page after `after`,
 /// its commits and the cursor of the one after.
 pub(crate) async fn log_page(
     host: Host,

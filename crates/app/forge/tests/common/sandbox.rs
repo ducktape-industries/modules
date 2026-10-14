@@ -1,12 +1,12 @@
 //! forge and chat on one [`MockChain`]: chat is the sibling forge queries,
 //! and where its emissions land, in the frame that emitted them. The
 //! chain's roster is identity's: each key the account it holds, the
-//! harness keys ([`HOLDERS`](super::HOLDERS)) from the start, each module
-//! its account ([`MODULES`]) and each agent its standing ([`agent`](MemorySandbox::agent)).
+//! harness keys ([`HOLDERS`](super::HOLDERS)) from the start, each program
+//! its account ([`PROGRAMS`]) and each agent its standing ([`agent`](MemorySandbox::agent)).
 
 use abi::role::identity::{Category, Kind, Profile, Standing};
-use guest::{Env, Error, MockChain, Origin, Principal};
-use guest::{ExecCtx, MockHost, QueryCtx};
+use program::{Env, Error, MockChain, Origin, Principal};
+use program::{ExecCtx, MockHost, QueryCtx};
 
 pub struct MemorySandbox {
     pub chain: MockChain,
@@ -17,15 +17,15 @@ pub struct MemorySandbox {
 /// The person every agent of the roster is managed by.
 pub const AGENT_MANAGER: u64 = 11;
 
-/// The account identity registered for each module.
-pub const MODULES: [(&str, u64); 2] = [("forge", 900), ("chat", 901)];
+/// The account identity registered for each program.
+pub const PROGRAMS: [(&str, u64); 2] = [("forge", 900), ("chat", 901)];
 
-/// The module whose account `number` is.
-pub fn module_of(number: u64) -> Option<&'static str> {
-    MODULES
+/// The program whose account `number` is.
+pub fn program_of(number: u64) -> Option<&'static str> {
+    PROGRAMS
         .iter()
         .find(|(_, account)| *account == number)
-        .map(|(module, _)| *module)
+        .map(|(program, _)| *program)
 }
 
 impl Default for MemorySandbox {
@@ -36,8 +36,8 @@ impl Default for MemorySandbox {
         for (key, account) in super::HOLDERS {
             chain.hold(key, account);
         }
-        for (module, number) in MODULES {
-            chain.register(module, number);
+        for (program, number) in PROGRAMS {
+            chain.register(program, number);
         }
         MemorySandbox { chain, forge, chat }
     }

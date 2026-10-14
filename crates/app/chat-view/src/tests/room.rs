@@ -30,7 +30,7 @@ fn the_room_shows_its_rows_intro_and_actions() {
     );
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .requests::<view::methods::HostWidget>()
             .iter()
             .any(|command| {
                 matches!(command, wire::WidgetCommand::Focus { target }
@@ -92,7 +92,7 @@ fn the_room_shows_its_rows_intro_and_actions() {
 fn the_panes_clamp_to_the_viewport_and_the_dividers_keep_their_behavior_routes() {
     let (mut cx, view) = opened();
     view.read(|chat| {
-        assert_eq!(chat.layout.viewport, ducktape_view_guest::testing::VIEWPORT);
+        assert_eq!(chat.layout.viewport, view::testing::VIEWPORT);
     });
     let full = StyleRefinement::default().size_full();
     let renders = cx.renders();
@@ -132,14 +132,14 @@ fn the_panes_clamp_to_the_viewport_and_the_dividers_keep_their_behavior_routes()
     // screen, sidebar and room alike, with their close, and nothing to drag
     cx.simulate_resize(720., 480.);
     assert!(cx.find("chat-details-resize").is_none());
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
+    let Some(wire::Node::Container(view::wire::ContainerNode { style, .. })) =
         cx.find("chat-side-over")
     else {
         panic!("the side pane floats")
     };
     let style = &cx.styles()[*style];
     assert_eq!(style.inset, StyleRefinement::default().inset_0().inset);
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
+    let Some(wire::Node::Container(view::wire::ContainerNode { style, .. })) =
         cx.find("chat-details-pane")
     else {
         panic!("the details pane")
@@ -153,7 +153,7 @@ fn the_panes_clamp_to_the_viewport_and_the_dividers_keep_their_behavior_routes()
 #[test]
 fn timeline_retains_virtual_tail_anchoring_and_scroll_feedback() {
     let (cx, _) = opened();
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { children, .. })) =
+    let Some(wire::Node::Container(view::wire::ContainerNode { children, .. })) =
         cx.find("chat-message-list")
     else {
         panic!("message list keeps its authored container identity")
@@ -363,7 +363,7 @@ fn an_empty_thread_says_so_and_its_field_takes_focus() {
     let field = wire::ElementIdWire::Name("draft-general-1/editor".into());
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostWidget>()
+            .requests::<view::methods::HostWidget>()
             .iter()
             .any(|command| matches!(command, wire::WidgetCommand::Focus { target } if target.last() == Some(&field)))
     );
@@ -375,9 +375,7 @@ fn an_empty_thread_says_so_and_its_field_takes_focus() {
 fn a_link_to_a_forge_room_lands_in_it() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
-    let routes = cx
-        .host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
+    let routes = cx.host().stream::<view::methods::HostRoute>();
     let view = cx.open::<Chat>();
     seat(&mut cx);
     let link = crate::links::channel_link("testnet#0a1b2c3d", "forge:web:3", None).unwrap();
@@ -414,7 +412,7 @@ fn a_link_to_a_forge_room_lands_in_it() {
         .expect("the link's cell");
     assert_eq!(
         cell.interactivity().and_then(|cell| cell.role),
-        Some(ducktape_view_guest::Role::GridCell)
+        Some(view::Role::GridCell)
     );
     assert_eq!(
         cell.children()
@@ -424,9 +422,7 @@ fn a_link_to_a_forge_room_lands_in_it() {
         [Some("chat-message-forge-line-program-open")]
     );
     cx.simulate_click("chat-message-forge-line-program-open");
-    let opened = cx
-        .host()
-        .requests::<ducktape_view_guest::methods::LinkOpen>();
+    let opened = cx.host().requests::<view::methods::LinkOpen>();
     assert_eq!(
         opened.last().map(String::as_str),
         Some("duck://testnet-0a1b2c3d/forge/web/3")
@@ -438,7 +434,7 @@ fn a_link_to_a_forge_room_lands_in_it() {
 #[test]
 fn a_dm_row_is_named_by_its_peer_not_the_avatar() {
     let (cx, _) = opened();
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         interactivity: Some(interactivity),
         ..
     })) = cx.find("chat-sidebar-dm-8")
@@ -451,7 +447,7 @@ fn a_dm_row_is_named_by_its_peer_not_the_avatar() {
 
 /// Everyone the reader writes to has a row under Direct messages before
 /// their room exists, after the rooms already open: pressing it opens the
-/// room with them, which the first message then opens on chain. No module's
+/// room with them, which the first message then opens on chain. No program's
 /// account and not the reader.
 #[test]
 fn every_person_has_a_dm_row_before_their_room_exists() {
@@ -614,7 +610,7 @@ fn jump_to_latest_floats_over_the_list() {
         cx.notify();
     });
     cx.run_until_parked();
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         style,
         interactivity,
         ..
@@ -625,9 +621,7 @@ fn jump_to_latest_floats_over_the_list() {
     let style = &cx.styles()[*style];
     assert_eq!(
         style.position,
-        ducktape_view_guest::StyleRefinement::default()
-            .absolute()
-            .position
+        view::StyleRefinement::default().absolute().position
     );
     assert!(interactivity.as_ref().is_none_or(|i| !i.occlude));
     assert!(cx.find("chat-jump-latest-button").is_some());
@@ -641,7 +635,7 @@ fn jump_to_latest_floats_over_the_list() {
 fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
     let (mut cx, view) = opened();
     let list = cx.interactivity("chat-sidebar-rooms-list");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(list.role, Some(view::Role::ListBox));
     assert!(list.focusable && list.tab_stop == Some(true));
     let general = cx.interactivity("chat-sidebar-channel-general");
     assert!(!general.focusable && general.aria.active_descendant);
@@ -651,7 +645,7 @@ fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
     );
     cx.simulate_key_down("chat-sidebar-rooms-list", "down");
     let dm = cx.interactivity("chat-sidebar-dm-8");
-    assert_eq!(dm.role, Some(ducktape_view_guest::Role::ListBoxOption));
+    assert_eq!(dm.role, Some(view::Role::ListBoxOption));
     assert!(dm.aria.active_descendant && dm.aria.selected == Some(false));
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
     cx.simulate_key_down("chat-sidebar-rooms-list", "enter");
@@ -662,8 +656,7 @@ fn an_arrow_and_enter_on_the_rooms_opens_the_next_room() {
         Some(true)
     );
     assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        cx.host().requests::<view::methods::LinkOpen>(),
         Vec::<String>::new()
     );
 }
@@ -696,7 +689,7 @@ fn an_arrow_in_the_thread_moves_in_the_thread_not_the_room() {
     });
     cx.run_until_parked();
     let thread = cx.interactivity("chat-thread-list");
-    assert_eq!(thread.role, Some(ducktape_view_guest::Role::Grid));
+    assert_eq!(thread.role, Some(view::Role::Grid));
     assert!(thread.focusable && thread.tab_stop == Some(true));
     // the thread's newest is its reply; the room's is still m2
     assert!(cx.interactivity("chat-message-m3").aria.active_descendant);
@@ -866,7 +859,7 @@ fn a_reconnect_shows_the_rooms_loading() {
 /// still out, never the room's id. Each name goes to the host once.
 #[test]
 fn the_window_is_named_for_the_open_room() {
-    use ducktape_view_guest::methods::HostTitle;
+    use view::methods::HostTitle;
     let (mut cx, view) = opened();
     // no room at boot clears it; the room's name follows, once however
     // often the room is drawn

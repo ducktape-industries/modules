@@ -67,14 +67,14 @@ mod tests {
     }
 
     /// Mentions and reviewers offer people and agents that act: no
-    /// module's account, no suspended or revoked one. Each wears the one
+    /// program's account, no suspended or revoked one. Each wears the one
     /// badge and note its kind gives it.
     #[test]
     fn the_pickers_offer_people_and_live_agents_only() {
         let names = Names::from_roster([
             profile(1, "ada", Kind::Person),
             profile(2, "scout", agent(1, Standing::Active)),
-            profile(3, "forge", Kind::Module("forge".into())),
+            profile(3, "forge", Kind::Program("forge".into())),
             profile(4, "idle", agent(1, Standing::Suspended)),
             profile(5, "gone", agent(1, Standing::Revoked)),
         ]);
@@ -93,8 +93,8 @@ mod tests {
             names.badge(&account(2)).as_deref(),
             Some("Agent · managed by ada")
         );
-        assert_eq!(names.badge(&account(3)).as_deref(), Some("Module · forge"));
-        assert_eq!(names.module(&account(3)), Some("forge"));
+        assert_eq!(names.badge(&account(3)).as_deref(), Some("Program · forge"));
+        assert_eq!(names.program(&account(3)), Some("forge"));
         assert!(crate::message::agent(&names, &account(2)));
         assert!(!crate::message::agent(&names, &account(3)));
     }

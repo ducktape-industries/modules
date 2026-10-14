@@ -50,7 +50,7 @@ impl Tape {
     }
 
     /// A refusal: `Err` through the ABI, captured as the borsh `Error`.
-    fn refusal(&mut self, rig: &Rig, name: &'static str, q: Query) -> guest::Error {
+    fn refusal(&mut self, rig: &Rig, name: &'static str, q: Query) -> program::Error {
         let refusal = rig.query(&q).unwrap_err();
         self.save(name, abi::encode(&q), abi::encode(&refusal));
         refusal

@@ -1,7 +1,7 @@
 //! The open room: opening, landing, paging history, the thread beside it and
 //! what the reader has read.
 use chat::{ChannelInfo, MsgRow, PageRequest, Principal, ask};
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::composer::Target;
 use crate::queries::{self, Side};
@@ -367,7 +367,7 @@ impl Chat {
     pub(crate) fn list_scrolled(
         &mut self,
         pane: Pane,
-        event: &ducktape_view_guest::ListScrollEvent,
+        event: &view::ListScrollEvent,
         cx: &mut Context<Self>,
     ) {
         let at_top = event.visible_range.start <= EDGE_ROWS;

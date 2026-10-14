@@ -78,7 +78,7 @@ pub(super) fn gen_frame_with(rng: &mut Rng, depth: usize, width: usize) -> Frame
 
 /// A path into `root`: a real one (a random walk down the tree that stops
 /// at a random depth) or, from a `hostile` sender, sometimes one step past
-/// a real one or a random vector, so `apply` sees both the paths a guest
+/// a real one or a random vector, so `apply` sees both the paths a view
 /// sends and the ones a hostile one does.
 pub(super) fn gen_path(rng: &mut Rng, root: &Node, hostile: bool) -> Vec<u32> {
     let mut path = Vec::new();
@@ -155,7 +155,7 @@ pub(super) fn gen_patch(rng: &mut Rng, root: &Node, hostile: bool) -> Patch {
             node: gen_patch_tree(rng),
         },
         1 => {
-            // A node with its children set aside, as a guest sends it, of
+            // A node with its children set aside, as a view sends it, of
             // the arity the node at the path has — or, from a hostile
             // sender, any node at all.
             let mut fresh = gen_patch_tree(rng);

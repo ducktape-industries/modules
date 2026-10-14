@@ -1,6 +1,6 @@
 //! Members: every account the `identity` program holds, as a list beside
 //! one account read in full. The list groups people, then agents, then
-//! modules; the account chosen from it shows its bio, its devices, the
+//! programs; the account chosen from it shows its bio, its devices, the
 //! agents it manages and what its keys signed lately.
 //!
 //! The screen is read-only: suspending, revoking, renaming and keys live in
@@ -15,9 +15,9 @@
 mod activity;
 mod ui;
 
-use ducktape_view_guest::prelude::*;
-use module_registry::PageRequest;
+use programs::PageRequest;
 use serde::{Deserialize, Serialize};
+use view::prelude::*;
 
 use identity::Identity;
 use valset::Valset;
@@ -67,17 +67,17 @@ pub struct Members {
 pub enum Group {
     People,
     Agents,
-    Modules,
+    Programs,
 }
 
 impl Group {
-    pub const ALL: [Group; 3] = [Group::People, Group::Agents, Group::Modules];
+    pub const ALL: [Group; 3] = [Group::People, Group::Agents, Group::Programs];
 
     pub fn label(self) -> &'static str {
         match self {
             Group::People => "People",
             Group::Agents => "Agents",
-            Group::Modules => "Modules",
+            Group::Programs => "Programs",
         }
     }
 
@@ -85,7 +85,7 @@ impl Group {
         match kind {
             identity::Kind::Person => Group::People,
             identity::Kind::Managed { .. } => Group::Agents,
-            identity::Kind::Module(_) => Group::Modules,
+            identity::Kind::Program(_) => Group::Programs,
         }
     }
 }
@@ -97,7 +97,7 @@ struct Row {
     name: String,
     bio: Option<String>,
     /// what the account is; labelled as it is drawn ([`identity::view::kind`])
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    #[serde(with = "view::borsh_bytes")]
     kind: identity::Kind,
     devices: Vec<Device>,
     /// the valset standing of a key this account holds, where it holds one
@@ -133,12 +133,12 @@ impl View for Members {
     const ICON: &'static str = "icons/users.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
-        Capability::Module,
+        Capability::Program,
         Capability::Host,
         Capability::Link,
     ];
     const TARGETS: &'static [&'static str] =
-        &[identity::MODULE, valset::MODULE, ::activity::MODULE];
+        &[identity::PROGRAM, valset::PROGRAM, ::activity::PROGRAM];
     // the list and the detail fit at 320, the desk's smallest window
     const MIN_WINDOW_WIDTH: u32 = 320;
 

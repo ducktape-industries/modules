@@ -2,12 +2,12 @@
 //! the difference recorded as changes, and every change told to every subscriber.
 use std::collections::{BTreeMap, BTreeSet};
 
-use guest::{Error, ExecCtx, QueryCtx, Reply, invalid, stale};
+use ::program::{Error, ExecCtx, QueryCtx, Reply, invalid, stale};
 
 use crate::state::{CHANGES, OBJECTS, OF, ObjectKey, SEQ, SUBSCRIBERS, TO};
 use crate::{
     AccountNumber, Actor, Change, Kind, MAX_BATCH, MAX_DELIVER_BYTES, MAX_DETAIL_BYTES,
-    MAX_NAME_BYTES, MAX_RELATIONS, MAX_SUBSCRIBERS, ModuleId, PageRequest, PageResponse, Reason,
+    MAX_NAME_BYTES, MAX_RELATIONS, MAX_SUBSCRIBERS, PageRequest, PageResponse, ProgramId, Reason,
     Relation, Relations, Source, Transfer, Update,
 };
 
@@ -115,7 +115,7 @@ fn kinds(
 }
 
 pub(crate) fn attribute(ctx: &ExecCtx, updates: Vec<Update>) -> Result<(), Error> {
-    let program = ctx.env().sending_module()?;
+    let program = ctx.env().sending_program()?;
     if updates.len() > MAX_BATCH {
         return Err(invalid(format!(
             "a batch attributes at most {MAX_BATCH} objects"
@@ -130,8 +130,8 @@ pub(crate) fn attribute(ctx: &ExecCtx, updates: Vec<Update>) -> Result<(), Error
 
 fn attribute_one(
     ctx: &ExecCtx,
-    program: &ModuleId,
-    subscribers: &[(ModuleId, Vec<u8>)],
+    program: &ProgramId,
+    subscribers: &[(ProgramId, Vec<u8>)],
     update: Update,
 ) -> Result<(), Error> {
     well_formed(&update)?;
@@ -198,7 +198,7 @@ fn attribute_one(
 }
 
 pub(crate) fn subscribe(ctx: &ExecCtx, deliver: Vec<u8>) -> Result<(), Error> {
-    let program = ctx.env().sending_module()?;
+    let program = ctx.env().sending_program()?;
     if deliver.len() > MAX_DELIVER_BYTES {
         return Err(invalid(format!(
             "a delivery prefix is at most {MAX_DELIVER_BYTES} bytes"
@@ -207,8 +207,8 @@ pub(crate) fn subscribe(ctx: &ExecCtx, deliver: Vec<u8>) -> Result<(), Error> {
     let already = SUBSCRIBERS.has(ctx, &program);
     let full = SUBSCRIBERS.all(ctx)?.len() >= MAX_SUBSCRIBERS;
     if !already && full {
-        return Err(guest::capacity(format!(
-            "attribution tells at most {MAX_SUBSCRIBERS} modules"
+        return Err(::program::capacity(format!(
+            "attribution tells at most {MAX_SUBSCRIBERS} programs"
         )));
     }
     SUBSCRIBERS.put(ctx, &program, &deliver);
@@ -226,7 +226,7 @@ pub(crate) fn changes(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse
 fn change(ctx: &QueryCtx, seq: u64) -> Result<Change, Error> {
     CHANGES
         .get(ctx, &seq)?
-        .ok_or_else(|| guest::corrupt("change/", &seq.to_be_bytes(), "indexed but missing"))
+        .ok_or_else(|| ::program::corrupt("change/", &seq.to_be_bytes(), "indexed but missing"))
 }
 
 pub(crate) fn changes_to(
@@ -247,10 +247,10 @@ pub(crate) fn changes_of(
         .try_map(|(_, _, _, seq)| change(ctx, seq))
 }
 
-pub(crate) fn subscribers(ctx: &QueryCtx) -> Result<Vec<ModuleId>, Error> {
+pub(crate) fn subscribers(ctx: &QueryCtx) -> Result<Vec<ProgramId>, Error> {
     Ok(SUBSCRIBERS
         .all(ctx)?
         .into_iter()
-        .map(|(module, _)| module)
+        .map(|(program, _)| program)
         .collect())
 }

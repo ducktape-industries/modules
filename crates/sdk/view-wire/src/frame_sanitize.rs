@@ -3,7 +3,7 @@ use crate::*;
 /// The most bytes one encoded frame may be: a host refuses a longer one
 /// before decoding it, and no raster payload may claim more.
 pub const MAX_FRAME_BYTES: usize = 8 << 20;
-/// A tree deeper than this is cut off: a guest cannot make the host's
+/// A tree deeper than this is cut off: a view cannot make the host's
 /// layout recurse without bound.
 pub const MAX_DEPTH: usize = 64;
 /// More nodes than this and the host stops reading: the widget tree of a
@@ -19,10 +19,10 @@ pub const MAX_STRING_BYTES: usize = 64 << 10;
 ///
 /// The per-string and per-node caps do not bound this: 128 strings of
 /// [`MAX_STRING_BYTES`] are a legal 8 MiB frame, and the host reshapes all
-/// of it on the window thread every time the guest changes a character.
+/// of it on the window thread every time the view changes a character.
 /// Measured on a desk machine, that frame took 6.2 s and allocated 3.3 GiB;
 /// held to one full-length string's worth of text it takes 69 ms and 26 MiB.
-/// A screen shows a couple of kilobytes, so this leaves a guest that means
+/// A screen shows a couple of kilobytes, so this leaves a view that means
 /// well thirty times what it needs while taking two orders of magnitude off
 /// what a hostile one can spend.
 ///
@@ -34,7 +34,7 @@ pub const MAX_TEXT_BYTES_PER_FRAME: usize = MAX_STRING_BYTES;
 /// The most picture bytes one frame may carry in total, over every
 /// [`Node::Svg`] or [`Node::Image`] that brings its payload. A picture that does not fit in
 /// what is left is dropped whole, not cut: half an SVG is not an SVG, and
-/// the host draws an unknown hash as empty space. A guest sends each
+/// the host draws an unknown hash as empty space. A view sends each
 /// picture once, so this bounds what a frame can make the host parse, not
 /// what an app can show over its life; an icon is a few kilobytes.
 pub const MAX_PICTURE_BYTES_PER_FRAME: usize = 1 << 20;
@@ -56,7 +56,7 @@ pub const MAX_TEXT_PIXELS: f32 = 512.0;
 /// [`MAX_PICTURE_BYTES_PER_FRAME`] in total, text sizes to [`MAX_TEXT_PIXELS`],
 /// every other size, colour and spacing clamped to a finite range, and typed
 /// identity collisions refused ([`crate::identity`]). A frame from a
-/// well-behaved guest passes through unchanged. It answers what it cut and
+/// well-behaved view passes through unchanged. It answers what it cut and
 /// where ([`SanitizeReport`]); a clamp is no cut.
 ///
 /// The frame's style entries go into `styles`, the table the host holds

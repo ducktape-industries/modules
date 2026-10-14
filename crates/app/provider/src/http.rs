@@ -1,7 +1,7 @@
-//! The request and answer every HTTP service speaks: a module puts the head in a
+//! The request and answer every HTTP service speaks: a program puts the head in a
 //! request's input and the body in its parts; the provider answers with a [`Response`].
+use ::program::{Error, invalid};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{Error, invalid};
 
 pub const MAX_PATH_BYTES: usize = 2048;
 pub const MAX_HEADERS: usize = 64;

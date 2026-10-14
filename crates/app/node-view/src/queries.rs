@@ -1,13 +1,13 @@
 //! Typed reads of valset, folded into one row per key; who operates each
-//! node, as identity says; and what the vote needs of the registry, with
+//! node, as identity says; and what the vote needs of the programs role, with
 //! the names of the accounts it shows.
 use std::collections::BTreeMap;
 
-use ducktape_view_guest::prelude::*;
 use identity::Kind;
-use module_registry::Entry;
+use programs::Entry;
 use serde::{Deserialize, Serialize};
 use valset::{Membership, Motion, PageRequest, Pending, Role, ask};
+use view::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Node {
@@ -116,11 +116,11 @@ pub(crate) struct Motions {
 /// is left out, and reads as `account N`.
 pub(crate) type Names = BTreeMap<u64, String>;
 
-/// The registry's changes still waiting, by height, and the name of each
+/// The programs role's changes still waiting, by height, and the name of each
 /// account whose grant made one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Schedule {
-    pub(crate) changes: Vec<module_registry::Pending>,
+    pub(crate) changes: Vec<programs::Pending>,
     pub(crate) names: Names,
 }
 
@@ -157,10 +157,8 @@ pub(crate) async fn motions(host: Host) -> Result<Motions, Error> {
         .items
         .iter()
         .filter_map(|pending| match &pending.motion {
-            Motion::Registry { op } => match abi::decode(op) {
-                Ok(module_registry::Op::Grant(grant) | module_registry::Op::Revoke(grant)) => {
-                    Some(grant.account)
-                }
+            Motion::Programs { op } => match abi::decode(op) {
+                Ok(programs::Op::Grant(grant) | programs::Op::Revoke(grant)) => Some(grant.account),
                 _ => None,
             },
             _ => None,
@@ -173,20 +171,18 @@ pub(crate) async fn motions(host: Host) -> Result<Motions, Error> {
     })
 }
 
-/// The programs the registry runs now, each with its code and params.
+/// The programs the programs role runs now, each with its code and params.
 pub(crate) async fn roster(host: Host) -> Result<Vec<Entry>, Error> {
     let (height, _) = host
-        .query(module_registry::ask::Program(
-            module_registry::MODULE.into(),
-        ))
+        .query(programs::ask::Program(programs::PROGRAM.into()))
         .await?;
-    host.query(module_registry::ask::At(height)).await
+    host.query(programs::ask::At(height)).await
 }
 
-/// Every change the registry holds scheduled, by height, and who made it.
+/// Every change the programs role holds scheduled, by height, and who made it.
 pub(crate) async fn scheduled(host: Host) -> Result<Schedule, Error> {
-    let changes: Vec<module_registry::Pending> = host
-        .query_all(|after| module_registry::ask::Scheduled {
+    let changes: Vec<programs::Pending> = host
+        .query_all(|after| programs::ask::Scheduled {
             page: PageRequest { after, limit: None },
         })
         .await?;

@@ -13,7 +13,7 @@ fn founding_requires_bounds_and_ops_require_a_signer() {
         repo: "r".into(),
         hash: HashKind::Sha1,
     };
-    for origin in [Origin::Root, Origin::Module("chat".into())] {
+    for origin in [Origin::Root, Origin::Program("chat".into())] {
         let refusal = sandbox
             .forge
             .refused(|| sandbox.frame(origin, 1, TIME, &create));
@@ -449,7 +449,7 @@ fn a_log_exclude_spends_its_own_walk_budget() {
     assert_eq!(oids, [story.feature, story.root]);
 }
 
-fn stage(sandbox: &MemorySandbox, actor: &[u8], pack: Vec<u8>) -> Result<Vec<u8>, guest::Error> {
+fn stage(sandbox: &MemorySandbox, actor: &[u8], pack: Vec<u8>) -> Result<Vec<u8>, program::Error> {
     with_pack(sandbox, &pack, |pack| {
         let op = Op::Stage {
             repo: "project".into(),
@@ -514,7 +514,7 @@ fn a_push_and_a_stage_read_their_pack_only_from_what_their_frame_attaches() {
         pack,
     };
 
-    let unattached = guest::blob_id(HashKind::Sha256, forge::PACK_KIND, &pack).unwrap();
+    let unattached = program::blob_id(HashKind::Sha256, forge::PACK_KIND, &pack).unwrap();
     let missing = push_with(push_request(&commands), Some(unattached));
     assert_eq!(refused(&sandbox, OWNER, &missing).code, code::NOT_FOUND);
     let missing = Op::Stage {

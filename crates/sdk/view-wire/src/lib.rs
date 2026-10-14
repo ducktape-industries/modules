@@ -1,28 +1,28 @@
 //! The wire between a host and a view running in wasm.
 //!
-//! The guest ships a WIDGET TREE, not a picture: every tick it returns the
+//! The view ships a WIDGET TREE, not a picture: every tick it returns the
 //! [`Node`] its view built, with every value in it (text, colours, sizes),
 //! and the host's own toolkit does layout, render, fonts, IME, clipboard and
-//! scroll. The guest never learns where anything landed, which is the point:
+//! scroll. The view never learns where anything landed, which is the point:
 //! there is nothing in it to draw with.
 //!
 //! A style crosses once. A node names its style by [`StyleId`], an entry of
-//! the table its tree crosses with ([`Frame::styles`]): the guest's
+//! the table its tree crosses with ([`Frame::styles`]): the view's
 //! [`Interner`] numbers each distinct style, and the host's [`Styles`] is
 //! the table of the tree it holds, which it reads at render.
 //!
 //! Interaction goes back as MEANING, not input. An element's
 //! [`Interactivity`] carries, per listener (`on_click`, `on_mouse_down`,
-//! `on_key_down`, ...), the index of the handler the guest registered this
+//! `on_key_down`, ...), the index of the handler the view registered this
 //! frame; the host sends [`Event::Click`], [`Event::MouseDown`],
-//! [`Event::KeyDown`] and the rest with that index and the guest runs its
+//! [`Event::KeyDown`] and the rest with that index and the view runs its
 //! own handler. A text field ([`Node::Field`]) is the host engine's: it
-//! sends [`Event::Text`] with the whole text it now holds, and the guest
+//! sends [`Event::Text`] with the whole text it now holds, and the view
 //! asks for an edit with [`WidgetCommand::Replace`]. A rich text's
 //! clickable ranges answer with [`Event::Select`] and the index of the
 //! range clicked.
 //!
-//! The types here are the one definition of the format: the guest serializes
+//! The types here are the one definition of the format: the view serializes
 //! them and the host deserializes the same code, so a field neither side can
 //! drop silently. No name crosses: a struct is its fields in order, a
 //! variant its index, and a struct that mostly says nothing the fields it

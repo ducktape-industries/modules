@@ -1,4 +1,4 @@
-//! Static metadata for a ducktape view. Parsing never instantiates or runs a guest.
+//! Static metadata for a ducktape view. Parsing never instantiates or runs a view.
 
 use crate::methods::Capability;
 
@@ -28,8 +28,8 @@ pub struct Manifest {
     /// The view's `MIN_WINDOW_WIDTH`: the narrowest it is laid out, in
     /// logical px, `1..=8192`.
     pub min_width: u32,
-    /// The programs the view may address with `op.submit`, `module.query`
-    /// and `module.changes`; a view with the `op` or `module` capability
+    /// The programs the view may address with `op.submit`, `program.query`
+    /// and `program.changes`; a view with the `op` or `program` capability
     /// names at least one.
     pub targets: Vec<String>,
     /// The view's `ICON`: what the host draws where it shows the view
@@ -52,11 +52,11 @@ const MAX_TARGETS: usize = 16;
 const MAX_ICON_BYTES: usize = 64;
 
 /// Whether a view declaring `capabilities` must name targets: it may
-/// address a program only through `op` or `module`.
+/// address a program only through `op` or `program`.
 pub const fn needs_targets(capabilities: &[Capability]) -> bool {
     let mut i = 0;
     while i < capabilities.len() {
-        if matches!(capabilities[i], Capability::Op | Capability::Module) {
+        if matches!(capabilities[i], Capability::Op | Capability::Program) {
             return true;
         }
         i += 1;
@@ -120,7 +120,7 @@ impl Manifest {
     /// Parses the strict eight-line ([`LINES`]) `ducktape.view.manifest`
     /// text and its bounds. A capability this host does not know refuses
     /// the whole manifest: a grant is never silently narrowed; so does a
-    /// view that could address a program (`op`, `module`) and names no
+    /// view that could address a program (`op`, `program`) and names no
     /// target, and an icon that is not an asset path ([`is_icon`]).
     pub fn parse(text: &str) -> Option<Self> {
         if text.len() > 1024 || text.chars().any(|c| c.is_control() && c != '\n') {
@@ -292,7 +292,7 @@ mod tests {
     }
 
     // Claim: line 7 names the programs the view may address, in the list
-    // grammar of line 4; a view that could address one (`op`, `module`)
+    // grammar of line 4; a view that could address one (`op`, `program`)
     // and names none is refused, so no view signs for "any program".
     #[test]
     fn a_manifest_names_its_targets_when_it_can_address_a_program() {
@@ -302,10 +302,10 @@ mod tests {
             ))
         };
         assert_eq!(
-            parse("op,module,", "chat,identity,").unwrap().targets,
+            parse("op,program,", "chat,identity,").unwrap().targets,
             ["chat", "identity"]
         );
-        assert_eq!(parse("module,", "a-b_c9,").unwrap().targets, ["a-b_c9"]);
+        assert_eq!(parse("program,", "a-b_c9,").unwrap().targets, ["a-b_c9"]);
         assert!(parse("clock,", "").unwrap().targets.is_empty());
         assert!(
             parse("", "chat,").is_some(),
@@ -313,7 +313,7 @@ mod tests {
         );
         for (caps, targets) in [
             ("op,", ""),       // could submit, names no program
-            ("module,", ""),   // could query, names no program
+            ("program,", ""),  // could query, names no program
             ("op,", "chat"),   // no trailing comma
             ("op,", "chat,,"), // an empty name
             ("op,", "a/b,"),   // not a program name

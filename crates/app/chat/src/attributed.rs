@@ -2,8 +2,8 @@
 //! mentions, and in a direct message the counterpart it is written to.
 use std::collections::BTreeSet;
 
+use ::program::{ExecCtx, Reply};
 use attribution::{Actor, Object, Reason, Relation, Update};
-use guest::{ExecCtx, Reply};
 
 use crate::{AccountNumber, Block, Mark, MsgRow, Principal, dm_peers};
 
@@ -72,7 +72,7 @@ pub(crate) fn report(ctx: &ExecCtx, sender: &Principal, old: Option<&MsgRow>, ro
         transfers: Vec::new(),
     };
     ctx.emit(
-        attribution::MODULE,
+        attribution::PROGRAM,
         &attribution::Op::Attribute(update),
         Reply::Wanted,
     );

@@ -5,7 +5,7 @@
 # `WASM_RUSTFLAGS` in the Makefile for why a Mac and a Linux box differ).
 #
 # `targets`: wasm32-unknown-unknown, the only triple anything here is built
-# for. No WASI guest exists, so no wasm32-wasip1.
+# for. No WASI program exists, so no wasm32-wasip1.
 [toolchain]
 channel = "1.96.1"
 components = ["rustfmt", "clippy"]

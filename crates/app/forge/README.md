@@ -31,11 +31,11 @@ only.
   positions. A stale draft may be submitted against its original pin.
 - All UI lists take `cursor` and `limit`; all UI replies, including refusals,
   carry the answering `height`. No unbounded nested review history is returned.
-- Chat's colon namespace is reserved to its exact module prefix (or Root).
+- Chat's colon namespace is reserved to its exact program prefix (or Root).
   External keys/accounts cannot create these channels or reserve system-message
   IDs. Hide colon channels in the view's rail/search; they are not private rooms.
 - Forge's messages to chat act as forge's own account (the identity role's
-  `OfModule`), which the kernel registered as it admitted forge.
+  `OfProgram`), which the kernel registered as it admitted forge.
 
 ## Common types and pagination
 
@@ -188,7 +188,7 @@ A merge requires a nonzero result that advances the target, correct endpoint
 hash kinds, writer authority and matching current heads. It does not validate
 ancestry or possession of the client result; the writer is responsible for
 publishing it first (e.g. push a prepared result ref). `change: None` changes only
-the target ref. The prior message-only guest-computed merge operation is removed.
+the target ref. The prior message-only program-computed merge operation is removed.
 
 Review OIDs and anchors receive syntactic validation, not object reads in
 consensus. Paths must be relative, lines positive, bodies nonblank, and anchors
@@ -245,8 +245,8 @@ requests and Git protocol failures use the ABI refusal path.
 
 The current kernel revision `5d1d1f61d89960164cab919dfbb16a1d8cdb3b36` distinguishes
 unrostered blobs (`None`) from rostered blobs absent locally (`BlobUnavailable`).
-The latter is a host error before the guest receives a usable reply: `BlobStat`
-is not a local-availability probe either. The guest therefore returns
+The latter is a host error before the program receives a usable reply: `BlobStat`
+is not a local-availability probe either. The program therefore returns
 `object_not_held` on every observable missing-object result, with **no retry or
 wait loop in a query**, but cannot intercept the host's required-blob failure.
 Core/SDK must provide a query-local nonblocking blob read/stat, or convert
@@ -256,7 +256,7 @@ into refusals. This limitation is not proven away by the in-process smoke in qa.
 Likewise, `send` commits an outbox item, not the receiver's execution. The guarded
 chat namespace and validated payloads prevent ordinary delivery refusals, but
 chat must be seated as `chat` and forge as `forge`. Truly simultaneous record+
-channel creation would require a host transaction spanning both modules; this
+channel creation would require a host transaction spanning both programs; this
 version proves atomic record+queue and next-block delivery, including restart.
 
 ## View and SDK handoff
@@ -279,7 +279,7 @@ version proves atomic record+queue and next-block delivery, including restart.
   last-reviewed filtering in view state. Do not silently retarget draft anchors.
 - Deploy the matching chat adapter: it exposes `MessageById` and `ThreadAttention`
   and answers attention by account. Screenshots and live app walks are outside
-  this module task.
+  this program task.
 
-See [the fixture manifest](fixtures/FIXTURES.md) for the module's real
+See [the fixture manifest](fixtures/FIXTURES.md) for the program's real
 response bytes and the regeneration command.

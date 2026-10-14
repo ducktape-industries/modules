@@ -1,7 +1,7 @@
 //! Thread and channel-details panes.
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use view::prelude::*;
+use view::{Div, Stateful};
 
 use super::timeline;
 use crate::Chat;
@@ -36,7 +36,7 @@ pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Di
                         .id("chat-thread-title")
                         .flex_1()
                         .text_size(design::text::SECTION)
-                        .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+                        .font_weight(view::FontWeight::SEMIBOLD)
                         .role(Role::Heading)
                         .aria_level(2)
                         .child("Thread"),
@@ -134,7 +134,7 @@ fn details_header(title: &'static str, cx: &mut Context<Chat>, theme: &Theme) ->
                 .id("chat-details-title")
                 .flex_1()
                 .text_size(design::text::SECTION)
-                .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+                .font_weight(view::FontWeight::SEMIBOLD)
                 .role(Role::Heading)
                 .aria_level(2)
                 .child(title),

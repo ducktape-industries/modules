@@ -2,11 +2,11 @@
 // enacts, the last validator kept seated, and no more members than the cap the network was
 // founded with.
 
-use abi::role::identity::{self, Kind, Standing};
-use guest::{
+use ::program::{
     AccountNumber, Error, ExecCtx, Principal, QueryCtx, Reply, Scheme, capacity, code, corrupt,
     invalid, not_found, unauthorized, unexpected_reply, wrong_state,
 };
+use abi::role::identity::{self, Kind, Standing};
 use store::{Item, Map, PageRequest, Set};
 
 use crate::{Genesis, INVITE_NAMESPACE, Invite, Membership, Motion, Op, Pending, Role, Voted};
@@ -235,7 +235,7 @@ pub(crate) fn account_of(ctx: &QueryCtx, key: &[u8]) -> Result<Option<AccountNum
 }
 
 /// A page of the motions waiting for votes, each with its voters still
-/// seated, as [`vote`] tallies them. A registry op too late to land (what
+/// seated, as [`vote`] tallies them. A `programs` op too late to land (what
 /// [`timely`] refuses) is left out before the page is cut, so it takes no
 /// slot of the page; a vote can never clear it, since a refused frame
 /// writes nothing.
@@ -251,8 +251,8 @@ pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply
     for (record, mut voters) in VOTES.scan(ctx, scan)? {
         let motion: Motion =
             abi::decode(&record).map_err(|refusal| corrupt("votes/", &record, refusal.sentence))?;
-        if let Motion::Registry { op } = &motion
-            && registry_motion(ctx, op).is_err()
+        if let Motion::Programs { op } = &motion
+            && programs_motion(ctx, op).is_err()
         {
             continue;
         }
@@ -271,50 +271,55 @@ fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
         Motion::Demote { key } => demotable(ctx, key),
         Motion::Remove { key } => removable(ctx, key),
         Motion::Door { open } => door_moves(ctx, *open),
-        Motion::Registry { op } => {
-            let op = registry_motion(ctx, op)?;
+        Motion::Programs { op } => {
+            let op = programs_motion(ctx, op)?;
             grantable(ctx, &op)
         }
     }
 }
 
-fn registry_motion(ctx: &QueryCtx, op: &[u8]) -> Result<module_registry::Op, Error> {
-    let op = registry_op(op)?;
+fn programs_motion(ctx: &QueryCtx, op: &[u8]) -> Result<programs::Op, Error> {
+    let op = programs_op(op)?;
     votable(&op)?;
     timely(ctx, &op)?;
     Ok(op)
 }
 
-fn votable(op: &module_registry::Op) -> Result<(), Error> {
+fn votable(op: &programs::Op) -> Result<(), Error> {
     match op {
-        module_registry::Op::Publish { .. } => Err(invalid(
+        programs::Op::Publish { .. } => Err(invalid(
             "a publish is a frame of its own that attaches the code: the vote schedules published code by its id",
         )),
-        module_registry::Op::Schedule(_)
-        | module_registry::Op::Cancel { .. }
-        | module_registry::Op::Grant(_)
-        | module_registry::Op::Revoke(_) => Ok(()),
+        programs::Op::Schedule(_)
+        | programs::Op::Cancel { .. }
+        | programs::Op::Grant(_)
+        | programs::Op::Revoke(_) => Ok(()),
     }
 }
 
-/// A registry motion's op, as the registry reads it.
-fn registry_op(op: &[u8]) -> Result<module_registry::Op, Error> {
-    abi::decode(op).map_err(|refusal| invalid(format!("not a registry op: {}", refusal.sentence)))
+/// A `Programs` motion's op, as the programs role reads it.
+fn programs_op(op: &[u8]) -> Result<programs::Op, Error> {
+    abi::decode(op).map_err(|refusal| {
+        invalid(format!(
+            "not an op of the programs role: {}",
+            refusal.sentence
+        ))
+    })
 }
 
-/// A registry motion's `Schedule` or `Cancel` names a later block than
-/// this one: a change lands at a later block (module-registry's
+/// A `Programs` motion's `Schedule` or `Cancel` names a later block than
+/// this one: a change lands at a later block (`programs`'s
 /// `schedule`), and one whose block has come has landed, so there is
 /// nothing left to cancel. Refused at the first vote: refused only at
 /// enactment, the vote that reached the quorum would fail inside the
-/// registry, and the motion would sit one vote short for good.
-fn timely(ctx: &QueryCtx, op: &module_registry::Op) -> Result<(), Error> {
+/// programs, and the motion would sit one vote short for good.
+fn timely(ctx: &QueryCtx, op: &programs::Op) -> Result<(), Error> {
     let at = match op {
-        module_registry::Op::Publish { .. }
-        | module_registry::Op::Grant(_)
-        | module_registry::Op::Revoke(_) => return Ok(()),
-        module_registry::Op::Schedule(scheduled) => scheduled.height,
-        module_registry::Op::Cancel { height, .. } => *height,
+        programs::Op::Publish { .. } | programs::Op::Grant(_) | programs::Op::Revoke(_) => {
+            return Ok(());
+        }
+        programs::Op::Schedule(scheduled) => scheduled.height,
+        programs::Op::Cancel { height, .. } => *height,
     };
     let height = ctx.env().height;
     if at <= height {
@@ -325,13 +330,13 @@ fn timely(ctx: &QueryCtx, op: &module_registry::Op) -> Result<(), Error> {
     Ok(())
 }
 
-/// A `Grant` the registry would refuse (`module_registry::grantable`: a
+/// A `Grant` the programs role would refuse (`programs::grantable`: a
 /// bad id, a role, no such account, a program's), refused at the first
 /// vote for `timely`'s reason. Asked here, not in `timely`, so reading the
 /// motions asks identity nothing: what it checks never changes once true.
-fn grantable(ctx: &QueryCtx, op: &module_registry::Op) -> Result<(), Error> {
+fn grantable(ctx: &QueryCtx, op: &programs::Op) -> Result<(), Error> {
     match op {
-        module_registry::Op::Grant(grant) => module_registry::grantable(ctx, grant),
+        programs::Op::Grant(grant) => programs::grantable(ctx, grant),
         _ => Ok(()),
     }
 }
@@ -348,8 +353,8 @@ fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
             DOOR.put(ctx, &open);
             Ok(())
         }
-        Motion::Registry { op } => {
-            ctx.emit_raw(ctx.env().roles.registry.clone(), op, Reply::None);
+        Motion::Programs { op } => {
+            ctx.emit_raw(ctx.env().roles.programs.clone(), op, Reply::None);
             Ok(())
         }
     }

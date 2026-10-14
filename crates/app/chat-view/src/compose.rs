@@ -4,7 +4,7 @@ use crate::composer::{Draft, Event, MentionChoice, Outcome, Send, Target, pendin
 use crate::names::mention_token;
 use crate::{Chat, Mode};
 use chat::MsgRow;
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 impl Chat {
     /// Who the composer offers after `@`: the roster, and the room's members.
@@ -30,7 +30,7 @@ impl Chat {
         &mut self,
         target: Target,
         event: Event,
-        window: &mut ducktape_view_guest::Window,
+        window: &mut view::Window,
         cx: &mut Context<Self>,
     ) {
         let choices = self.mention_choices();

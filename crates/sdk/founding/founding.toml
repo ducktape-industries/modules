@@ -5,7 +5,7 @@ block_time_ms = 1000
 hooks = ["activity"]
 
 [roles]
-registry = "module-registry"
+programs = "programs"
 validators = "valset"
 identity = "identity"
 
@@ -14,8 +14,8 @@ key = "KEY"                   # this node's key: `ducktape identity`
 address = "ADDRESS"           # where peers dial it: tcp://, tls://, ws:// or wss://; drop the line if none can
 
 [[programs]]
-id = "module-registry"
-code = "module_registry.wasm"
+id = "programs"
+code = "programs.wasm"
 
 [[programs]]
 id = "valset"

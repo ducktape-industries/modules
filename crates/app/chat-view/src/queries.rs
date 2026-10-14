@@ -1,8 +1,8 @@
-//! Typed reads of the chat module. Every list takes a `PageRequest` and answers a
+//! Typed reads of the chat program. Every list takes a `PageRequest` and answers a
 //! `PageResponse`; `next` is the cursor of the page after it.
 use chat::view::Names;
 use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::{PAGE, SPAN, WINDOW};
 
@@ -142,7 +142,7 @@ pub(crate) async fn thread(
 }
 
 /// A search: `#tag` pages through the tag index, anything else is a
-/// full-text search capped by the module. Returns the hits, whether the
+/// full-text search capped by the program. Returns the hits, whether the
 /// search was capped, and the cursor of the next tag page.
 pub(crate) async fn search_hits(
     host: Host,

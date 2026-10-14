@@ -3,16 +3,16 @@ name = "conformance"
 version.workspace = true
 edition.workspace = true
 
-# The role conformance suite: drives a module's native `guest::Module` over
+# The role conformance suite: drives a program's native `program::Program` over
 # `MockHost` with the role's own bytes. Native only (MockHost is), so a
-# module takes it as a dev-dependency.
+# program takes it as a dev-dependency.
 [dependencies]
 abi = { workspace = true }
 borsh = { workspace = true }
-guest = { workspace = true }
+program = { workspace = true }
 
-# The suite proven on the reference modules (tests/).
+# The suite proven on the reference programs (tests/).
 [dev-dependencies]
 identity = { workspace = true }
 valset = { workspace = true }
-module-registry = { workspace = true }
+programs = { workspace = true }

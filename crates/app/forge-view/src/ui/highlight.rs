@@ -2,9 +2,9 @@
 //! table (comments, strings, keywords), line by line, carrying only whether a
 //! block comment is still open. No grammar, no dependency: colour is a reading
 //! aid, not a parser, and a table per language is all it needs.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{FontStyle, FontWeight, HighlightStyle};
 use std::ops::Range;
+use view::prelude::*;
+use view::{FontStyle, FontWeight, HighlightStyle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Token {

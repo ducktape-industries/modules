@@ -1,28 +1,28 @@
-# modules — the wasm32 gates. Every wasm artifact is a build output under
+# programs — the wasm32 gates. Every wasm artifact is a build output under
 # $(BUILD_TARGET); none is committed.
 CARGO ?= cargo
 WASM_OPT ?= wasm-opt
 
-# What a program links: abi, program, guest and store build for wasm32 with nothing else.
-PROGRAM_LINKABLE := abi program guest store
+# What a program links: abi, program and store build for wasm32 with nothing else.
+PROGRAM_LINKABLE := abi program store
 
 # The ducktape checkout the probe fixture the founding suite seats is copied
 # from (crates/kernel/fixtures, `make kernel-fixtures` there). The probe
-# links the kernel's own `guest` to build for wasm32, which this workspace
+# links the kernel's own `program` to build for wasm32, which this workspace
 # never does; only its built bytes come over, as `probe-fixture` below.
 DUCKTAPE ?= ../core
 
-# Every program, system and app: root members whose program ABI (the guest
+# Every program, system and app: root members whose program ABI (the SDK
 # glue, the `alloc`/`call` exports, the `ducktape.*` imports) sits behind their
-# `module` feature. Their views link the same crates with the feature off
+# `program` feature. Their views link the same crates with the feature off
 # and name each program by its type (`Query<chat::Chat>`).
 # One cargo invocation per program: forge links chat and identity links
-# module-registry, and `-p a -p b --features module` in one call would unify
-# `module` into the other's link (two `alloc`/`call`).
-PROGRAMS := module-registry valset identity chat forge activity files provider attribution harness
+# programs, and `-p a -p b --features program` in one call would unify
+# `program` into the other's link (two `alloc`/`call`).
+PROGRAMS := programs valset identity chat forge activity files provider attribution harness
 
 # Views are wasm32 cdylibs. Chat and Forge ride their own programs;
-# Settings rides the registry. These are the views that ship: `wasm-views`
+# Settings rides the programs role. These are the views that ship: `wasm-views`
 # builds them and a genesis packs each into its program. `example-view`, the
 # view a new author reads first, is a workspace member (fmt, clippy and its
 # tests are the workspace's) and is kept out of this list on purpose: it
@@ -33,10 +33,10 @@ VIEWS := chat-view members-view node-view explorer-view settings-view forge-view
 # What a wasm32 view may link. A crate a view links must never reach the
 # signing/identity graph (blst does not build for wasm32, and a view has no
 # business holding keys). The system crates are here because the system views
-# read their contracts: module-registry's signing deps are dev-only, and `-e
-# normal` below is what says so. Every program crate is linked with `module`
+# read their contracts: `programs`'s signing deps are dev-only, and `-e
+# normal` below is what says so. Every program crate is linked with `program`
 # off, which is what a plain `-p` build below checks.
-VIEW_LINKABLE := ducklink program view-wire ducktape-view-guest design store module-registry valset identity settings-view chat forge activity files provider attribution harness
+VIEW_LINKABLE := ducklink program view-wire view design store programs valset identity settings-view chat forge activity files provider attribution harness
 VIEW_FORBIDDEN := blst commonware-cryptography wasm-bindgen js-sys web-sys
 
 # Cargo uses this directory for both workspaces.
@@ -64,20 +64,20 @@ WASM_CARGO := RUSTFLAGS="$(WASM_RUSTFLAGS)" $(CARGO) build --target wasm32-unkno
 WASM_BUILD := $(WASM_CARGO) --release
 
 # A workspace member with a cdylib crate type gets no metadata hash in its
-# output name, so `chat` built with `module` (the program, a root) and `chat`
+# output name, so `chat` built with `program` (the program, a root) and `chat`
 # built without it (a dependency of chat-view, or of forge's program) are one
 # unit to cargo's fingerprint and rebuild each other on every invocation.
 # Each program therefore builds in its own target dir, where its crate only
-# ever appears with `module` on, and its artifact is copied into $(RELEASE)
+# ever appears with `program` on, and its artifact is copied into $(RELEASE)
 # beside the views (which build in $(BUILD_TARGET) itself: every view links
-# the program crates with `module` off, one unit).
+# the program crates with `program` off, one unit).
 PROGRAM_TARGET = $(BUILD_TARGET)/programs/$1
 program_artifact = $(call PROGRAM_TARGET,$1)/wasm32-unknown-unknown/release/$(subst -,_,$1).wasm
-program_build = $(WASM_BUILD) --target-dir $(call PROGRAM_TARGET,$1) -p $1 --features module
+program_build = $(WASM_BUILD) --target-dir $(call PROGRAM_TARGET,$1) -p $1 --features program
 export CARGO BUILD_TARGET RELEASE WASM_BUILD WASM_OPT
 
-.PHONY: dev wasm-why new-module new-view scaffold-check
-.PHONY: module-wasm-check wasm-programs probe-fixture wasm-views view-wasm-check test
+.PHONY: dev wasm-why new-program new-view scaffold-check
+.PHONY: program-wasm-check wasm-programs probe-fixture wasm-views view-wasm-check test
 
 # `make dev P=forge` / `V=forge-view` narrow the loop to one artifact.
 DEV_PROGRAMS = $(if $(or $P,$V),$P,$(PROGRAMS))
@@ -102,29 +102,29 @@ wasm-why:
 
 ## scaffolds crates/app/NAME in valset's shape and registers it (PROGRAMS,
 ## workspace members and dependencies); `make dev P=NAME` must pass on it.
-new-module:
-	@test -n "$(NAME)" || { echo "usage: make new-module NAME=<module>"; exit 1; }
-	@tools/scaffold.sh module $(NAME)
+new-program:
+	@test -n "$(NAME)" || { echo "usage: make new-program NAME=<program>"; exit 1; }
+	@tools/scaffold.sh program $(NAME)
 
-## scaffolds crates/app/NAME (NAME ends in -view) over the module it names,
+## scaffolds crates/app/NAME (NAME ends in -view) over the program it names,
 ## in members-view's shape, and registers it (VIEWS, workspace members).
 new-view:
-	@test -n "$(NAME)" || { echo "usage: make new-view NAME=<module>-view"; exit 1; }
+	@test -n "$(NAME)" || { echo "usage: make new-view NAME=<program>-view"; exit 1; }
 	@tools/scaffold.sh view $(NAME)
 
-## new-module and new-view in a throwaway worktree, then `make dev` and the
+## new-program and new-view in a throwaway worktree, then `make dev` and the
 ## describe build over what they wrote (tools/scaffold-check.sh).
 scaffold-check:
 	@tools/scaffold-check.sh
 
-## builds abi, program, guest and store for wasm32-unknown-unknown.
-module-wasm-check:
+## builds abi, program and store for wasm32-unknown-unknown.
+program-wasm-check:
 	@for crate in $(PROGRAM_LINKABLE); do \
 	  $(CARGO) build --target wasm32-unknown-unknown -p $$crate || exit 1; \
 	done; \
-	echo "abi, program, guest and store build for wasm32"
+	echo "abi, program and store build for wasm32"
 
-## builds every program (with `module` on) into $(RELEASE)/<name>.wasm. The
+## builds every program (with `program` on) into $(RELEASE)/<name>.wasm. The
 ## founding suite reads the boot set from there.
 wasm-programs:
 	@mkdir -p $(RELEASE)
@@ -178,7 +178,7 @@ wasm-reproducible:
 ## mirrored by hand next to the binary in system.rs: check it against
 ## $(DUCKTAPE)/crates/kernel/fixtures/probe/src/lib.rs too.
 probe-fixture:
-	cp $(DUCKTAPE)/crates/kernel/fixtures/wasm/fixture_probe.wasm crates/system/module-registry/tests/
+	cp $(DUCKTAPE)/crates/kernel/fixtures/wasm/fixture_probe.wasm crates/system/programs/tests/
 
 ## builds every view for wasm32 under $(RELEASE)/, optimized (the bytes
 ## before wasm-opt stay beside it as <name>.wasm.unoptimized), ABI-checked
@@ -187,13 +187,13 @@ wasm-views:
 	@$(foreach v,$(VIEWS),$(WASM_BUILD) --target-dir $(BUILD_TARGET) -p $(v) && tools/view-gate.sh $(v) $(RELEASE)/$(subst -,_,$(v)).wasm || exit 1;)
 
 ## builds every VIEW_LINKABLE crate for wasm32-unknown-unknown, plus the
-## exported view probe of ducktape-view-guest and the example view, then fails
+## exported view probe of view and the example view, then fails
 ## if the normal wasm32 dependency tree of any of them names a VIEW_FORBIDDEN crate.
 view-wasm-check:
 	@for crate in $(VIEW_LINKABLE); do \
 	  $(CARGO) build --target wasm32-unknown-unknown -p $$crate || exit 1; \
 	done; \
-	$(CARGO) build --target wasm32-unknown-unknown -p ducktape-view-guest --example exported_view || exit 1; \
+	$(CARGO) build --target wasm32-unknown-unknown -p view --example exported_view || exit 1; \
 	$(CARGO) build --target wasm32-unknown-unknown -p example-view || exit 1; \
 	reached=""; \
 	for crate in $(VIEW_LINKABLE); do \

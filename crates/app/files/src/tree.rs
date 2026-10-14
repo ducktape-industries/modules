@@ -2,7 +2,9 @@
 //! directories on a touched path are opened, and only those are written back.
 use std::collections::BTreeMap;
 
-use guest::{BlobId, Error, ExecCtx, QueryCtx, already_exists, invalid, not_found, wrong_state};
+use ::program::{
+    BlobId, Error, ExecCtx, QueryCtx, already_exists, invalid, not_found, wrong_state,
+};
 
 use crate::Node;
 use crate::objects::{put_tree, tree};
@@ -112,7 +114,7 @@ impl TreeEdit {
                 let entries = crate::objects::tree(ctx, &tree)?.entries.len() as u64;
                 Ok((tree, entries))
             }
-            Slot::Kept(other) => Err(guest::corrupt(
+            Slot::Kept(other) => Err(::program::corrupt(
                 crate::TREE,
                 &[],
                 format!("the root is a {}", other.kind()),

@@ -7,7 +7,7 @@ case "$("$optimizer" --version)" in
     *) echo "View builds require Binaryen wasm-opt 132" >&2; exit 1 ;;
 esac
 # Cargo can report Fresh after this script replaces its output. Reuse that
-# optimized result instead of optimizing an already optimized module again.
+# optimized result instead of optimizing an already optimized program again.
 if [ -f "$1.optimized" ] && [ "$1.optimized" -nt "$0" ] && cmp -s "$1" "$1.optimized"; then
     exit 0
 fi

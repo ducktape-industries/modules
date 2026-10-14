@@ -7,7 +7,7 @@ fn an_op_reads_as_its_program_describes_it_through_the_host() {
     assert!(cx.has_text("Post in #design"), "{:?}", cx.texts());
     // one the host could not describe reads as its bytes
     assert!(cx.has_text("mystery · 4 bytes"), "{:?}", cx.texts());
-    let asked = cx.host().requests::<ModuleDescribe>();
+    let asked = cx.host().requests::<ProgramDescribe>();
     assert!(asked.contains(&("mystery".to_owned(), vec![1, 2, 3, 4])));
 
     // a dm post: its title, the two accounts by name and link

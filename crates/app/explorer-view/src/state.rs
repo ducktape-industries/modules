@@ -1,9 +1,8 @@
 //! The state Explorer keeps: where it is, and what it read. Rows are the
 //! programs' own types, worded only when drawn (`ui/`).
-use ducktape_view_guest::borsh_bytes;
-use ducktape_view_guest::prelude::*;
-use module_registry as registry;
 use serde::{Deserialize, Serialize};
+use view::borsh_bytes;
+use view::prelude::*;
 
 use crate::acting::Acting;
 use crate::chain::{BlockRow, Chain, TxRow};
@@ -97,23 +96,23 @@ pub struct Acted {
     pub rows: Vec<TxRow>,
 }
 
-/// What the registry runs, lists and will change, and who may change it,
+/// What the programs role runs, lists and will change, and who may change it,
 /// as it answers them at its own height.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Network {
     #[serde(with = "borsh_bytes")]
-    pub programs: Vec<registry::Entry>,
+    pub programs: Vec<programs::Entry>,
     /// the view-only entries: a name and its view's code, no program behind it
     #[serde(with = "borsh_bytes")]
-    pub views: Vec<registry::View>,
-    /// what the registry will change after the height it answered, by
+    pub views: Vec<programs::View>,
+    /// what the programs role will change after the height it answered, by
     /// height, and whose grant made each (`None`: the vote)
     #[serde(with = "borsh_bytes")]
-    pub changes: Vec<registry::Pending>,
+    pub changes: Vec<programs::Pending>,
     /// the programs the kernel tells of every frame
     pub hooks: Vec<String>,
     #[serde(with = "borsh_bytes")]
-    pub grants: Vec<registry::Grant>,
+    pub grants: Vec<programs::Grant>,
     /// the programs bound to the roles the kernel calls
     #[serde(with = "borsh_bytes")]
     pub roles: Option<abi::Roles>,
@@ -221,8 +220,8 @@ impl Explorer {
         this_account.then_some(acted.rows.as_slice())
     }
 
-    /// Whether the registry runs `program`.
-    pub(crate) fn runs(&self, program: &str) -> Option<&registry::Entry> {
+    /// Whether the programs role runs `program`.
+    pub(crate) fn runs(&self, program: &str) -> Option<&programs::Entry> {
         self.network
             .ready()?
             .programs

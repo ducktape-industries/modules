@@ -4,9 +4,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use ducktape_view_guest::Paged;
-use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
+use view::Paged;
+use view::prelude::*;
 
 use forge::{CommitInfo, LineComment, Query, Reply, Revision, Side, Verdict};
 

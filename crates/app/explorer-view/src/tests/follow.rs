@@ -1,6 +1,6 @@
 use super::*;
 
-/// A module's account comes from the kernel's `RegisterModule`, which no
+/// A program's account comes from the kernel's `RegisterProgram`, which no
 /// transaction targets: identity's own live heads, not the window's
 /// transactions, re-read the accounts.
 #[test]
@@ -12,13 +12,13 @@ fn an_identity_head_re_reads_the_accounts() {
     cx.run_until_parked();
     cx.simulate_click("explorer-tab-accounts");
     cx.run_until_parked();
-    assert!(!cx.has_text("Module · chess"));
+    assert!(!cx.has_text("Program · chess"));
     let asked = cx.host().requests::<Query<Identity>>().len();
     let chess = account(
         8,
         "chess",
-        identity::Control::Module {
-            module: "chess".into(),
+        identity::Control::Program {
+            program: "chess".into(),
         },
     );
     cx.host().handle::<Query<Identity>>(move |_| {
@@ -28,21 +28,21 @@ fn an_identity_head_re_reads_the_accounts() {
             next: None,
         }))
     });
-    heads.send(Some(ducktape_view_guest::methods::Change {
+    heads.send(Some(view::methods::Change {
         height: 13,
         keys: Vec::new(),
     }));
     cx.run_until_parked();
-    assert!(cx.has_text("Module · chess"), "{:?}", cx.texts());
+    assert!(cx.has_text("Program · chess"), "{:?}", cx.texts());
     assert!(cx.has_text("Agent · managed by Ada · suspended"), "kept");
     assert_eq!(cx.host().requests::<Query<Identity>>().len(), asked + 1);
 }
 
 #[test]
-fn a_registry_head_re_reads_the_programs() {
+fn a_programs_head_re_reads_the_programs() {
     let mut cx = TestAppContext::new();
     node(&mut cx, Rc::new(RefCell::new(12)));
-    let heads = cx.host().stream::<Changes<Modules>>();
+    let heads = cx.host().stream::<Changes<Programs>>();
     cx.open::<Explorer>();
     cx.run_until_parked();
     cx.simulate_click("explorer-tab-programs");
@@ -53,8 +53,8 @@ fn a_registry_head_re_reads_the_programs() {
         entry("identity", 0xcd),
         entry("chess", 0x11),
     ];
-    registry_with(&cx, programs, Vec::new(), Vec::new());
-    heads.send(Some(ducktape_view_guest::methods::Change {
+    programs_with(&cx, programs, Vec::new(), Vec::new());
+    heads.send(Some(view::methods::Change {
         height: 13,
         keys: Vec::new(),
     }));
@@ -64,72 +64,72 @@ fn a_registry_head_re_reads_the_programs() {
         "{:?}",
         cx.texts()
     );
-    assert!(cx.has_text("Nothing is scheduled against the registry."));
+    assert!(cx.has_text("Nothing is scheduled against the programs role."));
 }
 
-fn registry_env(height: u64, origin: guest::Origin) -> guest::Env {
-    guest::Env {
+fn programs_env(height: u64, origin: program::Origin) -> program::Env {
+    program::Env {
         height,
         origin,
         sender: None,
-        ..guest::MockHost::env(registry::MODULE)
+        ..program::MockHost::env(programs::PROGRAM)
     }
 }
 
-fn registry_swapping(program: &str, at: u64) -> (guest::MockHost, BlobId, BlobId) {
-    use guest::{MockHost, Module as _, Origin};
+fn programs_swapping(program: &str, at: u64) -> (program::MockHost, BlobId, BlobId) {
+    use program::{MockHost, Origin, Program as _};
     let store = MockHost::default();
-    let entry = |code| registry::Entry {
+    let entry = |code| programs::Entry {
         program: program.into(),
         code,
         params: Vec::new(),
     };
     let running = BlobId::Sha256([0xab; 32]);
-    let genesis = registry::Genesis {
+    let genesis = programs::Genesis {
         programs: vec![entry(running)],
         views: Vec::new(),
         hooks: Vec::new(),
     };
-    Modules::init(
-        &store.exec(registry_env(0, Origin::Root)),
+    Programs::init(
+        &store.exec(programs_env(0, Origin::Root)),
         &abi::encode(&genesis),
     )
     .unwrap();
-    let kind = registry::CODE_KIND;
-    let code = guest::blob_id(guest::HashKind::Sha256, kind, b"scheduled code").unwrap();
-    let blob = guest::Blob {
+    let kind = programs::CODE_KIND;
+    let code = program::blob_id(program::HashKind::Sha256, kind, b"scheduled code").unwrap();
+    let blob = program::Blob {
         kind: kind.into(),
         body: b"scheduled code".to_vec(),
     };
     store.borrow_mut().blobs.insert(code, blob);
-    let publish = registry::Op::Publish { code };
-    Modules::execute(
-        &store.exec(registry_env(1, Origin::Signed(ADA.to_vec()))),
+    let publish = programs::Op::Publish { code };
+    Programs::execute(
+        &store.exec(programs_env(1, Origin::Signed(ADA.to_vec()))),
         publish,
     )
     .unwrap();
     let scheduled: BlobId = abi::decode(&store.take_output()).unwrap();
-    let swap = registry::Op::Schedule(registry::Scheduled {
+    let swap = programs::Op::Schedule(programs::Scheduled {
         height: at,
-        change: registry::Change::Set(entry(scheduled)),
+        change: programs::Change::Set(entry(scheduled)),
     });
-    let validators = Origin::Module(MockHost::roles().validators);
-    Modules::execute(&store.exec(registry_env(1, validators)), swap).unwrap();
+    let validators = Origin::Program(MockHost::roles().validators);
+    Programs::execute(&store.exec(programs_env(1, validators)), swap).unwrap();
     (store, running, scheduled)
 }
 
 #[test]
 fn a_scheduled_swap_shows_once_a_head_reaches_its_height() {
-    use guest::Module as _;
+    use program::Program as _;
     let mut cx = TestAppContext::new();
     let tip = Rc::new(RefCell::new(12));
     node(&mut cx, tip.clone());
     let heads = cx.host().stream::<ChainHeads>();
-    let (store, running, scheduled) = registry_swapping("chat", 14);
+    let (store, running, scheduled) = programs_swapping("chat", 14);
     let asked_at = tip.clone();
-    cx.host().handle::<Query<Modules>>(move |query| {
-        let env = registry_env(*asked_at.borrow() + 1, guest::Origin::Root);
-        Ok(Modules::query(&store.query(env), query).unwrap())
+    cx.host().handle::<Query<Programs>>(move |query| {
+        let env = programs_env(*asked_at.borrow() + 1, program::Origin::Root);
+        Ok(Programs::query(&store.query(env), query).unwrap())
     });
     cx.open::<Explorer>();
     cx.run_until_parked();
@@ -159,12 +159,12 @@ fn a_scheduled_swap_shows_once_a_head_reaches_its_height() {
         "{:?}",
         cx.texts()
     );
-    assert!(cx.has_text("Nothing is scheduled against the registry."));
+    assert!(cx.has_text("Nothing is scheduled against the programs role."));
 }
 
-/// A change lands at its height with no op on the registry after it: no
-/// registry head comes, the chain's head reaching it reads the roster
-/// again, and the registry, which keeps the change in its schedule until
+/// A change lands at its height with no op on the programs role after it: no
+/// programs head comes, the chain's head reaching it reads the roster
+/// again, and the programs role, which keeps the change in its schedule until
 /// an op folds it, answers it as running.
 #[test]
 fn a_change_reached_by_the_head_is_running_not_scheduled() {
@@ -172,43 +172,43 @@ fn a_change_reached_by_the_head_is_running_not_scheduled() {
     let heads = cx.host().stream::<ChainHeads>();
     let tip = Rc::new(RefCell::new(12u64));
     node(&mut cx, tip.clone());
-    let chess = registry::Pending {
+    let chess = programs::Pending {
         height: 13,
-        change: registry::Change::Set(entry("chess", 0x11)),
+        change: programs::Change::Set(entry("chess", 0x11)),
         by: None,
     };
     let at = tip.clone();
-    cx.host().handle::<Query<Modules>>(move |query| {
+    cx.host().handle::<Query<Programs>>(move |query| {
         let height = *at.borrow();
         Ok(match query {
-            registry::Query::Roster => {
+            programs::Query::Roster => {
                 let mut programs = vec![entry("chat", 0xab), entry("identity", 0xcd)];
                 if height >= chess.height {
                     programs.push(entry("chess", 0x11));
                 }
-                registry::Reply::Roster {
+                programs::Reply::Roster {
                     height,
                     programs,
                     views: Vec::new(),
                 }
             }
-            registry::Query::Scheduled { .. } => {
-                registry::Reply::Scheduled(registry::PageResponse {
+            programs::Query::Scheduled { .. } => {
+                programs::Reply::Scheduled(programs::PageResponse {
                     height,
                     items: vec![chess.clone()],
                     next: None,
                 })
             }
-            registry::Query::Hooks(_) => registry::Reply::Hooks(Vec::new()),
-            registry::Query::Grants { .. } => registry::Reply::Grants(registry::PageResponse {
+            programs::Query::Hooks(_) => programs::Reply::Hooks(Vec::new()),
+            programs::Query::Grants { .. } => programs::Reply::Grants(programs::PageResponse {
                 height,
                 items: Vec::new(),
                 next: None,
             }),
-            registry::Query::Roles => registry::Reply::Roles(abi::Roles {
-                registry: registry::MODULE.into(),
-                validators: valset::MODULE.into(),
-                identity: identity::MODULE.into(),
+            programs::Query::Roles => programs::Reply::Roles(abi::Roles {
+                programs: programs::PROGRAM.into(),
+                validators: valset::PROGRAM.into(),
+                identity: identity::PROGRAM.into(),
             }),
             other => panic!("unexpected query: {other:?}"),
         })
@@ -230,14 +230,14 @@ fn a_change_reached_by_the_head_is_running_not_scheduled() {
         "{:?}",
         cx.texts()
     );
-    assert!(cx.has_text("Nothing is scheduled against the registry."));
+    assert!(cx.has_text("Nothing is scheduled against the programs role."));
 }
 
 #[test]
-fn an_empty_registry_says_so() {
+fn an_empty_programs_says_so() {
     let mut cx = TestAppContext::new();
     node(&mut cx, Rc::new(RefCell::new(12)));
-    registry_with(&cx, Vec::new(), Vec::new(), Vec::new());
+    programs_with(&cx, Vec::new(), Vec::new(), Vec::new());
     cx.open::<Explorer>();
     cx.run_until_parked();
     cx.simulate_click("explorer-tab-programs");
@@ -259,7 +259,7 @@ fn refused_accounts_say_why_and_retry_reads_again() {
     node(&mut cx, Rc::new(RefCell::new(12)));
     cx.simulate_click("explorer-retry");
     cx.run_until_parked();
-    assert!(cx.has_text("Module · forge"), "{:?}", cx.texts());
+    assert!(cx.has_text("Program · forge"), "{:?}", cx.texts());
 }
 
 /// A pushed head asks the node for the blocks since the top, so one new
@@ -358,7 +358,7 @@ fn an_accounts_activity_past_the_window_is_read_by_place_and_follows_the_index()
     assert_eq!(cx.host().requests::<ChainTx>(), [at(1), at(0)]);
     assert!(cx.host().requests::<ChainBlock>().is_empty());
     let asked = cx.host().requests::<Query<Activity>>().len();
-    heads.send(Some(ducktape_view_guest::methods::Change {
+    heads.send(Some(view::methods::Change {
         height: *tip.borrow() + 1,
         keys: Vec::new(),
     }));

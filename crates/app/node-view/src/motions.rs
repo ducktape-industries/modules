@@ -2,9 +2,9 @@
 //! enact asks first, what the last vote did, the motions that wait, and
 //! the scheduled changes and who made each. `render` reads the state and
 //! changes nothing; presses land in `voting.rs`.
-use ducktape_view_guest::design::Kind;
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use view::design::Kind;
+use view::prelude::*;
+use view::{Div, Stateful};
 
 use crate::voting;
 use crate::{Nodes, ui};
@@ -36,7 +36,7 @@ pub(crate) fn confirm(
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().font_weight(ducktape_view_guest::FontWeight::MEDIUM).child(view.voting.words(motion)))
+                    .child(div().font_weight(view::FontWeight::MEDIUM).child(view.voting.words(motion)))
                     .child(
                         div()
                             .text_size(design::text::SECONDARY)
@@ -82,7 +82,7 @@ pub(crate) fn outcome(
     )
 }
 
-/// The vote's sections under the table, and where a module is changed:
+/// The vote's sections under the table, and where a program is changed:
 /// nothing for a reader who does not vote.
 pub(crate) fn sections(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Option<Div> {
     if !view.voting.votes() {
@@ -98,7 +98,7 @@ pub(crate) fn sections(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> 
             .child(scheduled(view, cx, theme))
             .child(quiet(
                 "nodes-change-elsewhere",
-                "Change a module in Explorer, Programs.",
+                "Change a program in Explorer, Programs.",
                 theme,
             )),
     )
@@ -201,7 +201,7 @@ fn yours(cast: usize, voices: usize) -> String {
     }
 }
 
-/// The registry's changes still to land, each with who made it and, for
+/// The programs role's changes still to land, each with who made it and, for
 /// one a maintainer's grant made, how long the vote has to cancel it; and
 /// Propose cancel. One at or below the tip has landed and is not listed.
 /// Until the node's status is read, no wait is told.

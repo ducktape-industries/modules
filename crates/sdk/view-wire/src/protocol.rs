@@ -9,11 +9,11 @@ pub struct RichTextHover {
     pub modifiers: gpui::Modifiers,
 }
 
-/// Something the host tells the guest.
+/// Something the host tells the view.
 ///
-/// A `handler` (a `request` for a tooltip) is a route: the number the guest
+/// A `handler` (a `request` for a tooltip) is a route: the number the view
 /// gave a listener in the tree it sent. A route is the listener's authored
-/// identity, not its position in the frame: the guest hands a number out
+/// identity, not its position in the frame: the view hands a number out
 /// the first time it lowers that listener (the path of the element carrying
 /// it, what the listener is for, and which of that kind under that path) and
 /// keeps it while the element is lowered with it, so an event the host took
@@ -22,7 +22,7 @@ pub struct RichTextHover {
 /// route, and a freed route names nothing again.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Event {
-    /// The user activated the widget the guest gave this message route to
+    /// The user activated the widget the view gave this message route to
     /// (a button press, an input submit).
     Message(u32),
     /// A GPUI click, kept distinct from message routes and carrying its input data.
@@ -99,27 +99,27 @@ pub enum Event {
         handler: u32,
         event: click::Click,
     },
-    /// Native hover asked the guest to build a tooltip for the displayed frame.
+    /// Native hover asked the view to build a tooltip for the displayed frame.
     TooltipRequest {
         request: u32,
         /// Native InteractiveText byte index; ordinary tooltips use None.
         character_index: Option<u32>,
     },
     /// A field's text moved under the host's engine (typed, pasted, undone,
-    /// a guest `Replace` landed, a composition advanced): the whole text as
+    /// a view `Replace` landed, a composition advanced): the whole text as
     /// the host now holds it, at its `revision`.
     Text {
         handler: u32,
         change: TextChange,
     },
-    /// The host theme changed; the guest stores the corresponding `Theme` global.
+    /// The host theme changed; the view stores the corresponding `Theme` global.
     Theme {
         dark: bool,
     },
     /// The view's viewport: the body its root is laid out in, in logical
     /// pixels, as the host knows it before the frame is drawn. Delivered
     /// ahead of the first tick, on every change ahead of the draw that
-    /// shows it, and to a replacement before its first tree. The guest
+    /// shows it, and to a replacement before its first tree. The view
     /// reads it as `Window::viewport_size()`; a list sizes its first
     /// window from it.
     Viewport {
@@ -154,7 +154,7 @@ pub enum Event {
     ///
     /// Delivered after layout, like a DOM `ResizeObserver`: the host lays
     /// the tree out, the sensor reads its child's bounds, and the event
-    /// goes to the guest on the next tick. A guest whose answer changes the
+    /// goes to the view on the next tick. A view whose answer changes the
     /// tree so the child measures differently again is told again, one tick
     /// and one frame for each draw, for as long as it does: the host does
     /// not stop it.
@@ -182,9 +182,9 @@ pub enum Event {
         relative_y: f32,
     },
     /// The native uniform-list viewport shows rows `start..end` and needs
-    /// them on the next guest frame. The route fences a stale request from
+    /// them on the next view frame. The route fences a stale request from
     /// an older list instance. `item_height` is the row height the host
-    /// measured, in logical pixels: the guest sizes the list's window
+    /// measured, in logical pixels: the view sizes the list's window
     /// from it and its viewport.
     UniformListRange {
         path: Vec<ElementIdWire>,
@@ -218,7 +218,7 @@ pub enum Event {
         result: Result<Vec<u8>, Error>,
         done: bool,
     },
-    /// The host no longer holds the tree the guest is patching — a patch it
+    /// The host no longer holds the tree the view is patching — a patch it
     /// could not apply, a tree it dropped — and wants the next frame whole.
     Resync,
     /// An assistive-technology action request on the node that advertised
@@ -237,15 +237,15 @@ pub enum Event {
     },
 }
 
-/// Why a request failed, as the guest gets it: the one [`Error`] — a stable
-/// snake_case [`code`] to branch on and the refusing module's `message`,
-/// verbatim — so an error a module wrote and one the host wrote are the same
+/// Why a request failed, as the view gets it: the one [`Error`] — a stable
+/// snake_case [`code`] to branch on and the refusing program's `message`,
+/// verbatim — so an error a program wrote and one the host wrote are the same
 /// type end to end. `Display` writes `code: message`; a screen that wants the
 /// message alone reads it.
 pub use ::error::{Error, code};
 
-/// Something the guest asked the host for. The guest never blocks on it: a
-/// future (or stream) inside the guest waits for the matching
+/// Something the view asked the host for. The view never blocks on it: a
+/// future (or stream) inside the view waits for the matching
 /// [`Event::Response`]s, which the host delivers on its own schedule.
 ///
 /// `kind` is `<capability>.<operation>`; the host refuses a capability the
@@ -280,7 +280,7 @@ fn decode_cancels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u64>, D:
     crate::bounded_vec(d, MAX_CANCELS, "too many cancels")
 }
 
-/// What one tick of the guest produced.
+/// What one tick of the view produced.
 ///
 /// The tree crosses one of three ways: whole in `root`; not at all, with
 /// `unchanged` set; or as `patches` against the tree the host holds, with
@@ -303,18 +303,18 @@ pub struct Frame {
     /// and `unchanged` is clear. The host applies them with [`apply`].
     #[serde(deserialize_with = "decode_patches")]
     pub patches: Vec<Patch>,
-    /// What the guest asked for while producing this frame.
+    /// What the view asked for while producing this frame.
     #[serde(deserialize_with = "decode_requests")]
     pub requests: Vec<Request>,
-    /// Requests the guest stopped waiting on — a dropped future or stream.
+    /// Requests the view stopped waiting on — a dropped future or stream.
     /// The host frees whatever it kept for them and sends no more answers.
     #[serde(deserialize_with = "decode_cancels")]
     pub cancels: Vec<u64>,
-    /// `root` is `None` because the tree is the one the guest sent last:
+    /// `root` is `None` because the tree is the one the view sent last:
     /// the host keeps what it has instead of decoding it again. Requests and
     /// cancels still cross.
     pub unchanged: bool,
-    /// The guest ran out of tick budget with work still ready — a task that
+    /// The view ran out of tick budget with work still ready — a task that
     /// yields more than one tick runs, a handler chain longer than one
     /// round — and wants the next tick now, not at the next event or answer.
     pub busy: bool,

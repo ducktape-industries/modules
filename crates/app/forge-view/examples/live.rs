@@ -6,23 +6,23 @@
 //! binaries, a file too long to diff), and a past of 300 more: 60 open, 60
 //! closed and 180 merged into `dev`; `docs` is empty; `mine` is the
 //! reader's own.
-use ducktape_view_guest::live;
 use forge::{Op, Revision};
 use gitcore::wire::pktline;
 use gitcore::{
     Commit, Hash, Kind, MemoryObjects, Mode, Objects, Oid, Signature, Tree, TreeEntry, pack,
 };
+use view::live;
 
 fn main() {
     live::run("forge", |net| {
-        net.seat::<chat::Chat>(chat::MODULE);
-        net.seat::<forge::Forge>(forge::MODULE);
-        net.init(forge::MODULE, &founding::forge_bounds())?;
+        net.seat::<chat::Chat>(chat::PROGRAM);
+        net.seat::<forge::Forge>(forge::PROGRAM);
+        net.init(forge::PROGRAM, &founding::forge_bounds())?;
         let ada = net.person("ada");
         for repo in ["web", "docs"] {
             net.submit(
                 ada,
-                forge::MODULE,
+                forge::PROGRAM,
                 &Op::Create {
                     repo: repo.into(),
                     hash: abi::HashKind::Sha256,
@@ -30,7 +30,7 @@ fn main() {
             )?;
             net.submit(
                 ada,
-                forge::MODULE,
+                forge::PROGRAM,
                 &Op::Grant {
                     repo: repo.into(),
                     principal: forge::Principal::Account(net.me()),
@@ -41,7 +41,7 @@ fn main() {
         // tried: pushed the same history
         net.submit(
             net.me(),
-            forge::MODULE,
+            forge::PROGRAM,
             &Op::Create {
                 repo: "mine".into(),
                 hash: abi::HashKind::Sha256,
@@ -57,7 +57,7 @@ fn main() {
         for (who, repo) in [(net.me(), "mine"), (ada, "web")] {
             net.submit(
                 who,
-                forge::MODULE,
+                forge::PROGRAM,
                 &Op::Push {
                     repo: repo.into(),
                     request: request.clone(),
@@ -72,7 +72,7 @@ fn main() {
         ] {
             net.submit(
                 ada,
-                forge::MODULE,
+                forge::PROGRAM,
                 &Op::ChangeOpen {
                     repo: "web".into(),
                     from: Revision::Ref(format!("refs/heads/{from}").into_bytes()),
@@ -96,10 +96,10 @@ const PAST: usize = 300;
 /// its own, so `main` and the three changes above keep their diffs).
 fn past(
     net: &live::Network,
-    ada: guest::AccountNumber,
+    ada: program::AccountNumber,
     main: Oid,
     branches: &[(String, Oid)],
-) -> Result<(), ducktape_view_guest::host::Error> {
+) -> Result<(), view::host::Error> {
     let verbs = [
         "Fix", "Speed up", "Tidy", "Document", "Test", "Rename", "Split", "Guard",
     ];
@@ -125,7 +125,7 @@ fn past(
         let from = Revision::Ref(format!("refs/heads/{name}").into_bytes());
         let opened = net.submit(
             ada,
-            forge::MODULE,
+            forge::PROGRAM,
             &Op::ChangeOpen {
                 repo: "web".into(),
                 from: from.clone(),
@@ -164,13 +164,13 @@ fn past(
             },
             _ => continue,
         };
-        net.submit(ada, forge::MODULE, &op)?;
+        net.submit(ada, forge::PROGRAM, &op)?;
     }
     Ok(())
 }
 
-/// How many modules `src/` holds, and the lines of each.
-const MODULES: usize = 30;
+/// How many programs `src/` holds, and the lines of each.
+const PROGRAMS: usize = 30;
 const LINES: usize = 400;
 /// How many files `legacy/` holds on `main`; the release deletes them.
 const LEGACY: usize = 52;
@@ -178,18 +178,18 @@ const LEGACY: usize = 52;
 /// A file's path and blob.
 type File = (String, Oid);
 
-/// `web`'s push: `main` (a long `src/lib.rs`, `MODULES` modules, `LEGACY`
+/// `web`'s push: `main` (a long `src/lib.rs`, `PROGRAMS` programs, `LEGACY`
 /// old files, two binary fonts and a lock file too large to show), 90
-/// branches one commit off it, twelve tags, a branch rewriting every module
+/// branches one commit off it, twelve tags, a branch rewriting every program
 /// and adding as many again, and `release`: a merge commit shaped like a
 /// real release (192 files added, 52 deleted, 15 modified, the fonts moved).
 fn attached(net: &live::Network, pack: &[u8]) -> abi::BlobId {
-    let id = guest::blob_id(abi::HashKind::Sha256, forge::PACK_KIND, pack).unwrap();
-    let blob = guest::Blob {
+    let id = program::blob_id(abi::HashKind::Sha256, forge::PACK_KIND, pack).unwrap();
+    let blob = program::Blob {
         kind: forge::PACK_KIND.into(),
         body: pack.to_vec(),
     };
-    net.host(forge::MODULE).borrow_mut().blobs.insert(id, blob);
+    net.host(forge::PROGRAM).borrow_mut().blobs.insert(id, blob);
     id
 }
 
@@ -207,7 +207,7 @@ fn history() -> History {
     let s = &mut store;
     let readme = blob(s, b"# web\n\nThe site, its search and its docs.\n");
     let lib = blob(s, &source("lib", 1, 1200));
-    let modules: Vec<File> = (0..MODULES)
+    let programs: Vec<File> = (0..PROGRAMS)
         .map(|n| {
             (
                 format!("src/mod_{n:02}.rs"),
@@ -228,13 +228,13 @@ fn history() -> History {
         .map(|name| (format!("{name}.ttf"), blob(s, &binary(name.len()))))
         .collect();
     let lock = blob(s, &source("lock", 0, 3600));
-    let base = |fonts_dir: &str, lock: Oid, modules: &[File]| {
+    let base = |fonts_dir: &str, lock: Oid, programs: &[File]| {
         let mut files = vec![
             ("README.md".to_owned(), readme),
             ("src/lib.rs".to_owned(), lib),
             ("Cargo.lock".to_owned(), lock),
         ];
-        files.extend(modules.iter().cloned());
+        files.extend(programs.iter().cloned());
         files.extend(
             fonts
                 .iter()
@@ -242,7 +242,7 @@ fn history() -> History {
         );
         files
     };
-    let mut main_files = base("assets/fonts", lock, &modules);
+    let mut main_files = base("assets/fonts", lock, &programs);
     main_files.extend(legacy.iter().cloned());
     let main_tree = tree_of(s, &main_files);
     let main = commit(s, main_tree, &[], "Start the site");
@@ -281,7 +281,7 @@ fn history() -> History {
     }
 
     let mut split = Vec::new();
-    for n in 0..MODULES {
+    for n in 0..PROGRAMS {
         split.push((
             format!("src/mod_{n:02}.rs"),
             blob(s, &source("a", n, LINES)),
@@ -301,12 +301,12 @@ fn history() -> History {
         "refs/heads/refactor/split-every-module".to_owned(),
     ));
 
-    // the release: every module touched in places (the first one rewritten
+    // the release: every program touched in places (the first one rewritten
     // line by line, past any search), the lock file regenerated, the fonts
     // moved, `legacy/` gone, and 192 files added across 48 directories,
     // 15 of them over a thousand lines
     let mut touched = Vec::new();
-    for (n, (path, _)) in modules.iter().enumerate() {
+    for (n, (path, _)) in programs.iter().enumerate() {
         let text = match n {
             0 => interleaved("m", n, LINES),
             n if n < 15 => edited("m", n, LINES),

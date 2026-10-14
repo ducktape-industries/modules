@@ -1,9 +1,9 @@
 //! The product's visual system: bundled fonts, the type scale, and the one
 //! palette both the native shell (through the kit's theme) and the WASM
-//! views (through `ducktape_view_guest::design`) paint with.
+//! views (through `view::design`) paint with.
 
 /// Font identity. The native shell loads these files into GPUI's text system.
-/// Guest wire text names the same families. Replace an asset and its family
+/// View wire text names the same families. Replace an asset and its family
 /// constant together when changing the product face.
 pub mod fonts {
     /// the UI face — every sans role (default, medium, display).

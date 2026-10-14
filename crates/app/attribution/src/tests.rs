@@ -1,7 +1,7 @@
-//! attribution on a `MockChain`: a module reporting its own objects, and subscribers told
+//! attribution on a `MockChain`: a program reporting its own objects, and subscribers told
 //! of every change.
+use ::program::{Error, ExecCtx, MockChain, Origin, Program, QueryCtx, Reply as Wanted, code};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{Error, ExecCtx, MockChain, Module, Origin, Program, QueryCtx, Reply as Wanted, code};
 use store::Item;
 
 use crate::*;
@@ -22,12 +22,10 @@ impl Program for Reporter {
     type Op = Report;
     type Query = ();
     type Reply = ();
-}
 
-impl Module for Reporter {
     fn execute(ctx: &ExecCtx, op: Report) -> Result<(), Error> {
         let Report::Send(op) = op;
-        ctx.emit(MODULE, &op, Wanted::None);
+        ctx.emit(PROGRAM, &op, Wanted::None);
         Ok(())
     }
 
@@ -53,20 +51,18 @@ impl Program for Listener {
     type Op = Listen;
     type Query = ();
     type Reply = Vec<Change>;
-}
 
-impl Module for Listener {
     fn execute(ctx: &ExecCtx, op: Listen) -> Result<(), Error> {
         match op {
             Listen::Subscribe => {
                 let deliver = vec![1];
-                ctx.emit(MODULE, &Op::Subscribe { deliver }, Wanted::None);
+                ctx.emit(PROGRAM, &Op::Subscribe { deliver }, Wanted::None);
                 Ok(())
             }
             Listen::Told(change) => {
-                ctx.env().sent_by(MODULE)?;
+                ctx.env().sent_by(PROGRAM)?;
                 if REFUSING.get(ctx)?.unwrap_or(false) {
-                    return Err(guest::invalid("not now"));
+                    return Err(::program::invalid("not now"));
                 }
                 let mut told = TOLD.get(ctx)?.unwrap_or_default();
                 told.push(*change);
@@ -87,11 +83,11 @@ impl Module for Listener {
 
 fn chain() -> MockChain {
     let mut chain = MockChain::default();
-    chain.seat::<Attribution>(MODULE);
+    chain.seat::<Attribution>(PROGRAM);
     chain.seat::<Reporter>(REPORTER);
     chain.seat::<Listener>(LISTENER);
-    for (module, number) in [(MODULE, 900), (REPORTER, 902), (LISTENER, 903)] {
-        chain.register(module, number);
+    for (program, number) in [(PROGRAM, 900), (REPORTER, 902), (LISTENER, 903)] {
+        chain.register(program, number);
     }
     chain.hold(ADA.to_vec(), 1);
     chain
@@ -112,7 +108,7 @@ fn source(id: &str) -> Source {
 }
 
 fn relations(chain: &MockChain, source: Source) -> Option<Relations> {
-    let Reply::Relations(relations) = chain.query(MODULE, &Query::Relations { source }).unwrap()
+    let Reply::Relations(relations) = chain.query(PROGRAM, &Query::Relations { source }).unwrap()
     else {
         panic!()
     };
@@ -124,7 +120,7 @@ fn changes_to(chain: &MockChain, recipient: AccountNumber) -> Vec<(String, Reaso
         recipient,
         page: PageRequest::default(),
     };
-    let Reply::Changes(page) = chain.query(MODULE, &asked).unwrap() else {
+    let Reply::Changes(page) = chain.query(PROGRAM, &asked).unwrap() else {
         panic!()
     };
     page.items
@@ -159,9 +155,13 @@ fn report(chain: &MockChain, op: Op) -> Result<Vec<u8>, Error> {
 }
 
 #[test]
-fn a_module_reports_only_its_own_objects_and_only_forward() {
+fn a_program_reports_only_its_own_objects_and_only_forward() {
     let chain = chain();
-    let signed_by_hand = chain.submit(signed(ADA), MODULE, &update("t", 1, Vec::new(), Vec::new()));
+    let signed_by_hand = chain.submit(
+        signed(ADA),
+        PROGRAM,
+        &update("t", 1, Vec::new(), Vec::new()),
+    );
     assert_eq!(signed_by_hand.unwrap_err().code, code::UNAUTHORIZED);
 
     report(&chain, update("t", 5, vec![owner(1)], Vec::new())).unwrap();
@@ -244,11 +244,11 @@ fn every_subscriber_is_told_each_change_and_its_refusal_changes_nothing() {
     chain
         .submit(signed(ADA), LISTENER, &Listen::Subscribe)
         .unwrap();
-    let Reply::Subscribers(subscribers) = chain.query(MODULE, &Query::Subscribers).unwrap() else {
+    let Reply::Subscribers(subscribers) = chain.query(PROGRAM, &Query::Subscribers).unwrap() else {
         panic!()
     };
     assert_eq!(subscribers, [LISTENER.to_owned()]);
-    let direct_subscribe = chain.submit(signed(ADA), MODULE, &Op::Subscribe { deliver: vec![1] });
+    let direct_subscribe = chain.submit(signed(ADA), PROGRAM, &Op::Subscribe { deliver: vec![1] });
     assert_eq!(direct_subscribe.unwrap_err().code, code::UNAUTHORIZED);
 
     report(&chain, update("t", 1, vec![owner(1), owner(2)], Vec::new())).unwrap();

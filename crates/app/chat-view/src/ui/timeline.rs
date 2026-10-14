@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
-use ducktape_view_guest::list as gpui_list;
-use ducktape_view_guest::prelude::*;
+use view::list as gpui_list;
+use view::prelude::*;
 
 use crate::message::{ChatMessage, new_day, unread_seq};
 use crate::ui::room::selection_bar;
