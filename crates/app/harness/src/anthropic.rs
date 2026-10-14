@@ -43,23 +43,10 @@ pub(crate) fn header(thread: &ThreadRow, mut tools: Vec<Value>) -> String {
     text
 }
 
-pub(crate) fn receipt_text(call: &str) -> String {
-    format!(
-        "Accepted as call {call}. Every tool call runs asynchronously: its result arrives \
-         later as a message headed \"Result of tool call {call}\". Go on with other work, \
-         or end your turn to wait for it."
-    )
-}
-
 fn blocks(body: &Body) -> Vec<Value> {
     match body {
         Body::Post { text, .. } => vec![json!({ "type": "text", "text": text })],
         Body::Turn { said, .. } => said.iter().filter_map(said_block).collect(),
-        Body::Receipt { call, .. } => vec![json!({
-            "type": "tool_result",
-            "tool_use_id": call,
-            "content": receipt_text(call),
-        })],
         Body::Refused { call, problem, .. } => vec![json!({
             "type": "tool_result",
             "tool_use_id": call,
@@ -67,20 +54,13 @@ fn blocks(body: &Body) -> Vec<Value> {
             "content": problem,
         })],
         Body::Result {
-            call,
-            tool,
-            text,
-            failed,
-        } => {
-            let verdict = match failed {
-                true => " (failed)",
-                false => "",
-            };
-            vec![json!({
-                "type": "text",
-                "text": format!("Result of tool call {call} ({tool}){verdict}:\n{text}"),
-            })]
-        }
+            call, text, failed, ..
+        } => vec![json!({
+            "type": "tool_result",
+            "tool_use_id": call,
+            "is_error": failed,
+            "content": text,
+        })],
         Body::Notice { .. } => Vec::new(),
     }
 }

@@ -298,7 +298,7 @@ fn commit(
         message,
         changes,
     };
-    Ok(Run::Emit {
+    Ok(Run::Write {
         target: files::PROGRAM.into(),
         payload: abi::encode(&op),
     })

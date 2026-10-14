@@ -2,14 +2,14 @@
 //! message it answers opens or continues its thread for that place, and its manager
 //! dismisses it or closes a thread.
 use ::program::{
-    BlobId, Error, ExecCtx, HashKind, Principal, QueryCtx, invalid, not_found, unauthorized,
+    BlobId, Ctx, Error, ExecCtx, HashKind, Principal, QueryCtx, invalid, not_found, unauthorized,
     unexpected_reply, wrong_state,
 };
 use abi::role::identity::{AccountNumber, Kind, Profile, Standing};
 use attribution::{Actor, Change, Kind as Changed, Reason, Source};
 
 use crate::state::{AGENTS, BY_AGENT, COUNT, LAST, PLACES, THREADS, newest_first};
-use crate::turns::{advance, say};
+use crate::turns::{converse, say};
 use crate::{
     AgentRow, Asking, Body, MAX_MODEL_BYTES, MAX_OUTPUT_TOKENS, MAX_POST_BYTES, MAX_SYSTEM_BYTES,
     PART, PROGRAM, ThreadRow, anthropic, attributed_as, tools,
@@ -163,7 +163,7 @@ fn preamble(agent: &AgentRow, title: &str) -> String {
          {title}. Answer with chat_post in the same channel, with reply_to set when the \
          message was in a thread. Everything you write is written as your account, and the \
          network allows you only what it allows that account. Every tool call runs in a later \
-         block: you get a receipt at once and its result as a later message.",
+         block, and its result comes back before you are asked again.",
         name = agent.name,
         number = agent.agent,
         manager = agent.manager,
@@ -307,28 +307,36 @@ fn designates(reason: &Reason) -> bool {
     }
 }
 
-pub(crate) fn attributed(ctx: &ExecCtx, change: Change) -> Result<(), Error> {
+pub(crate) async fn attributed(ctx: Ctx, change: Change) -> Result<(), Error> {
+    let Some(thread) = heard(&ctx, change)? else {
+        return Ok(());
+    };
+    converse(&ctx, thread).await;
+    Ok(())
+}
+
+fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
     ctx.env().sent_by(attribution::PROGRAM)?;
     let Some(agent) = AGENTS.get(ctx, &change.recipient)? else {
-        return Ok(());
+        return Ok(None);
     };
     let added = change.kind == Changed::Added;
     let Actor::Account(actor) = change.actor else {
-        return Ok(());
+        return Ok(None);
     };
     let by_another = actor != agent.agent;
     let told_already =
         LAST.get(ctx, &agent.agent)? == Some((change.source.clone(), change.revision));
     let heeded = added && designates(&change.reason) && by_another && !told_already;
     if !heeded {
-        return Ok(());
+        return Ok(None);
     }
     let still_runs = profile(ctx, agent.agent)?
         .as_ref()
         .and_then(runs_here)
         .is_some();
     if !still_runs || !answers(ctx, &agent, actor)? {
-        return Ok(());
+        return Ok(None);
     }
     LAST.put(ctx, &agent.agent, &(change.source.clone(), change.revision));
     let Designation { place, title, text } = designation(ctx, &change, actor)?;
@@ -337,7 +345,6 @@ pub(crate) fn attributed(ctx: &ExecCtx, change: Change) -> Result<(), Error> {
     say(ctx, &mut thread, Body::Post { author, text });
     thread.turns_since_post = 0;
     thread.failures = 0;
-    advance(ctx, &mut thread)?;
     THREADS.put(ctx, &thread.id, &thread);
-    Ok(())
+    Ok(Some(thread.id))
 }

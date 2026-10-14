@@ -1,17 +1,17 @@
-//! What each op checks and writes: a member node serving, a program requesting and the
-//! chain electing its provider, the provider answering, and an overdue request expiring.
+//! What each op checks and writes: a member node serving, a program's call and the chain
+//! electing its provider, the provider answering it, and an overdue call expiring.
+use ::program::kernel::error_from;
 use ::program::{
-    BlobId, Error, ExecCtx, QueryCtx, Reply as Wanted, capacity, invalid, not_found, unauthorized,
+    BlobId, Cause, Error, ExecCtx, QueryCtx, capacity, invalid, not_found, unauthorized,
     unexpected_reply, wrong_state,
 };
-use abi::role::validators;
+use abi::role::{awaits, validators};
 use store::{PageRequest, PageResponse};
 
 use crate::state::{ASSIGNED, COUNT, DEADLINES, PROVIDERS, REQUESTS, SERVING, Stored, TURNS};
 use crate::{
-    Answer, Delivery, EXPIRY_BLOCKS, MAX_BODY_BYTES, MAX_DELIVER_BYTES, MAX_INPUT_BYTES,
-    MAX_OUTPUT_BYTES, MAX_PARTS, MAX_REASON_BYTES, MAX_SERVICE_BYTES, MAX_SERVICES, Outcome,
-    ProviderRow, Request, RequestRow,
+    Answer, EXPIRY_BLOCKS, MAX_BODY_BYTES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_PARTS,
+    MAX_REASON_BYTES, MAX_SERVICE_BYTES, MAX_SERVICES, ProviderRow, Request, RequestRow,
 };
 
 fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
@@ -128,19 +128,21 @@ fn elect(ctx: &ExecCtx, service: &str) -> Result<Vec<u8>, Error> {
 
 pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
     let requester = ctx.env().sending_program()?;
+    let called = matches!(ctx.env().cause, Cause::Call { .. });
+    if !called {
+        return Err(wrong_state(
+            "a request is a call: the program awaits provider with ctx.call",
+        ));
+    }
     service_name(&request.service)?;
     if request.input.len() > MAX_INPUT_BYTES {
         return Err(capacity(format!(
             "a request's input is at most {MAX_INPUT_BYTES} bytes"
         )));
     }
-    if request.deliver.len() > MAX_DELIVER_BYTES {
-        return Err(capacity(format!(
-            "a request's delivery prefix is at most {MAX_DELIVER_BYTES} bytes"
-        )));
-    }
     check_parts(ctx, &request.parts)?;
     let provider = elect(ctx, &request.service)?;
+    let ticket = ctx.defer()?;
     let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
     let made = ctx.env().height;
     let row = RequestRow {
@@ -156,15 +158,7 @@ pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
     COUNT.put(ctx, &id);
     ASSIGNED.insert(ctx, &(row.provider.clone(), id));
     DEADLINES.insert(ctx, &(row.deadline, id));
-    REQUESTS.put(
-        ctx,
-        &id,
-        &Stored {
-            row,
-            deliver: request.deliver,
-        },
-    );
-    ctx.set_return_data(abi::encode(&id));
+    REQUESTS.put(ctx, &id, &Stored { row, ticket });
     Ok(())
 }
 
@@ -174,21 +168,12 @@ fn open(ctx: &QueryCtx, id: u64) -> Result<Stored, Error> {
         .ok_or_else(|| not_found(format!("no open request {id}")))
 }
 
-fn close(ctx: &ExecCtx, stored: Stored, outcome: Outcome) {
+fn close(ctx: &ExecCtx, stored: Stored, answer: Result<Vec<u8>, Error>) {
     let row = stored.row;
     REQUESTS.remove(ctx, &row.id);
     ASSIGNED.remove(ctx, &(row.provider.clone(), row.id));
     DEADLINES.remove(ctx, &(row.deadline, row.id));
-    let delivery = Delivery {
-        id: row.id,
-        service: row.service,
-        outcome,
-    };
-    ctx.emit_raw(
-        row.requester,
-        Delivery::payload(&stored.deliver, &delivery),
-        Wanted::Wanted,
-    );
+    ctx.resolve(stored.ticket, answer);
 }
 
 pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error> {
@@ -211,7 +196,7 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
             stored.row.deadline
         )));
     }
-    let outcome = match answer {
+    let answered = match answer {
         Answer::Output(output) if output.len() > MAX_OUTPUT_BYTES => {
             return Err(capacity(format!(
                 "an answer's output is at most {MAX_OUTPUT_BYTES} bytes"
@@ -222,11 +207,15 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
                 "a failure's reason is at most {MAX_REASON_BYTES} bytes"
             )));
         }
-        Answer::Output(output) => Outcome::Answered(output),
-        Answer::Failed(reason) => Outcome::Failed(reason),
+        Answer::Output(output) => Ok(output),
+        Answer::Failed(reason) => Err(failed(&stored.row.service, &reason)),
     };
-    close(ctx, stored, outcome);
+    close(ctx, stored, answered);
     Ok(())
+}
+
+fn failed(service: &str, reason: &str) -> Error {
+    wrong_state(format!("the {service} provider failed: {reason}"))
 }
 
 pub(crate) fn expire(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
@@ -237,7 +226,8 @@ pub(crate) fn expire(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
             stored.row.deadline
         )));
     }
-    close(ctx, stored, Outcome::Expired);
+    let expired = awaits::expired(stored.ticket, ctx.env().height);
+    close(ctx, stored, Err(error_from(expired)));
     Ok(())
 }
 

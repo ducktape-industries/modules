@@ -356,6 +356,7 @@ pub enum HostOp {
     Await {
         target: ProgramId,
         payload: Vec<u8>,
+        acting: Option<role::identity::AccountNumber>,
     },
     Defer,
     Resume {

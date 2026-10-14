@@ -1,6 +1,7 @@
 //! harness on ducktape's host: a founder node serves the model and the relay through
 //! provider, a manager hires the agent it handed to harness, and a mention in chat, the
-//! model's turn and the agent's write each land in their own block.
+//! model's turn and the agent's write each land in their own block while the thread's
+//! loop waits parked.
 use super::*;
 
 use harness::{Body, MODEL_SERVICE, Op, Query, Reply, ThreadRow};
@@ -155,14 +156,10 @@ fn a_mentioned_agent_answers_through_elected_providers_and_writes_as_itself() {
             "input": { "path": "/shared/status.md", "content": "up" },
         }]);
         net.provide(asked.id, model_reply(write, "tool_use")).await;
-        let bodies = net.frames(thread.id).await;
-        assert!(matches!(&bodies[2], Body::Receipt { call, .. } if call == "toolu_1"));
+        assert_eq!(net.frames(thread.id).await.len(), 2);
         let [relay] = net.assigned(RELAY).await.try_into().unwrap();
-        let [next] = net.assigned(MODEL_SERVICE).await.try_into().unwrap();
-        assert_eq!(
-            net.joined(&next).await["messages"][2]["content"][0]["type"],
-            "tool_result"
-        );
+        assert!(net.assigned(MODEL_SERVICE).await.is_empty());
+        assert_eq!(net.parked(), 1, "the thread's loop waits parked");
 
         net.provide(relay.id, Vec::new()).await;
         let asked = files::Query::Read {
@@ -185,26 +182,23 @@ fn a_mentioned_agent_answers_through_elected_providers_and_writes_as_itself() {
             "the agent is the writer"
         );
 
-        let done = json!([{ "type": "text", "text": "Noted." }]);
-        net.provide(next.id, model_reply(done, "end_turn")).await;
-        let [last] = net.assigned(MODEL_SERVICE).await.try_into().unwrap();
-        let messages = net.joined(&last).await["messages"]
+        let [next] = net.assigned(MODEL_SERVICE).await.try_into().unwrap();
+        let messages = net.joined(&next).await["messages"]
             .as_array()
             .unwrap()
             .clone();
-        let result = messages.last().unwrap()["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        assert!(
-            result.starts_with("Result of tool call toolu_1 (files_write):"),
-            "{result}"
+        assert_eq!(messages.len(), 3);
+        let result = &messages[2]["content"][0];
+        assert_eq!(
+            (&result["type"], &result["tool_use_id"], &result["is_error"]),
+            (&json!("tool_result"), &json!("toolu_1"), &json!(false))
         );
         net.provide(
-            last.id,
-            model_reply(json!([{ "type": "text", "text": "Done." }]), "end_turn"),
+            next.id,
+            model_reply(json!([{ "type": "text", "text": "Noted." }]), "end_turn"),
         )
         .await;
         assert!(net.assigned(MODEL_SERVICE).await.is_empty());
+        assert_eq!(net.parked(), 0, "the loop finished");
     });
 }

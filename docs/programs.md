@@ -309,9 +309,10 @@ same message as `account` instead of this program's own account. The host
 asks the identity role `Runs { program, account }` and runs the message as
 `account` only when identity answers with it: an active agent whose manager
 handed it to this program (identity's `SetRunner`). Any other answer refuses
-the message, which `reply` then handles like any refusal. harness writes as
-the agents it runs this way, so chat and files judge the agent's account,
-not harness's.
+the message, which `reply` then handles like any refusal. A call acts as an
+account the same way (`ctx.call_as`, `call_raw_as`, below), and the refusal
+is the call's answer. harness writes as the agents it runs with
+`call_raw_as`, so chat and files judge the agent's account, not harness's.
 
 A reply names only the message's id. A program that wants to know *what* it
 was waiting for keeps that itself:
@@ -382,9 +383,16 @@ is parked, and it resumes in the submission that carries the resolve, with
 `ctx.env()` reading that block. A ticket nobody resolves expires after
 `awaits::EXPIRY_BLOCKS`, and the call answers the awaits role's refusal.
 Each run between two awaits is its own transaction: a refusal undoes only
-the run it ends, never what an earlier block kept. On a `MockChain`, seat
+the run it ends, never what an earlier block kept. `program::all(futures)`
+awaits several calls together and answers their results in order; each
+resumes your frame as its own answer comes. On a `MockChain`, seat
 the awaits program (`chain.seat::<awaits::Awaits>("awaits")`) and the
 awaiting program with `chain.seat_awaiting`.
+
+provider is called this way: `ctx.call(provider::PROGRAM,
+&provider::Op::Request(request))` answers the elected node's output, in a
+later block, or a refusal when the node reports a failure or the request
+expires.
 
 ## 7. Describe
 

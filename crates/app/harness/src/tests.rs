@@ -1,6 +1,6 @@
-//! The agents on a `MockChain` with identity, attribution, chat, files, provider and valset
-//! seated: a mention or a direct message reaches a hired agent, a provider node answers as
-//! the model would, and every tool call runs once its relay comes back, as the agent.
+//! The agents on a `MockChain` with identity, attribution, awaits, chat, files, provider and
+//! valset seated: a mention or a direct message reaches a hired agent, a provider node answers
+//! as the model would, and every tool call runs once its relay comes back, as the agent.
 use ::program::{Error, MockChain, Origin, Principal, code};
 use provider::{Answer, Provider, RELAY, RequestRow, http};
 use serde_json::{Value, json};
@@ -44,9 +44,10 @@ fn world() -> World {
     let mut chain = MockChain::default();
     chain.seat::<identity::Identity>(identity::PROGRAM);
     chain.seat::<Valset>("valset");
+    chain.seat::<awaits::Awaits>(awaits::PROGRAM);
     chain.seat::<Provider>(provider::PROGRAM);
     chain.seat::<attribution::Attribution>(attribution::PROGRAM);
-    chain.seat::<Harness>(PROGRAM);
+    chain.seat_awaiting::<Harness>(PROGRAM);
     chain.seat::<files::Files>(files::PROGRAM);
     chain.seat::<chat::Chat>(chat::PROGRAM);
     for program in [
@@ -387,7 +388,7 @@ fn only_its_manager_hires_an_agent_handed_to_harness_and_a_dismissed_one_hears_n
 }
 
 #[test]
-fn every_tool_call_is_receipted_at_once_and_runs_only_after_its_relay_comes_back() {
+fn every_tool_call_runs_a_block_later_and_the_model_is_asked_once_all_results_are_back() {
     let world = world();
     let chain = &world.chain;
     let thread = world.mention("m1", "note it");
@@ -401,20 +402,14 @@ fn every_tool_call_is_receipted_at_once_and_runs_only_after_its_relay_comes_back
     ]);
     model_says(chain, calls, "tool_use");
     let bodies = frames(chain, thread);
-    assert!(matches!(&bodies[2], Body::Receipt { call, .. } if call == "toolu_w"));
-    assert!(matches!(&bodies[3], Body::Receipt { call, .. } if call == "toolu_l"));
-    assert!(matches!(&bodies[4], Body::Refused { call, .. } if call == "toolu_x"));
-    assert!(matches!(&bodies[5], Body::Refused { problem, .. } if problem.contains("path")));
+    assert!(matches!(&bodies[2], Body::Refused { call, .. } if call == "toolu_x"));
+    assert!(matches!(&bodies[3], Body::Refused { problem, .. } if problem.contains("path")));
+    assert_eq!(bodies.len(), 4);
     assert_eq!(assigned(chain, RELAY).len(), 2);
-
-    let [next] = assigned(chain, MODEL_SERVICE).try_into().unwrap();
-    let sent = body(chain, &next);
-    let messages = sent["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 3);
-    assert_eq!(messages[1]["content"][1]["type"], "tool_use");
-    let results = messages[2]["content"].as_array().unwrap();
-    assert!(results.iter().all(|block| block["type"] == "tool_result"));
-    assert_eq!(results[2]["is_error"], true);
+    assert!(
+        assigned(chain, MODEL_SERVICE).is_empty(),
+        "the model waits for the results"
+    );
 
     let same_block = provider::Op::Answer {
         id: assigned(chain, RELAY)[0].id,
@@ -431,6 +426,7 @@ fn every_tool_call_is_receipted_at_once_and_runs_only_after_its_relay_comes_back
         serde_json::from_str::<Value>(&listed).unwrap()["entries"],
         json!([])
     );
+    assert!(assigned(chain, MODEL_SERVICE).is_empty());
     relay_back(chain, "toolu_w");
     let (written, failed) = result_of(chain, thread, "toolu_w");
     assert!(!failed, "{written}");
@@ -458,32 +454,53 @@ fn every_tool_call_is_receipted_at_once_and_runs_only_after_its_relay_comes_back
         abi::hex(head.id.digest())
     );
     assert_eq!(thread_row(chain, thread).open_calls, 0);
+
+    let [next] = assigned(chain, MODEL_SERVICE).try_into().unwrap();
+    let sent = body(chain, &next);
+    let messages = sent["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[1]["content"][1]["type"], "tool_use");
+    let results = messages[2]["content"].as_array().unwrap();
+    let answered: Vec<(&str, bool)> = results
+        .iter()
+        .map(|block| {
+            assert_eq!(block["type"], "tool_result");
+            (
+                block["tool_use_id"].as_str().unwrap(),
+                block["is_error"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        answered,
+        [
+            ("toolu_x", true),
+            ("toolu_bad", true),
+            ("toolu_l", false),
+            ("toolu_w", false)
+        ]
+    );
 }
 
 #[test]
-fn results_that_land_while_the_model_thinks_ask_it_again() {
+fn input_that_arrives_while_a_call_runs_is_held_and_follows_its_result() {
     let world = world();
     let chain = &world.chain;
     let thread = world.mention("m1", "look");
     chain.at(2, 0);
     let call = tool_use("toolu_l", "files_list", json!({ "path": "/" }));
     model_says(chain, json!([call]), "tool_use");
+    world.mention("m2", "and also");
+    assert_eq!(held(chain, thread).len(), 1);
     chain.at(3, 0);
     relay_back(chain, "toolu_l");
-    model_says(
-        chain,
-        json!([{ "type": "text", "text": "Waiting." }]),
-        "end_turn",
-    );
     let [again] = assigned(chain, MODEL_SERVICE).try_into().unwrap();
     let sent = body(chain, &again);
     let last = sent["messages"].as_array().unwrap().last().unwrap().clone();
     assert_eq!(last["role"], "user");
-    let text = last["content"][0]["text"].as_str().unwrap();
-    assert!(
-        text.starts_with("Result of tool call toolu_l (files_list):"),
-        "{text}"
-    );
+    assert_eq!(last["content"][0]["type"], "tool_result");
+    let text = last["content"][1]["text"].as_str().unwrap();
+    assert!(text.ends_with("and also"), "{text}");
     chain.at(4, 0);
     model_says(
         chain,
@@ -493,6 +510,57 @@ fn results_that_land_while_the_model_thinks_ask_it_again() {
     assert!(assigned(chain, MODEL_SERVICE).is_empty());
     let row = thread_row(chain, thread);
     assert_eq!((row.asking, row.due()), (Asking::Idle, false));
+    assert_eq!(chain.frames(), 0);
+}
+
+#[test]
+fn a_call_whose_relay_never_comes_back_fails_after_the_attempts() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.mention("m1", "look");
+    chain.at(2, 0);
+    let call = tool_use("toolu_l", "files_list", json!({ "path": "/" }));
+    model_says(chain, json!([call]), "tool_use");
+    for attempt in 0..MAX_ATTEMPTS {
+        chain.at(3 + u64::from(attempt), 0);
+        let [row] = assigned(chain, RELAY).try_into().unwrap();
+        answer(chain, row.id, Answer::Failed("no route".into()));
+    }
+    assert!(assigned(chain, RELAY).is_empty());
+    let (text, failed) = result_of(chain, thread, "toolu_l");
+    assert!(failed && text.contains("no provider relayed"), "{text}");
+    assert_eq!(assigned(chain, MODEL_SERVICE).len(), 1);
+}
+
+#[test]
+fn a_call_in_flight_when_its_agent_is_dismissed_does_not_run() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.mention("m1", "write");
+    chain.at(2, 0);
+    let write = tool_use(
+        "toolu_w",
+        "files_write",
+        json!({ "path": "/shared/late.md", "content": "x" }),
+    );
+    model_says(chain, json!([write]), "tool_use");
+    chain
+        .submit(signed(ADA), PROGRAM, &Op::Dismiss { agent: world.agent })
+        .unwrap();
+    chain.at(3, 0);
+    relay_back(chain, "toolu_w");
+    let (text, failed) = result_of(chain, thread, "toolu_w");
+    assert!(failed && text.contains("dismissed"), "{text}");
+    let asked = files::Query::Stat {
+        path: "/shared/late.md".into(),
+        at: None,
+    };
+    let files::Reply::Stat { entry, .. } = chain.query(files::PROGRAM, &asked).unwrap() else {
+        panic!()
+    };
+    assert_eq!(entry, None, "the dismissed agent wrote nothing");
+    assert!(assigned(chain, MODEL_SERVICE).is_empty());
+    assert_eq!(chain.frames(), 0);
 }
 
 #[test]
@@ -596,25 +664,10 @@ fn a_failed_model_call_is_noticed_and_tried_again_up_to_the_limit() {
 }
 
 #[test]
-fn only_provider_and_attribution_deliver_and_only_the_manager_closes() {
+fn only_attribution_delivers_and_only_the_manager_closes() {
     let world = world();
     let chain = &world.chain;
     let thread = world.mention("m1", "hi");
-    let forged = Op::Turned {
-        thread,
-        delivery: Delivery {
-            id: 1,
-            service: MODEL_SERVICE.into(),
-            outcome: provider::Outcome::Answered(reply(json!([]), "end_turn")),
-        },
-    };
-    assert_eq!(
-        chain
-            .submit(signed(ADA), PROGRAM, &forged)
-            .unwrap_err()
-            .code,
-        code::UNAUTHORIZED
-    );
     let change = attribution::Change {
         seq: 99,
         source: attribution::Source {

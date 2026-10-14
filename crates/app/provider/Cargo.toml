@@ -24,4 +24,5 @@ program = { workspace = true }
 store = { workspace = true }
 
 [dev-dependencies]
+awaits = { workspace = true }
 valset = { workspace = true }

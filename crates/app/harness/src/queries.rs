@@ -1,5 +1,5 @@
 //! Every read: the agents hired, a thread, an agent's threads newest first, a transcript in
-//! order, the input held while the model answers, a thread's tool calls, and the tool catalog.
+//! order, the input held while a thread's loop runs, a thread's tool calls, and the tool catalog.
 use ::program::{Error, QueryCtx, corrupt};
 use abi::role::identity::AccountNumber;
 use store::{PageRequest, PageResponse};

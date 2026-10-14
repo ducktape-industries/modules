@@ -1,8 +1,8 @@
-//! provider on a `MockChain` beside valset and a program that asks: serving, the
-//! election's turns, answers delivered back, refusals and expiry.
+//! provider on a `MockChain` beside valset, the awaits role and a program that calls it:
+//! serving, the election's turns, answers that resolve the call, refusals and expiry.
 use ::program::{
-    Blob, Error, ExecCtx, HashKind, MockChain, Origin, Program, QueryCtx, Reply as Wanted, blob_id,
-    code,
+    Awaiting, Blob, Ctx, Error, HashKind, MockChain, Origin, Program, QueryCtx, Reply as Wanted,
+    blob_id, code,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use store::Item;
@@ -17,11 +17,13 @@ const ASKER: &str = "asker";
 
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
 enum Ask {
-    Ask(Request),
-    Delivered(Delivery),
+    Call(Request),
+    Emit(Request),
 }
 
-const DELIVERED: Item<Vec<Delivery>> = Item::new("delivered");
+type Answers = Vec<Result<Vec<u8>, Error>>;
+
+const ANSWERS: Item<Answers> = Item::new("answers");
 
 struct Asker;
 
@@ -29,38 +31,42 @@ impl Program for Asker {
     const NAME: &'static str = ASKER;
     type Op = Ask;
     type Query = ();
-    type Reply = Vec<Delivery>;
+    type Reply = Answers;
 
-    fn execute(ctx: &ExecCtx, op: Ask) -> Result<(), Error> {
-        match op {
-            Ask::Ask(request) => {
-                ctx.emit(PROGRAM, &Op::Request(request), Wanted::None);
-                Ok(())
-            }
-            Ask::Delivered(delivery) => {
-                ctx.env().sent_by(PROGRAM)?;
-                let fail = delivery.outcome == Outcome::Answered(b"refuse me".to_vec());
-                if fail {
-                    return Err(::program::invalid("the asker refuses this delivery"));
-                }
-                let mut seen = DELIVERED.get(ctx)?.unwrap_or_default();
-                seen.push(delivery);
-                DELIVERED.put(ctx, &seen);
-                Ok(())
-            }
-        }
+    fn query(ctx: &QueryCtx, (): ()) -> Result<Answers, Error> {
+        Ok(ANSWERS.get(ctx)?.unwrap_or_default())
     }
+}
 
-    fn query(ctx: &QueryCtx, (): ()) -> Result<Vec<Delivery>, Error> {
-        Ok(DELIVERED.get(ctx)?.unwrap_or_default())
+impl Awaiting for Asker {
+    async fn execute(ctx: Ctx, ask: Ask) -> Result<(), Error> {
+        let request = match ask {
+            Ask::Call(request) => request,
+            Ask::Emit(request) => {
+                ctx.emit(PROGRAM, &Op::Request(request), Wanted::None);
+                return Ok(());
+            }
+        };
+        let answer = ctx
+            .call_raw(PROGRAM, abi::encode(&Op::Request(request)))
+            .await;
+        let refused = answer.as_deref() == Ok(b"refuse me".as_slice());
+        if refused {
+            return Err(::program::invalid("the asker refuses this answer"));
+        }
+        let mut answers = ANSWERS.get(&ctx)?.unwrap_or_default();
+        answers.push(answer);
+        ANSWERS.put(&ctx, &answers);
+        Ok(())
     }
 }
 
 fn chain() -> MockChain {
     let mut chain = MockChain::default();
     chain.seat::<Valset>("valset");
+    chain.seat::<awaits::Awaits>(awaits::PROGRAM);
     chain.seat::<Provider>(PROGRAM);
-    chain.seat::<Asker>(ASKER);
+    chain.seat_awaiting::<Asker>(ASKER);
     let members = [ADA, BO].map(|key| Member {
         key: key.to_vec(),
         address: None,
@@ -83,14 +89,19 @@ fn serve(chain: &MockChain, key: [u8; 32], services: &[&str]) -> Result<Vec<u8>,
     )
 }
 
-fn ask(chain: &MockChain, service: &str, input: &[u8]) -> Result<Vec<u8>, Error> {
-    let request = Request {
+fn request(service: &str, input: &[u8]) -> Request {
+    Request {
         service: service.into(),
         input: input.to_vec(),
         parts: Vec::new(),
-        deliver: vec![1],
-    };
-    chain.submit(Origin::Signed(STRANGER.to_vec()), ASKER, &Ask::Ask(request))
+    }
+}
+
+fn ask(chain: &MockChain, service: &str, input: &[u8]) {
+    let ask = Ask::Call(request(service, input));
+    chain
+        .submit(Origin::Signed(STRANGER.to_vec()), ASKER, &ask)
+        .unwrap();
 }
 
 fn assigned(chain: &MockChain, key: [u8; 32]) -> Vec<RequestRow> {
@@ -112,7 +123,7 @@ fn answer(chain: &MockChain, key: [u8; 32], id: u64, answer: Answer) -> Result<V
     )
 }
 
-fn delivered(chain: &MockChain) -> Vec<Delivery> {
+fn answers(chain: &MockChain) -> Answers {
     chain.query(ASKER, &()).unwrap()
 }
 
@@ -122,9 +133,9 @@ fn the_election_takes_turns_and_only_the_elected_provider_answers() {
     serve(&chain, ADA, &["anthropic", RELAY]).unwrap();
     serve(&chain, BO, &[RELAY]).unwrap();
     for _ in 0..3 {
-        ask(&chain, RELAY, b"ping").unwrap();
+        ask(&chain, RELAY, b"ping");
     }
-    ask(&chain, "anthropic", b"model").unwrap();
+    ask(&chain, "anthropic", b"model");
     let ada: Vec<u64> = assigned(&chain, ADA).iter().map(|row| row.id).collect();
     let bo: Vec<u64> = assigned(&chain, BO).iter().map(|row| row.id).collect();
     assert_eq!((ada, bo), (vec![1, 3, 4], vec![2]));
@@ -141,20 +152,15 @@ fn the_election_takes_turns_and_only_the_elected_provider_answers() {
     assert_eq!(wrong.code, code::UNAUTHORIZED);
     answer(&chain, BO, 2, Answer::Output(b"pong".to_vec())).unwrap();
     answer(&chain, ADA, 4, Answer::Failed("upstream timed out".into())).unwrap();
+    let [pong, failed] = answers(&chain).try_into().unwrap();
+    assert_eq!(pong.unwrap(), b"pong");
+    let failed = failed.unwrap_err();
     assert_eq!(
-        delivered(&chain),
-        [
-            Delivery {
-                id: 2,
-                service: RELAY.into(),
-                outcome: Outcome::Answered(b"pong".to_vec()),
-            },
-            Delivery {
-                id: 4,
-                service: "anthropic".into(),
-                outcome: Outcome::Failed("upstream timed out".into()),
-            },
-        ]
+        (failed.code.as_str(), failed.message.as_str()),
+        (
+            code::WRONG_STATE,
+            "the anthropic provider failed: upstream timed out"
+        )
     );
     assert!(assigned(&chain, BO).is_empty());
     let twice = answer(&chain, BO, 2, Answer::Output(Vec::new())).unwrap_err();
@@ -162,24 +168,30 @@ fn the_election_takes_turns_and_only_the_elected_provider_answers() {
 }
 
 #[test]
-fn only_a_member_node_serves_and_only_a_program_requests() {
+fn only_a_member_node_serves_and_only_a_program_calling_requests() {
     let chain = chain();
     assert_eq!(
         serve(&chain, STRANGER, &[RELAY]).unwrap_err().code,
         code::UNAUTHORIZED
     );
-    assert_eq!(ask(&chain, RELAY, b"").unwrap_err().code, code::NOT_FOUND);
+    ask(&chain, RELAY, b"");
+    let [unserved] = answers(&chain).try_into().unwrap();
+    assert_eq!(unserved.unwrap_err().code, code::NOT_FOUND);
     serve(&chain, ADA, &[RELAY]).unwrap();
-    let direct = Op::Request(Request {
-        service: RELAY.into(),
-        input: Vec::new(),
-        parts: Vec::new(),
-        deliver: Vec::new(),
-    });
+    let direct = Op::Request(request(RELAY, b""));
     let signed = chain
         .submit(Origin::Signed(ADA.to_vec()), PROGRAM, &direct)
         .unwrap_err();
     assert_eq!(signed.code, code::UNAUTHORIZED);
+    let emitted = chain
+        .submit(
+            Origin::Signed(STRANGER.to_vec()),
+            ASKER,
+            &Ask::Emit(request(RELAY, b"")),
+        )
+        .unwrap_err();
+    assert_eq!(emitted.code, code::WRONG_STATE);
+    assert!(assigned(&chain, ADA).is_empty());
     assert_eq!(
         serve(&chain, ADA, &["Bad Name"]).unwrap_err().code,
         code::INVALID_INPUT
@@ -200,10 +212,10 @@ fn only_a_member_node_serves_and_only_a_program_requests() {
 }
 
 #[test]
-fn an_unanswered_request_expires_after_its_window_and_tells_the_requester() {
+fn an_unanswered_request_expires_after_its_window_and_answers_the_call() {
     let chain = chain();
     serve(&chain, ADA, &[RELAY]).unwrap();
-    ask(&chain, RELAY, b"").unwrap();
+    ask(&chain, RELAY, b"");
     let expire = Op::Expire { id: 1 };
     let early = chain
         .submit(Origin::Signed(STRANGER.to_vec()), PROGRAM, &expire)
@@ -240,7 +252,14 @@ fn an_unanswered_request_expires_after_its_window_and_tells_the_requester() {
     chain
         .submit(Origin::Signed(STRANGER.to_vec()), PROGRAM, &expire)
         .unwrap();
-    assert_eq!(delivered(&chain)[0].outcome, Outcome::Expired);
+    let [expired] = answers(&chain).try_into().unwrap();
+    let expired = expired.unwrap_err();
+    assert_eq!(expired.code, code::WRONG_STATE);
+    assert!(
+        expired
+            .message
+            .ends_with(&format!("expired at height {}", 2 + EXPIRY_BLOCKS))
+    );
     let Reply::Request(gone) = chain.query(PROGRAM, &Query::Request { id: 1 }).unwrap() else {
         panic!()
     };
@@ -248,14 +267,15 @@ fn an_unanswered_request_expires_after_its_window_and_tells_the_requester() {
 }
 
 #[test]
-fn a_refused_delivery_still_closes_the_request() {
+fn an_answer_the_caller_refuses_still_closes_the_request() {
     let chain = chain();
     serve(&chain, ADA, &[RELAY]).unwrap();
-    ask(&chain, RELAY, b"").unwrap();
+    ask(&chain, RELAY, b"");
     chain.at(2, 0);
     answer(&chain, ADA, 1, Answer::Output(b"refuse me".to_vec())).unwrap();
-    assert!(delivered(&chain).is_empty());
+    assert!(answers(&chain).is_empty());
     assert!(assigned(&chain, ADA).is_empty());
+    assert_eq!(chain.frames(), 0);
 }
 
 #[test]
@@ -272,16 +292,16 @@ fn a_request_names_parts_already_on_the_network() {
             headers: vec![("anthropic-version".into(), "2023-06-01".into())],
         }),
         parts: vec![part],
-        deliver: vec![1],
     };
-    let missing = chain
+    chain
         .submit(
             Origin::Signed(STRANGER.to_vec()),
             ASKER,
-            &Ask::Ask(with_part(part)),
+            &Ask::Call(with_part(part)),
         )
-        .unwrap_err();
-    assert_eq!(missing.code, code::NOT_FOUND);
+        .unwrap();
+    let [missing] = answers(&chain).try_into().unwrap();
+    assert_eq!(missing.unwrap_err().code, code::NOT_FOUND);
     chain.host(PROGRAM).borrow_mut().blobs.insert(
         part,
         Blob {
@@ -293,7 +313,7 @@ fn a_request_names_parts_already_on_the_network() {
         .submit(
             Origin::Signed(STRANGER.to_vec()),
             ASKER,
-            &Ask::Ask(with_part(part)),
+            &Ask::Call(with_part(part)),
         )
         .unwrap();
     assert_eq!(assigned(&chain, ADA)[0].parts, [part]);

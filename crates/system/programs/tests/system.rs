@@ -1,11 +1,11 @@
 use abi::reason;
-use abi::{BlobId, HostOp, Message, Origin, Outcome, Scheme};
+use abi::{BlobId, HostOp, Message, Origin, Outcome, Scan, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
 use host::{
-    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, Receipt, Roles,
-    Submission, Tip,
+    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, PARKED, Receipt,
+    Roles, Submission, Tip,
 };
 use identity::AccountNumber;
 use keyscheme::testkit;
@@ -299,6 +299,11 @@ impl Net {
 
     async fn blob(&self, id: &BlobId) -> Option<Vec<u8>> {
         self.host.blob(id, self.time()).await.unwrap()
+    }
+
+    fn parked(&self) -> usize {
+        let view = self.host.view(Layer::Confirmed);
+        view.scan(PARKED, &Scan::prefix(b"frame/")).unwrap().len()
     }
 
     async fn refuse<T: BorshSerialize>(&mut self, signer: &[u8], target: &str, op: &T) -> String {

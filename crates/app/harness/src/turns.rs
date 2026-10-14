@@ -1,19 +1,16 @@
-//! The loop consensus runs: ask the model when a thread has input it has not seen, hold
-//! input while it answers, record its turn, receipt and relay each tool call, then run it.
-use ::program::{
-    BlobId, Error, ExecCtx, HashKind, Outcome as Written, QueryCtx, Range, Reply as Wanted,
-    unexpected_reply,
-};
-use provider::{Delivery, Outcome, RELAY, http};
+//! The loop consensus runs for a thread: ask the model when it has input it has not seen, hold
+//! input while the loop runs, record the model's turn, run each tool call a block later, then ask again.
+use ::program::{BlobId, Ctx, Error, ExecCtx, HashKind, QueryCtx, Range, all, unexpected_reply};
+use provider::{RELAY, http};
 use serde_json::Value;
 
 use crate::agents::thread;
-use crate::state::{AGENTS, CALLS, FRAMES, HELD, SEALED, THREADS, WRITES};
+use crate::state::{AGENTS, CALLS, FRAMES, HELD, SEALED, THREADS};
 use crate::tools::{self, Run, Seat};
 use crate::{
     Asking, Body, CallRow, CallState, Frame, MAX_ATTEMPTS, MAX_CALL_ID_BYTES, MAX_INPUT_BYTES,
     MAX_MESSAGES, MAX_RESULT_BYTES, MAX_TURNS_PER_POST, MODEL_SERVICE, PART, Role, Said, ThreadRow,
-    anthropic, relayed_as, turned_as,
+    anthropic,
 };
 
 pub(crate) fn append(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
@@ -32,8 +29,8 @@ pub(crate) fn append(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
 }
 
 pub(crate) fn say(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
-    let model_answering = thread.asking != Asking::Idle;
-    if !model_answering {
+    let looping = thread.asking != Asking::Idle;
+    if !looping {
         append(ctx, thread, body);
         return;
     }
@@ -63,18 +60,19 @@ fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
     }
 }
 
-fn request(ctx: &ExecCtx, service: &str, input: Vec<u8>, parts: Vec<BlobId>, deliver: Vec<u8>) {
+async fn request(
+    ctx: &Ctx,
+    service: &str,
+    input: Vec<u8>,
+    parts: Vec<BlobId>,
+) -> Result<Vec<u8>, Error> {
     let request = provider::Request {
         service: service.into(),
         input,
         parts,
-        deliver,
     };
-    ctx.emit(
-        provider::PROGRAM,
-        &provider::Op::Request(request),
-        Wanted::None,
-    );
+    let op = provider::Op::Request(request);
+    ctx.call_raw(provider::PROGRAM, abi::encode(&op)).await
 }
 
 fn put_part(ctx: &ExecCtx, text: String) -> Result<BlobId, Error> {
@@ -123,33 +121,57 @@ fn render(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Vec<BlobId>, Error> {
     Ok(parts)
 }
 
-pub(crate) fn advance(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<(), Error> {
+pub(crate) async fn converse(ctx: &Ctx, id: u64) {
+    if let Err(error) = drive(ctx, id).await {
+        stall(ctx, id, &error);
+    }
+}
+
+async fn drive(ctx: &Ctx, id: u64) -> Result<(), Error> {
+    while let Some((upto, parts)) = claim(ctx, id)? {
+        let head = abi::encode(&anthropic::head());
+        let answer = request(ctx, MODEL_SERVICE, head, parts).await;
+        let calls = turned(ctx, id, upto, answer)?;
+        let runs = calls.into_iter().map(|call| run_call(ctx, id, call));
+        for ran in all(runs).await {
+            ran?;
+        }
+        settle(ctx, id)?;
+    }
+    Ok(())
+}
+
+fn may_ask(ctx: &ExecCtx, thread: &ThreadRow) -> bool {
     let idle = thread.asking == Asking::Idle;
     let within_turns = thread.turns_since_post < MAX_TURNS_PER_POST;
     let within_failures = thread.failures < MAX_ATTEMPTS;
     let room = thread.sealed < MAX_MESSAGES;
     let hired = AGENTS.has(ctx, &thread.agent);
-    let ask =
-        !thread.closed && hired && idle && thread.due() && within_turns && within_failures && room;
-    if !ask {
-        return Ok(());
+    !thread.closed && hired && idle && thread.due() && within_turns && within_failures && room
+}
+
+fn claim(ctx: &ExecCtx, id: u64) -> Result<Option<(u64, Vec<BlobId>)>, Error> {
+    let mut thread = thread(ctx, id)?;
+    if !may_ask(ctx, &thread) {
+        return Ok(None);
     }
     if !serves(ctx, MODEL_SERVICE)? {
         let text = format!("no member node serves {MODEL_SERVICE}: the model was not asked");
-        append(ctx, thread, Body::Notice { text });
-        return Ok(());
+        append(ctx, &mut thread, Body::Notice { text });
+        THREADS.put(ctx, &id, &thread);
+        return Ok(None);
     }
-    let parts = render(ctx, thread)?;
-    let head = abi::encode(&anthropic::head());
-    request(ctx, MODEL_SERVICE, head, parts, turned_as(thread.id));
-    thread.asking = Asking::Asked {
-        upto: thread.frames,
-    };
-    Ok(())
+    let parts = render(ctx, &mut thread)?;
+    let upto = thread.frames;
+    thread.asking = Asking::Asked { upto };
+    THREADS.put(ctx, &id, &thread);
+    Ok(Some((upto, parts)))
 }
 
-fn answered(bytes: &[u8]) -> Result<anthropic::Reply, String> {
-    let response: http::Response = abi::decode(bytes)
+fn answered(answer: Result<Vec<u8>, Error>) -> Result<anthropic::Reply, String> {
+    let bytes =
+        answer.map_err(|error| format!("the model was not reached: {}", refusal(&error)))?;
+    let response: http::Response = abi::decode(&bytes)
         .map_err(|_| "the provider's answer is not an HTTP response".to_owned())?;
     if response.status != 200 {
         return Err(anthropic::failure(response.status, &response.body));
@@ -157,30 +179,43 @@ fn answered(bytes: &[u8]) -> Result<anthropic::Reply, String> {
     anthropic::reply(&response.body)
 }
 
-pub(crate) fn turned(ctx: &ExecCtx, id: u64, delivery: Delivery) -> Result<(), Error> {
-    ctx.env().sent_by(provider::PROGRAM)?;
+fn turned(
+    ctx: &ExecCtx,
+    id: u64,
+    upto: u64,
+    answer: Result<Vec<u8>, Error>,
+) -> Result<Vec<String>, Error> {
     let mut thread = thread(ctx, id)?;
-    let Asking::Asked { upto } = thread.asking else {
-        return Ok(());
-    };
-    thread.asking = Asking::Idle;
-    let answer = match delivery.outcome {
-        Outcome::Answered(bytes) => answered(&bytes),
-        Outcome::Failed(reason) => Err(format!("the provider could not reach the model: {reason}")),
-        Outcome::Expired => Err("no provider answered the model call in time".to_owned()),
-    };
-    match (thread.closed, answer) {
-        (true, _) => {}
+    thread.asking = Asking::Running;
+    let calls = match (thread.closed, answered(answer)) {
+        (true, _) => Vec::new(),
         (false, Ok(reply)) => record(ctx, &mut thread, upto, reply)?,
         (false, Err(text)) => {
             thread.failures += 1;
             append(ctx, &mut thread, Body::Notice { text });
+            Vec::new()
         }
-    }
+    };
+    THREADS.put(ctx, &id, &thread);
+    Ok(calls)
+}
+
+fn settle(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
+    let mut thread = thread(ctx, id)?;
     release(ctx, &mut thread)?;
-    advance(ctx, &mut thread)?;
+    thread.asking = Asking::Idle;
     THREADS.put(ctx, &id, &thread);
     Ok(())
+}
+
+fn stall(ctx: &ExecCtx, id: u64, error: &Error) {
+    let Ok(Some(mut thread)) = THREADS.get(ctx, &id) else {
+        return;
+    };
+    thread.asking = Asking::Idle;
+    let text = format!("the agent stopped: {}", refusal(error));
+    append(ctx, &mut thread, Body::Notice { text });
+    THREADS.put(ctx, &id, &thread);
 }
 
 fn record(
@@ -188,12 +223,12 @@ fn record(
     thread: &mut ThreadRow,
     upto: u64,
     reply: anthropic::Reply,
-) -> Result<(), Error> {
+) -> Result<Vec<String>, Error> {
     thread.seen = upto;
     thread.failures = 0;
     thread.turns_since_post += 1;
     thread.last_stop = Some(reply.stop);
-    let calls: Vec<(String, String, String)> = reply
+    let asked: Vec<(String, String, String)> = reply
         .said
         .iter()
         .filter_map(|said| match said {
@@ -208,8 +243,11 @@ fn record(
         usage: reply.usage,
     };
     append(ctx, thread, turn);
-    for (call, tool, input) in calls {
-        place(ctx, thread, call, tool, input)?;
+    let mut calls = Vec::new();
+    for (call, tool, input) in asked {
+        if let Some(placed) = place(ctx, thread, call, tool, input)? {
+            calls.push(placed);
+        }
     }
     if thread.turns_since_post == MAX_TURNS_PER_POST {
         let text = format!(
@@ -217,7 +255,7 @@ fn record(
         );
         append(ctx, thread, Body::Notice { text });
     }
-    Ok(())
+    Ok(calls)
 }
 
 fn call_id_fits(call: &str) -> bool {
@@ -259,23 +297,13 @@ fn planned(
     Ok(())
 }
 
-fn relay(ctx: &ExecCtx, thread: u64, call: &str) {
-    request(
-        ctx,
-        RELAY,
-        call.as_bytes().to_vec(),
-        Vec::new(),
-        relayed_as(thread, call),
-    );
-}
-
 fn place(
     ctx: &ExecCtx,
     thread: &mut ThreadRow,
     call: String,
     tool: String,
     input: String,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     if let Err(problem) = planned(ctx, thread, &call, &tool, &input) {
         append(
             ctx,
@@ -286,28 +314,88 @@ fn place(
                 problem,
             },
         );
-        return Ok(());
+        return Ok(None);
     }
     let row = CallRow {
         thread: thread.id,
         id: call.clone(),
-        tool: tool.clone(),
+        tool,
         input,
         made: ctx.env().height,
-        state: CallState::Relaying { attempts: 1 },
+        state: CallState::Relaying { attempts: 0 },
     };
     CALLS.put(ctx, &(thread.id, call.clone()), &row);
     thread.open_calls += 1;
-    append(
-        ctx,
-        thread,
-        Body::Receipt {
-            call: call.clone(),
-            tool,
-        },
-    );
-    relay(ctx, thread.id, &call);
+    Ok(Some(call))
+}
+
+fn mark(ctx: &ExecCtx, id: u64, call: &str, state: CallState) -> Result<(), Error> {
+    let key = (id, call.to_owned());
+    if let Some(mut row) = CALLS.get(ctx, &key)? {
+        row.state = state;
+        CALLS.put(ctx, &key, &row);
+    }
     Ok(())
+}
+
+async fn run_call(ctx: &Ctx, id: u64, call: String) -> Result<(), Error> {
+    let (text, failed) = match relay(ctx, id, &call).await? {
+        true => perform(ctx, id, &call).await?,
+        false => ("no provider relayed the call back".to_owned(), true),
+    };
+    finish(ctx, id, &call, text, failed)
+}
+
+async fn relay(ctx: &Ctx, id: u64, call: &str) -> Result<bool, Error> {
+    for attempts in 1..=MAX_ATTEMPTS {
+        mark(ctx, id, call, CallState::Relaying { attempts })?;
+        let relayed = request(ctx, RELAY, call.as_bytes().to_vec(), Vec::new()).await;
+        if relayed.is_ok() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn refusal(error: &Error) -> String {
+    format!("{}: {}", error.code, error.message)
+}
+
+async fn perform(ctx: &Ctx, id: u64, call: &str) -> Result<(String, bool), Error> {
+    let thread = thread(ctx, id)?;
+    let Some(row) = CALLS.get(ctx, &(id, call.to_owned()))? else {
+        return Ok((format!("call {call} is not open"), true));
+    };
+    let hired = AGENTS.has(ctx, &thread.agent);
+    let entry = match (thread.closed, hired, tools::find(&row.tool)) {
+        (true, _, _) => return Ok(("the thread closed before the call ran".to_owned(), true)),
+        (false, false, _) => {
+            return Ok((
+                "the agent was dismissed before the call ran".to_owned(),
+                true,
+            ));
+        }
+        (false, true, None) => return Ok((format!("there is no tool named {}", row.tool), true)),
+        (false, true, Some(entry)) => entry,
+    };
+    let input: Value = serde_json::from_str(&row.input).unwrap_or(Value::Null);
+    let seat = Seat {
+        thread: id,
+        agent: thread.agent,
+        call,
+    };
+    match (entry.run)(ctx, &seat, input) {
+        Ok(Run::Done(value)) => Ok((value.to_string(), false)),
+        Ok(Run::Write { target, payload }) => {
+            mark(ctx, id, call, CallState::Writing)?;
+            let written = ctx.call_raw_as(thread.agent, target, payload).await;
+            Ok(match written {
+                Ok(output) => ((entry.render)(&output).to_string(), false),
+                Err(error) => (refusal(&error), true),
+            })
+        }
+        Err(error) => Ok((refusal(&error), true)),
+    }
 }
 
 fn clipped(mut text: String) -> String {
@@ -323,107 +411,25 @@ fn clipped(mut text: String) -> String {
     text
 }
 
-fn finish(ctx: &ExecCtx, thread: &mut ThreadRow, call: &mut CallRow, text: String, failed: bool) {
+fn finish(ctx: &ExecCtx, id: u64, call: &str, text: String, failed: bool) -> Result<(), Error> {
+    let mut thread = thread(ctx, id)?;
+    let key = (id, call.to_owned());
+    let Some(mut row) = CALLS.get(ctx, &key)? else {
+        return Ok(());
+    };
     let result = Body::Result {
-        call: call.id.clone(),
-        tool: call.tool.clone(),
+        call: row.id.clone(),
+        tool: row.tool.clone(),
         text: clipped(text),
         failed,
     };
-    say(ctx, thread, result);
-    call.state = CallState::Done {
+    append(ctx, &mut thread, result);
+    row.state = CallState::Done {
         height: ctx.env().height,
         failed,
     };
     thread.open_calls = thread.open_calls.saturating_sub(1);
-}
-
-fn refusal(error: &Error) -> String {
-    format!("{}: {}", error.code, error.message)
-}
-
-fn execute(ctx: &ExecCtx, thread: &mut ThreadRow, call: &mut CallRow) {
-    if thread.closed {
-        let text = "the thread closed before the call ran".to_owned();
-        finish(ctx, thread, call, text, true);
-        return;
-    }
-    let Some(entry) = tools::find(&call.tool) else {
-        let text = format!("there is no tool named {}", call.tool);
-        finish(ctx, thread, call, text, true);
-        return;
-    };
-    let input: Value = serde_json::from_str(&call.input).unwrap_or(Value::Null);
-    let seat = Seat {
-        thread: thread.id,
-        agent: thread.agent,
-        call: &call.id,
-    };
-    match (entry.run)(ctx, &seat, input) {
-        Ok(Run::Done(value)) => finish(ctx, thread, call, value.to_string(), false),
-        Ok(Run::Emit { target, payload }) => {
-            let message = ctx.emit_raw_as(thread.agent, target, payload, Wanted::Wanted);
-            WRITES.put(ctx, &message.seq, &(thread.id, call.id.clone()));
-            call.state = CallState::Writing;
-        }
-        Err(error) => finish(ctx, thread, call, refusal(&error), true),
-    }
-}
-
-pub(crate) fn relayed(
-    ctx: &ExecCtx,
-    id: u64,
-    call_id: String,
-    delivery: Delivery,
-) -> Result<(), Error> {
-    ctx.env().sent_by(provider::PROGRAM)?;
-    let mut thread = thread(ctx, id)?;
-    let key = (id, call_id);
-    let Some(mut call) = CALLS.get(ctx, &key)? else {
-        return Ok(());
-    };
-    let CallState::Relaying { attempts } = call.state else {
-        return Ok(());
-    };
-    let came_back = matches!(delivery.outcome, Outcome::Answered(_));
-    let retry = attempts < MAX_ATTEMPTS;
-    match (came_back, retry) {
-        (true, _) => execute(ctx, &mut thread, &mut call),
-        (false, true) => {
-            call.state = CallState::Relaying {
-                attempts: attempts + 1,
-            };
-            relay(ctx, id, &key.1);
-        }
-        (false, false) => {
-            let text = "no provider relayed the call back".to_owned();
-            finish(ctx, &mut thread, &mut call, text, true);
-        }
-    }
-    CALLS.put(ctx, &key, &call);
-    advance(ctx, &mut thread)?;
-    THREADS.put(ctx, &id, &thread);
-    Ok(())
-}
-
-pub(crate) fn written(ctx: &ExecCtx, seq: u64, outcome: &Written) -> Result<(), Error> {
-    let Some((id, call_id)) = WRITES.get(ctx, &seq)? else {
-        return Ok(());
-    };
-    WRITES.remove(ctx, &seq);
-    let mut thread = thread(ctx, id)?;
-    let key = (id, call_id);
-    let Some(mut call) = CALLS.get(ctx, &key)? else {
-        return Ok(());
-    };
-    let (text, failed) = match (outcome, tools::find(&call.tool)) {
-        (Written::Applied { output }, Some(entry)) => ((entry.render)(output).to_string(), false),
-        (Written::Applied { .. }, None) => ("applied".to_owned(), false),
-        (Written::Rejected(error), _) => (refusal(error), true),
-    };
-    finish(ctx, &mut thread, &mut call, text, failed);
-    CALLS.put(ctx, &key, &call);
-    advance(ctx, &mut thread)?;
+    CALLS.put(ctx, &key, &row);
     THREADS.put(ctx, &id, &thread);
     Ok(())
 }

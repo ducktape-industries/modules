@@ -1,9 +1,8 @@
-//! The program: every op and query handed to its function, and the outcome of each write a
-//! tool call made handed back to the loop as that call's result.
-use ::program::{Error, ExecCtx, MessageId, Outcome, Program, QueryCtx};
+//! The program: every op and query handed to its function. An attribution may start a thread's
+//! loop, which awaits the model and each tool call.
+use ::program::{Awaiting, Ctx, Error, Program, QueryCtx};
 
 use crate::agents::{attributed, close, dismiss, hire};
-use crate::turns::{relayed, turned, written};
 use crate::{Op, PROGRAM, Query, Reply, queries, tools};
 
 pub struct Harness;
@@ -13,30 +12,6 @@ impl Program for Harness {
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-
-    fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
-        match op {
-            Op::Hire {
-                agent,
-                system,
-                model,
-                max_tokens,
-            } => hire(ctx, agent, system, model, max_tokens),
-            Op::Dismiss { agent } => dismiss(ctx, agent),
-            Op::Close { thread } => close(ctx, thread),
-            Op::Turned { thread, delivery } => turned(ctx, thread, delivery),
-            Op::Relayed {
-                thread,
-                call,
-                delivery,
-            } => relayed(ctx, thread, call, delivery),
-            Op::Attributed(change) => attributed(ctx, *change),
-        }
-    }
-
-    fn reply(ctx: &ExecCtx, id: &MessageId, outcome: &Outcome) -> Result<(), Error> {
-        written(ctx, id.seq, outcome)
-    }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
         match query {
@@ -56,5 +31,21 @@ impl Program for Harness {
     }
 }
 
+impl Awaiting for Harness {
+    async fn execute(ctx: Ctx, op: Op) -> Result<(), Error> {
+        match op {
+            Op::Hire {
+                agent,
+                system,
+                model,
+                max_tokens,
+            } => hire(&ctx, agent, system, model, max_tokens),
+            Op::Dismiss { agent } => dismiss(&ctx, agent),
+            Op::Close { thread } => close(&ctx, thread),
+            Op::Attributed(change) => attributed(ctx, *change).await,
+        }
+    }
+}
+
 #[cfg(feature = "program")]
-::program::export!(Harness);
+::program::export_awaiting!(Harness);
