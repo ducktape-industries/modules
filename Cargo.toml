@@ -101,9 +101,9 @@ files = { path = "crates/app/files" }
 # only); the probe fixture it seats is a prebuilt wasm binary, `make
 # probe-fixture`, not a Cargo dependency (its `Step` script type is mirrored
 # in the `programs` crate's test, next to the binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "cd4edee2a44da4227d06410453d9b4eaf51fe05b" }
-blobs = { git = "https://github.com/ducktape-industries/ducktape", rev = "cd4edee2a44da4227d06410453d9b4eaf51fe05b" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "cd4edee2a44da4227d06410453d9b4eaf51fe05b" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "6e8788fdd898a5388fb00c7f67f03bfb0aacccc5" }
+blobs = { git = "https://github.com/ducktape-industries/ducktape", rev = "6e8788fdd898a5388fb00c7f67f03bfb0aacccc5" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "6e8788fdd898a5388fb00c7f67f03bfb0aacccc5" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 

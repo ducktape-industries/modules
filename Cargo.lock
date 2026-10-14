@@ -449,7 +449,7 @@ dependencies = [
 [[package]]
 name = "blobs"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=6e8788fdd898a5388fb00c7f67f03bfb0aacccc5#6e8788fdd898a5388fb00c7f67f03bfb0aacccc5"
 dependencies = [
  "abi",
  "sha1",
@@ -2670,7 +2670,7 @@ dependencies = [
 [[package]]
 name = "host"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=6e8788fdd898a5388fb00c7f67f03bfb0aacccc5#6e8788fdd898a5388fb00c7f67f03bfb0aacccc5"
 dependencies = [
  "abi",
  "async-trait",
@@ -3128,7 +3128,7 @@ dependencies = [
 [[package]]
 name = "keyscheme"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=6e8788fdd898a5388fb00c7f67f03bfb0aacccc5#6e8788fdd898a5388fb00c7f67f03bfb0aacccc5"
 dependencies = [
  "base64 0.22.1",
  "borsh",
@@ -4716,7 +4716,7 @@ dependencies = [
 [[package]]
 name = "runtime"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=6e8788fdd898a5388fb00c7f67f03bfb0aacccc5#6e8788fdd898a5388fb00c7f67f03bfb0aacccc5"
 dependencies = [
  "abi",
  "async-trait",
@@ -5231,7 +5231,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "state"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=cd4edee2a44da4227d06410453d9b4eaf51fe05b#cd4edee2a44da4227d06410453d9b4eaf51fe05b"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=6e8788fdd898a5388fb00c7f67f03bfb0aacccc5#6e8788fdd898a5388fb00c7f67f03bfb0aacccc5"
 dependencies = [
  "abi",
  "borsh",
