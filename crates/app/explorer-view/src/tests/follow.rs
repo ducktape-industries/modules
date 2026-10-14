@@ -210,6 +210,7 @@ fn a_change_reached_by_the_head_is_running_not_scheduled() {
                 validators: valset::PROGRAM.into(),
                 identity: identity::PROGRAM.into(),
                 blobs: "blobs".into(),
+                awaits: "awaits".into(),
             }),
             other => panic!("unexpected query: {other:?}"),
         })

@@ -116,7 +116,7 @@ impl Program for Bot {
 
 fn log(ctx: &ExecCtx) -> Result<(), Error> {
     let mut log: Vec<Env> = ctx.record("log")?.unwrap_or_default();
-    log.push(ctx.env().clone());
+    log.push(ctx.env().as_ref().clone());
     ctx.put("log", &log);
     Ok(())
 }
@@ -284,11 +284,10 @@ fn messages_run_after_the_emitter_in_emit_order_depth_first_as_the_emitters_acco
         b"by b"
     );
     assert_eq!(chain.host("a").borrow().state[b"own".as_slice()], b"kept");
-    // the next submission numbers from 0 again
     chain
         .submit(ada(), "a", &vec![emit("b", vec![], false)])
         .unwrap();
-    assert_eq!(logged(&chain, "b")[2].cause, Cause::Message(id("a", 0)));
+    assert_eq!(logged(&chain, "b")[2].cause, Cause::Message(id("a", 3)));
 }
 
 #[test]
@@ -333,7 +332,7 @@ fn a_wanted_reply_brings_the_outcome_back_as_the_targets_message() {
     else {
         panic!("{:?}", a[3].cause)
     };
-    assert_eq!(*replied, id("a", 0));
+    assert_eq!(*replied, id("a", 1));
     assert!(matches!(outcome, Outcome::Rejected(refusal) if refusal.code == code::WRONG_STATE));
     assert!(
         chain
@@ -382,7 +381,7 @@ fn a_rejection_not_absorbed_undoes_the_emitter_whole_and_propagates_up() {
     let script = vec![put("mine", "undone"), emit("b", vec![Step::Refuse], true)];
     let refusal = chain.submit(ada(), "a", &script).unwrap_err();
     assert_eq!(refusal.code, code::WRONG_STATE);
-    assert!(refusal.message.contains("seq: 0"), "{refusal}");
+    assert!(refusal.message.contains("seq: 2"), "{refusal}");
     assert_eq!(left(&chain, "a"), before);
     // the emitter's own refusal after emitting: nothing it emitted runs
     let script = vec![emit("b", vec![], false), Step::Refuse];

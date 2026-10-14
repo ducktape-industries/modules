@@ -13,6 +13,7 @@ program = { workspace = true }
 
 # The suite proven on the reference programs (tests/).
 [dev-dependencies]
+awaits = { workspace = true }
 blob = { workspace = true }
 blobs = { workspace = true }
 identity = { workspace = true }

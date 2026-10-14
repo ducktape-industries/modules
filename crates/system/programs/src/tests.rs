@@ -459,6 +459,7 @@ fn the_roles_are_answered_as_the_kernel_binds_them() {
         validators: "validators-b".into(),
         identity: "identity-b".into(),
         blobs: "blobs-b".into(),
+        awaits: "awaits-b".into(),
     };
     let asked = Env {
         roles: roles.clone(),

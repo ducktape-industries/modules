@@ -25,7 +25,7 @@ pub(crate) fn create_channel(
     name: String,
     post_policy: PostPolicy,
 ) -> Result<(), Error> {
-    rules::channel_id(&id, ctx.env())?;
+    rules::channel_id(&id, &ctx.env())?;
     rules::name(&name)?;
     if CHANNELS.has(ctx, &id) {
         return Err(already_exists(format!("channel {id} exists")));
@@ -149,7 +149,7 @@ pub(crate) fn post(
     thread: Option<u64>,
 ) -> Result<(), Error> {
     rules::id("message_id", &message_id)?;
-    rules::namespace(&message_id, ctx.env())?;
+    rules::namespace(&message_id, &ctx.env())?;
     rules::writable(ctx, &channel(ctx, &channel_id)?, sender)?;
     if MESSAGE_IDS.has(ctx, &message_id) {
         return Err(already_exists(format!("message {message_id} exists")));

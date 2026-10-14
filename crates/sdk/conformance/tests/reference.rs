@@ -306,3 +306,18 @@ impl conformance::programs::Fixture for Programs {
 fn program_programs_fills_the_programs_role() {
     conformance::programs::run(&Programs::new());
 }
+
+struct Awaits;
+
+impl conformance::awaits::Fixture for Awaits {
+    type Program = awaits::Awaits;
+
+    fn host(&self) -> MockHost {
+        MockHost::default()
+    }
+}
+
+#[test]
+fn awaits_fills_the_awaits_role() {
+    conformance::awaits::run(&Awaits);
+}

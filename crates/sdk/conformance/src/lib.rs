@@ -1,5 +1,5 @@
 //! Role conformance: proof that a program fills a role the kernel calls
-//! (`abi::role::{programs, validators, identity}`).
+//! (`abi::role::{programs, validators, identity, awaits}`).
 //!
 //! Each role is a program here with a `Fixture` trait and a `run` that
 //! checks the role's contract, one named function per rule. The suite
@@ -21,6 +21,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use program::{Env, Error, MockHost, Origin, Principal, Program};
 
+pub mod awaits;
 pub mod identity;
 pub mod programs;
 pub mod validators;

@@ -1,19 +1,20 @@
 # Roles, accounts and updates
 
-The kernel knows four programs by what they do, never by their ids. Genesis
+The kernel knows five programs by what they do, never by their ids. Genesis
 binds each role to a founding program; every call the kernel makes goes to the
 program bound to that role, speaking the role's interface in
-`crates/sdk/abi` (`abi::role::{programs, validators, identity}`) or, for
+`crates/sdk/abi` (`abi::role::{programs, validators, identity, awaits}`) or, for
 blobs, ducktape's `blob::contract`. The programs in `crates/system/` are one
 implementation of each.
 
-## The four roles
+## The five roles
 
 | Role | Bound here to | What the kernel does with it |
 |---|---|---|
 | `programs` | `programs` | at founding, writes its params (`role::programs::Genesis`: every founding program and view, and the founding hooks); at each block, before any frame, asks `At(height)` and admits, swaps or drops programs to match the answer, then asks `Hooks(height)` for the programs it tells of each frame the block carries ("Hooks", below) |
 | `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there. The node (`ducktape join`, `invite`, `vote`, `halo`, `leave`) signs the role's `Op` with its identity key. Each member registers the halo address other members dial it at (`Member.halo`, host:port): `Enroll` and `SetHalo` refuse an unspecified or loopback host as `invalid_input` |
 | `identity` | `identity` | as it admits a program (at founding, and later off the programs role), executes `RegisterProgram { program }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfProgram(sender)`, and for a message a program sends as another account asks `Runs { program, account }` |
+| `awaits` | `awaits` | when a frame parks waiting on calls, sends `Park { frame, program, calls }` with the `System` origin, and `Close { frame }` when the frame finishes or the programs role changes its code; the role opens a ticket per call, and a `Resolve { ticket, answer }` from the called program, or an `Expire { ticket }` from anyone once the ticket is `EXPIRY_BLOCKS` old, makes it hand the frame its answer through the host's `Resume`. A refusal of `Park` fails the frame |
 | `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
 
 The founding file binds them (ducktape's `[roles]` table; qa's
@@ -25,9 +26,10 @@ programs = "programs"
 validators = "valset"
 identity = "identity"
 blobs = "blobs"
+awaits = "awaits"
 ```
 
-All four are required. Founding refuses a role bound to a program the
+All five are required. Founding refuses a role bound to a program the
 founding does not list, and a node refuses a network that records no roles.
 Every frame's `Env` carries the bindings (`env.roles`), so a program that asks
 a role asks `ctx.env().roles.identity`, not a name it assumes; chat's roster

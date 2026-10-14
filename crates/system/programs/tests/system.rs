@@ -173,6 +173,7 @@ impl Net {
                 validators: valset::PROGRAM.into(),
                 identity: identity::PROGRAM.into(),
                 blobs: blobs::PROGRAM.into(),
+                awaits: awaits::PROGRAM.into(),
             },
             validators: FOUNDERS.iter().map(|seed| member(*seed)).collect(),
             programs: vec![
@@ -184,6 +185,7 @@ impl Net {
             ]
             .into_iter()
             .chain(apps)
+            .chain([founding(awaits::PROGRAM, &program("awaits"))])
             .collect(),
             views: vec![FoundingView {
                 name: "lens".into(),

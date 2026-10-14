@@ -31,7 +31,9 @@ pub trait Program {
         Ok(())
     }
 
-    fn execute(ctx: &ExecCtx, op: Self::Op) -> Result<(), Error>;
+    fn execute(_ctx: &ExecCtx, _op: Self::Op) -> Result<(), Error> {
+        Err(Error::new(code::UNSUPPORTED, "this program executes no op"))
+    }
 
     /// The outcome of message `id`, which this program emitted with
     /// [`Reply::Wanted`](crate::Reply::Wanted). A refusal here fails the
@@ -181,11 +183,15 @@ pub mod exports {
             ProgramCall::Execute(payload) => execute::<M>(&ExecCtx::new(env), &payload),
             ProgramCall::Query(request) => query::<M>(&QueryCtx::new(env), &request),
             ProgramCall::Hook(record) => hook::<M>(&ExecCtx::new(env), record),
+            ProgramCall::Resume { .. } => Err(crate::Error::new(
+                crate::code::UNSUPPORTED,
+                "this program awaits nothing",
+            )),
         };
         reply.map_err(crate::kernel::refusal_from)
     }
 
-    fn leak(bytes: Vec<u8>) -> u64 {
+    pub(crate) fn leak(bytes: Vec<u8>) -> u64 {
         let len = bytes.len() as u64;
         let ptr = bytes.as_ptr() as u64;
         core::mem::forget(bytes);

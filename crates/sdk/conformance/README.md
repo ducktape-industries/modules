@@ -1,7 +1,7 @@
 # conformance
 
 Proof that a program fills a role the kernel calls: `programs`,
-`validators` or `identity` (`abi::role`). The suite runs your program's
+`validators`, `identity` or `awaits` (`abi::role`). The suite runs your program's
 native `program::Program` over `MockHost` and speaks only the role's bytes:
 it encodes `abi::role` values, hands them to your program's own decoding,
 and reads the answers back as the role's replies. It checks the contract,
@@ -48,8 +48,8 @@ fn fills_the_identity_role() {
 ```
 
 `conformance::env(program, height, origin, sender)` builds the env your
-fixture's ops run in. `tests/reference.rs` has the fixtures of the three
-reference programs (`identity`, `valset`, `programs`).
+fixture's ops run in. `tests/reference.rs` has the fixtures of the four
+reference programs (`identity`, `valset`, `programs`, `awaits`).
 
 ## What each role is held to
 
@@ -93,3 +93,17 @@ program scheduled to stop (`remove`) runs until its height and not from
 it, and stays dropped once the program has run past it; `Hooks` answers the
 founding hooks, a hook set (`set_hook`) from its height, a hook removed
 (`remove_hook`) from its height, and no hook for a program removed.
+
+**awaits**: the role's `Op`, `Query` and `Reply` are the program's first
+variants, byte for byte; `Park` and `Close` are refused `unauthorized` from
+a signed frame or a program; `Park` opens one ticket per call, opened at the
+parking height and due `EXPIRY_BLOCKS` later, and resumes nothing; only the
+called program resolves its ticket (anyone else is refused `unauthorized`),
+which closes it and resumes its frame with the answer, a refusal included;
+a `Resolve` of a ticket no longer open is no refusal and resumes nothing;
+`Expire` before the deadline is refused `not_yet`, and at it, from anyone,
+resumes the frame with `expired(ticket, height)`; `Close` drops that frame's
+tickets alone and resumes nothing; `Owed` and `Overdue` page by `after` and
+`limit`, `Owed` listing a target's open tickets and `Overdue` those due by
+the height. The fixture is only the founded host: the role leaves nothing
+to the program's own ops.

@@ -7,7 +7,7 @@ thing; nothing here is generated. The crate is what a reader follows: plain
 types, plain functions, one host call per context method.
 
 Read [README.md](../README.md) for the map of the repository and
-[roles.md](roles.md) for the four roles and the account model first.
+[roles.md](roles.md) for the five roles and the account model first.
 
 ## 1. The crate
 
@@ -290,15 +290,16 @@ feature off) for its types. The sibling's refusal is your `Err`.
 this program, once your handler returns Ok; messages run in emit order,
 each before the next, depth first, at most 8 deep. `ctx.emit(target, &op,
 reply)` names the target's `Op` and answers a `MessageId` (this program and
-the message's number in the frame). What the target's refusal does is
-`reply`:
+the message's number, which no other message on the network shares). What
+the target's refusal does is `reply`:
 
 - `Reply::None`: the refusal fails this whole frame. Every host is left as
   it was, your writes included. poll's closing line must land, so the
   close is posted this way: a channel that refuses it un-closes the poll.
 - `Reply::Wanted`: the target's writes are undone, and its outcome comes
-  back to you in the same frame as `Program::reply(ctx, id, outcome)`, a
-  run of its own whose `cause` is `Cause::Reply`. Return Ok to absorb the
+  back to you as `Program::reply(ctx, id, outcome)`, a run of its own whose
+  `cause` is `Cause::Reply`: in the same frame, or, when the target is an
+  awaiting program that parked, in the submission that finishes it. Return Ok to absorb the
   refusal, Err to fail the frame after all. The default `reply` absorbs an
   applied outcome and returns a refusal, so a program that never wants a
   reply leaves it alone.
@@ -316,8 +317,8 @@ A reply names only the message's id. A program that wants to know *what* it
 was waiting for keeps that itself:
 
 ```rust
-/// The poll each announcement was posted for, by the message's number in
-/// its frame; the reply comes in the same frame and removes it.
+/// The poll each announcement was posted for, by the message's number; the
+/// reply removes it.
 const ANNOUNCED: Map<u64, String> = Map::new("announced/");
 
 // in open(): the room may refuse the line (members only); the poll opens anyway
@@ -356,6 +357,34 @@ lets a program post under its own `<program>:<name>` ids
 `ctx.event(bytes)` adds to the call's receipt, for readers of the chain;
 `ctx.set_return_data(bytes)` is the execute's output, which a `Reply::Wanted`
 emitter gets back as `Outcome::Applied { output }`.
+
+**A call waits for the answer.** A program whose execute is `async`
+implements `Awaiting` beside `Program` (and leaves `Program::execute` out),
+and exports with `program::export_awaiting!`. Its handler takes an owned
+`Ctx`, which derefs to `ExecCtx`, and the op already decoded:
+
+```rust
+impl Awaiting for Feed {
+    async fn execute(ctx: Ctx, Refresh { pair }: Refresh) -> Result<(), Error> {
+        let price: u64 = ctx.call(ORACLE, &Ask { pair: pair.clone() }).await?;
+        QUOTES.put(&ctx, &pair, &Quote { price, at: ctx.env().height });
+        Ok(())
+    }
+}
+```
+
+`ctx.call(target, &op).await` (and `call_raw`) runs `target` with `op` and
+`cause: Cause::Call { ticket }`, and answers its output, or its refusal as
+`Err`. A target that answers in that run resumes you in the same
+submission. A target that cannot answer yet calls `ctx.defer()`, keeps the
+ticket, and later sends `ctx.resolve(ticket, answer)`; until then your frame
+is parked, and it resumes in the submission that carries the resolve, with
+`ctx.env()` reading that block. A ticket nobody resolves expires after
+`awaits::EXPIRY_BLOCKS`, and the call answers the awaits role's refusal.
+Each run between two awaits is its own transaction: a refusal undoes only
+the run it ends, never what an earlier block kept. On a `MockChain`, seat
+the awaits program (`chain.seat::<awaits::Awaits>("awaits")`) and the
+awaiting program with `chain.seat_awaiting`.
 
 ## 7. Describe
 
@@ -510,7 +539,7 @@ and `make wasm-publish` releases the result as `founding.tar.gz`, which
    or `"poll"` in `UNVIEWED` for a program with no screen of its own.
 2. `crates/sdk/founding/founding.toml`: a `[[programs]]` entry,
    `id = "poll"`, `code = "poll.wasm"` (and `params = …` if `init` takes
-   any). The four `[roles]` stay bound to the boot set.
+   any). The five `[roles]` stay bound to the boot set.
 3. qa's `founding.toml`: the same entry with `code = "@PROGRAMS@/poll.wasm"`.
    `kit up NAME` founds a fresh network with the program admitted at
    genesis and its account registered with identity.

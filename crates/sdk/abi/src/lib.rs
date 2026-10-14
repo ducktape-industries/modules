@@ -125,6 +125,7 @@ pub struct Roles {
     /// Asked, once per frame, which account the frame acts as.
     pub identity: ProgramId,
     pub blobs: ProgramId,
+    pub awaits: ProgramId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
@@ -201,13 +202,11 @@ pub enum Outcome {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-/// Why a frame runs: a submission, a message another program emitted in
-/// this frame, or the outcome of a message this program emitted with a
-/// reply wanted.
 pub enum Cause {
     Direct,
     Message(ItemRef),
     Completion { item: ItemRef, outcome: Outcome },
+    Call { ticket: role::awaits::Ticket },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -354,6 +353,16 @@ pub enum HostOp {
     Output(Vec<u8>),
     Respond(Vec<u8>),
     Crypto(CryptoOp),
+    Await {
+        target: ProgramId,
+        payload: Vec<u8>,
+    },
+    Defer,
+    Resume {
+        frame: role::awaits::FrameId,
+        ticket: role::awaits::Ticket,
+        answer: role::awaits::Answer,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -369,6 +378,7 @@ pub enum HostReply {
     Query(Result<Vec<u8>, Refusal>),
     Crypto(CryptoReply),
     Refused(Refusal),
+    Ticket(role::awaits::Ticket),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -383,6 +393,10 @@ pub enum ProgramCall {
     Execute(Vec<u8>),
     Query(Vec<u8>),
     Hook(hook::Record),
+    Resume {
+        ticket: role::awaits::Ticket,
+        answer: role::awaits::Answer,
+    },
 }
 
 pub mod hook {
@@ -655,6 +669,88 @@ pub mod role {
             },
         }
     }
+
+    pub mod awaits {
+        use crate::{BorshDeserialize, BorshSerialize, ProgramId, Refusal, reason};
+
+        pub type Ticket = u64;
+        pub type FrameId = u64;
+        pub type Answer = Result<Vec<u8>, Refusal>;
+
+        pub const EXPIRY_BLOCKS: u64 = 64;
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct Call {
+            pub ticket: Ticket,
+            pub target: ProgramId,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Op {
+            Park {
+                frame: FrameId,
+                program: ProgramId,
+                calls: Vec<Call>,
+            },
+            Resolve {
+                ticket: Ticket,
+                answer: Answer,
+            },
+            Expire {
+                ticket: Ticket,
+            },
+            Close {
+                frame: FrameId,
+            },
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct TicketRow {
+            pub ticket: Ticket,
+            pub frame: FrameId,
+            pub caller: ProgramId,
+            pub target: ProgramId,
+            pub opened: u64,
+            pub deadline: u64,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Query {
+            Ticket {
+                ticket: Ticket,
+            },
+            Owed {
+                target: ProgramId,
+                after: Option<Ticket>,
+                limit: u32,
+            },
+            Overdue {
+                height: u64,
+                after: Option<Ticket>,
+                limit: u32,
+            },
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Reply {
+            Ticket(Option<TicketRow>),
+            Tickets(Vec<TicketRow>),
+        }
+
+        pub fn expired(ticket: Ticket, height: u64) -> Refusal {
+            Refusal::new(
+                reason::WRONG_STATE,
+                format!("call {ticket} expired at height {height}"),
+            )
+        }
+
+        pub fn cancelled(program: &str) -> Refusal {
+            Refusal::new(
+                reason::WRONG_STATE,
+                format!("{program} changed code while its frame awaited"),
+            )
+        }
+    }
 }
 
 /// What an account is beside its name, as every view shows it: the one
@@ -814,6 +910,7 @@ mod tests {
                 validators: "v".into(),
                 identity: "i".into(),
                 blobs: "b".into(),
+                awaits: "a".into(),
             },
             cause: Cause::Completion {
                 item: ItemRef {
