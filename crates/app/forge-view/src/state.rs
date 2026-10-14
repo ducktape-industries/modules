@@ -73,6 +73,9 @@ pub struct Forge {
     /// arrows are on
     #[serde(skip)]
     pub(crate) files_scroll: UniformListScrollHandle,
+    /// the Refs tab's list, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) refs_scroll: UniformListScrollHandle,
     /// a file picked to show alone whose row the Files tab's list has
     /// not yet been scrolled to: its diff is on its way
     #[serde(skip)]

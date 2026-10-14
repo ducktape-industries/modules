@@ -60,6 +60,10 @@ fn answer(query: &Query, mode: &str) -> Reply {
         Query::Refs {
             page: PageRequest { after: None, .. },
             ..
+        } if mode == "many-refs" => many_refs(),
+        Query::Refs {
+            page: PageRequest { after: None, .. },
+            ..
         } => reply("refs"),
         Query::Refs { .. } => reply("refs-next"),
         Query::Activity { .. } => reply("activity"),
@@ -104,6 +108,19 @@ fn answer(query: &Query, mode: &str) -> Reply {
         Query::Judgment { .. } => reply("judgment"),
         other => panic!("no fixture for {other:?}"),
     }
+}
+
+/// The refs of a repository with a long history of branches: the first
+/// page's, then 120 more.
+fn many_refs() -> Reply {
+    let mut refs = reply("refs");
+    if let Reply::Refs { page, .. } = &mut refs {
+        page.items.extend((0..120).map(|n| forge::RefInfo {
+            name: format!("refs/heads/feature/many-{n:03}").into_bytes(),
+            target: format!("{n:040x}"),
+        }));
+    }
+    refs
 }
 
 /// A diff the size of a release: `files` files of `lines` added lines each
@@ -2314,23 +2331,90 @@ fn an_arrow_on_the_commit_list_scrolls_its_rows_to_the_commit_moved_to() {
     assert_eq!(scroll_request.map(|request| request.index), Some(1));
 }
 
-/// Changes and refs are drawn whole, so their list box and grid are the
-/// scrollers: the host reveals the row an arrow moves to inside them, and
-/// the SDK keeps their one gutter.
+/// Changes are drawn whole, so their list box is the scroller: the host
+/// reveals the row an arrow moves to inside it, and the SDK keeps its one
+/// gutter.
 #[test]
-fn the_change_and_ref_lists_drawn_whole_scroll_themselves() {
+fn the_change_list_drawn_whole_scrolls_itself() {
     let bar = Some(ducktape_view_guest::design::size::SCROLLBAR.into());
     let (mut cx, _) = opened("default");
-    for (tab, id) in [
-        ("forge-tab-changes", "forge-changes-list"),
-        ("forge-tab-refs", "forge-refs-list"),
-    ] {
-        cx.simulate_click(tab);
-        cx.run_until_parked();
-        let list = list_box(&cx, id);
-        assert!(list.overflow.y.is_some(), "{id} scrolls");
-        assert_eq!(list.padding.right, bar, "{id} keeps its bar's gutter");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    let list = list_box(&cx, "forge-changes-list");
+    assert!(list.overflow.y.is_some(), "the changes scroll");
+    assert_eq!(
+        list.padding.right, bar,
+        "the changes keep their bar's gutter"
+    );
+}
+
+/// The refs are a virtual list, which scrolls itself with the host's bar:
+/// the grid around it is no scroller, and the arrows scroll the rows to
+/// the ref they move to.
+#[test]
+fn the_ref_list_leaves_the_scrolling_to_its_rows() {
+    let (mut cx, _) = opened("default");
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    let grid = list_box(&cx, "forge-refs-list");
+    assert_eq!(grid.overflow.y, None);
+    assert!(
+        matches!(
+            cx.find("forge-refs-rows"),
+            Some(wire::Node::UniformList { .. })
+        ),
+        "the refs are a virtual list"
+    );
+    cx.simulate_focus("forge-refs-list");
+    cx.simulate_key_down("forge-refs-list", "down");
+    let Some(wire::Node::UniformList { scroll_request, .. }) = cx.find("forge-refs-rows") else {
+        panic!("the refs are a virtual list");
+    };
+    assert_eq!(scroll_request.map(|request| request.index), Some(1));
+}
+
+/// The app repository has well over a hundred refs: the Refs tab draws the
+/// ones on screen, not one row per ref on every render (105 refs cost
+/// 23M fuel a key), and the keys still reach every ref: ↓ walks to one far
+/// down, scrolled to, and Enter browses it.
+#[test]
+fn a_long_ref_list_draws_the_refs_on_screen_and_picks_one_by_keyboard() {
+    let (mut cx, view) = opened("many-refs");
+    cx.simulate_click("forge-tab-refs");
+    cx.run_until_parked();
+    let total = view.read(|forge| forge.refs().map_or(0, <[_]>::len));
+    assert!(total > 120, "{total} refs");
+    let drawn = ref_rows(&cx).len();
+    assert!(drawn > 0 && drawn < 64, "{drawn} of {total} refs drawn");
+    cx.simulate_focus("forge-refs-list");
+    for _ in 0..110 {
+        cx.simulate_key_down("forge-refs-list", "down");
     }
+    cx.run_until_parked();
+    cx.simulate_viewport(20);
+    let name = view.read(|forge| forge.refs().unwrap()[110].name.clone());
+    let label = crate::ui::components::ref_label(&name);
+    assert!(
+        cx.interactivity(&format!("forge-ref-row-{label}-open"))
+            .aria
+            .active_descendant,
+        "the ref walked to is drawn and claimed"
+    );
+    cx.simulate_key_down("forge-refs-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.head_name(), name));
+    assert!(ref_rows(&cx).len() < 64);
+}
+
+/// The keys of the refs grid's rows drawn, in order.
+fn ref_rows(cx: &TestAppContext) -> Vec<String> {
+    cx.find("forge-refs-rows")
+        .expect("the refs")
+        .children()
+        .iter()
+        .filter_map(|slot| slot.children().first()?.key().map(str::to_owned))
+        .filter(|key| key.starts_with("forge-ref-row-"))
+        .collect()
 }
 
 #[test]
@@ -2358,14 +2442,7 @@ fn the_ref_list_is_a_grid_whose_right_reaches_compare() {
     let grid = cx.interactivity("forge-refs-list");
     assert_eq!(grid.role, Some(ducktape_view_guest::Role::Grid));
     assert!(grid.focusable && grid.tab_stop == Some(true));
-    let rows: Vec<String> = cx
-        .find("forge-refs-list")
-        .expect("the refs")
-        .children()
-        .iter()
-        .filter_map(|row| row.key().map(str::to_owned))
-        .filter(|key| key.starts_with("forge-ref-row-"))
-        .collect();
+    let rows = ref_rows(&cx);
     assert!(
         cx.interactivity(&format!("{}-open", rows[0]))
             .aria
@@ -2400,14 +2477,7 @@ fn a_reader_who_may_not_write_has_no_compare_cell() {
     view.read(|forge| assert!(!forge.may_write()));
     cx.simulate_click("forge-tab-refs");
     cx.run_until_parked();
-    let rows: Vec<String> = cx
-        .find("forge-refs-list")
-        .expect("the refs")
-        .children()
-        .iter()
-        .filter_map(|row| row.key().map(str::to_owned))
-        .filter(|key| key.starts_with("forge-ref-row-"))
-        .collect();
+    let rows = ref_rows(&cx);
     cx.simulate_focus("forge-refs-list");
     cx.simulate_key_down("forge-refs-list", "down");
     cx.simulate_key_down("forge-refs-list", "right");
@@ -2434,14 +2504,7 @@ fn a_ref_without_compare_is_a_grid_row_of_one_cell() {
     let (mut cx, view) = opened("default");
     cx.simulate_click("forge-tab-refs");
     cx.run_until_parked();
-    let rows: Vec<String> = cx
-        .find("forge-refs-list")
-        .expect("the refs")
-        .children()
-        .iter()
-        .filter_map(|row| row.key().map(str::to_owned))
-        .filter(|key| key.starts_with("forge-ref-row-"))
-        .collect();
+    let rows = ref_rows(&cx);
     for label in ["main", "v1"] {
         let key = format!("forge-ref-row-{label}");
         assert_eq!(
