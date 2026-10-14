@@ -189,7 +189,7 @@ fn voted(ctx: &QueryCtx, name: &str) -> Result<Option<u64>, Error> {
 
 pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error> {
     let env = ctx.env();
-    let by = actor(env, scheduled.change.program())?;
+    let by = actor(&env, scheduled.change.program())?;
     // the vote's change on a name takes every change a grant made to it
     // along, and its removal the name's grants too: the checks below read
     // the schedule without them, and they go once every check has passed
@@ -360,7 +360,7 @@ pub fn grantable(ctx: &QueryCtx, grant: &Grant) -> Result<(), Error> {
 pub(crate) fn revoke(ctx: &ExecCtx, grant: Grant) -> Result<(), Error> {
     let env = ctx.env();
     let account = grant.account;
-    if let Some(by) = actor(env, &grant.scope.to_string())?
+    if let Some(by) = actor(&env, &grant.scope.to_string())?
         && by != account
     {
         return Err(unauthorized(format!(
@@ -382,7 +382,7 @@ pub(crate) fn revoke(ctx: &ExecCtx, grant: Grant) -> Result<(), Error> {
 
 /// The vote cancels any change; a maintainer of the name, one a grant made.
 pub(crate) fn cancel(ctx: &ExecCtx, height: u64, program: ProgramId) -> Result<(), Error> {
-    let by = actor(ctx.env(), &program)?;
+    let by = actor(&ctx.env(), &program)?;
     if let Some(account) = by {
         maintains(ctx, account, &program)?;
     }

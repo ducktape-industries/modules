@@ -111,7 +111,7 @@ pub(crate) fn edit(
         check_reviewers(ctx, &reviewers)?;
         change.reviewers = reviewers;
     }
-    touched(&mut change, env);
+    touched(&mut change, &env);
     fits(ctx, &change)?;
     save_change(ctx, repo, &change)?;
     Ok(OpReply::Change {
@@ -136,7 +136,7 @@ pub(crate) fn close(
     require_open(&change)?;
     change.state = ChangeState::Closed;
     change.closed_by = Some(actor.clone());
-    touched(&mut change, env);
+    touched(&mut change, &env);
     change.system_seq = next(change.system_seq)?;
     let message = next_message(ctx)?;
     save_change(ctx, repo, &change)?;
@@ -182,7 +182,7 @@ pub(crate) fn submit_review(
         .checked_add(review.draft.comments.len() as u64)
         .ok_or_else(|| capacity("comment counter exhausted"))?;
     count_verdict(&mut change.verdicts, review.draft.verdict)?;
-    touched(&mut change, env);
+    touched(&mut change, &env);
     change.system_seq = next(change.system_seq)?;
     fits(ctx, &change)?;
     let message = next_message(ctx)?;
@@ -247,7 +247,7 @@ pub(crate) fn merge_heads(
             source: expected_from.to_hex(),
             target: expected_into.to_hex(),
         });
-        touched(&mut change, env);
+        touched(&mut change, &env);
         change.system_seq = next(change.system_seq)?;
         fits(ctx, &change)?;
         let message = next_message(ctx)?;

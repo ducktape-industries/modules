@@ -16,15 +16,18 @@
 //! where the kernel's receipt would keep them).
 
 use std::cell::{Cell, Ref, RefCell, RefMut};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
+use abi::role::awaits;
 use abi::role::identity::{Kind, Profile, Query, Reply, Standing};
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::awaiting::{self, Answer, Awaiting, Step, Suspended};
 use crate::{
-    AccountNumber, Cause, Env, Error, ExecCtx, MessageId, MockHost, Origin, Outcome, Principal,
-    Program, ProgramId, QueryCtx, Roles, code, identity_role, unauthorized, unexpected_reply,
+    AccountNumber, Called, Cause, Env, Error, ExecCtx, FrameId, MessageId, MockHost, Origin,
+    Outcome, Principal, Program, ProgramId, QueryCtx, Resumed, Roles, Ticket, code, identity_role,
+    unauthorized, unexpected_reply,
 };
 
 /// How deep messages nest in one frame: a submission runs at depth 0 and
@@ -35,22 +38,84 @@ pub const MAX_DEPTH: u32 = 8;
 /// A program's entry point with its type erased: [`crate::execute`] or
 /// [`crate::query`] of one `Program`, over the context the chain makes.
 type Entry<Ctx> = Rc<dyn Fn(Ctx, &[u8]) -> Result<(), Error>>;
+type Execute = Rc<dyn Fn(ExecCtx, &[u8]) -> Step>;
 
 /// A program seated on the chain: its host and its entry points, typed away
 /// so the chain holds any program.
 struct Seat {
     host: MockHost,
     init: Entry<ExecCtx>,
-    execute: Entry<ExecCtx>,
+    execute: Execute,
     query: Entry<QueryCtx>,
 }
 
-/// What a run of a frame calls: the program's init with its params (the
-/// kernel's admission) or its execute with a payload.
-#[derive(Clone, Copy)]
 enum Call<'a> {
     Init(&'a [u8]),
     Execute(&'a [u8]),
+    Resume { ticket: Ticket, answer: Answer },
+}
+
+#[derive(Clone)]
+enum Waiter {
+    Nobody,
+    Reply { id: MessageId },
+    Call { ticket: Ticket },
+}
+
+enum Status {
+    Finished,
+    Deferred,
+    Parked,
+}
+
+struct Run {
+    outcome: Result<Vec<u8>, Error>,
+    status: Status,
+}
+
+impl Run {
+    fn finished(outcome: Result<Vec<u8>, Error>) -> Run {
+        Run {
+            outcome,
+            status: Status::Finished,
+        }
+    }
+}
+
+struct Segment {
+    outcome: Result<Vec<u8>, Error>,
+    calls: Vec<Called>,
+    deferred: bool,
+    parked: Option<Suspended>,
+}
+
+impl Segment {
+    fn finished(outcome: Result<Vec<u8>, Error>) -> Segment {
+        Segment {
+            outcome,
+            calls: Vec::new(),
+            deferred: false,
+            parked: None,
+        }
+    }
+}
+
+struct Start {
+    frame: Option<FrameId>,
+    waiter: Waiter,
+    checkpoint: Checkpoint,
+}
+
+#[derive(Clone)]
+struct Checkpoint {
+    written: Vec<crate::mock::Written>,
+    parked: BTreeSet<FrameId>,
+}
+
+struct Parked {
+    suspended: Suspended,
+    env: Env,
+    waiter: Waiter,
 }
 
 /// Who holds what, for a chain with no identity program seated: each key
@@ -148,8 +213,10 @@ pub struct MockChain {
     roles: Roles,
     seats: BTreeMap<ProgramId, Seat>,
     roster: Rc<RefCell<Roster>>,
-    /// The frame-wide number the next emitted message gets.
     next_message: Cell<u64>,
+    next_ticket: Cell<Ticket>,
+    next_frame: Cell<FrameId>,
+    parked: RefCell<BTreeMap<FrameId, Parked>>,
     /// The block every run is in: height and time.
     clock: Cell<(u64, u64)>,
 }
@@ -168,6 +235,9 @@ impl MockChain {
             seats: BTreeMap::new(),
             roster: Rc::default(),
             next_message: Cell::new(0),
+            next_ticket: Cell::new(0),
+            next_frame: Cell::new(0),
+            parked: RefCell::default(),
             clock: Cell::new((1, 0)),
         }
     }
@@ -177,12 +247,25 @@ impl MockChain {
     /// and write (`chain.host(program)` finds it again). Seated at the
     /// identity role's binding, `M` is the identity the chain asks.
     pub fn seat<M: Program>(&mut self, program: impl Into<ProgramId>) -> MockHost {
-        let program = program.into();
+        let execute = Rc::new(|ctx, payload: &[u8]| Step::Done(crate::execute::<M>(&ctx, payload)));
+        self.seat_with::<M>(program.into(), execute)
+    }
+
+    pub fn seat_awaiting<A: Awaiting>(&mut self, program: impl Into<ProgramId>) -> MockHost {
+        let execute = Rc::new(|ctx, payload: &[u8]| awaiting::start::<A>(ctx, payload));
+        self.seat_with::<A>(program.into(), execute)
+    }
+
+    pub fn frames(&self) -> usize {
+        self.parked.borrow().len()
+    }
+
+    fn seat_with<M: Program>(&mut self, program: ProgramId, execute: Execute) -> MockHost {
         let host = MockHost::default();
         let seat = Seat {
             host: host.clone(),
             init: Rc::new(|ctx, params| M::init(&ctx, params)),
-            execute: Rc::new(|ctx, payload| crate::execute::<M>(&ctx, payload)),
+            execute,
             query: Rc::new(|ctx, request| crate::query::<M>(&ctx, request)),
         };
         let roster = self.roster.clone();
@@ -271,9 +354,10 @@ impl MockChain {
     /// kernel admits a program: one frame run by the chain itself at this
     /// height, what init emits run after it, and a refusal undoing it all.
     pub fn init(&self, program: &str, params: &impl BorshSerialize) -> Result<(), Error> {
-        self.next_message.set(0);
         let params = abi::encode(params);
-        self.run_frame(self.env(program), Call::Init(&params), 0)
+        let env = self.env(program);
+        self.run_frame(env, Call::Init(&params), Waiter::Nobody, 0)
+            .outcome
             .map(drop)
     }
 
@@ -322,8 +406,8 @@ impl MockChain {
             sender,
             ..self.env(program)
         };
-        self.next_message.set(0);
-        self.run_frame(env, Call::Execute(payload.as_ref()), 0)
+        let call = Call::Execute(payload.as_ref());
+        self.run_frame(env, call, Waiter::Nobody, 0).outcome
     }
 
     /// `program`'s answer to `request`, asked by the chain itself (origin
@@ -407,51 +491,84 @@ impl MockChain {
         }
     }
 
-    /// The kernel's `run_frame`: `env.program` runs `payload`, then the
-    /// messages it emitted in order, each at `depth + 1` and depth first,
-    /// and the whole run is undone on a rejection it does not absorb: a
-    /// rejected message without a reply, or a rejected reply run. A message
-    /// with a reply wanted comes back as a [`Cause::Reply`] run of the
-    /// emitter, the target's writes undone when it was rejected.
-    fn run_frame(&self, env: Env, call: Call, depth: u32) -> Result<Vec<u8>, Error> {
+    fn run_frame(&self, env: Env, call: Call, waiter: Waiter, depth: u32) -> Run {
         if depth > MAX_DEPTH {
-            return Err(Error::new(
-                code::CAPACITY,
-                format!("messages nest deeper than {MAX_DEPTH}"),
-            ));
+            let too_deep = format!("messages nest deeper than {MAX_DEPTH}");
+            return Run::finished(Err(Error::new(code::CAPACITY, too_deep)));
         }
+        let checkpoint = self.checkpoint();
+        let segment = self.segment(&env, None, call, depth);
+        let start = Start {
+            frame: None,
+            waiter,
+            checkpoint,
+        };
+        self.follow(env, start, segment, depth)
+    }
+
+    fn segment(&self, env: &Env, suspended: Option<Suspended>, call: Call, depth: u32) -> Segment {
         self.share_blobs();
         let checkpoint = self.checkpoint();
-        let seat = self.seated(&env.program)?;
+        let seat = match self.seated(&env.program) {
+            Ok(seat) => seat,
+            Err(unknown) => return Segment::finished(Err(unknown)),
+        };
         let host = &seat.host;
         let first = self.next_message.get();
         host.borrow_mut().next_message = first;
-        let ran = match call {
-            Call::Init(params) => (seat.init)(host.exec(env.clone()), params),
-            Call::Execute(payload) => (seat.execute)(host.exec(env.clone()), payload),
+        host.borrow_mut().next_ticket = self.next_ticket.get();
+        let step = match (suspended, call) {
+            (Some(suspended), Call::Resume { ticket, answer }) => {
+                awaiting::resume(suspended, env.clone(), ticket, answer)
+            }
+            (_, Call::Init(params)) => Step::Done((seat.init)(host.exec(env.clone()), params)),
+            (_, Call::Execute(payload)) => (seat.execute)(host.exec(env.clone()), payload),
+            (None, Call::Resume { .. }) => {
+                Step::Done(Err(Error::new(code::PROTOCOL, "nothing is parked")))
+            }
         };
         // this run's output and messages, before a nested run of the same
         // program (a reply) overwrites them
         let output = host.take_output();
         let emitted = host.take_emissions();
+        let calls = host.take_calls();
+        let deferred = host.take_deferred();
+        let resumes = host.take_resumes();
         self.next_message.set(first + emitted.len() as u64);
-        if let Err(refusal) = ran {
+        self.next_ticket.set(host.borrow().next_ticket);
+        let (ran, parked) = match step {
+            Step::Done(done) => (done, None),
+            Step::Parked(suspended) => (Ok(()), Some(suspended)),
+        };
+        let delivered = ran.and_then(|()| self.deliver(env, emitted, first, depth));
+        if let Err(refusal) = delivered {
             self.restore(checkpoint);
-            return Err(refusal);
+            return Segment::finished(Err(refusal));
         }
+        for resumed in resumes {
+            self.resume_parked(resumed, env, depth + 1);
+        }
+        Segment {
+            outcome: Ok(output),
+            calls,
+            deferred,
+            parked,
+        }
+    }
+
+    fn deliver(
+        &self,
+        env: &Env,
+        emitted: Vec<abi::Message>,
+        first: u64,
+        depth: u32,
+    ) -> Result<(), Error> {
         // the emitter's account, asked once for all its messages
         let as_itself = emitted.iter().any(|message| message.acting.is_none());
         let emitter = if as_itself {
             self.account(Query::OfProgram(env.program.clone()))
         } else {
             Ok(None)
-        };
-        let nested = |me: &ProgramId, origin: &ProgramId, sender, cause| Env {
-            program: me.clone(),
-            origin: Origin::Program(origin.clone()),
-            sender,
-            cause,
-            ..env.clone()
         };
         for (seq, message) in emitted.into_iter().enumerate() {
             let id = MessageId {
@@ -463,18 +580,27 @@ impl MockChain {
                 Some(account) => self.run_by(&env.program, account),
             };
             let ran = match sender {
-                Err(refusal) => Err(refusal),
+                Err(refusal) => Run::finished(Err(refusal)),
                 Ok(sender) => {
-                    let env = nested(
+                    let env = self.nested(
+                        env,
                         &message.target,
                         &env.program,
                         sender,
                         Cause::Message(id.clone()),
                     );
-                    self.run_frame(env, Call::Execute(&message.payload), depth + 1)
+                    let waiter = match message.reply {
+                        true => Waiter::Reply { id: id.clone() },
+                        false => Waiter::Nobody,
+                    };
+                    self.run_frame(env, Call::Execute(&message.payload), waiter, depth + 1)
                 }
             };
-            let refusal = match (ran, message.reply) {
+            let waits = matches!(ran.status, Status::Parked);
+            if waits {
+                continue;
+            }
+            let refusal = match (ran.outcome, message.reply) {
                 (Ok(_), false) => continue,
                 (Err(refusal), false) => refusal,
                 (ran, true) => {
@@ -482,24 +608,250 @@ impl MockChain {
                         Ok(output) => Outcome::Applied { output },
                         Err(refusal) => Outcome::Rejected(refusal),
                     };
-                    let replied = match self.account(Query::OfProgram(message.target.clone())) {
-                        Err(refusal) => Err(refusal),
-                        Ok(sender) => {
-                            let cause = Cause::Reply { id, outcome };
-                            let env = nested(&env.program, &message.target, sender, cause);
-                            self.run_frame(env, Call::Execute(&[]), depth + 1)
-                        }
-                    };
-                    match replied {
+                    match self.reply(env, &message.target, id, outcome, depth + 1) {
                         Ok(_) => continue,
                         Err(refusal) => refusal,
                     }
                 }
             };
-            self.restore(checkpoint);
             return Err(refusal);
         }
-        Ok(output)
+        Ok(())
+    }
+
+    fn reply(
+        &self,
+        env: &Env,
+        by: &ProgramId,
+        id: MessageId,
+        outcome: Outcome,
+        depth: u32,
+    ) -> Result<Vec<u8>, Error> {
+        let sender = self.account(Query::OfProgram(by.clone()))?;
+        let emitter = id.program.clone();
+        let env = self.nested(env, &emitter, by, sender, Cause::Reply { id, outcome });
+        self.run_frame(env, Call::Execute(&[]), Waiter::Nobody, depth)
+            .outcome
+    }
+
+    fn nested(
+        &self,
+        env: &Env,
+        me: &ProgramId,
+        origin: &ProgramId,
+        sender: Option<Principal>,
+        cause: Cause,
+    ) -> Env {
+        Env {
+            program: me.clone(),
+            origin: Origin::Program(origin.clone()),
+            sender,
+            cause,
+            ..env.clone()
+        }
+    }
+
+    fn follow(&self, env: Env, start: Start, segment: Segment, depth: u32) -> Run {
+        let Segment {
+            mut outcome,
+            mut calls,
+            mut deferred,
+            parked: mut suspended,
+        } = segment;
+        let mut ready = VecDeque::new();
+        let mut open = Vec::new();
+        loop {
+            let Some(instance) = suspended.take() else {
+                return self.finish(&env, start, outcome, deferred, depth);
+            };
+            self.place(&env, calls, &mut ready, &mut open, depth);
+            let Some((ticket, answer)) = ready.pop_front() else {
+                return self.park(env, start, outcome, instance, open, depth);
+            };
+            let resume = Call::Resume { ticket, answer };
+            let next = self.segment(&env, Some(instance), resume, depth);
+            outcome = next.outcome;
+            calls = next.calls;
+            deferred = next.deferred;
+            suspended = next.parked;
+            if outcome.is_err() {
+                self.restore(start.checkpoint.clone());
+            }
+        }
+    }
+
+    fn place(
+        &self,
+        env: &Env,
+        calls: Vec<Called>,
+        ready: &mut VecDeque<(Ticket, Answer)>,
+        open: &mut Vec<awaits::Call>,
+        depth: u32,
+    ) {
+        if calls.is_empty() {
+            return;
+        }
+        let caller = self.account(Query::OfProgram(env.program.clone()));
+        for Called {
+            ticket,
+            target,
+            payload,
+        } in calls
+        {
+            let ran = match caller.clone() {
+                Err(refusal) => Run::finished(Err(refusal)),
+                Ok(sender) => {
+                    let env =
+                        self.nested(env, &target, &env.program, sender, Cause::Call { ticket });
+                    let waiter = Waiter::Call { ticket };
+                    self.run_frame(env, Call::Execute(&payload), waiter, depth + 1)
+                }
+            };
+            match ran.status {
+                Status::Finished => ready.push_back((ticket, ran.outcome)),
+                Status::Deferred | Status::Parked => open.push(awaits::Call { ticket, target }),
+            }
+        }
+    }
+
+    fn park(
+        &self,
+        env: Env,
+        start: Start,
+        outcome: Result<Vec<u8>, Error>,
+        suspended: Suspended,
+        calls: Vec<awaits::Call>,
+        depth: u32,
+    ) -> Run {
+        let id = match start.frame {
+            Some(id) => id,
+            None => {
+                let id = self.next_frame.get();
+                self.next_frame.set(id + 1);
+                id
+            }
+        };
+        let park = awaits::Op::Park {
+            frame: id,
+            program: env.program.clone(),
+            calls,
+        };
+        if let Err(refusal) = self.tell_awaits(Origin::Root, &park, &env, depth + 1) {
+            return self.fail(&env, start, refusal, depth);
+        }
+        let parked = Parked {
+            suspended,
+            env,
+            waiter: start.waiter,
+        };
+        self.parked.borrow_mut().insert(id, parked);
+        Run {
+            outcome,
+            status: Status::Parked,
+        }
+    }
+
+    fn fail(&self, env: &Env, start: Start, refusal: Error, depth: u32) -> Run {
+        self.restore(start.checkpoint.clone());
+        self.finish(env, start, Err(refusal), false, depth)
+    }
+
+    fn finish(
+        &self,
+        env: &Env,
+        start: Start,
+        outcome: Result<Vec<u8>, Error>,
+        deferred: bool,
+        depth: u32,
+    ) -> Run {
+        let Some(id) = start.frame else {
+            let status = match deferred {
+                true => Status::Deferred,
+                false => Status::Finished,
+            };
+            return Run { outcome, status };
+        };
+        self.parked.borrow_mut().remove(&id);
+        let close = awaits::Op::Close { frame: id };
+        let _ = self.tell_awaits(Origin::Root, &close, env, depth + 1);
+        if !deferred {
+            self.answer(env, start.waiter, &outcome, depth);
+        }
+        Run::finished(outcome)
+    }
+
+    fn answer(&self, env: &Env, waiter: Waiter, outcome: &Result<Vec<u8>, Error>, depth: u32) {
+        match waiter {
+            Waiter::Nobody => {}
+            Waiter::Reply { id } => {
+                let outcome = match outcome.clone() {
+                    Ok(output) => Outcome::Applied { output },
+                    Err(refusal) => Outcome::Rejected(refusal),
+                };
+                let _ = self.reply(env, &env.program, id, outcome, depth + 1);
+            }
+            Waiter::Call { ticket } => {
+                let answer = outcome.clone().map_err(crate::kernel::refusal_from);
+                let resolve = awaits::Op::Resolve { ticket, answer };
+                let origin = Origin::Program(env.program.clone());
+                let _ = self.tell_awaits(origin, &resolve, env, depth + 1);
+            }
+        }
+    }
+
+    fn tell_awaits(
+        &self,
+        origin: Origin,
+        op: &awaits::Op,
+        env: &Env,
+        depth: u32,
+    ) -> Result<Vec<u8>, Error> {
+        let sender = match &origin {
+            Origin::Program(program) => self.account(Query::OfProgram(program.clone()))?,
+            Origin::Root | Origin::Signed(_) => Some(Principal::Root),
+        };
+        let env = Env {
+            program: self.roles.awaits.clone(),
+            origin,
+            sender,
+            cause: Cause::Direct,
+            ..env.clone()
+        };
+        let payload = abi::encode(op);
+        self.run_frame(env, Call::Execute(&payload), Waiter::Nobody, depth)
+            .outcome
+    }
+
+    fn resume_parked(&self, resumed: Resumed, resolver: &Env, depth: u32) {
+        let Resumed {
+            frame,
+            ticket,
+            answer,
+        } = resumed;
+        let Some(parked) = self.parked.borrow_mut().remove(&frame) else {
+            return;
+        };
+        let env = Env {
+            height: resolver.height,
+            time: resolver.time,
+            ..parked.env
+        };
+        let start = Start {
+            frame: Some(frame),
+            waiter: parked.waiter,
+            checkpoint: self.checkpoint(),
+        };
+        if depth > MAX_DEPTH {
+            let too_deep = Error::new(
+                code::CAPACITY,
+                format!("messages nest deeper than {MAX_DEPTH}"),
+            );
+            self.fail(&env, start, too_deep, depth);
+            return;
+        }
+        let resume = Call::Resume { ticket, answer };
+        let segment = self.segment(&env, Some(parked.suspended), resume, depth);
+        self.follow(env, start, segment, depth);
     }
 
     fn share_blobs(&self) {
@@ -512,17 +864,24 @@ impl MockChain {
         }
     }
 
-    fn checkpoint(&self) -> Vec<crate::mock::Written> {
-        self.seats
-            .values()
-            .map(|seat| seat.host.written())
-            .collect()
+    fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            written: self
+                .seats
+                .values()
+                .map(|seat| seat.host.written())
+                .collect(),
+            parked: self.parked.borrow().keys().copied().collect(),
+        }
     }
 
-    fn restore(&self, checkpoint: Vec<crate::mock::Written>) {
-        for (seat, written) in self.seats.values().zip(checkpoint) {
+    fn restore(&self, checkpoint: Checkpoint) {
+        for (seat, written) in self.seats.values().zip(checkpoint.written) {
             seat.host.restore(written);
         }
+        self.parked
+            .borrow_mut()
+            .retain(|frame, _| checkpoint.parked.contains(frame));
     }
 }
 

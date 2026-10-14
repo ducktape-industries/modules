@@ -18,8 +18,8 @@ use abi::{
 use sha1::Digest as _;
 
 use crate::{
-    AccountNumber, Cause, Env, Error, ExecCtx, Order, Origin, Principal, Program, ProgramId,
-    QueryCtx, Range, Roles, Roster, code,
+    AccountNumber, Cause, Env, Error, ExecCtx, FrameId, Order, Origin, Principal, Program,
+    ProgramId, QueryCtx, Range, Roles, Roster, Ticket, code,
 };
 
 /// A program another one queries: the env the host hands the answering
@@ -73,19 +73,37 @@ pub struct MockState {
     /// a [`MockChain`](crate::MockChain) carries it across a frame.
     pub next_message: u64,
     pub events: Vec<Vec<u8>>,
+    pub calls: Vec<Called>,
+    pub next_ticket: Ticket,
+    pub deferred: bool,
+    pub resumes: Vec<Resumed>,
     pub siblings: BTreeMap<ProgramId, Sibling>,
     pub verifier: Option<Verifier>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Called {
+    pub ticket: Ticket,
+    pub target: ProgramId,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Resumed {
+    pub frame: FrameId,
+    pub ticket: Ticket,
+    pub answer: Result<Vec<u8>, Error>,
 }
 
 #[derive(Clone, Default)]
 pub struct MockHost(Rc<RefCell<MockState>>);
 
-/// What a write leaves on a host: its state, its blobs and what it sent
-/// (output, emissions, events).
+#[derive(Clone)]
 pub(crate) struct Written {
     state: BTreeMap<Vec<u8>, Vec<u8>>,
     blobs: BTreeMap<BlobId, Blob>,
     sent: (Vec<u8>, Vec<Message>, Vec<Vec<u8>>),
+    waits: (Vec<Called>, bool, Vec<Resumed>),
 }
 
 impl MockHost {
@@ -97,6 +115,7 @@ impl MockHost {
             validators: "valset".into(),
             identity: "identity".into(),
             blobs: "blobs".into(),
+            awaits: "awaits".into(),
         }
     }
 
@@ -189,6 +208,10 @@ impl MockHost {
             assert_eq!(after.state, before.state, "a refused write changed state");
             assert_eq!(after.blobs, before.blobs, "a refused write stored a blob");
             assert_eq!(after.sent, before.sent, "a refused write sent something");
+            assert_eq!(
+                after.waits, before.waits,
+                "a refused write called or resumed"
+            );
         }
         result
     }
@@ -210,6 +233,7 @@ impl MockHost {
                 mock.emissions.clone(),
                 mock.events.clone(),
             ),
+            waits: (mock.calls.clone(), mock.deferred, mock.resumes.clone()),
         }
     }
 
@@ -219,6 +243,7 @@ impl MockHost {
         mock.state = written.state;
         mock.blobs = written.blobs;
         (mock.output, mock.emissions, mock.events) = written.sent;
+        (mock.calls, mock.deferred, mock.resumes) = written.waits;
     }
 
     /// One host call from a context whose env is `env`, as the real host
@@ -322,8 +347,60 @@ impl MockHost {
                 mock.response = bytes;
                 HostReply::Done
             }
+            HostOp::Await { target, payload } => {
+                let ticket = mock.next_ticket;
+                mock.next_ticket += 1;
+                mock.calls.push(Called {
+                    ticket,
+                    target,
+                    payload,
+                });
+                HostReply::Ticket(ticket)
+            }
+            HostOp::Defer => match env.cause {
+                Cause::Call { ticket } => {
+                    mock.deferred = true;
+                    HostReply::Ticket(ticket)
+                }
+                _ => HostReply::Refused(abi::Refusal::new(
+                    code::WRONG_STATE,
+                    "this run answers no call",
+                )),
+            },
+            HostOp::Resume {
+                frame,
+                ticket,
+                answer,
+            } => {
+                let from_the_role = env.program == env.roles.awaits;
+                if !from_the_role {
+                    return HostReply::Refused(abi::Refusal::new(
+                        code::UNAUTHORIZED,
+                        "only the awaits role resumes a frame",
+                    ));
+                }
+                let answer = answer.map_err(crate::kernel::error_from);
+                mock.resumes.push(Resumed {
+                    frame,
+                    ticket,
+                    answer,
+                });
+                HostReply::Done
+            }
             HostOp::Query { .. } => unreachable!("answered above"),
         }
+    }
+
+    pub fn take_calls(&self) -> Vec<Called> {
+        std::mem::take(&mut self.borrow_mut().calls)
+    }
+
+    pub fn take_deferred(&self) -> bool {
+        std::mem::take(&mut self.borrow_mut().deferred)
+    }
+
+    pub fn take_resumes(&self) -> Vec<Resumed> {
+        std::mem::take(&mut self.borrow_mut().resumes)
     }
 }
 

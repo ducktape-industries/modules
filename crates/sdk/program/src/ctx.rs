@@ -5,7 +5,9 @@
 //! adds the writes, so anything that reads takes `&QueryCtx` and accepts
 //! either.
 
+use std::cell::RefCell;
 use std::ops::Deref;
+use std::rc::Rc;
 
 use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, HostOp, HostReply, Message,
@@ -13,13 +15,34 @@ use abi::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{AccountNumber, Env, Error, MessageId, Principal, ProgramId, Range};
+use crate::{AccountNumber, Env, Error, FrameId, MessageId, Principal, ProgramId, Range, Ticket};
+
+pub(crate) struct Frame {
+    env: RefCell<Rc<Env>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    host: crate::MockHost,
+}
+
+impl Frame {
+    pub(crate) fn env(&self) -> Rc<Env> {
+        self.env.borrow().clone()
+    }
+
+    pub(crate) fn move_to(&self, env: Env) {
+        *self.env.borrow_mut() = Rc::new(env);
+    }
+
+    pub(crate) fn host(&self, op: HostOp) -> HostReply {
+        #[cfg(target_arch = "wasm32")]
+        return ffi::host(&op);
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.host.serve(&self.env(), op);
+    }
+}
 
 /// A query's context: the env and the reads. It has no write methods.
 pub struct QueryCtx {
-    env: Env,
-    #[cfg(not(target_arch = "wasm32"))]
-    host: crate::MockHost,
+    frame: Rc<Frame>,
 }
 
 /// An execute's (or init's) context: every read of [`QueryCtx`] and the
@@ -29,8 +52,6 @@ pub struct ExecCtx {
     reads: QueryCtx,
 }
 
-/// Whether an emitted message's outcome comes back to this program, as a
-/// [`Cause::Reply`](crate::Cause::Reply) in the same frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reply {
     /// The target's refusal fails this whole frame.
@@ -77,7 +98,10 @@ fn protocol(expected: &str, got: HostReply) -> ! {
 #[cfg(target_arch = "wasm32")]
 impl QueryCtx {
     pub(crate) fn new(env: Env) -> QueryCtx {
-        QueryCtx { env }
+        let env = RefCell::new(Rc::new(env));
+        QueryCtx {
+            frame: Rc::new(Frame { env }),
+        }
     }
 }
 
@@ -93,7 +117,10 @@ impl ExecCtx {
 #[cfg(not(target_arch = "wasm32"))]
 impl QueryCtx {
     pub(crate) fn over(host: crate::MockHost, env: Env) -> QueryCtx {
-        QueryCtx { env, host }
+        let env = RefCell::new(Rc::new(env));
+        QueryCtx {
+            frame: Rc::new(Frame { env, host }),
+        }
     }
 }
 
@@ -108,15 +135,16 @@ impl ExecCtx {
 
 impl QueryCtx {
     /// Who called, at what height and time, on which chain.
-    pub fn env(&self) -> &Env {
-        &self.env
+    pub fn env(&self) -> Rc<Env> {
+        self.frame.env()
+    }
+
+    pub(crate) fn frame(&self) -> &Rc<Frame> {
+        &self.frame
     }
 
     fn host(&self, op: HostOp) -> HostReply {
-        #[cfg(target_arch = "wasm32")]
-        return ffi::host(&op);
-        #[cfg(not(target_arch = "wasm32"))]
-        return self.host.serve(&self.env, op);
+        self.frame.host(op)
     }
 
     fn done(&self, op: HostOp) {
@@ -285,7 +313,7 @@ impl ExecCtx {
     /// Who this write acts as, as the host resolved it. A signed frame whose
     /// key holds no account is refused: a person writes through an account.
     pub fn sender(&self) -> Result<Principal, Error> {
-        self.env.sender.clone().ok_or_else(|| {
+        self.env().sender.clone().ok_or_else(|| {
             crate::unauthorized("a write acts as an account, and this frame holds none")
         })
     }
@@ -406,6 +434,39 @@ impl ExecCtx {
     /// The execute's return value (the last one set wins).
     pub fn set_return_data(&self, bytes: impl Into<Vec<u8>>) {
         self.done(HostOp::Output(bytes.into()))
+    }
+
+    pub fn defer(&self) -> Result<Ticket, Error> {
+        match self.host(HostOp::Defer) {
+            HostReply::Ticket(ticket) => Ok(ticket),
+            HostReply::Refused(refusal) => Err(crate::kernel::error_from(refusal)),
+            other => protocol("ticket", other),
+        }
+    }
+
+    pub fn resolve(&self, ticket: Ticket, answer: Result<Vec<u8>, Error>) -> MessageId {
+        let answer = answer.map_err(crate::kernel::refusal_from);
+        let resolve = abi::role::awaits::Op::Resolve { ticket, answer };
+        let awaits = self.env().roles.awaits.clone();
+        self.emit(awaits, &resolve, Reply::None)
+    }
+
+    pub fn resume(
+        &self,
+        frame: FrameId,
+        ticket: Ticket,
+        answer: Result<Vec<u8>, Error>,
+    ) -> Result<(), Error> {
+        let answer = answer.map_err(crate::kernel::refusal_from);
+        match self.host(HostOp::Resume {
+            frame,
+            ticket,
+            answer,
+        }) {
+            HostReply::Done => Ok(()),
+            HostReply::Refused(refusal) => Err(crate::kernel::error_from(refusal)),
+            other => protocol("done", other),
+        }
     }
 }
 

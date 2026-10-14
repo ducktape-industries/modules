@@ -38,7 +38,7 @@ const FOUNDED: [&str; 5] = [
 ];
 
 /// The first person's account: the founding programs hold 1..=5.
-const ALICE: AccountNumber = 6;
+const ALICE: AccountNumber = 7;
 
 impl Net {
     async fn account(&self, number: AccountNumber) -> identity::Account {
@@ -566,9 +566,9 @@ fn account_lists_resume_with_the_answering_height() {
             assert_eq!(
                 numbers,
                 if managed {
-                    vec![9, 10, 11]
+                    vec![10, 11, 12]
                 } else {
-                    (1..=11).collect::<Vec<_>>()
+                    (1..=12).collect::<Vec<_>>()
                 }
             );
         }

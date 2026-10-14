@@ -12,8 +12,8 @@
 //! [`Env`] adds the origin checks (`signer`, `sending_program`, `sent_by`) and
 //! `authority`, which admits only a message from the program bound to the
 //! validators role.
-//! A message emitted with [`Reply::Wanted`] comes back to its emitter in
-//! the same frame as [`Program::reply`], with its id and outcome; a program
+//! A message emitted with [`Reply::Wanted`] comes back to its emitter as
+//! [`Program::reply`], with its id and outcome; a program
 //! that never wants a reply leaves `reply` at its default.
 //!
 //! ```ignore
@@ -43,6 +43,7 @@
 //!
 //! `store` is the optional typed layer on top (`Map`/`Set`/`Item`, pages).
 
+pub mod awaiting;
 #[cfg(not(target_arch = "wasm32"))]
 mod chain;
 mod ctx;
@@ -59,15 +60,16 @@ pub use abi::hook;
 pub use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, Message, Root, Scheme,
 };
+pub use awaiting::{Awaiting, Ctx};
 #[cfg(not(target_arch = "wasm32"))]
 pub use chain::{MAX_DEPTH, MockChain, Roster};
 pub use ctx::{ExecCtx, QueryCtx, Reply};
 pub use kernel::{
-    AccountNumber, Cause, Env, Error, MessageId, Order, Origin, Outcome, Principal, ProgramId,
-    Range, Roles, code,
+    AccountNumber, Cause, Env, Error, FrameId, MessageId, Order, Origin, Outcome, Principal,
+    ProgramId, Range, Roles, Ticket, code,
 };
 #[cfg(not(target_arch = "wasm32"))]
-pub use mock::{MockHost, MockState, Sibling, Verifier, blob_id, identity_role};
+pub use mock::{Called, MockHost, MockState, Resumed, Sibling, Verifier, blob_id, identity_role};
 #[cfg(target_arch = "wasm32")]
 pub use program::exports;
 pub use program::{Ask, Program, Reads, execute, hook, is_name, query};
