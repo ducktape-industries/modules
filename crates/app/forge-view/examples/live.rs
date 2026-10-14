@@ -1,10 +1,10 @@
 //! `cargo run -p forge-view --example live`: Forge in the real app over a
 //! fake node with a repository and the people who may push to it.
-use ducktape_view_guest::live;
+use ducktape_view_guest::rig;
 use forge::{Bounds, Op};
 
 fn main() {
-    live::run("forge", |net| {
+    rig::run("forge", |net| {
         net.seat::<chat::Chat>(chat::MODULE);
         net.seat::<forge::Forge>(forge::MODULE);
         net.init(

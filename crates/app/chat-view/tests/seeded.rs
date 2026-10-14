@@ -4,7 +4,7 @@
 //! chain as the signed-in account.
 use chat::{Block, Op, PostPolicy, Query, Reply};
 use chat_view::Chat;
-use ducktape_view_guest::live::Network;
+use ducktape_view_guest::rig::Network;
 use ducktape_view_guest::methods::{HostId, HostSession, HostVisible, StoreGet};
 use ducktape_view_guest::testing::TestAppContext;
 

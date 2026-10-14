@@ -125,7 +125,7 @@ impl FakeHost {
     /// program, where no typed handler names one) with the bytes
     /// `handler` gives for the request's: the fallback a chain-backed host
     /// installs under a test's own typed handlers.
-    #[cfg(feature = "live")]
+    #[cfg(feature = "rig")]
     pub(crate) fn answer_with(
         &self,
         kind: &str,
@@ -147,7 +147,7 @@ impl FakeHost {
 
     /// One item, as bytes, to every open subscription to `kind` addressed
     /// to `target`; none open, it reaches nobody and is dropped.
-    #[cfg(feature = "live")]
+    #[cfg(feature = "rig")]
     pub(crate) fn send_raw(&self, kind: &str, target: Option<&str>, payload: Vec<u8>) {
         let mut state = self.0.borrow_mut();
         let Some(stream) = find(&mut state.streams, kind, target).cloned() else {
@@ -168,7 +168,7 @@ impl FakeHost {
 
     /// Runs `hook` after every frame the host takes, once its requests are
     /// answered and no borrow is held.
-    #[cfg(feature = "live")]
+    #[cfg(feature = "rig")]
     pub(crate) fn after_frame(&self, hook: impl FnMut(&FakeHost) + 'static) {
         self.0.borrow_mut().after_frame.push(Box::new(hook));
     }

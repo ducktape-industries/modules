@@ -6,14 +6,14 @@
 //! `READER=none` shows the same network to a reader with no grant and no
 //! vote.
 use chat::{Block, Op, PostPolicy};
-use ducktape_view_guest::live;
+use ducktape_view_guest::rig;
 use ducktape_view_guest::methods::Query;
 use module_registry::{Change, Grant, Scheduled, Scope};
 use valset::{Motion, Valset};
 
 fn main() {
     let unprivileged = std::env::var_os("READER").is_some_and(|reader| reader == "none");
-    live::run("explorer", |net| {
+    rig::run("explorer", |net| {
         net.seat::<chat::Chat>(chat::MODULE);
         let ada = net.person("ada");
         let bob = net.person("bob");

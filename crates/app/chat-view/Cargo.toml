@@ -23,4 +23,4 @@ abi.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs` and the chain-backed tests: the fake node
-ducktape-view-guest = { workspace = true, features = ["live"] }
+ducktape-view-guest = { workspace = true, features = ["rig"] }

@@ -1,9 +1,9 @@
 //! `cargo run -p settings-view --example live`: Account in the real app
 //! over a fake node where the dev account manages an agent.
-use ducktape_view_guest::live;
+use ducktape_view_guest::rig;
 
 fn main() {
-    live::run("module-registry", |net| {
+    rig::run("module-registry", |net| {
         net.person("ada");
         net.submit(
             net.me(),

@@ -2,12 +2,12 @@
 //! fake node whose validators are the dev key and a node key on the dev
 //! account's agent, beside a resident; the dev key votes, so the vote is
 //! on screen with a promotion and a change of valset's code waiting.
-use ducktape_view_guest::live;
+use ducktape_view_guest::rig;
 use module_registry::{Change, Entry, Scheduled};
 use valset::{Motion, Op};
 
 fn main() {
-    live::run(valset::MODULE, |net| {
+    rig::run(valset::MODULE, |net| {
         let me = net.me();
         net.submit(me, valset::MODULE, &Op::Vote(Motion::Door { open: true }))?;
         let enroll = |address: &str| Op::Enroll {
