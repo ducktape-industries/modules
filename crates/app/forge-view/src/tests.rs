@@ -97,6 +97,7 @@ fn answer(query: &Query, mode: &str) -> Reply {
                 },
             ..
         } => reply("changes-filtered"),
+        Query::Changes { .. } if mode == "many-changes" => many_changes(),
         Query::Changes { .. } if mode == "empty" => reply("changes-empty"),
         Query::Changes { .. } => reply("changes"),
         Query::Change {
@@ -108,6 +109,24 @@ fn answer(query: &Query, mode: &str) -> Reply {
         Query::Judgment { .. } => reply("judgment"),
         other => panic!("no fixture for {other:?}"),
     }
+}
+
+/// The changes of a repository with a long past: the first one listed,
+/// 300 times over, numbered 1 to 300.
+fn many_changes() -> Reply {
+    let mut changes = reply("changes");
+    if let Reply::Changes { page, .. } = &mut changes {
+        let first = page.items[0].clone();
+        page.items = (1..=300)
+            .map(|n| forge::ChangeSummary {
+                n,
+                title: format!("{} ({n})", first.title),
+                ..first.clone()
+            })
+            .collect();
+        page.next = None;
+    }
+    changes
 }
 
 /// The refs of a repository with a long history of branches: the first
@@ -2379,26 +2398,65 @@ fn an_arrow_on_the_commit_list_scrolls_its_rows_to_the_commit_moved_to() {
     assert_eq!(scroll_request.map(|request| request.index), Some(1));
 }
 
-/// Changes are drawn whole, so their list box is the scroller: the host
-/// reveals the row an arrow moves to inside it, and the SDK keeps its one
-/// gutter.
+/// The changes are a virtual list, which scrolls itself with the host's
+/// bar: the list box around it is no scroller, and the arrows scroll the
+/// rows to the change they move to.
 #[test]
-fn the_change_list_drawn_whole_scrolls_itself() {
-    let bar = Some(ducktape_view_guest::design::size::SCROLLBAR.into());
-    let (mut cx, _) = opened("default");
+fn the_change_list_leaves_the_scrolling_to_its_rows() {
+    let (mut cx, _) = opened("many-changes");
     cx.simulate_click("forge-tab-changes");
     cx.run_until_parked();
     let list = list_box(&cx, "forge-changes-list");
-    assert!(list.overflow.y.is_some(), "the changes scroll");
-    assert_eq!(
-        list.padding.right, bar,
-        "the changes keep their bar's gutter"
-    );
+    assert_eq!(list.overflow.y, None);
+    cx.simulate_focus("forge-changes-list");
+    cx.simulate_key_down("forge-changes-list", "down");
+    let Some(wire::Node::UniformList { scroll_request, .. }) = cx.find("forge-changes-rows") else {
+        panic!("the changes are a virtual list");
+    };
+    assert_eq!(scroll_request.map(|request| request.index), Some(1));
 }
 
-/// The refs are a virtual list, which scrolls itself with the host's bar:
-/// the grid around it is no scroller, and the arrows scroll the rows to
-/// the ref they move to.
+/// A repository with a long past: the app repository has some 520 changes,
+/// most of them merged. The list draws the changes on screen, not one row
+/// per change on every render (180 merged rows cost 20M fuel a key), and
+/// the keys still reach every one: ↓ walks to a change far down, scrolled
+/// to, and Enter opens it.
+#[test]
+fn a_long_change_list_draws_the_changes_on_screen_and_opens_one_by_keyboard() {
+    let (mut cx, view) = opened("many-changes");
+    cx.simulate_click("forge-tab-changes");
+    cx.run_until_parked();
+    let Some(wire::Node::UniformList {
+        count, children, ..
+    }) = cx.find("forge-changes-rows")
+    else {
+        panic!("the changes are a virtual list");
+    };
+    assert_eq!(*count, 300, "every change is listed");
+    assert!(
+        children.len() < 64,
+        "{} of 300 changes drawn",
+        children.len()
+    );
+    assert!(
+        cx.style("forge-change-1").size.width.is_some(),
+        "a row is as wide as the list: its counts on the right, its rule across"
+    );
+    cx.simulate_focus("forge-changes-list");
+    for _ in 0..250 {
+        cx.simulate_key_down("forge-changes-list", "down");
+    }
+    cx.run_until_parked();
+    cx.simulate_viewport(12);
+    assert!(
+        cx.interactivity("forge-change-251").aria.active_descendant,
+        "the change walked to is drawn and claimed"
+    );
+    cx.simulate_key_down("forge-changes-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| assert_eq!(forge.nav().change, Some(251)));
+}
+
 #[test]
 fn the_ref_list_leaves_the_scrolling_to_its_rows() {
     let (mut cx, _) = opened("default");

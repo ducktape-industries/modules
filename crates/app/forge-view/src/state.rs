@@ -76,6 +76,9 @@ pub struct Forge {
     /// the Refs tab's list, kept on the row the arrows are on
     #[serde(skip)]
     pub(crate) refs_scroll: UniformListScrollHandle,
+    /// the Changes tab's list, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) changes_scroll: UniformListScrollHandle,
     /// a commit's file strip, kept on the row the arrows are on
     #[serde(skip)]
     pub(crate) strip_scroll: UniformListScrollHandle,
