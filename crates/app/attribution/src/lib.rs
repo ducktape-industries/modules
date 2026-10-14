@@ -15,13 +15,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 pub const PROGRAM: &str = "attribution";
 
-pub const MAX_NAME_BYTES: usize = 256;
-pub const MAX_RELATIONS: usize = 256;
-pub const MAX_DETAIL_BYTES: usize = 4 << 10;
-pub const MAX_BATCH: usize = 64;
-pub const MAX_SUBSCRIBERS: usize = 32;
-pub const MAX_DELIVER_BYTES: usize = 256;
-
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
 pub struct Object {
     pub kind: String,

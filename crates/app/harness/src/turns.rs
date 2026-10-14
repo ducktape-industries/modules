@@ -1,16 +1,17 @@
-//! The loop consensus runs for a thread: ask the model when it has input it has not seen, hold
-//! input while the loop runs, record the model's turn, run each tool call a block later, then ask again.
-use ::program::{BlobId, Ctx, Error, ExecCtx, HashKind, QueryCtx, Range, all, unexpected_reply};
+//! The loop consensus runs for a thread: learn the model's context window, summarize the thread
+//! when its next answer would not fit, ask the model, run each tool call a block later, ask again.
+use ::program::{
+    BlobId, Ctx, Error, ExecCtx, HashKind, QueryCtx, Range, all, unexpected_reply, wrong_state,
+};
 use provider::{RELAY, http};
 use serde_json::Value;
 
 use crate::agents::thread;
-use crate::state::{AGENTS, CALLS, FRAMES, HELD, SEALED, THREADS};
+use crate::anthropic::{self, Answered, Summary};
+use crate::state::{AGENTS, CALLS, FRAMES, HELD, SEALED, THREADS, WINDOWS};
 use crate::tools::{self, Run, Seat};
 use crate::{
-    Asking, Body, CallRow, CallState, Frame, MAX_ATTEMPTS, MAX_CALL_ID_BYTES, MAX_INPUT_BYTES,
-    MAX_MESSAGES, MAX_RESULT_BYTES, MAX_TURNS_PER_POST, MODEL_SERVICE, PART, Role, Said, ThreadRow,
-    anthropic,
+    Asking, Body, CallRow, CallState, Context, Frame, MODEL_SERVICE, PART, Role, Said, ThreadRow,
 };
 
 pub(crate) fn append(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
@@ -38,7 +39,7 @@ pub(crate) fn say(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
     thread.held += 1;
 }
 
-fn release(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<(), Error> {
+fn settle(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<(), Error> {
     for index in 0..thread.held {
         let key = (thread.id, index);
         if let Some(body) = HELD.get(ctx, &key)? {
@@ -47,7 +48,14 @@ fn release(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<(), Error> {
         HELD.remove(ctx, &key);
     }
     thread.held = 0;
+    thread.asking = Asking::Idle;
     Ok(())
+}
+
+fn give_up(ctx: &ExecCtx, thread: &mut ThreadRow, text: String) {
+    append(ctx, thread, Body::Notice { text });
+    thread.seen = thread.seen.max(thread.last_input);
+    thread.last_stop = None;
 }
 
 fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
@@ -75,6 +83,17 @@ async fn request(
     ctx.call_raw(provider::PROGRAM, abi::encode(&op)).await
 }
 
+async fn call_model(
+    ctx: &Ctx,
+    head: http::Head,
+    parts: Vec<BlobId>,
+) -> Result<http::Response, String> {
+    let answer = request(ctx, MODEL_SERVICE, abi::encode(&head), parts).await;
+    let bytes =
+        answer.map_err(|error| format!("the model was not reached: {}", refusal(&error)))?;
+    abi::decode(&bytes).map_err(|_| "the provider's answer is not an HTTP response".to_owned())
+}
+
 fn put_part(ctx: &ExecCtx, text: String) -> Result<BlobId, Error> {
     ctx.blob_put(HashKind::Sha256, PART, text.into_bytes())
 }
@@ -93,32 +112,114 @@ fn grouped(frames: impl IntoIterator<Item = Frame>) -> Vec<(Role, Vec<Frame>)> {
     groups
 }
 
-fn render(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Vec<BlobId>, Error> {
+fn summary_part(ctx: &ExecCtx, thread: &ThreadRow) -> Result<Option<BlobId>, Error> {
+    let Some(seq) = thread.summary else {
+        return Ok(None);
+    };
+    let Some(Frame {
+        body: Body::Compaction { block },
+        ..
+    }) = FRAMES.get(ctx, &(thread.id, seq))?
+    else {
+        let key = FRAMES.key(&(thread.id, seq));
+        return Err(::program::corrupt(
+            "frame",
+            &key,
+            "is not the thread's summary",
+        ));
+    };
+    Ok(Some(put_part(ctx, anthropic::summary_message(&block))?))
+}
+
+fn opens(thread: &ThreadRow) -> bool {
+    thread.sealed == 0 && thread.summary.is_none()
+}
+
+fn seal(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<(Role, Vec<Frame>)>, Error> {
     let whole = FRAMES.prefix_of(&thread.id);
     let tail = Range::new(FRAMES.key(&(thread.id, thread.tail_from)), whole.end);
     let mut groups = grouped(FRAMES.scan(ctx, tail)?.into_iter().map(|(_, frame)| frame));
-    let Some((last_role, last_frames)) = groups.pop() else {
-        return Err(::program::wrong_state(
-            "a thread with nothing said asks no model",
-        ));
+    let Some(last) = groups.pop() else {
+        return Ok(None);
     };
     for (role, frames) in groups {
-        let first = thread.sealed == 0;
-        let part = put_part(ctx, anthropic::message(role, &frames, first, false))?;
-        SEALED.put(ctx, &(thread.id, thread.sealed), &part);
+        let end = frames[frames.len() - 1].seq;
+        let part = put_part(ctx, anthropic::message(role, &frames, opens(thread), false))?;
+        SEALED.put(ctx, &(thread.id, thread.sealed), &(end, part));
         thread.sealed += 1;
     }
-    thread.tail_from = last_frames[0].seq;
+    thread.tail_from = last.1[0].seq;
+    Ok(Some(last))
+}
+
+fn opening(ctx: &ExecCtx, thread: &ThreadRow) -> Result<Vec<BlobId>, Error> {
     let mut parts = vec![thread.header];
-    let sealed = SEALED.scan(ctx, SEALED.prefix_of(&thread.id))?;
-    parts.extend(sealed.into_iter().map(|(_, part)| part));
-    let first = thread.sealed == 0;
-    parts.push(put_part(
-        ctx,
-        anthropic::message(last_role, &last_frames, first, true),
-    )?);
+    parts.extend(summary_part(ctx, thread)?);
+    Ok(parts)
+}
+
+fn sealed_parts(ctx: &ExecCtx, thread: u64) -> Result<Vec<(u64, BlobId)>, Error> {
+    let sealed = SEALED.scan(ctx, SEALED.prefix_of(&thread))?;
+    Ok(sealed.into_iter().map(|(_, sealed)| sealed).collect())
+}
+
+fn turn_parts(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Vec<BlobId>, Error> {
+    let Some((role, frames)) = seal(ctx, thread)? else {
+        return Err(wrong_state("a thread with nothing said asks no model"));
+    };
+    let mut parts = opening(ctx, thread)?;
+    parts.extend(
+        sealed_parts(ctx, thread.id)?
+            .into_iter()
+            .map(|(_, part)| part),
+    );
+    let last = anthropic::message(role, &frames, opens(thread), true);
+    parts.push(put_part(ctx, last)?);
     parts.push(put_part(ctx, anthropic::CLOSE.into())?);
     Ok(parts)
+}
+
+fn summarize_parts(
+    ctx: &ExecCtx,
+    thread: &mut ThreadRow,
+) -> Result<Option<(u64, Vec<BlobId>)>, Error> {
+    seal(ctx, thread)?;
+    let seen = thread.seen;
+    let covered: Vec<(u64, BlobId)> = sealed_parts(ctx, thread.id)?
+        .into_iter()
+        .take_while(|(end, _)| *end <= seen)
+        .collect();
+    let Some(&(through, _)) = covered.last() else {
+        return Ok(None);
+    };
+    let mut parts = opening(ctx, thread)?;
+    parts.extend(covered.into_iter().map(|(_, part)| part));
+    parts.push(put_part(ctx, anthropic::SUMMARIZE.into())?);
+    Ok(Some((through, parts)))
+}
+
+fn forget_sealed(ctx: &ExecCtx, thread: &mut ThreadRow, through: u64) -> Result<(), Error> {
+    for (key, _) in SEALED.scan(ctx, SEALED.prefix_of(&thread.id))? {
+        SEALED.remove(ctx, &key);
+    }
+    thread.sealed = 0;
+    thread.tail_from = through + 1;
+    Ok(())
+}
+
+enum Step {
+    Learn {
+        model: String,
+    },
+    Compact {
+        through: u64,
+        parts: Vec<BlobId>,
+    },
+    Ask {
+        upto: u64,
+        summarized: bool,
+        parts: Vec<BlobId>,
+    },
 }
 
 pub(crate) async fn converse(ctx: &Ctx, id: u64) {
@@ -128,71 +229,167 @@ pub(crate) async fn converse(ctx: &Ctx, id: u64) {
 }
 
 async fn drive(ctx: &Ctx, id: u64) -> Result<(), Error> {
-    while let Some((upto, parts)) = claim(ctx, id)? {
-        let head = abi::encode(&anthropic::head());
-        let answer = request(ctx, MODEL_SERVICE, head, parts).await;
-        let calls = turned(ctx, id, upto, answer)?;
-        let runs = calls.into_iter().map(|call| run_call(ctx, id, call));
-        for ran in all(runs).await {
-            ran?;
+    while let Some(step) = claim(ctx, id)? {
+        match step {
+            Step::Learn { model } => learn(ctx, id, model).await?,
+            Step::Compact { through, parts } => compact(ctx, id, through, parts).await?,
+            Step::Ask {
+                upto,
+                summarized,
+                parts,
+            } => ask(ctx, id, upto, summarized, parts).await?,
         }
-        settle(ctx, id)?;
     }
     Ok(())
 }
 
 fn may_ask(ctx: &ExecCtx, thread: &ThreadRow) -> bool {
     let idle = thread.asking == Asking::Idle;
-    let within_turns = thread.turns_since_post < MAX_TURNS_PER_POST;
-    let within_failures = thread.failures < MAX_ATTEMPTS;
-    let room = thread.sealed < MAX_MESSAGES;
     let hired = AGENTS.has(ctx, &thread.agent);
-    !thread.closed && hired && idle && thread.due() && within_turns && within_failures && room
+    !thread.closed && hired && idle && thread.due()
 }
 
-fn claim(ctx: &ExecCtx, id: u64) -> Result<Option<(u64, Vec<BlobId>)>, Error> {
+fn claim(ctx: &ExecCtx, id: u64) -> Result<Option<Step>, Error> {
     let mut thread = thread(ctx, id)?;
     if !may_ask(ctx, &thread) {
         return Ok(None);
     }
-    if !serves(ctx, MODEL_SERVICE)? {
-        let text = format!("no member node serves {MODEL_SERVICE}: the model was not asked");
-        append(ctx, &mut thread, Body::Notice { text });
-        THREADS.put(ctx, &id, &thread);
-        return Ok(None);
-    }
-    let parts = render(ctx, &mut thread)?;
-    let upto = thread.frames;
-    thread.asking = Asking::Asked { upto };
+    let step = plan(ctx, &mut thread)?;
     THREADS.put(ctx, &id, &thread);
-    Ok(Some((upto, parts)))
+    Ok(step)
 }
 
-fn answered(answer: Result<Vec<u8>, Error>) -> Result<anthropic::Reply, String> {
-    let bytes =
-        answer.map_err(|error| format!("the model was not reached: {}", refusal(&error)))?;
-    let response: http::Response = abi::decode(&bytes)
-        .map_err(|_| "the provider's answer is not an HTTP response".to_owned())?;
-    if response.status != 200 {
-        return Err(anthropic::failure(response.status, &response.body));
+fn plan(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<Step>, Error> {
+    if !serves(ctx, MODEL_SERVICE)? {
+        let text = format!("no member node serves {MODEL_SERVICE}: the model was not asked");
+        give_up(ctx, thread, text);
+        return Ok(None);
     }
-    anthropic::reply(&response.body)
+    let Some(window) = WINDOWS.get(ctx, &thread.model)? else {
+        thread.asking = Asking::Learning;
+        let model = thread.model.clone();
+        return Ok(Some(Step::Learn { model }));
+    };
+    match crowded(thread, window) {
+        true => plan_summary(ctx, thread),
+        false => plan_turn(ctx, thread),
+    }
+}
+
+fn plan_turn(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<Step>, Error> {
+    let parts = turn_parts(ctx, thread)?;
+    let upto = thread.frames;
+    thread.asking = Asking::Asked { upto };
+    let summarized = thread.summary.is_some();
+    Ok(Some(Step::Ask {
+        upto,
+        summarized,
+        parts,
+    }))
+}
+
+fn plan_summary(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<Step>, Error> {
+    let Some((through, parts)) = summarize_parts(ctx, thread)? else {
+        let text = format!(
+            "the conversation does not fit {}'s context window, even summarized",
+            thread.model
+        );
+        give_up(ctx, thread, text);
+        return Ok(None);
+    };
+    thread.asking = Asking::Compacting { through };
+    Ok(Some(Step::Compact { through, parts }))
+}
+
+fn crowded(thread: &ThreadRow, window: Option<u64>) -> bool {
+    match (thread.context, window) {
+        (Context::Overflowed, _) => true,
+        (Context::Measured(_), None) => false,
+        (Context::Measured(tokens), Some(window)) => {
+            tokens.saturating_add(u64::from(thread.max_tokens)) > window
+        }
+    }
+}
+
+async fn learn(ctx: &Ctx, id: u64, model: String) -> Result<(), Error> {
+    let answer = call_model(ctx, anthropic::model(&model), Vec::new()).await;
+    let mut thread = thread(ctx, id)?;
+    match answer.and_then(|response| anthropic::window(&response)) {
+        Ok(window) => WINDOWS.put(ctx, &model, &window),
+        Err(text) => give_up(ctx, &mut thread, text),
+    }
+    settle(ctx, &mut thread)?;
+    THREADS.put(ctx, &id, &thread);
+    Ok(())
+}
+
+async fn compact(ctx: &Ctx, id: u64, through: u64, parts: Vec<BlobId>) -> Result<(), Error> {
+    let answer = call_model(ctx, anthropic::head(true), parts).await;
+    let mut thread = thread(ctx, id)?;
+    match answer.and_then(|response| anthropic::summary(&response)) {
+        Ok(summary) => summarize(ctx, &mut thread, through, summary)?,
+        Err(text) => give_up(ctx, &mut thread, text),
+    }
+    settle(ctx, &mut thread)?;
+    THREADS.put(ctx, &id, &thread);
+    Ok(())
+}
+
+fn summarize(
+    ctx: &ExecCtx,
+    thread: &mut ThreadRow,
+    through: u64,
+    summary: Summary,
+) -> Result<(), Error> {
+    append(
+        ctx,
+        thread,
+        Body::Compaction {
+            block: summary.block,
+        },
+    );
+    thread.summary = Some(thread.frames);
+    thread.context = Context::Measured(summary.tokens);
+    forget_sealed(ctx, thread, through)
+}
+
+async fn ask(
+    ctx: &Ctx,
+    id: u64,
+    upto: u64,
+    summarized: bool,
+    parts: Vec<BlobId>,
+) -> Result<(), Error> {
+    let answer = call_model(ctx, anthropic::head(summarized), parts).await;
+    let calls = turned(ctx, id, upto, answer)?;
+    let runs = calls.into_iter().map(|call| run_call(ctx, id, call));
+    for ran in all(runs).await {
+        ran?;
+    }
+    let mut thread = thread(ctx, id)?;
+    settle(ctx, &mut thread)?;
+    THREADS.put(ctx, &id, &thread);
+    Ok(())
 }
 
 fn turned(
     ctx: &ExecCtx,
     id: u64,
     upto: u64,
-    answer: Result<Vec<u8>, Error>,
+    answer: Result<http::Response, String>,
 ) -> Result<Vec<String>, Error> {
     let mut thread = thread(ctx, id)?;
     thread.asking = Asking::Running;
-    let calls = match (thread.closed, answered(answer)) {
+    let answered = answer.map(|response| anthropic::answered(&response));
+    let calls = match (thread.closed, answered) {
         (true, _) => Vec::new(),
-        (false, Ok(reply)) => record(ctx, &mut thread, upto, reply)?,
-        (false, Err(text)) => {
-            thread.failures += 1;
-            append(ctx, &mut thread, Body::Notice { text });
+        (false, Ok(Answered::Reply(reply))) => record(ctx, &mut thread, upto, reply)?,
+        (false, Ok(Answered::Overflow)) => {
+            thread.context = Context::Overflowed;
+            Vec::new()
+        }
+        (false, Ok(Answered::Failed(text)) | Err(text)) => {
+            give_up(ctx, &mut thread, text);
             Vec::new()
         }
     };
@@ -200,22 +397,18 @@ fn turned(
     Ok(calls)
 }
 
-fn settle(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
-    let mut thread = thread(ctx, id)?;
-    release(ctx, &mut thread)?;
-    thread.asking = Asking::Idle;
-    THREADS.put(ctx, &id, &thread);
-    Ok(())
-}
-
 fn stall(ctx: &ExecCtx, id: u64, error: &Error) {
     let Ok(Some(mut thread)) = THREADS.get(ctx, &id) else {
         return;
     };
-    thread.asking = Asking::Idle;
-    let text = format!("the agent stopped: {}", refusal(error));
-    append(ctx, &mut thread, Body::Notice { text });
-    THREADS.put(ctx, &id, &thread);
+    give_up(
+        ctx,
+        &mut thread,
+        format!("the agent stopped: {}", refusal(error)),
+    );
+    if settle(ctx, &mut thread).is_ok() {
+        THREADS.put(ctx, &id, &thread);
+    }
 }
 
 fn record(
@@ -225,9 +418,10 @@ fn record(
     reply: anthropic::Reply,
 ) -> Result<Vec<String>, Error> {
     thread.seen = upto;
-    thread.failures = 0;
-    thread.turns_since_post += 1;
     thread.last_stop = Some(reply.stop);
+    let usage = reply.usage;
+    let tokens = usage.input + usage.cache_read + usage.cache_write + usage.output;
+    thread.context = Context::Measured(tokens);
     let asked: Vec<(String, String, String)> = reply
         .said
         .iter()
@@ -240,7 +434,7 @@ fn record(
         model: reply.model,
         said: reply.said,
         stop: reply.stop,
-        usage: reply.usage,
+        usage,
     };
     append(ctx, thread, turn);
     let mut calls = Vec::new();
@@ -249,18 +443,11 @@ fn record(
             calls.push(placed);
         }
     }
-    if thread.turns_since_post == MAX_TURNS_PER_POST {
-        let text = format!(
-            "the model took {MAX_TURNS_PER_POST} turns since it was last addressed; address it again to let it go on"
-        );
-        append(ctx, thread, Body::Notice { text });
-    }
     Ok(calls)
 }
 
 fn call_id_fits(call: &str) -> bool {
-    let sized = !call.is_empty() && call.len() <= MAX_CALL_ID_BYTES;
-    sized
+    !call.is_empty()
         && call
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
@@ -274,15 +461,10 @@ fn planned(
     input: &str,
 ) -> Result<(), String> {
     if !call_id_fits(call) {
-        return Err(format!(
-            "a call id is 1 to {MAX_CALL_ID_BYTES} letters, digits, _ and -"
-        ));
+        return Err("a call id is letters, digits, _ and -".to_owned());
     }
     if CALLS.has(ctx, &(thread.id, call.to_owned())) {
         return Err(format!("call {call} was made before"));
-    }
-    if input.len() > MAX_INPUT_BYTES {
-        return Err(format!("a call's input is at most {MAX_INPUT_BYTES} bytes"));
     }
     let entry = tools::find(tool).ok_or_else(|| format!("there is no tool named {tool}"))?;
     let input: Value =
@@ -322,7 +504,7 @@ fn place(
         tool,
         input,
         made: ctx.env().height,
-        state: CallState::Relaying { attempts: 0 },
+        state: CallState::Relaying,
     };
     CALLS.put(ctx, &(thread.id, call.clone()), &row);
     thread.open_calls += 1;
@@ -339,22 +521,12 @@ fn mark(ctx: &ExecCtx, id: u64, call: &str, state: CallState) -> Result<(), Erro
 }
 
 async fn run_call(ctx: &Ctx, id: u64, call: String) -> Result<(), Error> {
-    let (text, failed) = match relay(ctx, id, &call).await? {
-        true => perform(ctx, id, &call).await?,
-        false => ("no provider relayed the call back".to_owned(), true),
+    let relayed = request(ctx, RELAY, call.as_bytes().to_vec(), Vec::new()).await;
+    let (text, failed) = match relayed {
+        Ok(_) => perform(ctx, id, &call).await?,
+        Err(error) => (format!("the relay failed: {}", refusal(&error)), true),
     };
     finish(ctx, id, &call, text, failed)
-}
-
-async fn relay(ctx: &Ctx, id: u64, call: &str) -> Result<bool, Error> {
-    for attempts in 1..=MAX_ATTEMPTS {
-        mark(ctx, id, call, CallState::Relaying { attempts })?;
-        let relayed = request(ctx, RELAY, call.as_bytes().to_vec(), Vec::new()).await;
-        if relayed.is_ok() {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 fn refusal(error: &Error) -> String {
@@ -398,19 +570,6 @@ async fn perform(ctx: &Ctx, id: u64, call: &str) -> Result<(String, bool), Error
     }
 }
 
-fn clipped(mut text: String) -> String {
-    if text.len() <= MAX_RESULT_BYTES {
-        return text;
-    }
-    let mut end = MAX_RESULT_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text.truncate(end);
-    text.push_str(" …(cut: ask for less, or page with a cursor)");
-    text
-}
-
 fn finish(ctx: &ExecCtx, id: u64, call: &str, text: String, failed: bool) -> Result<(), Error> {
     let mut thread = thread(ctx, id)?;
     let key = (id, call.to_owned());
@@ -420,7 +579,7 @@ fn finish(ctx: &ExecCtx, id: u64, call: &str, text: String, failed: bool) -> Res
     let result = Body::Result {
         call: row.id.clone(),
         tool: row.tool.clone(),
-        text: clipped(text),
+        text,
         failed,
     };
     append(ctx, &mut thread, result);

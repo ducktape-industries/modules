@@ -1,7 +1,7 @@
 //! harness on ducktape's host: a founder node serves the model and the relay through
 //! provider, a manager hires the agent it handed to harness, and a mention in chat, the
-//! model's turn and the agent's write each land in their own block while the thread's
-//! loop waits parked.
+//! model's context window, the model's turn and the agent's write each land in their own
+//! block while the thread's loop waits parked.
 use super::*;
 
 use harness::{Body, MODEL_SERVICE, Op, Query, Reply, ThreadRow};
@@ -134,6 +134,16 @@ fn a_mentioned_agent_answers_through_elected_providers_and_writes_as_itself() {
         net.apply(&public(ADA), chat::PROGRAM, &mention).await;
 
         let [thread] = net.threads(agent).await.try_into().unwrap();
+        let [models] = net.assigned(MODEL_SERVICE).await.try_into().unwrap();
+        let head: http::Head = abi::decode(&models.input).unwrap();
+        assert_eq!(head.path, "/v1/models/claude-test");
+        let info = json!({ "type": "model", "id": "claude-test", "max_input_tokens": 200_000 });
+        let window = abi::encode(&http::Response {
+            status: 200,
+            headers: Vec::new(),
+            body: info.to_string().into_bytes(),
+        });
+        net.provide(models.id, window).await;
         let [asked] = net.assigned(MODEL_SERVICE).await.try_into().unwrap();
         let sent = net.joined(&asked).await;
         let text = sent["messages"][0]["content"][0]["text"].as_str().unwrap();

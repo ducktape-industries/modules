@@ -2,17 +2,14 @@
 //! electing its provider, the provider answering it, and an overdue call expiring.
 use ::program::kernel::error_from;
 use ::program::{
-    BlobId, Cause, Error, ExecCtx, QueryCtx, capacity, invalid, not_found, unauthorized,
-    unexpected_reply, wrong_state,
+    BlobId, Cause, Error, ExecCtx, QueryCtx, invalid, not_found, unauthorized, unexpected_reply,
+    wrong_state,
 };
 use abi::role::{awaits, validators};
 use store::{PageRequest, PageResponse};
 
 use crate::state::{ASSIGNED, COUNT, DEADLINES, PROVIDERS, REQUESTS, SERVING, Stored, TURNS};
-use crate::{
-    Answer, EXPIRY_BLOCKS, MAX_BODY_BYTES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_PARTS,
-    MAX_REASON_BYTES, MAX_SERVICE_BYTES, MAX_SERVICES, ProviderRow, Request, RequestRow,
-};
+use crate::{Answer, EXPIRY_BLOCKS, ProviderRow, Request, RequestRow};
 
 fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
     let validators = &ctx.env().roles.validators;
@@ -28,14 +25,13 @@ fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
 
 fn service_name(service: &str) -> Result<(), Error> {
     let named = !service.is_empty()
-        && service.len() <= MAX_SERVICE_BYTES
         && service.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-_.".contains(&byte)
         });
     if !named {
-        return Err(invalid(format!(
-            "a service is 1 to {MAX_SERVICE_BYTES} bytes of lowercase letters, digits, -, _ and ."
-        )));
+        return Err(invalid(
+            "a service is lowercase letters, digits, -, _ and .",
+        ));
     }
     Ok(())
 }
@@ -44,11 +40,6 @@ pub(crate) fn serve(ctx: &ExecCtx, mut services: Vec<String>) -> Result<(), Erro
     let key = ctx.env().signer()?;
     services.sort();
     services.dedup();
-    if services.len() > MAX_SERVICES {
-        return Err(capacity(format!(
-            "a provider serves at most {MAX_SERVICES} services"
-        )));
-    }
     for service in &services {
         service_name(service)?;
     }
@@ -85,25 +76,14 @@ pub(crate) fn serve(ctx: &ExecCtx, mut services: Vec<String>) -> Result<(), Erro
 }
 
 fn check_parts(ctx: &QueryCtx, parts: &[BlobId]) -> Result<(), Error> {
-    if parts.len() > MAX_PARTS {
-        return Err(capacity(format!("a request has at most {MAX_PARTS} parts")));
+    let missing = parts.iter().find(|part| ctx.blob_stat(**part).is_none());
+    match missing {
+        Some(part) => Err(not_found(format!(
+            "part {} is not on the network: put it first",
+            abi::hex(part.digest())
+        ))),
+        None => Ok(()),
     }
-    let mut total = 0u64;
-    for part in parts {
-        let Some(header) = ctx.blob_stat(*part) else {
-            return Err(not_found(format!(
-                "part {} is not on the network: put it first",
-                abi::hex(part.digest())
-            )));
-        };
-        total = total.saturating_add(header.len);
-    }
-    if total > MAX_BODY_BYTES {
-        return Err(capacity(format!(
-            "a request's parts are at most {MAX_BODY_BYTES} bytes"
-        )));
-    }
-    Ok(())
 }
 
 pub(crate) fn serving(ctx: &QueryCtx, service: &str) -> Result<Vec<Vec<u8>>, Error> {
@@ -135,11 +115,6 @@ pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
         ));
     }
     service_name(&request.service)?;
-    if request.input.len() > MAX_INPUT_BYTES {
-        return Err(capacity(format!(
-            "a request's input is at most {MAX_INPUT_BYTES} bytes"
-        )));
-    }
     check_parts(ctx, &request.parts)?;
     let provider = elect(ctx, &request.service)?;
     let ticket = ctx.defer()?;
@@ -197,16 +172,6 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
         )));
     }
     let answered = match answer {
-        Answer::Output(output) if output.len() > MAX_OUTPUT_BYTES => {
-            return Err(capacity(format!(
-                "an answer's output is at most {MAX_OUTPUT_BYTES} bytes"
-            )));
-        }
-        Answer::Failed(reason) if reason.len() > MAX_REASON_BYTES => {
-            return Err(capacity(format!(
-                "a failure's reason is at most {MAX_REASON_BYTES} bytes"
-            )));
-        }
         Answer::Output(output) => Ok(output),
         Answer::Failed(reason) => Err(failed(&stored.row.service, &reason)),
     };

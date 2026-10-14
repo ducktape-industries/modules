@@ -13,8 +13,6 @@ const BY_FRAME: Set<(FrameId, Ticket)> = Set::new("f/");
 const OWED: Set<(ProgramId, Ticket)> = Set::new("o/");
 const DUE: Set<(u64, Ticket)> = Set::new("d/");
 
-pub const MAX_LISTED: u32 = 256;
-
 fn open(ctx: &ExecCtx, row: &TicketRow) {
     TICKETS.put(ctx, &row.ticket, row);
     BY_FRAME.insert(ctx, &(row.frame, row.ticket));
@@ -116,10 +114,6 @@ fn rows(
     Ok(rows)
 }
 
-fn listed(limit: u32) -> Option<u64> {
-    Some(u64::from(limit.min(MAX_LISTED)))
-}
-
 pub(crate) fn owed(
     ctx: &QueryCtx,
     target: ProgramId,
@@ -130,7 +124,7 @@ pub(crate) fn owed(
     if let Some(after) = after {
         range = range.after(OWED.key(&(target.clone(), after)));
     }
-    range.limit = listed(limit);
+    range.limit = Some(u64::from(limit));
     let tickets = OWED.scan(ctx, range)?.into_iter().map(|(_, ticket)| ticket);
     rows(ctx, tickets)
 }
@@ -149,7 +143,7 @@ pub(crate) fn overdue(
     {
         range = range.after(DUE.key(&(after.deadline, after.ticket)));
     }
-    range.limit = listed(limit);
+    range.limit = Some(u64::from(limit));
     let tickets = DUE.scan(ctx, range)?.into_iter().map(|(_, ticket)| ticket);
     rows(ctx, tickets)
 }

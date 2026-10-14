@@ -87,7 +87,7 @@ Who may do what (the acting account is `ctx.sender()`):
 | `SetName`, `SetProfile` | a person or a program on its own account; an agent's manager on the agent's (not once revoked) |
 | `Suspend`, `Resume`, `Revoke` | the agent's manager |
 | `SetRunner { account, runner }` | the agent's manager, not once revoked. `Some(program)` names a program that has an account; that program then sends messages as the agent (`Runs`). `None` takes it back |
-| `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and at most `MAX_AUDIENCE` = 64 others) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
+| `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and the accounts named) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
 
 The role's queries, which views and other modules ask too, are
 `Account(key)`, `OfModule(module)`, `Profile(number)`,

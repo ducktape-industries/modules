@@ -11,8 +11,7 @@ use attribution::{Actor, Change, Kind as Changed, Reason, Source};
 use crate::state::{AGENTS, BY_AGENT, COUNT, LAST, PLACES, THREADS, newest_first};
 use crate::turns::{converse, say};
 use crate::{
-    AgentRow, Asking, Body, MAX_MODEL_BYTES, MAX_OUTPUT_TOKENS, MAX_POST_BYTES, MAX_SYSTEM_BYTES,
-    PART, PROGRAM, ThreadRow, anthropic, attributed_as, tools,
+    AgentRow, Asking, Body, Context, PART, PROGRAM, ThreadRow, anthropic, attributed_as, tools,
 };
 
 fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
@@ -68,22 +67,18 @@ pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<ThreadRow, Error> {
         .ok_or_else(|| not_found(format!("no thread {id}")))
 }
 
-fn checked(system: &str, model: &str, max_tokens: u32) -> Result<(), Error> {
-    if system.len() > MAX_SYSTEM_BYTES {
-        return Err(invalid(format!(
-            "a system prompt is at most {MAX_SYSTEM_BYTES} bytes"
-        )));
-    }
+fn checked(model: &str, max_tokens: u32) -> Result<(), Error> {
     let model_named = !model.is_empty()
-        && model.len() <= MAX_MODEL_BYTES
-        && model.bytes().all(|byte| byte.is_ascii_graphic());
+        && model
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-._@:".contains(&byte));
     if !model_named {
-        return Err(invalid(format!(
-            "a model is 1 to {MAX_MODEL_BYTES} printable ASCII bytes"
-        )));
+        return Err(invalid(
+            "a model is a model id: letters, digits, -, ., _, @ and :",
+        ));
     }
-    if !(1..=MAX_OUTPUT_TOKENS).contains(&max_tokens) {
-        return Err(invalid(format!("max_tokens is 1 to {MAX_OUTPUT_TOKENS}")));
+    if max_tokens == 0 {
+        return Err(invalid("max_tokens is at least 1"));
     }
     Ok(())
 }
@@ -96,7 +91,7 @@ pub(crate) fn hire(
     max_tokens: u32,
 ) -> Result<(), Error> {
     let manager = acting(ctx)?;
-    checked(&system, &model, max_tokens)?;
+    checked(&model, max_tokens)?;
     let profile = profile(ctx, agent)?.ok_or_else(|| not_found(format!("no account {agent}")))?;
     let Kind::Managed {
         manager: managing, ..
@@ -204,13 +199,13 @@ fn opened(
         seen: 0,
         last_stop: None,
         asking: Asking::Idle,
-        failures: 0,
-        turns_since_post: 0,
         open_calls: 0,
         held: 0,
         header: BlobId::Sha256([0; 32]),
         sealed: 0,
         tail_from: 1,
+        summary: None,
+        context: Context::Measured(0),
     };
     let header = anthropic::header(&row, tools::definitions());
     row.header = ctx.blob_put(HashKind::Sha256, PART, header.into_bytes())?;
@@ -231,18 +226,6 @@ fn name_of(ctx: &QueryCtx, number: AccountNumber) -> String {
         Ok(Some(profile)) => format!("{} (account {number})", profile.name),
         _ => format!("account {number}"),
     }
-}
-
-fn clipped(mut text: String) -> String {
-    if text.len() <= MAX_POST_BYTES {
-        return text;
-    }
-    let mut end = MAX_POST_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text.truncate(end);
-    text
 }
 
 fn designation(
@@ -295,7 +278,7 @@ fn designation(
     Ok(Designation {
         place: format!("{}/{}", chat::PROGRAM, row.channel_id),
         title: format!("chat channel {}", row.channel_id),
-        text: clipped(text),
+        text,
     })
 }
 
@@ -343,8 +326,6 @@ fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
     let mut thread = opened(ctx, &agent, place, title)?;
     let author = Principal::Account(actor);
     say(ctx, &mut thread, Body::Post { author, text });
-    thread.turns_since_post = 0;
-    thread.failures = 0;
     THREADS.put(ctx, &thread.id, &thread);
     Ok(Some(thread.id))
 }

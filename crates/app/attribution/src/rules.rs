@@ -6,9 +6,8 @@ use ::program::{Error, ExecCtx, QueryCtx, Reply, invalid, stale};
 
 use crate::state::{CHANGES, OBJECTS, OF, ObjectKey, SEQ, SUBSCRIBERS, TO};
 use crate::{
-    AccountNumber, Actor, Change, Kind, MAX_BATCH, MAX_DELIVER_BYTES, MAX_DETAIL_BYTES,
-    MAX_NAME_BYTES, MAX_RELATIONS, MAX_SUBSCRIBERS, PageRequest, PageResponse, ProgramId, Reason,
-    Relation, Relations, Source, Transfer, Update,
+    AccountNumber, Actor, Change, Kind, PageRequest, PageResponse, ProgramId, Reason, Relation,
+    Relations, Source, Transfer, Update,
 };
 
 type Held = BTreeMap<(AccountNumber, Reason), Vec<u8>>;
@@ -22,15 +21,15 @@ fn object_key(source: &Source) -> ObjectKey {
 }
 
 fn named(text: &str) -> bool {
-    !text.is_empty() && text.len() <= MAX_NAME_BYTES && !text.contains('/')
+    !text.is_empty() && !text.contains('/')
 }
 
 fn well_formed(update: &Update) -> Result<(), Error> {
     let object_named = named(&update.object.kind) && named(&update.object.id);
     if !object_named {
-        return Err(invalid(format!(
-            "an object has a kind and an id of 1 to {MAX_NAME_BYTES} bytes, with no '/'"
-        )));
+        return Err(invalid(
+            "an object has a kind and an id, each named and with no '/'",
+        ));
     }
     let actor_named = match &update.actor {
         Actor::Account(number) => *number != 0,
@@ -43,26 +42,14 @@ fn well_formed(update: &Update) -> Result<(), Error> {
             "an actor is a live account, a key, a program or the system",
         ));
     }
-    if update.relations.len() > MAX_RELATIONS {
-        return Err(invalid(format!(
-            "an object holds at most {MAX_RELATIONS} relations"
-        )));
-    }
     let mut seen = BTreeSet::new();
     for relation in &update.relations {
         if relation.recipient == 0 {
             return Err(invalid("a recipient is a live account"));
         }
-        let unnamed = matches!(&relation.reason, Reason::Defined(name) if name.is_empty() || name.len() > MAX_NAME_BYTES);
+        let unnamed = matches!(&relation.reason, Reason::Defined(name) if name.is_empty());
         if unnamed {
-            return Err(invalid(format!(
-                "a defined reason has a name of 1 to {MAX_NAME_BYTES} bytes"
-            )));
-        }
-        if relation.detail.len() > MAX_DETAIL_BYTES {
-            return Err(invalid(format!(
-                "a relation's detail is at most {MAX_DETAIL_BYTES} bytes"
-            )));
+            return Err(invalid("a defined reason has a name"));
         }
         let distinct = seen.insert((relation.recipient, relation.reason.clone()));
         if !distinct {
@@ -116,11 +103,6 @@ fn kinds(
 
 pub(crate) fn attribute(ctx: &ExecCtx, updates: Vec<Update>) -> Result<(), Error> {
     let program = ctx.env().sending_program()?;
-    if updates.len() > MAX_BATCH {
-        return Err(invalid(format!(
-            "a batch attributes at most {MAX_BATCH} objects"
-        )));
-    }
     let subscribers = SUBSCRIBERS.all(ctx)?;
     for update in updates {
         attribute_one(ctx, &program, &subscribers, update)?;
@@ -199,18 +181,6 @@ fn attribute_one(
 
 pub(crate) fn subscribe(ctx: &ExecCtx, deliver: Vec<u8>) -> Result<(), Error> {
     let program = ctx.env().sending_program()?;
-    if deliver.len() > MAX_DELIVER_BYTES {
-        return Err(invalid(format!(
-            "a delivery prefix is at most {MAX_DELIVER_BYTES} bytes"
-        )));
-    }
-    let already = SUBSCRIBERS.has(ctx, &program);
-    let full = SUBSCRIBERS.all(ctx)?.len() >= MAX_SUBSCRIBERS;
-    if !already && full {
-        return Err(::program::capacity(format!(
-            "attribution tells at most {MAX_SUBSCRIBERS} programs"
-        )));
-    }
     SUBSCRIBERS.put(ctx, &program, &deliver);
     Ok(())
 }

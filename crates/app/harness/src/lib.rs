@@ -1,6 +1,7 @@
 //! The `harness` program: agents that consensus runs. A manager hires an agent it handed to
 //! harness; a mention or a direct message reaches it through `attribution`, the model is
-//! called through `provider`, and every tool call runs in a later block, as the agent.
+//! called through `provider`, a thread is summarized before it outgrows the model's context
+//! window, and every tool call runs in a later block, as the agent.
 mod agents;
 mod anthropic;
 mod program;
@@ -22,17 +23,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub const PROGRAM: &str = "harness";
 pub const MODEL_SERVICE: &str = "anthropic";
 pub const PART: &str = "part";
-
-pub const MAX_SYSTEM_BYTES: usize = 32 << 10;
-pub const MAX_MODEL_BYTES: usize = 128;
-pub const MAX_OUTPUT_TOKENS: u32 = 64_000;
-pub const MAX_POST_BYTES: usize = 32 << 10;
-pub const MAX_INPUT_BYTES: usize = 256 << 10;
-pub const MAX_RESULT_BYTES: usize = 32 << 10;
-pub const MAX_CALL_ID_BYTES: usize = 64;
-pub const MAX_MESSAGES: u64 = 2048;
-pub const MAX_ATTEMPTS: u32 = 3;
-pub const MAX_TURNS_PER_POST: u32 = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
@@ -96,6 +86,9 @@ pub enum Body {
     Notice {
         text: String,
     },
+    Compaction {
+        block: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,7 +102,7 @@ impl Body {
         match self {
             Body::Post { .. } | Body::Refused { .. } | Body::Result { .. } => Some(Role::User),
             Body::Turn { .. } => Some(Role::Assistant),
-            Body::Notice { .. } => None,
+            Body::Notice { .. } | Body::Compaction { .. } => None,
         }
     }
 }
@@ -150,6 +143,8 @@ pub struct Usage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Asking {
     Idle,
+    Learning,
+    Compacting { through: u64 },
     Asked { upto: u64 },
     Running,
 }
@@ -171,13 +166,19 @@ pub struct ThreadRow {
     pub seen: u64,
     pub last_stop: Option<Stop>,
     pub asking: Asking,
-    pub failures: u32,
-    pub turns_since_post: u32,
     pub open_calls: u32,
     pub held: u64,
     pub header: BlobId,
     pub sealed: u64,
     pub tail_from: u64,
+    pub summary: Option<u64>,
+    pub context: Context,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Context {
+    Measured(u64),
+    Overflowed,
 }
 
 impl ThreadRow {
@@ -190,7 +191,7 @@ impl ThreadRow {
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum CallState {
-    Relaying { attempts: u32 },
+    Relaying,
     Writing,
     Done { height: u64, failed: bool },
 }

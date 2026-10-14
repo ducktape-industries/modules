@@ -9,9 +9,6 @@ use serde_json::{Value, json};
 
 use super::{Run, Seat, Tool, blob, cursor_schema, next, object, page, principal, unexpected};
 
-const READ_BYTES: u64 = 16 << 10;
-const MAX_READ: u64 = 24 << 10;
-
 fn snapshot(text: &Option<String>) -> Result<Option<BlobId>, Error> {
     let Some(text) = text else {
         return Ok(None);
@@ -104,7 +101,7 @@ pub(crate) struct Read;
 
 impl Tool for Read {
     const NAME: &'static str = "files_read";
-    const DESCRIPTION: &'static str = "Read a file of the network's filesystem as text, from an offset, at most 24 KiB at a time. The answer names the snapshot it read, which an edit can pass as its base.";
+    const DESCRIPTION: &'static str = "Read a file of the network's filesystem as text, from an offset, as much as files answers in one read; `eof` says whether the file goes on. The answer names the snapshot it read, which an edit can pass as its base.";
     type Args = ReadArgs;
 
     fn schema() -> Value {
@@ -113,7 +110,7 @@ impl Tool for Read {
                 "path": { "type": "string", "description": "an absolute file path" },
                 "snapshot": snapshot_schema(),
                 "offset": { "type": "integer", "minimum": 0, "description": "the first byte to read; 0 if omitted" },
-                "length": { "type": "integer", "minimum": 1, "description": "how many bytes; 16384 if omitted, at most 24576" },
+                "length": { "type": "integer", "minimum": 1, "description": "how many bytes; the rest of the file if omitted" },
             }),
             &["path"],
         )
@@ -124,7 +121,7 @@ impl Tool for Read {
             path: args.path,
             at: snapshot(&args.snapshot)?,
             offset: args.offset.unwrap_or(0),
-            len: args.length.unwrap_or(READ_BYTES).min(MAX_READ),
+            len: args.length.unwrap_or(u64::MAX),
         };
         let Reply::Contents(contents) = ask(ctx, query)? else {
             return Err(invalid("files answered a read with something else"));
