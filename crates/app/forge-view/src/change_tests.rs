@@ -409,11 +409,12 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
             Some(b"src/lib.rs".as_slice())
         )
     });
-    // the row holds the tick beside its press; the shown file is current
+    // the row holds the tick beside its press, each a cell of a grid row;
+    // the shown file is current
     let row = super::control(&cx, "forge-file-src/lib.rs");
     assert_eq!(
         row.interactivity.as_ref().unwrap().role,
-        Some(ducktape_view_guest::Role::ListItem)
+        Some(ducktape_view_guest::Role::Row)
     );
     assert!(
         !row.interactivity.as_ref().unwrap().focusable
@@ -460,7 +461,9 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
         "{:?}",
         cx.texts()
     );
-    // a file past the ceiling opens alone from the list
+    // a file past the ceiling opens alone from the list, scrolled to it
+    cx.simulate_range("forge-file-tree-rows", 90..100);
+    cx.run_until_parked();
     cx.simulate_click("forge-file-src/gen/file_099.rs-open");
     cx.run_until_parked();
     assert!(
@@ -470,6 +473,110 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
         "{:?}",
         cx.texts()
     );
+}
+
+/// The file rows the Files tab's list has drawn.
+fn file_rows_drawn(cx: &ducktape_view_guest::testing::TestAppContext) -> usize {
+    fn count(node: &Node) -> usize {
+        let own = node
+            .key()
+            .is_some_and(|key| key.starts_with("forge-file-") && key.ends_with("-open"));
+        usize::from(own) + node.children().iter().map(count).sum::<usize>()
+    }
+    count(cx.root())
+}
+
+/// The owner's release touched 280 files. On a change of 264, the Files
+/// tab's list draws the rows on screen, not one per file on every render
+/// (a key typed in a comment paid ~110k fuel a file); the keys still reach
+/// every file: ↓ walks the list, scrolled to the row it reaches, Enter
+/// opens that file, and → then Space tick it read.
+#[test]
+fn a_264_file_change_lists_the_files_on_screen_and_opens_one_by_keyboard() {
+    let (mut cx, view) = change_screen("wide", ChangeTab::Files);
+    assert!(cx.has_text("264 files · +792 −0"), "{:?}", cx.texts());
+    let drawn = file_rows_drawn(&cx);
+    assert!(drawn > 0 && drawn < 64, "{drawn} of 264 files drawn");
+    assert!(
+        cx.style("forge-file-src/gen/file_000.rs")
+            .size
+            .width
+            .is_some(),
+        "a row is as wide as the list: a long path is cut, its counts stay in view"
+    );
+    let list = cx.interactivity("forge-file-tree-list");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::Grid));
+    assert!(
+        list.focusable && list.tab_stop == Some(true),
+        "one Tab stop"
+    );
+    cx.simulate_focus("forge-file-tree-list");
+    for _ in 0..200 {
+        cx.simulate_key_down("forge-file-tree-list", "down");
+    }
+    cx.run_until_parked();
+    cx.simulate_viewport(20);
+    let row = "forge-file-src/gen/file_200.rs-open";
+    assert!(
+        cx.interactivity(row).aria.active_descendant,
+        "the row walked to is drawn and claimed"
+    );
+    cx.simulate_key_down("forge-file-tree-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(
+            forge.nav().diff_path.as_deref(),
+            Some(b"src/gen/file_200.rs".as_slice())
+        )
+    });
+    assert!(cx.has_text("src/gen/file_200.rs · added · +3 −0"));
+    cx.simulate_key_down("forge-file-tree-list", "right");
+    assert!(
+        cx.interactivity("forge-viewed-src/gen/file_200.rs")
+            .aria
+            .active_descendant,
+        "→ reaches the tick"
+    );
+    let ring = &cx.style("forge-viewed-src/gen/file_200.rs").border_widths;
+    assert_eq!(
+        super::pixels(ring.top),
+        Some(2.),
+        "drawn where the arrows are"
+    );
+    cx.simulate_key_down("forge-file-tree-list", "space");
+    cx.run_until_parked();
+    view.read(|forge| assert!(forge.viewed.contains("project#1:src/gen/file_200.rs")));
+    let drawn = file_rows_drawn(&cx);
+    assert!(drawn < 64, "{drawn} of 264 files drawn");
+}
+
+/// A file picked outside the list (a line comment pressed in the details)
+/// is scrolled into the list, its row the one the keys go on from.
+#[test]
+fn a_file_picked_elsewhere_is_scrolled_into_the_list() {
+    let (mut cx, view) = change_screen("wide", ChangeTab::Conversation);
+    cx.update(&view, |forge, _, cx| {
+        forge.open_file_comment(b"src/gen/file_230.rs".to_vec(), cx)
+    });
+    cx.run_until_parked();
+    cx.simulate_viewport(20);
+    let row = "forge-file-src/gen/file_230.rs-open";
+    let press = cx.interactivity(row);
+    assert_eq!(
+        press.aria.current,
+        Some(ducktape_view_guest::accesskit::AriaCurrent::True)
+    );
+    assert!(press.aria.active_descendant, "the keys go on from it");
+    cx.simulate_focus("forge-file-tree-list");
+    cx.simulate_key_down("forge-file-tree-list", "down");
+    cx.simulate_key_down("forge-file-tree-list", "enter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(
+            forge.nav().diff_path.as_deref(),
+            Some(b"src/gen/file_231.rs".as_slice())
+        )
+    });
 }
 
 /// A diff that fills the host's list still has room for what readers

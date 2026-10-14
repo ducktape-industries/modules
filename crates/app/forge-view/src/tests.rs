@@ -80,7 +80,8 @@ fn answer(query: &Query, mode: &str) -> Reply {
             ..
         } => reply("log"),
         Query::Log { .. } => reply("log-next"),
-        Query::Diff { .. } if mode == "release" => release_diff(),
+        Query::Diff { .. } if mode == "release" => release_diff(100, 1000),
+        Query::Diff { .. } if mode == "wide" => release_diff(264, 3),
         Query::Diff { .. } => reply("diff-text"),
         Query::Compare { .. } if mode == "diverged" => reply("compare-diverged"),
         Query::Compare { .. } => reply("compare"),
@@ -105,12 +106,13 @@ fn answer(query: &Query, mode: &str) -> Reply {
     }
 }
 
-/// A diff the size of a release: 100 files of 1000 added lines each, more
-/// rows than the host draws in one list.
-fn release_diff() -> Reply {
-    let files: Vec<forge::FileDiff> = (0..100)
+/// A diff the size of a release: `files` files of `lines` added lines each
+/// (100 of 1000 are more rows than the host draws in one list; 264 files
+/// are a release's file list).
+fn release_diff(files: u64, lines: u64) -> Reply {
+    let files: Vec<forge::FileDiff> = (0..files)
         .map(|n| {
-            let lines = (0..1000)
+            let rows = (0..lines)
                 .map(|at| forge::DiffLine {
                     kind: forge::LineKind::Added,
                     old_line: None,
@@ -129,15 +131,15 @@ fn release_diff() -> Reply {
                 old_size: 0,
                 new_size: 40_000,
                 content: forge::Content::Text,
-                additions: 1000,
+                additions: lines,
                 deletions: 0,
                 hunks: vec![forge::DiffHunk {
                     old: forge::LineRange { start: 0, count: 0 },
                     new: forge::LineRange {
                         start: 1,
-                        count: 1000,
+                        count: lines,
                     },
-                    lines,
+                    lines: rows,
                 }],
             }
         })

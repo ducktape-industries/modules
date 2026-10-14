@@ -62,6 +62,7 @@ pub(crate) fn render(
         "Refs",
         names.len(),
         cells,
+        None,
         forge,
         cx,
         move |forge, index, cell, window, cx| match cell {

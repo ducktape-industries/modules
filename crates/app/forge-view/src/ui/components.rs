@@ -236,12 +236,16 @@ pub(crate) fn list(
 /// A grid of [`row`]s (each [`Row::in_grid`]) as one Tab stop: ↑ ↓ walk the rows,
 /// ← → a row's cells (its press, then each control), Enter presses the
 /// active cell (`on_press(row, cell)`). `cells` is the active row's count.
-/// The rows are drawn whole and scroll here.
+/// The rows go in as [`list`]'s do: drawn whole (no `scroll`) they scroll
+/// here; a virtual list tracking `scroll` scrolls itself, to the active
+/// row before it claims.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn grid(
     id_: &'static str,
     label: &str,
     count: usize,
     cells: usize,
+    scroll: Option<&UniformListScrollHandle>,
     forge: &Forge,
     cx: &mut Context<Forge>,
     on_press: impl Fn(&mut Forge, usize, usize, &mut Window, &mut Context<Forge>) + 'static,
@@ -249,9 +253,13 @@ pub(crate) fn grid(
     let (at, cell) = cursor(forge, id_);
     let at = at.min(count.saturating_sub(1));
     let cell = cell.min(cells.saturating_sub(1));
-    design::composite(id(id_), Role::Grid, label.to_owned())
+    let mut grid = design::composite(id(id_), Role::Grid, label.to_owned())
         .active(at, count)
-        .cells(cell, cells)
+        .cells(cell, cells);
+    if let Some(scroll) = scroll {
+        grid = grid.track_scroll(scroll);
+    }
+    let grid = grid
         .on_move(cx.processor(move |forge, index: usize, _, cx| {
             forge.list_cursor = Some((id_, index, 0));
             cx.notify();
@@ -267,9 +275,12 @@ pub(crate) fn grid(
         .build()
         .flex_1()
         .min_h(px(0.))
-        .overflow_y_scroll()
         .flex()
-        .flex_col()
+        .flex_col();
+    match scroll {
+        Some(_) => grid,
+        None => grid.overflow_y_scroll(),
+    }
 }
 
 pub(crate) fn loading(id: impl Into<ElementId>, text: &str, theme: &Theme) -> AnyElement {

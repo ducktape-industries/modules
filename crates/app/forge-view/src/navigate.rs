@@ -16,6 +16,7 @@ impl Forge {
         self.rail_cursor = None;
         self.diff_cursor = None;
         self.tree_walked = false;
+        self.reveal = None;
         cx.notify();
         self.sync(cx);
     }
@@ -267,6 +268,8 @@ impl Forge {
     }
 
     pub(crate) fn single_file(&mut self, path: Option<Vec<u8>>, cx: &mut Context<Self>) {
+        self.reveal = path.clone();
+        self.land_reveal();
         self.nav.diff_path = path;
         cx.notify();
     }
@@ -274,8 +277,40 @@ impl Forge {
     /// A line comment pressed in the details: its file, alone, in Files.
     pub(crate) fn open_file_comment(&mut self, path: Vec<u8>, cx: &mut Context<Self>) {
         self.nav.change_tab = ChangeTab::Files;
-        self.nav.diff_path = Some(path);
+        self.nav.diff_path = Some(path.clone());
         self.moved(cx);
+        self.reveal = Some(path);
+        self.land_reveal();
+    }
+
+    /// The file picked to show alone (its row, a comment in the details),
+    /// scrolled into the Files tab's list and made the row its keys go on
+    /// from, once the diff that lists it has landed.
+    pub(crate) fn land_reveal(&mut self) {
+        let Some(path) = self.reveal.clone() else {
+            return;
+        };
+        if self.nav.change.is_none() || self.nav.change_tab != ChangeTab::Files {
+            self.reveal = None;
+            return;
+        }
+        let Some(query) = self.diff_query() else {
+            return;
+        };
+        let at = match self.stage(&query) {
+            Stage::Loading => return,
+            Stage::Ready(Reply::Diff { page, .. }) => page
+                .items
+                .iter()
+                .position(|file| crate::ui::diff::path_of(file).as_ref() == Some(&path)),
+            Stage::Ready(_) | Stage::Failed(_) => None,
+        };
+        self.reveal = None;
+        if let Some(at) = at {
+            self.files_scroll
+                .scroll_to_item(at, ScrollStrategy::Nearest);
+            self.list_cursor = Some((crate::ui::change::FILE_LIST_ID, at, 0));
+        }
     }
 
     pub(crate) fn toggle_viewed(&mut self, path: &[u8], cx: &mut Context<Self>) {
