@@ -9,7 +9,7 @@ use std::{cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 type Key = (String, Option<String>);
 type Handler = Box<dyn FnMut(&Request) -> Option<Event>>;
 type Stream = Rc<RefCell<StreamState>>;
-type Hook = Box<dyn FnMut(&FakeHost)>;
+type Hook = Box<dyn FnMut(&FakeHost, &Frame)>;
 
 #[derive(Default)]
 struct State {
@@ -166,10 +166,9 @@ impl FakeHost {
             }));
     }
 
-    /// Runs `hook` after every frame the host takes, once its requests are
+    /// Runs `hook` on every frame the host takes, once its requests are
     /// answered and no borrow is held.
-    #[cfg(feature = "rig")]
-    pub(crate) fn after_frame(&self, hook: impl FnMut(&FakeHost) + 'static) {
+    pub(crate) fn after_frame(&self, hook: impl FnMut(&FakeHost, &Frame) + 'static) {
         self.0.borrow_mut().after_frame.push(Box::new(hook));
     }
 
@@ -193,6 +192,10 @@ impl FakeHost {
         let mut state = self.0.borrow_mut();
         state.declared = Some(capabilities);
         state.targets = targets;
+    }
+    /// Whether `other` is this host, not a copy of it.
+    pub(super) fn same(&self, other: &FakeHost) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
     }
     /// Events the host owes the view's next tick, after whatever it owes already.
     pub(super) fn owe(&self, events: Vec<Event>) {
@@ -326,7 +329,7 @@ impl FakeHost {
         drop(state);
         let mut hooks = std::mem::take(&mut self.0.borrow_mut().after_frame);
         for hook in &mut hooks {
-            hook(self);
+            hook(self, frame);
         }
         let mut state = self.0.borrow_mut();
         hooks.append(&mut state.after_frame);
