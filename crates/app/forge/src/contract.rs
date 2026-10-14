@@ -412,6 +412,7 @@ pub struct QueuedCommit {
 pub struct PendingTree {
     pub tree: String,
     pub against: Vec<String>,
+    pub from: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -440,6 +441,7 @@ impl Walk {
                 .map(|pending| PendingTree {
                     tree: pending.tree.to_hex(),
                     against: hexes(&pending.against),
+                    from: pending.from as u64,
                 })
                 .collect(),
         }
@@ -452,6 +454,7 @@ impl Walk {
             trees.push(gitcore::walk::Pending {
                 tree: gitcore::Oid::from_hex(hash, &pending.tree).ok()?,
                 against: oids(hash, &pending.against)?,
+                from: usize::try_from(pending.from).ok()?,
             });
         }
         let mut commits = Vec::with_capacity(self.commits.len());
@@ -535,6 +538,12 @@ pub enum OpReply {
 }
 
 pub const PACK_KIND: &str = "pack";
+
+const NAME_BYTES: usize = 4 + 64 + 1;
+pub const CLOSURE_NAMES: usize = store::PAGE_BYTES / NAME_BYTES;
+pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
+pub const MAX_ADVERTISED_REFS: usize = 10_000;
+pub const ADVERTISEMENT_BYTES: usize = 3 << 20;
 
 /// The longest repository name whose change channels fit chat's id limit:
 /// `forge:<repo>:<n>` is the module, two `:` and up to 20 digits of `n`.

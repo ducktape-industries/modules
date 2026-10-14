@@ -129,15 +129,28 @@ fn commits_handles_clock_skew_between_have_and_want() {
 }
 
 fn listed_in(store: &MemoryObjects, wants: &[Oid], haves: &[Oid]) -> BTreeSet<Oid> {
+    paged(store, wants, haves, usize::MAX).0
+}
+
+fn paged(
+    store: &MemoryObjects,
+    wants: &[Oid],
+    haves: &[Oid],
+    most: usize,
+) -> (BTreeSet<Oid>, Vec<usize>) {
     let mut listing = Listing::of(wants, haves);
+    let mut pages = Vec::new();
     while let Some(walk) = listing.pending() {
-        listing.receive(closure(store, walk).unwrap());
+        let closed = closure(store, walk, most).unwrap();
+        pages.push(closed.listed.len() + closed.next.trees.len());
+        listing.receive(closed);
     }
-    listing
+    let listed = listing
         .into_listed()
         .into_iter()
         .map(|item| item.id)
-        .collect()
+        .collect();
+    (listed, pages)
 }
 
 fn listed(d: &Dag, wants: &[Oid], haves: &[Oid]) -> BTreeSet<Oid> {
@@ -191,6 +204,40 @@ fn a_closure_stops_at_what_the_client_holds_below_its_haves() {
     let merged = commit(&mut store, side_tree, &[main[9], side], 600, "merge");
     expected.insert(merged);
     assert_eq!(listed_in(&store, &[merged], &[main[9]]), expected);
+}
+
+#[test]
+fn a_page_names_about_its_cap_and_the_pages_list_the_whole_closure() {
+    let d = dag();
+    let whole = listed(&d, &[d.merge], &[]);
+    let (widest_tree, most) = (3, 3);
+    let (listed, pages) = paged(&d.store, &[d.merge], &[], most);
+    assert_eq!(listed, whole);
+    assert!(pages.len() > 3, "{pages:?}");
+    assert!(
+        pages.iter().all(|named| *named < most + widest_tree),
+        "{pages:?}"
+    );
+}
+
+#[test]
+fn a_tree_wider_than_a_page_is_listed_across_pages() {
+    let mut store = MemoryObjects::new(Hash::Sha1);
+    let names: Vec<String> = (0..10).map(|n| format!("f{n}")).collect();
+    let bodies: Vec<String> = (0..10).map(|n| format!("{n}\n")).collect();
+    let files: Vec<(&str, &str)> = names
+        .iter()
+        .zip(&bodies)
+        .map(|(name, body)| (name.as_str(), body.as_str()))
+        .collect();
+    let wide = file_tree(&mut store, &files);
+    let head = commit(&mut store, wide, &[], 1, "wide");
+    let whole = listed_in(&store, &[head], &[]);
+    assert_eq!(whole.len(), 12);
+    let (listed, pages) = paged(&store, &[head], &[], 4);
+    assert_eq!(listed, whole);
+    assert!(pages.iter().all(|named| *named <= 5), "{pages:?}");
+    assert!(pages.len() >= 3, "{pages:?}");
 }
 
 #[test]

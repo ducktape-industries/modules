@@ -6,9 +6,9 @@ use crate::ops::{cap, refusal_of};
 use crate::state::{load_repo, parse_oid, repo_hash, resolve};
 use gitcore::{Commit, Hash, Kind, Mode, Objects, Oid, Signature, Tag, Tree};
 use guest::Error;
-use guest::{QueryCtx, invalid, not_found};
+use guest::{QueryCtx, capacity, invalid, not_found};
 use std::collections::BTreeSet;
-use store::Listing;
+use store::{Listing, PAGE_BYTES};
 
 pub struct Reading<'a> {
     pub store: ObjectStore<'a>,
@@ -166,8 +166,15 @@ pub fn log(
         &hidden,
         cap(bounds.log_walk),
     ))?;
-    let page = listing.slice(&ids)?.try_map(|id| {
-        let c = r.commit(&id)?;
+    let page = listing.slice_within(&ids, PAGE_BYTES, |id| {
+        let c = r.commit(id)?;
+        let too_long = c.message.len() > MAX_MESSAGE_BYTES;
+        if too_long {
+            return Err(capacity(format!(
+                "commit {id}'s message is {} bytes: Log answers a message of at most {MAX_MESSAGE_BYTES}",
+                c.message.len()
+            )));
+        }
         Ok(CommitInfo {
             oid: id.to_hex(),
             tree: c.tree.to_hex(),

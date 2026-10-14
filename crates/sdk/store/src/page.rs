@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use guest::{invalid, stale};
 
+pub const PAGE_BYTES: usize = 1 << 20;
+
 /// What `PageRequest::after` and `PageResponse::next` carry, opaque to clients: the
 /// listing the cursor belongs to (`scope`), what it is pinned to (the height
 /// that answered it, unless the module pinned it to something of its own:
@@ -173,24 +175,118 @@ impl Listing {
         }
     }
 
-    /// A page of an in-memory list: the cursor's position is the big-endian
-    /// offset of the next item.
-    pub fn slice<T: Clone>(&self, values: &[T]) -> Result<PageResponse<T>, Error> {
+    pub fn reply_within<R, T: BorshSerialize>(
+        &self,
+        rows: impl IntoIterator<Item = (Vec<u8>, R)>,
+        budget: usize,
+        mut row: impl FnMut(R) -> Result<T, Error>,
+    ) -> Result<PageResponse<T>, Error> {
+        let mut rows = rows
+            .into_iter()
+            .filter(|(key, _)| self.after.as_ref().is_none_or(|after| key > after))
+            .peekable();
+        let mut within = Within::new(budget);
+        let mut last = None;
+        while let Some((key, raw)) = rows.next_if(|_| within.len() < self.limit) {
+            if !within.take(row(raw)?) {
+                return Ok(self.answer(within.items, last.map(|key| self.next(key))));
+            }
+            last = Some(key);
+        }
+        let next = rows.peek().and(last).map(|key| self.next(key));
+        Ok(self.answer(within.items, next))
+    }
+
+    pub fn slice_within<R, T: BorshSerialize>(
+        &self,
+        values: &[R],
+        budget: usize,
+        mut row: impl FnMut(&R) -> Result<T, Error>,
+    ) -> Result<PageResponse<T>, Error> {
+        let start = self.offset(values.len())?;
+        let end = start.saturating_add(self.limit as usize).min(values.len());
+        let mut within = Within::new(budget);
+        for value in &values[start..end] {
+            if !within.take(row(value)?) {
+                break;
+            }
+        }
+        let taken = start + within.items.len();
+        let next = (taken < values.len()).then(|| self.next((taken as u64).to_be_bytes().to_vec()));
+        Ok(self.answer(within.items, next))
+    }
+
+    fn answer<T>(&self, items: Vec<T>, next: Option<Vec<u8>>) -> PageResponse<T> {
+        PageResponse {
+            height: self.height,
+            items,
+            next,
+        }
+    }
+
+    fn offset(&self, len: usize) -> Result<usize, Error> {
         let start = match &self.after {
             None => 0,
             Some(bytes) => <[u8; 8]>::try_from(bytes.as_slice())
                 .map(|b| u64::from_be_bytes(b) as usize)
                 .map_err(|_| invalid("a list cursor is an 8-byte offset"))?,
         };
-        if start > values.len() {
+        if start > len {
             return Err(invalid("cursor past the end of this listing"));
         }
+        Ok(start)
+    }
+
+    /// A page of an in-memory list: the cursor's position is the big-endian
+    /// offset of the next item.
+    pub fn slice<T: Clone>(&self, values: &[T]) -> Result<PageResponse<T>, Error> {
+        let start = self.offset(values.len())?;
         let end = start.saturating_add(self.limit as usize).min(values.len());
         Ok(PageResponse {
             height: self.height,
             items: values[start..end].to_vec(),
             next: (end < values.len()).then(|| self.next((end as u64).to_be_bytes().to_vec())),
         })
+    }
+}
+
+pub fn within<T: BorshSerialize>(
+    items: impl IntoIterator<Item = T>,
+    budget: usize,
+) -> (Vec<T>, bool) {
+    let mut within = Within::new(budget);
+    let left_over = items.into_iter().any(|item| !within.take(item));
+    (within.items, left_over)
+}
+
+struct Within<T> {
+    items: Vec<T>,
+    bytes: usize,
+    budget: usize,
+}
+
+impl<T: BorshSerialize> Within<T> {
+    fn new(budget: usize) -> Within<T> {
+        Within {
+            items: Vec::new(),
+            bytes: 0,
+            budget,
+        }
+    }
+
+    fn len(&self) -> u64 {
+        self.items.len() as u64
+    }
+
+    fn take(&mut self, item: T) -> bool {
+        let size = borsh::object_length(&item).unwrap_or(usize::MAX);
+        let bytes = self.bytes.saturating_add(size);
+        let fits = self.items.is_empty() || bytes <= self.budget;
+        if fits {
+            self.items.push(item);
+            self.bytes = bytes;
+        }
+        fits
     }
 }
 
@@ -221,6 +317,16 @@ impl<T> PageResponse<T> {
             items: self.items.into_iter().map(f).collect::<Result<_, _>>()?,
             next: self.next,
         })
+    }
+}
+
+impl<T> PageResponse<Option<T>> {
+    pub fn flatten(self) -> PageResponse<T> {
+        PageResponse {
+            height: self.height,
+            items: self.items.into_iter().flatten().collect(),
+            next: self.next,
+        }
     }
 }
 
@@ -346,5 +452,92 @@ mod tests {
         assert_eq!((last.items, last.next), (vec![4], None));
         let bad = listing(&PageRequest::default()).next(vec![1]);
         assert!(at(Some(bad)).slice(&values).is_err());
+    }
+
+    fn sized(sizes: &[usize]) -> Vec<(Vec<u8>, usize)> {
+        sizes
+            .iter()
+            .enumerate()
+            .map(|(at, size)| (vec![b'p', b'/', at as u8], *size))
+            .collect()
+    }
+
+    fn filled(size: usize) -> Result<Vec<u8>, Error> {
+        Ok(vec![7; size])
+    }
+
+    #[test]
+    fn a_page_ends_where_its_rows_pass_the_budget_and_resumes_there() {
+        let budget = 1000;
+        let rows = sized(&[300, 300, 300, 300, 5000, 10]);
+        let mut pages = Vec::new();
+        let mut after = None;
+        loop {
+            let page = PageRequest { after, limit: None };
+            let reply = listing(&page)
+                .reply_within(rows.clone(), budget, filled)
+                .unwrap();
+            pages.push(reply.items.iter().map(Vec::len).collect::<Vec<_>>());
+            let Some(next) = reply.next else {
+                break;
+            };
+            after = Some(next);
+        }
+        assert_eq!(
+            pages,
+            [vec![300, 300, 300], vec![300], vec![5000], vec![10]]
+        );
+    }
+
+    #[test]
+    fn a_page_by_offset_ends_where_its_rows_pass_the_budget() {
+        let sizes = [300usize, 300, 300, 300, 5000, 10];
+        let mut pages = Vec::new();
+        let mut after = None;
+        loop {
+            let page = PageRequest {
+                after,
+                limit: Some(3),
+            };
+            let reply = listing(&page)
+                .slice_within(&sizes, 1000, |size| filled(*size))
+                .unwrap();
+            pages.push(reply.items.iter().map(Vec::len).collect::<Vec<_>>());
+            let Some(next) = reply.next else {
+                break;
+            };
+            after = Some(next);
+        }
+        assert_eq!(
+            pages,
+            [vec![300, 300, 300], vec![300], vec![5000], vec![10]]
+        );
+    }
+
+    #[test]
+    fn within_keeps_the_leading_items_that_fit_and_says_what_it_left() {
+        let sizes = [300usize, 300, 300, 300];
+        let items = || sizes.iter().map(|size| vec![7u8; *size]);
+        let (kept, left_over) = within(items(), 1000);
+        assert_eq!((kept.len(), left_over), (3, true));
+        let (kept, left_over) = within(items(), 4000);
+        assert_eq!((kept.len(), left_over), (4, false));
+        let (kept, left_over) = within(items(), 10);
+        assert_eq!((kept.len(), left_over), (1, true));
+    }
+
+    #[test]
+    fn a_page_of_options_drops_the_rows_its_filter_left_out() {
+        let rows = [
+            (b"p/1".to_vec(), 1u8),
+            (b"p/2".to_vec(), 2),
+            (b"p/3".to_vec(), 3),
+        ];
+        let odd = listing(&PageRequest::first(2))
+            .reply_within(rows, PAGE_BYTES, |n| Ok((n % 2 == 1).then_some(n)))
+            .unwrap()
+            .flatten();
+        assert_eq!(odd.items, [1]);
+        assert!(odd.next.is_some());
     }
 }

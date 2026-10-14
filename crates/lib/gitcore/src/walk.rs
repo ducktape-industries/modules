@@ -215,6 +215,21 @@ pub struct Queued {
 pub struct Pending {
     pub tree: Oid,
     pub against: Vec<Oid>,
+    pub from: usize,
+}
+
+impl Pending {
+    fn of(tree: Oid, against: Vec<Oid>) -> Pending {
+        Pending {
+            tree,
+            against,
+            from: 0,
+        }
+    }
+
+    fn begun(&self) -> bool {
+        self.from > 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,6 +255,7 @@ enum Unit {
 struct Expansion {
     listed: Vec<Listed>,
     trees: Vec<Pending>,
+    rest: Option<Pending>,
 }
 
 struct Info {
@@ -275,12 +291,18 @@ struct Page<'a, S: ?Sized> {
     infos: BTreeMap<Oid, Option<Info>>,
     listed: Vec<Listed>,
     seen: BTreeSet<Oid>,
+    most: usize,
 }
 
-pub fn closure<S: Objects + ?Sized>(store: &S, walk: Walk) -> Result<Closed> {
-    let mut page = Page::open(store, walk);
+pub fn closure<S: Objects + ?Sized>(store: &S, walk: Walk, most: usize) -> Result<Closed> {
+    let mut page = Page::open(store, walk, most);
     let mut ran = 0usize;
     while let Some(unit) = page.next_unit() {
+        let page_full = ran > 0 && page.named() >= most;
+        if page_full {
+            page.put_back(unit);
+            break;
+        }
         let Err(error) = page.run(&unit) else {
             ran += 1;
             continue;
@@ -296,7 +318,7 @@ pub fn closure<S: Objects + ?Sized>(store: &S, walk: Walk) -> Result<Closed> {
 }
 
 impl<'a, S: Objects + ?Sized> Page<'a, S> {
-    fn open(store: &'a S, walk: Walk) -> Page<'a, S> {
+    fn open(store: &'a S, walk: Walk, most: usize) -> Page<'a, S> {
         let mut page = Page {
             store,
             haves: walk.haves,
@@ -308,6 +330,7 @@ impl<'a, S: Objects + ?Sized> Page<'a, S> {
             infos: BTreeMap::new(),
             listed: Vec::new(),
             seen: BTreeSet::new(),
+            most,
         };
         for queued in walk.commits {
             let known = page.marks.contains_key(&queued.id);
@@ -345,6 +368,10 @@ impl<'a, S: Objects + ?Sized> Page<'a, S> {
             Unit::Tree(pending) => self.expand_tree(pending),
             Unit::Commit(time, id) => self.pop_commit(*time, *id),
         }
+    }
+
+    fn named(&self) -> usize {
+        self.listed.len() + self.trees.len()
     }
 
     fn put_back(&mut self, unit: Unit) {
@@ -455,20 +482,19 @@ impl<'a, S: Objects + ?Sized> Page<'a, S> {
                 self.list(id, Kind::Tag);
                 self.objects.push_back(target);
             }
-            Kind::Tree => self.trees.push(Pending {
-                tree: id,
-                against: Vec::new(),
-            }),
+            Kind::Tree => self.trees.push(Pending::of(id, Vec::new())),
             Kind::Blob => self.list(id, Kind::Blob),
         }
         Ok(())
     }
 
     fn expand_tree(&mut self, pending: &Pending) -> Result<()> {
-        let expansion = tree_expansion(self.store, pending, &self.seen)?;
+        let room = self.most.saturating_sub(self.named()).max(1);
+        let expansion = tree_expansion(self.store, pending, &self.seen, room)?;
         for item in expansion.listed {
             self.list(item.id, item.kind);
         }
+        self.trees.extend(expansion.rest);
         self.trees.extend(expansion.trees.into_iter().rev());
         Ok(())
     }
@@ -516,7 +542,7 @@ impl<'a, S: Objects + ?Sized> Page<'a, S> {
                 self.enqueue(parent, parent_time, false);
             }
         }
-        self.trees.push(Pending { tree, against });
+        self.trees.push(Pending::of(tree, against));
         Ok(())
     }
 
@@ -560,7 +586,7 @@ impl Listing {
         self.walk.objects.retain(|id| !received.contains(id));
         self.walk
             .trees
-            .retain(|pending| !received.contains(&pending.tree));
+            .retain(|pending| pending.begun() || !received.contains(&pending.tree));
         self.walk
             .commits
             .retain(|queued| queued.uninteresting || !received.contains(&queued.id));
@@ -575,9 +601,11 @@ fn tree_expansion<S: Objects + ?Sized>(
     store: &S,
     pending: &Pending,
     seen: &BTreeSet<Oid>,
+    room: usize,
 ) -> Result<Expansion> {
     let unchanged = pending.against.contains(&pending.tree) || seen.contains(&pending.tree);
-    if unchanged {
+    let fresh = !pending.begun();
+    if fresh && unchanged {
         return Ok(Expansion::default());
     }
     let tree = tree_of(store, &pending.tree)?;
@@ -585,14 +613,24 @@ fn tree_expansion<S: Objects + ?Sized>(
     for id in &pending.against {
         against.push(tree_of(store, id)?);
     }
-    let mut expansion = Expansion {
-        listed: vec![Listed {
+    let mut expansion = Expansion::default();
+    if fresh {
+        expansion.listed.push(Listed {
             id: pending.tree,
             kind: Kind::Tree,
-        }],
-        ..Expansion::default()
-    };
-    for entry in tree.entries {
+        });
+    }
+    for (at, entry) in tree.entries.into_iter().enumerate().skip(pending.from) {
+        let named = expansion.listed.len() + expansion.trees.len();
+        let moved_on = at > pending.from;
+        let full = moved_on && named >= room;
+        if full {
+            expansion.rest = Some(Pending {
+                from: at,
+                ..pending.clone()
+            });
+            break;
+        }
         let held_by_a_parent = against.iter().any(|parent| {
             parent
                 .entries
@@ -620,10 +658,7 @@ fn tree_expansion<S: Objects + ?Sized>(
                     .map(|old| old.id)
             })
             .collect();
-        expansion.trees.push(Pending {
-            tree: entry.id,
-            against,
-        });
+        expansion.trees.push(Pending::of(entry.id, against));
     }
     Ok(expansion)
 }

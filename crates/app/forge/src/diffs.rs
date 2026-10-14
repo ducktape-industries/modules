@@ -6,7 +6,7 @@ use crate::reads::{Reading, entry_kind};
 use gitcore::{Mode, Oid, diff};
 use guest::Error;
 use guest::invalid;
-use store::Listing;
+use store::{Listing, PAGE_BYTES};
 
 pub fn query(
     r: &Reading<'_>,
@@ -26,7 +26,7 @@ pub fn query(
         .into_iter()
         .filter(|c| path.is_none_or(|p| c.path == p))
         .collect();
-    let page = paging.slice(&changes)?.try_map(|c| file(r, &c))?;
+    let page = paging.slice_within(&changes, PAGE_BYTES, |c| file(r, c))?;
     Ok(Reply::Diff {
         height,
         base: base
