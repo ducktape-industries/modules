@@ -436,6 +436,11 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     cx.simulate_click("forge-files-all");
     cx.run_until_parked();
     view.read(|forge| assert!(forge.nav().diff_path.is_none()));
+    // the arrows never walked the list: no file is left lit
+    assert_eq!(
+        super::lit_rows(&cx, "forge-file-tree-list", ducktape_view_guest::Role::Row),
+        Vec::<String>::new()
+    );
 }
 
 /// A change the size of a release opens: its files list, the first file's
