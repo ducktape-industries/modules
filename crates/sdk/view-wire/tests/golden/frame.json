@@ -568,8 +568,7 @@
                     "seconds": 5
                   }
                 },
-                "Stop",
-                "Chime"
+                "Stop"
               ],
               "on_state": 19
             }
@@ -3008,8 +3007,7 @@
       "Failed"
     ],
     "MicCommand": [
-      "Stop",
-      "Chime"
+      "Stop"
     ],
     "MouseButton": [
       "Left",
