@@ -5,10 +5,10 @@ use crate::objects::{ObjectStore, object_not_held};
 use crate::ops::{cap, refusal_of};
 use crate::state::{load_repo, parse_oid, repo_hash, resolve};
 use ::program::Error;
-use ::program::{QueryCtx, capacity, invalid, not_found};
+use ::program::{QueryCtx, invalid, not_found};
 use gitcore::{Commit, Hash, Kind, Mode, Objects, Oid, Signature, Tag, Tree};
 use std::collections::BTreeSet;
-use store::{Listing, PAGE_BYTES};
+use store::Listing;
 
 pub struct Reading<'a> {
     pub store: ObjectStore<'a>,
@@ -166,15 +166,8 @@ pub fn log(
         &hidden,
         cap(bounds.log_walk),
     ))?;
-    let page = listing.slice_within(&ids, PAGE_BYTES, |id| {
-        let c = r.commit(id)?;
-        let too_long = c.message.len() > MAX_MESSAGE_BYTES;
-        if too_long {
-            return Err(capacity(format!(
-                "commit {id}'s message is {} bytes: Log answers a message of at most {MAX_MESSAGE_BYTES}",
-                c.message.len()
-            )));
-        }
+    let page = listing.slice(&ids)?.try_map(|id| {
+        let c = r.commit(&id)?;
         Ok(CommitInfo {
             oid: id.to_hex(),
             tree: c.tree.to_hex(),
