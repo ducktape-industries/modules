@@ -598,10 +598,13 @@ pub(crate) fn render(
         return div().into_any_element();
     };
     let only = forge.nav().diff_path.clone();
-    let files: Vec<&FileDiff> = page
+    // the files shown, by their place in the reply
+    let files: Vec<usize> = page
         .items
         .iter()
-        .filter(|file| only.is_none() || only.as_deref() == path_of(file).as_deref())
+        .enumerate()
+        .filter(|(_, file)| only.is_none() || only.as_deref() == path_of(file).as_deref())
+        .map(|(at, _)| at)
         .collect();
     if files.is_empty() {
         return empty_state(
@@ -618,7 +621,7 @@ pub(crate) fn render(
     }
     // A screen with no file tree beside it (a commit's own diff) carries the
     // file headers above the virtual list, where they stay in view.
-    let strip = (!reviewable).then(|| file_strip(&files, element_id, cx, theme));
+    let strip = (!reviewable).then(|| file_strip(shared.clone(), files, forge, cx, theme));
     let rows = forge.diff_cache.rows(&shared, only);
     // what readers have written on these lines, as rows after each line
     let notes = Rc::new(match reviewable {
@@ -736,52 +739,103 @@ pub(crate) fn render(
         .into_any_element()
 }
 
-/// The most of the pane the file strip takes: past it the strip scrolls,
-/// so a commit touching many files still shows its diff beneath.
-const FILE_STRIP_MAX_H: Pixels = px(168.);
+/// The file strip's rows, each this tall.
+const STRIP_ROW_H: f32 = 21.;
+/// The rows the strip shows before it scrolls, so a commit touching many
+/// files still shows its diff beneath.
+const STRIP_ROWS: usize = 8;
+/// The strip's inset above and below its rows.
+const STRIP_PAD: f32 = 4.;
+/// The strip's list: its id, and its cursor's.
+const STRIP_ID: &str = "forge-commit-diff-files";
 
-/// Which files this diff touches, above the rows themselves. Each one
-/// narrows the list to itself.
+/// Which files a commit's diff touches, above the rows themselves. Each
+/// one narrows the list to itself. A virtual list, so a commit touching a
+/// release's files draws the ones on screen; one Tab stop: ↑ ↓ walk the
+/// files, Enter shows the active one.
 fn file_strip(
-    files: &[&FileDiff],
-    element_id: &str,
+    shared: Rc<Reply>,
+    files: Vec<usize>,
+    forge: &Forge,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
-    let mut strip = div()
-        .id(id(format!("{element_id}-files")))
-        .flex_none()
-        .max_h(FILE_STRIP_MAX_H)
-        .overflow_y_scroll()
-        .flex()
-        .flex_col()
-        .gap_0p5()
-        .px_2()
-        .py_1()
-        .border_b_1()
-        .border_color(theme.border);
-    for file in files {
-        let Some(path) = path_of(file) else { continue };
-        let label = path_text(&path);
-        let pick = cx.listener({
-            let path = path.clone();
-            move |forge, _: &ClickEvent, _, cx| forge.single_file(Some(path.clone()), cx)
-        });
-        strip = strip.child(
-            div()
-                .id(id(format!("{element_id}-file-{label}")))
+    let count = files.len();
+    let files = Rc::new(files);
+    let (at, _) = crate::ui::components::cursor(forge, STRIP_ID);
+    let active = at.min(count.saturating_sub(1));
+    let walked = crate::ui::components::walked(forge, STRIP_ID);
+    let selected = forge.nav().diff_path.clone();
+    let pressed = (shared.clone(), files.clone());
+    let list = crate::ui::components::list(
+        STRIP_ID,
+        "Files",
+        count,
+        Some(&forge.strip_scroll),
+        forge,
+        cx,
+        move |forge, index, _, cx| {
+            let (reply, files) = &pressed;
+            let file = files.get(index).and_then(|at| file_of(reply, *at));
+            if let Some(path) = file.and_then(path_of) {
+                forge.single_file(Some(path), cx)
+            }
+        },
+    )
+    .flex_none()
+    .h(px(
+        count.min(STRIP_ROWS) as f32 * STRIP_ROW_H + 2. * STRIP_PAD
+    ))
+    .px_2()
+    .py(px(STRIP_PAD))
+    .border_b_1()
+    .border_color(theme.border);
+    let pick: Route<Vec<u8>> = Rc::new(
+        cx.listener(|forge, path: &Vec<u8>, _, cx| forge.single_file(Some(path.clone()), cx)),
+    );
+    let theme = *theme;
+    let rows = crate::ui::components::rows(
+        "forge-commit-diff-strip",
+        count,
+        None,
+        Some(&forge.strip_scroll),
+        move |index| {
+            let file = files.get(index).and_then(|at| file_of(&shared, *at));
+            let Some((file, path)) = file.and_then(|file| Some((file, path_of(file)?))) else {
+                return div().h(px(STRIP_ROW_H)).into_any_element();
+            };
+            let label = path_text(&path);
+            let shown = selected.as_deref() == Some(path.as_slice());
+            let click = {
+                let pick = pick.clone();
+                move |_: &ClickEvent, window: &mut Window, app: &mut App| pick(&path, window, app)
+            };
+            let row = div()
+                .id(id(format!("forge-commit-diff-file-{label}")))
+                .w_full()
+                .h(px(STRIP_ROW_H))
                 .flex()
+                .items_center()
                 .gap_2()
                 .text_size(design::text::SECONDARY)
-                .role(Role::Button)
-                .focusable()
-                .on_click(pick)
+                .when(walked && index == active, |row| row.bg(theme.hover))
+                .aria_selected(shown)
+                .on_click(click)
                 .child(crate::ui::bold(label))
-                .child(quiet(status_label(file.status), theme))
-                .children(counts(file).map(|counts| quiet(counts, theme))),
-        );
+                .child(quiet(status_label(file.status), &theme))
+                .children(counts(file).map(|counts| quiet(counts, &theme)));
+            design::item(row, Role::ListBoxOption, index == active).into_any_element()
+        },
+    );
+    list.child(rows).into_any_element()
+}
+
+/// File `at` of a diff reply.
+fn file_of(reply: &Reply, at: usize) -> Option<&FileDiff> {
+    match reply {
+        Reply::Diff { page, .. } => page.items.get(at),
+        _ => None,
     }
-    strip.into_any_element()
 }
 
 pub(crate) fn path_of(file: &FileDiff) -> Option<Vec<u8>> {

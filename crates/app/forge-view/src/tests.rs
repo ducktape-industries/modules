@@ -1366,18 +1366,66 @@ fn commits_follows_the_cursor_and_opens_one_commit_with_its_diff() {
     view.read(|forge| assert!(forge.nav().commit.is_none()));
 }
 
-/// A commit touching many files: the file strip is capped and scrolls, so
-/// the diff under it keeps its height instead of being pushed off screen.
+/// A commit touching a release's files (264): the file strip is capped at
+/// eight rows and scrolls, so the diff under it keeps its height, and it
+/// draws the files on screen, not one row per file on every render (19M
+/// fuel a key on the live rig); the keys reach every file: ↓ walks the
+/// strip, scrolled to the file it reaches, Enter shows that file.
 #[test]
 fn a_commit_with_many_files_keeps_its_diff_under_a_scrolling_strip() {
-    let (mut cx, _) = opened("default");
+    let (mut cx, view) = opened("wide");
     cx.simulate_click("forge-tab-commits");
     cx.run_until_parked();
     cx.simulate_click("forge-commit-26607f522099476177a45a8058a93108fba5a84d");
     cx.run_until_parked();
     let strip = cx.style("forge-commit-diff-files");
-    assert!(strip.max_size.height.is_some(), "the strip is capped");
-    assert!(strip.overflow.y.is_some(), "and scrolls past its cap");
+    assert_eq!(pixels(strip.size.height), Some(8. * 21. + 8.), "capped");
+    assert!(
+        matches!(
+            cx.find("forge-commit-diff-strip"),
+            Some(wire::Node::UniformList { count: 264, .. })
+        ),
+        "and scrolls its rows past the cap"
+    );
+    let drawn = |cx: &TestAppContext| {
+        cx.find("forge-commit-diff-strip")
+            .map_or(0, |strip| strip.children().len())
+    };
+    assert!(drawn(&cx) < 64, "{} of 264 files drawn", drawn(&cx));
+    assert!(
+        cx.style("forge-commit-diff-file-src/gen/file_000.rs")
+            .size
+            .width
+            .is_some(),
+        "a row is as wide as the strip"
+    );
+    let list = cx.interactivity("forge-commit-diff-files");
+    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert!(
+        list.focusable && list.tab_stop == Some(true),
+        "one Tab stop"
+    );
+    cx.simulate_focus("forge-commit-diff-files");
+    for _ in 0..150 {
+        cx.simulate_key_down("forge-commit-diff-files", "down");
+    }
+    cx.run_until_parked();
+    cx.simulate_viewport(8);
+    assert!(
+        cx.interactivity("forge-commit-diff-file-src/gen/file_150.rs")
+            .aria
+            .active_descendant,
+        "the file walked to is drawn and claimed"
+    );
+    cx.simulate_key_down("forge-commit-diff-files", "enter");
+    cx.run_until_parked();
+    view.read(|forge| {
+        assert_eq!(
+            forge.nav().diff_path.as_deref(),
+            Some(b"src/gen/file_150.rs".as_slice())
+        )
+    });
+    assert!(cx.has_text("src/gen/file_150.rs · added · +3 −0"));
 }
 
 #[test]
