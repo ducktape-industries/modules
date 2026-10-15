@@ -79,14 +79,24 @@ fn a_frame_past_the_window_opens_by_its_place_and_reads_its_payload_alone() {
 }
 
 #[test]
-fn a_frame_in_the_window_opens_from_the_window_without_a_read() {
+fn a_frame_in_the_window_opens_from_the_window_and_reads_only_its_payload() {
     let (mut cx, _) = ready();
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
     cx.simulate_click("explorer-tx-11-1");
     cx.run_until_parked();
     assert!(cx.has_text("Direct message"), "{:?}", cx.texts());
-    assert!(cx.host().requests::<ChainTx>().is_empty());
+    assert_eq!(
+        cx.host().requests::<ChainTx>(),
+        [TxAsk {
+            tx: TxRef::At {
+                height: 11,
+                position: 1
+            },
+            most: u32::MAX
+        }]
+    );
+    assert!(cx.host().requests::<ChainBlock>().is_empty());
 }
 
 #[test]
