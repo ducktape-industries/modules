@@ -188,8 +188,9 @@ pub fn only_the_validators_vote_changes_the_table<F: Fixture>(fixture: &F) {
     );
 }
 
-/// `Open` lists a name at the next id, served and not pinned, from the block that opened it;
-/// a name listed already is refused and keeps its lane.
+/// `Open` lists a name at the next id, served and not pinned, from the block that opened it,
+/// and `Lanes` answers it after the lanes before it (in id order, not by name); a name listed
+/// already is refused and keeps its lane.
 pub fn open_lists_a_name_at_the_next_id<F: Fixture>(fixture: &F) {
     let host = founded(fixture);
     voted::<F>(&host, 7, &open("chat", Class::Member))
@@ -197,8 +198,13 @@ pub fn open_lists_a_name_at_the_next_id<F: Fixture>(fixture: &F) {
     let chat = lane("chat", 2, Class::Member, true, 7);
     assert_eq!(
         one::<F>(&host, "chat"),
-        Some(chat),
+        Some(chat.clone()),
         "halo: Open lists the name at the next id"
+    );
+    assert_eq!(
+        lanes::<F>(&host),
+        [blobs(), lane("live", 1, Class::Client, true, 0), chat],
+        "halo: Lanes answers in id order, not by name"
     );
     assert!(
         voted::<F>(&host, 8, &open("live", Class::Member)).is_err(),
