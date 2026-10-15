@@ -477,6 +477,26 @@ pub enum Delivery {
     /// The person blocked this view's notices: dropped, not logged.
     Blocked,
 }
+/// What a code blob says of its view: `blob.manifest`'s answer. A program's
+/// code carries its view in the `ducktape.view` section; a view-only
+/// entry's blob is the view itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Manifested {
+    /// the blob's body, in bytes
+    pub size: u64,
+    /// `None` for a program whose code carries no view
+    pub view: Option<CarriedView>,
+}
+/// The view a blob carries, by size, and what its manifest declares.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct CarriedView {
+    pub size: u64,
+    /// `None` where this host cannot read it: no manifest section, a shape
+    /// it does not know, or a capability it does not have.
+    pub manifest: Option<crate::manifest::Manifest>,
+}
 methods! {
     also: ["program.query", "op.submit", "program.changes", HostWidget::KIND];
     /// `chain.status`: the connected node's status.
@@ -494,6 +514,11 @@ methods! {
     /// `blob.get`: a blob by `sha256:<hex>` or `sha1:<hex>` id, unframed;
     /// `None` where the node holds no blob by that id.
     BlobGet, "blob.get", String, Option<Vec<u8>>;
+    /// `blob.manifest`: what the view in a blob declares, by the blob's
+    /// `sha256:<hex>` or `sha1:<hex>` id: the host reads the manifest as it
+    /// would to seat the view, without fetching the bytes into the view.
+    /// `None` where the node holds no blob by that id.
+    BlobManifest, "blob.manifest", String, Option<Manifested>;
     /// `host.session`: a subscription to [`Session`], an item per change.
     HostSession, "host.session", (), Session;
     /// `host.visible`: whether the view is on screen, an item per change.
@@ -565,7 +590,19 @@ methods! {
 /// declares, and the only names it may. A method is reached only through the
 /// capability its kind starts with. One capability gates a node, not a
 /// method: [`Capability::Web`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub enum Capability {
     Chain,
     Program,

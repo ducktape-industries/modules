@@ -378,6 +378,44 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             None,
         ),
         exchange::<BlobGet>("sha256:00".into(), Some(b"blob".to_vec())),
+        exchange::<BlobManifest>(
+            "sha256:00".into(),
+            Some(Manifested {
+                size: 2_048,
+                view: Some(CarriedView {
+                    size: 1_024,
+                    manifest: Some(view_wire::manifest::Manifest {
+                        wire_id: "0123abcd".into(),
+                        name: "Chat".into(),
+                        description: "Rooms and threads.".into(),
+                        capabilities: Capability::ALL.to_vec(),
+                        min_width: 480,
+                        targets: vec!["chat".into()],
+                        icon: "icons/chat.svg".into(),
+                    }),
+                }),
+            }),
+        ),
+        // a view this host cannot read the manifest of
+        exchange::<BlobManifest>(
+            "sha256:01".into(),
+            Some(Manifested {
+                size: 512,
+                view: Some(CarriedView {
+                    size: 256,
+                    manifest: None,
+                }),
+            }),
+        ),
+        // a program that draws nothing
+        exchange::<BlobManifest>(
+            "sha256:02".into(),
+            Some(Manifested {
+                size: 128,
+                view: None,
+            }),
+        ),
+        exchange::<BlobManifest>("sha1:03".into(), None),
         exchange::<HostSession>(
             (),
             Session {
