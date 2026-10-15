@@ -1,12 +1,12 @@
-// The module natively over `guest::MockHost`: what the founding suite checks on the host, without the host.
+// The program natively over `program::MockHost`: what the founding suite checks on the host, without the host.
 
-use guest::{Env, Origin, Principal, Scheme, code};
-use guest::{MockHost, Module};
+use ::program::{Env, Origin, Principal, Scheme, code};
+use ::program::{MockHost, Program};
 use store::PageRequest;
 
 use crate::{
     Account, Admission, Audience, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind,
-    Life, MAX_AUDIENCE, Op, Query, Reply, Standing,
+    Life, Op, Query, Reply, Standing,
 };
 
 const ALICE: &[u8] = b"alice-key";
@@ -20,13 +20,13 @@ fn env(origin: Origin, sender: Option<Principal>, time: u64) -> Env {
         time,
         origin,
         sender,
-        ..MockHost::env(crate::MODULE)
+        ..MockHost::env(crate::PROGRAM)
     }
 }
 
 /// A frame signed by `key` at `time`, acting as the account identity says
 /// it holds, as the host resolves it: a refusal rejects the frame.
-fn signed_at(store: &MockHost, key: &[u8], time: u64) -> Result<Env, guest::Error> {
+fn signed_at(store: &MockHost, key: &[u8], time: u64) -> Result<Env, ::program::Error> {
     let origin = Origin::Signed(key.to_vec());
     let asked = Query::OfKey { key: key.to_vec() };
     let sender = match Identity::query(&store.query(env(origin.clone(), None, time)), asked)? {
@@ -40,16 +40,16 @@ fn signed(store: &MockHost, key: &[u8]) -> Env {
     signed_at(store, key, 100).unwrap()
 }
 
-/// A message from `module`, acting as its account.
-fn from_module(store: &MockHost, module: &str) -> Env {
-    let asked = Query::OfModule {
-        module: module.into(),
+/// A message from `program`, acting as its account.
+fn from_program(store: &MockHost, program: &str) -> Env {
+    let asked = Query::OfProgram {
+        program: program.into(),
     };
     let Reply::Number(number) = query(store, asked) else {
-        panic!("OfModule answers a number");
+        panic!("OfProgram answers a number");
     };
     env(
-        Origin::Module(module.into()),
+        Origin::Program(program.into()),
         number.map(Principal::Account),
         100,
     )
@@ -75,7 +75,7 @@ fn proof(namespace: &[u8], preimage: &[u8]) -> Vec<u8> {
     [namespace, preimage].concat()
 }
 
-fn run(store: &MockHost, env: &Env, op: Op) -> Result<u64, guest::Error> {
+fn run(store: &MockHost, env: &Env, op: Op) -> Result<u64, ::program::Error> {
     Identity::execute(&store.exec(env.clone()), op)?;
     let output = store.take_output();
     Ok(if output.is_empty() {
@@ -87,7 +87,7 @@ fn run(store: &MockHost, env: &Env, op: Op) -> Result<u64, guest::Error> {
 
 /// `op` as `env`, which must refuse and leave the store as it was.
 #[track_caller]
-fn refused(store: &MockHost, env: &Env, op: Op) -> guest::Error {
+fn refused(store: &MockHost, env: &Env, op: Op) -> ::program::Error {
     store.refused(|| run(store, env, op))
 }
 
@@ -125,7 +125,7 @@ fn add_agent_key(
     manager: &[u8],
     agent: u64,
     key: &[u8],
-) -> Result<u64, guest::Error> {
+) -> Result<u64, ::program::Error> {
     run(store, &signed(store, manager), agent_key(agent, key, 0))
 }
 
@@ -258,6 +258,7 @@ fn a_person_manages_an_agent_and_its_keys() {
     assert_eq!(
         get(&store, agent).control,
         Control::Managed {
+            runner: None,
             manager: 1,
             category: Category::Agent,
             life: Life::Active { keys: Vec::new() },
@@ -292,9 +293,9 @@ fn a_person_manages_an_agent_and_its_keys() {
 }
 
 /// A card (name, avatar, bio) is a person's own, an agent's manager's alone
-/// (never the agent's own), and a module's own alone.
+/// (never the agent's own), and a program's own alone.
 #[test]
-fn a_card_is_edited_by_its_person_its_manager_or_its_module() {
+fn a_card_is_edited_by_its_person_its_manager_or_its_program() {
     let store = memory();
     create(&store, ALICE, "Alice");
     create(&store, BOB, "Bob");
@@ -303,12 +304,12 @@ fn a_card_is_edited_by_its_person_its_manager_or_its_module() {
     run(
         &store,
         &root(),
-        Op::RegisterModule {
-            module: "forge".into(),
+        Op::RegisterProgram {
+            program: "forge".into(),
         },
     )
     .unwrap();
-    let forge = from_module(&store, "forge");
+    let forge = from_program(&store, "forge");
     let Some(Principal::Account(forge_account)) = forge.sender else {
         panic!("forge acts as its account");
     };
@@ -466,31 +467,31 @@ fn an_agent_is_suspended_resumed_or_revoked_by_its_manager_alone() {
     assert_eq!(bob.code, code::WRONG_STATE);
 }
 
-/// Who may register a module, and that registering twice keeps one
+/// Who may register a program, and that registering twice keeps one
 /// account, is the identity role's (`conformance::identity`, run on this
-/// module by `conformance/tests/reference.rs`); what the account is, is
+/// program by `conformance/tests/reference.rs`); what the account is, is
 /// identity's own.
 #[test]
-fn the_system_registers_a_module_which_alone_names_its_account() {
+fn the_system_registers_a_program_which_alone_names_its_account() {
     let store = memory();
     create(&store, ALICE, "Alice");
-    let register = Op::RegisterModule {
-        module: "forge".into(),
+    let register = Op::RegisterProgram {
+        program: "forge".into(),
     };
     run(&store, &root(), register).unwrap();
-    let forge = from_module(&store, "forge");
+    let forge = from_program(&store, "forge");
     assert_eq!(forge.sender, Some(Principal::Account(2)));
     let account = get(&store, 2);
     assert_eq!(account.card.name, "forge");
     assert_eq!(
         account.control,
-        Control::Module {
-            module: "forge".into()
+        Control::Program {
+            program: "forge".into()
         }
     );
     assert!(account.keys().is_empty());
 
-    // a module's account holds no keys and manages no one
+    // a program's account holds no keys and manages no one
     let agent = refused(&store, &forge, Op::CreateAgent { name: "x".into() });
     assert_eq!(agent.code, code::UNAUTHORIZED);
     let key = refused(&store, &signed(&store, ALICE), agent_key(2, BOT, 0));
@@ -582,8 +583,8 @@ fn profiles_page_in_number_order_and_say_what_each_is() {
     run(
         &store,
         &root(),
-        Op::RegisterModule {
-            module: "chat".into(),
+        Op::RegisterProgram {
+            program: "chat".into(),
         },
     )
     .unwrap();
@@ -604,6 +605,7 @@ fn profiles_page_in_number_order_and_say_what_each_is() {
                 2,
                 "Scout",
                 Kind::Managed {
+                    runner: None,
                     manager: 1,
                     category: Category::Agent,
                     standing: Standing::Active
@@ -617,7 +619,7 @@ fn profiles_page_in_number_order_and_say_what_each_is() {
         rest.iter()
             .map(|p| (p.number, p.kind.clone()))
             .collect::<Vec<_>>(),
-        [(3, Kind::Module("chat".into()))]
+        [(3, Kind::Program("chat".into()))]
     );
     assert_eq!(next, None);
     let one = |number| match query(&store, Query::Profile { number }) {
@@ -651,7 +653,7 @@ fn an_agents_key_consent_expires_and_is_not_replayed() {
     assert!(get(&store, agent).holds(BOT));
 }
 
-fn audience_of(store: &MockHost, number: u64) -> Result<Audience, guest::Error> {
+fn audience_of(store: &MockHost, number: u64) -> Result<Audience, ::program::Error> {
     let asked = Query::Audience { number };
     match Identity::query(&store.query(env(Origin::Root, None, 100)), asked)? {
         Reply::Audience(audience) => Ok(audience),
@@ -737,8 +739,8 @@ fn only_a_live_agent_has_an_audience() {
     run(
         &store,
         &root(),
-        Op::RegisterModule {
-            module: "chat".into(),
+        Op::RegisterProgram {
+            program: "chat".into(),
         },
     )
     .unwrap();
@@ -769,22 +771,142 @@ fn only_a_live_agent_has_an_audience() {
 }
 
 #[test]
-fn an_agent_answers_at_most_the_cap_besides_its_manager() {
+fn an_audience_keeps_each_account_once_and_never_the_manager() {
     let store = memory();
     create(&store, ALICE, "Alice");
     let agent = create_agent(&store, ALICE, "Scout");
-    let people: Vec<u64> = (0..=MAX_AUDIENCE as u8)
+    let people: Vec<u64> = (0..3u8)
         .map(|i| create(&store, &[i], &format!("p{i}")))
         .collect();
     let alice = signed(&store, ALICE);
-    let mut full = people[..MAX_AUDIENCE].to_vec();
-    full.extend([1, people[0]]);
-    run(&store, &alice, answers(agent, Audience::Accounts(full))).unwrap();
+    let mut named = people.clone();
+    named.extend([1, people[0]]);
+    run(&store, &alice, answers(agent, Audience::Accounts(named))).unwrap();
     assert_eq!(
         audience_of(&store, agent),
-        Ok(Audience::Accounts(people[..MAX_AUDIENCE].to_vec())),
+        Ok(Audience::Accounts(people)),
         "duplicates and the manager do not count"
     );
-    let over = refused(&store, &alice, answers(agent, Audience::Accounts(people)));
-    assert_eq!(over.code, code::CAPACITY);
+}
+
+fn runs(store: &MockHost, program: &str, account: u64) -> Result<Option<u64>, ::program::Error> {
+    let asked = Query::Runs {
+        program: program.into(),
+        account,
+    };
+    match Identity::query(&store.query(env(Origin::Root, None, 100)), asked)? {
+        Reply::Number(number) => Ok(number),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn run_by(account: u64, runner: Option<&str>) -> Op {
+    Op::SetRunner {
+        account,
+        runner: runner.map(Into::into),
+    }
+}
+
+#[test]
+fn a_manager_hands_an_agent_to_a_program_that_then_alone_runs_it() {
+    let store = memory();
+    let alice = create(&store, ALICE, "Alice");
+    create(&store, BOB, "Bob");
+    let agent = create_agent(&store, ALICE, "Scout");
+    run(
+        &store,
+        &root(),
+        Op::RegisterProgram {
+            program: "harness".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        runs(&store, "harness", agent).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+
+    let unknown = refused(
+        &store,
+        &signed(&store, ALICE),
+        run_by(agent, Some("nobody")),
+    );
+    assert_eq!(unknown.code, code::NOT_FOUND);
+    let stranger = refused(&store, &signed(&store, BOB), run_by(agent, Some("harness")));
+    assert_eq!(stranger.code, code::UNAUTHORIZED);
+    let person = refused(
+        &store,
+        &signed(&store, ALICE),
+        run_by(alice, Some("harness")),
+    );
+    assert_eq!(person.code, code::WRONG_STATE);
+
+    run(
+        &store,
+        &signed(&store, ALICE),
+        run_by(agent, Some("harness")),
+    )
+    .unwrap();
+    assert_eq!(runs(&store, "harness", agent).unwrap(), Some(agent));
+    assert_eq!(
+        runs(&store, "chat", agent).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+    assert_eq!(
+        runs(&store, "harness", alice).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+    let Reply::Profile(Some(profile)) = query(&store, Query::Profile { number: agent }) else {
+        panic!()
+    };
+    assert_eq!(
+        profile.kind,
+        Kind::Managed {
+            manager: alice,
+            category: Category::Agent,
+            standing: Standing::Active,
+            runner: Some("harness".into()),
+        }
+    );
+
+    run(
+        &store,
+        &signed(&store, ALICE),
+        Op::Suspend { account: agent },
+    )
+    .unwrap();
+    assert_eq!(
+        runs(&store, "harness", agent).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+    run(
+        &store,
+        &signed(&store, ALICE),
+        Op::Resume { account: agent },
+    )
+    .unwrap();
+    run(&store, &signed(&store, ALICE), run_by(agent, None)).unwrap();
+    assert_eq!(
+        runs(&store, "harness", agent).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+
+    run(
+        &store,
+        &signed(&store, ALICE),
+        run_by(agent, Some("harness")),
+    )
+    .unwrap();
+    run(
+        &store,
+        &signed(&store, ALICE),
+        Op::Revoke { account: agent },
+    )
+    .unwrap();
+    assert_eq!(
+        runs(&store, "harness", agent).unwrap_err().code,
+        code::WRONG_STATE
+    );
+    let revoked = refused(&store, &signed(&store, ALICE), run_by(agent, None));
+    assert_eq!(revoked.code, code::WRONG_STATE);
 }

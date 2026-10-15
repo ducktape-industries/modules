@@ -1,8 +1,11 @@
 //! One function per [`Op`](crate::Op), each named by [`Chat::execute`](crate::Chat)'s
 //! match. Each checks first (`rules`), then writes, so a refused op leaves
 //! the store as it found it.
-use guest::{Error, ExecCtx, Origin, already_exists, capacity, invalid, unauthorized, wrong_state};
+use ::program::{
+    Error, ExecCtx, Origin, already_exists, capacity, invalid, unauthorized, wrong_state,
+};
 
+use crate::attributed::report;
 use crate::rules;
 use crate::state::{
     ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
@@ -22,7 +25,7 @@ pub(crate) fn create_channel(
     name: String,
     post_policy: PostPolicy,
 ) -> Result<(), Error> {
-    rules::channel_id(&id, ctx.env())?;
+    rules::channel_id(&id, &ctx.env())?;
     rules::name(&name)?;
     if CHANNELS.has(ctx, &id) {
         return Err(already_exists(format!("channel {id} exists")));
@@ -59,7 +62,7 @@ pub(crate) fn open_dm(
     name: String,
 ) -> Result<(), Error> {
     if !matches!(ctx.env().origin, Origin::Signed(_)) {
-        return Err(unauthorized("only a key opens a dm, not a module"));
+        return Err(unauthorized("only a key opens a dm, not a program"));
     }
     let me = ctx.sender_account()?;
     if me == counterpart {
@@ -146,7 +149,7 @@ pub(crate) fn post(
     thread: Option<u64>,
 ) -> Result<(), Error> {
     rules::id("message_id", &message_id)?;
-    rules::namespace(&message_id, ctx.env())?;
+    rules::namespace(&message_id, &ctx.env())?;
     rules::writable(ctx, &channel(ctx, &channel_id)?, sender)?;
     if MESSAGE_IDS.has(ctx, &message_id) {
         return Err(already_exists(format!("message {message_id} exists")));
@@ -170,6 +173,7 @@ pub(crate) fn post(
         None => ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq))),
     }
     replace_message(ctx, None, &row);
+    report(ctx, sender, None, &row);
     MESSAGE_IDS.put(ctx, &message_id, &(channel_id.clone(), seq));
     HEADS.put(ctx, &channel_id, &seq);
     Ok(())
@@ -234,6 +238,7 @@ pub(crate) fn edit(
     };
     fits(&row)?;
     replace_message(ctx, Some(&old), &row);
+    report(ctx, sender, Some(&old), &row);
     Ok(())
 }
 
@@ -268,6 +273,7 @@ pub(crate) fn delete(
         ..old.clone()
     };
     replace_message(ctx, Some(&old), &tombstone);
+    report(ctx, sender, Some(&old), &tombstone);
     Ok(())
 }
 

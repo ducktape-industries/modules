@@ -2,15 +2,15 @@
 //! each test drives the frame the way a person would.
 use super::*;
 use chat::{ChannelInfo, MessageHits, MsgRow, Op, PostPolicy, Principal, Query, Reply};
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::testing::TestAppContext;
-use ducktape_view_guest::wire;
-use ducktape_view_guest::{Entity, StyleRefinement, Styled};
+use view::Loadable;
+use view::testing::TestAppContext;
+use view::wire;
+use view::{Entity, StyleRefinement, Styled};
 
-use ducktape_view_guest::methods::Change;
-use ducktape_view_guest::methods::Query as Ask;
-use ducktape_view_guest::methods::{Changes, HostId, HostSession, HostVisible, Session, Submit};
-use program::role::Identity;
+use identity::Identity;
+use view::methods::Change;
+use view::methods::Query as Ask;
+use view::methods::{Changes, HostId, HostSession, HostVisible, Session, Submit};
 
 mod menus;
 mod message;
@@ -46,10 +46,9 @@ fn channel(id: &str, name: &str, head_seq: u64) -> ChannelInfo {
 #[test]
 fn the_root_tracks_the_shared_theme_and_is_accessible() {
     let (mut cx, _) = opened();
-    let dark = ducktape_view_guest::Theme::dark();
+    let dark = view::Theme::dark();
     cx.set_global(dark);
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
-        cx.find("chat-root")
+    let Some(wire::Node::Container(view::wire::ContainerNode { style, .. })) = cx.find("chat-root")
     else {
         panic!("chat root is a styled container");
     };
@@ -93,8 +92,7 @@ fn marked_row(seq: u64) -> MsgRow {
 
 /// The host methods chat only talks to, never hears back from here.
 fn quiet_methods(cx: &mut TestAppContext) {
-    cx.host()
-        .handle::<ducktape_view_guest::methods::StoreGet>(|_| Ok(None));
+    cx.host().handle::<view::methods::StoreGet>(|_| Ok(None));
 }
 
 fn configure(cx: &mut TestAppContext) {
@@ -106,6 +104,7 @@ fn configure(cx: &mut TestAppContext) {
                 // an agent eddy manages
                 chat::Profile {
                     kind: chat::Kind::Managed {
+                        runner: None,
                         manager: 7,
                         category: chat::Category::Agent,
                         standing: chat::Standing::Active,
@@ -114,7 +113,7 @@ fn configure(cx: &mut TestAppContext) {
                 },
                 // forge's own account
                 chat::Profile {
-                    kind: chat::Kind::Module("forge".into()),
+                    kind: chat::Kind::Program("forge".into()),
                     ..person(9, "forge")
                 },
                 // a person eddy has no room with yet
@@ -219,7 +218,7 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         style,
         interactivity: Some(interactivity),
         ..
@@ -229,10 +228,7 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     };
     let style = &cx.styles()[*style];
     assert!(style.size.width.is_some(), "channel rows fill the sidebar");
-    assert_eq!(
-        interactivity.role,
-        Some(ducktape_view_guest::Role::ListBoxOption)
-    );
+    assert_eq!(interactivity.role, Some(view::Role::ListBoxOption));
     assert_eq!(interactivity.aria.selected, Some(true));
     assert!(
         interactivity.on_click.is_some(),
@@ -241,7 +237,7 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     (cx, view)
 }
 
-/// A block at `height` that wrote `keys`, as `module.changes` carries it.
+/// A block at `height` that wrote `keys`, as `program.changes` carries it.
 fn block(height: u64, keys: Vec<Vec<u8>>) -> Option<Change> {
     Some(Change { height, keys })
 }

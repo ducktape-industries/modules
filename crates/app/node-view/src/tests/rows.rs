@@ -1,6 +1,6 @@
 //! The row words, one state each: the fold of valset's answers, the strip's
 //! window, and every Height, Behind and Status a row can read.
-use ducktape_view_guest::methods::{Block, BlockList, BlockPage, NetworkStatus, Peer};
+use view::methods::{Block, BlockList, BlockPage, NetworkStatus, Peer};
 
 use crate::queries::{Node, fold};
 use crate::recent::{Recent, WINDOW};
@@ -10,6 +10,7 @@ fn member(key: u8, role: valset::Role) -> valset::Membership {
     valset::Membership {
         key: vec![key],
         address: Some(format!("10.0.0.{key}:4000")),
+        halo: format!("10.0.0.{key}:9100"),
         role,
     }
 }

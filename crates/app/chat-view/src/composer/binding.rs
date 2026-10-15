@@ -3,9 +3,9 @@
 //! [`Draft::handle`], which asks the host for the edits.
 
 use super::draft::{Draft, MentionChoice, matching_choices};
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, wire};
 use std::rc::Rc;
+use view::prelude::*;
+use view::{Div, FontWeight, wire};
 
 /// What the composer hears: the host's text moved, a key it claimed went
 /// down, or a control was pressed (`bold`, `italic`, `code`, `quote`,

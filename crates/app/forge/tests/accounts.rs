@@ -143,7 +143,8 @@ fn a_key_writes_only_once_it_holds_an_account() {
         },
         Op::Push {
             repo: REPO.into(),
-            request: push_request(&[], &[]),
+            request: push_request(&[]),
+            pack: None,
         },
         Op::Configure {
             repo: REPO.into(),
@@ -268,12 +269,12 @@ fn opened(rig: &mut Rig, story: &Story) -> u64 {
     n
 }
 
-/// A module's account is never asked to review or write: identity's
-/// profile of it names its module.
+/// A program's account is never asked to review or write: identity's
+/// profile of it names its program.
 #[test]
-fn a_modules_account_is_neither_reviewer_nor_writer() {
+fn a_programs_account_is_neither_reviewer_nor_writer() {
     let (mut rig, story) = story();
-    let chat = Principal::Account(sandbox::MODULES[1].1);
+    let chat = Principal::Account(sandbox::PROGRAMS[1].1);
     let Op::ChangeOpen {
         repo,
         from,

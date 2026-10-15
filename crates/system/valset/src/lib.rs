@@ -1,8 +1,8 @@
-//! The `valset` module: who validates and who resides on a network. A key enrolls as a
+//! The `valset` program: who validates and who resides on a network. A key enrolls as a
 //! resident, by invite or through an open door; the validators' vote changes the rest. A
 //! validator votes with its node key, or through the person who manages the agent its node
 //! key sits on: any of that person's devices votes for it.
-//! Types, rules and [`Valset`] always build; the `module` feature adds the wasm exports.
+//! Types, rules and [`Valset`] always build; the `program` feature adds the wasm exports.
 mod program;
 mod rules;
 #[cfg(test)]
@@ -17,7 +17,7 @@ pub use abi::role::validators::{
     Genesis, Grant, INVITE_NAMESPACE, Invite, Member, Motion, Op, Voted,
 };
 
-pub const MODULE: &str = "valset";
+pub const PROGRAM: &str = "valset";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Role {
@@ -29,6 +29,7 @@ pub enum Role {
 pub struct Membership {
     pub key: Vec<u8>,
     pub address: Option<String>,
+    pub halo: String,
     pub role: Role,
 }
 
@@ -37,6 +38,7 @@ impl Membership {
         Member {
             key: self.key.clone(),
             address: self.address.clone(),
+            halo: self.halo.clone(),
         }
     }
 }
@@ -53,7 +55,7 @@ pub enum Query {
     #[ask(Reply::Membership(Option<Membership>))]
     Membership { key: Vec<u8> },
     /// The motions waiting for votes, in their bytes' order, and how many
-    /// votes pass one now. A registry change that can no longer land (its
+    /// votes pass one now. A program change that can no longer land (its
     /// height at or below the tip) is left out.
     #[ask(Reply::Motions { needed: u64, page: PageResponse<Pending> })]
     Motions { page: PageRequest },
@@ -85,27 +87,36 @@ pub struct Pending {
     pub voters: Vec<Vec<u8>>,
 }
 
-/// The ask another module makes of valset, at the program genesis bound to
+/// The ask another program makes of valset, at the program genesis bound to
 /// the validators role.
-pub fn role(ctx: &guest::QueryCtx, key: &[u8]) -> Result<Option<Role>, guest::Error> {
+pub fn role(ctx: &::program::QueryCtx, key: &[u8]) -> Result<Option<Role>, ::program::Error> {
     let validators = &ctx.env().roles.validators;
     match ctx.query::<Query, Reply>(validators, &Query::Membership { key: key.to_vec() })? {
         Reply::Membership(membership) => Ok(membership.map(|membership| membership.role)),
-        other => Err(guest::unexpected_reply(validators, "Membership", &other)),
+        other => Err(::program::unexpected_reply(
+            validators,
+            "Membership",
+            &other,
+        )),
     }
 }
 
 /// An op as a person reads it: a title and its fields. The source of the
-/// `ducktape.describe` module this module ships (`make wasm-describes`).
+/// `ducktape.describe` module this program ships (`make wasm-describes`).
 pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let (title, fields) = match op {
-        Op::Enroll { address, invite } => (
+        Op::Enroll {
+            address,
+            halo,
+            invite,
+        } => (
             address
                 .as_ref()
                 .map_or("Enroll".into(), |address| format!("Enroll · {address}")),
             vec![
                 field("address", Value::text(address.as_deref().unwrap_or("none"))),
+                field("halo", Value::text(halo)),
                 field(
                     "invite",
                     invite.as_ref().map_or(Value::text("none"), |invite| {
@@ -115,6 +126,10 @@ pub fn describe(op: &Op) -> describe::Description {
             ],
         ),
         Op::Leave => ("Leave".into(), vec![]),
+        Op::SetHalo { halo } => (
+            format!("Halo · {halo}"),
+            vec![field("halo", Value::text(halo))],
+        ),
         Op::Vote(motion) => {
             let key = |key: &Vec<u8>| vec![field("key", Value::Key(key.clone()))];
             let (verb, fields) = match motion {
@@ -123,13 +138,13 @@ pub fn describe(op: &Op) -> describe::Description {
                 Motion::Remove { key: removed } => ("remove".into(), key(removed)),
                 Motion::Door { open: true } => ("open the door".into(), vec![]),
                 Motion::Door { open: false } => ("close the door".into(), vec![]),
-                // in the registry's own words, which the app's confirm shows
-                Motion::Registry { op } => match abi::decode(op) {
+                // in the programs role's own words, which the app's confirm shows
+                Motion::Programs { op } => match abi::decode(op) {
                     Ok(op) => {
-                        let described = module_registry::describe(&op);
+                        let described = programs::describe(&op);
                         (described.title, described.fields)
                     }
-                    Err(_) => ("registry".into(), vec![field("op", Value::bytes(op))]),
+                    Err(_) => ("programs".into(), vec![field("op", Value::bytes(op))]),
                 },
             };
             (format!("Vote · {verb}"), fields)
@@ -144,5 +159,5 @@ describe::export!(Op, describe);
 /// enum only grows at its end. Append a new variant here; never reorder.
 #[test]
 fn op_variants_only_append() {
-    assert_eq!(describe::variants::<Op>(), ["Enroll", "Leave", "Vote"]);
+    assert_eq!(describe::variants::<Op>(), ["Enroll", "Leave", "Vote", "SetHalo"]);
 }

@@ -1,16 +1,16 @@
-//! The identity role: `RegisterModule` from the system, and who a key or a
-//! module acts as. [`run`] checks every rule below.
+//! The identity role: `RegisterProgram` from the system, and who a key or a
+//! program acts as. [`run`] checks every rule below.
 
 use abi::role::identity::{Category, Kind, Op, Profile, Query, Reply, Standing};
-use guest::{AccountNumber, Error, MockHost, Module, Origin, Principal, Program, code};
+use program::{AccountNumber, Error, MockHost, Origin, Principal, Program, code};
 
 use crate::{ask, execute, root, same_bytes};
 
-/// What the suite needs from the module beyond the role.
+/// What the suite needs from the program beyond the role.
 pub trait Fixture {
-    type Module: Module;
+    type Program: Program;
 
-    /// A founded host: the module's init run, and whatever its own ops
+    /// A founded host: the program's init run, and whatever its own ops
     /// need (a verifier).
     fn host(&self) -> MockHost;
 
@@ -33,14 +33,16 @@ pub trait Fixture {
     /// The managed `account` ([`Fixture::managed`]'s) is revoked, by its
     /// manager.
     fn revoke(&self, host: &MockHost, account: AccountNumber);
+
+    fn hand(&self, host: &MockHost, account: AccountNumber, program: &str);
 }
 
 /// Every identity rule, each on a fresh host.
 pub fn run(fixture: &impl Fixture) {
     the_role_is_the_first_variants(fixture);
-    register_module_is_root_only_and_idempotent(fixture);
-    register_module_is_refused_to_a_frame_that_acts(fixture);
-    an_unknown_key_or_module_holds_nothing(fixture);
+    register_program_is_root_only_and_idempotent(fixture);
+    register_program_is_refused_to_a_frame_that_acts(fixture);
+    an_unknown_key_or_program_holds_nothing(fixture);
     a_held_key_resolves_to_an_acting_account(fixture);
     an_account_that_does_not_act_is_refused(fixture);
     a_dropped_key_holds_nothing(fixture);
@@ -48,15 +50,16 @@ pub fn run(fixture: &impl Fixture) {
     an_absent_profile_is_none(fixture);
     profiles_page_ascending(fixture);
     profiles_of_limit_zero_is_a_page(fixture);
-    module_profiles_agree_with_of_module(fixture);
+    program_profiles_agree_with_of_program(fixture);
+    a_program_runs_only_the_managed_account_handed_to_it(fixture);
 }
 
-fn module() -> String {
+fn program() -> String {
     MockHost::roles().identity
 }
 
 fn query<F: Fixture>(host: &MockHost, query: Query) -> Result<Reply, Error> {
-    ask::<F::Module, Reply>(host, &module(), 1, &query)
+    ask::<F::Program, Reply>(host, &program(), 1, &query)
 }
 
 fn account_of<F: Fixture>(host: &MockHost, query: Query) -> Option<AccountNumber> {
@@ -116,7 +119,7 @@ fn every_profile<F: Fixture>(host: &MockHost, limit: u32) -> Vec<Profile> {
     }
 }
 
-/// `RegisterModule { module: name }` from `origin`, acting as `sender`
+/// `RegisterProgram { program: name }` from `origin`, acting as `sender`
 /// (ignored from the system, which acts as `Principal::Root`).
 fn register<F: Fixture>(
     host: &MockHost,
@@ -124,36 +127,40 @@ fn register<F: Fixture>(
     sender: Option<Principal>,
     name: &str,
 ) -> Result<(), Error> {
-    let mut env = root(&module(), 1);
+    let mut env = root(&program(), 1);
     if origin != Origin::Root {
         env.origin = origin;
         env.sender = sender;
     }
-    execute::<F::Module>(
+    execute::<F::Program>(
         host,
         env,
-        &Op::RegisterModule {
-            module: name.into(),
+        &Op::RegisterProgram {
+            program: name.into(),
         },
     )
 }
 
-/// The role's op, queries and replies are the module's first variants,
+/// The role's op, queries and replies are the program's first variants,
 /// byte for byte.
 pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
-    type M<F> = <F as Fixture>::Module;
-    let m = module();
-    let op = Op::RegisterModule {
-        module: "chat".into(),
+    type M<F> = <F as Fixture>::Program;
+    let m = program();
+    let op = Op::RegisterProgram {
+        program: "chat".into(),
     };
     same_bytes::<<M<F> as Program>::Op>(&m, "Op", &op);
     for query in [
         Query::Account(b"key".to_vec()),
-        Query::OfModule("chat".into()),
+        Query::OfProgram("chat".into()),
         Query::Profile(4),
         Query::Profiles {
             after: Some(2),
             limit: 5,
+        },
+        Query::Runs {
+            program: "chat".into(),
+            account: 4,
         },
     ] {
         same_bytes::<<M<F> as Program>::Query>(&m, "Query", &query);
@@ -162,6 +169,7 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
         number: 1,
         name: "Scout".into(),
         kind: Kind::Managed {
+            runner: None,
             manager: 2,
             category: Category::Agent,
             standing: Standing::Suspended,
@@ -181,34 +189,34 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
     }
 }
 
-/// Only the system registers a module: a signed frame and another module
+/// Only the system registers a program: a signed frame and another program
 /// are refused `unauthorized` and write nothing. Registering twice keeps
-/// the one account, which is the module's.
-pub fn register_module_is_root_only_and_idempotent<F: Fixture>(fixture: &F) {
+/// the one account, which is the program's.
+pub fn register_program_is_root_only_and_idempotent<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     for origin in [
         Origin::Signed(b"someone".to_vec()),
-        Origin::Module("chat".into()),
+        Origin::Program("chat".into()),
     ] {
         // `attempt` also checks a refusal wrote nothing
         let answer = host.attempt(|| register::<F>(&host, origin.clone(), None, "probe"));
         assert_eq!(
             answer.map_err(|e| e.code),
             Err(code::UNAUTHORIZED.into()),
-            "identity: RegisterModule from {origin:?} is refused unauthorized"
+            "identity: RegisterProgram from {origin:?} is refused unauthorized"
         );
     }
     register::<F>(&host, Origin::Root, None, "probe")
-        .unwrap_or_else(|e| panic!("identity: the system registers a module: {e:?}"));
-    let number = account_of::<F>(&host, Query::OfModule("probe".into()))
-        .expect("identity: OfModule answers the account RegisterModule gave");
+        .unwrap_or_else(|e| panic!("identity: the system registers a program: {e:?}"));
+    let number = account_of::<F>(&host, Query::OfProgram("probe".into()))
+        .expect("identity: OfProgram answers the account RegisterProgram gave");
     let before = every_profile::<F>(&host, 50);
     register::<F>(&host, Origin::Root, None, "probe")
-        .unwrap_or_else(|e| panic!("identity: registering a module again is no refusal: {e:?}"));
+        .unwrap_or_else(|e| panic!("identity: registering a program again is no refusal: {e:?}"));
     assert_eq!(
-        account_of::<F>(&host, Query::OfModule("probe".into())),
+        account_of::<F>(&host, Query::OfProgram("probe".into())),
         Some(number),
-        "identity: registering again keeps the module's account"
+        "identity: registering again keeps the program's account"
     );
     assert_eq!(
         every_profile::<F>(&host, 50),
@@ -217,39 +225,39 @@ pub fn register_module_is_root_only_and_idempotent<F: Fixture>(fixture: &F) {
     );
     assert_eq!(
         profile::<F>(&host, number).map(|p| p.kind),
-        Some(Kind::Module("probe".into())),
-        "identity: a registered module's profile is Kind::Module"
+        Some(Kind::Program("probe".into())),
+        "identity: a registered program's profile is Kind::Program"
     );
 }
 
 /// The kernel presents who a frame acts as: a signed frame as its key's
-/// account, a module's frame as the module's account. Neither is the
-/// system, so `RegisterModule` is refused `unauthorized` and writes nothing
+/// account, a program's frame as the program's account. Neither is the
+/// system, so `RegisterProgram` is refused `unauthorized` and writes nothing
 /// though the frame has a sender: the system is the origin, not a sender.
-pub fn register_module_is_refused_to_a_frame_that_acts<F: Fixture>(fixture: &F) {
+pub fn register_program_is_refused_to_a_frame_that_acts<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     let person = fixture.account(&host, b"someone");
     register::<F>(&host, Origin::Root, None, "chat")
         .unwrap_or_else(|e| panic!("identity: the system registers chat: {e:?}"));
-    let chat = account_of::<F>(&host, Query::OfModule("chat".into()))
-        .expect("identity: OfModule answers the account RegisterModule gave");
+    let chat = account_of::<F>(&host, Query::OfProgram("chat".into()))
+        .expect("identity: OfProgram answers the account RegisterProgram gave");
     for (origin, sender) in [
         (Origin::Signed(b"someone".to_vec()), person),
-        (Origin::Module("chat".into()), chat),
+        (Origin::Program("chat".into()), chat),
     ] {
         let sender = Some(Principal::Account(sender));
         let answer = host.attempt(|| register::<F>(&host, origin.clone(), sender.clone(), "probe"));
         assert_eq!(
             answer.map_err(|e| e.code),
             Err(code::UNAUTHORIZED.into()),
-            "identity: RegisterModule from {origin:?} acting as {sender:?} is refused \
+            "identity: RegisterProgram from {origin:?} acting as {sender:?} is refused \
              unauthorized: only the system's origin registers, whoever the sender"
         );
     }
 }
 
-/// A key no account holds, and a module never registered, answer `None`.
-pub fn an_unknown_key_or_module_holds_nothing<F: Fixture>(fixture: &F) {
+/// A key no account holds, and a program never registered, answer `None`.
+pub fn an_unknown_key_or_program_holds_nothing<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     assert_eq!(
         account_of::<F>(&host, Query::Account(b"nobody's key".to_vec())),
@@ -257,9 +265,9 @@ pub fn an_unknown_key_or_module_holds_nothing<F: Fixture>(fixture: &F) {
         "identity: Account of an unknown key is None"
     );
     assert_eq!(
-        account_of::<F>(&host, Query::OfModule("never-registered".into())),
+        account_of::<F>(&host, Query::OfProgram("never-registered".into())),
         None,
-        "identity: OfModule of an unregistered module is None"
+        "identity: OfProgram of an unregistered program is None"
     );
 }
 
@@ -361,6 +369,45 @@ pub fn a_revoked_account_s_keys_stop_resolving<F: Fixture>(fixture: &F) {
     );
 }
 
+pub fn a_program_runs_only_the_managed_account_handed_to_it<F: Fixture>(fixture: &F) {
+    let host = fixture.host();
+    for name in ["harness", "chat"] {
+        register::<F>(&host, Origin::Root, None, name).unwrap();
+    }
+    let person = fixture.account(&host, b"person key");
+    let agent = fixture.managed(&host, b"agent key");
+    let runs = |program: &str, account| {
+        query::<F>(
+            &host,
+            Query::Runs {
+                program: program.into(),
+                account,
+            },
+        )
+    };
+    let refused = |program: &str, account| match runs(program, account) {
+        Err(_) => {}
+        other => panic!("identity: Runs {{ {program}, {account} }} is refused, not {other:?}"),
+    };
+    refused("harness", agent);
+    refused("harness", person);
+    fixture.hand(&host, agent, "harness");
+    match runs("harness", agent) {
+        Ok(Reply::Account(Some(number))) if number == agent => {}
+        other => panic!(
+            "identity: Runs of the managed account {agent} handed to harness answers it, not {other:?}"
+        ),
+    }
+    let kind = profile::<F>(&host, agent).map(|p| p.kind);
+    assert!(
+        matches!(&kind, Some(Kind::Managed { runner: Some(runner), .. }) if runner == "harness"),
+        "identity: the profile of an account handed to harness names it its runner, not {kind:?}"
+    );
+    refused("chat", agent);
+    fixture.revoke(&host, agent);
+    refused("harness", agent);
+}
+
 /// `Profile` of a number no account has is `None`.
 pub fn an_absent_profile_is_none<F: Fixture>(fixture: &F) {
     let host = fixture.host();
@@ -404,8 +451,8 @@ pub fn profiles_page_ascending<F: Fixture>(fixture: &F) {
     }
 }
 
-/// Every `Kind::Module(id)` profile is the account `OfModule(id)` answers.
-pub fn module_profiles_agree_with_of_module<F: Fixture>(fixture: &F) {
+/// Every `Kind::Program(id)` profile is the account `OfProgram(id)` answers.
+pub fn program_profiles_agree_with_of_program<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     for name in ["probe", "other"] {
         register::<F>(&host, Origin::Root, None, name)
@@ -417,23 +464,23 @@ pub fn module_profiles_agree_with_of_module<F: Fixture>(fixture: &F) {
         assert!(
             listed
                 .iter()
-                .any(|p| matches!(&p.kind, Kind::Module(id) if id == name)),
-            "identity: Profiles lists the registered module {name}"
+                .any(|p| matches!(&p.kind, Kind::Program(id) if id == name)),
+            "identity: Profiles lists the registered program {name}"
         );
     }
     for listed in listed {
-        if let Kind::Module(id) = &listed.kind {
+        if let Kind::Program(id) = &listed.kind {
             assert_eq!(
-                account_of::<F>(&host, Query::OfModule(id.clone())),
+                account_of::<F>(&host, Query::OfProgram(id.clone())),
                 Some(listed.number),
-                "identity: OfModule({id}) is the account whose profile names it"
+                "identity: OfProgram({id}) is the account whose profile names it"
             );
         }
     }
 }
 
 /// `Profiles { limit: 0 }` is a page, neither a refusal nor a panic: empty
-/// (`next` then `None`), or the module's capped page, the listing's first
+/// (`next` then `None`), or the program's capped page, the listing's first
 /// profiles with `next` as any page has it.
 pub fn profiles_of_limit_zero_is_a_page<F: Fixture>(fixture: &F) {
     let host = fixture.host();

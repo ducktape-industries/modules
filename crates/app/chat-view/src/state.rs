@@ -1,10 +1,10 @@
 //! State stored by the root view and its panes.
 use chat::{ChannelInfo, MemberRow, MsgRow};
-use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use view::prelude::*;
 
 use crate::composer::Draft;
 use crate::message::ChatMessage;
@@ -32,10 +32,12 @@ pub struct Chat {
     /// The reader's reactions, newest first: the picker's frequent row.
     #[serde(default)]
     pub(crate) recent_emoji: Vec<String>,
-    /// The message row under the pointer: the one that carries the action
-    /// strip, beside a chosen one.
+    /// Where the pointer is among the message rows: the row that carries
+    /// the action strip, beside a chosen one. One slot whatever the pointer
+    /// entered took last, so a strip that vanished under the pointer (its
+    /// row deleted or scrolled away) leaves nothing once it moves on.
     #[serde(skip)]
-    pub(crate) hovered: Option<(Pane, u64)>,
+    pub(crate) hovered: Option<Hovered>,
     /// The room the arrows are on in the sidebar's list; the open room
     /// until they move.
     #[serde(skip)]
@@ -72,12 +74,12 @@ pub struct Chat {
     pub(crate) recounted: bool,
     /// the channel list read again while the one on screen stays
     #[serde(skip)]
-    pub(crate) rereading_channels: Option<ducktape_view_guest::Task<()>>,
+    pub(crate) rereading_channels: Option<view::Task<()>>,
 }
 
 #[derive(Default)]
 pub struct Drawn {
-    pub(crate) list: Option<(Shape, ducktape_view_guest::ListState)>,
+    pub(crate) list: Option<(Shape, view::ListState)>,
     pub(crate) keys: Vec<String>,
     pub(crate) folded: Option<Folded>,
 }
@@ -118,7 +120,7 @@ pub struct Room {
     pub(crate) at_tail: bool,
     /// the rows read again while the ones on screen stay
     #[serde(skip)]
-    pub(crate) rereading: Option<ducktape_view_guest::Task<()>>,
+    pub(crate) rereading: Option<view::Task<()>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -131,7 +133,7 @@ pub struct Thread {
     pub(crate) more_loading: bool,
     /// the replies read again while the ones on screen stay
     #[serde(skip)]
-    pub(crate) rereading: Option<ducktape_view_guest::Task<()>>,
+    pub(crate) rereading: Option<view::Task<()>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -215,7 +217,7 @@ impl Layout {
     /// Whether a side pane `side` wide fits beside the sidebar and the
     /// room's narrowest; else it floats over the room.
     pub(crate) fn docks(&self, side: f32) -> bool {
-        ducktape_view_guest::design::docks(self.viewport.0, self.sidebar + ROOM_KEEPS_W, side)
+        view::design::docks(self.viewport.0, self.sidebar + ROOM_KEEPS_W, side)
     }
 }
 
@@ -288,6 +290,15 @@ impl Cursor {
     }
 }
 
+/// The message row under the pointer, or its action strip (`strip`): the
+/// strip hangs half over the row above and occludes it, so the row itself
+/// is not hovered while the pointer is on the strip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Hovered {
+    pub(crate) key: (Pane, u64),
+    pub(crate) strip: bool,
+}
+
 /// A control on a message card: what pressing it does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Control {
@@ -310,6 +321,12 @@ pub enum Control {
 }
 
 impl Chat {
+    /// Whether the pointer is on the message row `key`: on the row or on
+    /// its action strip.
+    pub(crate) fn pointer_on(&self, key: (Pane, u64)) -> bool {
+        self.hovered.is_some_and(|hovered| hovered.key == key)
+    }
+
     pub(crate) fn cursor(&self, pane: Pane) -> &Cursor {
         match pane {
             Pane::Timeline => &self.timeline_cursor,

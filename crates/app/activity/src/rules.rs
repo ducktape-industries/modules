@@ -1,7 +1,7 @@
 // The rules: a frame kept under its key and its account, each holding its newest rows, and the
 // pages and counts read back.
 
-use guest::{AccountNumber, Error, ExecCtx, ModuleId, QueryCtx, hook};
+use ::program::{AccountNumber, Error, ExecCtx, ProgramId, QueryCtx, hook};
 use store::{KeyCodec, Map, PageRequest, PageResponse};
 
 use crate::{Frame, KEPT, MAX_PAGE, Used};
@@ -10,7 +10,7 @@ const SIGNED: Map<(Vec<u8>, u64, u32), Frame> = Map::new("k/");
 const SIGNED_HELD: Map<Vec<u8>, u64> = Map::new("kn/");
 const ACTED: Map<(AccountNumber, u64, u32), Frame> = Map::new("a/");
 const ACTED_HELD: Map<AccountNumber, u64> = Map::new("an/");
-const USED: Map<(AccountNumber, ModuleId), u64> = Map::new("u/");
+const USED: Map<(AccountNumber, ProgramId), u64> = Map::new("u/");
 
 fn newest_first(frame: &Frame) -> (u64, u32) {
     (u64::MAX - frame.height, u32::MAX - frame.position)

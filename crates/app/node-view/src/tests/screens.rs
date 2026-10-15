@@ -3,7 +3,7 @@
 //! the design's: five validators (in sync, one block short, 12 behind, two
 //! short, stopped at 3,871) and three residents, at 4,295.
 use super::*;
-use ducktape_view_guest::Theme;
+use view::Theme;
 
 const HEIGHT: u64 = 4295;
 const VALIDATORS: usize = 5;
@@ -234,9 +234,9 @@ const WIDTHS: [u32; 8] = [480, 560, 680, 768, 960, 1000, 1064, 1280];
 /// at the least, a narrower window scrolls it sideways.
 const APP_MIN_WIDTH: f32 = 480.;
 
-fn in_app_frame(mut frame: ducktape_view_guest::wire::Frame) -> ducktape_view_guest::wire::Frame {
-    use ducktape_view_guest::wire::{ContainerNode, ElementIdWire, Node, Style, StyleId};
-    use ducktape_view_guest::{StyleRefinement, Styled, px};
+fn in_app_frame(mut frame: view::wire::Frame) -> view::wire::Frame {
+    use view::wire::{ContainerNode, ElementIdWire, Node, Style, StyleId};
+    use view::{StyleRefinement, Styled, px};
     let inner = StyleRefinement::default()
         .size_full()
         .min_w(px(APP_MIN_WIDTH));

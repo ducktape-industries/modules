@@ -166,7 +166,7 @@ fn a_full_window_renders_inside_the_frame_budget() {
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
     assert!(
-        cx.has_text("forge · 1,048,588 bytes"),
+        cx.has_text("forge · 1,048,589 bytes"),
         "the push is listed by its size: {:?}",
         cx.texts()
     );

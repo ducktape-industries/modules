@@ -1,8 +1,8 @@
 //! Forge: repositories, code, commits, refs and the Changes a reviewer
-//! lives in, on the ducktape-view-guest `View` shape.
+//! lives in, on the view `View` shape.
 //!
 //! The forge program answers everything this screen shows, in borsh, through
-//! one method (`module.query`); conversation is chat's, through the method
+//! one method (`program.query`); conversation is chat's, through the method
 //! chat-view uses. Reads are a cache keyed by the query itself: `sync` asks
 //! what the current screen needs, issues what is missing, and drops what the
 //! reader has navigated away from. `render` writes only what the frame
@@ -25,9 +25,9 @@ mod navigate;
 mod review;
 mod ui;
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
-use program::role::Identity;
+use identity::Identity;
 pub(crate) use select::Stage;
 pub use state::Forge;
 
@@ -37,17 +37,13 @@ impl View for Forge {
         "Repositories, code, commits and the changes waiting on your judgment.";
     const ICON: &'static str = "icons/hammer.svg";
     const CAPABILITIES: &'static [Capability] = &[
-        Capability::Module,
+        Capability::Program,
         Capability::Op,
         Capability::Host,
         Capability::Link,
         Capability::Clipboard,
     ];
-    const TARGETS: &'static [&'static str] = &[
-        forge::MODULE,
-        chat::MODULE,
-        <Identity as ducktape_view_guest::methods::Program>::NAME,
-    ];
+    const TARGETS: &'static [&'static str] = &[forge::PROGRAM, chat::PROGRAM, identity::PROGRAM];
     // at 560 the repository tab bar's About toggle is past the right edge
     const MIN_WINDOW_WIDTH: u32 = 640;
 
@@ -107,9 +103,12 @@ impl View for Forge {
 
 impl Render for Forge {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // the pane's width, as the host lays the frame out: the rail and
-        // the dock fold to it in the frame that shows them
-        self.layout.width = window.viewport_size().width.into();
+        // the pane's size, as the host lays the frame out: the rail and
+        // the dock fold to its width in the frame that shows them, and a
+        // dropdown keeps to its height
+        let viewport = window.viewport_size();
+        self.layout.width = viewport.width.into();
+        self.layout.height = viewport.height.into();
         // a change's title lands async: the frame is the one place that
         // sees each
         self.settle_title(cx);

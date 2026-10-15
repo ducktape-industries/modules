@@ -1,9 +1,14 @@
 //! Refs: branches and tags, how far each one is from the default head, and
 //! the Change a comparison can become.
-use ducktape_view_guest::prelude::*;
+use std::rc::Rc;
+
+use view::prelude::*;
 
 use crate::Forge;
-use crate::ui::components::{badge, button, empty_state, id, quiet, ref_label, row, short_hex};
+use crate::ui::components::{
+    badge, button, empty_state, id, name_cell, quiet, ref_label, row, short_hex, whole_name,
+};
+use crate::ui::diff::Route;
 use crate::ui::{pending, staged};
 use forge::{Mergeability, Query, RefInfo, Reply, Revision};
 
@@ -20,7 +25,7 @@ pub(crate) fn render(
         .flex_1()
         .min_h(px(0.))
         .child(pending(forge, "changes", theme));
-    if let Some(form) = &forge.form {
+    if let Some(form) = forge.change_form() {
         column = column.child(crate::ui::changes::form(form, forge, cx, theme));
     }
     let reply = match staged(
@@ -48,74 +53,124 @@ pub(crate) fn render(
             .into_any_element();
     }
     // one Tab stop: ↑ ↓ walk the refs, ← → a row's cells (the ref, its
-    // Compare when the reader may write), Enter presses the active cell
+    // Compare when the reader may write), Enter presses the active cell. A
+    // virtual list: a render draws the refs on screen, not every branch
+    let Some(shared) = forge.shared(&forge.refs_query()) else {
+        return column.into_any_element();
+    };
     let names: Vec<Vec<u8>> = page.items.iter().map(|info| info.name.clone()).collect();
-    let (at, _) = crate::ui::components::cursor(forge, "forge-refs-list");
-    let at = at.min(names.len().saturating_sub(1));
+    let count = names.len();
+    let (at, cell) = crate::ui::components::cursor(forge, "forge-refs-list");
+    let at = at.min(count.saturating_sub(1));
     let compares = |name: &[u8]| name != forge.default_head() && !name.starts_with(b"refs/tags/");
     let cells =
         1 + usize::from(forge.may_write() && names.get(at).is_some_and(|name| compares(name)));
-    let mut list = crate::ui::components::grid(
+    // what each row shows, read once a render for the rows the list draws
+    let marks = Marks {
+        default: forge.default_head(),
+        browsing: forge.head_name(),
+        may_write: forge.may_write(),
+        walked: crate::ui::components::walked(forge, "forge-refs-list"),
+        active: (at, cell),
+        standings: standings(forge, &names, head),
+    };
+    let list = crate::ui::components::grid(
         "forge-refs-list",
         "Refs",
-        names.len(),
+        count,
         cells,
+        Some(&forge.refs_scroll),
         forge,
         cx,
-        move |forge, index, cell, _, cx| match cell {
+        move |forge, index, cell, window, cx| match cell {
             0 => forge.pick_ref(names[index].clone(), cx),
-            _ if forge.may_write() => forge.start_change(names[index].clone(), cx),
+            _ if forge.may_write() => forge.start_change(names[index].clone(), window, cx),
             _ => {}
         },
     )
-    .gap_1()
     .p_2();
-    for (index, info) in page.items.iter().enumerate() {
-        let active =
-            (index == at).then_some(crate::ui::components::cursor(forge, "forge-refs-list").1);
-        list = list.child(ref_row(forge, info, head, active, cx, theme));
-    }
-    column
-        .child(list.children(forbidden(forge, theme)))
-        .into_any_element()
+    let pick: Route<Vec<u8>> =
+        Rc::new(cx.listener(|forge, name: &Vec<u8>, _, cx| forge.pick_ref(name.clone(), cx)));
+    let start: Route<Vec<u8>> = Rc::new(cx.listener(|forge, name: &Vec<u8>, window, cx| {
+        forge.start_change(name.clone(), window, cx)
+    }));
+    // what the settings forbid closes the list, after its last ref
+    let forbidden = forbidden(forge);
+    let theme = *theme;
+    let rows = crate::ui::components::rows(
+        "forge-refs-rows",
+        count + usize::from(forbidden.is_some()),
+        None,
+        Some(&forge.refs_scroll),
+        move |index| {
+            let Reply::Refs { page, .. } = &*shared else {
+                return div().into_any_element();
+            };
+            match page.items.get(index) {
+                Some(info) => ref_row(info, index, &marks, &pick, &start, &theme),
+                None => div()
+                    .id(id("forge-refs-forbidden"))
+                    .min_h(design::size::CONTROL)
+                    .flex()
+                    .items_center()
+                    .child(quiet(forbidden.clone().unwrap_or_default(), &theme))
+                    .into_any_element(),
+            }
+        },
+    );
+    column.child(list.child(rows)).into_any_element()
 }
 
 /// The ref name and target columns.
 const NAME_W: Pixels = px(200.);
 const TARGET_W: Pixels = px(100.);
 
+/// What marks the refs' rows, read once a render: the default head and the
+/// ref browsed, whether the reader may write, where the arrows are, and
+/// each ref's standing against the head.
+struct Marks {
+    default: Vec<u8>,
+    browsing: Vec<u8>,
+    may_write: bool,
+    walked: bool,
+    /// the active row and its cell
+    active: (usize, usize),
+    standings: Vec<Option<String>>,
+}
+
 /// One ref: its name, kind, target and standing, and Compare for a branch
-/// other than the default head.
+/// other than the default head. Spaced from the next as the list draws
+/// every row one height.
 fn ref_row(
-    forge: &Forge,
     info: &RefInfo,
-    head: &[u8],
-    active: Option<usize>,
-    cx: &mut Context<Forge>,
+    index: usize,
+    marks: &Marks,
+    pick: &Route<Vec<u8>>,
+    start: &Route<Vec<u8>>,
     theme: &Theme,
 ) -> AnyElement {
     let name = info.name.clone();
     let label = ref_label(&name);
     let tag = name.starts_with(b"refs/tags/");
-    let pick = cx.listener({
-        let name = name.clone();
-        move |forge, _: &ClickEvent, _, cx| forge.pick_ref(name.clone(), cx)
-    });
-    let start = cx.listener({
-        let name = name.clone();
-        move |forge, _: &ClickEvent, _, cx| forge.start_change(name.clone(), cx)
-    });
+    let active = (index == marks.active.0).then_some(marks.active.1);
+    let press = |route: &Route<Vec<u8>>| {
+        let (route, name) = (route.clone(), name.clone());
+        move |_: &ClickEvent, window: &mut Window, app: &mut App| route(&name, window, app)
+    };
     let mut line = row(format!("forge-ref-row-{label}"), theme)
         .in_grid()
-        .on_click(pick)
+        .on_click(press(pick))
         .active(active)
-        .selected(name == forge.head_name())
-        .cell(
-            div()
+        .walked(marks.walked)
+        .selected(name == marks.browsing)
+        .cell(whole_name(
+            name_cell(label.clone())
+                .id(id(format!("forge-ref-name-{label}")))
                 .w(NAME_W)
-                .truncate()
-                .child(crate::ui::bold(label.clone())),
-        )
+                .font_weight(view::FontWeight::MEDIUM),
+            label.clone(),
+            theme,
+        ))
         .cell(badge(
             id(format!("forge-ref-kind-{label}")),
             if tag { "tag" } else { "branch" },
@@ -131,25 +186,32 @@ fn ref_row(
                 .text_color(theme.muted)
                 .child(short_hex(&info.target)),
         )
-        .cell(standing(forge, &name, head, theme))
+        .cell(match &marks.standings[index] {
+            Some(standing) => quiet(standing.clone(), theme),
+            None => div().into_any_element(),
+        })
         .cell(div().flex_1());
-    if name != forge.default_head() && !tag {
+    if name != marks.default && !tag {
         line = line.control(
             button(
                 id(format!("forge-compare-{label}")),
                 "Compare →",
                 theme,
-                start,
+                press(start),
             )
-            .enabled(forge.may_write())
+            .enabled(marks.may_write)
             .item(active == Some(1)),
         );
     }
-    line.into_any_element()
+    div()
+        .id(id(format!("forge-ref-slot-{label}")))
+        .pb_1()
+        .child(line)
+        .into_any_element()
 }
 
 /// What this repository's settings forbid, if anything.
-fn forbidden(forge: &Forge, theme: &Theme) -> Option<AnyElement> {
+fn forbidden(forge: &Forge) -> Option<String> {
     let allow = forge
         .repo()
         .map(|(info, _, _)| {
@@ -165,43 +227,47 @@ fn forbidden(forge: &Forge, theme: &Theme) -> Option<AnyElement> {
         (true, false) => "ref deletions",
         (true, true) => return None,
     };
-    Some(quiet(format!("This repository forbids {what}."), theme))
+    Some(format!("This repository forbids {what}."))
 }
 
-/// Ahead/behind the default head, once the comparison for this ref lands.
-fn standing(forge: &Forge, name: &[u8], head: &[u8], theme: &Theme) -> AnyElement {
-    if name == head {
-        return quiet("browsing", theme);
-    }
-    // only the first branches are compared (a tag never is): the rest say nothing
-    let mut compared = forge
+/// Each ref's standing against the default head, where it has one: the
+/// head says it is browsed; the first branches are compared (a tag never
+/// is), the rest say nothing.
+fn standings(forge: &Forge, names: &[Vec<u8>], head: &[u8]) -> Vec<Option<String>> {
+    let compared: Vec<Vec<u8>> = forge
         .branches()
         .into_iter()
-        .take(crate::sync::COMPARED_REFS);
-    if !compared.any(|branch| branch == name) {
-        return div().into_any_element();
-    }
-    let query = Query::Compare {
-        repo: forge.repo_name(),
-        from: Revision::Ref(name.to_vec()),
-        into: Revision::Ref(head.to_vec()),
-    };
-    match forge.ready(&query) {
-        Some(Reply::Compare { comparison, .. }) => {
-            let word = match comparison.mergeability {
-                Mergeability::UpToDate => "merged",
-                Mergeability::FastForward => "fast-forward",
-                Mergeability::Diverged => "diverged",
-                Mergeability::Unrelated => "unrelated",
+        .take(crate::sync::COMPARED_REFS)
+        .collect();
+    names
+        .iter()
+        .map(|name| {
+            if name == head {
+                return Some("browsing".to_owned());
+            }
+            if !compared.contains(name) {
+                return None;
+            }
+            let query = Query::Compare {
+                repo: forge.repo_name(),
+                from: Revision::Ref(name.clone()),
+                into: Revision::Ref(head.to_vec()),
             };
-            quiet(
-                format!(
-                    "{} ahead · {} behind · {word}",
-                    comparison.ahead, comparison.behind
-                ),
-                theme,
-            )
-        }
-        _ => quiet("comparing…", theme),
-    }
+            Some(match forge.ready(&query) {
+                Some(Reply::Compare { comparison, .. }) => {
+                    let word = match comparison.mergeability {
+                        Mergeability::UpToDate => "merged",
+                        Mergeability::FastForward => "fast-forward",
+                        Mergeability::Diverged => "diverged",
+                        Mergeability::Unrelated => "unrelated",
+                    };
+                    format!(
+                        "{} ahead · {} behind · {word}",
+                        comparison.ahead, comparison.behind
+                    )
+                }
+                _ => "comparing…".to_owned(),
+            })
+        })
+        .collect()
 }

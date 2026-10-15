@@ -1,6 +1,6 @@
 //! Where the reader goes: a tab or a row, a search, a link opened into the
 //! explorer, and a page's link copied out of it.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::Explorer;
 use crate::chain::rows;

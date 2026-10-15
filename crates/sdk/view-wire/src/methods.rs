@@ -5,7 +5,7 @@
 //! what a host test checks its handlers against, and [`refusal`] lists every
 //! code a host refuses one with.
 //!
-//! THE CODEC RULE. Two layers cross the guest boundary and they want
+//! THE CODEC RULE. Two layers cross the view boundary and they want
 //! opposite things. The tree a view draws (`Frame`, [`WidgetCommand`]) must
 //! tolerate a hundred optional fields and is decoded under a budget — that
 //! is MessagePack, in `codec`. Everything a method carries is DATA: the
@@ -30,7 +30,7 @@ mod sealed {
 }
 
 /// One kind a view may ask for. Sealed: the methods are the ones in this
-/// module.
+/// program.
 pub trait Method: sealed::Sealed {
     const KIND: &'static str;
     /// The program a node method is addressed to, so a test host can key on
@@ -95,9 +95,7 @@ macro_rules! methods {
 // ---------- the node ----------
 
 // A node method is addressed to a [`Program`]: the program crate's own
-// impl, on the type that is its `guest::Module` (`Query<chat::Chat>`), or a
-// role's (`program::role::Identity`). `program` is below both SDKs, so a
-// program's wasm links no view runtime to be named by a view.
+// impl, on the type that is its `program::Program` (`Query<chat::Chat>`).
 
 /// The envelope of a node method: the program addressed and the bytes it
 /// gets, which the host signs into a frame without reading.
@@ -117,13 +115,13 @@ fn decode_call<T: BorshDeserialize>(bytes: &[u8], target: &str) -> Result<T, Str
     decode(&call.body)
 }
 
-/// `module.query`: one query to `P`, answered with the bytes it `Respond`ed.
+/// `program.query`: one query to `P`, answered with the bytes it `Respond`ed.
 /// The node answers from its preconfirmed state: the last block and the ops
 /// it has accepted since, ahead of the block that will carry them.
 pub struct Query<P>(std::marker::PhantomData<P>);
 impl<P: Program> sealed::Sealed for Query<P> {}
 impl<P: Program> Method for Query<P> {
-    const KIND: &'static str = "module.query";
+    const KIND: &'static str = "program.query";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = P::Query;
     type Reply = P::Reply;
@@ -175,7 +173,7 @@ impl<P: Program> Method for Submit<P> {
     }
 }
 
-/// One block's writes to a program, as `module.changes` carries them: the
+/// One block's writes to a program, as `program.changes` carries them: the
 /// block's height and every key it wrote under the program, as the node
 /// publishes them. A view asks it which of its reads moved
 /// ([`Change::touches`]) and re-reads those.
@@ -199,14 +197,14 @@ impl Change {
     }
 }
 
-/// `module.changes`: a subscription to `P`, one item per block that wrote to
+/// `program.changes`: a subscription to `P`, one item per block that wrote to
 /// it, carrying the block's height and the keys it wrote ([`Change`]);
 /// `None` when the node link was reopened and the view should re-read
 /// everything. The request is `P`'s name, as the host reads it.
 pub struct Changes<P>(std::marker::PhantomData<P>);
 impl<P: Program> sealed::Sealed for Changes<P> {}
 impl<P: Program> Method for Changes<P> {
-    const KIND: &'static str = "module.changes";
+    const KIND: &'static str = "program.changes";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = ();
     type Reply = Option<Change>;
@@ -588,7 +586,7 @@ pub struct LiveAnnounce {
 }
 
 methods! {
-    also: ["module.query", "op.submit", "module.changes", HostWidget::KIND];
+    also: ["program.query", "op.submit", "program.changes", HostWidget::KIND];
     /// `chain.status`: the connected node's status.
     ChainStatus, "chain.status", (), NodeStatus;
     /// `chain.network`: every member as the connected node sees it.
@@ -660,10 +658,10 @@ methods! {
     /// could not fill a gap (a reconnect, a node with no archive); a view
     /// that must see every block reads the gap with `chain.blocks`.
     ChainHeads, "chain.heads", (), Head;
-    /// `module.describe`: an op as its program says a person reads it,
+    /// `program.describe`: an op as its program says a person reads it,
     /// from the `ducktape.describe` module in the program's current code;
     /// `None` where the code carries none or it cannot read these bytes.
-    ModuleDescribe, "module.describe", (String, Vec<u8>), Option<Description>;
+    ProgramDescribe, "program.describe", (String, Vec<u8>), Option<Description>;
     /// `host.title`: the name of the view's window, shown by the host
     /// beside the program's name, on one line; empty clears it. At most 80
     /// chars; the host trims longer names and drops control characters,
@@ -700,7 +698,7 @@ methods! {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Capability {
     Chain,
-    Module,
+    Program,
     Op,
     Invite,
     Link,
@@ -715,7 +713,7 @@ pub enum Capability {
     /// that declares this, as its `host.route` (the whole address; see
     /// [`HostRoute`]), and to the system browser when none does or the app
     /// has no web view. When more than one installed view declares it, the
-    /// first by module name gets the links. No method starts with it.
+    /// first by program name gets the links. No method starts with it.
     Web,
     /// Tracks through the connected node, off consensus (`live.*`): the
     /// node lets an account publish or subscribe in a room only as the
@@ -726,7 +724,7 @@ pub enum Capability {
 impl Capability {
     pub const ALL: [Self; 13] = [
         Self::Chain,
-        Self::Module,
+        Self::Program,
         Self::Op,
         Self::Invite,
         Self::Link,
@@ -744,7 +742,7 @@ impl Capability {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Chain => "chain",
-            Self::Module => "module",
+            Self::Program => "program",
             Self::Op => "op",
             Self::Invite => "invite",
             Self::Link => "link",
@@ -868,7 +866,7 @@ mod tests {
         assert_eq!(prefixes, known);
         assert_eq!(Capability::parse("link"), Some(Capability::Link));
         assert_eq!(Capability::parse("web"), Some(Capability::Web));
-        for name in ["rpc", "chat", "module.query", "", "Chain"] {
+        for name in ["rpc", "chat", "program.query", "", "Chain"] {
             assert_eq!(Capability::parse(name), None, "{name:?}");
         }
         assert_eq!(
@@ -884,6 +882,14 @@ mod tests {
         type Op = ();
         type Query = (u64, String);
         type Reply = Vec<u32>;
+
+        fn execute(_: &program::ExecCtx, _: Self::Op) -> Result<(), program::Error> {
+            unreachable!()
+        }
+
+        fn query(_: &program::QueryCtx, _: Self::Query) -> Result<Self::Reply, program::Error> {
+            unreachable!()
+        }
     }
 
     #[test]

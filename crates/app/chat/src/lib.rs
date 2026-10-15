@@ -1,4 +1,4 @@
-//! The `chat` module: channels, messages, threads, reactions, and members.
+//! The `chat` program: channels, messages, threads, reactions, and members.
 //!
 //! A write is an [`Op`], a read a [`Query`] answered by a [`Reply`], all
 //! borsh, the same types `chat-view` links. The acting [`Principal`] is the
@@ -6,9 +6,9 @@
 //! key holds (a key that holds none writes nothing). The layout, in reading order:
 //!
 //! - `lib.rs` (here): the types on the wire and the rows they carry
-//! - `program.rs`: [`Chat`], the module: the signer resolved, then one match
+//! - `program.rs`: [`Chat`], the program: the signer resolved, then one match
 //!   over every op and one over every query
-//! - `state.rs`: every table and index the module keeps, declared once
+//! - `state.rs`: every table and index the program keeps, declared once
 //! - `rules.rs`: the checks an op passes before it writes
 //! - `ops.rs`: one short function per op
 //! - `origin.rs`: the identity role's roster
@@ -17,9 +17,10 @@
 //! - `view.rs`: the reads a view makes of chat, folded into [`view::Names`]
 //! - `description.rs`: [`describe()`], an op in a person's words
 //!
-//! The module runs over `guest`'s contexts, so a native test runs it over
-//! [`guest::MockHost`] exactly as the host does. The `module` feature adds
+//! The program runs over `program`'s contexts, so a native test runs it over
+//! [`program::MockHost`] exactly as the host does. The `program` feature adds
 //! its wasm exports.
+pub mod attributed;
 mod description;
 pub mod message;
 mod ops;
@@ -36,10 +37,10 @@ pub mod view;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
+pub use ::program::{AccountNumber, Principal};
 pub use abi::hex;
 pub use abi::role::identity::{Category, Kind, Profile, Standing};
 pub use description::describe;
-pub use guest::{AccountNumber, Principal};
 pub use message::{Block, ListMarker, Mark, Span, list_item, parse_message};
 pub use program::Chat;
 pub use queries::roots_below;
@@ -47,7 +48,7 @@ pub use store::{Cursor, PageRequest, PageResponse};
 pub use text::{plain_text, tags, tokens};
 
 /// Every table chat keeps, as a block's writes name them: what a follower
-/// of `module.changes` plays back in a test to say which a block touched.
+/// of `program.changes` plays back in a test to say which a block touched.
 pub mod tables {
     pub use crate::state::{
         ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS,
@@ -55,8 +56,8 @@ pub mod tables {
     };
 }
 
-/// The name this module runs under.
-pub const MODULE: &str = "chat";
+/// The name this program runs under.
+pub const PROGRAM: &str = "chat";
 
 pub const MAX_ID_BYTES: usize = 64;
 pub const MAX_NAME_BYTES: usize = 128;
@@ -134,7 +135,7 @@ pub enum Op {
 /// [`Reaction::reacted_by_me`]. Every list takes a [`PageRequest`] and answers a
 /// [`PageResponse`] whose `next` resumes it. Each variant names the tables
 /// it is answered from (`#[reads]`, [`program::Reads`]), so a view following
-/// `module.changes` re-reads it only for a block that wrote to one of them;
+/// `program.changes` re-reads it only for a block that wrote to one of them;
 /// a read of message rows follows `REACTIONS` too, since the viewer's own
 /// reactions are read onto the rows.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ::program::Ask)]
@@ -207,7 +208,7 @@ pub enum Query {
         page: PageRequest,
     },
     /// Every account's profile, ascending by number, a page at a time:
-    /// the module asks the identity role, so a view links one module. It
+    /// the program asks the identity role, so a view links one program. It
     /// reads nothing of chat's: it moves with identity's blocks, which a
     /// view follows apart.
     #[ask(Reply::Accounts(PageResponse<Profile>))]
@@ -257,7 +258,7 @@ impl ChannelRow {
 
     /// Whether the room lets `principal` post, `seated` saying whether it holds
     /// a member seat: posting is open, or it owns the room or sits in it.
-    /// Archiving aside; the module and the view ask this one rule.
+    /// Archiving aside; the program and the view ask this one rule.
     pub fn admits(&self, principal: &Principal, seated: bool) -> bool {
         !self.members_only() || self.owner == *principal || seated
     }
@@ -304,7 +305,7 @@ pub struct MsgRow {
 
 impl MsgRow {
     /// A row with nothing yet but its author: a view's pending post before
-    /// the module serves it, a test's base row.
+    /// the program serves it, a test's base row.
     pub fn by(author: Principal) -> MsgRow {
         MsgRow {
             channel_id: String::new(),
@@ -373,10 +374,10 @@ pub mod namespace {
 }
 
 /// The program whose own account wrote `row` in that program's own
-/// `<program>:<name>` room (`author_module`: the module the author's
+/// `<program>:<name>` room (`author_program`: the program the author's
 /// account is, from identity's profiles).
-pub fn program_author<'a>(row: &'a MsgRow, author_module: Option<&str>) -> Option<&'a str> {
-    namespace::program(&row.channel_id).filter(|program| author_module == Some(*program))
+pub fn program_author<'a>(row: &'a MsgRow, author_program: Option<&str>) -> Option<&'a str> {
+    namespace::program(&row.channel_id).filter(|program| author_program == Some(*program))
 }
 
 /// A program's own post in its own room ([`program_author`]), as one code
@@ -385,9 +386,9 @@ pub fn program_author<'a>(row: &'a MsgRow, author_module: Option<&str>) -> Optio
 /// points to where the program itself shows the room. `(program, code)`.
 pub fn program_post<'a>(
     row: &'a MsgRow,
-    author_module: Option<&str>,
+    author_program: Option<&str>,
 ) -> Option<(&'a str, &'a str)> {
-    let program = program_author(row, author_module)?;
+    let program = program_author(row, author_program)?;
     match row.blocks.as_slice() {
         [
             Block::Code {
@@ -433,10 +434,10 @@ fn a_programs_own_code_block_in_its_room_is_its_post() {
     };
     // forge's account is 9; account 1 is a person's
     let forge = || Principal::Account(9);
-    let module_of = |row: &MsgRow| (row.author == forge()).then_some("forge");
+    let program_of = |row: &MsgRow| (row.author == forge()).then_some("forge");
     let post = row("forge:web:3", forge(), vec![code("forge")]);
     assert_eq!(
-        program_post(&post, module_of(&post)),
+        program_post(&post, program_of(&post)),
         Some(("forge", "review 7"))
     );
     for other in [
@@ -446,6 +447,6 @@ fn a_programs_own_code_block_in_its_room_is_its_post() {
         row("general", forge(), vec![code("forge")]),
         row("chess:1", forge(), vec![code("forge")]),
     ] {
-        assert_eq!(program_post(&other, module_of(&other)), None, "{other:?}");
+        assert_eq!(program_post(&other, program_of(&other)), None, "{other:?}");
     }
 }

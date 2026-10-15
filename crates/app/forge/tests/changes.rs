@@ -18,7 +18,7 @@ fn story() -> (Rig, Story) {
 }
 
 /// The op signed by `who`; the rig signs as the owner again afterwards.
-fn signed(rig: &mut Rig, who: &[u8], op: &Op) -> Result<Vec<u8>, guest::Error> {
+fn signed(rig: &mut Rig, who: &[u8], op: &Op) -> Result<Vec<u8>, program::Error> {
     rig.actor = who.to_vec();
     let result = rig.execute(op);
     rig.actor = TESTER.to_vec();
@@ -211,7 +211,7 @@ fn open_numbers_changes_and_refuses_what_cannot_merge() {
 fn chat_refusing_the_channel_fails_the_open_it_came_from() {
     let (mut rig, story) = story();
     // forge itself, outside any change: the channel the change will want
-    let forge = Principal::Account(sandbox::MODULES[0].1);
+    let forge = Principal::Account(sandbox::PROGRAMS[0].1);
     rig.chat_execute(
         forge,
         chat::Op::CreateChannel {

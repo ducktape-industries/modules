@@ -1,113 +1,81 @@
-//! What a program is to everything that addresses it: its name on the node
-//! and the three borsh types it speaks. A program crate implements
-//! [`Program`] once, on the same type that implements `guest::Module`; a view
-//! names the program by that type (`Query<chat::Chat>`, `Submit<forge::Forge>`,
-//! `Changes<identity::Identity>`), and the method encodes `NAME` as the
-//! target. The crate is below both SDKs so neither side links the other.
-use std::fmt::Debug;
+//! The program SDK. A program is a type implementing [`Program`] (its name,
+//! the three types it speaks, the same trait a view names it by, and what it
+//! does with each), and one [`export!`]; its entry points receive an [`ExecCtx`] or a [`QueryCtx`],
+//! whose methods are the whole host surface: `env`, `sender` (the account a
+//! write acts as, which the host resolved through the identity role), raw
+//! state (`get`, `set`, `delete`, `scan`), blobs, `event`, `set_return_data`,
+//! `sha256` and `verify`, and the two ways to another program: `emit` (a write
+//! it runs in this frame, replying or not) and `query` (a read). On wasm32
+//! they are host calls; natively the same contexts run over a [`MockHost`],
+//! and several programs run together, a submission as one frame with its
+//! messages and replies as the kernel runs it, on a [`MockChain`].
+//! [`Env`] adds the origin checks (`signer`, `sending_program`, `sent_by`) and
+//! `authority`, which admits only a message from the program bound to the
+//! validators role.
+//! A message emitted with [`Reply::Wanted`] comes back to its emitter as
+//! [`Program::reply`], with its id and outcome; a program
+//! that never wants a reply leaves `reply` at its default.
+//!
+//! ```ignore
+//! use program::{Error, ExecCtx, Program, QueryCtx};
+//!
+//! pub struct Counter;
+//!
+//! impl Program for Counter {
+//!     const NAME: &'static str = "counter";
+//!     type Op = u64;
+//!     type Query = ();
+//!     type Reply = u64;
+//!
+//!     fn execute(ctx: &ExecCtx, by: u64) -> Result<(), Error> {
+//!         let n: u64 = ctx.record("n")?.unwrap_or(0);
+//!         ctx.put("n", &(n + by));
+//!         Ok(())
+//!     }
+//!
+//!     fn query(ctx: &QueryCtx, (): ()) -> Result<u64, Error> {
+//!         Ok(ctx.record("n")?.unwrap_or(0))
+//!     }
+//! }
+//!
+//! program::export!(Counter);
+//! ```
+//!
+//! `store` is the optional typed layer on top (`Map`/`Set`/`Item`, pages).
 
-use borsh::{BorshDeserialize, BorshSerialize};
+pub mod awaiting;
+#[cfg(not(target_arch = "wasm32"))]
+mod chain;
+mod ctx;
+mod identity;
+pub mod kernel;
+pub mod live;
+#[cfg(not(target_arch = "wasm32"))]
+mod mock;
+mod origin;
+mod program;
+pub mod refuse;
 
-/// A program: its name on the node and the types it speaks. A read-only
-/// program names `()` as its `Op`. The bounds are borsh on both sides: a
-/// program's own request rides a method with no second encoding around it.
-pub trait Program {
-    /// The id the program runs under: the target a view's method names.
-    const NAME: &'static str;
-    type Op: BorshSerialize + BorshDeserialize + Debug;
-    type Query: BorshSerialize + BorshDeserialize + Debug;
-    type Reply: BorshSerialize + BorshDeserialize;
-}
-
-/// One question to a program, as its own type: the program it asks, the
-/// reply that answers it, and how it rides the wire (`into` the program's
-/// `Query`, so its bytes are the enum's). A caller asks it and gets that
-/// reply, typed, with no arm for the others.
-///
-/// `#[derive(Ask)]` on a program's `Query` writes them: `#[ask(Program)]`
-/// on the enum, and on each variant a caller asks alone the reply that
-/// answers it, `#[ask(Reply::List(PageResponse<Row>))]` (or a reply's
-/// named fields, `#[ask(Reply::Thread { root: Option<Row>, replies:
-/// PageResponse<Row> })]`, answered as their tuple). Each such variant
-/// becomes a type of the same name and fields in a `pub mod ask` beside
-/// the enum (`identity::ask::List { page }`). A field type that shares a
-/// variant's name is written by its full path (`crate::Profile`).
-pub trait Ask: Into<<Self::Program as Program>::Query> {
-    type Program: Program;
-    type Reply;
-    /// The answer, out of the program's reply; `None` when it answers
-    /// another question.
-    fn answer(reply: <Self::Program as Program>::Reply) -> Option<Self::Reply>;
-}
-
-/// Which tables a query reads, so a follower re-reads it only when a block
-/// wrote to one of them: a view asks a block's change whether it touches
-/// the query (`change.touches::<P, _>(&query)`, `P` the program whose
-/// block it is) and never maps keys to queries itself.
-///
-/// `#[derive(Ask)]` writes it from `#[reads(TABLE, ..)]` on each variant:
-/// the `Map`/`Set`/`Item` consts the program answers that question from
-/// (`#[reads(MESSAGES, REACTIONS)]`), each asked `owns(&key)`. A question
-/// answered partly from another program's tables names them in a second
-/// attribute, that program first (`#[reads(chat::Chat:
-/// chat::tables::ANSWERED, chat::tables::MESSAGES)]`), so a follower of
-/// that program's blocks re-reads the question too. The program states it,
-/// since only the program knows what it reads. A variant with no `#[reads]`
-/// is touched by every block of every program a follower asks about, which
-/// is what a follower did before, so a program adopts this one query at a
-/// time. A variant with ask types ([`Ask`]) gives them the same answer.
-pub trait Reads {
-    /// Whether a block of `program` (its [`Program::NAME`]) that wrote
-    /// `keys` can have changed this query's answer.
-    fn touched_by(&self, program: &str, keys: &[Vec<u8>]) -> bool;
-}
-
+pub use abi;
+pub use abi::hook;
+pub use abi::{
+    Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, Message, Root, Scheme,
+};
+pub use awaiting::{Awaiting, Ctx, all};
+#[cfg(not(target_arch = "wasm32"))]
+pub use chain::{MAX_DEPTH, MockChain, Roster};
+pub use ctx::{ExecCtx, QueryCtx, Reply};
+pub use kernel::{
+    AccountNumber, Cause, Env, Error, FrameId, MessageId, Order, Origin, Outcome, Principal,
+    ProgramId, Range, Roles, Ticket, code,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use mock::{Called, MockHost, MockState, Resumed, Sibling, Verifier, blob_id, identity_role};
+#[cfg(target_arch = "wasm32")]
+pub use program::exports;
+pub use program::{Ask, Program, Reads, execute, hook, is_name, query};
 pub use program_derive::Ask;
-
-/// Whether `name` is a program id as the network spells one: `1..=64`
-/// bytes of lowercase ASCII letters, digits, `-` and `_`. One spelling per
-/// id, so no id reads as another (no capital, no look-alike letter, no
-/// bidi control). The one rule for a manifest's `targets`, a host's
-/// `Call.target` and an id the registry lands.
-pub const fn is_name(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    if bytes.is_empty() || bytes.len() > 64 {
-        return false;
-    }
-    let mut i = 0;
-    while i < bytes.len() {
-        if !matches!(bytes[i], b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_') {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
-/// A role as a view follows it, without linking the program that fills it.
-/// A view's targets are fixed in its manifest, so it names the program
-/// networks bind to the role; a module asks the binding (`Env.roles`)
-/// instead. The one place a role's program id is spelled: the program crate
-/// takes its `MODULE` from here.
-pub mod role {
-    use super::Program;
-
-    /// The identity role (`abi::role::identity`), as the `identity`
-    /// program fills it. A view sends it nothing.
-    pub struct Identity;
-    impl Program for Identity {
-        const NAME: &'static str = "identity";
-        type Op = ();
-        type Query = abi::role::identity::Query;
-        type Reply = abi::role::identity::Reply;
-    }
-}
-
-#[test]
-fn a_program_id_has_one_spelling() {
-    assert!(is_name("module-registry") && is_name("a-b_c9"));
-    for name in ["", "a b", "System", "\u{0441}hat", "chat\u{202e}"] {
-        assert!(!is_name(name), "{name:?}");
-    }
-    assert!(is_name(&"x".repeat(64)) && !is_name(&"x".repeat(65)));
-}
+pub use refuse::{
+    already_exists, capacity, corrupt, decoded, invalid, not_found, stale, unauthorized,
+    unexpected_reply, wrong_state,
+};

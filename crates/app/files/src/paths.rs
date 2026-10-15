@@ -1,6 +1,6 @@
 //! Paths as files spells them (NFC, absolute, `/`-separated, bounded) and who may write
 //! where: any account under `/home/<label>/` and `/shared/`, the chain anywhere.
-use guest::{Error, Principal, invalid, unauthorized};
+use ::program::{Error, Principal, invalid, unauthorized};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::{MAX_DEPTH, MAX_NAME_BYTES, MAX_PATH_BYTES};
@@ -96,7 +96,7 @@ mod tests {
         ] {
             assert_eq!(
                 segments(bad).unwrap_err().code,
-                guest::code::INVALID_INPUT,
+                ::program::code::INVALID_INPUT,
                 "{bad:?}"
             );
         }
@@ -115,8 +115,11 @@ mod tests {
         for refused in ["/home", "/home/ada", "/shared", "/etc/passwd", "/x"] {
             let error = writable_path(&ada, refused).unwrap_err();
             assert!(
-                [guest::code::UNAUTHORIZED, guest::code::INVALID_INPUT]
-                    .contains(&error.code.as_str()),
+                [
+                    ::program::code::UNAUTHORIZED,
+                    ::program::code::INVALID_INPUT
+                ]
+                .contains(&error.code.as_str()),
                 "{refused}"
             );
         }

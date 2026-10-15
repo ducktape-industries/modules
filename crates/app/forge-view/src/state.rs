@@ -2,10 +2,11 @@
 //! programs speak is folded to rows at render time, so a snapshot carries
 //! navigation and drafts, never wire records.
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
-use ducktape_view_guest::Paged;
-use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
+use view::Paged;
+use view::prelude::*;
 
 use forge::{CommitInfo, LineComment, Query, Reply, Revision, Side, Verdict};
 
@@ -39,7 +40,7 @@ pub struct Forge {
     pub(crate) layout: Layout,
     #[serde(skip)]
     /// every read on screen, keyed by the query that asked it
-    pub(crate) data: BTreeMap<Query, Loadable<Reply>>,
+    pub(crate) data: BTreeMap<Query, Loadable<Rc<Reply>>>,
     /// every log on screen, keyed like `data`: read a page at a time, as
     /// far as its list is scrolled. Beside each, the view hearing it land.
     #[serde(skip)]
@@ -58,12 +59,33 @@ pub struct Forge {
     pub(crate) rereading_messages: BTreeMap<String, Task<()>>,
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
+    /// the height of the last forge block heard: an op issued before it
+    /// is carried by the time its receipt lands
+    #[serde(skip)]
+    pub(crate) block: u64,
     #[serde(skip)]
     pub(crate) diff_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) log_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) tree_scroll: UniformListScrollHandle,
+    /// the Files tab's list, kept on the file picked and the row the
+    /// arrows are on
+    #[serde(skip)]
+    pub(crate) files_scroll: UniformListScrollHandle,
+    /// the Refs tab's list, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) refs_scroll: UniformListScrollHandle,
+    /// the Changes tab's list, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) changes_scroll: UniformListScrollHandle,
+    /// a commit's file strip, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) strip_scroll: UniformListScrollHandle,
+    /// a file picked to show alone whose row the Files tab's list has
+    /// not yet been scrolled to: its diff is on its way
+    #[serde(skip)]
+    pub(crate) reveal: Option<Vec<u8>>,
     #[serde(skip)]
     pub(crate) next_pending: u64,
     /// the change whose Close waits for a second press: closing is final
@@ -78,13 +100,24 @@ pub struct Forge {
     /// the dropdown item the arrows are on
     #[serde(skip)]
     pub(crate) menu_cursor: usize,
+    /// the open dropdown's filter box, empty on every open
+    #[serde(skip)]
+    pub(crate) menu_search: TextField,
+    /// the ref picker lists tags rather than branches
+    #[serde(skip)]
+    pub(crate) menu_tags: bool,
+    /// the open dropdown's list, kept on the item the arrows are on
+    #[serde(skip)]
+    pub(crate) menu_scroll: UniformListScrollHandle,
     /// the repository the arrows are on in the list, and which of its
     /// cells: Open, Copy, activity
     #[serde(skip)]
     pub(crate) repos_cursor: Option<(String, usize)>,
-    /// the reviewable diff line the arrows are on, and which of its gutters
+    /// the reviewable diff line the arrows are on, and which of its
+    /// gutters; none until they walk it, when the first gutter is claimed
+    /// for the keys and none is drawn
     #[serde(skip)]
-    pub(crate) diff_cursor: (usize, usize),
+    pub(crate) diff_cursor: Option<(usize, usize)>,
     /// the repository the arrows are on in the rail
     #[serde(skip)]
     pub(crate) rail_cursor: Option<String>,
@@ -92,6 +125,10 @@ pub struct Forge {
     /// which of its cells: the list's id, the row, the cell
     #[serde(skip)]
     pub(crate) list_cursor: Option<(&'static str, usize, usize)>,
+    /// the arrows have walked the file tree since the last move: its
+    /// cursor is drawn
+    #[serde(skip)]
+    pub(crate) tree_walked: bool,
     /// the repository tab the arrows are on but have not opened
     #[serde(skip)]
     pub(crate) tab_cursor: Option<RepoTab>,
@@ -100,6 +137,8 @@ pub struct Forge {
     pub(crate) change_tab_cursor: Option<ChangeTab>,
     #[serde(skip)]
     pub(crate) blob_cache: crate::ui::code::BlobCache,
+    #[serde(skip)]
+    pub(crate) diff_cache: crate::ui::diff::DiffCache,
 }
 
 /// Where the reader is. One flat record: every screen is a projection of it,
@@ -227,7 +266,8 @@ pub(crate) enum Menu {
 }
 
 impl Menu {
-    /// The element that opens it; its menu is `{key}-menu`.
+    /// The element that opens it; its list is `{key}-menu`, its filter
+    /// box `{key}-filter`.
     pub fn key(self) -> &'static str {
         match self {
             Menu::Ref => "forge-ref-picker",
@@ -361,6 +401,8 @@ pub(crate) fn verdict_verb(verdict: Verdict) -> &'static str {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct ChangeForm {
+    /// the repository it was opened in, the only one that shows it
+    pub repo: String,
     /// `Some(n)` edits that change instead of opening a new one
     pub edit: Option<u64>,
     pub from: Vec<u8>,
@@ -393,6 +435,9 @@ pub(crate) struct SettingsForm {
 #[derive(Clone, Debug)]
 pub(crate) struct Pending {
     pub id: u64,
+    /// the forge block heard last as the op was issued: a later one
+    /// carries it
+    pub issued: u64,
     /// the screen the row belongs to
     pub scope: String,
     pub label: String,
@@ -412,9 +457,11 @@ pub(crate) enum Progress {
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Layout {
-    /// the pane's width, read from the window each render
+    /// the pane's size, read from the window each render
     #[serde(skip)]
     pub width: f32,
+    #[serde(skip)]
+    pub height: f32,
     /// the repositories rail
     pub tree: f32,
     /// the Code tab's file tree
@@ -427,6 +474,7 @@ impl Default for Layout {
     fn default() -> Self {
         Self {
             width: 0.,
+            height: 0.,
             tree: 220.,
             files: 300.,
             tree_open: false,

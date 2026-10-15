@@ -261,7 +261,7 @@ fn flush_plain(plain: &mut String, spans: &mut Vec<Span>) {
 /// If `chars[at..]` opens a bare link, its length in chars; else `None`.
 ///
 /// `duck://` is a link scheme here exactly as `http(s)://` is: the app
-/// classifies a pressed link through its own module table
+/// classifies a pressed link through its own program table
 /// (`backend/duck_uri.rs`) and refuses what it cannot open, so the tokenizer
 /// marks the run and decides nothing about where it points.
 fn url_len(chars: &[char], at: usize) -> Option<usize> {

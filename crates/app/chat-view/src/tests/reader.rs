@@ -82,7 +82,7 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
     assert!(!offered(&view), "not known to the roster yet");
 
     known.set(true);
-    live.send(Some(ducktape_view_guest::methods::Change {
+    live.send(Some(view::methods::Change {
         height: 1,
         keys: Vec::new(),
     }));

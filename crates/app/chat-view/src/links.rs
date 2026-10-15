@@ -8,7 +8,7 @@ pub fn channel_link(chain: &str, channel: &str, seq: Option<u64>) -> Option<Stri
     let seq = seq.map(|seq| seq.to_string());
     let mut tail = vec![channel];
     tail.extend(seq.as_deref());
-    ducklink::mint(chain, ::chat::MODULE, &tail)
+    ducklink::mint(chain, ::chat::PROGRAM, &tail)
 }
 
 /// Where a program's room (`forge:web:3`) is shown by its program:
@@ -40,10 +40,7 @@ pub fn route_target(route: &str) -> Option<(String, u64)> {
 /// None when no link can be minted (no chain yet).
 pub fn pressed_link(link: String, chain: &str) -> Option<String> {
     match link.parse::<u64>() {
-        Ok(account) => {
-            let identity = <program::role::Identity as ducktape_view_guest::methods::Program>::NAME;
-            ducklink::mint(chain, identity, &[&account.to_string()])
-        }
+        Ok(account) => ducklink::mint(chain, identity::PROGRAM, &[&account.to_string()]),
         Err(_) => Some(link),
     }
 }

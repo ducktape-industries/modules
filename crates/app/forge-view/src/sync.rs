@@ -4,8 +4,8 @@
 //! a time (`logs`), every other read whole (`data`).
 use std::collections::BTreeSet;
 
-use ducktape_view_guest::Paged;
-use ducktape_view_guest::prelude::*;
+use view::Paged;
+use view::prelude::*;
 
 use crate::queries::{self, PAGE};
 use crate::state::{ChangeTab, Filter, Forge, Progress, RepoTab};
@@ -71,6 +71,9 @@ impl Forge {
     /// the reads it wrote to. `None` is a reopened node link: everything is
     /// asked again.
     pub(crate) fn reconcile(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        if let Some(change) = change {
+            self.block = self.block.max(change.height);
+        }
         let pending = self.pending.len();
         self.pending.retain(|op| op.progress != Progress::Accepted);
         if self.pending.len() != pending {
@@ -202,9 +205,11 @@ impl Forge {
     /// Issue what this screen needs and drop what it does not.
     pub(crate) fn sync(&mut self, cx: &mut Context<Self>) {
         self.land_goto();
+        self.land_reveal();
         let needed = self.needed();
         let keys: BTreeSet<&Query> = needed.iter().collect();
         self.data.retain(|query, _| keys.contains(query));
+        self.diff_cache.drop_unshared();
         self.logs.retain(|query, _| keys.contains(query));
         self.rereading.retain(|query, _| keys.contains(query));
         for query in needed {
@@ -235,6 +240,8 @@ impl Forge {
         wanted.push(self.repo_query());
         wanted.push(self.refs_query());
         wanted.push(Query::Activity { repo: repo.clone() });
+        // the tab bar says how many changes are open, whichever tab shows
+        wanted.extend(self.open_changes_query());
         match self.nav.change {
             Some(n) => wanted.extend(self.change_reads(&repo, n)),
             None => wanted.extend(self.tab_reads(repo)),
@@ -261,6 +268,8 @@ impl Forge {
                 let open = self.nav.blob.as_ref().map(|(_, oid)| blob(oid.clone()));
                 self.tree_queries().into_iter().chain(open).collect()
             }
+            // an unborn ref has no log to ask for
+            RepoTab::Commits if self.tree_query(Vec::new()).is_none() => Vec::new(),
             RepoTab::Commits => {
                 let open = self.nav.commit.as_deref();
                 std::iter::once(self.log_query())
@@ -291,7 +300,8 @@ impl Forge {
     /// is known.
     fn commit_reads(&self, oid: &str) -> Vec<Query> {
         let mut wanted = Vec::new();
-        let held = self.logs.get(&self.log_query()).is_none_or(|(log, _)| {
+        let shown = self.shown_log().and_then(|log| self.logs.get(&log));
+        let held = shown.is_none_or(|(log, _)| {
             log.read(|log| log.is_loading() || log.rows().iter().any(|commit| commit.oid == oid))
         });
         if !held {
@@ -309,14 +319,15 @@ impl Forge {
             n,
             page: PAGE,
         }];
-        let (Some((_, source_head, _, _)), Some((from, into))) = (self.change(), self.endpoints())
-        else {
+        let (Some((_, source_head, _, _)), Some(_)) = (self.change(), self.endpoints()) else {
             return wanted;
         };
         wanted.extend(self.compare_query());
         if self.nav.change_tab == ChangeTab::Commits {
-            // the change's own commits: what its target does not reach
-            wanted.push(crate::ui::commits::query(self, from, Some(into)));
+            // the change's own commits, and the one open from them
+            wanted.extend(self.shown_log());
+            let open = self.nav.commit.as_deref();
+            wanted.extend(open.into_iter().flat_map(|oid| self.commit_reads(oid)));
         }
         if let (ChangeTab::Files, Some(head), Some(comparison)) =
             (self.nav.change_tab, source_head.clone(), self.compare())

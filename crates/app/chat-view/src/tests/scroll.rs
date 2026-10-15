@@ -302,9 +302,7 @@ fn seqs(view: &Entity<Chat>) -> (u64, u64, usize) {
 fn a_landed_room_opens_on_its_message_and_pages_both_ways() {
     let head = Rc::new(Cell::new(1_000));
     let (mut cx, view) = long_room(head.clone());
-    let routes = cx
-        .host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
+    let routes = cx.host().stream::<view::methods::HostRoute>();
     routes.send("general/500".into());
     cx.run_until_parked();
     assert_eq!(seqs(&view), (436, 564, 129), "64 either side of 500");
@@ -400,7 +398,7 @@ fn seeded_room(listed: Option<u64>) -> (TestAppContext, Entity<Chat>) {
 /// the view.
 fn open_link(cx: &mut TestAppContext, seq: u64) {
     cx.host()
-        .stream::<ducktape_view_guest::methods::HostRoute>()
+        .stream::<view::methods::HostRoute>()
         .send(format!("general/{seq}"));
     cx.run_until_parked();
 }

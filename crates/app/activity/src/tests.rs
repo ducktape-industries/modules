@@ -1,9 +1,9 @@
-// The module natively over `guest::MockHost`, told of frames as the kernel tells a hook.
+// The program natively over `program::MockHost`, told of frames as the kernel tells a hook.
 
-use guest::{Env, MockHost, Module, code, hook};
+use ::program::{Env, MockHost, Program, code, hook};
 use store::PageRequest;
 
-use crate::{Activity, Frame, KEPT, MAX_PAGE, MODULE, Query, Reply, Used};
+use crate::{Activity, Frame, KEPT, MAX_PAGE, PROGRAM, Query, Reply, Used};
 
 const ADA: &[u8] = &[1; 32];
 const ADA_PHONE: &[u8] = &[2; 32];
@@ -13,7 +13,7 @@ fn kernel(height: u64) -> Env {
     Env {
         height,
         time: height * 1000,
-        ..MockHost::env(MODULE).root()
+        ..MockHost::env(PROGRAM).root()
     }
 }
 
@@ -45,11 +45,11 @@ fn frame(record: &hook::Record) -> Frame {
 }
 
 fn tell(host: &MockHost, record: &hook::Record) {
-    guest::hook::<Activity>(&host.exec(kernel(record.height)), record.clone()).unwrap();
+    ::program::hook::<Activity>(&host.exec(kernel(record.height)), record.clone()).unwrap();
 }
 
 fn ask(host: &MockHost, query: Query) -> Reply {
-    Activity::query(&host.query(MockHost::env(MODULE)), query).unwrap()
+    Activity::query(&host.query(MockHost::env(PROGRAM)), query).unwrap()
 }
 
 fn frames(reply: Reply) -> (Vec<Frame>, Option<Vec<u8>>) {
@@ -158,17 +158,18 @@ fn only_the_kernel_tells_it_of_a_frame_and_no_one_writes_to_it() {
     for env in [
         Env {
             height: 3,
-            ..MockHost::env(MODULE)
+            ..MockHost::env(PROGRAM)
         },
         Env {
             height: 3,
-            ..MockHost::env(MODULE).from_module("chat", Some(8))
+            ..MockHost::env(PROGRAM).from_program("chat", Some(8))
         },
     ] {
-        let refused = host.refused(|| guest::hook::<Activity>(&host.exec(env), forged.clone()));
+        let refused = host.refused(|| ::program::hook::<Activity>(&host.exec(env), forged.clone()));
         assert_eq!(refused.code, code::UNAUTHORIZED);
     }
-    let op = host.refused(|| guest::execute::<Activity>(&host.exec(MockHost::env(MODULE)), &[]));
+    let op =
+        host.refused(|| ::program::execute::<Activity>(&host.exec(MockHost::env(PROGRAM)), &[]));
     assert_eq!(op.code, code::UNSUPPORTED);
 }
 

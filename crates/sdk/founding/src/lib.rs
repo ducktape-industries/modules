@@ -15,13 +15,21 @@ pub const DESCRIBE_SECTION: &str = "ducktape.describe";
 pub const FOUNDING: &str = include_str!("../founding.toml");
 
 pub const PROGRAMS: [(&str, &str); 5] = [
-    ("module_registry", "settings_view"),
+    ("programs", "settings_view"),
     ("valset", "node_view"),
     ("identity", "members_view"),
     ("chat", "chat_view"),
     ("forge", "forge_view"),
 ];
-pub const UNVIEWED: [&str; 3] = ["activity", "files", "provider"];
+pub const UNVIEWED: [&str; 7] = [
+    "blobs",
+    "awaits",
+    "activity",
+    "files",
+    "provider",
+    "attribution",
+    "harness",
+];
 pub const VIEWS: [&str; 1] = ["explorer_view"];
 
 pub fn forge_bounds() -> forge::Bounds {

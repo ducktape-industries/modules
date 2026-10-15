@@ -15,12 +15,12 @@
 //! flight at a time. A reader whose seated key votes for a validator gets
 //! the vote (`voting.rs`, drawn by `motions.rs`): motions on each row and
 //! the door, the motions that wait, and the scheduled changes with who
-//! made each. A module is changed in Explorer's Programs.
-use ducktape_view_guest::methods;
-use ducktape_view_guest::prelude::*;
-use module_registry::Modules;
+//! made each. A program is changed in Explorer's Programs.
+use programs::Programs;
 use serde::{Deserialize, Serialize};
 use valset::Valset;
+use view::methods;
+use view::prelude::*;
 
 mod motions;
 mod queries;
@@ -80,13 +80,13 @@ impl View for Nodes {
     const ICON: &'static str = "icons/server.svg";
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
-        Capability::Module,
+        Capability::Program,
         Capability::Op,
         Capability::Host,
         Capability::Clock,
     ];
     const TARGETS: &'static [&'static str] =
-        &[valset::MODULE, module_registry::MODULE, identity::MODULE];
+        &[valset::PROGRAM, programs::PROGRAM, identity::PROGRAM];
     // the set's table fits from 480 up
     const MIN_WINDOW_WIDTH: u32 = 480;
 
@@ -105,9 +105,9 @@ impl View for Nodes {
         })
         .detach();
         // a change scheduled, cancelled or landed
-        cx.follow::<Changes<Modules>>((), |view, head, cx| match head {
-            Ok(_) => view.read_registry(cx),
-            Err(refusal) => cx.log_refused("the registry's live heads", &refusal),
+        cx.follow::<Changes<Programs>>((), |view, head, cx| match head {
+            Ok(_) => view.read_programs(cx),
+            Err(refusal) => cx.log_refused("the programs role's live heads", &refusal),
         })
         .detach();
         // the header's age is drawn from the ticks

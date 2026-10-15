@@ -3,7 +3,7 @@
 //! typed (`store::KeyCodec`: integers big-endian, strings and principals
 //! NUL-terminated, so names list by name), values borsh. A tuple key scans by its leading
 //! elements, which is how every "in this channel" read works.
-use guest::{Error, ExecCtx, QueryCtx, capacity, not_found};
+use ::program::{Error, ExecCtx, QueryCtx, capacity, not_found};
 use store::{Map, Set};
 
 use crate::{ChannelRow, MAX_MESSAGE_BYTES, MemberRow, MsgRow, Principal, tokens};

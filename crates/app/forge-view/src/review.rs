@@ -1,6 +1,6 @@
 //! Writing a review: what is staged, at which anchor, and the one operation
 //! it all becomes. A refusal keeps every draft.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::state::{Forge, PendingComment, ReviewSession, change_key};
 use forge::{Op, ReviewDraft, Verdict};
@@ -40,12 +40,13 @@ impl Forge {
     }
 
     /// The gutter number is the button: it opens the composer for one anchor,
-    /// carrying whatever is already staged there.
+    /// carrying whatever is already staged there, under its line.
     pub(crate) fn open_comment(
         &mut self,
         path: Vec<u8>,
         new_side: bool,
         line: u64,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(key) = self.review_key() else { return };
@@ -67,6 +68,8 @@ impl Forge {
                 body,
             });
         }
+        crate::ui::diff::reveal_composer(self);
+        window.focus(crate::ui::components::id("forge-comment-body"));
         cx.notify();
     }
 

@@ -1,7 +1,7 @@
 //! The Code tab's file tree: a directory's children open inline beneath
 //! it. Each expanded directory is its own lazy `Query::Tree`; the rows on
 //! screen are a walk of whatever of those has landed.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::queries::PAGE;
 use crate::state::Forge;
@@ -167,6 +167,9 @@ impl Forge {
             .unwrap_or(0);
         let row = &rows[at];
         let open = self.nav.expanded.contains(&row.path);
+        // the keys act on the row the tree claims, and draw it from now on
+        self.nav.cursor = Some(row.path.clone());
+        self.tree_walked = true;
         match key {
             Key::Up => self.nav.cursor = Some(rows[at.saturating_sub(1)].path.clone()),
             Key::Down => self.nav.cursor = Some(rows[(at + 1).min(rows.len() - 1)].path.clone()),

@@ -1,6 +1,6 @@
 //! The vote, for a reader whose seated key votes for a validator (valset's
-//! `Voices`): the motions that wait, the registry's scheduled changes and
-//! who made each, and the presses that vote on them. A module is changed
+//! `Voices`): the motions that wait, the programs role's scheduled changes and
+//! who made each, and the presses that vote on them. A program is changed
 //! in Explorer's Programs; this list stays here, in valset's view, which
 //! only the vote changes, so a maintainer's change is seen where no
 //! maintainer can hide it. A press the reader's uncast voices would carry
@@ -8,9 +8,9 @@
 //! ([`Voting::confirming`]). The words for a motion are here, pure, so
 //! each is a unit test.
 use abi::hex;
-use ducktape_view_guest::prelude::*;
-use module_registry::{Change, Entry, Pending};
+use programs::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
+use view::prelude::*;
 
 use crate::Nodes;
 use crate::queries::{self, Motions, Names, Schedule};
@@ -22,7 +22,7 @@ pub(crate) struct Voting {
     /// the validators the seated key votes for; empty: it does not vote
     pub(crate) voices: Vec<Vec<u8>>,
     pub(crate) motions: Loadable<Motions>,
-    /// the programs the registry runs now
+    /// the programs the programs role runs now
     pub(crate) roster: Loadable<Vec<Entry>>,
     pub(crate) scheduled: Loadable<Schedule>,
     /// a press that enacts, waiting for the reader's yes
@@ -109,7 +109,7 @@ impl Nodes {
                     view.voting.voices = voices;
                     if view.voting.votes() {
                         view.read_motions(cx);
-                        view.read_registry(cx);
+                        view.read_programs(cx);
                     }
                 }
                 Err(refusal) => cx.log_refused("whom this key votes for", &refusal),
@@ -125,8 +125,8 @@ impl Nodes {
     }
 
     /// The roster and the schedule: on a vote's first read and on the
-    /// registry's live heads.
-    pub(crate) fn read_registry(&mut self, cx: &mut Context<Self>) {
+    /// `programs`'s live heads.
+    pub(crate) fn read_programs(&mut self, cx: &mut Context<Self>) {
         if !self.voting.votes() {
             return;
         }
@@ -191,11 +191,11 @@ impl Nodes {
 
 /// The motion Propose cancel builds for a scheduled change.
 pub(crate) fn cancel(pending: &Pending) -> Motion {
-    let op = module_registry::Op::Cancel {
+    let op = programs::Op::Cancel {
         height: pending.height,
         program: pending.change.program().to_owned(),
     };
-    Motion::Registry {
+    Motion::Programs {
         op: abi::encode(&op),
     }
 }
@@ -221,7 +221,7 @@ pub(crate) fn named(names: &Names, account: u64) -> String {
         .unwrap_or_else(|| format!("account {account}"))
 }
 
-/// What a motion does, in words; a registry one decoded, never as bytes.
+/// What a motion does, in words; a `Programs` one decoded, never as bytes.
 pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String {
     match motion {
         Motion::Promote { key } => format!("Promote {} to validator", key_words(key)),
@@ -229,22 +229,21 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
         Motion::Remove { key } => format!("Remove {} from the network", key_words(key)),
         Motion::Door { open: true } => "Open the door: anyone enrolls without an invite".into(),
         Motion::Door { open: false } => "Close the door: enrolling takes an invite".into(),
-        Motion::Registry { op } => match abi::decode::<module_registry::Op>(op) {
-            Ok(module_registry::Op::Schedule(scheduled)) => {
+        Motion::Programs { op } => match abi::decode::<programs::Op>(op) {
+            Ok(programs::Op::Schedule(scheduled)) => {
                 scheduled_words(scheduled.height, &scheduled.change, roster)
             }
-            Ok(module_registry::Op::Cancel { height, program }) => format!(
+            Ok(programs::Op::Cancel { height, program }) => format!(
                 "Cancel {program}'s change at block {}",
                 design::grouped(height)
             ),
-            Ok(module_registry::Op::Grant(grant)) => {
+            Ok(programs::Op::Grant(grant)) => {
                 format!("Grant {} {}", named(names, grant.account), grant.scope)
             }
-            Ok(module_registry::Op::Revoke(grant)) => {
+            Ok(programs::Op::Revoke(grant)) => {
                 format!("Revoke {} {}", named(names, grant.account), grant.scope)
             }
-            Ok(op) => module_registry::describe(&op).title,
-            Err(_) => "A registry change this screen can't read".into(),
+            Err(_) => "A program change this screen can't read".into(),
         },
     }
 }

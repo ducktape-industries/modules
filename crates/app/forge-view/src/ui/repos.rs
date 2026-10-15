@@ -1,7 +1,7 @@
 //! The repositories: the full list when nothing is open, the rail that
 //! switches between them when something is.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful, wire};
+use view::prelude::*;
+use view::{Div, Stateful, wire};
 
 use crate::Forge;
 use crate::queries::PAGE;
@@ -129,7 +129,10 @@ fn repo_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(|style| style.bg(theme.surface))
-        .when(active.is_some(), |row| row.bg(theme.surface))
+        // the active row is drawn once the arrows have walked the list
+        .when(active.is_some() && forge.repos_cursor.is_some(), |row| {
+            row.bg(theme.surface)
+        })
         .role(Role::Row)
         .child(press)
         .child(repo_title(
@@ -163,7 +166,7 @@ fn repo_title(
         .flex_col()
         .child(
             div()
-                .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+                .font_weight(view::FontWeight::SEMIBOLD)
                 .truncate()
                 .child(name.to_owned()),
         )
@@ -205,7 +208,7 @@ fn copy_button(
         let name = name.to_owned();
         move |forge, _: &ClickEvent, _, cx| {
             cx.host()
-                .notify::<ducktape_view_guest::methods::ClipboardWrite>(url.clone());
+                .notify::<view::methods::ClipboardWrite>(url.clone());
             forge.copied = Some(name.clone());
             cx.notify();
         }
@@ -261,7 +264,7 @@ fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: 
                     design::avatar(&owner, design::size::AVATAR, theme)
                         .border_1()
                         .border_color(theme.border)
-                        .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD),
+                        .font_weight(view::FontWeight::SEMIBOLD),
                 )
                 .child(div().min_w(px(0.)).truncate().child(owner)),
         )
@@ -376,8 +379,7 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
                 0 => forge.open_repo(name, cx),
                 1 => {
                     let url = crate::ui::repo_link(forge, &name);
-                    cx.host()
-                        .notify::<ducktape_view_guest::methods::ClipboardWrite>(url);
+                    cx.host().notify::<view::methods::ClipboardWrite>(url);
                     forge.copied = Some(name);
                     cx.notify();
                 }
@@ -470,9 +472,12 @@ pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
             .items_center()
             .when(selected, |item| {
                 item.bg(theme.surface_raised)
-                    .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+                    .font_weight(view::FontWeight::MEDIUM)
             })
-            .when(index == at && !selected, |item| item.bg(theme.surface))
+            .when(
+                forge.rail_cursor.is_some() && index == at && !selected,
+                |item| item.bg(theme.surface),
+            )
             .hover(|style| style.bg(theme.surface))
             .aria_selected(selected)
             .on_click(open)
@@ -537,7 +542,7 @@ fn header(
     theme: &Theme,
     search_id: &str,
 ) -> AnyElement {
-    let new = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_repo(cx));
+    let new = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_repo(window, cx));
     div()
         .id(id("forge-repos-header"))
         .flex()
@@ -650,7 +655,10 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                                 .bg(theme.background)
                                 .text_color(theme.foreground)
                                 .placeholder("letters, digits, dot, dash, underscore")
-                                .on_change(typed),
+                                .on_change(typed)
+                                .on_submit(
+                                    cx.listener(|forge, _: &(), _, cx| forge.create_repo(cx)),
+                                ),
                         ),
                 )
                 .child(

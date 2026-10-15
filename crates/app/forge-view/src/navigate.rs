@@ -1,16 +1,22 @@
 //! Where the reader is: every event that moves between screens, tabs,
 //! files and panels. A move clears the notice and re-syncs the reads.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::Stage;
-use crate::state::{ChangeTab, Dock, Filter, Forge, RepoTab, SettingsForm, change_key};
+use crate::state::{ChangeTab, Dock, Filter, Forge, Menu, RepoTab, SettingsForm, change_key};
 use crate::ui::markdown::Target;
 use forge::Reply;
 
 impl Forge {
     fn moved(&mut self, cx: &mut Context<Self>) {
         self.notice.clear();
+        // a walk of a list ends where the reader moves: none stays lit
         self.list_cursor = None;
+        self.repos_cursor = None;
+        self.rail_cursor = None;
+        self.diff_cursor = None;
+        self.tree_walked = false;
+        self.reveal = None;
         cx.notify();
         self.sync(cx);
     }
@@ -74,32 +80,68 @@ impl Forge {
     }
 
     /// Opens a dropdown under its button; a press anywhere else closes it.
-    pub(crate) fn open_menu(&mut self, menu: Option<crate::state::Menu>, cx: &mut Context<Self>) {
+    pub(crate) fn open_menu(&mut self, menu: Option<Menu>, cx: &mut Context<Self>) {
         self.menu = menu;
         cx.notify();
     }
 
-    /// Opens `menu` under the press that asked for it, its first item
-    /// active, and gives it the keys; Esc or a pick gives them back to the
-    /// button ([`crate::ui::components::dropdown`]).
+    /// Opens `menu` under the press that asked for it, its filter box
+    /// empty and holding the keys, on the tab and the item it has picked,
+    /// scrolled to the middle; Esc or a pick gives the keys back to the button
+    /// ([`crate::ui::components::dropdown`]).
     pub(crate) fn open_dropdown(
         &mut self,
-        menu: crate::state::Menu,
+        menu: Menu,
         event: &ClickEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let at = event.position();
         self.menu_at = (at.x.into(), at.y.into());
-        self.menu_cursor = 0;
+        self.menu_search.reset("");
+        let picked = self.menu_picked(menu);
+        self.menu_tags = menu == Menu::Ref && picked.starts_with(b"refs/tags/");
+        let index = self.menu_list(menu).iter().position(|name| *name == picked);
+        self.menu_cursor = index.unwrap_or(0);
+        // centred, so the pick shows with its neighbours; arrows keep Nearest
+        self.menu_scroll
+            .scroll_to_item(self.menu_cursor, ScrollStrategy::Center);
         self.open_menu(Some(menu), cx);
-        window.focus(crate::ui::components::id(format!("{}-menu", menu.key())));
+        window.focus(crate::ui::components::id(format!("{}-filter", menu.key())));
+    }
+
+    /// The arrows are on item `index` of the open dropdown, scrolled to.
+    pub(crate) fn menu_step(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.menu_cursor = index;
+        self.menu_scroll
+            .scroll_to_item(index, ScrollStrategy::Nearest);
+        cx.notify();
+    }
+
+    /// `name` picked in `menu`: the ref every tab reads, or the settings
+    /// form's default head. The menu closes and gives the keys back.
+    pub(crate) fn menu_pick(
+        &mut self,
+        menu: Menu,
+        name: Vec<u8>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match menu {
+            Menu::Ref => self.pick_ref(name, cx),
+            Menu::Head => {
+                if let Some(form) = &mut self.repo_settings {
+                    form.head = name;
+                }
+            }
+        }
+        self.close_dropdown(menu, window, cx);
     }
 
     /// Closes `menu` and gives the keys back to its button.
     pub(crate) fn close_dropdown(
         &mut self,
-        menu: crate::state::Menu,
+        menu: Menu,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -190,6 +232,8 @@ impl Forge {
     }
 
     pub(crate) fn open_commit(&mut self, oid: Option<String>, cx: &mut Context<Self>) {
+        // a commit opens on all its files, not on one another showed alone
+        self.nav.diff_path = None;
         self.nav.commit = oid;
         self.moved(cx);
     }
@@ -200,6 +244,7 @@ impl Forge {
         self.nav.change_tab = ChangeTab::default();
         self.nav.diff_path = None;
         self.nav.dock = None;
+        self.layout.dock_open = false;
         self.closing = None;
         self.reply.reset("");
         self.moved(cx);
@@ -209,6 +254,7 @@ impl Forge {
         self.change_tab_cursor = None;
         self.nav.change_tab = tab;
         self.nav.diff_path = None;
+        self.nav.commit = None;
         self.moved(cx);
     }
 
@@ -224,6 +270,14 @@ impl Forge {
     }
 
     pub(crate) fn single_file(&mut self, path: Option<Vec<u8>>, cx: &mut Context<Self>) {
+        // all files again: the file list's keys (a change's, a commit's
+        // strip) start over, no row left lit
+        let lists = [crate::ui::change::FILE_LIST_ID, crate::ui::diff::STRIP_ID];
+        if path.is_none() && matches!(self.list_cursor, Some((on, ..)) if lists.contains(&on)) {
+            self.list_cursor = None;
+        }
+        self.reveal = path.clone();
+        self.land_reveal();
         self.nav.diff_path = path;
         cx.notify();
     }
@@ -231,8 +285,40 @@ impl Forge {
     /// A line comment pressed in the details: its file, alone, in Files.
     pub(crate) fn open_file_comment(&mut self, path: Vec<u8>, cx: &mut Context<Self>) {
         self.nav.change_tab = ChangeTab::Files;
-        self.nav.diff_path = Some(path);
+        self.nav.diff_path = Some(path.clone());
         self.moved(cx);
+        self.reveal = Some(path);
+        self.land_reveal();
+    }
+
+    /// The file picked to show alone (its row, a comment in the details),
+    /// scrolled into the Files tab's list and made the row its keys go on
+    /// from, once the diff that lists it has landed.
+    pub(crate) fn land_reveal(&mut self) {
+        let Some(path) = self.reveal.clone() else {
+            return;
+        };
+        if self.nav.change.is_none() || self.nav.change_tab != ChangeTab::Files {
+            self.reveal = None;
+            return;
+        }
+        let Some(query) = self.diff_query() else {
+            return;
+        };
+        let at = match self.stage(&query) {
+            Stage::Loading => return,
+            Stage::Ready(Reply::Diff { page, .. }) => page
+                .items
+                .iter()
+                .position(|file| crate::ui::diff::path_of(file).as_ref() == Some(&path)),
+            Stage::Ready(_) | Stage::Failed(_) => None,
+        };
+        self.reveal = None;
+        if let Some(at) = at {
+            self.files_scroll
+                .scroll_to_item(at, ScrollStrategy::Nearest);
+            self.list_cursor = Some((crate::ui::change::FILE_LIST_ID, at, 0));
+        }
     }
 
     pub(crate) fn toggle_viewed(&mut self, path: &[u8], cx: &mut Context<Self>) {

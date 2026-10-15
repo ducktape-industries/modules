@@ -3,8 +3,8 @@
 //! (`table.rs`) in one of its four states, and for a reader who votes the
 //! vote (`motions.rs`). `render` reads the state and changes nothing.
 use abi::hex;
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight};
+use view::prelude::*;
+use view::{Div, FontWeight};
 
 use crate::{Nodes, motions, table};
 use valset::Motion;

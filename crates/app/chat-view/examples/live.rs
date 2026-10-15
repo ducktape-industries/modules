@@ -1,11 +1,11 @@
 //! `cargo run -p chat-view --example live`: Chat in the real app over a
 //! fake node seeded with a channel, a dm and a few messages.
 use chat::{Block, Op, PostPolicy};
-use ducktape_view_guest::rig::{self, Network, now_ms};
+use view::rig::{self, Network, now_ms};
 
 fn main() {
     rig::run("chat", |net| {
-        net.seat::<chat::Chat>(chat::MODULE);
+        net.seat::<chat::Chat>(chat::PROGRAM);
         let me = net.me();
         let ada = net.person("ada");
         let bob = net.person("bob");
@@ -13,7 +13,7 @@ fn main() {
         net.at(now_ms() - 26 * hour);
         net.submit(
             ada,
-            chat::MODULE,
+            chat::PROGRAM,
             &Op::CreateChannel {
                 channel_id: "general".into(),
                 name: "General".into(),
@@ -34,7 +34,7 @@ fn main() {
             (
                 me,
                 3 * hour,
-                "Post something below and watch it come back through `module.changes`.",
+                "Post something below and watch it come back through `program.changes`.",
             ),
             (
                 ada,
@@ -49,7 +49,7 @@ fn main() {
         net.at(now_ms() - 30 * 60 * 1000);
         net.submit(
             bob,
-            chat::MODULE,
+            chat::PROGRAM,
             &Op::CreateDmChannel {
                 counterpart: me,
                 name: "dm".into(),
@@ -68,7 +68,7 @@ fn main() {
 fn post(net: &Network, who: u64, channel: &str, id: &str, text: &str) -> Result<(), rig::Error> {
     net.submit(
         who,
-        chat::MODULE,
+        chat::PROGRAM,
         &Op::PostMessage {
             channel_id: channel.into(),
             message_id: id.into(),

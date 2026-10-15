@@ -16,8 +16,8 @@ pub(crate) mod refs;
 pub(crate) mod repos;
 pub(crate) mod settings;
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
 use crate::state::{Dock, Menu, Progress, RepoTab};
@@ -78,10 +78,13 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
     // press outside closes it
     let (label, floating) = match forge.menu {
         None => ("", None),
-        Some(Menu::Ref) => ("Pick a ref", Some(ref_menu(forge, cx, &theme))),
-        Some(Menu::Head) => (
+        Some(menu @ Menu::Ref) => (
+            "Pick a ref",
+            Some(components::menu(menu, "Refs", forge, cx, &theme)),
+        ),
+        Some(menu @ Menu::Head) => (
             "Pick the default head",
-            Some(settings::head_menu(forge, cx, &theme)),
+            Some(components::menu(menu, "Default head", forge, cx, &theme)),
         ),
     };
     let mut root = modal_overlay(id("forge-menu-overlay"), label, root, floating);
@@ -233,7 +236,7 @@ fn title(forge: &Forge, name: &str, cx: &mut Context<Forge>, theme: &Theme) -> A
         let (name, url) = (name.to_owned(), url.clone());
         move |forge, _: &ClickEvent, _, cx| {
             cx.host()
-                .notify::<ducktape_view_guest::methods::ClipboardWrite>(url.clone());
+                .notify::<view::methods::ClipboardWrite>(url.clone());
             forge.copied = Some(name.clone());
             cx.notify();
         }
@@ -298,7 +301,7 @@ fn title(forge: &Forge, name: &str, cx: &mut Context<Forge>, theme: &Theme) -> A
 /// minted by ducklink from the session's chain id (`<label>#<salt>`); a
 /// placeholder `duck://<network>/forge/<name>` while no chain is known.
 pub(crate) fn repo_link(forge: &Forge, name: &str) -> String {
-    ducklink::mint(&forge.session.chain_id, forge::MODULE, &[name])
+    ducklink::mint(&forge.session.chain_id, forge::PROGRAM, &[name])
         .unwrap_or_else(|| format!("duck://<network>/forge/{name}"))
 }
 
@@ -315,8 +318,8 @@ pub(crate) fn block_link(id: impl Into<ElementId>, height: u64, theme: &Theme) -
         .aria_label(format!("Open {label} in Explorer"))
 }
 
-/// The picked ref as a dropdown at the head of the tab bar: branches, the
-/// default first, then tags. The pick steers every tab.
+/// The picked ref as a dropdown at the head of the tab bar
+/// ([`components::menu`]). The pick steers every tab.
 fn ref_picker(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let head = forge.head_name();
     let label = match forge.refs() {
@@ -332,46 +335,6 @@ fn ref_picker(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
             forge.open_dropdown(Menu::Ref, event, window, cx)
         }),
     )
-}
-
-/// The ref picker's menu: branches, the default first, then tags.
-fn ref_menu(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let head = forge.head_name();
-    let default = forge.default_head();
-    let mut items = Vec::new();
-    let mut ordered: Vec<&forge::RefInfo> = forge.refs().unwrap_or_default().iter().collect();
-    ordered.sort_by_key(|info| (info.name != default, info.name.clone()));
-    let (tags, branches): (Vec<_>, Vec<_>) = ordered
-        .into_iter()
-        .partition(|info| info.name.starts_with(b"refs/tags/"));
-    for (label, group) in [("Branches", branches), ("Tags", tags)] {
-        if group.is_empty() {
-            continue;
-        }
-        items.push(components::menu_label(label, theme));
-        for info in group {
-            let name = info.name.clone();
-            let pick = cx.processor({
-                let name = name.clone();
-                move |forge, (): (), window, cx| {
-                    forge.pick_ref(name.clone(), cx);
-                    forge.close_dropdown(Menu::Ref, window, cx);
-                }
-            });
-            items.push(components::menu_item(
-                id(format!("forge-ref-{}", components::path_text(&name))),
-                components::ref_label(&name),
-                (name == default).then_some("default"),
-                name == head,
-                theme,
-                move |window, app| pick((), window, app),
-            ));
-        }
-    }
-    if items.is_empty() {
-        items.push(components::menu_label("Reading refs…", theme));
-    }
-    components::menu(Menu::Ref, "Refs", items, forge, cx, theme)
 }
 
 /// On a narrow window an open repository's rail and a change's details
@@ -565,13 +528,13 @@ pub(crate) fn reading(element_id: &str, text: &str, theme: &Theme) -> AnyElement
 pub(crate) fn refused(
     query: &forge::Query,
     element_id: &str,
-    refusal: &ducktape_view_guest::host::Error,
+    refusal: &view::host::Error,
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> AnyElement {
     let query = query.clone();
     let retry = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
-    ducktape_view_guest::design::refused(element_id, refusal.message.clone(), theme, retry)
+    view::design::refused(element_id, refusal.message.clone(), theme, retry)
         .m_2()
         .into_any_element()
 }

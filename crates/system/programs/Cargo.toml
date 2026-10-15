@@ -1,0 +1,47 @@
+[package]
+name = "programs"
+version.workspace = true
+edition.workspace = true
+
+# The contract types, the rules over `store` and the origin helpers every
+# system program shares are always built; a view links them with `program`
+# off. `program` adds its wasm exports
+# (`program::export!`), which only its own wasm build turns on.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+program = []
+# `describe` makes this crate\'s wasm build the `ducktape.describe` module:
+# the `describe` export alone, no program, no imports.
+describe = []
+
+[dependencies]
+abi = { workspace = true }
+blob = { workspace = true }
+describe = { workspace = true }
+borsh = { workspace = true }
+program = { workspace = true }
+store = { workspace = true }
+
+# The founding suite (`tests/system.rs`) drives the built boot set on the host.
+[dev-dependencies]
+activity = { workspace = true }
+awaits = { workspace = true }
+chat = { workspace = true }
+files = { workspace = true }
+attribution = { workspace = true }
+harness = { workspace = true }
+provider = { workspace = true }
+forge = { workspace = true }
+gitcore = { workspace = true }
+identity = { workspace = true }
+valset = { workspace = true }
+commonware-cryptography = { workspace = true }
+commonware-runtime = { workspace = true }
+host = { workspace = true }
+blobs = { workspace = true }
+keyscheme = { workspace = true, features = ["testkit"] }
+# the drift test reads `cargo metadata`
+serde_json = { workspace = true }
+tempfile = { workspace = true }

@@ -1,25 +1,29 @@
-//! The Programs tab: what the registry runs, lists and will change, who
+//! The Programs tab: what the programs role runs, lists and will change, who
 //! maintains each name, and the presses the reader's grants or voices
 //! allow (`acting.rs`). A form opens under the list it changes, outside
 //! it: a list takes the arrows and Enter, a form's fields need them.
 use super::*;
 use crate::Network;
 use crate::acting::{self, Edit, Form, Path};
-use module_registry::{self as registry, Grant, NOTICE, Pending, Scope};
+use ::programs::{Grant, NOTICE, Pending, Scope};
 
 pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let network = match &view.network {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
         Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
         Loadable::Idle | Loadable::Loading(_) => {
-            return quiet("explorer-programs-loading", "Reading the registry…", theme);
+            return quiet(
+                "explorer-programs-loading",
+                "Reading the programs role…",
+                theme,
+            );
         }
     };
     if network.programs.is_empty() && network.views.is_empty() && network.changes.is_empty() {
         return empty_state(
             "explorer-empty",
             "No programs",
-            "The registry of this network runs nothing yet.",
+            "The programs role of this network runs nothing yet.",
             theme,
         )
         .into_any_element();
@@ -44,7 +48,7 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let nothing_scheduled = scheduled.is_empty().then(|| {
         quiet(
             "explorer-no-changes",
-            "Nothing is scheduled against the registry.",
+            "Nothing is scheduled against the programs role.",
             theme,
         )
     });
@@ -165,17 +169,17 @@ fn listed(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Vec<AnyE
 
 /// A name and who changes it: the validators' vote for a role's program,
 /// else its maintainers (an agent marked so) and, when any account holds
-/// every module, those too; a hook marked so.
+/// every program, those too; a hook marked so.
 fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Div {
     let bound = network
         .roles
         .as_ref()
-        .is_some_and(|roles| registry::role_bound(roles, name));
+        .is_some_and(|roles| ::programs::role_bound(roles, name));
     let hook = network.hooks.iter().any(|hook| hook == name);
     let maintainers: Vec<u64> = network
         .grants
         .iter()
-        .filter(|grant| grant.scope == Scope::Module(name.to_owned()))
+        .filter(|grant| grant.scope == Scope::Program(name.to_owned()))
         .map(|grant| grant.account)
         .collect();
     let every = network.grants.iter().any(|grant| grant.scope == Scope::All);
@@ -184,7 +188,7 @@ fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Div {
         false => maintainers
             .iter()
             .map(|number| holder(view, *number, theme))
-            .chain(every.then(|| muted("every-module maintainers", theme)))
+            .chain(every.then(|| muted("every-program maintainers", theme)))
             .collect(),
     };
     div()
@@ -235,7 +239,7 @@ fn holder(view: &Explorer, number: u64, theme: &Theme) -> AnyElement {
 }
 
 /// Upgrade and Remove on the reader's path to `name`: straight to the
-/// registry by grant, proposed by vote, or none. A role's program is never
+/// programs by grant, proposed by vote, or none. A role's program is never
 /// removed; a hook only by vote, which a maintainer with voices proposes.
 fn presses(
     view: &Explorer,
@@ -251,7 +255,7 @@ fn presses(
     let bound = network
         .roles
         .as_ref()
-        .is_none_or(|roles| registry::role_bound(roles, name));
+        .is_none_or(|roles| ::programs::role_bound(roles, name));
     let hook = network.hooks.iter().any(|hook| hook == name);
     let edit = |remove: bool, path: Path| {
         let name = name.to_owned();
@@ -300,7 +304,7 @@ fn presses(
     out
 }
 
-/// One change the registry will fold in: what it does, to what, when, who
+/// One change the programs role will fold in: what it does, to what, when, who
 /// made it; how long the vote has to cancel one a grant made; Cancel by
 /// grant or Propose cancel by vote.
 fn scheduled(
@@ -415,7 +419,7 @@ fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Div {
     let none = rows.is_empty().then(|| {
         quiet(
             "explorer-no-grants",
-            "No account maintains a module: only the validators' vote changes the registry.",
+            "No account maintains a program: only the validators' vote changes the programs role.",
             theme,
         )
     });
@@ -440,7 +444,7 @@ fn granted(
     theme: &Theme,
 ) -> AnyElement {
     let unseated = match &grant.scope {
-        Scope::Module(id) if !network.names(id) => Some(muted(
+        Scope::Program(id) if !network.names(id) => Some(muted(
             &format!(
                 "runs nothing yet: {} may add it",
                 name_of(view, grant.account)
@@ -455,7 +459,7 @@ fn granted(
         false => view.acting.votes().then_some(Path::Vote),
     };
     let revoke = path.map(|path| {
-        let op = registry::Op::Revoke(grant.clone());
+        let op = ::programs::Op::Revoke(grant.clone());
         let label = match path {
             Path::Grant => "Step down",
             Path::Vote => "Propose revoke",
@@ -499,7 +503,7 @@ fn form(
         (Edit::Upgrade { name, .. }, Path::Vote) => format!("Propose upgrade · {name}"),
         (Edit::Remove { name, .. }, Path::Grant) => format!("Remove {name}"),
         (Edit::Remove { name, .. }, Path::Vote) => format!("Propose remove · {name}"),
-        (Edit::Add, _) => "Add a module".into(),
+        (Edit::Add, _) => "Add a program".into(),
         (Edit::Grant, _) => "Propose a grant".into(),
     };
     let field = |id: &str, field: &TextField, name: &str, hint: &str, width: f32| {
@@ -522,7 +526,7 @@ fn form(
                 "explorer-form-name",
                 &form.name,
                 "Name",
-                "module id",
+                "program id",
                 160.,
             ));
             let kind = |view_kind: bool, label: &str| {
@@ -552,8 +556,8 @@ fn form(
             fields.push(field(
                 "explorer-form-name",
                 &form.name,
-                "Module",
-                "a module, or empty for every module",
+                "Program",
+                "a program, or empty for every program",
                 240.,
             ));
             notes.push(who(view, form));

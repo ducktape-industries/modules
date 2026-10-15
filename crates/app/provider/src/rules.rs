@@ -1,18 +1,15 @@
-//! What each op checks and writes: a member node serving, a module requesting and the
-//! chain electing its provider, the provider answering, and an overdue request expiring.
-use abi::role::validators;
-use guest::{
-    BlobId, Error, ExecCtx, QueryCtx, Reply as Wanted, capacity, invalid, not_found, unauthorized,
-    unexpected_reply, wrong_state,
+//! What each op checks and writes: a member node serving, a program's call and the chain
+//! electing its provider, the provider answering it, and an overdue call expiring.
+use ::program::kernel::error_from;
+use ::program::{
+    BlobId, Cause, Error, ExecCtx, QueryCtx, invalid, not_found, unauthorized, unexpected_reply,
+    wrong_state,
 };
+use abi::role::{awaits, validators};
 use store::{PageRequest, PageResponse};
 
 use crate::state::{ASSIGNED, COUNT, DEADLINES, PROVIDERS, REQUESTS, SERVING, Stored, TURNS};
-use crate::{
-    Answer, Delivery, EXPIRY_BLOCKS, MAX_BODY_BYTES, MAX_DELIVER_BYTES, MAX_INPUT_BYTES,
-    MAX_OUTPUT_BYTES, MAX_PARTS, MAX_REASON_BYTES, MAX_SERVICE_BYTES, MAX_SERVICES, Outcome,
-    ProviderRow, Request, RequestRow,
-};
+use crate::{Answer, EXPIRY_BLOCKS, ProviderRow, Request, RequestRow};
 
 fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
     let validators = &ctx.env().roles.validators;
@@ -28,14 +25,13 @@ fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
 
 fn service_name(service: &str) -> Result<(), Error> {
     let named = !service.is_empty()
-        && service.len() <= MAX_SERVICE_BYTES
         && service.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-_.".contains(&byte)
         });
     if !named {
-        return Err(invalid(format!(
-            "a service is 1 to {MAX_SERVICE_BYTES} bytes of lowercase letters, digits, -, _ and ."
-        )));
+        return Err(invalid(
+            "a service is lowercase letters, digits, -, _ and .",
+        ));
     }
     Ok(())
 }
@@ -44,11 +40,6 @@ pub(crate) fn serve(ctx: &ExecCtx, mut services: Vec<String>) -> Result<(), Erro
     let key = ctx.env().signer()?;
     services.sort();
     services.dedup();
-    if services.len() > MAX_SERVICES {
-        return Err(capacity(format!(
-            "a provider serves at most {MAX_SERVICES} services"
-        )));
-    }
     for service in &services {
         service_name(service)?;
     }
@@ -85,25 +76,14 @@ pub(crate) fn serve(ctx: &ExecCtx, mut services: Vec<String>) -> Result<(), Erro
 }
 
 fn check_parts(ctx: &QueryCtx, parts: &[BlobId]) -> Result<(), Error> {
-    if parts.len() > MAX_PARTS {
-        return Err(capacity(format!("a request has at most {MAX_PARTS} parts")));
+    let missing = parts.iter().find(|part| ctx.blob_stat(**part).is_none());
+    match missing {
+        Some(part) => Err(not_found(format!(
+            "part {} is not on the network: put it first",
+            abi::hex(part.digest())
+        ))),
+        None => Ok(()),
     }
-    let mut total = 0u64;
-    for part in parts {
-        let Some(header) = ctx.blob_stat(*part) else {
-            return Err(not_found(format!(
-                "part {} is not on the network: put it first",
-                abi::hex(part.digest())
-            )));
-        };
-        total = total.saturating_add(header.len);
-    }
-    if total > MAX_BODY_BYTES {
-        return Err(capacity(format!(
-            "a request's parts are at most {MAX_BODY_BYTES} bytes"
-        )));
-    }
-    Ok(())
 }
 
 pub(crate) fn serving(ctx: &QueryCtx, service: &str) -> Result<Vec<Vec<u8>>, Error> {
@@ -127,20 +107,17 @@ fn elect(ctx: &ExecCtx, service: &str) -> Result<Vec<u8>, Error> {
 }
 
 pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
-    let requester = ctx.env().sending_module()?;
+    let requester = ctx.env().sending_program()?;
+    let called = matches!(ctx.env().cause, Cause::Call { .. });
+    if !called {
+        return Err(wrong_state(
+            "a request is a call: the program awaits provider with ctx.call",
+        ));
+    }
     service_name(&request.service)?;
-    if request.input.len() > MAX_INPUT_BYTES {
-        return Err(capacity(format!(
-            "a request's input is at most {MAX_INPUT_BYTES} bytes"
-        )));
-    }
-    if request.deliver.len() > MAX_DELIVER_BYTES {
-        return Err(capacity(format!(
-            "a request's delivery prefix is at most {MAX_DELIVER_BYTES} bytes"
-        )));
-    }
     check_parts(ctx, &request.parts)?;
     let provider = elect(ctx, &request.service)?;
+    let ticket = ctx.defer()?;
     let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
     let made = ctx.env().height;
     let row = RequestRow {
@@ -156,15 +133,7 @@ pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
     COUNT.put(ctx, &id);
     ASSIGNED.insert(ctx, &(row.provider.clone(), id));
     DEADLINES.insert(ctx, &(row.deadline, id));
-    REQUESTS.put(
-        ctx,
-        &id,
-        &Stored {
-            row,
-            deliver: request.deliver,
-        },
-    );
-    ctx.set_return_data(abi::encode(&id));
+    REQUESTS.put(ctx, &id, &Stored { row, ticket });
     Ok(())
 }
 
@@ -174,21 +143,12 @@ fn open(ctx: &QueryCtx, id: u64) -> Result<Stored, Error> {
         .ok_or_else(|| not_found(format!("no open request {id}")))
 }
 
-fn close(ctx: &ExecCtx, stored: Stored, outcome: Outcome) {
+fn close(ctx: &ExecCtx, stored: Stored, answer: Result<Vec<u8>, Error>) {
     let row = stored.row;
     REQUESTS.remove(ctx, &row.id);
     ASSIGNED.remove(ctx, &(row.provider.clone(), row.id));
     DEADLINES.remove(ctx, &(row.deadline, row.id));
-    let delivery = Delivery {
-        id: row.id,
-        service: row.service,
-        outcome,
-    };
-    ctx.emit_raw(
-        row.requester,
-        Delivery::payload(&stored.deliver, &delivery),
-        Wanted::Wanted,
-    );
+    ctx.resolve(stored.ticket, answer);
 }
 
 pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error> {
@@ -199,28 +159,28 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
             "request {id} was elected to another provider"
         )));
     }
+    let same_block = ctx.env().height <= stored.row.made;
+    if same_block {
+        return Err(wrong_state(format!(
+            "request {id} is answered in a later block than the one that made it"
+        )));
+    }
     if ctx.env().height > stored.row.deadline {
         return Err(wrong_state(format!(
             "request {id} expired at height {}",
             stored.row.deadline
         )));
     }
-    let outcome = match answer {
-        Answer::Output(output) if output.len() > MAX_OUTPUT_BYTES => {
-            return Err(capacity(format!(
-                "an answer's output is at most {MAX_OUTPUT_BYTES} bytes"
-            )));
-        }
-        Answer::Failed(reason) if reason.len() > MAX_REASON_BYTES => {
-            return Err(capacity(format!(
-                "a failure's reason is at most {MAX_REASON_BYTES} bytes"
-            )));
-        }
-        Answer::Output(output) => Outcome::Answered(output),
-        Answer::Failed(reason) => Outcome::Failed(reason),
+    let answered = match answer {
+        Answer::Output(output) => Ok(output),
+        Answer::Failed(reason) => Err(failed(&stored.row.service, &reason)),
     };
-    close(ctx, stored, outcome);
+    close(ctx, stored, answered);
     Ok(())
+}
+
+fn failed(service: &str, reason: &str) -> Error {
+    wrong_state(format!("the {service} provider failed: {reason}"))
 }
 
 pub(crate) fn expire(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
@@ -231,7 +191,8 @@ pub(crate) fn expire(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
             stored.row.deadline
         )));
     }
-    close(ctx, stored, Outcome::Expired);
+    let expired = awaits::expired(stored.ticket, ctx.env().height);
+    close(ctx, stored, Err(error_from(expired)));
     Ok(())
 }
 

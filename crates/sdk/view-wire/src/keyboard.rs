@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Every key gpui names in a `Keystroke` besides a printable character:
-/// what a host can send, so what a guest can match on.
+/// what a host can send, so what a view can match on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Named {
     Enter,

@@ -1,14 +1,17 @@
 //! One Change: its header, the three tabs a reviewer lives in, and its
 //! details beside them. Conversation is chat's hidden channel; Files is
 //! the reviewer's home.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
+use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
+
+use view::prelude::*;
+use view::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
 
 use crate::Forge;
 use crate::state::{ChangeTab, verdict_label};
 use crate::ui::changes::{revision_name, state_chip};
 use crate::ui::components::{badge, button, heading, id, path_text, quiet, ref_label, short_hex};
-use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, scroller, staged};
+use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, staged};
 use forge::{Change, ChangeState, FileDiff, Query, Reply, Verdict};
 
 /// The Files tab's file list.
@@ -44,21 +47,16 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         .child(header(forge, cx, theme))
         .child(tabs(forge, cx, theme))
         .child(pending(forge, &scope, theme));
-    if let Some(form) = &forge.form {
+    if let Some(form) = forge.change_form() {
         column = column.child(crate::ui::changes::form(form, forge, cx, theme));
     }
     let tab = forge.nav().change_tab;
     let body: AnyElement = match tab {
         ChangeTab::Conversation => crate::ui::conversation::render(forge, cx, theme),
-        ChangeTab::Commits => match forge.endpoints() {
-            Some((from, into)) => commits::log(
-                forge,
-                &commits::query(forge, from, Some(into)),
-                "forge-change-log",
-                cx,
-                theme,
-            ),
-            None => div().into_any_element(),
+        ChangeTab::Commits => match (forge.nav().commit.clone(), forge.shown_log()) {
+            (Some(oid), _) => commits::detail(forge, &oid, cx, theme),
+            (None, Some(log)) => commits::log(forge, &log, "forge-change-log", cx, theme),
+            (None, None) => div().into_any_element(),
         },
         ChangeTab::Files => files(forge, cx, theme),
     };
@@ -185,7 +183,7 @@ fn title_line(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let edit = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_edit(cx));
+    let edit = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_edit(window, cx));
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.close_change(cx));
     let merge = cx.listener(|forge, _: &ClickEvent, _, cx| forge.merge(cx));
     let open = change.state == ChangeState::Open;
@@ -199,7 +197,7 @@ fn title_line(
         .items_center()
         .gap(design::space::SM)
         .child(heading(
-            id("forge-change-title"),
+            id("forge-change-heading"),
             change.title.clone(),
             1,
             theme,
@@ -291,8 +289,9 @@ fn tab_count(forge: &Forge, tab: ChangeTab) -> Option<u64> {
         ChangeTab::Conversation => {
             let (change, _, _, _) = forge.change()?;
             match forge.messages.get(&change.channel)? {
-                ducktape_view_guest::Loadable::Ready(rows)
-                | ducktape_view_guest::Loadable::Reloading(rows, _) => Some(rows.len() as u64),
+                view::Loadable::Ready(rows) | view::Loadable::Reloading(rows, _) => {
+                    Some(rows.len() as u64)
+                }
                 _ => None,
             }
         }
@@ -310,10 +309,12 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let Some(query) = forge.diff_query() else {
         return quiet("Comparing the endpoints…", theme);
     };
-    let mut columns = div().id(id("forge-files")).flex().flex_1().min_h(px(0.));
-    if forge.layout.tree_visible() {
-        columns = columns.child(file_tree(forge, &query, cx, theme));
-    }
+    let columns = div()
+        .id(id("forge-files"))
+        .flex()
+        .flex_1()
+        .min_h(px(0.))
+        .child(file_tree(forge, &query, cx, theme));
     let pane = div()
         .id(id("forge-files-pane"))
         .flex_1()
@@ -322,13 +323,22 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .flex_col()
         .min_h(px(0.))
         .child(review_bar(forge, cx, theme))
-        .child(diff::composer(forge, cx, theme))
         .child(diff::render(forge, &query, "forge-diff", true, cx, theme));
     columns.child(pane).into_any_element()
 }
 
+/// The Files tab's list of files, the id its cursor is kept under.
+pub(crate) const FILE_LIST_ID: &str = "forge-file-tree-list";
+/// A file row's height, as the approved mock draws it.
+const FILE_ROW_H: f32 = 30.;
+
 /// The reviewer's file list: how much each file changes, a tick for the
-/// ones read, and a click that shows one file alone.
+/// ones read, and a click that shows one file alone. A virtual list, so a
+/// render draws the rows on screen and not every file of a release; one
+/// Tab stop, a grid: ↑ ↓ walk the files, Enter opens the active one, and →
+/// reaches its viewed tick (drawn left of the name, as the mock has it,
+/// but the row's second cell: the press stays first so Enter opens), where
+/// Enter or Space ticks it.
 fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let column = div()
         .id(id("forge-file-tree"))
@@ -339,13 +349,16 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
         .min_h(px(0.))
         .border_r_1()
         .border_color(theme.border);
-    let Some(Reply::Diff {
-        page, total_files, ..
-    }) = forge.ready(query)
-    else {
+    let Some(shared) = forge.shared(query) else {
         return column
             .child(quiet("Reading the diff…", theme))
             .into_any_element();
+    };
+    let Reply::Diff {
+        page, total_files, ..
+    } = &*shared
+    else {
+        return column.into_any_element();
     };
     let (added, deleted) = page.items.iter().fold((0, 0), |(a, d), file| {
         (a + file.additions, d + file.deletions)
@@ -353,6 +366,7 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
     let all = cx.listener(|forge, _: &ClickEvent, _, cx| forge.single_file(None, cx));
     let header = div()
         .id(id("forge-file-tree-header"))
+        .flex_none()
         .flex()
         .items_center()
         .gap(design::space::SM)
@@ -364,48 +378,134 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
                 design::plural(*total_files, "file", "files")
             ))
             .id(id("forge-files-title"))
+            // a release's counts give way to All files, the way back to
+            // every file, rather than push it out of the column
+            .min_w(px(0.))
+            .truncate()
             .text_size(design::text::CAPTION)
             .text_color(theme.muted),
         )
         .child(div().flex_1())
         .when(forge.nav().diff_path.is_some(), |header| {
-            header.child(
+            header.child(div().id(id("forge-files-all-box")).flex_none().child(
                 button(id("forge-files-all"), "All files", theme, all).kind(design::Kind::Quiet),
-            )
+            ))
         });
-    let mut list = scroller("forge-file-tree-list").p_0().gap_0();
-    for file in &page.items {
-        list = list.children(file_row(forge, file, cx, theme));
-    }
-    list = list.child(
-        div()
-            .px(design::space::BLOCK)
-            .py(design::space::LG)
-            .child(quiet("Tick a file once you have read it.", theme)),
+    // what marks the rows, read once a render for the rows the list draws:
+    // a render pays for the rows on screen, not for every file
+    let count = page.items.len();
+    let (at, cell) = crate::ui::components::cursor(forge, FILE_LIST_ID);
+    let marks = Rc::new(FileMarks {
+        viewed: viewed_paths(forge),
+        comments: file_comments(forge),
+        selected: forge.nav().diff_path.clone(),
+        active: (at.min(count.saturating_sub(1)), cell),
+        walked: crate::ui::components::walked(forge, FILE_LIST_ID),
+    });
+    let open: diff::Route<Vec<u8>> = Rc::new(
+        cx.listener(|forge, path: &Vec<u8>, _, cx| forge.single_file(Some(path.clone()), cx)),
     );
-    column.child(header).child(list).into_any_element()
+    let tick: diff::Route<Vec<u8>> =
+        Rc::new(cx.listener(|forge, path: &Vec<u8>, _, cx| forge.toggle_viewed(path, cx)));
+    let pressed = shared.clone();
+    let list = crate::ui::components::grid(
+        FILE_LIST_ID,
+        "Files",
+        count,
+        2,
+        Some(&forge.files_scroll),
+        forge,
+        cx,
+        move |forge, index, cell, _, cx| {
+            let Some(path) = diff::file_at(&pressed, index).and_then(diff::path_of) else {
+                return;
+            };
+            match cell {
+                0 => forge.single_file(Some(path), cx),
+                _ => forge.toggle_viewed(&path, cx),
+            }
+        },
+    )
+    // as tall as its rows, so the hint sits under a short list; a long one
+    // gives way to the column and scrolls
+    .flex_none()
+    .flex_shrink_1()
+    .h(px(count as f32 * FILE_ROW_H));
+    let theme = *theme;
+    let rows = crate::ui::components::rows(
+        "forge-file-tree-rows",
+        count,
+        None,
+        Some(&forge.files_scroll),
+        move |index| match diff::file_at(&shared, index) {
+            Some(file) => file_row(file, index, &marks, &open, &tick, &theme),
+            None => div().into_any_element(),
+        },
+    );
+    column
+        .child(header)
+        .child(list.child(rows))
+        .child(
+            div()
+                .flex_none()
+                .px(design::space::BLOCK)
+                .py(design::space::LG)
+                .child(quiet("Tick a file once you have read it.", &theme)),
+        )
+        .into_any_element()
 }
 
-/// One file of the diff: its viewed tick, its path, its counts and
-/// comments.
+/// What marks the file list's rows: the files ticked, the comments on
+/// each, the file shown alone, and where the arrows are (row, cell).
+struct FileMarks {
+    viewed: BTreeSet<String>,
+    comments: BTreeMap<Vec<u8>, usize>,
+    selected: Option<Vec<u8>>,
+    active: (usize, usize),
+    walked: bool,
+}
+
+/// The paths of the open change's files the reader has ticked, as its
+/// viewed keys spell them.
+fn viewed_paths(forge: &Forge) -> BTreeSet<String> {
+    let Some(prefix) = forge.file_key(b"") else {
+        return BTreeSet::new();
+    };
+    forge
+        .viewed
+        .range(prefix.clone()..)
+        .take_while(|key| key.starts_with(&prefix))
+        .map(|key| key[prefix.len()..].to_owned())
+        .collect()
+}
+
+/// One file of the diff, a grid row: its press (the path, its comments and
+/// counts) and its viewed tick, each a cell; the tick is drawn first.
 fn file_row(
-    forge: &Forge,
     file: &FileDiff,
-    cx: &mut Context<Forge>,
+    index: usize,
+    marks: &FileMarks,
+    open: &diff::Route<Vec<u8>>,
+    tick: &diff::Route<Vec<u8>>,
     theme: &Theme,
-) -> Option<AnyElement> {
-    let path = diff::path_of(file)?;
+) -> AnyElement {
+    let Some(path) = diff::path_of(file) else {
+        return div().h(px(FILE_ROW_H)).into_any_element();
+    };
     let label = path_text(&path);
-    let viewed = forge
-        .file_key(&path)
-        .is_some_and(|key| forge.viewed.contains(&key));
-    let comments = file_comments(forge, &path);
-    let selected = forge.nav().diff_path.as_deref() == Some(path.as_slice());
-    let pick = cx.listener({
-        let path = path.clone();
-        move |forge, _: &ClickEvent, _, cx| forge.single_file(Some(path.clone()), cx)
-    });
-    let tick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.toggle_viewed(&path, cx));
+    let viewed = marks.viewed.contains(&label);
+    let comments = marks.comments.get(&path).copied().unwrap_or(0);
+    let selected = marks.selected.as_deref() == Some(path.as_slice());
+    let active = (index == marks.active.0).then_some(marks.active.1);
+    let walked = marks.walked;
+    let pick = {
+        let (open, path) = (open.clone(), path.clone());
+        move |_: &ClickEvent, window: &mut Window, app: &mut App| open(&path, window, app)
+    };
+    let tick = {
+        let tick = tick.clone();
+        move |_: &ClickEvent, window: &mut Window, app: &mut App| tick(&path, window, app)
+    };
     let theme = *theme;
     let check = div()
         .id(id(format!("forge-viewed-{label}")))
@@ -426,11 +526,13 @@ fn file_row(
                 &theme,
             )
         })
+        // the arrows on the tick: the ring's ink marks the cell
+        .when(walked && active == Some(1), |check| {
+            check.border_2().border_color(theme.accent)
+        })
         .text_size(px(10.))
-        .role(Role::CheckBox)
         .aria_label(format!("Viewed {label}"))
         .aria_toggled(viewed.into())
-        .focusable()
         // a tick is not also a click on the row
         .occlude()
         .on_click(tick)
@@ -443,11 +545,9 @@ fn file_row(
         .flex()
         .items_center()
         .gap(design::space::SM)
-        .role(Role::Button)
         .when(selected, |press| {
-            press.aria_current(ducktape_view_guest::accesskit::AriaCurrent::True)
+            press.aria_current(view::accesskit::AriaCurrent::True)
         })
-        .focusable()
         .on_click(pick)
         .child(
             design::mono(label.clone())
@@ -490,46 +590,58 @@ fn file_row(
                 )
             }),
     );
-    // the tick sits beside the row's press, as a button may not hold it
+    // the tick's cell beside the press's, as a button may not hold it
+    // as wide as the list, so a long path is cut and its counts stay in view
     let row = div()
         .id(id(format!("forge-file-{label}")))
-        .h(px(30.))
+        .w_full()
+        .h(px(FILE_ROW_H))
         .px(design::space::BLOCK)
         .flex()
         .items_center()
         .gap(design::space::SM)
         .when(selected, |row| row.bg(theme.surface_raised))
+        .when(walked && active.is_some() && !selected, |row| {
+            row.bg(theme.surface)
+        })
         .hover(move |style| style.bg(theme.surface))
-        .role(Role::ListItem)
-        .child(check)
-        .child(press);
-    Some(row.into_any_element())
+        .role(Role::Row)
+        .child(
+            div()
+                .id(id(format!("forge-file-{label}-tick")))
+                .flex_none()
+                .role(Role::GridCell)
+                .child(design::item(check, Role::CheckBox, active == Some(1))),
+        )
+        .child(
+            div()
+                .id(id(format!("forge-file-{label}-open-cell")))
+                .flex_1()
+                .min_w(px(0.))
+                .self_stretch()
+                .flex()
+                .role(Role::GridCell)
+                .child(design::item(press, Role::Button, active == Some(0))),
+        );
+    row.into_any_element()
 }
 
-/// The line comments on one file: my review's drafts plus the published.
-fn file_comments(forge: &Forge, path: &[u8]) -> usize {
+/// The line comments on each file: my review's drafts plus the published.
+fn file_comments(forge: &Forge) -> BTreeMap<Vec<u8>, usize> {
     let drafts = forge
         .review()
-        .map(|review| {
-            review
-                .comments
-                .iter()
-                .filter(|comment| comment.path == path)
-                .count()
-        })
-        .unwrap_or(0);
+        .into_iter()
+        .flat_map(|review| review.comments.iter().map(|comment| &comment.path));
     let landed = forge
         .change()
-        .map(|(_, _, _, reviews)| {
-            reviews
-                .items
-                .iter()
-                .flat_map(|review| review.draft.comments.iter())
-                .filter(|comment| comment.path == path)
-                .count()
-        })
-        .unwrap_or(0);
-    drafts + landed
+        .into_iter()
+        .flat_map(|(_, _, _, reviews)| reviews.items.iter())
+        .flat_map(|review| review.draft.comments.iter().map(|comment| &comment.path));
+    let mut counts = BTreeMap::new();
+    for path in drafts.chain(landed) {
+        *counts.entry(path.clone()).or_default() += 1;
+    }
+    counts
 }
 
 /// The strip above the diff: what a review is, or where this one stands.
@@ -679,7 +791,7 @@ fn finish_panel(
                 x: px(0.),
                 y: design::size::CONTROL + design::space::XXS,
             })
-            .snap_to_window_with_margin(ducktape_view_guest::Edges::all(design::space::SM))
+            .snap_to_window_with_margin(view::Edges::all(design::space::SM))
             .child(panel),
     )
     .into_any_element()

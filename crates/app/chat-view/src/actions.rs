@@ -1,11 +1,11 @@
 //! What a press does: the message menus, the writes (reactions, deletes,
 //! the channel's details, new channels), copying and links.
 use chat::{MsgRow, Op, PostPolicy, Principal};
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::composer::Target;
 use crate::message::{ChatMessage, chat_message, mark_message_groups, zone};
-use crate::{Chat, Control, Folded, Menu, Mode, Pane, links};
+use crate::{Chat, Control, CopyRange, Folded, Menu, Mode, Pane, links};
 use chat::view::Names;
 use std::rc::Rc;
 
@@ -15,18 +15,59 @@ const ARCHIVED_REACTIONS: &str = "This channel is archived — reactions are clo
 impl Chat {
     // ---------- menus ----------
 
-    /// A press on a message's body: chosen, its actions stay open.
-    pub(crate) fn press_message(&mut self, pane: Pane, seq: u64) {
+    /// A press on a message's body: chosen (its actions stay open), or with
+    /// shift held (`extend`) the copy range grows to it from the chosen or
+    /// the range's anchor.
+    pub(crate) fn press_message(&mut self, pane: Pane, seq: u64, extend: bool) {
         if seq == 0 {
             return;
         }
-        self.menu = Some(Menu {
+        if !extend {
+            self.copy = None;
+            self.menu = Some(Menu {
+                pane,
+                seq,
+                rev: 0,
+                mode: Mode::Toolbar,
+                at: self.layout.press,
+            });
+            return;
+        }
+        let anchor = match (self.copy, &self.menu) {
+            (Some(range), _) if range.pane == pane => range.anchor,
+            (None, Some(menu)) if menu.pane == pane && menu.mode == Mode::Toolbar => menu.seq,
+            _ => seq,
+        };
+        self.menu = None;
+        self.copy = Some(CopyRange {
             pane,
-            seq,
-            rev: 0,
-            mode: Mode::Toolbar,
-            at: self.layout.press,
+            anchor,
+            head: seq,
         });
+    }
+
+    /// The chosen message and the copy range let go: Escape, a press
+    /// anywhere else, the arrows moving to another message. A menu open
+    /// over the message (More, the picker, the confirmation, the edit
+    /// field) is dismissed by its own overlay, not here.
+    pub(crate) fn let_go(&mut self) {
+        if self
+            .menu
+            .as_ref()
+            .is_some_and(|menu| menu.mode == Mode::Toolbar)
+        {
+            self.menu = None;
+        }
+        self.copy = None;
+    }
+
+    /// Whether [`Self::let_go`] has something to let go.
+    pub(crate) fn holds(&self) -> bool {
+        self.copy.is_some()
+            || self
+                .menu
+                .as_ref()
+                .is_some_and(|menu| menu.mode == Mode::Toolbar)
     }
 
     pub(crate) fn open_menu(
@@ -35,7 +76,7 @@ impl Chat {
         seq: u64,
         rev: u32,
         mode: Mode,
-        window: &mut ducktape_view_guest::Window,
+        window: &mut view::Window,
         _cx: &mut Context<Self>,
     ) {
         if seq == 0 {
@@ -45,6 +86,7 @@ impl Chat {
             self.notice = ARCHIVED_REACTIONS.into();
             return;
         }
+        let mut editor = None;
         if mode == Mode::Editing {
             let Some(body) = self.edit_body(pane, seq) else {
                 return;
@@ -55,10 +97,12 @@ impl Chat {
                 base_rev: rev,
             };
             let choices = self.mention_choices();
+            let key = target.key();
             self.drafts
-                .entry(target.key())
+                .entry(key.clone())
                 .or_default()
                 .seed(&body, &choices);
+            editor = Some(key);
         }
         if mode == Mode::Reactions {
             self.picker = Default::default();
@@ -71,8 +115,12 @@ impl Chat {
             at: self.layout.press,
         });
         self.menu_cursor = 0;
-        if mode != Mode::Editing {
-            window.focus(crate::ui::menu::focus_key(pane, mode));
+        match editor {
+            // the edit field takes the keys as it opens: what is typed
+            // edits, and Enter saves; left in the room's composer, the
+            // typing was a new message and Enter sent it
+            Some(key) => crate::composer::focus(window, &key),
+            None => window.focus(crate::ui::menu::focus_key(pane, mode)),
         }
     }
 
@@ -87,7 +135,7 @@ impl Chat {
         seq: u64,
         rev: u32,
         control: Control,
-        window: &mut ducktape_view_guest::Window,
+        window: &mut view::Window,
         cx: &mut Context<Self>,
     ) {
         match control {
@@ -172,7 +220,7 @@ impl Chat {
     }
 
     /// Whether the reader wrote the message at `seq`: only its author
-    /// edits it, and the chat module refuses anyone else.
+    /// edits it, and the chat program refuses anyone else.
     pub(crate) fn wrote(&self, pane: Pane, seq: u64) -> bool {
         let Some(me) = self.me() else { return false };
         self.shown(pane)
@@ -310,7 +358,7 @@ impl Chat {
                     .map(|info| info.channel.name.clone())
                     .unwrap_or_default();
                 self.details = Some(crate::Details {
-                    name_draft: ducktape_view_guest::TextField::new(name),
+                    name_draft: view::TextField::new(name),
                     member_draft: Default::default(),
                 });
             }
@@ -338,7 +386,7 @@ impl Chat {
         if lines.is_empty() {
             return;
         }
-        let label = ducktape_view_guest::design::plural(lines.len() as u64, "message", "messages");
+        let label = view::design::plural(lines.len() as u64, "message", "messages");
         self.copy_text(lines.join("\n"), &label, cx);
     }
 

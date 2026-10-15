@@ -5,9 +5,9 @@
 use super::*;
 use crate::queries::Names;
 use crate::voting::words;
-use ducktape_view_guest::methods::{HostSession, Session, Submit};
-use module_registry::{Change, Entry, Grant, Modules, Scheduled, Scope};
+use programs::{Change, Entry, Grant, Programs, Scheduled, Scope};
 use valset::{Motion, Op, Pending, Voted};
+use view::methods::{HostSession, Session, Submit};
 
 const CODE: [u8; 32] = [0x7e; 32];
 const NOW: [u8; 32] = [0x11; 32];
@@ -20,30 +20,30 @@ fn entry(program: &str, code: [u8; 32]) -> Entry {
     }
 }
 
-/// What the registry runs: chat and valset, on code NOW.
+/// What the programs role runs: chat and valset, on code NOW.
 fn roster() -> Vec<Entry> {
     vec![entry("chat", NOW), entry("valset", NOW)]
 }
 
 /// valset at its new code at `height`.
 fn set_valset(height: u64) -> Motion {
-    let op = module_registry::Op::Schedule(Scheduled {
+    let op = programs::Op::Schedule(Scheduled {
         height,
         change: Change::Set(entry("valset", CODE)),
     });
-    Motion::Registry {
+    Motion::Programs {
         op: abi::encode(&op),
     }
 }
 
 /// The sheet for a reader whose seated key is `signer`: valset answering
 /// the set, the reader's voices (THIS votes for itself), and the motions
-/// that wait; the registry its roster and `scheduled`; a vote counted.
+/// that wait; the programs role its roster and `scheduled`; a vote counted.
 fn sheet(
     signer: &[u8],
     needed: u64,
     pending: Vec<Pending>,
-    scheduled: Vec<module_registry::Pending>,
+    scheduled: Vec<programs::Pending>,
 ) -> TestAppContext {
     let mut cx = TestAppContext::new();
     node(&mut cx);
@@ -56,7 +56,7 @@ fn sheet_over(
     signer: &[u8],
     needed: u64,
     pending: Vec<Pending>,
-    scheduled: Vec<module_registry::Pending>,
+    scheduled: Vec<programs::Pending>,
 ) -> TestAppContext {
     let members = vec![
         membership(&RESIDENT, "10.0.0.9:4000", valset::Role::Resident),
@@ -80,15 +80,15 @@ fn sheet_over(
             other => panic!("unexpected query: {other:?}"),
         })
     });
-    cx.host().handle::<Query<Modules>>(move |query| {
+    cx.host().handle::<Query<Programs>>(move |query| {
         Ok(match query {
-            module_registry::Query::Program(_) => module_registry::Reply::Program {
+            programs::Query::Program(_) => programs::Reply::Program {
                 height: 4200,
                 entry: None,
             },
-            module_registry::Query::At(4200) => module_registry::Reply::Programs(roster()),
-            module_registry::Query::Scheduled { .. } => {
-                module_registry::Reply::Scheduled(page(scheduled.clone()))
+            programs::Query::At(4200) => programs::Reply::Programs(roster()),
+            programs::Query::Scheduled { .. } => {
+                programs::Reply::Scheduled(page(scheduled.clone()))
             }
             other => panic!("unexpected query: {other:?}"),
         })
@@ -127,6 +127,7 @@ fn a_row_says_who_operates_a_node_on_an_agent() {
         number: 11,
         name: "validator vps".into(),
         kind: identity::Kind::Managed {
+            runner: None,
             manager: 10,
             category: identity::Category::Agent,
             standing: identity::Standing::Active,
@@ -202,7 +203,7 @@ fn a_reader_who_does_not_vote_gets_no_controls() {
     ] {
         assert!(cx.find(id).is_none(), "{id}");
     }
-    assert!(cx.host().requests::<Query<Modules>>().is_empty());
+    assert!(cx.host().requests::<Query<Programs>>().is_empty());
 }
 
 #[test]
@@ -219,9 +220,9 @@ fn a_reader_who_votes_gets_each_rows_motions_and_the_door() {
     ] {
         assert!(cx.find(id).is_some(), "{id}: {:?}", cx.texts());
     }
-    // a module is changed in Explorer: no form of its own here
+    // a program is changed in Explorer: no form of its own here
     assert!(cx.find("nodes-change").is_none() && cx.find("nodes-change-code").is_none());
-    assert!(cx.has_text("Change a module in Explorer, Programs."));
+    assert!(cx.has_text("Change a program in Explorer, Programs."));
     assert!(cx.find("nodes-promote-0").is_none() && cx.find("nodes-demote-3").is_none());
     assert!(cx.has_text("No motion waits for votes.") && cx.has_text("No change is scheduled."));
     // one vote of two: cast at once
@@ -300,17 +301,17 @@ fn a_waiting_motion_reads_decoded_and_is_voted_with_its_own_bytes() {
 
 #[test]
 fn a_scheduled_change_says_who_made_it_and_is_cancelled_by_a_vote() {
-    let ahead = module_registry::Pending {
+    let ahead = programs::Pending {
         height: 4300,
         change: Change::Set(entry("valset", CODE)),
         by: None,
     };
-    let landed = module_registry::Pending {
+    let landed = programs::Pending {
         height: 4100,
         change: Change::Remove("chat".into()),
         by: None,
     };
-    let granted = module_registry::Pending {
+    let granted = programs::Pending {
         height: 4800,
         change: Change::Set(entry("chat", CODE)),
         by: Some(12),
@@ -332,13 +333,13 @@ fn a_scheduled_change_says_who_made_it_and_is_cancelled_by_a_vote() {
     assert!(cx.find("nodes-scheduled-2").is_none());
     cx.simulate_click("nodes-scheduled-cancel-0");
     cx.run_until_parked();
-    let cancel = module_registry::Op::Cancel {
+    let cancel = programs::Op::Cancel {
         height: 4300,
         program: "valset".into(),
     };
     assert_eq!(
         submitted(&cx),
-        [Op::Vote(Motion::Registry {
+        [Op::Vote(Motion::Programs {
             op: abi::encode(&cancel)
         })]
     );
@@ -349,12 +350,12 @@ fn a_scheduled_change_says_who_made_it_and_is_cancelled_by_a_vote() {
 #[test]
 fn a_scheduled_change_tells_no_wait_before_the_status_is_read() {
     let changes = vec![
-        module_registry::Pending {
+        programs::Pending {
             height: 4300,
             change: Change::Set(entry("valset", CODE)),
             by: None,
         },
-        module_registry::Pending {
+        programs::Pending {
             height: 4800,
             change: Change::Set(entry("chat", CODE)),
             by: Some(12),
@@ -371,12 +372,12 @@ fn a_scheduled_change_tells_no_wait_before_the_status_is_read() {
 /// A grant to vote on reads with its account's name, as identity says it.
 #[test]
 fn a_grant_motion_names_its_account() {
-    let op = module_registry::Op::Grant(Grant {
-        scope: Scope::Module("trade".into()),
+    let op = programs::Op::Grant(Grant {
+        scope: Scope::Program("trade".into()),
         account: 12,
     });
     let waiting = Pending {
-        motion: Motion::Registry {
+        motion: Motion::Programs {
             op: abi::encode(&op),
         },
         voters: vec![OTHER.to_vec()],
@@ -415,8 +416,8 @@ fn every_motion_reads_in_words() {
             "Close the door: enrolling takes an invite",
         ),
         (
-            Motion::Registry {
-                op: abi::encode(&module_registry::Op::Cancel {
+            Motion::Programs {
+                op: abi::encode(&programs::Op::Cancel {
                     height: 4300,
                     program: "chat".into(),
                 }),
@@ -424,8 +425,8 @@ fn every_motion_reads_in_words() {
             "Cancel chat's change at block 4,300",
         ),
         (
-            Motion::Registry {
-                op: abi::encode(&module_registry::Op::Schedule(Scheduled {
+            Motion::Programs {
+                op: abi::encode(&programs::Op::Schedule(Scheduled {
                     height: 9,
                     change: Change::Set(Entry {
                         params: Vec::new(),
@@ -436,8 +437,8 @@ fn every_motion_reads_in_words() {
             "Set chat to code sha256:7e7e7e7e…7e7e at block 9 · params changed",
         ),
         (
-            Motion::Registry {
-                op: abi::encode(&module_registry::Op::Schedule(Scheduled {
+            Motion::Programs {
+                op: abi::encode(&programs::Op::Schedule(Scheduled {
                     height: 9,
                     change: Change::Set(entry("forge", CODE)),
                 })),
@@ -445,26 +446,26 @@ fn every_motion_reads_in_words() {
             "Set forge to code sha256:7e7e7e7e…7e7e at block 9 · a new program",
         ),
         (
-            Motion::Registry {
+            Motion::Programs {
                 op: b"not an op".to_vec(),
             },
-            "A registry change this screen can't read",
+            "A program change this screen can't read",
         ),
         (
-            grant(false, Scope::Module("trade".into()), 12),
+            grant(false, Scope::Program("trade".into()), 12),
             "Grant carol trade",
         ),
         (
-            grant(true, Scope::Module("chat".into()), 13),
+            grant(true, Scope::Program("chat".into()), 13),
             "Revoke release-bot chat",
         ),
         (
             grant(true, Scope::All, 13),
-            "Revoke release-bot every module",
+            "Revoke release-bot every program",
         ),
         (
             grant(false, Scope::All, 99),
-            "Grant account 99 every module",
+            "Grant account 99 every program",
         ),
     ];
     let names = Names::from([(12, "carol".into()), (13, "release-bot".into())]);
@@ -476,10 +477,10 @@ fn every_motion_reads_in_words() {
 fn grant(revoke: bool, scope: Scope, account: u64) -> Motion {
     let grant = Grant { scope, account };
     let op = match revoke {
-        false => module_registry::Op::Grant(grant),
-        true => module_registry::Op::Revoke(grant),
+        false => programs::Op::Grant(grant),
+        true => programs::Op::Revoke(grant),
     };
-    Motion::Registry {
+    Motion::Programs {
         op: abi::encode(&op),
     }
 }
@@ -491,7 +492,7 @@ fn no_press_votes_before_the_motions_are_read() {
     let mut cx = TestAppContext::new();
     node(&mut cx);
     respond_voter(&mut cx);
-    cx.host().never::<Query<Modules>>();
+    cx.host().never::<Query<Programs>>();
     let session = cx.host().stream::<HostSession>();
     cx.open::<Nodes>();
     session.send(Session {
@@ -500,12 +501,10 @@ fn no_press_votes_before_the_motions_are_read() {
     });
     cx.run_until_parked();
     assert!(cx.has_text("not yet"));
-    let Some(ducktape_view_guest::wire::Node::Container(
-        ducktape_view_guest::wire::ContainerNode {
-            interactivity: Some(interactivity),
-            ..
-        },
-    )) = cx.find("nodes-door-open")
+    let Some(view::wire::Node::Container(view::wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })) = cx.find("nodes-door-open")
     else {
         panic!("the door's button")
     };

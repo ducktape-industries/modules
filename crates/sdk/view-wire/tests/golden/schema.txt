@@ -23,12 +23,12 @@ live.publish None LivePublish -> Publishing
 live.send None LiveSend -> ()
 live.subscribe None LiveSubscribe -> LiveItem
 live.tracks None String -> LiveAnnounce
-module.changes Some("P") () -> Option<Change>
-module.describe None (String, Vec<u8>) -> Option<Description>
-module.query Some("P") ModuleQuery -> ModuleReply
 notify.post None Notification -> Delivery
 notify.seen None String -> ()
-op.submit Some("P") ModuleOp -> Vec<u8>
+op.submit Some("P") ProgramOp -> Vec<u8>
+program.changes Some("P") () -> Option<Change>
+program.describe None (String, Vec<u8>) -> Option<Description>
+program.query Some("P") ProgramQuery -> ProgramReply
 store.get None String -> Option<Vec<u8>>
 store.set None (String, Option<Vec<u8>>) -> ()
 
@@ -67,9 +67,6 @@ LiveSend = Struct { fields: NamedFields([("track", "LiveTrack"), ("group", "u64"
 LiveSubscribe = Struct { fields: NamedFields([("track", "LiveTrack"), ("latest", "bool")]) }
 LiveTrack = Struct { fields: NamedFields([("room", "String"), ("name", "String")]) }
 Located = Struct { fields: NamedFields([("height", "u64"), ("position", "u32"), ("time", "u64"), ("tx", "Tx")]) }
-ModuleOp = Struct { fields: Empty }
-ModuleQuery = Struct { fields: Empty }
-ModuleReply = Struct { fields: Empty }
 NetworkStatus = Struct { fields: NamedFields([("height", "u64"), ("members", "Vec<Peer>")]) }
 NodeStatus = Struct { fields: NamedFields([("chain_id", "String"), ("time", "u64"), ("block_time_ms", "u64"), ("epoch_length", "u64"), ("height", "u64"), ("tip", "[u8; 32]"), ("root", "[u8; 32]"), ("epoch", "u64"), ("identity", "Vec<u8>"), ("contract", "u32")]) }
 Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String")]) }
@@ -84,6 +81,9 @@ Outcome = Enum { tag_width: 1, variants: [(0, "Applied", "Outcome__Applied"), (1
 Outcome__Applied = Struct { fields: NamedFields([("output", "Vec<u8>")]) }
 Outcome__Rejected = Struct { fields: UnnamedFields(["Error"]) }
 Peer = Struct { fields: NamedFields([("key", "Vec<u8>"), ("signed", "Option<u64>")]) }
+ProgramOp = Struct { fields: Empty }
+ProgramQuery = Struct { fields: Empty }
+ProgramReply = Struct { fields: Empty }
 Publishing = Enum { tag_width: 1, variants: [(0, "Subscribers", "Publishing__Subscribers")] }
 Publishing__Subscribers = Struct { fields: UnnamedFields(["u32"]) }
 Receipt = Struct { fields: NamedFields([("program", "String"), ("outcome", "Outcome"), ("events", "Vec<Vec<u8>>"), ("nested", "Vec<Receipt>")]) }
@@ -95,14 +95,14 @@ TxAsk = Struct { fields: NamedFields([("tx", "TxRef"), ("most", "u32")]) }
 TxRef = Enum { tag_width: 1, variants: [(0, "At", "TxRef__At"), (1, "Hash", "TxRef__Hash")] }
 TxRef__At = Struct { fields: NamedFields([("height", "u64"), ("position", "u32")]) }
 TxRef__Hash = Struct { fields: UnnamedFields(["[u8; 32]"]) }
-Value = Enum { tag_width: 1, variants: [(0, "Text", "Value__Text"), (1, "Account", "Value__Account"), (2, "Key", "Value__Key"), (3, "Module", "Value__Module"), (4, "Hash", "Value__Hash"), (5, "Amount", "Value__Amount"), (6, "Time", "Value__Time"), (7, "Bytes", "Value__Bytes"), (8, "List", "Value__List")] }
+Value = Enum { tag_width: 1, variants: [(0, "Text", "Value__Text"), (1, "Account", "Value__Account"), (2, "Key", "Value__Key"), (3, "Program", "Value__Program"), (4, "Hash", "Value__Hash"), (5, "Amount", "Value__Amount"), (6, "Time", "Value__Time"), (7, "Bytes", "Value__Bytes"), (8, "List", "Value__List")] }
 Value__Account = Struct { fields: UnnamedFields(["u64"]) }
 Value__Amount = Struct { fields: NamedFields([("value", "u128"), ("decimals", "u8")]) }
 Value__Bytes = Struct { fields: NamedFields([("len", "u64"), ("preview", "Vec<u8>")]) }
 Value__Hash = Struct { fields: UnnamedFields(["Vec<u8>"]) }
 Value__Key = Struct { fields: UnnamedFields(["Vec<u8>"]) }
 Value__List = Struct { fields: UnnamedFields(["Vec<Value>"]) }
-Value__Module = Struct { fields: UnnamedFields(["String"]) }
+Value__Program = Struct { fields: UnnamedFields(["String"]) }
 Value__Text = Struct { fields: UnnamedFields(["String"]) }
 Value__Time = Struct { fields: UnnamedFields(["u64"]) }
 Vec<Block> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Block" }

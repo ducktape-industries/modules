@@ -3,12 +3,14 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use store::{Item, Map, Set};
 
+use ::program::Ticket;
+
 use crate::{ProviderRow, RequestRow};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Stored {
     pub row: RequestRow,
-    pub deliver: Vec<u8>,
+    pub ticket: Ticket,
 }
 
 pub const PROVIDERS: Map<Vec<u8>, ProviderRow> = Map::new("provider/");

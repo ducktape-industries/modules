@@ -1,6 +1,6 @@
 //! Account: who the seated key is (its account, its keys, the agents it
 //! manages) and invites to the network, one pane each behind a left menu.
-//! The program is still `settings` (module-registry's view); only its name
+//! The program is still `settings` (`programs`'s view); only its name
 //! on screen is Account. The node's own status is the Nodes view's, and
 //! the app's preferences the host's gear.
 //!
@@ -15,20 +15,20 @@ mod watch;
 
 pub use state::Settings;
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 impl View for Settings {
     const NAME: &'static str = "Account";
     const DESCRIPTION: &'static str = "Your account, its keys, the agents it manages, and invites.";
     const ICON: &'static str = "icons/circle-user.svg";
     const CAPABILITIES: &'static [Capability] = &[
-        Capability::Module,
+        Capability::Program,
         Capability::Op,
         Capability::Invite,
         Capability::Host,
         Capability::Clipboard,
     ];
-    const TARGETS: &'static [&'static str] = &[identity::MODULE, valset::MODULE];
+    const TARGETS: &'static [&'static str] = &[identity::PROGRAM, valset::PROGRAM];
     // at 480 the Agents page's "Create agent" and "Add key" are cut
     const MIN_WINDOW_WIDTH: u32 = 560;
 

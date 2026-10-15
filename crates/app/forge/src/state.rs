@@ -4,9 +4,9 @@
 
 use std::collections::BTreeMap;
 
+use ::program::{Error, code};
+use ::program::{ExecCtx, QueryCtx, invalid, not_found};
 use gitcore::{Hash, Oid};
-use guest::{Error, code};
-use guest::{ExecCtx, QueryCtx, invalid, not_found};
 use store::{Item, Map, Set};
 
 use crate::contract::{Bounds, Change, Principal, Repo, Review, Revision, valid_repo_name};
@@ -187,12 +187,12 @@ fn next_message_number(ctx: &QueryCtx) -> Result<u64, Error> {
 }
 
 fn message_id(n: u64) -> String {
-    chat::namespace::id(crate::MODULE, &format!("{n:016x}"))
+    chat::namespace::id(crate::PROGRAM, &format!("{n:016x}"))
 }
 
 /// Change `n`'s hidden chat channel: `forge:<repo>:<n>`.
 pub(crate) fn channel_id(repo: &str, n: u64) -> String {
-    chat::namespace::id(crate::MODULE, &format!("{repo}:{n}"))
+    chat::namespace::id(crate::PROGRAM, &format!("{repo}:{n}"))
 }
 
 /// A counter one step on, refused rather than wrapped.

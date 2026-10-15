@@ -2,10 +2,10 @@
 //! links opened into it, and the live heads of the programs whose lists it
 //! shows. Every follower says what a refusal means to it; none ends on one.
 use activity::Activity;
-use ducktape_view_guest::prelude::*;
 use identity::Identity;
-use module_registry::Modules;
+use programs::Programs;
 use valset::Valset;
+use view::prelude::*;
 
 use crate::Explorer;
 
@@ -33,8 +33,8 @@ impl Explorer {
             Err(refusal) => cx.log_refused("the route", &refusal),
         })
         .detach();
-        // an account made, renamed or re-keyed, by anyone: a module's
-        // `RegisterModule` included, which no transaction targets
+        // an account made, renamed or re-keyed, by anyone: a program's
+        // `RegisterProgram` included, which no transaction targets
         cx.follow::<Changes<Identity>>((), |view, head, cx| match head {
             Ok(_) => view.read_accounts(cx),
             Err(refusal) => cx.log_refused("identity's live heads", &refusal),
@@ -48,9 +48,9 @@ impl Explorer {
             Err(refusal) => cx.log_refused("valset's live heads", &refusal),
         })
         .detach();
-        cx.follow::<Changes<Modules>>((), |view, head, cx| match head {
+        cx.follow::<Changes<Programs>>((), |view, head, cx| match head {
             Ok(_) => view.read_network(cx),
-            Err(refusal) => cx.log_refused("the registry's live heads", &refusal),
+            Err(refusal) => cx.log_refused("the programs role's live heads", &refusal),
         })
         .detach();
         cx.follow::<Changes<Activity>>((), |view, head, cx| match head {

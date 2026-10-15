@@ -4,9 +4,9 @@ use super::{accounts, booted, change_screen, opened, refusal};
 use crate::Forge;
 use crate::api::Ask;
 use crate::state::ChangeTab;
-use ducktape_view_guest::Theme;
-use ducktape_view_guest::methods::Query;
-use ducktape_view_guest::testing::TestAppContext;
+use view::Theme;
+use view::methods::Query;
+use view::testing::TestAppContext;
 
 /// `FORGE_SCREEN_EXPORT=1` writes each screen's frame for the app's
 /// node-less renderer (`ducktape-app --render-tree <json>`), light and dark.

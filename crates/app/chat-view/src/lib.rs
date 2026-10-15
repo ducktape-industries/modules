@@ -26,7 +26,7 @@ mod watch;
 
 pub use state::*;
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 /// Rows asked per page.
 const PAGE: usize = 64;
@@ -40,7 +40,7 @@ impl View for Chat {
         "Channels, direct messages, threads, search and the live call of this workspace.";
     const ICON: &'static str = "icons/messages-square.svg";
     const CAPABILITIES: &'static [Capability] = &[
-        Capability::Module,
+        Capability::Program,
         Capability::Op,
         Capability::Host,
         Capability::Link,
@@ -48,10 +48,7 @@ impl View for Chat {
         Capability::Notify,
         Capability::Store,
     ];
-    const TARGETS: &'static [&'static str] = &[
-        chat::MODULE,
-        <program::role::Identity as ducktape_view_guest::methods::Program>::NAME,
-    ];
+    const TARGETS: &'static [&'static str] = &[chat::PROGRAM, identity::PROGRAM];
     // at 480 an agent message's head line is cut at the room's edge
     const MIN_WINDOW_WIDTH: u32 = 560;
 
@@ -64,6 +61,7 @@ impl View for Chat {
             draft.retire_device_requests();
         }
         self.menu = None;
+        self.copy = None;
         self.watch(cx);
         if self.names.is_idle() {
             self.load_names(cx);

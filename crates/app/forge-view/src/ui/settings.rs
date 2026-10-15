@@ -1,13 +1,13 @@
 //! Repository settings: the default head, the force/delete flags and who
 //! may write, as setting rows. Nothing the contract does not expose
 //! appears here.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
 use crate::state::{Menu, SettingsForm};
 use crate::ui::changes::people_picker;
-use crate::ui::components::{button, dropdown, id, menu, menu_item, ref_label};
+use crate::ui::components::{button, dropdown, id, ref_label};
 use crate::ui::{PAGE_X, pending, scroller, staged};
 use forge::Reply;
 
@@ -89,7 +89,8 @@ fn group(key: &str, title: &str, theme: &Theme) -> Stateful<Div> {
         .child(title.to_owned())
 }
 
-/// The branches a default head may name, as a dropdown.
+/// The branches a default head may name, as a dropdown
+/// ([`crate::ui::components::menu`]).
 fn heads(forge: &Forge, form: &SettingsForm, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     dropdown(
         Menu::Head.key(),
@@ -100,39 +101,6 @@ fn heads(forge: &Forge, form: &SettingsForm, cx: &mut Context<Forge>, theme: &Th
             forge.open_dropdown(Menu::Head, event, window, cx)
         }),
     )
-}
-
-/// The default head's menu, open: every branch, the form's head checked.
-pub(crate) fn head_menu(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let head = forge
-        .repo_settings
-        .as_ref()
-        .map(|form| form.head.clone())
-        .unwrap_or_default();
-    let items = forge
-        .branches()
-        .into_iter()
-        .map(|name| {
-            let pick = cx.processor({
-                let name = name.clone();
-                move |forge, (): (), window, cx| {
-                    if let Some(form) = &mut forge.repo_settings {
-                        form.head = name.clone();
-                    }
-                    forge.close_dropdown(Menu::Head, window, cx);
-                }
-            });
-            menu_item(
-                id(format!("forge-settings-head-{}", ref_label(&name))),
-                ref_label(&name),
-                None,
-                head == name,
-                theme,
-                move |window, app| pick((), window, app),
-            )
-        })
-        .collect();
-    menu(Menu::Head, "Default head", items, forge, cx, theme)
 }
 
 /// The force and delete switches.
@@ -276,7 +244,10 @@ fn grant_field(
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Search members"),
+            .placeholder("Search members")
+            .when(forge.owns_repo(), |input| {
+                input.on_submit(cx.listener(|forge, _: &(), _, cx| forge.grant(cx)))
+            }),
         )
         .child(
             button(id("forge-settings-grant"), "Grant", theme, grant)

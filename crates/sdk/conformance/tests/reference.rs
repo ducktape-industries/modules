@@ -1,9 +1,11 @@
-// The suite run on the reference modules.
+// The suite run on the reference programs.
 
-use abi::role::registry::{Entry, View};
+use abi::role::programs::{Entry, View};
 use abi::role::validators::Member;
 use conformance::env;
-use guest::{AccountNumber, BlobId, Error, MockHost, Module, Origin, Principal, Scheme};
+use program::{AccountNumber, BlobId, Error, MockHost, Origin, Principal, Program, Scheme};
+
+const VALIDATOR: u8 = 5;
 
 struct Identity;
 
@@ -65,7 +67,7 @@ impl Identity {
 }
 
 impl conformance::identity::Fixture for Identity {
-    type Module = identity::Identity;
+    type Program = identity::Identity;
 
     fn host(&self) -> MockHost {
         let host = MockHost::default();
@@ -111,6 +113,14 @@ impl conformance::identity::Fixture for Identity {
     fn revoke(&self, host: &MockHost, account: AccountNumber) {
         Self::as_manager(host, account, identity::Op::Revoke { account });
     }
+
+    fn hand(&self, host: &MockHost, account: AccountNumber, program: &str) {
+        let op = identity::Op::SetRunner {
+            account,
+            runner: Some(program.into()),
+        };
+        Self::as_manager(host, account, op);
+    }
 }
 
 #[test]
@@ -143,7 +153,7 @@ impl Valset {
                 return Ok(());
             }
         }
-        Err(guest::wrong_state(
+        Err(program::wrong_state(
             "every validator voted and the motion did not pass",
         ))
     }
@@ -168,11 +178,12 @@ impl Valset {
 }
 
 impl conformance::validators::Fixture for Valset {
-    type Module = valset::Valset;
+    type Program = valset::Valset;
 
     fn seat(&self, host: &MockHost, member: Member) -> Result<(), Error> {
         let enroll = valset::Op::Enroll {
             address: member.address,
+            halo: member.halo,
             invite: Some(Self::invite(host, &member.key)),
         };
         Self::run(host, &member.key, enroll)?;
@@ -189,46 +200,84 @@ fn valset_fills_the_validators_role() {
     conformance::validators::run(&Valset);
 }
 
-struct Registry;
+struct Programs {
+    blobs: MockHost,
+}
 
-impl Registry {
-    fn run(host: &MockHost, height: u64, op: module_registry::Op) -> Result<(), Error> {
-        let validators = Origin::Module(MockHost::roles().validators);
-        let env = env("module-registry", height, validators, None);
-        module_registry::Modules::execute(&host.exec(env), op)
+impl Programs {
+    fn new() -> Programs {
+        let valset = MockHost::default();
+        let genesis = valset::Genesis {
+            validators: vec![Member {
+                key: vec![VALIDATOR; 32],
+                address: None,
+                halo: "validator.example.org:9100".into(),
+            }],
+            member_cap: 4,
+        };
+        valset::Valset::init(
+            &valset.exec(conformance::root("valset", 0)),
+            &abi::encode(&genesis),
+        )
+        .unwrap();
+        let blobs = MockHost::default();
+        blobs.sibling::<valset::Valset>(MockHost::roles().validators, &valset);
+        Programs { blobs }
+    }
+
+    fn blobs(&self, op: blobs::Op, signer: Vec<u8>) -> Result<Vec<u8>, Error> {
+        let env = env(
+            "blobs",
+            1,
+            Origin::Signed(signer),
+            Some(Principal::Account(1)),
+        );
+        blobs::Blobs::execute(&self.blobs.exec(env), op)?;
+        Ok(self.blobs.take_output())
+    }
+
+    fn run(host: &MockHost, height: u64, op: programs::Op) -> Result<(), Error> {
+        let validators = Origin::Program(MockHost::roles().validators);
+        let env = env("programs", height, validators, None);
+        programs::Programs::execute(&host.exec(env), op)
     }
 
     fn schedule(
         host: &MockHost,
         height: u64,
         at: u64,
-        change: module_registry::Change,
+        change: programs::Change,
     ) -> Result<(), Error> {
-        let scheduled = module_registry::Scheduled { height: at, change };
-        Self::run(host, height, module_registry::Op::Schedule(scheduled))
+        let scheduled = programs::Scheduled { height: at, change };
+        Self::run(host, height, programs::Op::Schedule(scheduled))
     }
 }
 
-impl conformance::registry::Fixture for Registry {
-    type Module = module_registry::Modules;
+impl conformance::programs::Fixture for Programs {
+    type Program = programs::Programs;
 
-    fn publish(&self, host: &MockHost, height: u64, body: &[u8]) -> Result<BlobId, Error> {
-        let body = body.to_vec();
-        Self::run(host, height, module_registry::Op::Publish { body })?;
-        Ok(abi::decode(&host.take_output()).unwrap())
+    fn hold(&self, host: &MockHost, body: &[u8]) -> Result<BlobId, Error> {
+        host.sibling::<blobs::Blobs>(MockHost::roles().blobs, &self.blobs);
+        let framed = blob::frame(programs::CODE_KIND, body).unwrap();
+        let entry = blobs::Entry::of(&framed).unwrap();
+        let code = entry.id;
+        let put = blobs::Op::Put { blobs: vec![entry] };
+        let bundle: u64 = abi::decode(&self.blobs(put, vec![1; 32])?).unwrap();
+        self.blobs(blobs::Op::Receipt { bundle }, vec![VALIDATOR; 32])?;
+        Ok(code)
     }
 
     fn set(&self, host: &MockHost, height: u64, at: u64, entry: Entry) -> Result<(), Error> {
-        Self::schedule(host, height, at, module_registry::Change::Set(entry))
+        Self::schedule(host, height, at, programs::Change::Set(entry))
     }
 
     fn remove(&self, host: &MockHost, height: u64, at: u64, program: &str) -> Result<(), Error> {
-        let change = module_registry::Change::Remove(program.into());
+        let change = programs::Change::Remove(program.into());
         Self::schedule(host, height, at, change)
     }
 
     fn set_hook(&self, host: &MockHost, height: u64, at: u64, program: &str) -> Result<(), Error> {
-        let change = module_registry::Change::SetHook(program.into());
+        let change = programs::Change::SetHook(program.into());
         Self::schedule(host, height, at, change)
     }
 
@@ -239,21 +288,36 @@ impl conformance::registry::Fixture for Registry {
         at: u64,
         program: &str,
     ) -> Result<(), Error> {
-        let change = module_registry::Change::RemoveHook(program.into());
+        let change = programs::Change::RemoveHook(program.into());
         Self::schedule(host, height, at, change)
     }
 
     fn views(&self, host: &MockHost, height: u64) -> Vec<View> {
-        let env = env("module-registry", height, Origin::Root, None);
-        let query = module_registry::Query::Views(height);
-        match module_registry::Modules::query(&host.query(env), query).unwrap() {
-            module_registry::Reply::Views(views) => views,
+        let env = env("programs", height, Origin::Root, None);
+        let query = programs::Query::Views(height);
+        match programs::Programs::query(&host.query(env), query).unwrap() {
+            programs::Reply::Views(views) => views,
             other => panic!("Views answers Views, not {other:?}"),
         }
     }
 }
 
 #[test]
-fn module_registry_fills_the_registry_role() {
-    conformance::registry::run(&Registry);
+fn program_programs_fills_the_programs_role() {
+    conformance::programs::run(&Programs::new());
+}
+
+struct Awaits;
+
+impl conformance::awaits::Fixture for Awaits {
+    type Program = awaits::Awaits;
+
+    fn host(&self) -> MockHost {
+        MockHost::default()
+    }
+}
+
+#[test]
+fn awaits_fills_the_awaits_role() {
+    conformance::awaits::run(&Awaits);
 }

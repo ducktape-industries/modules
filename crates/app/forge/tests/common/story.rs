@@ -55,7 +55,7 @@ impl Rig {
     /// The actor's op in a new block, and what it emitted run in its frame;
     /// a refusal left forge's store as it was.
     #[track_caller]
-    pub fn execute(&mut self, op: &Op) -> Result<Vec<u8>, guest::Error> {
+    pub fn execute(&mut self, op: &Op) -> Result<Vec<u8>, program::Error> {
         self.advance();
         let (actor, height) = (self.actor.clone(), self.height);
         self.sandbox
@@ -65,7 +65,7 @@ impl Rig {
 
     /// The refusal of the actor's op, which left forge's store as it was.
     #[track_caller]
-    pub fn refused(&mut self, op: &Op) -> guest::Error {
+    pub fn refused(&mut self, op: &Op) -> program::Error {
         self.advance();
         let (actor, height) = (self.actor.clone(), self.height);
         self.sandbox
@@ -73,7 +73,7 @@ impl Rig {
             .refused(|| signed_op(&self.sandbox, &actor, height, op))
     }
 
-    pub fn query(&self, query: &Query) -> Result<Vec<u8>, guest::Error> {
+    pub fn query(&self, query: &Query) -> Result<Vec<u8>, program::Error> {
         Forge::answer(&self.sandbox.reads(self.height), query.clone())
     }
 
@@ -82,8 +82,8 @@ impl Rig {
     pub fn chat_execute(&mut self, principal: Principal, msg: chat::Op) {
         self.advance();
         let origin = match principal {
-            Principal::Account(number) => match sandbox::module_of(number) {
-                Some(module) => Origin::Module(module.into()),
+            Principal::Account(number) => match sandbox::program_of(number) {
+                Some(program) => Origin::Program(program.into()),
                 None => {
                     let roster = self.sandbox.chain.roster();
                     let (key, _) = roster
@@ -206,12 +206,18 @@ impl Story {
             (zero, unrelated, "refs/heads/unrelated"),
             (zero, v1, "refs/tags/v1"),
         ];
-        let pack = pack_of(&store, &all_ids(&store));
+        let pack = held_blob(
+            &rig.sandbox,
+            forge::PACK_KIND,
+            &pack_of(&store, &all_ids(&store)),
+        );
         rig.execute(&Op::Push {
             repo: REPO.into(),
-            request: push_request(&commands, &pack),
+            request: push_request(&commands),
+            pack: Some(pack),
         })
         .unwrap();
+        forget(&rig.sandbox, pack);
         Story {
             objects: store,
             root: root.to_hex(),
@@ -265,12 +271,18 @@ impl Story {
         tree.entries.push(entry(Mode::Regular, name, file));
         let new_tree = put_tree(s, tree.entries);
         let tip = commit(s, new_tree, &[old], TIME as i64, name);
-        let pack = pack_of(s, &[file, new_tree, tip]);
+        let pack = held_blob(
+            &rig.sandbox,
+            forge::PACK_KIND,
+            &pack_of(s, &[file, new_tree, tip]),
+        );
         rig.execute(&Op::Push {
             repo: REPO.into(),
-            request: push_request(&[(old, tip, "refs/heads/feature")], &pack),
+            request: push_request(&[(old, tip, "refs/heads/feature")]),
+            pack: Some(pack),
         })
         .unwrap();
+        forget(&rig.sandbox, pack);
         self.feature = tip.to_hex();
         tip.to_hex()
     }

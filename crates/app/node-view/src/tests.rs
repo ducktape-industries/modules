@@ -1,11 +1,11 @@
 //! The sheet as a view: what it asks the host, and what it draws from the
 //! answers. The row words themselves are `tests/rows.rs`.
 use super::*;
-use ducktape_view_guest::methods::{
+use view::methods::{
     Block, BlockList, BlockPage, ChainBlocks, ChainNetwork, ChainStatus, ClockTicks, NetworkStatus,
     NodeStatus, Peer, Query,
 };
-use ducktape_view_guest::testing::{StreamSender, TestAppContext};
+use view::testing::{StreamSender, TestAppContext};
 
 mod network;
 mod rows;
@@ -108,6 +108,7 @@ fn membership(key: &[u8], address: &str, role: valset::Role) -> valset::Membersh
     valset::Membership {
         key: key.to_vec(),
         address: Some(address.into()),
+        halo: "node.example.org:9100".into(),
         role,
     }
 }
@@ -163,8 +164,8 @@ fn texts_of(cx: &TestAppContext, key: &str) -> Vec<String> {
     texts
 }
 
-fn collect(node: &ducktape_view_guest::wire::Node, texts: &mut Vec<String>) {
-    use ducktape_view_guest::wire::Node;
+fn collect(node: &view::wire::Node, texts: &mut Vec<String>) {
+    use view::wire::Node;
     match node {
         Node::Text(text) => texts.push(text.content.to_string()),
         Node::Container(container) => {
@@ -179,7 +180,7 @@ fn collect(node: &ducktape_view_guest::wire::Node, texts: &mut Vec<String>) {
 #[test]
 fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();
-    let dark = ducktape_view_guest::Theme::dark();
+    let dark = view::Theme::dark();
     cx.set_global(dark);
     let style = cx.style("nodes");
     assert_eq!(
@@ -259,16 +260,14 @@ fn every_key_is_one_row_validators_first() {
         "—",
         "no membership, no address"
     );
-    let Some(ducktape_view_guest::wire::Node::Container(
-        ducktape_view_guest::wire::ContainerNode {
-            interactivity: Some(interactivity),
-            ..
-        },
-    )) = cx.find("nodes-validators")
+    let Some(view::wire::Node::Container(view::wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })) = cx.find("nodes-validators")
     else {
         panic!("group heading is a native container");
     };
-    assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Heading));
+    assert_eq!(interactivity.role, Some(view::Role::Heading));
 }
 
 /// The strip spans the last 64, read a page at a time; a resident leads
@@ -382,11 +381,11 @@ fn a_refused_live_head_is_logged_and_the_set_stays() {
     assert!(cx.has_text("10.0.0.1:4000"));
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostLog>()
+            .requests::<view::methods::HostLog>()
             .iter()
             .any(|line| line.contains("valset's live heads") && line.contains("no live heads here")),
         "{:?}",
-        cx.host().requests::<ducktape_view_guest::methods::HostLog>()
+        cx.host().requests::<view::methods::HostLog>()
     );
 }
 

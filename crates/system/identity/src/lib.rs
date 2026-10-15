@@ -1,9 +1,9 @@
 //! The `identity` program: accounts, and who acts as each. Everything that
 //! acts is an account: a person (the keys they hold), an agent (the keys its
-//! manager, a person, adds) and a module (the account the kernel registers
-//! as it admits the module). The types, rules and [`Identity`] module are
-//! always built; a view links them with `module` off (`view.rs` is what a
-//! view shows of an account). The `module` feature adds its wasm exports.
+//! manager, a person, adds) and a program (the account the kernel registers
+//! as it admits the program). The types, rules and [`Identity`] program are
+//! always built; a view links them with `program` off (`view.rs` is what a
+//! view shows of an account). The `program` feature adds its wasm exports.
 //!
 //! It fills the kernel's identity role (`abi::role::identity`): the role's
 //! op, queries and replies are the first variants of [`Op`], [`Query`] and
@@ -15,20 +15,18 @@ mod rules;
 mod tests;
 pub mod view;
 
+pub use ::program::AccountNumber;
 pub use abi::role::identity::{Category, Kind, Profile, Standing};
-pub use guest::AccountNumber;
 pub use program::Identity;
 
+use ::program::{BlobId, ProgramId, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{BlobId, ModuleId, Scheme};
 pub use store::{PageRequest, PageResponse};
 
-/// The name this module runs under: the one the identity role is bound to
-/// (`program::role::Identity`), spelled there once.
-pub const MODULE: &str = <::program::role::Identity as ::program::Program>::NAME;
+/// The name this program runs under.
+pub const PROGRAM: &str = "identity";
 /// What a key signs to consent to a key joining an account ([`Admission`]).
 pub const CONSENT_NAMESPACE: &[u8] = b"ducktape:identity:consent";
-pub const MAX_AUDIENCE: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Key {
@@ -55,7 +53,7 @@ pub struct Card {
     pub updated_at: u64,
 }
 
-/// Who acts as an account, and with which keys. A module's account has no
+/// Who acts as an account, and with which keys. A program's account has no
 /// keys to hold; a revoked agent has none left ([`Life`]).
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Control {
@@ -67,9 +65,10 @@ pub enum Control {
         manager: AccountNumber,
         category: Category,
         life: Life,
+        runner: Option<ProgramId>,
     },
-    /// A module's account: the module alone acts as it.
-    Module { module: ModuleId },
+    /// A program's account: the program alone acts as it.
+    Program { program: ProgramId },
 }
 
 /// Whether an agent acts. Suspended keeps its keys, so resuming issues
@@ -90,7 +89,7 @@ pub enum Audience {
 }
 
 impl Account {
-    /// The keys that act as this account: none for a module's or a
+    /// The keys that act as this account: none for a program's or a
     /// revoked agent.
     pub fn keys(&self) -> &[Key] {
         match &self.control {
@@ -103,7 +102,7 @@ impl Account {
                 life: Life::Revoked,
                 ..
             }
-            | Control::Module { .. } => &[],
+            | Control::Program { .. } => &[],
         }
     }
 
@@ -119,7 +118,7 @@ impl Account {
                 manager,
                 category,
                 life,
-                ..
+                runner,
             } => Kind::Managed {
                 manager: *manager,
                 category: *category,
@@ -128,8 +127,9 @@ impl Account {
                     Life::Suspended { .. } => Standing::Suspended,
                     Life::Revoked => Standing::Revoked,
                 },
+                runner: runner.clone(),
             },
-            Control::Module { module } => Kind::Module(module.clone()),
+            Control::Program { program } => Kind::Program(program.clone()),
         }
     }
 
@@ -174,9 +174,9 @@ impl Admission {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
     /// The identity role's op (`abi::role::identity::Op`), first: the
-    /// system gives an admitted module its account.
-    RegisterModule {
-        module: ModuleId,
+    /// system gives an admitted program its account.
+    RegisterProgram {
+        program: ProgramId,
     },
     /// A person's account, holding the signing key.
     Create {
@@ -220,6 +220,10 @@ pub enum Op {
         account: AccountNumber,
         audience: Audience,
     },
+    SetRunner {
+        account: AccountNumber,
+        runner: Option<ProgramId>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -233,18 +237,23 @@ pub enum Reference {
 pub enum Query {
     /// The identity role's queries (`abi::role::identity::Query`), first
     /// and in its order: the account a key acts as (refused while it does
-    /// not act), a module's account, one account's profile and every
+    /// not act), a program's account, one account's profile and every
     /// account's.
     #[ask(Reply::Number(Option<AccountNumber>))]
     OfKey { key: Vec<u8> },
     #[ask(Reply::Number(Option<AccountNumber>))]
-    OfModule { module: ModuleId },
+    OfProgram { program: ProgramId },
     #[ask(Reply::Profile(Option<Profile>))]
     Profile { number: AccountNumber },
     #[ask(Reply::Profiles { profiles: Vec<Profile>, next: Option<AccountNumber> })]
     Profiles {
         after: Option<AccountNumber>,
         limit: u32,
+    },
+    #[ask(Reply::Number(Option<AccountNumber>))]
+    Runs {
+        program: ProgramId,
+        account: AccountNumber,
     },
     #[ask(Reply::Account(Option<Account>))]
     Get { number: AccountNumber },
@@ -281,7 +290,7 @@ pub enum Reply {
 }
 
 /// An op as a person reads it: a title and its fields. The source of the
-/// `ducktape.describe` module this module ships (`make wasm-describes`).
+/// `ducktape.describe` module this program ships (`make wasm-describes`).
 pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let account = |number: &AccountNumber| field("account", Value::Account(*number));
@@ -307,9 +316,9 @@ pub fn describe(op: &Op) -> describe::Description {
         )
     };
     let (title, fields) = match op {
-        Op::RegisterModule { module } => (
-            format!("Register module · {module}"),
-            vec![field("module", Value::Module(module.clone()))],
+        Op::RegisterProgram { program } => (
+            format!("Register program · {program}"),
+            vec![field("program", Value::Program(program.clone()))],
         ),
         Op::Create { name, scheme: s } => (
             format!("Create · {name}"),
@@ -375,6 +384,21 @@ pub fn describe(op: &Op) -> describe::Description {
             "Set who it answers".into(),
             vec![account(number), field("answers", answers(audience))],
         ),
+        Op::SetRunner {
+            account: number,
+            runner,
+        } => (
+            "Set the program that runs it".into(),
+            vec![
+                account(number),
+                field(
+                    "runner",
+                    runner
+                        .clone()
+                        .map_or_else(|| Value::text("—"), Value::Program),
+                ),
+            ],
+        ),
     };
     describe::Description { title, fields }
 }
@@ -388,7 +412,7 @@ fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
         [
-            "RegisterModule",
+            "RegisterProgram",
             "Create",
             "CreateAgent",
             "AddKey",
@@ -399,6 +423,7 @@ fn op_variants_only_append() {
             "Resume",
             "Revoke",
             "SetAudience",
+            "SetRunner",
         ]
     );
 }
@@ -409,9 +434,10 @@ fn query_and_reply_variants_only_append() {
         describe::variants::<Query>(),
         [
             "OfKey",
-            "OfModule",
+            "OfProgram",
             "Profile",
             "Profiles",
+            "Runs",
             "Get",
             "Generation",
             "Resolve",

@@ -3,8 +3,8 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{
+use view::prelude::*;
+use view::{
     Div, FontStyle, FontWeight, HighlightStyle, Stateful, StrikethroughStyle, UnderlineStyle,
 };
 
@@ -124,7 +124,9 @@ fn column(name: &str, blocks: &[Block], theme: &Theme, on_link: &OnLink) -> Stat
                 .gap_2()
                 .child(
                     div()
+                        .id(id(format!("{key}-marker")))
                         .min_w(LIST_MARKER_W)
+                        .role(Role::ListMarker)
                         .text_color(theme.muted)
                         .font_family(design::fonts::FAMILY_MONO)
                         .text_size(design::text::SECONDARY)
@@ -216,8 +218,8 @@ fn table(key: &str, rows: &[Vec<Text>], theme: &Theme, on_link: &OnLink) -> AnyE
 
 #[cfg(test)]
 mod view_tests {
-    use ducktape_view_guest::testing::TestAppContext;
-    use ducktape_view_guest::{Context, IntoElement, Render, View, Window};
+    use view::testing::TestAppContext;
+    use view::{Context, IntoElement, Render, View, Window};
 
     /// A document that keeps each destination its `OnLink` is handed.
     #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -231,7 +233,7 @@ mod view_tests {
 
     impl Render for Doc {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-            let theme = *cx.global::<ducktape_view_guest::Theme>();
+            let theme = *cx.global::<view::Theme>();
             let doc = cx.weak_entity();
             let on_link: super::super::OnLink = std::rc::Rc::new(move |dest, _, cx| {
                 doc.update(cx, |doc, cx| {

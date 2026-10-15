@@ -1,7 +1,7 @@
 //! The state Settings keeps: what it read, and each form as typed.
-use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use view::prelude::*;
 
 use crate::queries::Seat;
 

@@ -1,8 +1,8 @@
 //! One function per [`Query`](crate::Query), each named by [`Chat::query`](crate::Chat)'s
 //! match and each a read of the tables in `state.rs`. Chat's listings only grow, so a page cursor from any height
 //! resumes where it left off.
-use guest::Range;
-use guest::{Error, QueryCtx, capacity, invalid};
+use ::program::Range;
+use ::program::{Error, QueryCtx, capacity, invalid};
 use store::{PageRequest, PageResponse};
 
 use crate::state::{

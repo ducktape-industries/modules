@@ -5,7 +5,7 @@
 //! The table belongs to the tree the host holds. A frame that carries a
 //! whole tree carries the whole table, which replaces the host's; any other
 //! frame carries the entries the host does not have yet, which the host adds
-//! after the ones it holds. The guest's half is the [`Interner`], the host's
+//! after the ones it holds. The view's half is the [`Interner`], the host's
 //! the [`Styles`] it reads at render.
 
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ mod entry;
 
 /// The most styles a table holds: a tree the host takes has no more nodes
 /// than this, and a table past it is storage, not a tree's styles. A whole
-/// frame over it is refused; a guest whose table outgrows it between whole
+/// frame over it is refused; a view whose table outgrows it between whole
 /// frames sends the next frame whole, which starts the table over.
 pub const MAX_STYLES: usize = crate::MAX_NODES;
 
@@ -136,7 +136,7 @@ fn hash(bytes: &[u8]) -> u64 {
 
 const NONE: u32 = u32::MAX;
 
-/// The guest's half of the table: every distinct style its tree named,
+/// The view's half of the table: every distinct style its tree named,
 /// numbered in the order first met, and how many of them the host has.
 ///
 /// A style keeps its id from frame to frame, so two frames' nodes compare

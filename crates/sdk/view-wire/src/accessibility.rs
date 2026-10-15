@@ -1,5 +1,5 @@
 //! The one rule function for what assistive technology cannot name, place
-//! or reach: the view tests ask [`audit`] of every frame (`ducktape-view-guest`
+//! or reach: the view tests ask [`audit`] of every frame (`view`
 //! testing); the host may, on a decoded frame.
 
 use crate::aria::{HOST_ACTIONS, view_role};

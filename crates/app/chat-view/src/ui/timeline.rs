@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
-use ducktape_view_guest::list as gpui_list;
-use ducktape_view_guest::prelude::*;
+use view::list as gpui_list;
+use view::prelude::*;
 
 use crate::message::{ChatMessage, new_day, unread_seq};
 use crate::ui::room::selection_bar;
@@ -229,6 +229,8 @@ fn rows(
     // so the bound is the recorded count at the key, not at the build
     .cells(cell, usize::MAX)
     .on_move(cx.processor(move |chat, index: usize, _, cx| {
+        // the arrows leave the chosen message behind
+        chat.let_go();
         let cursor = chat.cursor_mut(pane);
         cursor.id = Some(moved_to[index].id.clone());
         cursor.cell = 0;
@@ -258,7 +260,7 @@ fn rows(
         chat.layout.press = chat.key_spot(pane);
         cx.notify();
         match control {
-            None => chat.press_message(pane, seq),
+            None => chat.press_message(pane, seq, false),
             Some(Some(control)) => chat.act(pane, seq, rev, control, window, cx),
             Some(None) => {}
         }

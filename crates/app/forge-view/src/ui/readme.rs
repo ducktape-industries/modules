@@ -1,7 +1,7 @@
 //! The README tab: the root README rendered whole, the repository's front
 //! page. The Code tab is where the tree lives.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use view::prelude::*;
+use view::{Div, Stateful};
 
 use crate::Forge;
 use crate::ui::code::{links, no_commits};
@@ -20,7 +20,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
     let Some(root) = forge.tree_query(Vec::new()) else {
         return page
             .child(match forge.refs() {
-                Some(_) => no_commits(theme),
+                Some(_) => no_commits(forge, theme),
                 None => quiet("Resolving the ref…", theme),
             })
             .into_any_element();

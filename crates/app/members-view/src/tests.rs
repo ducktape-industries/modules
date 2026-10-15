@@ -1,15 +1,15 @@
 use super::*;
 use ::activity::Activity;
 use abi::Scheme;
-use ducktape_view_guest::methods::Query;
-use ducktape_view_guest::methods::{
-    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, Description, Located,
-    ModuleDescribe, Session, Tx, TxRef,
-};
-use ducktape_view_guest::testing::TestAppContext;
-use ducktape_view_guest::wire::{ContainerNode, Node};
-use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
 use valset::Valset;
+use view::methods::Query;
+use view::methods::{
+    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, Description, Located,
+    ProgramDescribe, Session, Tx, TxRef,
+};
+use view::testing::TestAppContext;
+use view::wire::{ContainerNode, Node};
+use view::{Hsla, StyleRefinement, Styled, Theme};
 
 #[test]
 fn the_root_tracks_the_shared_theme() {
@@ -54,12 +54,12 @@ fn person(number: u64, name: &str, keys: Vec<identity::Key>) -> identity::Accoun
     account(number, name, identity::Control::Person { keys })
 }
 
-fn module(number: u64, name: &str) -> identity::Account {
+fn program(number: u64, name: &str) -> identity::Account {
     account(
         number,
         name,
-        identity::Control::Module {
-            module: name.into(),
+        identity::Control::Program {
+            program: name.into(),
         },
     )
 }
@@ -69,6 +69,7 @@ fn agent(number: u64, name: &str, manager: u64, life: identity::Life) -> identit
         number,
         name,
         identity::Control::Managed {
+            runner: None,
             manager,
             category: identity::Category::Agent,
             life,
@@ -76,8 +77,8 @@ fn agent(number: u64, name: &str, manager: u64, life: identity::Life) -> identit
     )
 }
 
-fn page<T>(items: Vec<T>) -> module_registry::PageResponse<T> {
-    module_registry::PageResponse {
+fn page<T>(items: Vec<T>) -> programs::PageResponse<T> {
+    programs::PageResponse {
         height: 1,
         items,
         next: None,
@@ -167,12 +168,12 @@ fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
 }
 
 /// eddy (#7, the reader, a validator) manages scout (#9, active) and relay
-/// (#10, revoked); chat (#8) is a module; ada (#11) is another person.
+/// (#10, revoked); chat (#8) is a program; ada (#11) is another person.
 fn respond(cx: &mut TestAppContext) {
     cx.host().handle::<Query<Identity>>(|query| {
         assert!(matches!(query, identity::Query::List { .. }));
         Ok(identity::Reply::Accounts(page(vec![
-            module(8, "chat"),
+            program(8, "chat"),
             person(7, "eddy", vec![key(EDDY, "laptop")]),
             agent(
                 9,
@@ -191,6 +192,7 @@ fn respond(cx: &mut TestAppContext) {
         Ok(valset::Reply::Memberships(page(vec![valset::Membership {
             key: EDDY.to_vec(),
             address: Some("10.0.0.1:4000".into()),
+            halo: "10.0.0.1:9100".into(),
             role: valset::Role::Validator,
         }])))
     });
@@ -202,7 +204,7 @@ fn respond(cx: &mut TestAppContext) {
             block(12, vec![tx(EDDY, 2), tx(SCOUT, 5)]),
         ],
     );
-    cx.host().handle::<ModuleDescribe>(|(target, payload)| {
+    cx.host().handle::<ProgramDescribe>(|(target, payload)| {
         Ok(Some(Description {
             title: format!("Post {} in {target}", payload[0]),
             fields: Vec::new(),
@@ -245,19 +247,19 @@ fn color_of(cx: &TestAppContext, key: &str, text: &str) -> Option<Hsla> {
 }
 
 #[test]
-fn the_list_groups_people_then_agents_then_modules_and_chooses_no_one() {
+fn the_list_groups_people_then_agents_then_programs_and_chooses_no_one() {
     let (cx, _) = ready();
     let texts = cx.texts();
     // the last of each, past the chips of the same names
     let at = |text: &str| texts.iter().rposition(|t| t == text).unwrap();
     assert!(at("People") < at("eddy") && at("eddy") < at("ada"));
     assert!(at("ada") < at("Agents") && at("Agents") < at("scout"));
-    assert!(at("relay") < at("Modules") && at("Modules") < at("chat"));
+    assert!(at("relay") < at("Programs") && at("Programs") < at("chat"));
     for text in [
         "5 accounts",
         "you",
         "Person",
-        "Module",
+        "Program",
         "Agent · managed by eddy",
         "Agent · managed by eddy · revoked",
         "Choose a member",
@@ -303,15 +305,14 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
     assert!(cx.find("members-open-dm").is_none());
     cx.simulate_click("members-explorer");
     assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        cx.host().requests::<view::methods::LinkOpen>(),
         vec!["duck://explorer/account/7".to_owned()]
     );
     // an activity row's block opens Explorer at that block
     cx.simulate_click("members-block-0");
     assert_eq!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>()
+            .requests::<view::methods::LinkOpen>()
             .last()
             .map(String::as_str),
         Some("duck://explorer/block/12")
@@ -342,8 +343,7 @@ fn an_agent_names_its_manager_its_standing_and_its_devices() {
     assert!(!cx.has_text("Post 1 in chat") && !cx.has_text("Post 2 in chat"));
     cx.simulate_click("members-open-dm");
     assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        cx.host().requests::<view::methods::LinkOpen>(),
         vec![ducklink::mint("testnet#0a1b2c3d", "chat", &["dm-7-9"]).unwrap()]
     );
     // the manager's name chooses the manager
@@ -353,11 +353,11 @@ fn an_agent_names_its_manager_its_standing_and_its_devices() {
 }
 
 #[test]
-fn a_module_has_no_devices_and_no_one_to_dm() {
+fn a_program_has_no_devices_and_no_one_to_dm() {
     let (mut cx, _) = ready();
     cx.simulate_click("members-row-8");
     cx.run_until_parked();
-    assert!(cx.has_text("Module") && !cx.has_text("Module · chat"));
+    assert!(cx.has_text("Program") && !cx.has_text("Program · chat"));
     assert!(cx.has_text("No devices"));
     assert!(!cx.has_text("Recent activity") && !cx.has_text("1 device"));
     assert!(cx.find("members-open-dm").is_none());
@@ -379,10 +379,10 @@ fn the_filter_and_the_chips_narrow_together_and_keep_the_choice() {
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
     let reads = cx.host().requests::<Query<Identity>>().len();
-    // Modules: only chat
+    // Programs: only chat
     cx.simulate_click("members-chip-3");
     assert!(cx.find("members-row-8").is_some() && cx.find("members-row-7").is_none());
-    // and a filter on top: nothing is both a module and "ed"
+    // and a filter on top: nothing is both a program and "ed"
     cx.simulate_input("members-filter", "ed");
     assert!(cx.has_text("Nothing matches"));
     // People and "ed": eddy alone
@@ -512,6 +512,7 @@ fn a_valset_block_reaches_the_standing_without_an_identity_bump() {
         Ok(valset::Reply::Memberships(page(vec![valset::Membership {
             key: EDDY.to_vec(),
             address: Some("10.0.0.1:4000".into()),
+            halo: "10.0.0.1:9100".into(),
             role: valset::Role::Resident,
         }])))
     });
@@ -549,7 +550,7 @@ fn a_frame_too_long_to_describe_reads_as_its_size() {
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
     assert!(cx.has_text("forge · 5,000 bytes"), "{:?}", cx.texts());
-    assert!(cx.host().requests::<ModuleDescribe>().is_empty());
+    assert!(cx.host().requests::<ProgramDescribe>().is_empty());
 }
 
 /// The detail's activity read again lands what it shows: nothing draws.
@@ -621,7 +622,7 @@ fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
         _ => panic!("{key} is a container"),
     };
     let list = of(&cx, "members-list");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(list.role, Some(view::Role::ListBox));
     assert!(list.focusable);
     // the first shown row is active before any choice, so ↓ selects the
     // second, and ↑ comes back
@@ -632,7 +633,7 @@ fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
             of(&cx, &format!("members-row-{number}")),
             of(&cx, &format!("members-row-{other}")),
         );
-        assert_eq!(row.role, Some(ducktape_view_guest::Role::ListBoxOption));
+        assert_eq!(row.role, Some(view::Role::ListBoxOption));
         // a focusable row would lose the flag to the host's sanitizer
         assert!(!row.focusable && row.aria.active_descendant);
         assert_eq!(row.aria.selected, Some(true));
@@ -690,7 +691,7 @@ fn a_row_is_named_by_the_member_not_the_avatar() {
         (7, "eddy", "you · Person"),
         (11, "ada", "Person"),
         (10, "relay", "Agent · managed by eddy · revoked"),
-        (8, "chat", "Module"),
+        (8, "chat", "Program"),
     ] {
         let row = aria(&format!("members-row-{number}"));
         assert_eq!(row.label.as_deref(), Some(name));
@@ -799,8 +800,5 @@ fn style(cx: &TestAppContext, key: &str) -> StyleRefinement {
 /// Whether the docked list is `width` wide.
 fn list_is(cx: &TestAppContext, width: f32) -> bool {
     style(cx, "members-list-pane").size.width
-        == StyleRefinement::default()
-            .w(ducktape_view_guest::px(width))
-            .size
-            .width
+        == StyleRefinement::default().w(view::px(width)).size.width
 }

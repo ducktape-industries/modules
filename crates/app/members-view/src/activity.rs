@@ -1,8 +1,8 @@
 //! What an account did lately, as the `activity` program indexes it: the newest frames the
-//! account acted in, each titled by its own program (`module.describe`) from its payload.
+//! account acted in, each titled by its own program (`program.describe`) from its payload.
 use ::activity::PageRequest;
-use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
+use view::prelude::*;
 
 pub const SHOWN: usize = 8;
 
@@ -65,7 +65,7 @@ async fn title(host: &Host, target: &str, tx: Option<Tx>) -> String {
         return format!("{target} · {size}");
     };
     match host
-        .ask::<ModuleDescribe>((target.to_owned(), payload))
+        .ask::<ProgramDescribe>((target.to_owned(), payload))
         .await
     {
         Ok(Some(op)) => op.title,

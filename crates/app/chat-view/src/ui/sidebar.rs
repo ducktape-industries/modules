@@ -1,6 +1,6 @@
 //! The channel and direct-message pane, authored as native GPUI elements.
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use chat::{ChannelInfo, Principal};
 
@@ -198,7 +198,7 @@ fn new_channel(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoE
         .px_1()
         .py_0p5()
         .hover(|s| s.bg(theme.sidebar_raised))
-        .role(ducktape_view_guest::Role::Button)
+        .role(view::Role::Button)
         .focusable()
         .on_click(toggle)
         .child(if chat.create.is_some() {
@@ -394,7 +394,7 @@ pub fn avatar(
     id: impl Into<ElementId>,
     name: &str,
     agent: bool,
-    fill: ducktape_view_guest::Hsla,
+    fill: view::Hsla,
     theme: &Theme,
 ) -> impl IntoElement {
     design::avatar(name, design::size::AVATAR_LG, theme)

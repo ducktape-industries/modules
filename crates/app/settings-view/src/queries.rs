@@ -2,11 +2,11 @@
 //! (identity), the account a typed name or number is, and whether each of
 //! its keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
-use ducktape_view_guest::host::malformed;
-use ducktape_view_guest::prelude::*;
 use identity::{Audience, Control, Kind, PageRequest, Reference, Standing};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use view::host::malformed;
+use view::prelude::*;
 
 /// Who the seated key is.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -26,11 +26,11 @@ pub enum Seat {
 pub struct Account {
     pub number: u64,
     pub name: String,
-    /// what identity says it is: a person, an agent, a module
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    /// what identity says it is: a person, an agent, a program
+    #[serde(with = "view::borsh_bytes")]
     pub kind: Kind,
     pub keys: Vec<Key>,
-    /// a person's account manages agents; an agent's or a module's none
+    /// a person's account manages agents; an agent's or a program's none
     pub manages: bool,
     pub agents: Vec<Agent>,
 }
@@ -42,9 +42,9 @@ pub struct Agent {
     pub name: String,
     pub keys: usize,
     /// what identity says it is: always `Kind::Managed` (checked on read)
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    #[serde(with = "view::borsh_bytes")]
     pub kind: Kind,
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    #[serde(with = "view::borsh_bytes")]
     pub audience: Audience,
     pub names: BTreeMap<u64, String>,
 }
@@ -53,7 +53,7 @@ impl Agent {
     pub fn standing(&self) -> Standing {
         match self.kind {
             Kind::Managed { standing, .. } => standing,
-            Kind::Person | Kind::Module(_) => Standing::Active,
+            Kind::Person | Kind::Program(_) => Standing::Active,
         }
     }
 }
@@ -194,8 +194,8 @@ pub(crate) async fn find(host: Host, typed: String) -> Result<Found, Error> {
             .query(identity::ask::Profiles { after, limit: 100 })
             .await?;
         let named = profiles.into_iter().filter(|profile| {
-            let module = matches!(profile.kind, Kind::Module(_));
-            !module && profile.name.to_lowercase() == wanted
+            let program = matches!(profile.kind, Kind::Program(_));
+            !program && profile.name.to_lowercase() == wanted
         });
         matched.extend(named.map(|profile| profile.number));
         let Some(next) = next else { break };

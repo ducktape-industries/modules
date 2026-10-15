@@ -1,17 +1,19 @@
 #![allow(dead_code, unused_imports)]
-//! The forge module end to end over MemorySandbox: founding, access,
+//! The forge program end to end over MemorySandbox: founding, access,
 //! pushes in steps, advertisement, fetch, merge, sha256.
 
 pub use std::collections::{BTreeMap, BTreeSet};
 
 pub use forge::{Bounds, Forge, Op, PageRequest, Principal, Query, Reply, Service, Settings};
+pub use gitcore::walk::{Closed, Listing};
 pub use gitcore::wire::pktline::{self, Pkt, Reader};
+pub use gitcore::wire::upload::{Command, parse_command, respond};
 pub use gitcore::{
     Commit, Hash, Kind, Limits, MemoryObjects, Mode, Object, Objects, Oid, Signature, Tree,
     TreeEntry, pack,
 };
-pub use guest::{Cause, Env, HashKind, Origin, code};
-pub use guest::{MockHost, Module};
+pub use program::{Blob, BlobId, Cause, Env, HashKind, Origin, code};
+pub use program::{MockHost, Program};
 
 pub mod sandbox;
 pub mod story;
@@ -66,23 +68,23 @@ pub fn signed_op(
     actor: &[u8],
     height: u64,
     op: &Op,
-) -> Result<Vec<u8>, guest::Error> {
+) -> Result<Vec<u8>, program::Error> {
     sandbox.frame(Origin::Signed(actor.to_vec()), height, TIME, op)
 }
 
 /// `actor`'s op; a refusal left forge's store as it was.
 #[track_caller]
-pub fn act(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, guest::Error> {
+pub fn act(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> Result<Vec<u8>, program::Error> {
     sandbox.forge.attempt(|| signed_op(sandbox, actor, 1, op))
 }
 
 /// The refusal of `actor`'s op, which left forge's store as it was.
 #[track_caller]
-pub fn refused(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> guest::Error {
+pub fn refused(sandbox: &MemorySandbox, actor: &[u8], op: &Op) -> program::Error {
     sandbox.forge.refused(|| signed_op(sandbox, actor, 1, op))
 }
 
-pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, guest::Error> {
+pub fn ask(sandbox: &MemorySandbox, query: &Query) -> Result<Vec<u8>, program::Error> {
     Forge::answer(&sandbox.reads(1), query.clone())
 }
 
@@ -170,7 +172,7 @@ pub fn all_ids(store: &MemoryObjects) -> Vec<Oid> {
     store.ids().copied().collect()
 }
 
-pub fn push_request(commands: &[(Oid, Oid, &str)], pack_bytes: &[u8]) -> Vec<u8> {
+pub fn push_request(commands: &[(Oid, Oid, &str)]) -> Vec<u8> {
     let mut request = Vec::new();
     for (index, (old, new, name)) in commands.iter().enumerate() {
         let mut line = format!("{old} {new} {name}").into_bytes();
@@ -181,8 +183,37 @@ pub fn push_request(commands: &[(Oid, Oid, &str)], pack_bytes: &[u8]) -> Vec<u8>
         pktline::push(&mut request, &line);
     }
     request.extend_from_slice(pktline::flush());
-    request.extend_from_slice(pack_bytes);
     request
+}
+
+pub fn held_blob(sandbox: &MemorySandbox, kind: &str, body: &[u8]) -> BlobId {
+    let id = program::blob_id(HashKind::Sha256, kind, body).unwrap();
+    let blob = Blob {
+        kind: kind.into(),
+        body: body.to_vec(),
+    };
+    sandbox.forge.borrow_mut().blobs.insert(id, blob);
+    id
+}
+
+pub fn forget(sandbox: &MemorySandbox, id: BlobId) {
+    for host in [&sandbox.forge, &sandbox.chat] {
+        host.borrow_mut().blobs.remove(&id);
+    }
+}
+
+pub fn with_pack<T>(
+    sandbox: &MemorySandbox,
+    pack: &[u8],
+    run: impl FnOnce(Option<BlobId>) -> T,
+) -> T {
+    let carries_objects = !pack.is_empty();
+    let id = carries_objects.then(|| held_blob(sandbox, forge::PACK_KIND, pack));
+    let ran = run(id);
+    if let Some(id) = id {
+        forget(sandbox, id);
+    }
+    ran
 }
 
 pub fn push(
@@ -191,15 +222,15 @@ pub fn push(
     repo: &str,
     commands: &[(Oid, Oid, &str)],
     pack_bytes: &[u8],
-) -> Result<Vec<String>, guest::Error> {
-    let report = act(
-        sandbox,
-        actor,
-        &Op::Push {
+) -> Result<Vec<String>, program::Error> {
+    let report = with_pack(sandbox, pack_bytes, |pack| {
+        let op = Op::Push {
             repo: repo.into(),
-            request: push_request(commands, pack_bytes),
-        },
-    )?;
+            request: push_request(commands),
+            pack,
+        };
+        act(sandbox, actor, &op)
+    })?;
     Ok(report_lines(&report))
 }
 
@@ -293,4 +324,59 @@ pub fn ids_in_pack(bytes: &[u8], hash: Hash) -> BTreeSet<Oid> {
         .into_iter()
         .map(|(id, _)| id)
         .collect()
+}
+
+pub fn closure_of(
+    sandbox: &MemorySandbox,
+    repo: &str,
+    hash: HashKind,
+    wants: &[Oid],
+    haves: &[Oid],
+) -> Vec<gitcore::walk::Listed> {
+    let mut listing = Listing::of(wants, haves);
+    while let Some(walk) = listing.pending() {
+        let query = Query::Closure {
+            repo: repo.into(),
+            walk: forge::Walk::of(walk),
+        };
+        let Reply::Closure { listed, next, .. } =
+            abi::decode(&ask(sandbox, &query).unwrap()).unwrap()
+        else {
+            panic!("a closure answers Closure");
+        };
+        listing.receive(Closed {
+            listed: listed
+                .iter()
+                .map(|item| item.parse(hash).unwrap())
+                .collect(),
+            next: next.parse(hash).unwrap(),
+        });
+    }
+    listing.into_listed()
+}
+
+pub fn fetch(sandbox: &MemorySandbox, repo: &str, hash: HashKind, request: &[u8]) -> Vec<u8> {
+    let Ok(Some(Command::Fetch(command))) = parse_command(request, forge_hash(hash)) else {
+        panic!("a fetch request");
+    };
+    let listed = closure_of(sandbox, repo, hash, &command.wants, &command.haves);
+    let objects = listed.iter().map(|item| {
+        let id = forge::blob_id_of(&item.id);
+        let blob = sandbox.forge.borrow().blobs.get(&id).cloned().unwrap();
+        assert_eq!(Kind::parse(blob.kind.as_bytes()).unwrap(), item.kind);
+        Ok(Object::new(item.kind, blob.body))
+    });
+    let mut response = Vec::new();
+    respond(&command, objects, &mut |chunk| {
+        response.extend_from_slice(chunk)
+    })
+    .unwrap();
+    response
+}
+
+pub fn forge_hash(hash: HashKind) -> Hash {
+    match hash {
+        HashKind::Sha1 => Hash::Sha1,
+        HashKind::Sha256 => Hash::Sha256,
+    }
 }

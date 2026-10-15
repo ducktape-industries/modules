@@ -3,8 +3,8 @@
 //! cells (`row.rs`), who operates it, and, for a reader who votes, the
 //! motions on it; then a line on where those come from.
 use abi::hex;
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use view::prelude::*;
+use view::{Div, Stateful};
 
 use crate::queries::Node;
 use crate::recent::{Recent, WINDOW};

@@ -1,0 +1,21 @@
+[package]
+name = "blobs"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+program = []
+describe = []
+
+[dependencies]
+abi = { workspace = true }
+blob = { workspace = true }
+borsh = { workspace = true }
+describe = { workspace = true }
+program = { workspace = true }
+
+[dev-dependencies]
+valset = { workspace = true }

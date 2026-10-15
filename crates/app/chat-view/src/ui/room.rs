@@ -1,6 +1,6 @@
 //! The open room, search results, notices, and composer.
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use chat::MsgRow;
 
@@ -122,7 +122,7 @@ fn hint(chat: &Chat, room: &Room) -> String {
         return format!("Message {peer}");
     }
     let name = chat.info(&room.id).map_or_else(
-        || ducktape_view_guest::design::short_hex(&room.id),
+        || view::design::short_hex(&room.id),
         |info| info.channel.name.clone(),
     );
     match chat::dm_peers(&room.id) {
@@ -134,7 +134,7 @@ fn hint(chat: &Chat, room: &Room) -> String {
 fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
     let info = chat.info(&room.id);
     let name = info.map_or_else(
-        || ducktape_view_guest::design::short_hex(&room.id),
+        || view::design::short_hex(&room.id),
         |info| info.channel.name.clone(),
     );
     let details = cx.listener(|chat, _: &ClickEvent, _window, cx| {
@@ -160,7 +160,7 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
         div()
             .id("chat-room-title")
             .text_size(design::text::SECTION)
-            .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+            .font_weight(view::FontWeight::SEMIBOLD)
             .role(Role::Heading)
             .aria_level(2)
             .child(match (direct, peer) {
@@ -354,7 +354,7 @@ fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyE
         .p_2()
         .bg(theme.surface)
         .hover(|s| s.bg(theme.surface_raised))
-        .role(ducktape_view_guest::Role::Button)
+        .role(view::Role::Button)
         .focusable()
         .on_click(open)
         .child(
@@ -472,6 +472,9 @@ pub fn selection_bar(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl
         .gap_2()
         .p_2()
         .bg(theme.accent_soft)
+        // the range's own bar: a press on it is no press elsewhere, which
+        // lets the range go (`chat-root`) before its Copy could take it
+        .occlude()
         .child(div().flex_1().child(format!(
             "{} selected",
             design::plural(count as u64, "message", "messages")

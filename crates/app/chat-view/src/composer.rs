@@ -9,8 +9,8 @@ pub use binding::{Click, Event, Outcome, view};
 pub use draft::{Draft, MentionChoice, Send, focus};
 
 use chat::{MsgRow, Op, Principal, parse_message};
-use ducktape_view_guest::host::Error;
 use serde::{Deserialize, Serialize};
+use view::host::Error;
 
 /// The most a composer sends, well under the program's message cap.
 const MAX_BODY_BYTES: usize = 16 * 1024;

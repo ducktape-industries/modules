@@ -1,6 +1,6 @@
-# Why a call failed, one type for a module, the host and a view: `Error` and
-# its `code` tokens. Below both SDKs (guest re-exports it, view-wire carries
-# it), so neither links the other for it. Depends on no ducktape crate.
+# Why a call failed, one type for a program, the host and a view: `Error` and
+# its `code` tokens. Below both SDKs (`program` re-exports it, view-wire
+# carries it). Depends on no ducktape crate.
 [package]
 name = "error"
 version.workspace = true

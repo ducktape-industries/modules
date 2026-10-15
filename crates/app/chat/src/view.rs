@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 
-use guest::Error;
+use ::program::Error;
 
 use crate::{Kind, MsgRow, PageRequest, PageResponse, Principal, Profile, Standing, ask};
 
@@ -86,7 +86,7 @@ impl Names {
     }
 
     /// The accounts a person picks, as a reviewer or a mention: people and
-    /// agents that act, ascending. No module's account, none suspended or
+    /// agents that act, ascending. No program's account, none suspended or
     /// revoked.
     pub fn people(&self) -> impl Iterator<Item = u64> + '_ {
         self.profiles
@@ -147,17 +147,17 @@ impl Names {
         }
     }
 
-    /// The module an account is the account of.
-    pub fn module(&self, principal: &Principal) -> Option<&str> {
+    /// The program an account is the account of.
+    pub fn program(&self, principal: &Principal) -> Option<&str> {
         match self.kind(principal)? {
-            Kind::Module(module) => Some(module),
+            Kind::Program(program) => Some(program),
             Kind::Person | Kind::Managed { .. } => None,
         }
     }
 
     /// What an account is, beside its name ([`Kind::badge`]): an agent and
-    /// who manages it ("Agent · managed by Dev"), or the module it is
-    /// ("Module · forge"). None for a person.
+    /// who manages it ("Agent · managed by Dev"), or the program it is
+    /// ("Program · forge"). None for a person.
     pub fn badge(&self, principal: &Principal) -> Option<String> {
         self.kind(principal)?
             .badge(|manager| self.member(&Principal::Account(manager)))
@@ -169,7 +169,7 @@ fn picks(kind: &Kind) -> bool {
     match kind {
         Kind::Person => true,
         Kind::Managed { standing, .. } => *standing == Standing::Active,
-        Kind::Module(_) => false,
+        Kind::Program(_) => false,
     }
 }
 

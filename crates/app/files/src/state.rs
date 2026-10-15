@@ -1,6 +1,6 @@
 //! Everything files keeps in its own state: the head, every snapshot it minted in
 //! commit order, and named pins. Trees and bytes live in blobs, never here.
-use guest::{BlobId, Error, QueryCtx, not_found};
+use ::program::{BlobId, Error, QueryCtx, not_found};
 use store::{Item, Map};
 
 use crate::objects::digest;

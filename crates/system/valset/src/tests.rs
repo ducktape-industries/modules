@@ -1,8 +1,8 @@
-// The module natively over `guest::MockHost`: what the founding suite checks on the host, without the host.
+// The program natively over `program::MockHost`: what the founding suite checks on the host, without the host.
 
+use ::program::{Env, Error, MockHost, Origin, Principal, Program, Roster, code};
 use abi::role::identity::{AccountNumber, Category, Kind, Profile, Standing};
-use guest::{Env, Error, MockHost, Module, Origin, Principal, Roster, code};
-use module_registry::{Change, Scheduled};
+use programs::{Change, Scheduled};
 use store::PageRequest;
 
 use crate::{
@@ -24,14 +24,19 @@ fn env(origin: Origin) -> Env {
         time: TIME,
         origin,
         sender: None,
-        ..MockHost::env(crate::MODULE)
+        ..MockHost::env(crate::PROGRAM)
     }
+}
+
+fn halo(n: u8) -> String {
+    format!("node-{n}.example.org:9100")
 }
 
 fn member(n: u8) -> Member {
     Member {
         key: key(n),
         address: Some(format!("node-{n}")),
+        halo: halo(n),
     }
 }
 
@@ -39,6 +44,7 @@ fn membership(n: u8, role: Role) -> Membership {
     Membership {
         key: key(n),
         address: Some(format!("node-{n}")),
+        halo: halo(n),
         role,
     }
 }
@@ -73,6 +79,7 @@ fn refused(store: &MockHost, signer: u8, op: Op) -> String {
 fn enroll(n: u8, invite: Option<Invite>) -> Op {
     Op::Enroll {
         address: Some(format!("node-{n}")),
+        halo: halo(n),
         invite,
     }
 }
@@ -146,9 +153,29 @@ fn founding_more_validators_than_the_cap_is_refused() {
 }
 
 #[test]
+fn founding_a_validator_at_a_halo_address_no_member_dials_is_refused() {
+    for unregistrable in ["0.0.0.0:9100", "127.0.0.1:9100", "[::1]:9100", "localhost:9100"] {
+        let genesis = abi::encode(&Genesis {
+            validators: vec![
+                member(1),
+                Member {
+                    halo: unregistrable.into(),
+                    ..member(2)
+                },
+            ],
+            member_cap: 8,
+        });
+        let store = MockHost::default();
+        let refused = Valset::init(&store.exec(env(Origin::Root)), &genesis).unwrap_err();
+        assert_eq!(refused.code, code::INVALID_INPUT, "{unregistrable}");
+        assert!(refused.message.starts_with("halo: "), "{refused:?}");
+    }
+}
+
+#[test]
 fn only_a_signed_frame_writes() {
     let store = founded();
-    for origin in [Origin::Root, Origin::Module("probe".into())] {
+    for origin in [Origin::Root, Origin::Program("probe".into())] {
         let refusal = store.refused(|| Valset::execute(&store.exec(env(origin)), enroll(3, None)));
         assert_eq!(refusal.code, code::UNAUTHORIZED);
     }
@@ -237,6 +264,7 @@ fn a_member_enrolling_again_moves_its_address_and_keeps_its_role() {
     let store = founded();
     let moved = Op::Enroll {
         address: Some("elsewhere".into()),
+        halo: halo(1),
         invite: None,
     };
     run(&store, 1, moved).unwrap();
@@ -254,6 +282,7 @@ fn a_member_enrolling_without_an_address_is_held_without_one() {
     let store = founded();
     let undialed = Op::Enroll {
         address: None,
+        halo: halo(1),
         invite: None,
     };
     run(&store, 1, undialed).unwrap();
@@ -388,20 +417,62 @@ fn a_member_leaves_and_a_stranger_cannot() {
 }
 
 #[test]
-fn a_registry_motion_emits_its_op_to_the_registry_once_enacted() {
+fn a_programs_motion_emits_its_op_to_the_programs_once_enacted() {
     let store = founded();
-    let op = abi::encode(&module_registry::Op::Publish {
-        body: b"code".to_vec(),
+    let op = abi::encode(&programs::Op::Cancel {
+        height: 1_000,
+        program: "chat".into(),
     });
-    let motion = Motion::Registry { op: op.clone() };
+    let motion = Motion::Programs { op: op.clone() };
     vote(&store, 1, motion.clone()).unwrap();
     assert!(store.take_emissions().is_empty());
     assert_eq!(vote(&store, 2, motion).unwrap(), Voted::Enacted);
     let sent = store.take_emissions();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].target, MockHost::roles().registry);
+    assert_eq!(sent[0].target, MockHost::roles().programs);
     assert_eq!(sent[0].payload, op);
     assert!(!sent[0].reply);
+}
+
+#[test]
+fn a_member_registers_a_halo_address_other_members_dial_and_moves_it_alone() {
+    let store = founded();
+    for unregistrable in [
+        "0.0.0.0:9100",
+        "[::]:9100",
+        "127.0.0.1:9100",
+        "[::1]:9100",
+        "localhost:9100",
+        "node-3.example.org",
+    ] {
+        let enroll = Op::Enroll {
+            address: None,
+            halo: unregistrable.into(),
+            invite: Some(invite(1, 1)),
+        };
+        let refusal =
+            store.refused(|| Valset::execute(&store.exec(env(Origin::Signed(key(3)))), enroll));
+        assert_eq!(refusal.code, code::INVALID_INPUT, "{unregistrable}");
+        assert!(refusal.message.starts_with("halo: "), "{refusal:?}");
+        let moved = Op::SetHalo {
+            halo: unregistrable.into(),
+        };
+        assert_eq!(refused(&store, 1, moved), code::INVALID_INPUT);
+    }
+    assert_eq!(held(&store, 3), None);
+
+    let moved = Op::SetHalo {
+        halo: "203.0.113.7:9100".into(),
+    };
+    run(&store, 1, moved.clone()).unwrap();
+    assert_eq!(
+        held(&store, 1),
+        Some(Membership {
+            halo: "203.0.113.7:9100".into(),
+            ..membership(1, Role::Validator)
+        })
+    );
+    assert_eq!(refused(&store, 7, moved), code::NOT_FOUND);
 }
 
 #[test]
@@ -438,7 +509,7 @@ fn role_asks_the_program_bound_to_the_validators_role() {
     let store = founded();
     store.sibling::<Valset>("third-party-valset", &store);
     let mut bound = env(Origin::Root);
-    bound.roles = guest::Roles {
+    bound.roles = ::program::Roles {
         validators: "third-party-valset".into(),
         ..MockHost::roles()
     };
@@ -468,6 +539,7 @@ fn agent(number: AccountNumber, standing: Standing) -> Profile {
     profile(
         number,
         Kind::Managed {
+            runner: None,
             manager: ADA,
             category: Category::Agent,
             standing,
@@ -534,13 +606,13 @@ fn counted(votes: u64) -> Voted {
     Voted::Counted { votes, needed: 3 }
 }
 
-/// A registry op scheduling chat's removal at `height`.
+/// A `programs` op scheduling chat's removal at `height`.
 fn schedule(height: u64) -> Motion {
-    let op = module_registry::Op::Schedule(Scheduled {
+    let op = programs::Op::Schedule(Scheduled {
         height,
         change: Change::Remove("chat".into()),
     });
-    Motion::Registry {
+    Motion::Programs {
         op: abi::encode(&op),
     }
 }
@@ -629,19 +701,19 @@ fn a_key_taken_off_the_agent_casts_no_new_votes_and_its_votes_stand() {
     assert_eq!(vote(&store, 2, open).unwrap(), counted(2));
 }
 
-/// A registry op cancelling chat's change at `height`.
+/// A `programs` op cancelling chat's change at `height`.
 fn cancel(height: u64) -> Motion {
-    let op = module_registry::Op::Cancel {
+    let op = programs::Op::Cancel {
         height,
         program: "chat".into(),
     };
-    Motion::Registry {
+    Motion::Programs {
         op: abi::encode(&op),
     }
 }
 
 #[test]
-fn a_registry_op_that_cannot_land_is_refused_at_the_first_vote() {
+fn a_programs_op_that_cannot_land_is_refused_at_the_first_vote() {
     let store = delegated();
     // the block is at height 3
     for late in [schedule(3), schedule(2), cancel(3), cancel(1)] {
@@ -649,7 +721,7 @@ fn a_registry_op_that_cannot_land_is_refused_at_the_first_vote() {
     }
     let late = device(&store, 20, ADA, schedule(2)).unwrap_err();
     assert_eq!(late.code, code::INVALID_INPUT);
-    let garbage = Motion::Registry {
+    let garbage = Motion::Programs {
         op: b"not an op".to_vec(),
     };
     assert_eq!(refused(&store, 1, Op::Vote(garbage)), code::INVALID_INPUT);
@@ -673,7 +745,7 @@ fn an_identity_that_answers_the_account_but_refuses_its_profile_fails_the_vote()
             Ok(abi::role::identity::Query::Profile(_)) => {
                 Err(Error::new(code::UNSUPPORTED, "no profiles here"))
             }
-            _ => guest::identity_role(&roster, request),
+            _ => ::program::identity_role(&roster, request),
         }),
     );
     let open = Motion::Door { open: true };
@@ -759,31 +831,31 @@ fn motions_list_what_vote_stored_and_voices_are_the_set_vote_uses() {
     assert!(voices(&store, 21).is_empty());
 }
 
-/// A registry op granting `scope` to `account`, or revoking it.
-fn grant(scope: module_registry::Scope, account: AccountNumber, revoke: bool) -> Motion {
-    let grant = module_registry::Grant { scope, account };
+/// A `programs` op granting `scope` to `account`, or revoking it.
+fn grant(scope: programs::Scope, account: AccountNumber, revoke: bool) -> Motion {
+    let grant = programs::Grant { scope, account };
     let op = match revoke {
-        false => module_registry::Op::Grant(grant),
-        true => module_registry::Op::Revoke(grant),
+        false => programs::Op::Grant(grant),
+        true => programs::Op::Revoke(grant),
     };
-    Motion::Registry {
+    Motion::Programs {
         op: abi::encode(&op),
     }
 }
 
 #[test]
-fn a_grant_the_registry_would_refuse_is_refused_at_the_first_vote() {
-    use module_registry::Scope;
+fn a_grant_the_programs_would_refuse_is_refused_at_the_first_vote() {
+    use programs::Scope;
     let store = delegated();
     for bad in [
         grant(Scope::All, 99, false),
-        grant(Scope::Module("valset".into()), BOB, false),
-        grant(Scope::Module("Chat".into()), BOB, false),
+        grant(Scope::Program("valset".into()), BOB, false),
+        grant(Scope::Program("Chat".into()), BOB, false),
     ] {
         assert_eq!(refused(&store, 1, Op::Vote(bad)), code::INVALID_INPUT);
     }
     assert!(motions(&store, 3).1.is_empty());
-    let good = grant(Scope::Module("trade".into()), BOB, false);
+    let good = grant(Scope::Program("trade".into()), BOB, false);
     assert_eq!(vote(&store, 1, good.clone()).unwrap(), counted(1));
     // a revoke is never refused: its holder may have stepped down first
     assert_eq!(
@@ -796,18 +868,18 @@ fn a_grant_the_registry_would_refuse_is_refused_at_the_first_vote() {
 }
 
 #[test]
-fn a_registry_vote_is_described_in_the_registrys_words() {
-    let Motion::Registry { op } = schedule(9) else {
+fn a_programs_vote_is_described_in_the_programss_words() {
+    let Motion::Programs { op } = schedule(9) else {
         unreachable!()
     };
-    let registry = module_registry::describe(&abi::decode(&op).unwrap());
+    let programs = programs::describe(&abi::decode(&op).unwrap());
     let described = crate::describe(&Op::Vote(schedule(9)));
     assert_eq!(described.title, "Vote · Schedule · chat");
-    assert_eq!(described.fields, registry.fields);
-    let garbage = Op::Vote(Motion::Registry {
+    assert_eq!(described.fields, programs.fields);
+    let garbage = Op::Vote(Motion::Programs {
         op: b"not an op".to_vec(),
     });
     let described = crate::describe(&garbage);
-    assert_eq!(described.title, "Vote · registry");
+    assert_eq!(described.title, "Vote · programs");
     assert_eq!(described.fields[0].label, "op");
 }

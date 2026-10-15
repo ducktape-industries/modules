@@ -1,9 +1,11 @@
 //! What the screens read out of the view: the replies that have landed,
 //! picked by the query that asked them, and the reader's own identity.
-use ducktape_view_guest::prelude::*;
+use std::rc::Rc;
+use view::prelude::*;
 
 use crate::queries::PAGE;
-use crate::state::{self, ChangeTab, Forge, Nav, change_key};
+use crate::state::{self, ChangeTab, Forge, Menu, Nav, change_key};
+use crate::ui::components::ref_label;
 use forge::Principal;
 use forge::{
     Bounds, Change, CommitInfo, Comparison, PageRequest, PageResponse, Query, RefInfo, Reply,
@@ -73,6 +75,11 @@ impl Forge {
         }
     }
 
+    /// A landed reply, shared: for a screen that keeps a layout of it.
+    pub(crate) fn shared(&self, query: &Query) -> Option<Rc<Reply>> {
+        self.data.get(query)?.ready().cloned()
+    }
+
     pub(crate) fn ready(&self, query: &Query) -> Option<&Reply> {
         match self.stage(query) {
             Stage::Ready(reply) => Some(reply),
@@ -124,6 +131,44 @@ impl Forge {
             .filter(|info| info.name.starts_with(b"refs/heads/"))
             .map(|info| info.name.clone())
             .collect()
+    }
+
+    /// The branches (or `tags`) a dropdown lists, in its order: the
+    /// default branch first, each kept while its name holds what the
+    /// dropdown's filter box does, in any case.
+    pub(crate) fn menu_refs(&self, tags: bool) -> Vec<Vec<u8>> {
+        let prefix: &[u8] = if tags { b"refs/tags/" } else { b"refs/heads/" };
+        let needle = self.menu_search.text().trim().to_lowercase();
+        let mut refs: Vec<Vec<u8>> = self
+            .refs()
+            .unwrap_or_default()
+            .iter()
+            .map(|info| info.name.clone())
+            .filter(|name| name.starts_with(prefix))
+            .filter(|name| ref_label(name).to_lowercase().contains(&needle))
+            .collect();
+        let default = self.default_head();
+        refs.sort_by_key(|name| (*name != default, name.clone()));
+        refs
+    }
+
+    /// What `menu` lists: the ref picker its open tab, the default head
+    /// the branches.
+    pub(crate) fn menu_list(&self, menu: Menu) -> Vec<Vec<u8>> {
+        self.menu_refs(menu == Menu::Ref && self.menu_tags)
+    }
+
+    /// The ref `menu` has picked: the one browsed, or the settings form's
+    /// default head.
+    pub(crate) fn menu_picked(&self, menu: Menu) -> Vec<u8> {
+        match menu {
+            Menu::Ref => self.head_name(),
+            Menu::Head => self
+                .repo_settings
+                .as_ref()
+                .map(|form| form.head.clone())
+                .unwrap_or_default(),
+        }
     }
 
     /// The default head of the repo, or `refs/heads/main` before it lands.
@@ -188,12 +233,25 @@ impl Forge {
         }
     }
 
-    /// The commit `oid`, once a log on screen holds it: the one the reader
-    /// browses, else the commit's own row.
+    /// The log on screen: inside a change its own commits (what its target
+    /// does not reach), else the history of the ref the reader browses.
+    pub(crate) fn shown_log(&self) -> Option<Query> {
+        match self.nav.change {
+            Some(_) => {
+                let (from, into) = self.endpoints()?;
+                Some(crate::ui::commits::query(self, from, Some(into)))
+            }
+            None => Some(self.log_query()),
+        }
+    }
+
+    /// The commit `oid`, once a log holds it: the one on screen, else the
+    /// commit's own row.
     pub(crate) fn commit(&self, oid: &str) -> Option<CommitInfo> {
-        [self.log_query(), self.commit_query(oid)]
-            .iter()
-            .filter_map(|query| self.logs.get(query))
+        self.shown_log()
+            .into_iter()
+            .chain([self.commit_query(oid)])
+            .filter_map(|query| self.logs.get(&query))
             .find_map(|(log, _)| {
                 log.read(|log| log.rows().iter().find(|commit| commit.oid == oid).cloned())
             })
@@ -211,21 +269,26 @@ impl Forge {
         })
     }
 
-    /// How many changes are open here, once the Changes tab has read them
-    /// all (a list with more pages to come counts none).
+    /// How many changes are open here, read for the tab bar on every
+    /// repository screen (a list with more pages to come counts none).
     pub(crate) fn open_changes(&self) -> Option<u64> {
-        let query = Query::Changes {
+        match self.ready(&self.open_changes_query()?)? {
+            Reply::Changes { page, .. } if page.next.is_none() => Some(page.items.len() as u64),
+            _ => None,
+        }
+    }
+
+    /// The open changes of the repository, the read the tab bar's count
+    /// comes from.
+    pub(crate) fn open_changes_query(&self) -> Option<Query> {
+        Some(Query::Changes {
             repo: self.nav.repo.clone()?,
             filter: forge::ChangeFilter {
                 state: Some(forge::ChangeState::Open),
                 ..forge::ChangeFilter::default()
             },
             page: PAGE,
-        };
-        match self.ready(&query)? {
-            Reply::Changes { page, .. } if page.next.is_none() => Some(page.items.len() as u64),
-            _ => None,
-        }
+        })
     }
 
     pub(crate) fn change_query(&self) -> Option<Query> {
@@ -322,6 +385,15 @@ impl Forge {
 
     pub(crate) fn pending_in(&self, scope: &str) -> Vec<&state::Pending> {
         self.pending.iter().filter(|op| op.scope == scope).collect()
+    }
+
+    /// The change form this screen shows: a draft on its repository's
+    /// Changes and Refs tabs, an edit on its change's page. Anywhere else
+    /// it waits, its text kept.
+    pub(crate) fn change_form(&self) -> Option<&state::ChangeForm> {
+        self.form.as_ref().filter(|form| {
+            self.nav.repo.as_ref() == Some(&form.repo) && form.edit == self.nav.change
+        })
     }
 
     pub(crate) fn nav(&self) -> &Nav {

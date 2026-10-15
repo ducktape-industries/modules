@@ -1,5 +1,5 @@
-//! The `provider` module: a module's request to the world outside the chain, served by a
-//! member node the chain elects and answered back into the module that asked.
+//! The `provider` program: a program's call to the world outside the chain, served by a member
+//! node the chain elects, whose answer resolves the call in a later block.
 mod program;
 mod rules;
 mod state;
@@ -8,25 +8,17 @@ mod tests;
 
 pub mod http;
 
-pub use guest::{BlobId, ModuleId};
+pub use ::program::{BlobId, ProgramId};
 pub use program::Provider;
 pub use store::{PageRequest, PageResponse};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub const MODULE: &str = "provider";
+pub const PROGRAM: &str = "provider";
 
 pub const RELAY: &str = "relay";
 
-pub const EXPIRY_BLOCKS: u64 = 64;
-pub const MAX_SERVICE_BYTES: usize = 64;
-pub const MAX_SERVICES: usize = 32;
-pub const MAX_INPUT_BYTES: usize = 64 << 10;
-pub const MAX_PARTS: usize = 4096;
-pub const MAX_BODY_BYTES: u64 = 32 << 20;
-pub const MAX_DELIVER_BYTES: usize = 256;
-pub const MAX_OUTPUT_BYTES: usize = 8 << 20;
-pub const MAX_REASON_BYTES: usize = 1024;
+pub const EXPIRY_BLOCKS: u64 = abi::role::awaits::EXPIRY_BLOCKS;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
@@ -41,7 +33,6 @@ pub struct Request {
     pub service: String,
     pub input: Vec<u8>,
     pub parts: Vec<BlobId>,
-    pub deliver: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -51,31 +42,9 @@ pub enum Answer {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct Delivery {
-    pub id: u64,
-    pub service: String,
-    pub outcome: Outcome,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum Outcome {
-    Answered(Vec<u8>),
-    Failed(String),
-    Expired,
-}
-
-impl Delivery {
-    pub fn payload(deliver: &[u8], delivery: &Delivery) -> Vec<u8> {
-        let mut payload = deliver.to_vec();
-        payload.extend(abi::encode(delivery));
-        payload
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct RequestRow {
     pub id: u64,
-    pub requester: ModuleId,
+    pub requester: ProgramId,
     pub service: String,
     pub input: Vec<u8>,
     pub parts: Vec<BlobId>,

@@ -1,9 +1,9 @@
 //! Typed identity: the path a node is filed under, and when two collide.
 //!
-//! One rule, run by everything that walks a tree. The guest's lowering,
+//! One rule, run by everything that walks a tree. The view's lowering,
 //! the host's renderer and its walks file every node by it ([`segment`],
 //! [`row`]), so a path means one node on both sides. Whether two nodes
-//! meet is the host's to say, since the guest is not trusted: its
+//! meet is the host's to say, since the view is not trusted: its
 //! sanitizer claims every id ([`Scopes`]) and refuses a frame that claims
 //! one twice, naming the id and its scope. A view's tests run that same
 //! sanitizer on every frame, so a duplicate fails its test in those words.

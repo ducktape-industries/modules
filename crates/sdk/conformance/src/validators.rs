@@ -2,19 +2,19 @@
 //! [`run`] checks every rule below.
 
 use abi::role::validators::{Genesis, Member, Query, Reply};
-use guest::{Error, MockHost, Module, Program};
+use program::{Error, MockHost, Program};
 
 use crate::{ask, init, same_bytes};
 
-/// What the suite needs from the module beyond the role: its own update
+/// What the suite needs from the program beyond the role: its own update
 /// path, which the role leaves to it.
 pub trait Fixture {
-    type Module: Module;
+    type Program: Program;
 
-    /// Seats `member` as a validator, by the module's own op.
+    /// Seats `member` as a validator, by the program's own op.
     fn seat(&self, host: &MockHost, member: Member) -> Result<(), Error>;
 
-    /// Unseats the validator `key`, by the module's own op.
+    /// Unseats the validator `key`, by the program's own op.
     fn unseat(&self, host: &MockHost, key: &[u8]) -> Result<(), Error>;
 }
 
@@ -26,7 +26,7 @@ pub fn run(fixture: &impl Fixture) {
     the_cap_bounds_the_members(fixture);
 }
 
-fn module() -> String {
+fn program() -> String {
     MockHost::roles().validators
 }
 
@@ -34,6 +34,7 @@ fn member(n: u8) -> Member {
     Member {
         key: vec![n; 32],
         address: Some(format!("node-{n}")),
+        halo: format!("node-{n}.example.org:9100"),
     }
 }
 
@@ -44,19 +45,19 @@ fn founded<F: Fixture>() -> MockHost {
         validators: vec![member(2), member(1)],
         member_cap: 3,
     };
-    init::<F::Module>(&host, &module(), &genesis);
+    init::<F::Program>(&host, &program(), &genesis);
     host
 }
 
 /// Validators and Members answer, every key is 32 bytes, and every
 /// validator is a member. The validators' keys, sorted.
 fn answers<F: Fixture>(host: &MockHost) -> (Vec<Vec<u8>>, Vec<Member>) {
-    let m = module();
-    let mut validators = match ask::<F::Module, Reply>(host, &m, 1, &Query::Validators) {
+    let m = program();
+    let mut validators = match ask::<F::Program, Reply>(host, &m, 1, &Query::Validators) {
         Ok(Reply::Validators(keys)) => keys,
         other => panic!("validators: Validators answers Validators, not {other:?}"),
     };
-    let members = match ask::<F::Module, Reply>(host, &m, 1, &Query::Members) {
+    let members = match ask::<F::Program, Reply>(host, &m, 1, &Query::Members) {
         Ok(Reply::Members(members)) => members,
         other => panic!("validators: Members answers Members, not {other:?}"),
     };
@@ -73,11 +74,11 @@ fn answers<F: Fixture>(host: &MockHost) -> (Vec<Vec<u8>>, Vec<Member>) {
     (validators, members)
 }
 
-/// The role's queries and replies are the module's first variants, byte
+/// The role's queries and replies are the program's first variants, byte
 /// for byte.
 pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
-    type M<F> = <F as Fixture>::Module;
-    let m = module();
+    type M<F> = <F as Fixture>::Program;
+    let m = program();
     for query in [Query::Validators, Query::Members] {
         same_bytes::<<M<F> as Program>::Query>(&m, "Query", &query);
     }
@@ -107,7 +108,7 @@ pub fn genesis_seats_the_given_set<F: Fixture>(_: &F) {
     }
 }
 
-/// Seating and unseating through the module's update path change what
+/// Seating and unseating through the program's update path change what
 /// Validators and Members answer.
 pub fn an_update_changes_the_answer<F: Fixture>(fixture: &F) {
     let host = founded::<F>();

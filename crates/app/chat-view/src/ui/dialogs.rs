@@ -1,6 +1,6 @@
 //! The channel creation dialog.
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::{ChannelCreate, Chat};
 
