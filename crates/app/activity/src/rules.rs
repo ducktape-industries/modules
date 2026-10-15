@@ -1,13 +1,18 @@
-//! The rules: a frame kept under its key and its account, and the pages and counts read back.
+//! The rules: a frame kept under its key and its account, in the chain-wide list and under
+//! its program, and the pages and counts read back.
 
 use ::program::{AccountNumber, Error, ExecCtx, ProgramId, QueryCtx, hook};
 use store::{Map, PageRequest, PageResponse};
 
-use crate::{Frame, Used};
+use crate::{Frame, Row, Used};
 
 const SIGNED: Map<(Vec<u8>, u64, u32), Frame> = Map::new("k/");
 const ACTED: Map<(AccountNumber, u64, u32), Frame> = Map::new("a/");
 const USED: Map<(AccountNumber, ProgramId), u64> = Map::new("u/");
+/// Every frame, newest first.
+const RECENT: Map<(u64, u32), Row> = Map::new("r/");
+/// Every frame under the program it went to, newest first.
+const TARGETED: Map<(ProgramId, u64, u32), Row> = Map::new("t/");
 
 fn newest_first(frame: &Frame) -> (u64, u32) {
     (u64::MAX - frame.height, u32::MAX - frame.position)
@@ -22,7 +27,14 @@ pub(crate) fn keep(ctx: &ExecCtx, record: hook::Record) -> Result<(), Error> {
         applied: record.applied,
     };
     let (height, position) = newest_first(&frame);
-    SIGNED.put(ctx, &(record.signer, height, position), &frame);
+    let row = Row {
+        frame: frame.clone(),
+        signer: record.signer,
+        account: record.account,
+    };
+    RECENT.put(ctx, &(height, position), &row);
+    TARGETED.put(ctx, &(frame.target.clone(), height, position), &row);
+    SIGNED.put(ctx, &(row.signer, height, position), &frame);
     let Some(account) = record.account else {
         return Ok(());
     };
@@ -57,4 +69,16 @@ pub(crate) fn used(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<Us
             program,
             frames,
         }))
+}
+
+pub(crate) fn recent(
+    ctx: &QueryCtx,
+    program: Option<ProgramId>,
+    page: &PageRequest,
+) -> Result<PageResponse<Row>, Error> {
+    let rows = match program {
+        None => RECENT.range(ctx, page)?.map(|(_, row)| row),
+        Some(program) => TARGETED.range_of(ctx, &program, page)?.map(|(_, row)| row),
+    };
+    Ok(rows)
 }

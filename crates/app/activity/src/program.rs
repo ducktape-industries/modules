@@ -2,7 +2,7 @@
 
 use ::program::{Error, ExecCtx, Program, QueryCtx, code, hook};
 
-use crate::rules::{acted, keep, signed, used};
+use crate::rules::{acted, keep, recent, signed, used};
 use crate::{Op, PROGRAM, Query, Reply};
 
 pub struct Activity;
@@ -29,6 +29,7 @@ impl Program for Activity {
             Query::Acted { account, page } => Reply::Frames(acted(ctx, account, &page)?),
             Query::Signed { key, page } => Reply::Frames(signed(ctx, key, &page)?),
             Query::Used { page } => Reply::Used(used(ctx, &page)?),
+            Query::Recent { program, page } => Reply::Recent(recent(ctx, program, &page)?),
         })
     }
 }
