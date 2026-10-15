@@ -72,8 +72,8 @@ impl Explorer {
         if let Some(account) = account {
             return self.go(Route::Account(account.number), cx);
         }
-        if let Some(entry) = self.runs(&lower) {
-            return self.go(Route::Transactions(Some(entry.program.clone())), cx);
+        if self.code_of(&lower).is_some() {
+            return self.go(Route::Program(lower), cx);
         }
         self.note = Some(Note::NotFound(query));
         cx.notify();
@@ -151,11 +151,12 @@ impl Explorer {
         ducklink::mint(&self.session_chain, "explorer", &tail)
     }
 
-    pub(crate) fn copy_link(&mut self, link: String, cx: &mut Context<Self>) {
-        let ask = cx.host().ask::<ClipboardWrite>(link);
+    /// `text` onto the clipboard; the note says `what` was copied.
+    pub(crate) fn copy(&mut self, text: String, what: &'static str, cx: &mut Context<Self>) {
+        let ask = cx.host().ask::<ClipboardWrite>(text);
         cx.land(ask, move |view, copied, cx| {
             view.note = Some(match copied {
-                Ok(()) => Note::Copied,
+                Ok(()) => Note::Copied(what.to_owned()),
                 Err(refusal) => Note::Refused(refusal.message),
             });
             cx.notify();

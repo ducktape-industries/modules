@@ -13,7 +13,11 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     search(&mut cx, "#3");
     assert!(cx.has_text("account 3   Person   1 device"));
     search(&mut cx, "chat");
-    assert!(cx.has_text("Transactions · chat") && cx.has_text("Post in #design"));
+    assert!(
+        cx.find("explorer-program").is_some() && cx.has_text("reads and writes the clipboard"),
+        "a program name opens its page: {:?}",
+        cx.texts()
+    );
     assert!(!cx.has_text("mystery · 4 bytes"));
     // a block hash in the window opens it; one outside is asked of the node
     search(&mut cx, &abi::hex(&[105; 32]));
@@ -160,8 +164,14 @@ fn a_link_opens_the_page_it_names() {
     assert!(cx.has_text(&abi::hex(&[105; 32])), "a block by its hash");
     open(&mut cx, "account/3");
     assert!(cx.has_text("account 3   Person   1 device"));
-    open(&mut cx, "program/chat");
+    open(&mut cx, "txs/chat");
     assert!(cx.has_text("Transactions · chat"));
+    open(&mut cx, "program/chat");
+    assert!(
+        cx.find("explorer-program").is_some() && cx.has_text("reads and writes the clipboard"),
+        "{:?}",
+        cx.texts()
+    );
     open(&mut cx, &format!("tx/{}", abi::hex(&[0xee; 32])));
     assert!(cx.has_text("No block or transaction has this hash."));
     open(&mut cx, "nowhere/1");
@@ -211,6 +221,7 @@ fn every_route_reads_back_from_its_path() {
         Route::Accounts,
         Route::Account(3),
         Route::Programs,
+        Route::Program("chat".into()),
     ] {
         assert_eq!(
             Route::from_path(&route.path()),
@@ -223,6 +234,7 @@ fn every_route_reads_back_from_its_path() {
         "block/x",
         "tx/zz",
         "program/",
+        "txs/",
         "account/-1",
         "blocks/1",
     ] {
