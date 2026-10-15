@@ -192,6 +192,20 @@ pub(crate) fn serve(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + Clone 
     host.handle::<ChainTx>(move |ask| Ok(located(&chain(), ask)));
 }
 
+pub(crate) fn name(cx: &TestAppContext, id: &str) -> Option<String> {
+    match cx.find(id) {
+        Some(view::wire::Node::Container(row)) => row
+            .interactivity
+            .as_ref()
+            .unwrap()
+            .aria
+            .label
+            .clone()
+            .map(String::from),
+        other => panic!("no row {id}: {other:?}"),
+    }
+}
+
 pub(crate) fn status(height: u64) -> NodeStatus {
     NodeStatus {
         chain_id: "test#1".into(),
@@ -475,14 +489,14 @@ pub(crate) fn programs_granting(
             }
             programs::Query::Hooks(_) => programs::Reply::Hooks(hooks.clone()),
             programs::Query::Grants { .. } => programs::Reply::Grants(whole(grants.clone())),
-            programs::Query::Roles => programs::Reply::Roles(abi::Roles {
-                programs: programs::PROGRAM.into(),
-                validators: valset::PROGRAM.into(),
-                identity: identity::PROGRAM.into(),
-                blobs: "blobs".into(),
-                awaits: "awaits".into(),
-                egress: Some("egress".into()),
-            }),
+            programs::Query::Roles => programs::Reply::Roles(abi::Roles::from_iter([
+                (abi::role::PROGRAMS, programs::PROGRAM),
+                (abi::role::VALIDATORS, valset::PROGRAM),
+                (abi::role::IDENTITY, identity::PROGRAM),
+                (abi::role::BLOBS, "blobs"),
+                (abi::role::AWAITS, "awaits"),
+                (abi::role::EGRESS, "egress"),
+            ])),
             other => panic!("unexpected query: {other:?}"),
         })
     });

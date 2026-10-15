@@ -23,7 +23,7 @@ fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
 
 fn profile(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Profile>, Error> {
     use abi::role::identity::{Query, Reply};
-    let identity = &ctx.env().roles.identity;
+    let identity = &ctx.env().role(abi::role::IDENTITY)?.clone();
     match ctx.query::<Query, Reply>(identity, &Query::Profile(number))? {
         Reply::Profile(profile) => Ok(profile),
         other => Err(unexpected_reply(identity, "Profile", &other)),
@@ -43,7 +43,7 @@ fn runs_here(profile: &Profile) -> Option<AccountNumber> {
 }
 
 fn audience(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Audience, Error> {
-    let identity = &ctx.env().roles.identity;
+    let identity = &ctx.env().role(abi::role::IDENTITY)?.clone();
     let asked = identity::Query::Audience { number: agent };
     match ctx.query::<identity::Query, identity::Reply>(identity, &asked)? {
         identity::Reply::Audience(audience) => Ok(audience),

@@ -94,7 +94,7 @@ pub(crate) fn held(ctx: &QueryCtx, blob: BlobId) -> Result<Option<Holding>, Erro
 }
 
 fn validators(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
-    let role = ctx.env().roles.validators.clone();
+    let role = ctx.env().role(abi::role::VALIDATORS)?.clone();
     match ctx.query(role.clone(), &validators::Query::Validators)? {
         validators::Reply::Validators(seated) => Ok(seated),
         other => Err(unexpected_reply(&role, "Validators", &other)),

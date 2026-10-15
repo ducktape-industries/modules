@@ -136,7 +136,10 @@ fn the_search_field_holds_only_what_is_being_typed() {
     cx.simulate_input("explorer-search", "11");
     cx.simulate_submit("explorer-search");
     cx.run_until_parked();
-    assert!(cx.has_text("Post in #design"), "block 11 opened");
+    assert!(
+        cx.find("explorer-block-txs-heading").is_some(),
+        "block 11 opened"
+    );
     assert_eq!(field(&cx), "", "a search that lands clears the field");
     cx.simulate_input("explorer-search", "half typed");
     cx.simulate_click("explorer-next");

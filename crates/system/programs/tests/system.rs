@@ -166,20 +166,20 @@ impl Net {
         hooks: Vec<&str>,
         member_cap: u32,
     ) -> Net {
-        let egress = apps
-            .iter()
-            .any(|app| app.program == egress::PROGRAM)
-            .then(|| egress::PROGRAM.into());
+        let mut roles = Roles::from_iter([
+            (abi::role::PROGRAMS, programs::PROGRAM),
+            (abi::role::VALIDATORS, valset::PROGRAM),
+            (abi::role::IDENTITY, identity::PROGRAM),
+            (abi::role::BLOBS, blobs::PROGRAM),
+            (abi::role::AWAITS, awaits::PROGRAM),
+        ]);
+        let egress_founded = apps.iter().any(|app| app.program == egress::PROGRAM);
+        if egress_founded {
+            roles.bind(abi::role::EGRESS, egress::PROGRAM);
+        }
         let genesis = Genesis {
             network: NETWORK.to_vec(),
-            roles: Roles {
-                programs: programs::PROGRAM.into(),
-                validators: valset::PROGRAM.into(),
-                identity: identity::PROGRAM.into(),
-                blobs: blobs::PROGRAM.into(),
-                awaits: awaits::PROGRAM.into(),
-                egress,
-            },
+            roles,
             validators: FOUNDERS.iter().map(|seed| member(*seed)).collect(),
             programs: vec![
                 founding(programs::PROGRAM, &program("programs")),

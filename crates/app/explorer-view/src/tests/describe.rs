@@ -3,18 +3,10 @@ use super::*;
 #[test]
 fn an_op_reads_as_its_program_describes_it_through_the_host() {
     let (mut cx, _) = ready();
-    cx.simulate_click("explorer-block-11");
+    cx.simulate_click("explorer-tx-11-0");
     cx.run_until_parked();
-    // Ada's post, as chat described it
     assert!(cx.has_text("Post in #design"), "{:?}", cx.texts());
-    cx.simulate_click("explorer-next");
-    cx.run_until_parked();
-    // one the host could not describe reads as its bytes
-    assert!(cx.has_text("mystery · 4 bytes"), "{:?}", cx.texts());
-    let asked = cx.host().requests::<ProgramDescribe>();
-    assert!(asked.contains(&("mystery".to_owned(), vec![1, 2, 3, 4])));
 
-    // a dm post: its title, the two accounts by name and link
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
     cx.simulate_click("explorer-tx-11-1");
@@ -39,6 +31,8 @@ fn an_undescribed_op_shows_its_size_and_bytes() {
     cx.run_until_parked();
     assert!(cx.has_text("mystery · 4 bytes"), "{:?}", cx.texts());
     assert!(cx.has_text("bytes") && cx.has_text("01020304"));
+    let asked = cx.host().requests::<ProgramDescribe>();
+    assert_eq!(asked, [("mystery".to_owned(), vec![1, 2, 3, 4])]);
     assert_eq!(decode::bytes("chat", &[0xff; 3]).title, "chat · 3 bytes");
 }
 

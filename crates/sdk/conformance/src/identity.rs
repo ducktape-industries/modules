@@ -55,7 +55,7 @@ pub fn run(fixture: &impl Fixture) {
 }
 
 fn program() -> String {
-    MockHost::roles().identity
+    MockHost::role(abi::role::IDENTITY)
 }
 
 fn query<F: Fixture>(host: &MockHost, query: Query) -> Result<Reply, Error> {
