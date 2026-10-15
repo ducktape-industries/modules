@@ -444,9 +444,12 @@ its kind and key path, so each screen a test reaches is gated.
 Views that talk live are tested together over `testing::Relay`
 (`src/testing/relay.rs`): `relay.link(&a).link(&b)`, one
 `TestAppContext` each, and it answers their `live.*` requests as one node
-would, the n-th view linked acting as account n. A room is open until the
-test `hold`s it, and then each ask in it hears `Waiting` until `grant`,
-the block that writes its rows.
+would, the n-th view linked acting as account n. Its grants are the rows a
+program writes, decided as the node decides them: every room starts with
+`*` = `Grant::all()`, `hold(room)` takes every row away (each ask hears
+`Waiting`), and `grant(room, who, grant)` and `revoke(room, who)` are the
+block that writes or removes one: what waited and is covered now is
+answered, and what the rows no longer cover ends `not_granted`.
 `testing::lower(build)` is the one path that is not: it lowers a single
 element with no host, sanitizer or audit, for a test of what that element
 carries (`testing::assert_accessible(&tree)` audits it when the test wants).

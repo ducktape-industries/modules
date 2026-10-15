@@ -12,7 +12,9 @@
 //! `{account}` in a pattern stands for the number of the account that
 //! asks, so one `*` row binds each name to its own publisher: with
 //! `publish: ["echo/{account}"]`, account 42 publishes `echo/42` and no
-//! one else's.
+//! one else's. [`Grant::publishes`] and [`Grant::subscribes`] decide a name
+//! for an account as the node does, so a program tests what its rows let
+//! through.
 //!
 //! ```ignore
 //! // a program that keeps members, in the op that seats one: the
