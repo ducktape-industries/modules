@@ -4,12 +4,12 @@ use crate::error::{Error, Result};
 use crate::object::{Commit, Kind, Mode, Object, Tag, Tree};
 use crate::oid::{Hash, Oid};
 use crate::pack::{self, Limits};
-use crate::store::Objects;
+use crate::store::{Objects, WriteObjects};
 use crate::walk::{Verdict, is_ancestor};
 use crate::wire::receive::{RefCommand, parse_request, report_status};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub fn admit_pack<S: Objects + ?Sized>(
+pub fn admit_pack<S: WriteObjects + ?Sized>(
     store: &mut S,
     pack: &[u8],
     hash: Hash,
@@ -207,7 +207,7 @@ pub struct PushOutcome {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn push<S: Objects + ?Sized>(
+pub fn push<S: WriteObjects + ?Sized>(
     store: &mut S,
     current_refs: &BTreeMap<Vec<u8>, Oid>,
     request: &[u8],

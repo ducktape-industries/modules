@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 pub trait Objects {
     fn get(&self, id: &Oid) -> Result<Option<Object>>;
     fn has(&self, id: &Oid) -> Result<bool>;
-    fn put(&mut self, kind: Kind, body: &[u8]) -> Result<Oid>;
+}
+
+pub trait WriteObjects: Objects {
     fn keep(&mut self, id: Oid, object: Object) -> Result<()>;
 }
 
@@ -37,6 +39,14 @@ impl MemoryObjects {
     pub fn ids(&self) -> impl Iterator<Item = &Oid> {
         self.objects.keys()
     }
+
+    pub fn put(&mut self, kind: Kind, body: &[u8]) -> Result<Oid> {
+        let id = oid_of(self.hash, kind, body)?;
+        self.objects
+            .entry(id)
+            .or_insert_with(|| Object::new(kind, body.to_vec()));
+        Ok(id)
+    }
 }
 
 impl Objects for MemoryObjects {
@@ -47,15 +57,9 @@ impl Objects for MemoryObjects {
     fn has(&self, id: &Oid) -> Result<bool> {
         Ok(self.objects.contains_key(id))
     }
+}
 
-    fn put(&mut self, kind: Kind, body: &[u8]) -> Result<Oid> {
-        let id = oid_of(self.hash, kind, body)?;
-        self.objects
-            .entry(id)
-            .or_insert_with(|| Object::new(kind, body.to_vec()));
-        Ok(id)
-    }
-
+impl WriteObjects for MemoryObjects {
     fn keep(&mut self, id: Oid, object: Object) -> Result<()> {
         self.objects.entry(id).or_insert(object);
         Ok(())

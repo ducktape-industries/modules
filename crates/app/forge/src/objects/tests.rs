@@ -1,6 +1,6 @@
 //! `ObjectWriter::flush` over the mock host: an object is stored under the id the pack reader gave it, or the flush fails naming both ids.
 
-use gitcore::{Hash, Kind, Object, Objects, Oid};
+use gitcore::{Hash, Kind, Object, Oid, WriteObjects};
 use program::{BlobId, MockHost, code};
 
 use super::{ObjectWriter, blob_id_of};
