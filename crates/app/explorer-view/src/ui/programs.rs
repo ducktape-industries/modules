@@ -219,16 +219,19 @@ fn role_of(roles: &abi::Roles, name: &str) -> Option<&'static str> {
         identity,
         blobs,
         awaits,
+        egress,
     } = roles;
     [
-        (programs, "programs"),
-        (validators, "validators"),
-        (identity, "identity"),
-        (blobs, "blobs"),
-        (awaits, "awaits"),
+        (Some(programs), "programs"),
+        (Some(validators), "validators"),
+        (Some(identity), "identity"),
+        (Some(blobs), "blobs"),
+        (Some(awaits), "awaits"),
+        // a network may run without one
+        (egress.as_ref(), "egress"),
     ]
     .into_iter()
-    .find(|(program, _)| program.as_str() == name)
+    .find(|(program, _)| program.is_some_and(|program| program.as_str() == name))
     .map(|(_, role)| role)
 }
 
