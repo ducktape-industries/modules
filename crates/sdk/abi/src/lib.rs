@@ -129,13 +129,15 @@ pub struct Roles {
     /// Holds the lane table halo serves: each lane's wire id, class cap,
     /// whether it is served and whether it is pinned.
     pub halo: ProgramId,
+    pub egress: Option<ProgramId>,
 }
 
 impl Roles {
-    /// Every role by its name, with the program bound to it, in field order.
-    /// The pattern names every field, so a role added to `Roles` fails the
-    /// build here until it is named.
-    pub fn named(&self) -> [(&'static str, &ProgramId); 6] {
+    /// Every role bound, by its name, with the program bound to it, in
+    /// field order: `egress` only when it is bound. The pattern names every
+    /// field, so a role added to `Roles` fails the build here until it is
+    /// named.
+    pub fn named(&self) -> Vec<(&'static str, &ProgramId)> {
         let Roles {
             programs,
             validators,
@@ -143,6 +145,7 @@ impl Roles {
             blobs,
             awaits,
             halo,
+            egress,
         } = self;
         [
             ("programs", programs),
@@ -152,6 +155,9 @@ impl Roles {
             ("awaits", awaits),
             ("halo", halo),
         ]
+        .into_iter()
+        .chain(egress.iter().map(|egress| ("egress", egress)))
+        .collect()
     }
 }
 
@@ -897,6 +903,231 @@ pub mod role {
             pub lanes: Vec<Founded>,
         }
     }
+    pub mod egress {
+        use crate::role::identity::AccountNumber;
+        use crate::{BlobId, BorshDeserialize, BorshSerialize, ProgramId};
+
+        pub const HTTP: &str = "http";
+        pub const RELAY: &str = "relay";
+        pub const RESERVED: [&str; 2] = [HTTP, RELAY];
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Op {
+            Register {
+                service: String,
+            },
+            Assign {
+                service: String,
+                nodes: Vec<Vec<u8>>,
+            },
+            Serve {
+                services: Vec<String>,
+            },
+            Request(Request),
+            Answer {
+                id: u64,
+                answer: Answer,
+            },
+            Expire {
+                id: u64,
+            },
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Request {
+            Relay {
+                note: Vec<u8>,
+            },
+            Http {
+                service: String,
+                head: http::Head,
+                body: Vec<BlobId>,
+            },
+        }
+
+        impl Request {
+            pub fn service(&self) -> &str {
+                match self {
+                    Request::Relay { .. } => RELAY,
+                    Request::Http { service, .. } => service,
+                }
+            }
+
+            pub fn parts(&self) -> &[BlobId] {
+                match self {
+                    Request::Relay { .. } => &[],
+                    Request::Http { body, .. } => body,
+                }
+            }
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Answer {
+            Output(Vec<u8>),
+            Failed(String),
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct ServiceRow {
+            pub name: String,
+            pub owner: AccountNumber,
+            pub nodes: Vec<Vec<u8>>,
+            pub registered: u64,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct RequestRow {
+            pub id: u64,
+            pub requester: ProgramId,
+            pub request: Request,
+            pub node: Vec<u8>,
+            pub made: u64,
+            pub deadline: u64,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct NodeRow {
+            pub key: Vec<u8>,
+            pub services: Vec<String>,
+            pub since: u64,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        #[borsh(use_discriminant = true)]
+        #[repr(u8)]
+        pub enum Query {
+            Assigned { key: Vec<u8> } = 0,
+            Overdue = 1,
+            Node { key: Vec<u8> } = 2,
+            Serving { service: String } = 3,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        #[borsh(use_discriminant = true)]
+        #[repr(u8)]
+        pub enum Reply {
+            Requests(Vec<RequestRow>) = 0,
+            Node(Option<NodeRow>) = 1,
+            Serving(Vec<Vec<u8>>) = 2,
+        }
+
+        pub mod http {
+            use crate::{BorshDeserialize, BorshSerialize, Refusal, reason};
+
+            pub const FRAMING: [&str; 4] =
+                ["host", "content-length", "transfer-encoding", "connection"];
+
+            pub const NODE_PREFIX: &str = "ducktape-";
+
+            #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+            pub enum Method {
+                Get,
+                Post,
+                Put,
+                Patch,
+                Delete,
+            }
+
+            impl Method {
+                pub fn as_str(self) -> &'static str {
+                    match self {
+                        Method::Get => "GET",
+                        Method::Post => "POST",
+                        Method::Put => "PUT",
+                        Method::Patch => "PATCH",
+                        Method::Delete => "DELETE",
+                    }
+                }
+            }
+
+            #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+            pub struct Head {
+                pub method: Method,
+                pub target: String,
+                pub headers: Vec<(String, String)>,
+            }
+
+            #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+            pub struct Response {
+                pub status: u16,
+                pub headers: Vec<(String, String)>,
+                pub body: Vec<u8>,
+            }
+
+            fn printable(text: &str) -> bool {
+                text.bytes()
+                    .all(|byte| byte.is_ascii_graphic() && byte != b'\\')
+            }
+
+            fn refused(sentence: impl Into<String>) -> Refusal {
+                Refusal::new(reason::INVALID_INPUT, sentence)
+            }
+
+            impl Head {
+                pub fn check_url(&self) -> Result<(), Refusal> {
+                    let after_scheme = self
+                        .target
+                        .strip_prefix("https://")
+                        .or_else(|| self.target.strip_prefix("http://"));
+                    let host = after_scheme
+                        .and_then(|rest| rest.split(['/', '?', '#']).next())
+                        .unwrap_or_default();
+                    let fits = !host.is_empty() && printable(&self.target);
+                    if !fits {
+                        return Err(refused(
+                            "an http target is http:// or https://, then a host, all printable \
+                             ASCII",
+                        ));
+                    }
+                    check_headers(&self.headers)
+                }
+
+                pub fn check_path(&self) -> Result<(), Refusal> {
+                    let path = self.target.split(['?', '#']).next().unwrap_or_default();
+                    let climbs = path.split('/').any(|segment| {
+                        let decoded = segment.to_ascii_lowercase().replace("%2e", ".");
+                        decoded == "." || decoded == ".."
+                    });
+                    let fits = self.target.starts_with('/') && printable(&self.target) && !climbs;
+                    if !fits {
+                        return Err(refused(
+                            "a service's target is a path: it starts with /, has no . or .. \
+                             segment, and is printable ASCII",
+                        ));
+                    }
+                    check_headers(&self.headers)
+                }
+            }
+
+            pub fn check_headers(headers: &[(String, String)]) -> Result<(), Refusal> {
+                for (name, value) in headers {
+                    let named = !name.is_empty()
+                        && name.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                        });
+                    if !named {
+                        return Err(refused(format!(
+                            "header name {name:?} is lowercase letters, digits and -"
+                        )));
+                    }
+                    let reserved =
+                        FRAMING.contains(&name.as_str()) || name.starts_with(NODE_PREFIX);
+                    if reserved {
+                        return Err(refused(format!(
+                            "{name} is the node's to set, never a request's"
+                        )));
+                    }
+                    let printable = value
+                        .bytes()
+                        .all(|byte| byte == b'\t' || (b' '..=b'~').contains(&byte));
+                    if !printable {
+                        return Err(refused(format!("header {name} is printable ASCII")));
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 /// What an account is beside its name, as every view shows it: the one
@@ -1217,21 +1448,31 @@ mod tests {
             blobs: "b".into(),
             awaits: "a".into(),
             halo: "h".into(),
+            egress: None,
         };
-        let named = roles
-            .named()
-            .map(|(role, program)| (role, program.as_str()));
-        assert_eq!(
-            named,
-            [
-                ("programs", "r"),
-                ("validators", "v"),
-                ("identity", "i"),
-                ("blobs", "b"),
-                ("awaits", "a"),
-                ("halo", "h"),
-            ]
-        );
+        let named = |roles: &Roles| -> Vec<(&str, String)> {
+            let named = roles.named().into_iter();
+            named
+                .map(|(role, program)| (role, program.clone()))
+                .collect()
+        };
+        let bound = [
+            ("programs", "r"),
+            ("validators", "v"),
+            ("identity", "i"),
+            ("blobs", "b"),
+            ("awaits", "a"),
+            ("halo", "h"),
+        ]
+        .map(|(role, program)| (role, program.to_owned()));
+        assert_eq!(named(&roles), bound);
+        let egress = Roles {
+            egress: Some("e".into()),
+            ..roles
+        };
+        let mut all = bound.to_vec();
+        all.push(("egress", "e".into()));
+        assert_eq!(named(&egress), all);
     }
 
     #[test]
@@ -1241,6 +1482,74 @@ mod tests {
             assert_eq!(Class::try_from(u8::from(class)), Ok(class));
         }
         assert_eq!(Class::try_from(3), Err(3));
+    }
+
+    #[test]
+    fn the_egress_role_asks_on_fixed_tags_a_program_extends_after() {
+        use role::egress::{Query, Reply};
+        assert_eq!(encode(&Query::Assigned { key: vec![7] })[0], 0);
+        assert_eq!(encode(&Query::Overdue), [1]);
+        assert_eq!(encode(&Query::Node { key: vec![7] })[0], 2);
+        let serving = Query::Serving {
+            service: "s".into(),
+        };
+        assert_eq!(encode(&serving)[0], 3);
+        assert_eq!(encode(&Reply::Requests(Vec::new())), [0, 0, 0, 0, 0]);
+        assert_eq!(encode(&Reply::Node(None)), [1, 0]);
+        assert_eq!(encode(&Reply::Serving(Vec::new())), [2, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn an_egress_head_names_a_url_or_a_path_and_leaves_framing_to_the_node() {
+        use role::egress::http::{Head, Method};
+        let head = |headers: &[(&str, &str)], target: &str| Head {
+            method: Method::Post,
+            target: target.into(),
+            headers: headers
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect(),
+        };
+        let url = "https://api.example.org/v1/messages";
+        for fits in [url, "http://127.0.0.1:8080/x?y=1"] {
+            assert_eq!(head(&[], fits).check_url(), Ok(()), "{fits}");
+        }
+        for unfit in [
+            "/v1/messages",
+            "ftp://host/",
+            "https:///path",
+            "https://host/a b",
+        ] {
+            let refusal = head(&[], unfit).check_url().unwrap_err();
+            assert_eq!(refusal.reason, reason::INVALID_INPUT, "{unfit}");
+        }
+        for fits in ["/", "/v1/messages", "/v1/models/m?beta=true", "/a..b/c."] {
+            assert_eq!(head(&[], fits).check_path(), Ok(()), "{fits}");
+        }
+        for unfit in [
+            "v1/messages",
+            url,
+            "/../admin",
+            "/v1/./x",
+            "/v1/%2E%2e/x",
+            "/v1/..",
+            "/v1\\..\\x",
+            "/a b",
+        ] {
+            assert!(head(&[], unfit).check_path().is_err(), "{unfit}");
+        }
+        for name in ["authorization", "x-api-key", "cookie"] {
+            assert_eq!(head(&[(name, "x")], "/").check_path(), Ok(()), "{name}");
+        }
+        for name in [
+            "host",
+            "content-length",
+            "connection",
+            "ducktape-program",
+            "X-Up",
+        ] {
+            assert!(head(&[(name, "x")], "/").check_path().is_err(), "{name}");
+        }
     }
 
     #[test]
@@ -1259,6 +1568,7 @@ mod tests {
                 blobs: "b".into(),
                 awaits: "a".into(),
                 halo: "h".into(),
+                egress: Some("e".into()),
             },
             cause: Cause::Completion {
                 item: ItemRef {

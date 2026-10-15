@@ -15,7 +15,7 @@ use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, HostOp, HostReply, Message,
     Scheme,
 };
-use sha1::Digest as _;
+use sha2::Digest as _;
 
 use crate::{
     AccountNumber, Cause, Env, Error, ExecCtx, FrameId, Order, Origin, Principal, Program,
@@ -118,6 +118,7 @@ impl MockHost {
             blobs: "blobs".into(),
             awaits: "awaits".into(),
             halo: "halo".into(),
+            egress: Some("egress".into()),
         }
     }
 
@@ -473,19 +474,12 @@ impl Env {
 
 /// The host's framing: `<kind> <len>\0<body>`, hashed whole.
 pub fn blob_id(hash: HashKind, kind: &str, body: &[u8]) -> Result<BlobId, Error> {
-    let kind_is_a_word = !kind.is_empty() && !kind.contains([' ', '\0']);
-    if !kind_is_a_word {
-        return Err(Error::new(
-            code::INVALID_INPUT,
-            "a blob kind is one non-empty word without spaces or NUL",
-        ));
-    }
-    let mut framed = format!("{kind} {}\0", body.len()).into_bytes();
-    framed.extend_from_slice(body);
-    Ok(match hash {
-        HashKind::Sha256 => BlobId::Sha256(sha2::Sha256::digest(&framed).into()),
-        HashKind::Sha1 => BlobId::Sha1(sha1::Sha1::digest(&framed).into()),
-    })
+    let framed = blob::frame(kind, body).map_err(crate::kernel::error_from)?;
+    id_of(hash, &framed)
+}
+
+fn id_of(hash: HashKind, framed: &[u8]) -> Result<BlobId, Error> {
+    blob::id_of(hash, framed).map_err(|collision| crate::kernel::error_from(collision.into()))
 }
 
 #[cfg(test)]
@@ -533,5 +527,27 @@ mod tests {
         assert_eq!(answer, (Origin::Program("chat".into()), 5));
         let unknown = ctx.query_raw("nobody", Vec::new()).unwrap_err();
         assert_eq!(unknown.code, code::UNKNOWN_PROGRAM);
+    }
+    #[test]
+    fn a_sha1_blob_gets_git_s_id_and_a_shattered_half_is_refused() {
+        let hello = blob_id(HashKind::Sha1, "blob", b"hello\n").unwrap();
+        assert_eq!(
+            abi::hex(hello.digest()),
+            "ce013625030ba8dba906f756967f9e9ca394464a"
+        );
+        for half in [
+            include_bytes!("../fixtures/shattered-1.bin"),
+            include_bytes!("../fixtures/shattered-2.bin"),
+        ] {
+            let refused = id_of(HashKind::Sha1, half).unwrap_err();
+            assert_eq!(refused.code, code::INVALID_INPUT);
+            assert!(
+                refused
+                    .message
+                    .contains("f92d74e3874587aaf443d1db961d4e26dde13e9c"),
+                "{}",
+                refused.message
+            );
+        }
     }
 }

@@ -1,8 +1,9 @@
-//! The agents on a `MockChain` with identity, attribution, awaits, chat, files, provider and
-//! valset seated: a mention or a direct message reaches a hired agent, a provider node answers
-//! as the model would, and every tool call runs once its relay comes back, as the agent.
+//! The agents on a `MockChain` with identity, attribution, awaits, chat, files, egress and
+//! valset seated: a mention or a direct message reaches a hired agent, the node serving the
+//! model's egress service answers as the model would, and every tool call runs once its relay
+//! comes back, as the agent.
 use ::program::{Error, MockChain, Origin, Principal, code};
-use provider::{Answer, Provider, RELAY, RequestRow, http};
+use egress::{Answer, Egress, RELAY, Request, RequestRow, http};
 use serde_json::{Value, json};
 use valset::{Genesis, Member, Valset};
 
@@ -10,6 +11,7 @@ use crate::*;
 
 const NODE: [u8; 32] = [1; 32];
 const WINDOW: u64 = 200_000;
+const SERVICE: &str = "ccs";
 const ADA: &[u8] = b"ada-key";
 const BO: &[u8] = b"bo-key";
 
@@ -37,6 +39,7 @@ fn hire(agent: AccountNumber) -> Op {
         agent,
         system: "Keep notes in /shared.".into(),
         model: "claude-test".into(),
+        service: SERVICE.into(),
         max_tokens: 1024,
     }
 }
@@ -46,14 +49,14 @@ fn world() -> World {
     chain.seat::<identity::Identity>(identity::PROGRAM);
     chain.seat::<Valset>("valset");
     chain.seat::<awaits::Awaits>(awaits::PROGRAM);
-    chain.seat::<Provider>(provider::PROGRAM);
+    chain.seat::<Egress>(egress::PROGRAM);
     chain.seat::<attribution::Attribution>(attribution::PROGRAM);
     chain.seat_awaiting::<Harness>(PROGRAM);
     chain.seat::<files::Files>(files::PROGRAM);
     chain.seat::<chat::Chat>(chat::PROGRAM);
     for program in [
         "valset",
-        provider::PROGRAM,
+        egress::PROGRAM,
         attribution::PROGRAM,
         PROGRAM,
         files::PROGRAM,
@@ -75,11 +78,11 @@ fn world() -> World {
         member_cap: 8,
     };
     chain.init("valset", &genesis).unwrap();
-    let serve = provider::Op::Serve {
-        services: vec![MODEL_SERVICE.into(), RELAY.into()],
+    let serve = egress::Op::Serve {
+        services: vec![SERVICE.into(), RELAY.into()],
     };
     chain
-        .submit(signed(&NODE), provider::PROGRAM, &serve)
+        .submit(signed(&NODE), egress::PROGRAM, &serve)
         .unwrap();
     let person = |key, name: &str| {
         let create = identity::Op::Create {
@@ -89,6 +92,16 @@ fn world() -> World {
         number(identity_op(&chain, key, create).unwrap())
     };
     let ada = person(ADA, "Ada");
+    let register = egress::Op::Register {
+        service: SERVICE.into(),
+    };
+    let assign = egress::Op::Assign {
+        service: SERVICE.into(),
+        nodes: vec![NODE.to_vec()],
+    };
+    for op in [register, assign] {
+        chain.submit(signed(ADA), egress::PROGRAM, &op).unwrap();
+    }
     let bo = person(BO, "Bo");
     let create = identity::Op::CreateAgent {
         name: "Scout".into(),
@@ -150,23 +163,19 @@ impl World {
 }
 
 fn assigned(chain: &MockChain, service: &str) -> Vec<RequestRow> {
-    let asked = provider::Query::Assigned {
-        key: NODE.to_vec(),
-        page: PageRequest::default(),
-    };
-    let provider::Reply::Requests(page) = chain.query(provider::PROGRAM, &asked).unwrap() else {
+    let asked = egress::Query::Assigned { key: NODE.to_vec() };
+    let egress::Reply::Requests(rows) = chain.query(egress::PROGRAM, &asked).unwrap() else {
         panic!()
     };
-    page.items
-        .into_iter()
-        .filter(|row| row.service == service)
+    rows.into_iter()
+        .filter(|row| row.request.service() == service)
         .collect()
 }
 
 fn body(chain: &MockChain, row: &RequestRow) -> Value {
-    let host = chain.host(provider::PROGRAM).borrow();
+    let host = chain.host(egress::PROGRAM).borrow();
     let mut bytes = Vec::new();
-    for part in &row.parts {
+    for part in row.request.parts() {
         bytes.extend(&host.blobs[part].body);
     }
     serde_json::from_slice(&bytes).expect("the parts join into one JSON request")
@@ -194,17 +203,23 @@ fn reply(content: Value, stop: &str, input_tokens: u64) -> Vec<u8> {
 }
 
 fn open_request(chain: &MockChain) -> (RequestRow, http::Head) {
-    let [request] = assigned(chain, MODEL_SERVICE)
+    let [request] = assigned(chain, SERVICE)
         .try_into()
         .expect("one model call open");
-    let head = abi::decode(&request.input).unwrap();
+    let Request::Http { head, .. } = request.request.clone() else {
+        panic!("the model is asked over http");
+    };
     (request, head)
+}
+
+fn path(head: &http::Head) -> &str {
+    &head.target
 }
 
 fn learn(chain: &MockChain, window: Option<u64>) {
     let (request, head) = open_request(chain);
     assert_eq!(
-        (head.method, head.path.as_str()),
+        (head.method, path(&head)),
         (http::Method::Get, "/v1/models/claude-test")
     );
     let info = json!({ "type": "model", "id": "claude-test", "max_input_tokens": window });
@@ -212,9 +227,9 @@ fn learn(chain: &MockChain, window: Option<u64>) {
 }
 
 fn answer(chain: &MockChain, id: u64, answer: Answer) {
-    let op = provider::Op::Answer { id, answer };
+    let op = egress::Op::Answer { id, answer };
     chain
-        .submit(Origin::Signed(NODE.to_vec()), provider::PROGRAM, &op)
+        .submit(Origin::Signed(NODE.to_vec()), egress::PROGRAM, &op)
         .unwrap();
 }
 
@@ -224,7 +239,7 @@ fn model_says(chain: &MockChain, content: Value, stop: &str) {
 
 fn model_says_after(chain: &MockChain, content: Value, stop: &str, input_tokens: u64) {
     let (request, head) = open_request(chain);
-    assert_eq!(head.path, "/v1/messages");
+    assert_eq!(path(&head), "/v1/messages");
     let said = reply(content, stop, input_tokens);
     answer(chain, request.id, Answer::Output(said));
 }
@@ -233,7 +248,12 @@ fn relay_back(chain: &MockChain, call: &str) {
     let rows = assigned(chain, RELAY);
     let row = rows
         .iter()
-        .find(|row| row.input == call.as_bytes())
+        .find(|row| {
+            row.request
+                == Request::Relay {
+                    note: call.as_bytes().to_vec(),
+                }
+        })
         .expect("the call is relaying");
     answer(chain, row.id, Answer::Output(Vec::new()));
 }
@@ -290,10 +310,10 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
     let thread = world.opened("m1", "note that the network is up", Some(WINDOW));
     let (request, head) = open_request(chain);
     assert_eq!(
-        (head.method, head.path.as_str()),
+        (head.method, path(&head)),
         (http::Method::Post, "/v1/messages")
     );
-    head.check().unwrap();
+    head.check_path().unwrap();
     let sent = body(chain, &request);
     assert_eq!(sent["model"], "claude-test");
     let system = sent["system"][0]["text"].as_str().unwrap();
@@ -327,7 +347,7 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
     world.mention("m2", "still there?");
     assert_eq!(world.threads().len(), 1, "one thread per channel");
     assert_eq!(
-        assigned(chain, MODEL_SERVICE).len(),
+        assigned(chain, SERVICE).len(),
         1,
         "one model call at a time"
     );
@@ -346,7 +366,7 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
         [Some(Role::User), Some(Role::Assistant), Some(Role::User)]
     );
     assert_eq!(
-        assigned(chain, MODEL_SERVICE).len(),
+        assigned(chain, SERVICE).len(),
         1,
         "the held mention asks again"
     );
@@ -410,6 +430,27 @@ fn only_its_manager_hires_an_agent_handed_to_harness_and_a_dismissed_one_hears_n
     let idle = number(identity_op(chain, ADA, create).unwrap());
     let unhanded = chain.submit(signed(ADA), PROGRAM, &hire(idle));
     assert_eq!(unhanded.unwrap_err().code, code::WRONG_STATE);
+    for service in egress::RESERVED {
+        let Op::Hire {
+            agent,
+            system,
+            model,
+            max_tokens,
+            ..
+        } = hire(world.agent)
+        else {
+            panic!()
+        };
+        let reserved = Op::Hire {
+            agent,
+            system,
+            model,
+            service: service.into(),
+            max_tokens,
+        };
+        let refused = chain.submit(signed(ADA), PROGRAM, &reserved).unwrap_err();
+        assert_eq!(refused.code, code::INVALID_INPUT, "{service}");
+    }
 
     let dismissed = chain.submit(signed(BO), PROGRAM, &Op::Dismiss { agent: world.agent });
     assert_eq!(dismissed.unwrap_err().code, code::UNAUTHORIZED);
@@ -440,15 +481,15 @@ fn every_tool_call_runs_a_block_later_and_the_model_is_asked_once_all_results_ar
     assert_eq!(bodies.len(), 4);
     assert_eq!(assigned(chain, RELAY).len(), 2);
     assert!(
-        assigned(chain, MODEL_SERVICE).is_empty(),
+        assigned(chain, SERVICE).is_empty(),
         "the model waits for the results"
     );
 
-    let same_block = provider::Op::Answer {
+    let same_block = egress::Op::Answer {
         id: assigned(chain, RELAY)[0].id,
         answer: Answer::Output(Vec::new()),
     };
-    let refused = chain.submit(signed(&NODE), provider::PROGRAM, &same_block);
+    let refused = chain.submit(signed(&NODE), egress::PROGRAM, &same_block);
     assert_eq!(refused.unwrap_err().code, code::WRONG_STATE);
 
     chain.at(4, 0);
@@ -459,7 +500,7 @@ fn every_tool_call_runs_a_block_later_and_the_model_is_asked_once_all_results_ar
         serde_json::from_str::<Value>(&listed).unwrap()["entries"],
         json!([])
     );
-    assert!(assigned(chain, MODEL_SERVICE).is_empty());
+    assert!(assigned(chain, SERVICE).is_empty());
     relay_back(chain, "toolu_w");
     let (written, failed) = result_of(chain, thread, "toolu_w");
     assert!(!failed, "{written}");
@@ -488,7 +529,7 @@ fn every_tool_call_runs_a_block_later_and_the_model_is_asked_once_all_results_ar
     );
     assert_eq!(thread_row(chain, thread).open_calls, 0);
 
-    let [next] = assigned(chain, MODEL_SERVICE).try_into().unwrap();
+    let [next] = assigned(chain, SERVICE).try_into().unwrap();
     let sent = body(chain, &next);
     let messages = sent["messages"].as_array().unwrap();
     assert_eq!(messages.len(), 3);
@@ -527,7 +568,7 @@ fn input_that_arrives_while_a_call_runs_is_held_and_follows_its_result() {
     assert_eq!(held(chain, thread).len(), 1);
     chain.at(4, 0);
     relay_back(chain, "toolu_l");
-    let [again] = assigned(chain, MODEL_SERVICE).try_into().unwrap();
+    let [again] = assigned(chain, SERVICE).try_into().unwrap();
     let sent = body(chain, &again);
     let last = sent["messages"].as_array().unwrap().last().unwrap().clone();
     assert_eq!(last["role"], "user");
@@ -540,7 +581,7 @@ fn input_that_arrives_while_a_call_runs_is_held_and_follows_its_result() {
         json!([{ "type": "text", "text": "Done." }]),
         "end_turn",
     );
-    assert!(assigned(chain, MODEL_SERVICE).is_empty());
+    assert!(assigned(chain, SERVICE).is_empty());
     let row = thread_row(chain, thread);
     assert_eq!((row.asking, row.due()), (Asking::Idle, false));
     assert_eq!(chain.frames(), 0);
@@ -561,7 +602,7 @@ fn a_call_whose_relay_fails_fails_once_and_the_model_hears_it() {
     let (text, failed) = result_of(chain, thread, "toolu_l");
     assert!(failed && text.contains("the relay failed"), "{text}");
     assert!(text.contains("no route"), "{text}");
-    assert_eq!(assigned(chain, MODEL_SERVICE).len(), 1);
+    assert_eq!(assigned(chain, SERVICE).len(), 1);
 }
 
 #[test]
@@ -591,7 +632,7 @@ fn a_call_in_flight_when_its_agent_is_dismissed_does_not_run() {
         panic!()
     };
     assert_eq!(entry, None, "the dismissed agent wrote nothing");
-    assert!(assigned(chain, MODEL_SERVICE).is_empty());
+    assert!(assigned(chain, SERVICE).is_empty());
     assert_eq!(chain.frames(), 0);
 }
 
@@ -681,7 +722,7 @@ fn a_failed_model_call_is_noticed_once_and_the_next_input_asks_again() {
     let overloaded = json!({ "type": "error", "error": { "type": "overloaded_error", "message": "Overloaded" } });
     answer(chain, request.id, Answer::Output(response(529, overloaded)));
     assert!(
-        assigned(chain, MODEL_SERVICE).is_empty(),
+        assigned(chain, SERVICE).is_empty(),
         "a failed call is not repeated"
     );
     let told = notices(chain, thread);
@@ -693,7 +734,7 @@ fn a_failed_model_call_is_noticed_once_and_the_next_input_asks_again() {
     );
     world.mention("m2", "again");
     let (_, head) = open_request(chain);
-    assert_eq!(head.path, "/v1/messages");
+    assert_eq!(path(&head), "/v1/messages");
 }
 
 fn beta(head: &http::Head) -> Option<&str> {
@@ -790,7 +831,7 @@ fn a_thread_whose_next_answer_would_not_fit_the_window_is_summarized_first() {
         Body::Compaction { block } if block.contains("Ada set out the plan.")
     ));
     let (request, head) = open_request(chain);
-    assert_eq!(head.path, "/v1/messages");
+    assert_eq!(path(&head), "/v1/messages");
     assert_eq!(beta(&head), Some(anthropic::COMPACTION_BETA));
     let sent = body(chain, &request);
     assert!(sent.get("compaction").is_none());
@@ -846,7 +887,7 @@ fn a_request_the_model_finds_too_long_is_summarized_even_with_no_window_known() 
     world.mention("m2", "second");
     let (request, head) = open_request(chain);
     assert_eq!(
-        (head.path.as_str(), beta(&head)),
+        (path(&head), beta(&head)),
         ("/v1/messages", None),
         "no window, no early summary"
     );
@@ -889,7 +930,7 @@ fn a_request_the_model_finds_too_long_is_summarized_even_with_no_window_known() 
     chain.at(7, 0);
     refused_as_too_long(chain);
     assert!(
-        assigned(chain, MODEL_SERVICE).is_empty(),
+        assigned(chain, SERVICE).is_empty(),
         "with everything new left out and still too long, the thread gives up"
     );
     let told = notices(chain, thread);
@@ -906,7 +947,7 @@ fn a_request_the_model_finds_too_long_is_summarized_even_with_no_window_known() 
     );
     world.mention("m3", "third");
     let (_, head) = open_request(chain);
-    assert_eq!(head.path, "/v1/messages");
+    assert_eq!(path(&head), "/v1/messages");
     let messages = sent_messages(chain);
     let last = &messages[messages.len() - 1];
     assert!(
@@ -1168,15 +1209,13 @@ fn only_attribution_delivers_and_only_the_manager_closes() {
 }
 
 #[test]
-fn with_no_provider_serving_the_model_a_mention_says_so() {
+fn with_no_node_serving_the_model_a_mention_says_so() {
     let world = world();
     let chain = &world.chain;
-    let stop = provider::Op::Serve {
+    let stop = egress::Op::Serve {
         services: Vec::new(),
     };
-    chain
-        .submit(signed(&NODE), provider::PROGRAM, &stop)
-        .unwrap();
+    chain.submit(signed(&NODE), egress::PROGRAM, &stop).unwrap();
     let thread = world.mention("m1", "hello");
     assert!(
         matches!(&frames(chain, thread)[1], Body::Notice { text } if text.contains("no member node serves"))

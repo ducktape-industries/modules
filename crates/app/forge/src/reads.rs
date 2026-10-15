@@ -134,7 +134,7 @@ fn reading<'a>(
 ) -> Result<Reading<'a>, Error> {
     let hash = repo_hash(&load_repo(ctx, name)?);
     Ok(Reading {
-        store: ObjectStore::querying(ctx, hash, bounds, reads),
+        store: ObjectStore::querying(ctx, bounds, reads),
         hash,
         bounds,
     })

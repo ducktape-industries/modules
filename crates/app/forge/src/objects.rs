@@ -5,39 +5,34 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ::program::{BlobHeader, BlobId, Error, HashKind};
-use ::program::{ExecCtx, QueryCtx, not_found};
-use gitcore::{Error as GitError, Hash, Kind, Object, Objects, Oid};
+use ::program::{ExecCtx, QueryCtx, code, not_found};
+use gitcore::{Error as GitError, Hash, Kind, Object, Objects, Oid, WriteObjects};
 
 /// A different serving node or object replication can satisfy this query.
 pub(crate) fn object_not_held(oid: impl std::fmt::Display) -> Error {
     not_found(format!("object {oid} is not held by this node"))
 }
 
-/// Reads objects; a `put` computes the id and persists nothing (a compare
-/// may build a prospective tree off consensus). A push writes through
-/// [`ObjectWriter`].
 pub struct ObjectStore<'a> {
     sandbox: &'a QueryCtx,
-    hash: Hash,
     budget: Option<Cell<(u64, u64)>>,
     max_object_size: u64,
 }
 
 impl<'a> ObjectStore<'a> {
-    pub fn new(sandbox: &'a QueryCtx, hash: Hash) -> ObjectStore<'a> {
+    pub fn new(sandbox: &'a QueryCtx) -> ObjectStore<'a> {
         ObjectStore {
             sandbox,
-            hash,
             budget: None,
             max_object_size: u64::MAX,
         }
     }
 
-    pub fn querying(sandbox: &'a QueryCtx, hash: Hash, bounds: &crate::Bounds, reads: u64) -> Self {
+    pub fn querying(sandbox: &'a QueryCtx, bounds: &crate::Bounds, reads: u64) -> Self {
         Self {
             budget: Some(Cell::new((reads, bounds.diff_bytes))),
             max_object_size: bounds.max_object_size,
-            ..Self::new(sandbox, hash)
+            ..Self::new(sandbox)
         }
     }
 
@@ -67,10 +62,6 @@ impl Objects for ObjectStore<'_> {
     fn has(&self, id: &Oid) -> gitcore::Result<bool> {
         Ok(self.sandbox.blob_stat(blob_id_of(id)).is_some())
     }
-
-    fn put(&mut self, kind: Kind, body: &[u8]) -> gitcore::Result<Oid> {
-        gitcore::oid_of(self.hash, kind, body)
-    }
 }
 
 fn get(sandbox: &QueryCtx, id: &Oid) -> gitcore::Result<Option<Object>> {
@@ -89,7 +80,7 @@ fn get(sandbox: &QueryCtx, id: &Oid) -> gitcore::Result<Option<Object>> {
 pub struct ObjectWriter<'a> {
     sandbox: &'a ExecCtx,
     hash: Hash,
-    pending: BTreeMap<Oid, (Kind, Vec<u8>)>,
+    pending: BTreeMap<Oid, Object>,
 }
 
 impl<'a> ObjectWriter<'a> {
@@ -103,9 +94,16 @@ impl<'a> ObjectWriter<'a> {
 
     /// Stores every object the admitted pack brought.
     pub fn flush(self) -> Result<(), Error> {
-        for (_, (kind, body)) in self.pending {
-            self.sandbox
-                .blob_put(hash_kind_of(self.hash), kind.as_str(), body)?;
+        for (id, object) in self.pending {
+            let stored = self.sandbox.blob_put(
+                hash_kind_of(self.hash),
+                object.kind.as_str(),
+                object.body,
+            )?;
+            let named = blob_id_of(&id);
+            if stored != named {
+                return Err(misnamed(&id, &stored));
+            }
         }
         Ok(())
     }
@@ -113,8 +111,8 @@ impl<'a> ObjectWriter<'a> {
 
 impl Objects for ObjectWriter<'_> {
     fn get(&self, id: &Oid) -> gitcore::Result<Option<Object>> {
-        if let Some((kind, body)) = self.pending.get(id) {
-            return Ok(Some(Object::new(*kind, body.clone())));
+        if let Some(object) = self.pending.get(id) {
+            return Ok(Some(object.clone()));
         }
         get(self.sandbox, id)
     }
@@ -122,12 +120,20 @@ impl Objects for ObjectWriter<'_> {
     fn has(&self, id: &Oid) -> gitcore::Result<bool> {
         Ok(self.pending.contains_key(id) || self.sandbox.blob_stat(blob_id_of(id)).is_some())
     }
+}
 
-    fn put(&mut self, kind: Kind, body: &[u8]) -> gitcore::Result<Oid> {
-        let id = gitcore::oid_of(self.hash, kind, body)?;
-        self.pending.insert(id, (kind, body.to_vec()));
-        Ok(id)
+impl WriteObjects for ObjectWriter<'_> {
+    fn keep(&mut self, id: Oid, object: Object) -> gitcore::Result<()> {
+        self.pending.insert(id, object);
+        Ok(())
     }
+}
+
+fn misnamed(named: &Oid, stored: &BlobId) -> Error {
+    Error::new(
+        code::PROTOCOL,
+        format!("the pack names an object {named}, but the node stored its bytes as {stored:?}"),
+    )
 }
 
 pub fn hash_of(kind: HashKind) -> gitcore::Hash {
@@ -150,3 +156,6 @@ pub fn blob_id_of(oid: &Oid) -> BlobId {
         Oid::Sha256(digest) => BlobId::Sha256(*digest),
     }
 }
+
+#[cfg(test)]
+mod tests;

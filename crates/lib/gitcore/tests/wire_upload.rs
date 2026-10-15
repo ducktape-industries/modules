@@ -257,10 +257,6 @@ impl Objects for Budgeted<'_> {
     fn has(&self, id: &Oid) -> gitcore::Result<bool> {
         self.store.has(id)
     }
-
-    fn put(&mut self, _: Kind, _: &[u8]) -> gitcore::Result<Oid> {
-        Err(Error::Unsupported)
-    }
 }
 
 fn listing(store: &MemoryObjects, command: &Fetch, reads: u64) -> (Vec<Listed>, usize) {

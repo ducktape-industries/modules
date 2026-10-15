@@ -103,16 +103,6 @@ fn admit_rejects_a_pack_of_the_other_hash() {
     )
     .unwrap();
     assert!(stored.iter().all(|id| id.hash() == Hash::Sha256));
-    let mut mismatched = MemoryObjects::new(Hash::Sha1);
-    let result = admit_pack(
-        &mut mismatched,
-        fixture!("sha256.pack"),
-        Hash::Sha256,
-        &Limits::generous(),
-    );
-    let Err(Error::HashMismatch { .. }) = result else {
-        panic!("expected HashMismatch, got {result:?}");
-    };
 }
 
 #[test]

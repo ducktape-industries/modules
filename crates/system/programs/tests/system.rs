@@ -166,6 +166,10 @@ impl Net {
         hooks: Vec<&str>,
         member_cap: u32,
     ) -> Net {
+        let egress = apps
+            .iter()
+            .any(|app| app.program == egress::PROGRAM)
+            .then(|| egress::PROGRAM.into());
         let genesis = Genesis {
             network: NETWORK.to_vec(),
             roles: Roles {
@@ -175,6 +179,7 @@ impl Net {
                 blobs: blobs::PROGRAM.into(),
                 awaits: awaits::PROGRAM.into(),
                 halo: halo::PROGRAM.into(),
+                egress,
             },
             validators: FOUNDERS.iter().map(|seed| member(*seed)).collect(),
             programs: vec![

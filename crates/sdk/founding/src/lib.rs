@@ -28,7 +28,7 @@ pub const UNVIEWED: [&str; 8] = [
     "halo",
     "activity",
     "files",
-    "provider",
+    "egress",
     "attribution",
     "harness",
 ];
