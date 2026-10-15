@@ -28,10 +28,10 @@ identity = { workspace = true }
 chat = { workspace = true }
 files = { workspace = true }
 forge = { workspace = true }
-provider = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+egress = { workspace = true }
 awaits = { workspace = true }
 valset = { workspace = true }

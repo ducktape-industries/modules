@@ -26,7 +26,7 @@ pub const UNVIEWED: [&str; 7] = [
     "awaits",
     "activity",
     "files",
-    "provider",
+    "egress",
     "attribution",
     "harness",
 ];
