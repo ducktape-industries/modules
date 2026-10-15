@@ -13,12 +13,15 @@
 //! write them, and opens no room.
 //!
 //! The node reads those rows from blocks, not from the preconfirmed state a
-//! `Submit<P>` answers with: a row an op writes counts from the block that
-//! carries it, and what the node refused before that block stays refused.
-//! A view that sends the op opening a room asks again on its program's
-//! `Changes<P>` item whose keys hold the row's (`abi::live::key`), never on
-//! the op's answer: the node publishes that item once its state holds the
-//! row.
+//! `Submit<P>` answers with, and holds an ask its rows do not cover yet
+//! until a block's do: a view asks once. A `not_granted` item before a
+//! publication's first `Subscribers`, a subscription's
+//! [`Received::Opened`] or a room list's first announce does not end the
+//! request: the room's program has not granted it yet, and the node
+//! answers it on the block that writes the row, as if just asked. A view
+//! that opens a room sends the op writing its rows on that item, once;
+//! what it sends onto a waiting track goes out once the track is up. A
+//! `not_granted` after them is the grant taken back, and ends the request.
 //!
 //! A publication and a subscription are tasks: keep them beside the state
 //! they feed and build them in [`View::attach`](crate::View::attach), which
@@ -54,17 +57,31 @@ pub struct Track<M: BorshSerialize> {
 impl<M: BorshSerialize> Track<M> {
     /// `live.publish` at [`DEFAULT_PRIORITY`], with `on` hearing the
     /// subscriber count, a refused object (an `Err` that does not end the
-    /// track) and the refusal that ends it.
+    /// track), a `not_granted` before the first count (the room not granted
+    /// yet: the track waits) and the refusal that ends it.
     pub fn publish<V: 'static>(
         cx: &mut Context<V>,
         track: LiveTrack,
         mode: LiveMode,
         on: impl FnMut(&mut V, Result<Publishing, Error>, &mut Context<V>) + 'static,
     ) -> Track<M> {
+        Track::publish_at(cx, track, mode, DEFAULT_PRIORITY, on)
+    }
+
+    /// [`publish`](Track::publish) at `priority`, 0 highest: the node sends
+    /// a subscriber this track's objects ahead of those of its tracks at a
+    /// larger number.
+    pub fn publish_at<V: 'static>(
+        cx: &mut Context<V>,
+        track: LiveTrack,
+        mode: LiveMode,
+        priority: u8,
+        on: impl FnMut(&mut V, Result<Publishing, Error>, &mut Context<V>) + 'static,
+    ) -> Track<M> {
         let request = LivePublish {
             track: track.clone(),
             mode,
-            priority: DEFAULT_PRIORITY,
+            priority,
         };
         Track {
             task: cx.follow::<LivePublishTrack>(request, on),
@@ -171,9 +188,10 @@ pub enum Received<M> {
 
 /// `live.subscribe` with each body decoded as `M`: `latest` replays the
 /// group the node holds first. A body that does not decode reaches `each`
-/// as `Err` (`unexpected_reply`) and the subscription goes on; a refusal
-/// the host sends last (`publisher_gone`, `track_ended`, `unknown_track`,
-/// `not_granted`) ends it.
+/// as `Err` (`unexpected_reply`) and the subscription goes on, as it does
+/// past a `not_granted` before `Opened` (the room not granted yet: it
+/// waits); a refusal the host sends last (`publisher_gone`, `track_ended`,
+/// `unknown_track`, `not_granted`) ends it.
 pub fn subscribe<V: 'static, M: BorshDeserialize + 'static>(
     cx: &mut Context<V>,
     track: LiveTrack,

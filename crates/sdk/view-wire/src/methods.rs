@@ -669,8 +669,11 @@ methods! {
     HostTitle, "host.title", String, ();
     /// `live.publish`: a subscription that IS the published track; its
     /// items are [`Publishing`]. An object the host or the node refused
-    /// (`too_large`, `rate_limit`) is an `Err` item that does not end it;
-    /// it ends with a refusal when the track ends (`not_granted`,
+    /// (`too_large`, `rate_limit`) is an `Err` item that does not end it,
+    /// and so is a `not_granted` before the first `Subscribers`: the room's
+    /// program has not granted the track yet, and it waits for the block
+    /// that does, its objects held till then. It ends with a refusal when
+    /// the track ends (`not_granted`: the grant taken back,
     /// `duplicate_track`, `subscription_limit`, `live_unavailable`). A
     /// reconnect publishes the track again on the new connection.
     LivePublishTrack, "live.publish", LivePublish, Publishing;
@@ -680,14 +683,20 @@ methods! {
     /// reply per frame. A refused object is told on the track's
     /// `live.publish` subscription.
     LiveSendObject, "live.send", LiveSend, ();
-    /// `live.subscribe`: a subscription to a track; items [`LiveItem`].
-    /// Ends with a refusal when the track ends (`track_ended`,
-    /// `publisher_gone`, `unknown_track`, `not_granted`,
-    /// `live_unavailable`). A reconnect subscribes again with `latest`, and
-    /// the next item is a fresh [`LiveItem::Opened`].
+    /// `live.subscribe`: a subscription to a track; items [`LiveItem`]. A
+    /// `not_granted` item before [`LiveItem::Opened`] does not end it: the
+    /// room's program has not granted it yet, and it waits for the block
+    /// that does. Ends with a refusal when the track ends (`track_ended`,
+    /// `publisher_gone`, `unknown_track`, `not_granted`: the grant taken
+    /// back, `live_unavailable`). A reconnect subscribes again with
+    /// `latest`, and the next item is a fresh [`LiveItem::Opened`].
     LiveSubscribeTrack, "live.subscribe", LiveSubscribe, LiveItem;
     /// `live.tracks`: a subscription to a room's track list; items
     /// [`LiveAnnounce`]; the tracks up at subscribe come first, `up: true`.
+    /// A `not_granted` item before them does not end it: the room's
+    /// program has not granted watching the room yet, and it waits for the
+    /// block that does. It ends with `not_granted` when the grant is taken
+    /// back.
     LiveTracks, "live.tracks", String, LiveAnnounce;
 }
 
@@ -827,8 +836,10 @@ pub mod refusal {
     /// A `live.send` onto a track this view does not publish (never, or no
     /// longer: its publication was refused or ended).
     pub const LIVE_NOT_PUBLISHED: &str = "live_not_published";
-    /// The module's program wrote no grant that lets this account publish
-    /// or subscribe to this track in this room, or took it back.
+    /// The module's program wrote no grant yet that lets this account
+    /// publish or subscribe to this track in this room: an item that does
+    /// not end the request, which waits for the block that writes one. Or
+    /// the program took the grant back: the request's last item.
     pub const NOT_GRANTED: &str = "not_granted";
     /// Another account publishes this track already.
     pub const DUPLICATE_TRACK: &str = "duplicate_track";

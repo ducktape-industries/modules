@@ -3,15 +3,25 @@
 //! where it already decides who is a member, and writes the decision as a
 //! row ([`abi::live`]); the node reads the row from blocks and enforces it:
 //! a row counts from the block that writes it, not from the op's
-//! preconfirmed answer, and a row removed ends what it covered on the next
-//! block. No row for an account and no `*` row: the account does nothing in
-//! the room.
+//! preconfirmed answer, and an ask made before that block waits for it; a
+//! row removed ends what it covered on the next block. No row for an
+//! account and no `*` row: the account does nothing in the room.
+//!
+//! `{account}` in a pattern stands for the number of the account that
+//! asks, so one `*` row binds each name to its own publisher: with
+//! `publish: ["echo/{account}"]`, account 42 publishes `echo/42` and no
+//! one else's.
 //!
 //! ```ignore
 //! // chat's SetMembership: the members of a channel talk live in it
 //! program::live::grant(ctx, &channel, Some(account), Grant::all());
-//! // a lobby open to everyone who acts on the chain
-//! program::live::grant(ctx, "lobby", None, Grant::all());
+//! // a lobby open to everyone who acts on the chain, each publishing under
+//! // their own number and hearing all
+//! let open = Grant {
+//!     publish: vec!["echo/{account}".into()],
+//!     subscribe: vec!["*".into()],
+//! };
+//! program::live::grant(ctx, "lobby", None, open);
 //! ```
 pub use abi::live::{Grant, TABLE, key};
 
