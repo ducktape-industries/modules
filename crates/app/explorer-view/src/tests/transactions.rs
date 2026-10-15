@@ -10,20 +10,6 @@ fn far_past_the_window() -> TestAppContext {
     cx
 }
 
-fn name(cx: &TestAppContext, id: &str) -> Option<String> {
-    match cx.find(id) {
-        Some(view::wire::Node::Container(row)) => row
-            .interactivity
-            .as_ref()
-            .unwrap()
-            .aria
-            .label
-            .clone()
-            .map(String::from),
-        other => panic!("no row {id}: {other:?}"),
-    }
-}
-
 #[test]
 fn the_transactions_page_lists_every_frame_activity_recorded_not_the_window() {
     let cx = far_past_the_window();
