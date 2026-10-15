@@ -21,8 +21,7 @@ abi = { workspace = true }
 describe = { workspace = true }
 borsh = { workspace = true }
 program = { workspace = true }
-# a Programs motion's op is the programs role's: its height is checked at the vote
+# a Role motion's op, described in the words of the program bound to the role
 programs = { workspace = true }
-# a Halo motion's op is the halo role's: what it names is checked at the vote
 halo = { workspace = true }
 store = { workspace = true }

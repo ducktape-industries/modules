@@ -10,7 +10,15 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
             node = gen_list(rng, children);
             continue;
         }
-        node = match rng.next_range(5) {
+        node = match rng.next_range(6) {
+            5 => Node::Sheet {
+                id: gen_id(rng),
+                label: rng.next_bool().then(|| gen_string(rng)),
+                style: gen_style(rng),
+                detents: gen_detents(rng),
+                on_dismiss: rng.next_bool().then(|| rng.next_u64() as u32),
+                child: Box::new(node),
+            },
             4 => Node::ResizeHandle {
                 id: gen_id(rng),
                 on_press: rng.next_bool().then(|| rng.next_u64() as u32),
@@ -36,6 +44,25 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
         };
     }
     node
+}
+
+/// A sheet's detents: usually sound (one to three, ascending in `0..=1`),
+/// so most random sheets reach the Sheet checks; one in four a hostile
+/// sender's (empty, descending, past 1, not finite, too many).
+fn gen_detents(rng: &mut Rng) -> Vec<f32> {
+    match rng.next_range(20) {
+        0 => Vec::new(),
+        1 => vec![0.9, 0.5],
+        2 => vec![1.5],
+        3 => vec![f32::NAN],
+        4 => (0..9).map(|i| i as f32 / 10.).collect(),
+        _ => {
+            let count = 1 + rng.next_range(3);
+            (0..count)
+                .map(|i| (i + 1) as f32 / (count + 1) as f32)
+                .collect()
+        }
+    }
 }
 
 pub(super) fn gen_frame_with(rng: &mut Rng, depth: usize, width: usize) -> Frame {

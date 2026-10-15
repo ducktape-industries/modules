@@ -10,13 +10,19 @@ use crate::ui::changes::people_picker;
 use crate::ui::components::{button, dropdown, id, ref_label};
 use crate::ui::{PAGE_X, pending, scroller, staged};
 use forge::Reply;
+use view::design::Ladder;
 
 /// The widest the rows run.
 const ROWS_W: Pixels = px(664.);
 /// The grant field.
 const GRANT_W: Pixels = px(220.);
 
-pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn render(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let column = scroller("forge-settings")
         .px(PAGE_X + design::space::SM)
         .py(design::space::LG)
@@ -29,6 +35,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         "Reading this repository…",
         cx,
         theme,
+        ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
@@ -51,12 +58,13 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             "Default head",
             "What a clone checks out and where changes point by default.",
             heads(forge, &form, cx, theme),
+            ladder,
             theme,
         ))
-        .children(flags(forge, &form, cx, theme))
+        .children(flags(forge, &form, cx, theme, ladder))
         .child(
             div().flex().justify_end().py(design::space::LG).child(
-                button(id("forge-settings-save"), "Save", theme, save)
+                button(id("forge-settings-save"), "Save", ladder, theme, save)
                     .kind(design::Kind::Primary)
                     .enabled(forge.owns_repo()),
             ),
@@ -70,7 +78,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             theme,
         ))
         .children(writer_rows(forge, &writers.items, cx, theme))
-        .child(grant_field(forge, &form, cx, theme));
+        .child(grant_field(forge, &form, cx, theme, ladder));
     column.child(rows).into_any_element()
 }
 
@@ -109,6 +117,7 @@ fn flags(
     form: &SettingsForm,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> [Stateful<Div>; 2] {
     let force = cx.listener(|forge, _: &ClickEvent, _, cx| {
         if let Some(form) = &mut forge.repo_settings {
@@ -133,9 +142,11 @@ fn flags(
                 "Allow force pushes",
                 form.allow_force,
                 owns,
+                ladder,
                 theme,
                 force,
             ),
+            ladder,
             theme,
         ),
         design::setting_row(
@@ -147,9 +158,11 @@ fn flags(
                 "Allow ref deletion",
                 form.allow_delete,
                 owns,
+                ladder,
                 theme,
                 delete,
             ),
+            ladder,
             theme,
         ),
     ]
@@ -202,6 +215,7 @@ fn grant_field(
     form: &SettingsForm,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
     let grant = cx.listener(|forge, _: &ClickEvent, _, cx| forge.grant(cx));
     // a typed number needs no search; a name does
@@ -223,6 +237,7 @@ fn grant_field(
                 fill,
                 cx,
                 theme,
+                ladder,
             )
         }
         false => Vec::new(),
@@ -250,7 +265,7 @@ fn grant_field(
             }),
         )
         .child(
-            button(id("forge-settings-grant"), "Grant", theme, grant)
+            button(id("forge-settings-grant"), "Grant", ladder, theme, grant)
                 .kind(design::Kind::Outline)
                 .enabled(forge.owns_repo()),
         );
@@ -263,6 +278,7 @@ fn grant_field(
             "Grant write access",
             "Pick a member. They can push and merge here.",
             control,
+            ladder,
             theme,
         ))
         .when(!matches.is_empty(), |access| {

@@ -336,3 +336,18 @@ impl conformance::halo::Fixture for Halo {
 fn halo_fills_the_halo_role() {
     conformance::halo::run(&Halo);
 }
+
+struct Scheduler;
+
+impl conformance::scheduler::Fixture for Scheduler {
+    type Program = scheduler::Scheduler;
+
+    fn host(&self) -> MockHost {
+        MockHost::default()
+    }
+}
+
+#[test]
+fn scheduler_fills_the_scheduler_role() {
+    conformance::scheduler::run(&Scheduler);
+}

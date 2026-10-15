@@ -66,8 +66,8 @@ pub use awaiting::{Awaiting, Ctx, all};
 pub use chain::{MAX_DEPTH, MockChain, Roster};
 pub use ctx::{ExecCtx, QueryCtx, Reply};
 pub use kernel::{
-    AccountNumber, Cause, Env, Error, FrameId, MessageId, Order, Origin, Outcome, Principal,
-    ProgramId, Range, Roles, Ticket, code,
+    AccountNumber, Cause, EntryId, Env, Error, FrameId, MessageId, Order, Origin, Outcome,
+    Principal, ProgramId, Range, Roles, Ticket, code,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use mock::{Called, MockHost, MockState, Resumed, Sibling, Verifier, blob_id, identity_role};

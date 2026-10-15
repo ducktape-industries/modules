@@ -11,7 +11,6 @@ mod tests;
 
 pub use abi::role::halo::{Class, Founded, Genesis, Lane, LaneId, MAX_NAME, Op, Query, Reply};
 pub use program::Halo;
-pub use rules::admissible;
 
 pub const PROGRAM: &str = "halo";
 

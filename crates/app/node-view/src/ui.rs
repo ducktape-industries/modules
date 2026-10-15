@@ -8,9 +8,11 @@ use view::{Div, FontWeight};
 
 use crate::{Nodes, motions, table};
 use valset::Motion;
+use view::design::Ladder;
 
-pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
+pub(crate) fn render(view: &Nodes, touch: bool, cx: &mut Context<Nodes>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
+    let ladder = &design::ladder(touch);
     div()
         .id("nodes")
         .flex()
@@ -21,25 +23,25 @@ pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement 
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_size(design::text::BODY)
-        .child(head(view, cx, &theme))
-        .child(numbers(view, cx, &theme))
-        .children(motions::confirm(view, cx, &theme))
-        .children(motions::outcome(view, cx, &theme))
+        .child(head(view, cx, &theme, ladder))
+        .child(numbers(view, cx, &theme, ladder))
+        .children(motions::confirm(view, cx, &theme, ladder))
+        .children(motions::outcome(view, cx, &theme, ladder))
         .child(
             div()
                 .id("nodes-scroll")
                 .flex_1()
                 .min_h(px(0.))
                 .overflow_scroll()
-                .child(body(view, cx, &theme))
-                .children(motions::sections(view, cx, &theme)),
+                .child(body(view, cx, &theme, ladder))
+                .children(motions::sections(view, cx, &theme, ladder)),
         )
 }
 
 /// The network's name, and whether this node answers, with its key; the
 /// latter on a row of its own where both do not fit. For a reader who
 /// votes, the door's two motions.
-fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> impl IntoElement {
+fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
     let status = view.status.ready();
     let title = status.map_or("Nodes".into(), |status| status.chain_id.clone());
     let door = view.voting.votes().then(|| {
@@ -53,14 +55,26 @@ fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> impl IntoElemen
             .flex()
             .gap_1()
             .child(
-                design::button("nodes-door-open", "Open the door", theme, press(true))
-                    .kind(design::Kind::Outline)
-                    .enabled(view.voting.pressable()),
+                design::button(
+                    "nodes-door-open",
+                    "Open the door",
+                    ladder,
+                    theme,
+                    press(true),
+                )
+                .kind(design::Kind::Outline)
+                .enabled(view.voting.pressable()),
             )
             .child(
-                design::button("nodes-door-close", "Close the door", theme, press(false))
-                    .kind(design::Kind::Outline)
-                    .enabled(view.voting.pressable()),
+                design::button(
+                    "nodes-door-close",
+                    "Close the door",
+                    ladder,
+                    theme,
+                    press(false),
+                )
+                .kind(design::Kind::Outline)
+                .enabled(view.voting.pressable()),
             )
     });
     div()
@@ -95,7 +109,7 @@ fn pulse(answering: bool, status: &NodeStatus, theme: &Theme) -> impl IntoElemen
 /// This node's numbers, the epoch's progress, and when the next one starts,
 /// wrapping onto a second row where they do not fit; or why they are not
 /// here.
-fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
+fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let status = match &view.status {
         Loadable::Ready(status) | Loadable::Reloading(status, _) => status,
         Loadable::Failed(refusal) => {
@@ -104,8 +118,14 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
                 view.read_status(cx);
                 cx.notify();
             });
-            return design::refused("nodes-status", refusal.message.clone(), theme, retry)
-                .into_any_element();
+            return design::refused(
+                "nodes-status",
+                refusal.message.clone(),
+                ladder,
+                theme,
+                retry,
+            )
+            .into_any_element();
         }
         Loadable::Idle | Loadable::Loading(_) => {
             return design::quiet("Reading node status…", theme)
@@ -207,14 +227,15 @@ fn epoch(status: &NodeStatus, theme: &Theme) -> Option<[AnyElement; 2]> {
 }
 
 /// The four states of the members: loading, refused, empty, ready.
-fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
+fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     match &view.nodes {
         Loadable::Idle | Loadable::Loading(_) => design::quiet("Reading the members…", theme)
             .id("nodes-loading")
             .into_any_element(),
         Loadable::Failed(refusal) => {
             let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read(cx));
-            design::refused("nodes", refusal.message.clone(), theme, retry).into_any_element()
+            design::refused("nodes", refusal.message.clone(), ladder, theme, retry)
+                .into_any_element()
         }
         Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) if nodes.is_empty() => {
             design::empty_state(
@@ -231,7 +252,7 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
             div().into_any_element()
         }
         Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) => {
-            table::table(view, nodes, cx, theme).into_any_element()
+            table::table(view, nodes, cx, theme, ladder).into_any_element()
         }
     }
 }

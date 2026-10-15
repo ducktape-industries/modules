@@ -12,6 +12,7 @@ blobs = "blobs"
 awaits = "awaits"
 halo = "halo"
 egress = "egress"
+scheduler = "scheduler"
 
 [[validators]]
 key = "KEY"                   # this node's key: `ducktape identity`
@@ -42,6 +43,10 @@ code = "awaits.wasm"
 id = "halo"
 code = "halo.wasm"
 params = "halo.params"
+
+[[programs]]
+id = "scheduler"
+code = "scheduler.wasm"
 
 [[programs]]
 id = "chat"

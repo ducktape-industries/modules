@@ -285,14 +285,27 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
                 body: frame.body.payload,
             });
             // the program's refusal travels in the receipt, as the node
-            // sends it; the receipt's events are the archived block's
+            // sends it; the receipt's events are the archived block's. The
+            // answer is the window's `Submitted` (an override's, else the
+            // chain's): its doubt is this route's transport failure.
             let outcome = match net.answer_as(
                 frame.body.signer,
                 "op.submit",
                 Some(&frame.body.target),
                 &call,
             ) {
-                Ok(output) => abi::Outcome::Applied { output },
+                Ok(bytes) => match methods::decode::<methods::Submitted>(&bytes) {
+                    Ok(methods::Submitted::Applied { output, .. }) => {
+                        abi::Outcome::Applied { output }
+                    }
+                    Ok(methods::Submitted::Refused { refusal, .. }) => {
+                        abi::Outcome::Rejected(abi::Refusal::new(&refusal.code, &refusal.message))
+                    }
+                    Ok(methods::Submitted::InDoubt { .. }) => {
+                        return Response::text(503, "no answer came back: the frame may be pooled");
+                    }
+                    Err(error) => return Response::text(500, &error),
+                },
                 Err(error) => abi::Outcome::Rejected(refusal(&error)),
             };
             let carried = net.height() > height;
@@ -573,6 +586,20 @@ mod tests {
     use commonware_cryptography::Signer as _;
 
     fn signed(net: &Network, anchor: wire::Tip, salt: Option<u64>) -> (wire::Body, Vec<u8>) {
+        signed_op(
+            net,
+            anchor,
+            salt,
+            &identity::Op::CreateAgent { name: "bot".into() },
+        )
+    }
+
+    fn signed_op(
+        net: &Network,
+        anchor: wire::Tip,
+        salt: Option<u64>,
+        op: &identity::Op,
+    ) -> (wire::Body, Vec<u8>) {
         let body = wire::Body {
             scheme: wire::KeyScheme::Ed25519,
             signer: net.key_of(net.me()),
@@ -580,7 +607,7 @@ mod tests {
             anchor,
             salt,
             target: identity::PROGRAM.into(),
-            payload: methods::encode(&identity::Op::CreateAgent { name: "bot".into() }),
+            payload: methods::encode(op),
         };
         let proof = key_from_seed(DEV_SEED)
             .sign(wire::FRAME_NAMESPACE, &body.preimage())
@@ -605,6 +632,39 @@ mod tests {
         assert_ne!(response.status, 200);
         let refusal: abi::Refusal = abi::decode(&response.body).unwrap();
         refusal.reason
+    }
+
+    /// A real write and a real refusal through the route: the chain's
+    /// `Submitted` becomes the receipt's outcome, not its output.
+    #[test]
+    fn the_chain_answers_the_windows_submit_as_a_receipt() {
+        let net = Network::new();
+        let height = net.height();
+        let (_, frame) = signed(&net, tip(&net), None);
+        let response = respond(&net, "POST", route::SUBMIT, frame);
+        assert_eq!(response.status, 200);
+        let receipt: wire::Receipt = abi::decode(&response.body).unwrap();
+        let abi::Outcome::Applied { output } = receipt.outcome else {
+            panic!("the chain applies a CreateAgent: {:?}", receipt.outcome)
+        };
+        let agent: u64 = methods::decode(&output).expect("the program's own output");
+        assert!(agent > net.me());
+        assert_eq!(net.height(), height + 1);
+
+        let (_, frame) = signed_op(
+            &net,
+            tip(&net),
+            None,
+            &identity::Op::Suspend { account: 999_999 },
+        );
+        let response = respond(&net, "POST", route::SUBMIT, frame);
+        assert_eq!(response.status, 200);
+        let receipt: wire::Receipt = abi::decode(&response.body).unwrap();
+        assert!(
+            matches!(receipt.outcome, abi::Outcome::Rejected(_)),
+            "the program refuses a suspend of no account: {:?}",
+            receipt.outcome
+        );
     }
 
     #[test]

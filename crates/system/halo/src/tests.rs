@@ -76,8 +76,13 @@ fn lanes(chain: &MockChain) -> Vec<Lane> {
 }
 
 fn vote(chain: &MockChain, voter: u8, op: &Op) -> Result<Voted, Error> {
-    let motion = Motion::Halo {
-        op: abi::encode(op),
+    vote_raw(chain, voter, abi::encode(op))
+}
+
+fn vote_raw(chain: &MockChain, voter: u8, op: Vec<u8>) -> Result<Voted, Error> {
+    let motion = Motion::Role {
+        role: abi::role::HALO.into(),
+        op,
     };
     let output = chain.submit(
         Origin::Signed(key(voter)),
@@ -242,14 +247,13 @@ fn a_pinned_lane_is_never_paused_or_closed_and_its_cap_still_moves() {
         name: "blobs".into(),
     };
     for refused in [&pause, &close] {
-        // at the first vote, before it counts
-        let voted = vote(&chain, 1, refused).unwrap_err();
-        assert_eq!(voted.code, code::INVALID_INPUT, "{refused:?}");
-        // and by the program, whoever enacts it
+        // the vote passes, and halo refuses it as it is enacted
+        pass(&chain, refused);
         let enacted = enacted(&chain, refused).unwrap_err();
         assert_eq!(enacted.code, code::INVALID_INPUT, "{refused:?}");
     }
     assert_eq!(lanes(&chain), founded());
+    assert_eq!(waiting(&chain), []);
     let capped = Op::Set {
         name: "blobs".into(),
         cap: Class::Member,
@@ -283,34 +287,6 @@ fn every_id_is_handed_out_once_and_then_no_lane_opens() {
     );
 }
 
-#[test]
-fn an_op_halo_would_refuse_is_refused_at_the_first_vote() {
-    let chain = chain();
-    let set = Op::Set {
-        name: "chat".into(),
-        cap: Class::Member,
-        enabled: true,
-    };
-    for (refused, why) in [
-        (open("live", Class::Member), code::ALREADY_EXISTS),
-        (open("", Class::Member), code::INVALID_INPUT),
-        (set, code::NOT_FOUND),
-    ] {
-        assert_eq!(
-            vote(&chain, 1, &refused).unwrap_err().code,
-            why,
-            "{refused:?}"
-        );
-    }
-    let garbage = valset::Op::Vote(Motion::Halo {
-        op: b"not an op".to_vec(),
-    });
-    let refused = chain
-        .submit(Origin::Signed(key(1)), valset::PROGRAM, &garbage)
-        .unwrap_err();
-    assert_eq!(refused.code, code::INVALID_INPUT);
-}
-
 /// The halo motions valset lists as waiting for votes, in no order of theirs.
 fn waiting(chain: &MockChain) -> Vec<Op> {
     let asked = valset::Query::Motions {
@@ -322,52 +298,43 @@ fn waiting(chain: &MockChain) -> Vec<Op> {
     page.items
         .into_iter()
         .map(|pending| match pending.motion {
-            Motion::Halo { op } => abi::decode(&op).unwrap(),
+            Motion::Role { op, .. } => abi::decode(&op).unwrap(),
             other => panic!("{other:?}"),
         })
         .collect()
 }
 
-/// `ops` in one order, so two lists compare as sets.
-fn sorted(mut ops: Vec<Op>) -> Vec<Op> {
-    ops.sort_by_key(abi::encode);
-    ops
-}
-
+/// valset reads no halo op: a stale one is counted like any other, and when its vote passes
+/// halo refuses it, writes nothing, and the motion is gone, never enacted again.
 #[test]
-fn a_motion_an_enacted_one_overtakes_is_cleared_with_it() {
+fn a_stale_motion_passes_its_vote_is_refused_by_halo_and_leaves_the_pending_set() {
     let chain = chain();
-    let set = |name: &str, cap, enabled| Op::Set {
-        name: name.into(),
-        cap,
-        enabled,
-    };
-    let close = Op::Close {
-        name: "live".into(),
-    };
-    // another lane's change: no vote below overtakes it
-    let kept = set("blobs", Class::Member, true);
-    for op in [
-        open("chat", Class::Member),
-        set("live", Class::Member, true),
-        set("live", Class::Critical, false),
-        kept.clone(),
-    ] {
-        vote(&chain, 1, &op).unwrap();
-    }
+    let member = open("chat", Class::Member);
+    assert!(matches!(
+        vote(&chain, 1, &member),
+        Ok(Voted::Counted { .. })
+    ));
     pass(&chain, &open("chat", Class::Client));
-    // chat at Member can never pass now that chat is listed
-    assert_eq!(
-        sorted(waiting(&chain)),
-        sorted(vec![
-            set("live", Class::Member, true),
-            set("live", Class::Critical, false),
-            kept.clone()
-        ])
-    );
-    pass(&chain, &close);
-    // nor can a change to live once it is closed
-    assert_eq!(waiting(&chain), [kept]);
+    let opened = lane("chat", 2, Class::Client, 1);
+    assert_eq!(lanes(&chain), [founded(), vec![opened.clone()]].concat());
+    // chat is listed: the open at Member is stale, and its vote still passes
+    assert_eq!(waiting(&chain), std::slice::from_ref(&member));
+    assert_eq!(vote(&chain, 2, &member), Ok(Voted::Enacted));
+    assert_eq!(lanes(&chain), [founded(), vec![opened]].concat());
+    assert_eq!(waiting(&chain), []);
+    // a new vote on it starts from none
+    assert!(matches!(
+        vote(&chain, 1, &member),
+        Ok(Voted::Counted { votes: 1, .. })
+    ));
+    // bytes that are no halo op go the same way
+    let garbage = b"not an op".to_vec();
+    assert!(matches!(
+        vote_raw(&chain, 1, garbage.clone()),
+        Ok(Voted::Counted { .. })
+    ));
+    assert_eq!(vote_raw(&chain, 2, garbage), Ok(Voted::Enacted));
+    assert_eq!(waiting(&chain), [member]);
 }
 
 #[test]

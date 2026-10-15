@@ -12,6 +12,7 @@ use crate::message::{ChatMessage, new_day, unread_seq};
 use crate::ui::room::selection_bar;
 use crate::ui::{message, quiet};
 use crate::{Chat, Pane, Shape};
+use view::design::Ladder;
 
 pub(crate) const OVERDRAW: f32 = 600.;
 
@@ -48,7 +49,13 @@ impl Shape {
 /// A pane's messages: the room's timeline or the open thread. Around the
 /// list: paging older, the copy range's bar, the way back to the latest
 /// message, and the edit field.
-pub fn list(chat: &Chat, pane: Pane, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+pub fn list(
+    chat: &Chat,
+    pane: Pane,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let messages = chat.messages(pane);
     let content = div()
         .id(match pane {
@@ -66,9 +73,10 @@ pub fn list(chat: &Chat, pane: Pane, cx: &mut Context<Chat>, theme: &Theme) -> i
     }
     let timeline = pane == Pane::Timeline;
     content
-        .when_some(older(chat, cx, theme).filter(|_| timeline), |el, older| {
-            el.child(older)
-        })
+        .when_some(
+            older(chat, cx, theme, ladder).filter(|_| timeline),
+            |el, older| el.child(older),
+        )
         .when(!messages.is_empty(), |el| {
             // the way back floats over the list's foot, taking no row of its own
             el.child(
@@ -78,15 +86,17 @@ pub fn list(chat: &Chat, pane: Pane, cx: &mut Context<Chat>, theme: &Theme) -> i
                     .flex_col()
                     .flex_1()
                     .min_h(px(0.))
-                    .child(rows(chat, pane, messages.clone(), cx, theme))
+                    .child(rows(chat, pane, messages.clone(), cx, theme, ladder))
                     .when(timeline, |el| {
-                        el.when_some(jump_to_latest(chat, cx, theme), |el, jump| el.child(jump))
+                        el.when_some(jump_to_latest(chat, cx, theme, ladder), |el, jump| {
+                            el.child(jump)
+                        })
                     }),
             )
         })
         .when(
             timeline && chat.copy.is_some_and(|copy| copy.pane == pane),
-            |el| el.child(selection_bar(chat, cx, theme)),
+            |el| el.child(selection_bar(chat, cx, theme, ladder)),
         )
         .when_some(super::menu::editing(chat, pane, cx), |el, editing| {
             el.child(editing)
@@ -130,7 +140,12 @@ fn beginning(chat: &Chat) -> Option<(String, Option<String>)> {
 }
 
 /// The way to older history, while there is some.
-fn older(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElement> {
+fn older(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<AnyElement> {
     let room = chat.room.as_ref().filter(|room| room.has_older)?;
     let control = if room.older_loading {
         div()
@@ -146,6 +161,7 @@ fn older(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElemen
         super::button(
             "chat-load-older-button",
             "Load older messages",
+            ladder,
             theme,
             older,
         )
@@ -169,7 +185,9 @@ fn rows(
     messages: Rc<[ChatMessage]>,
     cx: &mut Context<Chat>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> impl IntoElement {
+    let ladder = *ladder;
     let room = chat.room.as_ref();
     let shape = Shape::of(chat, pane);
     let lead = pane == Pane::Timeline && room.is_some_and(|room| !room.has_older);
@@ -287,7 +305,8 @@ fn rows(
             let id = message.id.clone();
             let marked = format!("chat-message-{id}-marked");
             let set = (at + 1, messages.len());
-            let (card, controls) = message::card(chat, message, pane, active, set, cx, &theme);
+            let (card, controls) =
+                message::card(chat, message, pane, active, set, cx, &theme, &ladder);
             if active.is_some() {
                 let cursor = chat.cursor_mut(pane);
                 cursor.controls = controls;
@@ -337,7 +356,12 @@ fn landing(chat: &Chat, messages: &[ChatMessage]) -> usize {
 }
 
 /// "Jump to latest", when the timeline is not at its live tail.
-fn jump_to_latest(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElement> {
+fn jump_to_latest(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<AnyElement> {
     let room = chat.room.as_ref()?;
     if !room.landed && room.at_tail {
         return None;
@@ -360,6 +384,7 @@ fn jump_to_latest(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<
         .child(div().bg(theme.background).shadow_lg().child(super::button(
             "chat-jump-latest-button",
             "Jump to latest",
+            ladder,
             theme,
             latest,
         )));

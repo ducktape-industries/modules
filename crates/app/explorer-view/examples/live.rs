@@ -44,7 +44,8 @@ fn main() {
         // the dev key is the one validator: its vote enacts at once
         let me = net.me();
         let vote = |op: &programs::Op| {
-            let motion = Motion::Programs {
+            let motion = Motion::Role {
+                role: abi::role::PROGRAMS.into(),
                 op: abi::encode(op),
             };
             net.submit(me, valset::PROGRAM, &valset::Op::Vote(motion))

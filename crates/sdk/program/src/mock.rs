@@ -79,6 +79,9 @@ pub struct MockState {
     pub resumes: Vec<Resumed>,
     pub siblings: BTreeMap<ProgramId, Sibling>,
     pub verifier: Option<Verifier>,
+    /// Each role a frame bound (`ctx.bind`), or unbound with `None`, in
+    /// order: the host's checks passed, the table is the test's to read.
+    pub binds: Vec<(String, Option<ProgramId>)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,6 +108,7 @@ pub(crate) struct Written {
     blobs: BTreeMap<BlobId, Blob>,
     sent: (Vec<u8>, Vec<Message>, Vec<Vec<u8>>),
     waits: (Vec<Called>, bool, Vec<Resumed>),
+    binds: Vec<(String, Option<ProgramId>)>,
 }
 
 impl MockHost {
@@ -119,6 +123,7 @@ impl MockHost {
             (role::AWAITS, "awaits"),
             (role::EGRESS, "egress"),
             (role::HALO, "halo"),
+            (role::SCHEDULER, "scheduler"),
         ])
     }
 
@@ -220,6 +225,7 @@ impl MockHost {
                 after.waits, before.waits,
                 "a refused write called or resumed"
             );
+            assert_eq!(after.binds, before.binds, "a refused write bound a role");
         }
         result
     }
@@ -242,6 +248,7 @@ impl MockHost {
                 mock.events.clone(),
             ),
             waits: (mock.calls.clone(), mock.deferred, mock.resumes.clone()),
+            binds: mock.binds.clone(),
         }
     }
 
@@ -252,6 +259,7 @@ impl MockHost {
         mock.blobs = written.blobs;
         (mock.output, mock.emissions, mock.events) = written.sent;
         (mock.calls, mock.deferred, mock.resumes) = written.waits;
+        mock.binds = written.binds;
     }
 
     /// One host call from a context whose env is `env`, as the real host
@@ -400,6 +408,22 @@ impl MockHost {
                 });
                 HostReply::Done
             }
+            HostOp::Bind { role, program } => {
+                if env.roles.get(role::VALIDATORS) != Some(&env.program) {
+                    return HostReply::Refused(abi::Refusal::new(
+                        code::UNAUTHORIZED,
+                        "only the validators role binds a role",
+                    ));
+                }
+                if role::REQUIRED.contains(&role.as_str()) {
+                    return HostReply::Refused(abi::Refusal::new(
+                        code::INVALID_INPUT,
+                        format!("the {role} role is bound for the network's life"),
+                    ));
+                }
+                mock.binds.push((role, program));
+                HostReply::Done
+            }
             HostOp::Query { .. } => unreachable!("answered above"),
         }
     }
@@ -414,6 +438,10 @@ impl MockHost {
 
     pub fn take_resumes(&self) -> Vec<Resumed> {
         std::mem::take(&mut self.borrow_mut().resumes)
+    }
+
+    pub fn take_binds(&self) -> Vec<(String, Option<ProgramId>)> {
+        std::mem::take(&mut self.borrow_mut().binds)
     }
 }
 

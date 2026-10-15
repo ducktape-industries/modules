@@ -2,12 +2,10 @@
 // name, and its id is never handed out again; the 256 ids a lane byte holds are all there are.
 // A lane the founding pins is served for the network's life: no vote pauses or closes it.
 
-use ::program::{
-    Error, ExecCtx, QueryCtx, already_exists, capacity, invalid, not_found, unexpected_reply,
-};
+use ::program::{Error, ExecCtx, QueryCtx, already_exists, capacity, invalid, not_found};
 use store::{Item, Map};
 
-use crate::{Class, Founded, Genesis, Lane, LaneId, MAX_NAME, Op, Query, Reply};
+use crate::{Class, Founded, Genesis, Lane, LaneId, MAX_NAME};
 
 const LANES: Map<String, Lane> = Map::new("l/");
 /// The next id ever handed out; past `LaneId::MAX` every id is spent.
@@ -53,35 +51,6 @@ pub(crate) fn lanes(ctx: &QueryCtx) -> Result<Vec<Lane>, Error> {
 
 pub(crate) fn lane(ctx: &QueryCtx, name: &str) -> Result<Option<Lane>, Error> {
     LANES.get(ctx, &name.to_owned())
-}
-
-/// What `execute` refuses of `op` that a vote can know first: a bad name, a name already
-/// listed for `Open`, an unlisted one for `Set` and `Close`, a pause or a close of a pinned
-/// lane. The validators' program asks it at each vote, before counting, under its own ctx, so
-/// it reads the table through the halo role. Every id spent is `execute`'s alone to refuse.
-pub fn admissible(ctx: &QueryCtx, op: &Op) -> Result<(), Error> {
-    match op {
-        Op::Open { name, .. } => {
-            named(name)?;
-            let listed = lane_by_role(ctx, name)?.is_some();
-            if listed {
-                return Err(already_listed(name));
-            }
-            Ok(())
-        }
-        Op::Set { name, enabled, .. } => {
-            let held = lane_by_role(ctx, name)?.ok_or_else(|| unlisted(name))?;
-            let pauses = !enabled;
-            if pauses {
-                unpinned(&held, "paused")?;
-            }
-            Ok(())
-        }
-        Op::Close { name } => {
-            let held = lane_by_role(ctx, name)?.ok_or_else(|| unlisted(name))?;
-            unpinned(&held, "closed")
-        }
-    }
 }
 
 fn list(ctx: &ExecCtx, name: String, cap: Class, pinned: bool, since: u64) -> Result<(), Error> {
@@ -132,17 +101,6 @@ fn unpinned(lane: &Lane, done: &str) -> Result<(), Error> {
         )));
     }
     Ok(())
-}
-
-fn lane_by_role(ctx: &QueryCtx, name: &str) -> Result<Option<Lane>, Error> {
-    let role = ctx.env().role(abi::role::HALO)?.clone();
-    let asked = Query::Lane {
-        name: name.to_owned(),
-    };
-    match ctx.query(role.clone(), &asked)? {
-        Reply::Lane(lane) => Ok(lane),
-        other => Err(unexpected_reply(&role, "Lane", &other)),
-    }
 }
 
 fn already_listed(name: &str) -> Error {

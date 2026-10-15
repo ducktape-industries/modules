@@ -29,6 +29,7 @@ store = { workspace = true }
 activity = { workspace = true }
 awaits = { workspace = true }
 halo = { workspace = true }
+scheduler = { workspace = true }
 chat = { workspace = true }
 files = { workspace = true }
 attribution = { workspace = true }

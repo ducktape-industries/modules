@@ -2,9 +2,7 @@
 //! hands back to its frame through the host's resume. [`run`] checks every rule below.
 
 use abi::Refusal;
-use abi::role::awaits::{
-    Answer, Call, EXPIRY_BLOCKS, FrameId, Op, Query, Reply, Ticket, TicketRow, expired,
-};
+use abi::role::awaits::{Answer, Call, FrameId, Op, Query, Reply, Ticket, TicketRow};
 use program::kernel::error_from;
 use program::{Env, Error, MockHost, Origin, Principal, Program, Resumed, code};
 
@@ -23,10 +21,8 @@ pub fn run(fixture: &impl Fixture) {
     only_the_called_program_resolves_its_ticket(fixture);
     a_resolve_hands_the_answer_to_the_frame(fixture);
     a_resolve_of_a_ticket_no_longer_open_does_nothing(fixture);
-    a_ticket_expires_at_its_deadline_and_not_before(fixture);
     a_close_drops_the_frames_tickets_alone(fixture);
     owed_pages_a_targets_open_tickets(fixture);
-    overdue_pages_what_may_expire(fixture);
 }
 
 const CALLER: &str = "caller";
@@ -118,22 +114,6 @@ fn owed<F: Fixture>(
     )
 }
 
-fn overdue<F: Fixture>(
-    host: &MockHost,
-    height: u64,
-    after: Option<Ticket>,
-    limit: u32,
-) -> Vec<Ticket> {
-    listed::<F>(
-        host,
-        Query::Overdue {
-            height,
-            after,
-            limit,
-        },
-    )
-}
-
 fn resumed(frame: FrameId, ticket: Ticket, answer: Answer) -> Resumed {
     Resumed {
         frame,
@@ -164,7 +144,6 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
             ticket: 2,
             answer: Err(Refusal::new(code::NOT_FOUND, "no such pair")),
         },
-        Op::Expire { ticket: 1 },
         Op::Close { frame: 4 },
     ] {
         same_bytes::<<M<F> as Program>::Op>(&m, "Op", &op);
@@ -176,11 +155,6 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
             after: Some(1),
             limit: 5,
         },
-        Query::Overdue {
-            height: 80,
-            after: None,
-            limit: 5,
-        },
     ] {
         same_bytes::<<M<F> as Program>::Query>(&m, "Query", &query);
     }
@@ -190,7 +164,6 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
         caller: CALLER.into(),
         target: ASKED.into(),
         opened: HEIGHT,
-        deadline: HEIGHT + EXPIRY_BLOCKS,
     };
     for reply in [
         Reply::Ticket(Some(row.clone())),
@@ -237,12 +210,11 @@ pub fn a_park_opens_a_ticket_for_each_call<F: Fixture>(fixture: &F) {
             caller: CALLER.into(),
             target: target.into(),
             opened: HEIGHT,
-            deadline: HEIGHT + EXPIRY_BLOCKS,
         };
         assert_eq!(
             row::<F>(&host, ticket),
             Some(opened),
-            "awaits: Park opens ticket {ticket} at the parking height, due EXPIRY_BLOCKS later"
+            "awaits: Park opens ticket {ticket} at the parking height"
         );
     }
     assert_eq!(
@@ -316,31 +288,6 @@ pub fn a_resolve_of_a_ticket_no_longer_open_does_nothing<F: Fixture>(fixture: &F
     );
 }
 
-pub fn a_ticket_expires_at_its_deadline_and_not_before<F: Fixture>(fixture: &F) {
-    let host = fixture.host();
-    park::<F>(&host, HEIGHT, 4, &[(1, ASKED)]);
-    let deadline = HEIGHT + EXPIRY_BLOCKS;
-    let early = send::<F>(&host, signed(), deadline - 1, &Op::Expire { ticket: 1 });
-    refused_as(early, code::NOT_YET, "Expire before the deadline");
-    assert!(
-        row::<F>(&host, 1).is_some(),
-        "awaits: an early Expire keeps the ticket open"
-    );
-    send::<F>(&host, signed(), deadline, &Op::Expire { ticket: 1 })
-        .unwrap_or_else(|e| panic!("awaits: anyone expires a ticket at its deadline: {e:?}"));
-    assert_eq!(
-        host.take_resumes(),
-        [resumed(4, 1, Err(expired(1, deadline)))],
-        "awaits: Expire resumes the frame with the expired refusal"
-    );
-    assert_eq!(row::<F>(&host, 1), None, "awaits: Expire closes the ticket");
-    let again = send::<F>(&host, signed(), deadline, &Op::Expire { ticket: 1 });
-    assert!(
-        again.is_err(),
-        "awaits: a closed ticket does not expire twice"
-    );
-}
-
 pub fn a_close_drops_the_frames_tickets_alone<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     park::<F>(&host, HEIGHT, 4, &[(1, ASKED), (2, OTHER)]);
@@ -390,32 +337,5 @@ pub fn owed_pages_a_targets_open_tickets<F: Fixture>(fixture: &F) {
         owed::<F>(&host, ASKED, None, 10),
         [1, 5],
         "awaits: a resolved ticket is owed no longer"
-    );
-}
-
-pub fn overdue_pages_what_may_expire<F: Fixture>(fixture: &F) {
-    let host = fixture.host();
-    park::<F>(&host, HEIGHT, 4, &[(1, ASKED), (2, OTHER)]);
-    park::<F>(&host, HEIGHT + 5, 5, &[(3, ASKED)]);
-    let due = HEIGHT + EXPIRY_BLOCKS;
-    assert_eq!(
-        overdue::<F>(&host, due - 1, None, 10),
-        [],
-        "awaits: nothing is due early"
-    );
-    assert_eq!(
-        overdue::<F>(&host, due, None, 10),
-        [1, 2],
-        "awaits: Overdue lists every ticket due by the height"
-    );
-    assert_eq!(
-        overdue::<F>(&host, due + 5, None, 2),
-        [1, 2],
-        "awaits: Overdue pages by limit"
-    );
-    assert_eq!(
-        overdue::<F>(&host, due + 5, Some(2), 2),
-        [3],
-        "awaits: Overdue resumes after a ticket"
     );
 }

@@ -4,6 +4,14 @@ use crate::composer::{Draft, Event, MentionChoice, Outcome, Send, Target, pendin
 use crate::names::mention_token;
 use crate::{Chat, Mode};
 use chat::MsgRow;
+use view::methods::Submitted;
+
+/// What a send came to: the message's own answer, or the answer that
+/// kept the direct message from opening first (the message never left).
+enum Sent {
+    Message(Submitted),
+    NotOpened(Submitted),
+}
 use view::prelude::*;
 
 impl Chat {
@@ -106,9 +114,13 @@ impl Chat {
             let result = async {
                 let op = minted?;
                 if let Some(open) = open_dm {
-                    host.ask::<Submit<::chat::Chat>>(open).await?;
+                    match host.ask::<Submit<::chat::Chat>>(open).await? {
+                        Submitted::Applied { .. } => {}
+                        // the DM did not open: the message was never sent
+                        not_applied => return Ok(Sent::NotOpened(not_applied)),
+                    }
                 }
-                host.ask::<Submit<::chat::Chat>>(op).await
+                host.ask::<Submit<::chat::Chat>>(op).await.map(Sent::Message)
             }
             .await;
             let _ = this.update(cx, |chat, cx| {
@@ -118,7 +130,7 @@ impl Chat {
                 let draft = chat.drafts.entry(key).or_default();
                 draft.complete_send(&send);
                 match result {
-                    Ok(_) => {
+                    Ok(Sent::Message(Submitted::Applied { .. })) => {
                         draft.note.clear();
                         if let Target::Edit { seq, .. } = target
                             && chat
@@ -130,8 +142,31 @@ impl Chat {
                         }
                         chat.refresh(cx);
                     }
-                    Err(refusal) => {
+                    Ok(
+                        Sent::Message(Submitted::Refused { refusal, .. })
+                        | Sent::NotOpened(Submitted::Refused { refusal, .. }),
+                    )
+                    | Err(refusal) => {
                         draft.note = refusal.message;
+                        draft.failed(send);
+                        if let Some(row) = held {
+                            chat.unhold(&row.message_id);
+                        }
+                    }
+                    // until `Writes` settles it by the chain, a doubt holds
+                    // the draft like a refusal the person may resend
+                    Ok(Sent::Message(Submitted::InDoubt { .. })) => {
+                        draft.note = "No answer came back: it may have gone through.".into();
+                        draft.failed(send);
+                        if let Some(row) = held {
+                            chat.unhold(&row.message_id);
+                        }
+                    }
+                    Ok(Sent::NotOpened(Submitted::InDoubt { .. }))
+                    | Ok(Sent::NotOpened(Submitted::Applied { .. })) => {
+                        draft.note =
+                            "No answer came back opening the conversation: the message was not sent."
+                                .into();
                         draft.failed(send);
                         if let Some(row) = held {
                             chat.unhold(&row.message_id);

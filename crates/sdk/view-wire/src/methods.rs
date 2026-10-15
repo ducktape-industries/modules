@@ -142,20 +142,59 @@ impl<P: Program> Method for Query<P> {
     }
 }
 
-/// `op.submit`: one operation to `P`, signed with the seated key; the
-/// reply is the receipt's output, the program's own bytes. The receipt is
-/// the node's preconfirmation, not finality: the op ran over the
-/// preconfirmed state and waits for a block. Until a block carries it the
-/// node can still drop it (a block that lands first and makes it fail, a
-/// node restart), and no view is told; a `Query` reads it as landed
-/// meanwhile.
+/// `op.submit`: one operation to `P`, signed with the seated key, asked of
+/// the node as a preconfirm (node contract 6: the app's `submitted()` in
+/// `src/runtime/kernel/node.rs` sends every frame with `Preconfirm::On`).
+/// The reply is a [`Submitted`]: what the node predicts, and the frame's
+/// identity for the view to settle it by. `Err` means nothing was pooled:
+/// the bytes never left (`RPC_CLIENT`), the node refused the frame
+/// outright (a bad signature, a stale anchor), or the host refused the
+/// ask. This method never answers [`NODE_FAILED`]: an answer that went
+/// missing after the send is [`Submitted::InDoubt`].
 pub struct Submit<P>(std::marker::PhantomData<P>);
+
+/// What `op.submit` answers. Every arm carries the frame's identity:
+/// `frame` is the id a block carries it under (`chain.tx` looks it up by
+/// hash), and `until` is the last height a block may carry it, the anchor
+/// the host signed it against plus the node's anchor window (256 on core
+/// `main`: `crates/kernel/host/src/lib.rs`). Past `until` with the frame in
+/// no block, the write lapsed and a resend is safe.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum Submitted {
+    /// The node pooled the frame and ran it over the preconfirmed layer:
+    /// `output` is the program's own bytes from that run, and a `Query`
+    /// reads the write as landed from now on. A prediction, not finality:
+    /// the node re-runs the frame after each block until one carries it,
+    /// and can still drop it (a block that lands first and makes it fail,
+    /// a node restart) with no word to the view.
+    Applied {
+        frame: [u8; 32],
+        until: u64,
+        output: Vec<u8>,
+    },
+    /// The node pooled the frame and predicts the program refuses it
+    /// (`refusal` is the program's own). Not final either: the pool admits
+    /// a frame whatever the prediction says (core `crates/kernel/node`), so
+    /// a block may still carry it and run it to another outcome; a manual
+    /// resend before `until` could land it twice.
+    Refused {
+        frame: [u8; 32],
+        until: u64,
+        refusal: crate::Error,
+    },
+    /// The bytes were sent and no answer came back: the node may hold the
+    /// frame, and may have preconfirmed it. The view judges by
+    /// `chain.tx(frame)` per block until `until`, and words the doubt
+    /// itself.
+    InDoubt { frame: [u8; 32], until: u64 },
+}
 impl<P: Program> sealed::Sealed for Submit<P> {}
 impl<P: Program> Method for Submit<P> {
     const KIND: &'static str = "op.submit";
     const TARGET: Option<&'static str> = Some(P::NAME);
     type Request = P::Op;
-    type Reply = Vec<u8>;
+    type Reply = Submitted;
     fn encode_request(request: &P::Op) -> Vec<u8> {
         encode(&Call {
             target: P::NAME.into(),
@@ -165,11 +204,11 @@ impl<P: Program> Method for Submit<P> {
     fn decode_request(bytes: &[u8]) -> Result<P::Op, String> {
         decode_call(bytes, P::NAME)
     }
-    fn encode_reply(reply: &Vec<u8>) -> Vec<u8> {
-        reply.clone()
+    fn encode_reply(reply: &Submitted) -> Vec<u8> {
+        encode(reply)
     }
-    fn decode_reply(bytes: &[u8]) -> Result<Vec<u8>, String> {
-        Ok(bytes.to_vec())
+    fn decode_reply(bytes: &[u8]) -> Result<Submitted, String> {
+        decode(bytes)
     }
 }
 
@@ -409,7 +448,7 @@ pub struct Head {
 /// The session facts every view is handed: the connection, the
 /// network (`<label>#<salt>`), the seated key (hex), the account it belongs
 /// to (`None` while the host has not resolved one, or the key has none yet;
-/// an item follows when that changes) and the read-only endpoint.
+/// an item follows when that changes), and the read-only endpoint.
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
@@ -911,7 +950,8 @@ pub mod refusal {
     /// Nothing reached the node: safe to send again.
     pub const RPC_CLIENT: &str = "rpc_client";
     /// The node failed the request, or its answer went missing: it may have
-    /// run.
+    /// run. Never on `op.submit`, whose missing answer is
+    /// [`Submitted::InDoubt`](super::Submitted::InDoubt).
     pub const NODE_FAILED: &str = "node_failed";
     /// The host itself failed (its disk, its config), not the request.
     pub const HOST_FAULT: &str = "host_fault";

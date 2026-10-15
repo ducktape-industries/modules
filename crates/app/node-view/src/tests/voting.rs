@@ -32,7 +32,8 @@ fn set_valset(height: u64) -> Motion {
         height,
         change: Change::Set(entry("valset", CODE)),
     });
-    Motion::Programs {
+    Motion::Role {
+        role: abi::role::PROGRAMS.into(),
         op: abi::encode(&op),
     }
 }
@@ -95,10 +96,10 @@ fn sheet_over(
         })
     });
     cx.host().handle::<Submit<Valset>>(move |_| {
-        Ok(abi::encode(&Voted::Counted {
+        Ok(view::testing::applied(abi::encode(&Voted::Counted {
             votes: 1,
             needed: needed.max(2),
-        }))
+        })))
     });
     let session = cx.host().stream::<HostSession>();
     cx.open::<Nodes>();
@@ -257,7 +258,7 @@ fn a_press_that_enacts_says_what_happens_and_asks_once() {
     cx.run_until_parked();
     assert!(cx.find("nodes-confirm").is_none() && submitted(&cx).is_empty());
     cx.host()
-        .handle::<Submit<Valset>>(|_| Ok(abi::encode(&Voted::Enacted)));
+        .handle::<Submit<Valset>>(|_| Ok(view::testing::applied(abi::encode(&Voted::Enacted))));
     cx.simulate_click("nodes-door-open");
     cx.run_until_parked();
     cx.simulate_click("nodes-confirm-yes");
@@ -340,7 +341,8 @@ fn a_scheduled_change_says_who_made_it_and_is_cancelled_by_a_vote() {
     };
     assert_eq!(
         submitted(&cx),
-        [Op::Vote(Motion::Programs {
+        [Op::Vote(Motion::Role {
+            role: abi::role::PROGRAMS.into(),
             op: abi::encode(&cancel)
         })]
     );
@@ -378,7 +380,8 @@ fn a_grant_motion_names_its_account() {
         account: 12,
     });
     let waiting = Pending {
-        motion: Motion::Programs {
+        motion: Motion::Role {
+            role: abi::role::PROGRAMS.into(),
             op: abi::encode(&op),
         },
         voters: vec![OTHER.to_vec()],
@@ -417,7 +420,8 @@ fn every_motion_reads_in_words() {
             "Close the door: enrolling takes an invite",
         ),
         (
-            Motion::Programs {
+            Motion::Role {
+                role: abi::role::PROGRAMS.into(),
                 op: abi::encode(&programs::Op::Cancel {
                     height: 4300,
                     program: "chat".into(),
@@ -426,7 +430,8 @@ fn every_motion_reads_in_words() {
             "Cancel chat's change at block 4,300",
         ),
         (
-            Motion::Programs {
+            Motion::Role {
+                role: abi::role::PROGRAMS.into(),
                 op: abi::encode(&programs::Op::Schedule(Scheduled {
                     height: 9,
                     change: Change::Set(Entry {
@@ -438,7 +443,8 @@ fn every_motion_reads_in_words() {
             "Set chat to code sha256:7e7e7e7e…7e7e at block 9 · params changed",
         ),
         (
-            Motion::Programs {
+            Motion::Role {
+                role: abi::role::PROGRAMS.into(),
                 op: abi::encode(&programs::Op::Schedule(Scheduled {
                     height: 9,
                     change: Change::Set(entry("forge", CODE)),
@@ -447,7 +453,8 @@ fn every_motion_reads_in_words() {
             "Set forge to code sha256:7e7e7e7e…7e7e at block 9 · a new program",
         ),
         (
-            Motion::Programs {
+            Motion::Role {
+                role: abi::role::PROGRAMS.into(),
                 op: b"not an op".to_vec(),
             },
             "A program change this screen can't read",
@@ -498,10 +505,32 @@ fn every_motion_reads_in_words() {
             "Close lane chat",
         ),
         (
-            Motion::Halo {
+            Motion::Role {
+                role: abi::role::HALO.into(),
                 op: b"not an op".to_vec(),
             },
             "A lane change this screen can't read",
+        ),
+        (
+            Motion::Role {
+                role: abi::role::EGRESS.into(),
+                op: vec![1, 2],
+            },
+            "An op for the egress role",
+        ),
+        (
+            Motion::Bind {
+                role: abi::role::EGRESS.into(),
+                program: Some("egress".into()),
+            },
+            "Bind the egress role to egress",
+        ),
+        (
+            Motion::Bind {
+                role: abi::role::SCHEDULER.into(),
+                program: None,
+            },
+            "Unbind the scheduler role",
         ),
     ];
     let names = Names::from([(12, "carol".into()), (13, "release-bot".into())]);
@@ -511,7 +540,8 @@ fn every_motion_reads_in_words() {
 }
 
 fn lanes(op: halo::Op) -> Motion {
-    Motion::Halo {
+    Motion::Role {
+        role: abi::role::HALO.into(),
         op: abi::encode(&op),
     }
 }
@@ -522,7 +552,8 @@ fn grant(revoke: bool, scope: Scope, account: u64) -> Motion {
         false => programs::Op::Grant(grant),
         true => programs::Op::Revoke(grant),
     };
-    Motion::Programs {
+    Motion::Role {
+        role: abi::role::PROGRAMS.into(),
         op: abi::encode(&op),
     }
 }

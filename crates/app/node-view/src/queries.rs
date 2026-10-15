@@ -157,7 +157,7 @@ pub(crate) async fn motions(host: Host) -> Result<Motions, Error> {
         .items
         .iter()
         .filter_map(|pending| match &pending.motion {
-            Motion::Programs { op } => match abi::decode(op) {
+            Motion::Role { role, op } if role == abi::role::PROGRAMS => match abi::decode(op) {
                 Ok(programs::Op::Grant(grant) | programs::Op::Revoke(grant)) => Some(grant.account),
                 _ => None,
             },

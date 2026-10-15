@@ -86,6 +86,7 @@ fn founding_seats_the_validators_and_every_program_answers() {
                 program("probe"),
                 program(awaits::PROGRAM),
                 program(halo::PROGRAM),
+                program(scheduler::PROGRAM),
             ]
         );
     });

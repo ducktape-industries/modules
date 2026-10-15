@@ -37,7 +37,8 @@ fn main() {
                 params: Vec::new(),
             }),
         });
-        let programs = Motion::Programs {
+        let programs = Motion::Role {
+            role: abi::role::PROGRAMS.into(),
             op: abi::encode(&change),
         };
         net.submit(me, valset::PROGRAM, &Op::Vote(programs))

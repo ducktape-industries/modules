@@ -27,14 +27,20 @@ mod list;
 mod primitives;
 mod rich_text;
 mod view_element;
-pub use behavior::{ModalOverlay, ResizeHandle, Sensor, modal_overlay, resize_handle, sensor};
+pub use behavior::{
+    ModalOverlay, ResizeHandle, Sensor, Sheet, modal_overlay, resize_handle, sensor, sheet,
+};
 mod web;
 pub use element::{
     AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, Textarea,
     UniformList, UniformListScrollHandle, div, uniform_list,
 };
+/// What a field tells a software keyboard, in gpui's words (`Input::autocapitalize`,
+/// `Input::input_action`); `VirtualKeyboard`, the keyboard type the pinned
+/// gpui has no word for, is the wire's.
+pub use gpui::{Autocapitalize, TextInputAction};
 pub use interactivity::{
-    FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
+    BackEvent, FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
     StatefulInteractiveElement,
 };
 pub use list::{List, ListState, list};
@@ -45,6 +51,7 @@ pub use primitives::{
 pub use rich_text::{InteractiveText, StyledText};
 pub use view_element::{AnyView, ViewElement};
 pub use web::{Web, WebHandle, WebState, web};
+pub use wire::VirtualKeyboard;
 
 /// Every SDK name a view file writes, in one import:
 /// `use view::prelude::*;`. gpui's names (elements, styles,
@@ -59,18 +66,19 @@ pub mod prelude {
     pub use crate::host::Error;
     pub use crate::methods::*;
     pub use crate::{
-        AnyElement, AnyView, App, Bounds, ClickEvent, Context, Element, ElementId, Entity,
-        EventEmitter, FileDropEvent, FluentBuilder, FocusHandle, FollowMode, Global, Host,
-        HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText, IntoElement,
-        KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior, ListOffset,
-        ListScrollEvent, ListSizingBehavior, ListState, Loadable, ModifiersChangedEvent,
-        MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent,
-        MouseUpEvent, ParentElement, PinchEvent, Pixels, Render, RenderOnce, Role, ScrollHandle,
-        ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
-        StyledImage, StyledText, Subscription, Task, TextField, Textarea, Theme,
-        UniformListScrollHandle, View, WebHandle, WebState, Window, anchored, canvas, deferred,
-        design, div, export_view, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb,
-        sensor, svg, uniform_list, web,
+        AnyElement, AnyView, App, Autocapitalize, BackEvent, Bounds, ClickEvent, Context, Element,
+        ElementId, Entity, EventEmitter, FileDropEvent, FluentBuilder, FocusHandle, FollowMode,
+        Global, Host, HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText,
+        IntoElement, KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior,
+        ListOffset, ListScrollEvent, ListSizingBehavior, ListState, Loadable,
+        ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+        MousePressureEvent, MouseUpEvent, ParentElement, PinchEvent, Pixels, Render, RenderOnce,
+        Role, ScrollHandle, ScrollStrategy, ScrollWheelEvent, SharedString,
+        StatefulInteractiveElement, Styled, StyledImage, StyledText, Subscription, Task, TextField,
+        TextInputAction, Textarea, Theme, UniformListScrollHandle, View, VirtualKeyboard,
+        WebHandle, WebState, Window, anchored, canvas, deferred, design, div, export_view, hsla,
+        img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, sheet, svg, uniform_list,
+        web,
     };
 }
 mod text;

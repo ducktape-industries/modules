@@ -11,6 +11,7 @@ use abi::hex;
 use abi::role::halo;
 use programs::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
+use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::Nodes;
@@ -169,14 +170,17 @@ impl Nodes {
         cx.land(ask, |view, answer, cx| {
             view.voting.busy = false;
             view.voting.outcome = Some(match answer {
-                Ok(output) => Ok(match abi::decode::<Voted>(&output) {
+                Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
                     Ok(Voted::Enacted) => "Enacted".to_owned(),
                     Ok(Voted::Counted { votes, needed }) => {
                         format!("Vote counted: {votes} of {needed}")
                     }
                     Err(_) => "Voted".to_owned(),
                 }),
-                Err(refusal) => Err(refusal.message),
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => Err(refusal.message),
+                Ok(Submitted::InDoubt { .. }) => {
+                    Err("No answer came back: it may have gone through.".into())
+                }
             });
             view.read_voices(cx);
             cx.notify();
@@ -196,7 +200,8 @@ pub(crate) fn cancel(pending: &Pending) -> Motion {
         height: pending.height,
         program: pending.change.program().to_owned(),
     };
-    Motion::Programs {
+    Motion::Role {
+        role: abi::role::PROGRAMS.into(),
         op: abi::encode(&op),
     }
 }
@@ -222,7 +227,8 @@ pub(crate) fn named(names: &Names, account: u64) -> String {
         .unwrap_or_else(|| format!("account {account}"))
 }
 
-/// What a motion does, in words; a `Programs` or `Halo` one decoded, never as bytes.
+/// What a motion does, in words: a programs or halo role's op decoded, another role's op
+/// and a binding by the role's name, never as bytes.
 pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String {
     match motion {
         Motion::Promote { key } => format!("Promote {} to validator", key_words(key)),
@@ -230,7 +236,7 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
         Motion::Remove { key } => format!("Remove {} from the network", key_words(key)),
         Motion::Door { open: true } => "Open the door: anyone enrolls without an invite".into(),
         Motion::Door { open: false } => "Close the door: enrolling takes an invite".into(),
-        Motion::Programs { op } => match abi::decode::<programs::Op>(op) {
+        Motion::Role { role, op } if role == abi::role::PROGRAMS => match abi::decode(op) {
             Ok(programs::Op::Schedule(scheduled)) => {
                 scheduled_words(scheduled.height, &scheduled.change, roster)
             }
@@ -246,7 +252,7 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
             }
             Err(_) => "A program change this screen can't read".into(),
         },
-        Motion::Halo { op } => match abi::decode::<halo::Op>(op) {
+        Motion::Role { role, op } if role == abi::role::HALO => match abi::decode(op) {
             Ok(halo::Op::Open { name, cap }) => format!("Open lane {name} at class {cap:?}"),
             Ok(halo::Op::Set {
                 name,
@@ -261,6 +267,15 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
             Ok(halo::Op::Close { name }) => format!("Close lane {name}"),
             Err(_) => "A lane change this screen can't read".into(),
         },
+        Motion::Role { role, .. } => format!("An op for the {role} role"),
+        Motion::Bind {
+            role,
+            program: Some(program),
+        } => format!("Bind the {role} role to {program}"),
+        Motion::Bind {
+            role,
+            program: None,
+        } => format!("Unbind the {role} role"),
     }
 }
 

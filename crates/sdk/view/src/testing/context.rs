@@ -87,6 +87,12 @@ pub struct TestAppContext {
     /// The bounds each sensor in the tree was last told, by the ids it is
     /// filed under: the host tells them again only when they differ.
     sensors: HashMap<Vec<wire::ElementIdWire>, [f32; 4]>,
+    /// The device as last told through [`simulate_touch`](Self::simulate_touch):
+    /// a replacement hears it before its first tree, as the app tells it.
+    touch: bool,
+    /// Set by [`sweep`](super::sweep): every frame is held to
+    /// [`assert_fits`](super::assert_fits) at this width under this ladder.
+    pub(super) fits: Option<(f32, crate::design::Ladder)>,
 }
 
 /// One field's text in the host's engine: the engine owns it, and the view's
@@ -148,6 +154,7 @@ impl TestAppContext {
         let (width, height) = self.viewport.unwrap_or(VIEWPORT);
         self.run(vec![
             Event::Viewport { width, height },
+            Event::Pointer { touch: self.touch },
             Event::Offset { minutes: 0 },
         ]);
     }
@@ -261,6 +268,9 @@ impl TestAppContext {
             ));
         }
         assert_frame_accessible(self.tree.as_ref(), &frame.tooltip_responses);
+        if let (Some((width, ladder)), Some(tree)) = (&self.fits, &self.tree) {
+            super::assert_fits(tree, &self.styles, *width, ladder);
+        }
         let report = TickReport {
             rendered,
             nodes: self.tree.as_ref().map_or(0, Node::count),
@@ -1043,17 +1053,42 @@ impl TestAppContext {
         let handler = *handler;
         self.run(vec![Event::Drag { handler, dx, dy }]);
     }
-    /// The modal backdrop of the overlay `name` dismisses it.
+    /// The modal backdrop of the overlay `name` dismisses it; for a sheet,
+    /// its scrim pressed or the panel dragged down.
     pub fn simulate_dismiss(&mut self, name: &str) {
-        let Node::Overlay {
+        let (Node::Overlay {
             on_dismiss: Some(message),
             ..
-        } = self.node(name)
+        }
+        | Node::Sheet {
+            on_dismiss: Some(message),
+            ..
+        }) = self.node(name)
         else {
-            panic!("{name:?} is no overlay with a dismiss route");
+            panic!("{name:?} is no overlay or sheet with a dismiss route");
         };
         let message = *message;
         self.run(vec![Event::Message(message)]);
+    }
+    /// The phone's Back (its gesture or its bar), to the root's `on_back`
+    /// in the tree the host holds: the view must have somewhere to go
+    /// back to, else the host would have left the program and this panics.
+    pub fn simulate_back(&mut self) {
+        let Some(handler) = self.back_handler() else {
+            panic!("the root has no on_back: the host leaves the program on Back");
+        };
+        self.run(vec![Event::Back { handler }]);
+    }
+    /// The root's `on_back` route, when the view has somewhere to go back to.
+    pub fn back_handler(&self) -> Option<u32> {
+        self.root().interactivity()?.on_back
+    }
+    /// The device's primary pointer is a finger, or not
+    /// (`Event::Pointer`): the view reads it as `window.touch()` from the
+    /// frame this draws, and a replacement hears it before its first tree.
+    pub fn simulate_touch(&mut self, touch: bool) {
+        self.touch = touch;
+        self.run(vec![Event::Pointer { touch }]);
     }
     /// Assistive technology asks the node `key` for `action`, which it
     /// advertises.
@@ -1219,6 +1254,19 @@ fn consumed_at(chain: &[&Node], keystroke: &gpui::Keystroke) -> Option<(usize, O
         {
             return Some((at + 1, Some(Event::Message(*message))));
         }
+        if let Node::Sheet {
+            on_dismiss: Some(message),
+            child,
+            ..
+        } = node
+            && plain
+            && keystroke.key == "escape"
+            && chain
+                .get(at + 1)
+                .is_some_and(|inside| std::ptr::eq(&**child, *inside))
+        {
+            return Some((at + 1, Some(Event::Message(*message))));
+        }
         let Some(interactivity) = node.interactivity() else {
             continue;
         };
@@ -1259,6 +1307,14 @@ fn stops_at(chain: &[&Node], stops: fn(&Interactivity) -> bool) -> usize {
                     .get(1)
                     .is_some_and(|layer| std::ptr::eq(layer, *inside))
             })
+        {
+            return at + 1;
+        }
+        // a sheet's panel keeps the press from what is under its scrim
+        if let Node::Sheet { child, .. } = node
+            && chain
+                .get(at + 1)
+                .is_some_and(|inside| std::ptr::eq(&**child, *inside))
         {
             return at + 1;
         }

@@ -7,6 +7,7 @@ use view::{Div, FontWeight, Stateful};
 use crate::Settings;
 use crate::queries::Seat;
 use crate::state::{Form, Problem, Section, TTL};
+use view::design::Ladder;
 
 mod account;
 
@@ -17,13 +18,14 @@ const PANE_W: Pixels = px(720.);
 /// A field beside its button in a setting row.
 const FIELD_W: Pixels = px(220.);
 
-pub(crate) fn render(view: &Settings, cx: &mut Context<Settings>) -> impl IntoElement {
+pub(crate) fn render(view: &Settings, touch: bool, cx: &mut Context<Settings>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
+    let ladder = &design::ladder(touch);
     let section = shown(view);
     let body = match section {
-        Section::Account => account::account(view, cx, &theme),
-        Section::Agents => account::agents_pane(view, cx, &theme),
-        Section::Invites => invites(view, cx, &theme),
+        Section::Account => account::account(view, cx, &theme, ladder),
+        Section::Agents => account::agents_pane(view, cx, &theme, ladder),
+        Section::Invites => invites(view, cx, &theme, ladder),
     };
     div()
         .id("settings")
@@ -121,7 +123,12 @@ fn nav(
         }))
 }
 
-fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
+fn invites(
+    view: &Settings,
+    cx: &mut Context<Settings>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let network = match view.session.chain_id.split('#').next() {
         Some(name) if !name.is_empty() => name.to_owned(),
         _ => "this network".to_owned(),
@@ -129,6 +136,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
     let choices = design::segmented(
         "settings/ttl",
         "Expires after",
+        ladder,
         theme,
         Some(view.ttl),
         TTL.into_iter().map(|days| {
@@ -151,6 +159,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
             "Expires after",
             format!("An invite lets one node join {network} as a resident."),
             choices,
+            ladder,
             theme,
         ))
         .child(design::setting_row(
@@ -166,6 +175,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
                 theme,
                 mint,
             ),
+            ladder,
             theme,
         ));
     let minted = match &view.invite {

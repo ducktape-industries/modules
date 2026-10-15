@@ -400,7 +400,7 @@ fn unregistered_key_creates_an_account() {
             op,
             identity::Op::Create { ref name, scheme: abi::Scheme::Ed25519 } if name == "Maya"
         ));
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
@@ -535,7 +535,7 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     }
     cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(op, identity::Op::CreateAgent { name: "Bot".into() });
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/create/name", " Bot ");
     cx.simulate_click("settings/agents/create/submit");
@@ -560,7 +560,7 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     let expected = add.clone();
     cx.host().handle::<Submit<Identity>>(move |op| {
         assert_eq!(op, expected);
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/key/request", &abi::hex(&abi::encode(&add)));
     cx.simulate_click("settings/agents/key/submit");
@@ -604,7 +604,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
                 name: "Scout II".into()
             }
         );
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/12/name", " Scout II ");
     cx.simulate_click("settings/agents/12/rename");
@@ -621,7 +621,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     assert!(cx.find("settings/agents/12/resume").is_none());
     cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(op, identity::Op::Suspend { account: 12 });
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     let suspended = |cx: &TestAppContext, life: identity::Life| {
         cx.host().handle::<Query<Identity>>(move |q| {
@@ -666,7 +666,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     let logged = log.clone();
     cx.host().handle::<Submit<Identity>>(move |op| {
         logged.borrow_mut().push(op);
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_click("settings/agents/12/resume");
     cx.run_until_parked();
@@ -825,7 +825,7 @@ fn answering(audience: identity::Audience) -> (TestAppContext, Answers) {
             panic!("unexpected op: {op:?}");
         };
         *landed.borrow_mut() = audience;
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     let heads = cx.host().stream::<Changes<Identity>>();
     heads.send(Some(Change {

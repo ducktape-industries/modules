@@ -151,7 +151,8 @@ fn configure(cx: &mut TestAppContext) {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
+    cx.host()
+        .handle::<Submit<::chat::Chat>>(|_| Ok(view::testing::applied(Vec::new())));
 }
 
 /// The reader the host seats: key `0102`, account 7, on testnet.

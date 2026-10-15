@@ -13,13 +13,14 @@
 //! | `Env { network, me, .. }`                | [`Env`] `{ chain_id, program, .. }`       |
 //! | `Roles`, `ProgramId`                     | [`Roles`], [`ProgramId`] (the same types) |
 //! | `ItemRef { source, item }`               | [`MessageId`] `{ program, seq }`          |
-//! | `Cause::{Direct, Message, Completion, Call}` | [`Cause`]`::{Direct, Message, Reply, Call}` |
+//! | `Cause::{Direct, Message, Completion, Call, Scheduled}` | [`Cause`]`::{Direct, Message, Reply, Call, Scheduled}` |
 //! | `Outcome` (carries a `Refusal`)          | [`Outcome`] (carries an [`Error`])        |
 //! | `Scan { lo, hi, reverse, limit }`        | [`Range`] `{ start, end, order, limit }`  |
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
 pub use abi::role::awaits::{FrameId, Ticket};
+pub use abi::role::scheduler::EntryId;
 pub use abi::{ProgramId, Roles};
 pub use error::{Error, code};
 
@@ -185,6 +186,7 @@ pub enum Cause {
     Message(MessageId),
     Reply { id: MessageId, outcome: Outcome },
     Call { ticket: Ticket },
+    Scheduled { entry: EntryId },
 }
 
 impl From<abi::Cause> for Cause {
@@ -197,6 +199,7 @@ impl From<abi::Cause> for Cause {
                 outcome: outcome.into(),
             },
             abi::Cause::Call { ticket } => Cause::Call { ticket },
+            abi::Cause::Scheduled { entry } => Cause::Scheduled { entry },
         }
     }
 }
@@ -211,6 +214,7 @@ impl From<Cause> for abi::Cause {
                 outcome: outcome.into(),
             },
             Cause::Call { ticket } => abi::Cause::Call { ticket },
+            Cause::Scheduled { entry } => abi::Cause::Scheduled { entry },
         }
     }
 }

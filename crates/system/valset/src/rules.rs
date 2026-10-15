@@ -261,10 +261,7 @@ pub(crate) fn account_of(ctx: &QueryCtx, key: &[u8]) -> Result<Option<AccountNum
 }
 
 /// A page of the motions waiting for votes, each with its voters still
-/// seated, as [`vote`] tallies them. A `programs` op too late to land (what
-/// [`timely`] refuses) is left out before the page is cut, so it takes no
-/// slot of the page; a vote can never clear it, since a refused frame
-/// writes nothing.
+/// seated, as [`vote`] tallies them.
 pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply, Error> {
     let validators = validators(ctx)?;
     let prefix = VOTES.key(&());
@@ -277,11 +274,6 @@ pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply
     for (record, mut voters) in VOTES.scan(ctx, scan)? {
         let motion: Motion =
             abi::decode(&record).map_err(|refusal| corrupt("votes/", &record, refusal.sentence))?;
-        if let Motion::Programs { op } = &motion
-            && programs_motion(ctx, op).is_err()
-        {
-            continue;
-        }
         voters.retain(|voter| validators.contains(voter));
         rows.push((VOTES.key(&record), Pending { motion, voters }));
     }
@@ -291,84 +283,28 @@ pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply
     })
 }
 
+/// What a vote refuses before it counts: what the motion names must hold now. A
+/// `Role` motion's role must be bound; its op is the role's program's to judge, when the
+/// vote passes, and this program reads none of it. A `Bind` never names a role the
+/// network binds for its life, as the host refuses that.
 fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
     match motion {
         Motion::Promote { key } => promotable(ctx, key),
         Motion::Demote { key } => demotable(ctx, key),
         Motion::Remove { key } => removable(ctx, key),
         Motion::Door { open } => door_moves(ctx, *open),
-        Motion::Programs { op } => {
-            let op = programs_motion(ctx, op)?;
-            grantable(ctx, &op)
-        }
-        Motion::Halo { op } => halo::admissible(ctx, &halo_op(op)?),
+        Motion::Role { role, .. } => ctx.env().role(role).map(drop),
+        Motion::Bind { role, .. } => rebindable(role),
     }
 }
 
-fn programs_motion(ctx: &QueryCtx, op: &[u8]) -> Result<programs::Op, Error> {
-    let op = programs_op(op)?;
-    votable(&op)?;
-    timely(ctx, &op)?;
-    Ok(op)
-}
-
-fn votable(op: &programs::Op) -> Result<(), Error> {
-    match op {
-        programs::Op::Schedule(_)
-        | programs::Op::Cancel { .. }
-        | programs::Op::Grant(_)
-        | programs::Op::Revoke(_) => Ok(()),
-    }
-}
-
-/// A `Programs` motion's op, as the programs role reads it.
-fn programs_op(op: &[u8]) -> Result<programs::Op, Error> {
-    abi::decode(op).map_err(|refusal| {
-        invalid(format!(
-            "not an op of the programs role: {}",
-            refusal.sentence
-        ))
-    })
-}
-
-/// A `Halo` motion's op, as the halo role reads it.
-fn halo_op(op: &[u8]) -> Result<halo::Op, Error> {
-    abi::decode(op)
-        .map_err(|refusal| invalid(format!("not an op of the halo role: {}", refusal.sentence)))
-}
-
-/// A `Programs` motion's `Schedule` or `Cancel` names a later block than
-/// this one: a change lands at a later block (`programs`'s
-/// `schedule`), and one whose block has come has landed, so there is
-/// nothing left to cancel. Refused at the first vote: refused only at
-/// enactment, the vote that reached the quorum would fail inside the
-/// programs, and the motion would sit one vote short for good.
-fn timely(ctx: &QueryCtx, op: &programs::Op) -> Result<(), Error> {
-    let at = match op {
-        programs::Op::Grant(_) | programs::Op::Revoke(_) => {
-            return Ok(());
-        }
-        programs::Op::Schedule(scheduled) => scheduled.height,
-        programs::Op::Cancel { height, .. } => *height,
-    };
-    let height = ctx.env().height;
-    if at <= height {
+fn rebindable(role: &str) -> Result<(), Error> {
+    if abi::role::REQUIRED.contains(&role) {
         return Err(invalid(format!(
-            "too late: block {at} is not past block {height}"
+            "the {role} role is bound for the network's life"
         )));
     }
     Ok(())
-}
-
-/// A `Grant` the programs role would refuse (`programs::grantable`: a
-/// bad id, a role, no such account, a program's), refused at the first
-/// vote for `timely`'s reason. Asked here, not in `timely`, so reading the
-/// motions asks identity nothing: what it checks never changes once true.
-fn grantable(ctx: &QueryCtx, op: &programs::Op) -> Result<(), Error> {
-    match op {
-        programs::Op::Grant(grant) => programs::grantable(ctx, grant),
-        _ => Ok(()),
-    }
 }
 
 fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
@@ -383,52 +319,13 @@ fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
             DOOR.put(ctx, &open);
             Ok(())
         }
-        Motion::Programs { op } => {
-            ctx.emit_raw(
-                ctx.env().role(abi::role::PROGRAMS)?.clone(),
-                op,
-                Reply::None,
-            );
+        // a refusal comes back as the reply (`Valset::reply`), which takes it: the op's
+        // writes are undone, and the motion left the pending set with this vote
+        Motion::Role { role, op } => {
+            ctx.emit_raw(ctx.env().role(&role)?.clone(), op, Reply::Wanted);
             Ok(())
         }
-        Motion::Halo { op } => {
-            for overtaken in overtaken(&halo_op(&op)?) {
-                let motion = Motion::Halo {
-                    op: abi::encode(&overtaken),
-                };
-                VOTES.remove(ctx, &abi::encode(&motion));
-            }
-            ctx.emit_raw(ctx.env().role(abi::role::HALO)?.clone(), op, Reply::None);
-            Ok(())
-        }
-    }
-}
-
-/// The halo ops no vote can pass once `op` is enacted, so their motions are cleared with it,
-/// as a removal clears the motions that name the member: after `Open` of a name, an `Open` of
-/// it at any class is `already_exists`; after `Close`, a `Set` or `Close` of it is
-/// `not_found`. A refused enactment writes nothing, so nothing is cleared for an op the halo
-/// role refused.
-fn overtaken(op: &halo::Op) -> Vec<halo::Op> {
-    match op {
-        halo::Op::Open { name, .. } => halo::Class::ALL
-            .map(|cap| halo::Op::Open {
-                name: name.clone(),
-                cap,
-            })
-            .into(),
-        halo::Op::Set { .. } => Vec::new(),
-        halo::Op::Close { name } => {
-            let sets = halo::Class::ALL.into_iter().flat_map(|cap| {
-                [true, false].map(|enabled| halo::Op::Set {
-                    name: name.clone(),
-                    cap,
-                    enabled,
-                })
-            });
-            let close = halo::Op::Close { name: name.clone() };
-            sets.chain([close]).collect()
-        }
+        Motion::Bind { role, program } => ctx.bind(role, program),
     }
 }
 
