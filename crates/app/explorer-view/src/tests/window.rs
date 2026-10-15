@@ -126,26 +126,35 @@ fn a_refused_window_says_why_and_retry_reads_again() {
     assert!(cx.has_text("Latest activity"));
 }
 
+/// A restored view keeps the blocks it held and each transaction's op: it
+/// reads the index again (a page of small rows), nothing of the chain.
 #[test]
-fn a_snapshot_restores_without_reading_the_window_again() {
+fn a_snapshot_restores_without_reading_the_chain_again() {
     let (cx, _) = ready();
     let bytes = cx.snapshot().unwrap();
     let mut restored = TestAppContext::new();
     quiet_host(&restored);
+    index(&restored, || chain(12));
     restored.restore::<Explorer>(&bytes).unwrap();
     restored.run_until_parked();
-    assert!(restored.has_text("Post in #design"));
+    assert!(
+        restored.has_text("Post in #design"),
+        "{:?}",
+        restored.texts()
+    );
     assert!(restored.host().requests::<ChainBlocks>().is_empty());
+    assert!(restored.host().requests::<ChainBlock>().is_empty());
+    assert!(restored.host().requests::<ProgramDescribe>().is_empty());
 }
 
-/// Every page over a full window stays inside the host's frame budgets, and
+/// Every page over a busy chain stays inside the host's frame budgets, and
 /// under a per-page regression guard on its bytes: the native proxy for a
 /// render's fuel.
 /// (Time is no proxy here: a debug build encodes the whole view
 /// (`wire::encode`, MessagePack) around every update to catch a missed
 /// `notify`.)
 #[test]
-fn a_full_window_renders_inside_the_frame_budget() {
+fn a_busy_chain_renders_inside_the_frame_budget() {
     let mut cx = TestAppContext::new();
     heavy(&mut cx);
     cx.open::<Explorer>();

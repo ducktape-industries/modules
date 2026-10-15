@@ -4,7 +4,13 @@ use super::*;
 pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let held = view.chain.blocks.len() as u64;
     let list = rows("explorer-blocks-list", "Blocks", view);
-    let list = block_lines(list, view, view.chain.blocks.len());
+    // the last line drawn asks for the page below the blocks held
+    let list = block_lines(list, view, view.chain.blocks.len()).reaching(|view, range, cx| {
+        let held = &view.chain.blocks;
+        if range.end >= lines(held, held.len()).len() {
+            view.pull_older(cx);
+        }
+    });
     let unlisted = view
         .chain
         .unlisted_below()
@@ -35,8 +41,8 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
 
 pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyElement {
     let Some((block, txs)) = view.block(height) else {
-        return match &view.opened {
-            Loadable::Ready(None) | Loadable::Reloading(None, _) => {
+        return match view.blocks.get(&height) {
+            Some(Loadable::Ready(None) | Loadable::Reloading(None, _)) => {
                 let unlisted = view.chain.unlisted_below().filter(|from| height < *from);
                 let why = match unlisted {
                     Some(from) => unindexed(from),
@@ -50,13 +56,8 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyE
                 )
                 .into_any_element()
             }
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
-            Loadable::Idle
-            | Loadable::Loading(_)
-            | Loadable::Ready(Some(_))
-            | Loadable::Reloading(Some(_), _) => {
-                quiet("explorer-block-loading", "Reading the block…", theme)
-            }
+            Some(Loadable::Failed(refusal)) => failed(&refusal.message, cx, theme),
+            _ => quiet("explorer-block-loading", "Reading the block…", theme),
         };
     };
     let now = view.chain.now();

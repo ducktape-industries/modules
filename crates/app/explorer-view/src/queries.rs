@@ -1,10 +1,10 @@
 //! Typed reads of the system programs: accounts (identity), validators
-//! (valset), programs (programs) and what each account did
-//! (activity). The window's blocks are the host's (`load.rs`).
+//! (valset), programs (programs), how much each account used each program
+//! and when its keys last signed (activity). The transaction lists are
+//! `recent.rs`; the blocks are the host's (`load.rs`).
 use view::prelude::*;
 
-use crate::chain::{TxRow, located};
-use crate::state::{Accounts, Acted, Network, Used};
+use crate::state::{Accounts, Devices, Network, Used};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
@@ -58,33 +58,23 @@ pub(crate) async fn used(host: Host) -> Result<Used, Error> {
     Ok(Used { list })
 }
 
-pub(crate) async fn acted(host: Host, account: u64, known: Vec<TxRow>) -> Result<Acted, Error> {
-    let asked = activity::ask::Acted {
-        account,
-        page: activity::PageRequest {
-            after: None,
-            limit: None,
-        },
+/// When each of `account`'s keys last signed: the newest frame the index
+/// keeps under each.
+pub(crate) async fn devices(host: Host, account: u64) -> Result<Devices, Error> {
+    let Some(found) = host.query(identity::ask::Get { number: account }).await? else {
+        return Ok(Devices {
+            account,
+            last_used: Vec::new(),
+        });
     };
-    let frames = host.query(asked).await?.items;
-    let mut acted = Vec::with_capacity(frames.len());
-    for frame in frames {
-        let at = |row: &&TxRow| (row.height, row.index) == (frame.height, frame.position);
-        if let Some(row) = known.iter().find(at) {
-            acted.push(row.clone());
-            continue;
-        }
-        let ask = TxAsk {
-            tx: TxRef::At {
-                height: frame.height,
-                position: frame.position,
-            },
-            most: u32::MAX,
+    let mut last_used = Vec::with_capacity(found.keys().len());
+    for key in found.keys() {
+        let newest = activity::ask::Signed {
+            key: key.key.clone(),
+            page: activity::PageRequest::first(1),
         };
-        acted.extend(host.ask::<ChainTx>(ask).await?.map(located));
+        let page = host.query(newest).await?;
+        last_used.push(page.items.first().map(|frame| frame.time));
     }
-    Ok(Acted {
-        account,
-        rows: acted,
-    })
+    Ok(Devices { account, last_used })
 }

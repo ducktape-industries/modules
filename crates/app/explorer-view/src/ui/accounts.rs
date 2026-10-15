@@ -88,30 +88,30 @@ fn frames(used: &[&activity::Used]) -> u64 {
     used.iter().map(|used| used.frames).sum()
 }
 
+/// What the account did, newest first, read on as it is scrolled.
 fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
-    let Some(acted) = view.acted(number) else {
-        return match &view.acted {
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
-            _ => quiet("explorer-activity-loading", "Reading its activity…", theme),
-        };
+    let Some(listing) = view.acted(number) else {
+        return quiet("explorer-activity-loading", "Reading its activity…", theme);
     };
-    if acted.is_empty() {
-        return quiet("explorer-no-activity", "No activity recorded.", theme);
+    let listing = listing.rows.clone();
+    let (held, state) = listing.read(|paged| {
+        let state = match paged.failed() {
+            Some(refusal) => Err(refusal.clone()),
+            None => Ok(paged.is_loading()),
+        };
+        (paged.rows().len(), state)
+    });
+    match state {
+        Err(refusal) => failed(&refusal.message, cx, theme),
+        Ok(true) => quiet("explorer-activity-loading", "Reading its activity…", theme),
+        Ok(false) if held == 0 => quiet("explorer-no-activity", "No activity recorded.", theme),
+        Ok(false) => {
+            let list = rows("explorer-activity-list", "Activity", view);
+            index_rows(list, listing, None, true, false)
+                .build(cx)
+                .into_any_element()
+        }
     }
-    let list = rows("explorer-activity-list", "Activity", view);
-    tx_rows(
-        list,
-        view,
-        move |view| {
-            view.acted(number)
-                .map_or_else(Vec::new, |rows| rows.iter().collect())
-        },
-        true,
-        false,
-    )
-    .whole(view, cx, theme)
-    .build(cx)
-    .into_any_element()
 }
 
 pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
@@ -135,9 +135,14 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
         let total = plural(total, "transaction", "transactions");
         caption(format!("{total} recorded"), theme)
     });
+    // the activity list scrolls for the page, as the Transactions tab's
+    // does: the page is no scroller, the column beside it its own
     let activity = div()
         .id("explorer-activity")
         .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col()
         .border_r_1()
         .border_color(theme.border)
         .child(heading(
@@ -152,11 +157,13 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
         .flex()
         .flex_col()
         .flex_1()
+        .min_h(px(0.))
         .child(title(view, account, cx, theme))
         .child(
             div()
                 .flex()
                 .flex_1()
+                .min_h(px(0.))
                 .border_t_1()
                 .border_color(theme.border)
                 .child(activity)
@@ -211,9 +218,9 @@ fn title(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> impl Into
 
 fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
     let now = view.chain.now();
-    let sent = view.acted(account.number).unwrap_or_default();
+    let last_used = view.last_used(account.number).unwrap_or_default();
     let devices = account.keys().iter().enumerate().map(|(index, key)| {
-        let last = sent.iter().find(|tx| tx.signer == key.key);
+        let last = last_used.get(index).copied().flatten();
         let label = key
             .label
             .clone()
@@ -235,7 +242,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
             )
             .child(
                 mono(match last {
-                    Some(tx) => format!("last used {} ago", ago(now, tx.time)),
+                    Some(time) => format!("last used {} ago", ago(now, time)),
                     None => "not used lately".into(),
                 })
                 .text_size(design::text::CAPTION)
@@ -267,6 +274,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
         .id("explorer-account-side")
         .w(SIDE_W)
         .flex_shrink_0()
+        .overflow_y_scroll()
         .child(heading(
             "explorer-devices-heading",
             "Devices",

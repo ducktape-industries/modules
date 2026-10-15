@@ -319,64 +319,76 @@ fn a_pushed_head_asks_for_the_blocks_since_the_top() {
         .collect();
     assert_eq!(new, [(None, 3)]);
     assert!(
-        cx.has_text("3 transactions in the last 19 blocks"),
+        cx.has_text("3 transactions since block 11"),
         "{:?}",
         cx.texts()
     );
 }
 
+/// An account's activity comes from the index, its rows' blocks read once
+/// each as the rows are drawn, never a payload: the frames sit 1,100
+/// blocks below the head, far outside the blocks held.
 #[test]
-fn an_accounts_activity_past_the_window_is_read_by_place_and_follows_the_index() {
+fn an_accounts_activity_far_below_the_head_is_read_by_block_and_follows_the_index() {
     let mut cx = TestAppContext::new();
     let tip = Rc::new(RefCell::new(WINDOW as u64 + 100));
     node(&mut cx, tip.clone());
     let heads = cx.host().stream::<Changes<Activity>>();
     cx.open::<Explorer>();
     cx.run_until_parked();
+    // the Overview drew the same three rows: their two blocks are read
+    assert_eq!(
+        cx.host().requests::<ChainBlock>(),
+        [BlockRef::Height(12), BlockRef::Height(11)]
+    );
     cx.simulate_click("explorer-tab-accounts");
     cx.run_until_parked();
     assert!(cx.has_text("3 · tx recorded"), "{:?}", cx.texts());
-    assert!(cx.has_text("2 tx"), "Ada's two, long out of the window");
+    assert!(cx.has_text("2 tx"), "Ada's two, far below the head");
     cx.simulate_click("explorer-account-3");
     cx.run_until_parked();
     for text in [
         "2 transactions recorded",
         "Post in #design",
         "Direct message",
+        "last used 18m ago",
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
-    let at = |position| TxAsk {
-        tx: TxRef::At {
-            height: 11,
-            position,
-        },
-        most: u32::MAX,
-    };
-    assert_eq!(cx.host().requests::<ChainTx>(), [at(1), at(0)]);
-    assert!(cx.host().requests::<ChainBlock>().is_empty());
+    assert_eq!(
+        cx.host().requests::<ChainBlock>().len(),
+        2,
+        "a block read for the Overview is not read again for the account"
+    );
+    assert!(
+        cx.host().requests::<ChainTx>().is_empty(),
+        "no payload is read"
+    );
     let asked = cx.host().requests::<Query<Activity>>().len();
     heads.send(Some(view::methods::Change {
         height: *tip.borrow() + 1,
         keys: Vec::new(),
     }));
     cx.run_until_parked();
-    assert_eq!(
-        cx.host().requests::<Query<Activity>>().len(),
-        asked + 2,
-        "the counts and the open account are read again"
+    assert!(
+        cx.host().requests::<Query<Activity>>().len() > asked,
+        "the counts, the lists and the devices are read again"
     );
     assert_eq!(
-        cx.host().requests::<ChainTx>().len(),
+        cx.host().requests::<ChainBlock>().len(),
         2,
-        "a row already read is not read again"
+        "a block already read is not read again"
     );
     cx.simulate_click("explorer-tx-11-0");
     cx.run_until_parked();
     assert!(
         cx.has_text("In block 11") && cx.has_text("hello there"),
-        "a row of the account's activity opens though the window has no such hash: {:?}",
+        "a row of the account's activity opens from the block read for it: {:?}",
         cx.texts()
+    );
+    assert!(
+        cx.host().requests::<ChainTx>().is_empty(),
+        "a short payload came with the block: nothing more to read"
     );
 }
 

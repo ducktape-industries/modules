@@ -1,11 +1,12 @@
-//! The recent window: the last [`WINDOW`] finalized blocks and the
-//! transactions they carry, folded in a page at a time.
+//! The blocks held: the newest finalized blocks and the transactions they
+//! carry, folded in a page at a time, followed at the head and read further
+//! down as the Blocks tab is scrolled.
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell};
 use view::prelude::*;
 
-use crate::{WINDOW, decode};
+use crate::decode;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockRow {
@@ -132,10 +133,6 @@ pub(crate) fn rows(block: Block) -> (BlockRow, Vec<TxRow>) {
     (row, txs)
 }
 
-pub(crate) fn located(located: Located) -> TxRow {
-    tx_row(located.height, located.position, located.time, located.tx)
-}
-
 fn tx_row(height: u64, index: u32, time: u64, tx: Tx) -> TxRow {
     TxRow {
         hash: tx.hash,
@@ -153,12 +150,12 @@ fn tx_row(height: u64, index: u32, time: u64, tx: Tx) -> TxRow {
     }
 }
 
-/// The recent window, newest first.
+/// The blocks held, newest first.
 #[derive(Default, Serialize, Deserialize)]
 pub struct Chain {
     pub blocks: Vec<BlockRow>,
     pub txs: Vec<TxRow>,
-    /// the archive ends inside the window: nothing older to read
+    /// the archive ends inside the blocks held: nothing older to read
     pub complete: bool,
     pub listed_from: Option<u64>,
     /// the last page was refused, in the host's words
@@ -213,16 +210,24 @@ impl Chain {
                 merged.append(&mut self.txs);
                 self.txs = merged;
             }
-            // the first page, or a head so far past the window that it no
-            // longer joins: start the window again from here
+            // the first page, or a head so far past the blocks held that it
+            // no longer joins: start again from here
             (None, _) => {
                 self.blocks = blocks;
                 self.txs = txs.collect();
                 self.complete = reached_bottom;
             }
         }
-        self.blocks.truncate(WINDOW);
+    }
+
+    /// Lets go of every block below the newest `hold`.
+    pub(crate) fn trim(&mut self, hold: usize) {
+        if self.blocks.len() <= hold {
+            return;
+        }
+        self.blocks.truncate(hold);
         let oldest = self.blocks.last().map_or(0, |block| block.height);
         self.txs.retain(|tx| tx.height >= oldest);
+        self.complete = false;
     }
 }

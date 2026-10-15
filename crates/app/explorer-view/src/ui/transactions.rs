@@ -8,31 +8,56 @@ pub(super) fn transactions(
     cx: Cx,
     theme: &Theme,
 ) -> AnyElement {
-    let window = plural(view.chain.blocks.len() as u64, "block", "blocks");
-    let matching = sent_to(view, program.as_deref()).count();
-    let list = rows("explorer-transactions-list", "Transactions", view);
-    let rows = (matching > 0).then(|| {
-        let program = program.clone();
-        tx_rows(
-            list,
-            view,
-            move |view| sent_to(view, program.as_deref()).collect(),
-            true,
-            true,
-        )
-        .build(cx)
-    });
     let title = match &program {
         Some(program) => format!("Transactions · {program}"),
         None => "Transactions".into(),
     };
-    let empty = (matching == 0).then(|| {
-        quiet(
-            "explorer-no-txs",
-            format!("No transactions in the last {window}."),
-            theme,
-        )
-    });
+    let listing = view
+        .recent(program.as_deref())
+        .map(|listing| listing.rows.clone());
+    // the rows held, the block the oldest sits in once the index's last
+    // page is held (the list runs from there), and the read's state
+    let (held, since, state) = match &listing {
+        Some(listing) => listing.read(|paged| {
+            let state = match paged.failed() {
+                Some(refusal) => Err(refusal.clone()),
+                None => Ok(paged.is_loading()),
+            };
+            let whole = paged.count() == paged.rows().len();
+            let since = paged.rows().last().filter(|_| whole).map(|row| row.height);
+            (paged.rows().len(), since, state)
+        }),
+        None => (0, None, Ok(true)),
+    };
+    let body = match (state, listing) {
+        (Err(refusal), _) => failed(&refusal.message, cx, theme),
+        (Ok(true), _) | (_, None) => quiet("explorer-transactions-loading", "Reading…", theme),
+        // the index lists from the block it was first told of: a network
+        // that ran before it did has older transactions on its accounts' pages
+        (Ok(false), Some(_)) if held == 0 => {
+            let none = match &program {
+                Some(program) => format!("No transactions to {program} listed yet."),
+                None => "No transactions listed yet.".into(),
+            };
+            quiet("explorer-no-txs", none, theme)
+        }
+        (Ok(false), Some(listing)) => {
+            let list = rows("explorer-transactions-list", "Transactions", view);
+            index_rows(list, listing, None, true, true)
+                .build(cx)
+                .into_any_element()
+        }
+    };
+    // every one the index keeps and from which block, or the newest so
+    // far: the rest come as the list is scrolled
+    let caption = match since {
+        Some(since) => format!(
+            "{} since block {}",
+            plural(held as u64, "transaction", "transactions"),
+            grouped(since)
+        ),
+        None => format!("the newest {held}"),
+    };
     div()
         .id("explorer-transactions")
         .flex_1()
@@ -45,45 +70,35 @@ pub(super) fn transactions(
             heading(
                 "explorer-transactions-heading",
                 &title,
-                Some(caption(
-                    format!(
-                        "{} in the last {window}",
-                        plural(matching as u64, "transaction", "transactions")
-                    ),
-                    theme,
-                )),
+                Some(self::caption(caption, theme)),
                 theme,
             )
             .mr(design::size::SCROLLBAR),
         )
-        .children(rows)
-        .children(empty)
+        .child(body)
         .into_any_element()
 }
 
-/// The window's transactions, newest first; `program`'s alone when named.
-fn sent_to<'a, 'p>(
-    view: &'a Explorer,
-    program: Option<&'p str>,
-) -> impl Iterator<Item = &'a TxRow> + use<'a, 'p> {
-    view.chain
-        .txs
-        .iter()
-        .filter(move |tx| program.is_none_or(|program| tx.target == program))
-}
-
-pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> AnyElement {
-    let Some(tx) = view.tx(hash) else {
-        return empty_state(
-            "explorer-no-tx",
-            "Transaction not found",
-            format!(
-                "It is not in the last {} this explorer reads.",
-                plural(view.chain.blocks.len() as u64, "block", "blocks")
-            ),
-            theme,
-        )
-        .into_any_element();
+pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, theme: &Theme) -> AnyElement {
+    let Some(tx) = view.tx_at(height, position) else {
+        return match view.blocks.get(&height) {
+            Some(Loadable::Failed(refusal)) => failed(&refusal.message, cx, theme),
+            Some(Loadable::Ready(found) | Loadable::Reloading(found, _)) => {
+                let why = match found {
+                    Some(_) => format!(
+                        "Block {} carries no transaction at position {position}.",
+                        grouped(height)
+                    ),
+                    None => match view.chain.unlisted_below().filter(|from| height < *from) {
+                        Some(from) => unindexed(from),
+                        None => "This node keeps no finalized block at this height.".into(),
+                    },
+                };
+                empty_state("explorer-no-tx", "Transaction not found", why, theme)
+                    .into_any_element()
+            }
+            _ => quiet("explorer-tx-loading", "Reading the transaction…", theme),
+        };
     };
     view.open(tx, cx);
     let now = view.chain.now();
@@ -96,7 +111,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
         .child(mono(tx.target.clone()))
         .children(code.map(|code| mono(format!("code {code}")).text_color(theme.faint)));
     let title = clip(&tx.title());
-    let copy = copy_button(view, &Route::Tx(*hash), cx, theme);
+    let copy = copy_button(view, &Route::Tx { height, position }, cx, theme);
     div()
         .id("explorer-tx")
         .child(
