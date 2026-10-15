@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::design::{self, CAPSULE_CLEARANCE, Pages};
 use crate::prelude::*;
 use crate::testing::{self, TestAppContext};
-use crate::{BackEvent, View, wire};
+use crate::{BackEvent, Div, Stateful, View, wire};
 
 #[derive(Serialize, Deserialize)]
 struct Phone {
@@ -233,6 +233,84 @@ impl Render for Cramped {
 fn a_short_press_target_does_not_fit_a_phone() {
     let mut cx = TestAppContext::new();
     cx.open::<Cramped>();
+    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+}
+
+/// A reaction chip as the Expo app draws it, 30 tall and at least 40
+/// wide; `HitChip` presses through a `design::hit`, `BareChip` on the
+/// chip itself.
+fn chip(ladder: Option<&design::Ladder>) -> Stateful<Div> {
+    let chip = div().id("chip").h(px(30.)).min_w(px(40.)).child("👍 2");
+    match ladder {
+        Some(ladder) => chip.child(
+            design::hit("react", px(40.), px(30.), ladder)
+                .role(crate::Role::Button)
+                .aria_label("👍 2")
+                .focusable()
+                .on_click(|_, _, _| {}),
+        ),
+        None => chip
+            .role(crate::Role::Button)
+            .aria_label("👍 2")
+            .focusable()
+            .on_click(|_, _, _| {}),
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct HitChip;
+impl View for HitChip {
+    const NAME: &'static str = "HitChip";
+}
+impl Render for HitChip {
+    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let ladder = design::ladder(window.touch());
+        div().id("root").child(chip(Some(&ladder)))
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct BareChip;
+impl View for BareChip {
+    const NAME: &'static str = "BareChip";
+}
+impl Render for BareChip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().id("root").child(chip(None))
+    }
+}
+
+/// A 30-tall chip keeps its look and fits a phone: its press reaches 7
+/// past each edge under a finger (2 past the sides of its 40 width), and
+/// covers the chip exactly under a pointer.
+#[test]
+fn a_short_chip_fits_a_phone_through_a_hit() {
+    let mut cx = TestAppContext::new();
+    cx.open::<HitChip>();
+    let inset = |cx: &TestAppContext| {
+        let style = cx.style("react");
+        [
+            style.inset.top,
+            style.inset.bottom,
+            style.inset.left,
+            style.inset.right,
+        ]
+    };
+    assert_eq!(inset(&cx), [Some(px(0.).into()); 4]);
+    testing::sweep(&mut cx, |cx| {
+        assert_eq!(cx.style("chip").size.height, Some(px(30.).into()));
+        let [top, bottom, left, right] = inset(cx);
+        assert_eq!((top, bottom), (Some(px(-7.).into()), Some(px(-7.).into())));
+        assert_eq!((left, right), (Some(px(-2.).into()), Some(px(-2.).into())));
+    });
+}
+
+#[test]
+#[should_panic(expected = "declares no height of at least 44")]
+fn a_short_chip_without_a_hit_does_not_fit_a_phone() {
+    let mut cx = TestAppContext::new();
+    cx.open::<BareChip>();
+    cx.simulate_touch(true);
     testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
 }
 

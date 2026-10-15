@@ -378,6 +378,32 @@ pub fn icon(name: &str, size: Pixels) -> crate::Svg {
         .flex_none()
 }
 
+/// A press target bigger than what it draws (React Native's `hitSlop`):
+/// a transparent box over its parent, taking no layout space, that
+/// carries the press and the Aria while the parent only draws. Under a
+/// finger it reaches past each edge of a `width` x `height` parent until
+/// it is [`Ladder::hit`] each way (an axis already that long gets no
+/// reach); under a pointer it covers the parent exactly. The reach lies
+/// over what sits around the parent, so rows keep their spacing. A
+/// reaction chip 30 tall and at least 40 wide:
+/// `div().h(px(30.)).min_w(px(40.)).child("👍 2").child(design::hit("react",
+/// px(40.), px(30.), &ladder).role(Role::Button).aria_label("👍 2")
+/// .focusable().on_click(..))`.
+pub fn hit(
+    id: impl Into<ElementId>,
+    width: Pixels,
+    height: Pixels,
+    ladder: &Ladder,
+) -> Stateful<Div> {
+    // the inset on each side of an axis: negative, it reaches past
+    let inset = |side: Pixels| match ladder.touch {
+        true => px(((f32::from(side) - f32::from(ladder.hit)) / 2.).min(0.)),
+        false => px(0.),
+    };
+    let (x, y) = (inset(width), inset(height));
+    div().id(id).absolute().top(y).bottom(y).left(x).right(x)
+}
+
 /// What a press shows under a finger: the control dims while it is held
 /// (the Expo kit's `platform.pressed`); a finger has no hover.
 fn pressed<E: StatefulInteractiveElement>(element: E) -> E {
