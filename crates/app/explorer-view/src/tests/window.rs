@@ -142,7 +142,8 @@ fn a_snapshot_restores_without_reading_the_window_again() {
     quiet_host(&restored);
     restored.restore::<Explorer>(&bytes).unwrap();
     restored.run_until_parked();
-    assert!(restored.has_text("Post in #design"));
+    assert!(restored.has_text("6f6f6f6f…6f6f"), "{:?}", restored.texts());
+    assert!(restored.find("explorer-tx-12-0").is_some());
     assert!(restored.host().requests::<ChainBlocks>().is_empty());
 }
 
@@ -167,25 +168,23 @@ fn a_full_window_renders_inside_the_frame_budget() {
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
     assert!(
-        cx.has_text("Push · app"),
-        "the push is listed by its op: {:?}",
+        cx.has_text("1,001 transactions") && cx.has_text("forge"),
+        "{:?}",
         cx.texts()
     );
     cx.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
     cx.run_until_parked();
     assert!(cx.has_text("1048576 bytes · 50505050…5050"));
-    let push = TxAsk {
-        tx: TxRef::At {
-            height: WINDOW as u64,
-            position: 0,
-        },
-        most: u32::MAX,
-    };
-    let asked = cx.host().requests::<ChainTx>();
     assert_eq!(
-        asked.iter().filter(|ask| **ask == push).count(),
-        1,
-        "the push's payload is read once, for its row and its page"
+        cx.host().requests::<ChainTx>(),
+        [TxAsk {
+            tx: TxRef::At {
+                height: WINDOW as u64,
+                position: 0
+            },
+            most: u32::MAX
+        }],
+        "only the opened push reads its payload"
     );
     sizes.push(("a 1 MB push", cx.frame_bytes()));
     // A regression guard, not a host limit: about 1.5x what each page drew

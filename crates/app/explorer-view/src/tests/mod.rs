@@ -1,12 +1,13 @@
 //! A node the explorer reads, played by the fake host: a short chain, three
 //! accounts, one validator and `programs`, each answered as the program
 //! would. Tests by what they cover: `access` (what a reader changes on the
-//! Programs page), `describe`, `window`, `pages`, `search`.
+//! Programs page), `describe`, `window`, `pages`, `search`, `transactions`.
 mod access;
 mod describe;
 mod follow;
 mod pages;
 mod search;
+mod transactions;
 mod window;
 
 pub(crate) use std::cell::RefCell;
@@ -271,13 +272,24 @@ pub(crate) fn index(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + 'stati
                     height: block.height,
                     position: position as u32,
                     time: block.time,
+                    signer: tx.signer.clone(),
                     target: tx.target,
-                    applied: true,
+                    applied: tx
+                        .receipt
+                        .as_ref()
+                        .is_none_or(|run| matches!(run.outcome, Outcome::Applied { .. })),
                 };
                 (holder(&tx.signer), frame)
             })
         });
         Ok(match query {
+            activity::Query::Frames { page: asked } => {
+                let every = frames
+                    .map(|(_, frame)| frame)
+                    .take(asked.limit() as usize)
+                    .collect();
+                activity::Reply::Frames(whole(every))
+            }
             activity::Query::Acted {
                 account,
                 page: asked,
