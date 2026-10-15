@@ -233,7 +233,7 @@ fn managed_by(ctx: &QueryCtx, key: &[u8], manager: AccountNumber) -> Result<bool
     let Some(account) = account_of(ctx, key)? else {
         return Ok(false);
     };
-    let bound = &ctx.env().roles.identity;
+    let bound = &ctx.env().role(abi::role::IDENTITY)?.clone();
     let profile = match ctx.query(bound, &identity::Query::Profile(account))? {
         identity::Reply::Profile(profile) => profile,
         other => return Err(unexpected_reply(bound, "Profile", &other)),
@@ -251,7 +251,7 @@ fn managed_by(ctx: &QueryCtx, key: &[u8], manager: AccountNumber) -> Result<bool
 /// refuses it `unauthorized`). Any other refusal fails the caller, so an
 /// identity that misanswers drops no one's voice quietly.
 pub(crate) fn account_of(ctx: &QueryCtx, key: &[u8]) -> Result<Option<AccountNumber>, Error> {
-    let bound = &ctx.env().roles.identity;
+    let bound = &ctx.env().role(abi::role::IDENTITY)?.clone();
     match ctx.query(bound, &identity::Query::Account(key.to_vec())) {
         Ok(identity::Reply::Account(account)) => Ok(account),
         Ok(other) => Err(unexpected_reply(bound, "Account", &other)),
@@ -377,7 +377,11 @@ fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
             Ok(())
         }
         Motion::Programs { op } => {
-            ctx.emit_raw(ctx.env().roles.programs.clone(), op, Reply::None);
+            ctx.emit_raw(
+                ctx.env().role(abi::role::PROGRAMS)?.clone(),
+                op,
+                Reply::None,
+            );
             Ok(())
         }
     }

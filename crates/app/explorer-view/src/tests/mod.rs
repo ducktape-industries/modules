@@ -427,14 +427,14 @@ pub(crate) fn programs_granting(
             }
             programs::Query::Hooks(_) => programs::Reply::Hooks(hooks.clone()),
             programs::Query::Grants { .. } => programs::Reply::Grants(whole(grants.clone())),
-            programs::Query::Roles => programs::Reply::Roles(abi::Roles {
-                programs: programs::PROGRAM.into(),
-                validators: valset::PROGRAM.into(),
-                identity: identity::PROGRAM.into(),
-                blobs: "blobs".into(),
-                awaits: "awaits".into(),
-                egress: Some("egress".into()),
-            }),
+            programs::Query::Roles => programs::Reply::Roles(abi::Roles::from_iter([
+                (abi::role::PROGRAMS, programs::PROGRAM),
+                (abi::role::VALIDATORS, valset::PROGRAM),
+                (abi::role::IDENTITY, identity::PROGRAM),
+                (abi::role::BLOBS, "blobs"),
+                (abi::role::AWAITS, "awaits"),
+                (abi::role::EGRESS, "egress"),
+            ])),
             other => panic!("unexpected query: {other:?}"),
         })
     });

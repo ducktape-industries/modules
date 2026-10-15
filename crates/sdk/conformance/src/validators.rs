@@ -27,7 +27,7 @@ pub fn run(fixture: &impl Fixture) {
 }
 
 fn program() -> String {
-    MockHost::roles().validators
+    MockHost::role(abi::role::VALIDATORS)
 }
 
 fn member(n: u8) -> Member {

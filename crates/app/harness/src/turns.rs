@@ -60,7 +60,7 @@ fn give_up(ctx: &ExecCtx, thread: &mut ThreadRow, text: String) {
 }
 
 fn bound(ctx: &QueryCtx) -> Result<ProgramId, Error> {
-    let Some(program) = ctx.env().roles.egress.clone() else {
+    let Some(program) = ctx.env().roles.get(abi::role::EGRESS).cloned() else {
         return Err(wrong_state(
             "this network binds no program to the egress role",
         ));

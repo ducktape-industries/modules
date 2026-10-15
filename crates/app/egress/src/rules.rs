@@ -15,7 +15,7 @@ use crate::{
 };
 
 fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
-    let validators = &ctx.env().roles.validators;
+    let validators = &ctx.env().role(abi::role::VALIDATORS)?.clone();
     match ctx
         .query::<validators::Query, validators::Reply>(validators, &validators::Query::Members)?
     {
@@ -221,12 +221,13 @@ fn open(ctx: &QueryCtx, id: u64) -> Result<Stored, Error> {
         .ok_or_else(|| not_found(format!("no open request {id}")))
 }
 
-fn close(ctx: &ExecCtx, stored: Stored, answer: Result<Vec<u8>, Error>) {
+fn close(ctx: &ExecCtx, stored: Stored, answer: Result<Vec<u8>, Error>) -> Result<(), Error> {
     let row = stored.row;
     REQUESTS.remove(ctx, &row.id);
     ASSIGNED.remove(ctx, &(row.node.clone(), row.id));
     DEADLINES.remove(ctx, &(row.deadline, row.id));
-    ctx.resolve(stored.ticket, answer);
+    ctx.resolve(stored.ticket, answer)?;
+    Ok(())
 }
 
 pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error> {
@@ -253,8 +254,7 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
         Answer::Output(output) => Ok(output),
         Answer::Failed(reason) => Err(failed(stored.row.request.service(), &reason)),
     };
-    close(ctx, stored, answered);
-    Ok(())
+    close(ctx, stored, answered)
 }
 
 fn failed(service: &str, reason: &str) -> Error {
@@ -270,8 +270,7 @@ pub(crate) fn expire(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
         )));
     }
     let expired = awaits::expired(stored.ticket, ctx.env().height);
-    close(ctx, stored, Err(error_from(expired)));
-    Ok(())
+    close(ctx, stored, Err(error_from(expired)))
 }
 
 pub(crate) fn assigned(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Vec<RequestRow>, Error> {

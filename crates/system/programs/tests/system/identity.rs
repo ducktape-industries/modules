@@ -479,7 +479,7 @@ fn the_roles_and_the_env_are_ducktapes_byte_for_byte() {
         "pub mod role {",
         "pub enum Origin {",
         "pub enum Principal {",
-        "pub struct Roles {",
+        "pub struct Roles(",
         "pub struct Env {",
         "pub enum Cause {",
         "pub struct Message {",

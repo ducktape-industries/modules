@@ -83,14 +83,10 @@ pub struct Pending {
 /// Whether `program` fills a role the kernel calls by its genesis binding:
 /// only the vote changes it.
 pub fn role_bound(roles: &Roles, program: &str) -> bool {
-    [
-        &roles.programs,
-        &roles.validators,
-        &roles.identity,
-        &roles.blobs,
-    ]
-    .iter()
-    .any(|role| role.as_str() == program)
+    abi::role::REQUIRED
+        .iter()
+        .filter_map(|role| roles.get(role))
+        .any(|bound| bound == program)
 }
 
 /// Whether `grants` make `account` a maintainer of `program`: it holds

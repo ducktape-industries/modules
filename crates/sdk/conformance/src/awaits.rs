@@ -35,7 +35,7 @@ const OTHER: &str = "other";
 const HEIGHT: u64 = 10;
 
 fn program() -> String {
-    MockHost::roles().awaits
+    MockHost::role(abi::role::AWAITS)
 }
 
 fn from(origin: Origin, height: u64) -> Env {

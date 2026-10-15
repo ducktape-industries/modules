@@ -21,7 +21,7 @@ pub(crate) fn accounts(ctx: &QueryCtx, page: PageRequest) -> Result<PageResponse
         after,
         limit: page.limit() as u32,
     };
-    let identity = &ctx.env().roles.identity;
+    let identity = &ctx.env().role(abi::role::IDENTITY)?.clone();
     let role::Reply::Profiles { profiles, next } =
         ctx.query::<role::Query, role::Reply>(identity, &profiles)?
     else {
