@@ -461,6 +461,7 @@ fn the_roles_are_answered_as_the_kernel_binds_them() {
         blobs: "blobs-b".into(),
         awaits: "awaits-b".into(),
         halo: "halo-b".into(),
+        egress: Some("egress-b".into()),
     };
     let asked = Env {
         roles: roles.clone(),

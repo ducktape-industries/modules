@@ -175,6 +175,7 @@ impl Net {
                 blobs: blobs::PROGRAM.into(),
                 awaits: awaits::PROGRAM.into(),
                 halo: halo::PROGRAM.into(),
+                egress: None,
             },
             validators: FOUNDERS.iter().map(|seed| member(*seed)).collect(),
             programs: vec![

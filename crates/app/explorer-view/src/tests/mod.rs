@@ -413,6 +413,7 @@ pub(crate) fn programs_granting(
                 blobs: "blobs".into(),
                 awaits: "awaits".into(),
                 halo: "halo".into(),
+                egress: None,
             }),
             other => panic!("unexpected query: {other:?}"),
         })

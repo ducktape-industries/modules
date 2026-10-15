@@ -118,6 +118,7 @@ impl MockHost {
             blobs: "blobs".into(),
             awaits: "awaits".into(),
             halo: "halo".into(),
+            egress: None,
         }
     }
 
