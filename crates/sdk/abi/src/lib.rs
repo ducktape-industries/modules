@@ -126,17 +126,19 @@ pub struct Roles {
     pub identity: ProgramId,
     pub blobs: ProgramId,
     pub awaits: ProgramId,
+    /// Answers programs' calls outside the chain; nodes read it, the kernel
+    /// never calls it. A network may bind none.
+    pub egress: Option<ProgramId>,
     /// Holds the lane table halo serves: each lane's wire id, class cap,
     /// whether it is served and whether it is pinned.
     pub halo: ProgramId,
-    pub egress: Option<ProgramId>,
 }
 
 impl Roles {
-    /// Every role bound, by its name, with the program bound to it, in
-    /// field order: `egress` only when it is bound. The pattern names every
-    /// field, so a role added to `Roles` fails the build here until it is
-    /// named.
+    /// Every bound role by its name, with the program bound to it, in field
+    /// order; an egress role is listed when the network binds one. The
+    /// pattern names every field, so a role added to `Roles` fails the build
+    /// here until it is named.
     pub fn named(&self) -> Vec<(&'static str, &ProgramId)> {
         let Roles {
             programs,
@@ -144,20 +146,21 @@ impl Roles {
             identity,
             blobs,
             awaits,
-            halo,
             egress,
+            halo,
         } = self;
-        [
+        let mut named = vec![
             ("programs", programs),
             ("validators", validators),
             ("identity", identity),
             ("blobs", blobs),
             ("awaits", awaits),
-            ("halo", halo),
-        ]
-        .into_iter()
-        .chain(egress.iter().map(|egress| ("egress", egress)))
-        .collect()
+        ];
+        if let Some(egress) = egress {
+            named.push(("egress", egress));
+        }
+        named.push(("halo", halo));
+        named
     }
 }
 
@@ -903,6 +906,7 @@ pub mod role {
             pub lanes: Vec<Founded>,
         }
     }
+
     pub mod egress {
         use crate::role::identity::AccountNumber;
         use crate::{BlobId, BorshDeserialize, BorshSerialize, ProgramId};
@@ -1447,32 +1451,50 @@ mod tests {
             identity: "i".into(),
             blobs: "b".into(),
             awaits: "a".into(),
+            egress: Some("e".into()),
             halo: "h".into(),
-            egress: None,
         };
-        let named = |roles: &Roles| -> Vec<(&str, String)> {
-            let named = roles.named().into_iter();
-            named
+        let named = |roles: &Roles| -> Vec<(&'static str, String)> {
+            roles
+                .named()
+                .into_iter()
                 .map(|(role, program)| (role, program.clone()))
                 .collect()
         };
-        let bound = [
-            ("programs", "r"),
-            ("validators", "v"),
-            ("identity", "i"),
-            ("blobs", "b"),
-            ("awaits", "a"),
-            ("halo", "h"),
-        ]
-        .map(|(role, program)| (role, program.to_owned()));
-        assert_eq!(named(&roles), bound);
-        let egress = Roles {
-            egress: Some("e".into()),
+        let expect = |pairs: &[(&'static str, &str)]| -> Vec<(&'static str, String)> {
+            pairs
+                .iter()
+                .map(|(role, program)| (*role, program.to_string()))
+                .collect()
+        };
+        assert_eq!(
+            named(&roles),
+            expect(&[
+                ("programs", "r"),
+                ("validators", "v"),
+                ("identity", "i"),
+                ("blobs", "b"),
+                ("awaits", "a"),
+                ("egress", "e"),
+                ("halo", "h"),
+            ])
+        );
+        let unbound = Roles {
+            egress: None,
             ..roles
         };
-        let mut all = bound.to_vec();
-        all.push(("egress", "e".into()));
-        assert_eq!(named(&egress), all);
+        assert_eq!(
+            named(&unbound),
+            expect(&[
+                ("programs", "r"),
+                ("validators", "v"),
+                ("identity", "i"),
+                ("blobs", "b"),
+                ("awaits", "a"),
+                ("halo", "h"),
+            ]),
+            "a network that binds no egress names none"
+        );
     }
 
     #[test]
@@ -1567,8 +1589,8 @@ mod tests {
                 identity: "i".into(),
                 blobs: "b".into(),
                 awaits: "a".into(),
-                halo: "h".into(),
                 egress: Some("e".into()),
+                halo: "h".into(),
             },
             cause: Cause::Completion {
                 item: ItemRef {
