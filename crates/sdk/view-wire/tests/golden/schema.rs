@@ -464,6 +464,9 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<NotifySeen>(d),
         borsh::<StoreGet>(d),
         borsh::<StoreSet>(d),
+        borsh::<StoreChanges>(d),
+        borsh::<HostShowing>(d),
+        borsh::<HostScreen>(d),
         borsh::<ChainHeads>(d),
         borsh::<ProgramDescribe>(d),
     ]
@@ -503,6 +506,20 @@ fn schema() -> String {
          in this order and then the ones set\n",
     );
     render(&mut text, &style);
+    text.push_str("\n# notifier: what its tick takes -> what it answers, borsh\n");
+    let mut notifier = Definitions::new();
+    <Vec<view_wire::notifier::Answer>>::add_definitions_recursively(&mut notifier);
+    view_wire::notifier::Turn::add_definitions_recursively(&mut notifier);
+    writeln!(
+        text,
+        "tick {} -> {}",
+        <Vec<view_wire::notifier::Answer>>::declaration(),
+        view_wire::notifier::Turn::declaration()
+    )
+    .unwrap();
+    for (declaration, definition) in &notifier {
+        writeln!(text, "{declaration} = {definition:?}").unwrap();
+    }
     text.push_str("\n# manifest: one line each, in order\n");
     for line in view_wire::manifest::LINES {
         writeln!(text, "{line}").unwrap();

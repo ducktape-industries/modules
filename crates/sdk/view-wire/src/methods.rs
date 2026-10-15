@@ -558,6 +558,17 @@ methods! {
     /// machine, no user name or password. One waits per view: a second link
     /// before the view reads the first replaces it.
     HostRoute, "host.route", (), String;
+    /// `host.showing`: the route this view shows now, in the grammar
+    /// `host.route` hands it (`general` for a room `duck://<chain>/chat/general`
+    /// opens); empty for none. The host keeps it while the view is on
+    /// screen, for `host.screen`.
+    HostShowing, "host.showing", String, ();
+    /// `host.screen`: a subscription to the routes this program's views
+    /// show on screen now (each one's `host.showing`, while it is on screen
+    /// as `host.visible` says), sorted, one item per change, the first at
+    /// once: what a notifier reads to leave alone what the person is
+    /// looking at.
+    HostScreen, "host.screen", (), Vec<String>;
     /// `host.id`: a fresh id under the named prefix.
     HostId, "host.id", String, String;
     /// `clock.ticks`: an item per period, in milliseconds.
@@ -580,6 +591,11 @@ methods! {
     StoreGet, "store.get", String, Option<Vec<u8>>;
     /// `store.set`: keep a value under a key, or drop it with `None`.
     StoreSet, "store.set", (String, Option<Vec<u8>>), ();
+    /// `store.changes`: a subscription, one item per key another instance
+    /// of this program (a pane's view, its notifier) set on this device for
+    /// the network in hand, once the value is kept: a `store.get` asked
+    /// after the item reads it. An instance never hears its own sets.
+    StoreChanges, "store.changes", (), String;
     /// `chain.heads`: a subscription, one item per finalized block, oldest
     /// first, from the tip at subscribe on. Heights may skip where the host
     /// could not fill a gap (a reconnect, a node with no archive); a view

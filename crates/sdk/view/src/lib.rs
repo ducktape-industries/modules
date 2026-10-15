@@ -69,8 +69,8 @@ pub mod prelude {
         ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
         StyledImage, StyledText, Subscription, Task, TextField, Textarea, Theme,
         UniformListScrollHandle, View, WebHandle, WebState, Window, anchored, canvas, deferred,
-        design, div, export_view, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb,
-        sensor, svg, uniform_list, web,
+        design, div, export_notifier, export_view, hsla, img, list, modal_overlay, px, rems,
+        resize_handle, rgb, sensor, svg, uniform_list, web,
     };
 }
 mod text;
@@ -100,89 +100,141 @@ mod slots;
 
 mod driver;
 pub(crate) use driver::Driver;
+mod notifier;
+pub(crate) use notifier::NotifierDriver;
+pub use notifier::Notifier;
 
 const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
 
-/// The length of [`manifest_bytes`] for the same view.
-pub const fn manifest_len<V: View>() -> usize {
-    let mut len = MANIFEST_HEADER.len()
-        + V::NAME.len()
-        + 1
-        + V::DESCRIPTION.len()
-        + 1
-        + 1
-        + digits(V::MIN_WINDOW_WIDTH)
-        + 1
-        + wire::WIRE_ID.len();
-    let mut i = 0;
-    while i < V::CAPABILITIES.len() {
-        len += V::CAPABILITIES[i].as_str().len() + 1;
-        i += 1;
-    }
-    len += 1;
-    let mut i = 0;
-    while i < V::TARGETS.len() {
-        len += V::TARGETS[i].len() + 1;
-        i += 1;
-    }
-    len + 1 + V::ICON.len()
+/// What a manifest says, field by field: a view's from its [`View`] impl, a
+/// notifier's from its [`Notifier`] impl (no description, no icon, a width
+/// of 1: it draws nothing). One writer for both, so both read the same.
+#[doc(hidden)]
+pub struct Manifested {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub capabilities: &'static [crate::methods::Capability],
+    pub min_width: u32,
+    pub targets: &'static [&'static str],
+    pub icon: &'static str,
 }
 
-// the lines written below, in this order: a line added to the manifest
+impl Manifested {
+    pub const fn of_view<V: View>() -> Self {
+        Self {
+            name: V::NAME,
+            description: V::DESCRIPTION,
+            capabilities: V::CAPABILITIES,
+            min_width: V::MIN_WINDOW_WIDTH,
+            targets: V::TARGETS,
+            icon: V::ICON,
+        }
+    }
+
+    pub const fn of_notifier<N: Notifier>() -> Self {
+        Self {
+            name: N::NAME,
+            description: "",
+            capabilities: N::CAPABILITIES,
+            min_width: 1,
+            targets: N::TARGETS,
+            icon: "",
+        }
+    }
+
+    /// The length of [`Manifested::bytes`].
+    pub const fn encoded_len(&self) -> usize {
+        let mut len = MANIFEST_HEADER.len()
+            + self.name.len()
+            + 1
+            + self.description.len()
+            + 1
+            + 1
+            + digits(self.min_width)
+            + 1
+            + wire::WIRE_ID.len();
+        let mut i = 0;
+        while i < self.capabilities.len() {
+            len += self.capabilities[i].as_str().len() + 1;
+            i += 1;
+        }
+        len += 1;
+        let mut i = 0;
+        while i < self.targets.len() {
+            len += self.targets[i].len() + 1;
+            i += 1;
+        }
+        len + 1 + self.icon.len()
+    }
+
+    /// The manifest text (`view_wire::manifest`: header, name, description,
+    /// capabilities, min width, [`wire::WIRE_ID`], targets, icon), at compile
+    /// time: a target that is not a program name, no target where the
+    /// capabilities could address a program, or an icon that is not an
+    /// asset path ([`wire::manifest::is_icon`]), fails the build.
+    pub const fn bytes<const N: usize>(&self) -> [u8; N] {
+        assert!(self.min_width >= 1, "MIN_WINDOW_WIDTH is at least 1");
+        assert!(
+            !self.targets.is_empty() || !wire::manifest::needs_targets(self.capabilities),
+            "a view with the op or program capability names its TARGETS"
+        );
+        let mut i = 0;
+        while i < self.targets.len() {
+            assert!(
+                program::is_name(self.targets[i]),
+                "a target is a program id: 1..=64 of [a-z0-9_-]"
+            );
+            i += 1;
+        }
+        assert!(
+            wire::manifest::is_icon(self.icon),
+            "ICON is empty or the path of an asset the app bundles (icons/hammer.svg)"
+        );
+        let mut out = [0u8; N];
+        let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
+        at = put(&mut out, at, self.name.as_bytes());
+        at = put(&mut out, at, b"\n");
+        at = put(&mut out, at, self.description.as_bytes());
+        at = put(&mut out, at, b"\n");
+        let mut i = 0;
+        while i < self.capabilities.len() {
+            at = put(&mut out, at, self.capabilities[i].as_str().as_bytes());
+            at = put(&mut out, at, b",");
+            i += 1;
+        }
+        at = put(&mut out, at, b"\n");
+        at = put_number(&mut out, at, self.min_width);
+        at = put(&mut out, at, b"\n");
+        at = put(&mut out, at, wire::WIRE_ID.as_bytes());
+        at = put(&mut out, at, b"\n");
+        let mut i = 0;
+        while i < self.targets.len() {
+            at = put(&mut out, at, self.targets[i].as_bytes());
+            at = put(&mut out, at, b",");
+            i += 1;
+        }
+        at = put(&mut out, at, b"\n");
+        at = put(&mut out, at, self.icon.as_bytes());
+        assert!(at == N);
+        out
+    }
+}
+
+/// The length of [`manifest_bytes`] for the same view.
+pub const fn manifest_len<V: View>() -> usize {
+    Manifested::of_view::<V>().encoded_len()
+}
+
+// the lines written above, in this order: a line added to the manifest
 // is added here and to `Manifest::parse` together
 const _: () = assert!(wire::manifest::LINES.len() == 8);
 
-/// The manifest text (`view_wire::manifest`: header, [`View::NAME`],
-/// [`View::DESCRIPTION`], [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`],
-/// [`wire::WIRE_ID`], [`View::TARGETS`], [`View::ICON`]), at compile time: a
-/// target that is not a program name, no target
-/// where the capabilities could address a program, or an icon that is not
-/// an asset path ([`wire::manifest::is_icon`]), fails the build.
+/// The manifest text of a view ([`Manifested::bytes`]), from what its
+/// [`View`] impl says: [`View::NAME`], [`View::DESCRIPTION`],
+/// [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`], [`View::TARGETS`],
+/// [`View::ICON`].
 pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
-    assert!(V::MIN_WINDOW_WIDTH >= 1, "MIN_WINDOW_WIDTH is at least 1");
-    assert!(
-        !V::TARGETS.is_empty() || !wire::manifest::needs_targets(V::CAPABILITIES),
-        "a view with the op or program capability names its TARGETS"
-    );
-    let mut i = 0;
-    while i < V::TARGETS.len() {
-        assert!(
-            program::is_name(V::TARGETS[i]),
-            "a target is a program id: 1..=64 of [a-z0-9_-]"
-        );
-        i += 1;
-    }
-    assert!(
-        wire::manifest::is_icon(V::ICON),
-        "ICON is empty or the path of an asset the app bundles (icons/hammer.svg)"
-    );
-    let mut out = [0u8; N];
-    let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
-    at = put(&mut out, at, V::NAME.as_bytes());
-    at = put(&mut out, at, b"\n");
-    at = put(&mut out, at, V::DESCRIPTION.as_bytes());
-    at = put(&mut out, at, b"\n");
-    let mut i = 0;
-    while i < V::CAPABILITIES.len() {
-        at = put(&mut out, at, V::CAPABILITIES[i].as_str().as_bytes());
-        at = put(&mut out, at, b",");
-        i += 1;
-    }
-    at = put(&mut out, at, b"\n");
-    at = put_number(&mut out, at, V::MIN_WINDOW_WIDTH);
-    at = put(&mut out, at, b"\n");
-    at = put(&mut out, at, wire::WIRE_ID.as_bytes());
-    at = put(&mut out, at, b"\n");
-    let mut i = 0;
-    while i < V::TARGETS.len() {
-        at = put(&mut out, at, V::TARGETS[i].as_bytes());
-        at = put(&mut out, at, b",");
-        i += 1;
-    }
-    at = put(&mut out, at, b"\n");
-    at = put(&mut out, at, V::ICON.as_bytes());
-    assert!(at == N);
-    out
+    Manifested::of_view::<V>().bytes()
 }
 
 const fn put(out: &mut [u8], at: usize, bytes: &[u8]) -> usize {
@@ -267,7 +319,7 @@ pub mod exports {
     use std::any::Any;
     use std::cell::RefCell;
 
-    use crate::{Driver, View, wire};
+    use crate::{Driver, Notifier, NotifierDriver, View, wire};
 
     #[link(wasm_import_module = "ducktape_view")]
     unsafe extern "C" {
@@ -279,6 +331,25 @@ pub mod exports {
         // copies it out before it calls again.
         static ANSWER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
         static DRIVER: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
+        static NOTIFIER: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
+    }
+
+    pub fn notifier_init<N: Notifier>() {
+        install_panic_hook();
+        NOTIFIER.set(Some(Box::new(NotifierDriver::<N>::new())));
+    }
+
+    pub fn notifier_tick<N: Notifier>(ptr: u32, len: u32) -> u64 {
+        let answers: Vec<wire::notifier::Answer> =
+            borsh::from_slice(&take(ptr, len)).expect("invalid host answers");
+        let turn = NOTIFIER.with_borrow_mut(|driver| {
+            driver
+                .as_mut()
+                .and_then(|driver| driver.downcast_mut::<NotifierDriver<N>>())
+                .expect("init first")
+                .tick(answers)
+        });
+        answer(borsh::to_vec(&turn).expect("borsh encodes an in-memory turn"))
     }
 
     fn driver<A: View, R>(run: impl FnOnce(&mut Driver<A>) -> R) -> R {

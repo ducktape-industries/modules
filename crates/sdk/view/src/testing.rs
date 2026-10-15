@@ -211,8 +211,10 @@ pub(crate) fn keys(root: Option<&Node>) -> Vec<String> {
 mod context;
 mod fake_host;
 mod focus;
+mod notifier;
 pub use context::{TestAppContext, TickReport, VIEWPORT};
 pub use fake_host::{FakeHost, StreamSender};
+pub use notifier::TestNotifier;
 
 /// A program for the SDK's own tests to follow with `Changes<Probe>`.
 #[cfg(test)]

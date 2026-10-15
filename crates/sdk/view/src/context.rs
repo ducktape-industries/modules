@@ -102,6 +102,22 @@ impl App {
     pub(crate) fn window(&self) -> Window {
         Window::new(self.inner.clone())
     }
+    /// Polls every task that was woken, and the tasks they spawn, until
+    /// none is left to poll this round; whether one is still woken (out of
+    /// this tick's turns: the driver says busy).
+    pub(crate) fn settle(&mut self) -> bool {
+        loop {
+            let mut tasks = std::mem::take(&mut *self.inner.tasks.borrow_mut());
+            let still_woken = executor::poll(&mut tasks);
+            self.refresh_globals();
+            let spawned = !self.inner.tasks.borrow().is_empty();
+            tasks.append(&mut self.inner.tasks.borrow_mut());
+            *self.inner.tasks.borrow_mut() = tasks;
+            if !spawned {
+                return still_woken;
+            }
+        }
+    }
     pub(crate) fn notify(&self) {
         self.inner.dirty.set(true);
         self.inner

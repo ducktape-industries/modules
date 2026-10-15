@@ -15,7 +15,9 @@
 //! owns that buffer from the call on. A `u64` answer is [`pack`]ed: it names
 //! bytes the view keeps until the next export is entered, so the host copies
 //! them out before it calls again. `tick` answers an encoded `Frame`;
-//! `snapshot` and `restore` answer a [`encode_result`].
+//! `snapshot` and `restore` answer a [`encode_result`]. A notifier, the
+//! headless module beside a view, keeps this shape with `alloc`, `init`
+//! and a borsh `tick` ([`crate::notifier`]).
 
 /// The module the view's one import lives in.
 pub const IMPORT_MODULE: &str = "ducktape_view";

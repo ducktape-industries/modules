@@ -444,18 +444,7 @@ impl<V: View> Driver<V> {
     }
 
     fn settle(&mut self) {
-        loop {
-            let mut tasks = std::mem::take(&mut *self.app.inner.tasks.borrow_mut());
-            let still_woken = executor::poll(&mut tasks);
-            self.app.refresh_globals();
-            let spawned = !self.app.inner.tasks.borrow().is_empty();
-            tasks.append(&mut self.app.inner.tasks.borrow_mut());
-            *self.app.inner.tasks.borrow_mut() = tasks;
-            if !spawned {
-                self.busy |= still_woken;
-                return;
-            }
-        }
+        self.busy |= self.app.settle();
     }
 }
 

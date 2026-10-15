@@ -1141,6 +1141,24 @@
     "reply": null
   },
   {
+    "kind": "store.changes",
+    "request": null,
+    "reply": "reads/alice"
+  },
+  {
+    "kind": "host.showing",
+    "request": "general",
+    "reply": null
+  },
+  {
+    "kind": "host.screen",
+    "request": null,
+    "reply": [
+      "dm-3-5",
+      "general"
+    ]
+  },
+  {
     "kind": "chain.heads",
     "request": null,
     "reply": {
