@@ -51,8 +51,8 @@ pub(crate) fn lane(ctx: &QueryCtx, name: &str) -> Result<Option<Lane>, Error> {
 
 /// What `execute` refuses of `op` that a vote can know first: a bad name, a name already
 /// listed for `Open`, an unlisted one for `Set` and `Close`. The validators' program asks it
-/// at the first vote, under its own ctx, so it reads the table through the halo role. Every id
-/// spent is `execute`'s alone to refuse.
+/// at each vote, before counting, under its own ctx, so it reads the table through the halo
+/// role. Every id spent is `execute`'s alone to refuse.
 pub fn admissible(ctx: &QueryCtx, op: &Op) -> Result<(), Error> {
     match op {
         Op::Open { name, .. } => {

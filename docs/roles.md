@@ -91,8 +91,8 @@ Who may do what (the acting account is `ctx.sender()`):
 | `SetRunner { account, runner }` | the agent's manager, not once revoked. `Some(program)` names a program that has an account; that program then sends messages as the agent (`Runs`). `None` takes it back |
 | `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and the accounts named) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
 
-The role's queries, which views and other modules ask too, are
-`Account(key)`, `OfModule(module)`, `Profile(number)`,
+The role's queries, which views and other programs ask too, are
+`Account(key)`, `OfProgram(program)`, `Profile(number)`,
 `Profiles { after, limit }` and `Runs { program, account }`. A `Profile` is
 `{ number, name, kind }`, where `Kind` is `Person`,
 `Managed { manager, category, standing, runner }` or `Program(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view
@@ -198,7 +198,8 @@ key (`env.signer()`); every other origin is refused.
 - `Leave`: the signer leaves; the last validator cannot.
 - `Vote(motion)`: a validator votes for `Promote` (a resident),
   `Demote` (a validator), `Remove` (a member), `Door { open }` (the other
-  state) or `Programs { op }`. A motion passes at `n - (n-1)/3` of the
+  state), `Programs { op }` or `Halo { op }` (each enacted by emitting
+  `op` to the program bound to that role). A motion passes at `n - (n-1)/3` of the
   current validators; a voter no longer a validator is dropped at the
   tally. The output is `Voted::Counted { votes, needed }` or
   `Voted::Enacted`. Removing a member clears the open motions that name

@@ -7,7 +7,7 @@ thing; nothing here is generated. The crate is what a reader follows: plain
 types, plain functions, one host call per context method.
 
 Read [README.md](../README.md) for the map of the repository and
-[roles.md](roles.md) for the five roles and the account model first.
+[roles.md](roles.md) for the six roles and the account model first.
 
 ## 1. The crate
 
@@ -106,8 +106,8 @@ the enums so a view renders what the program keeps.
 
 ## 3. State: tables over `store`
 
-A program's state is its own key space of bytes; nothing reads another
-program's keys (section 6 is how you ask). `store` puts typed tables over
+A program's state is its own key space of bytes; no other program reads
+its keys (section 6 is how you ask). `store` puts typed tables over
 it, declared once as `const`s in `rules.rs`:
 
 ```rust
@@ -123,6 +123,9 @@ pub(crate) const VOTERS: Set<(String, AccountNumber)> = Set::new("voter/");
 - **Prefixes.** Every key of a table starts with its prefix, and two
   prefixes must not be prefixes of each other (`"m/"` beside `"m/x/"` would
   read each other's rows). One word and a slash is the convention.
+- **`live/` is reserved.** It holds the room grants the node reads
+  (`program::live::grant`, `abi::live`): who may publish and subscribe to
+  the live tracks of the program's rooms. No table may use it.
 - **Keys** encode through `store::KeyCodec` so byte order is value order:
   integers big-endian, strings and byte vectors NUL-terminated (a shorter
   name sorts before its extensions), `Principal` as its borsh, tuples
@@ -547,7 +550,7 @@ and `make wasm-publish` releases the result as `founding.tar.gz`, which
    or `"poll"` in `UNVIEWED` for a program with no screen of its own.
 2. `crates/sdk/founding/founding.toml`: a `[[programs]]` entry,
    `id = "poll"`, `code = "poll.wasm"` (and `params = …` if `init` takes
-   any). The five `[roles]` stay bound to the boot set.
+   any). The six `[roles]` stay bound to the boot set.
 3. qa's `founding.toml`: the same entry with `code = "@PROGRAMS@/poll.wasm"`.
    `kit up NAME` founds a fresh network with the program admitted at
    genesis and its account registered with identity.
