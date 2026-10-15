@@ -3,7 +3,7 @@
 //! model's egress service answers as the model would, and every tool call runs once its relay
 //! comes back, as the agent.
 use ::program::{Error, MockChain, Origin, Principal, code};
-use egress::{Answer, DEFAULT_WAIT, Egress, RELAY, Request, RequestRow, http};
+use egress::{Answer, Egress, RELAY, Request, RequestRow, http};
 use serde_json::{Value, json};
 use valset::{Genesis, Member, Valset};
 
@@ -748,15 +748,19 @@ fn a_model_call_that_expires_ends_the_turn_with_the_expired_error() {
     let thread = world.opened("m1", "hello", Some(WINDOW));
     let (request, head) = open_request(chain);
     assert_eq!(path(&head), "/v1/messages");
-    chain.at(request.made + DEFAULT_WAIT, 0);
+    chain.at(request.made + anthropic::WAIT, 0);
     assert!(notices(chain, thread).is_empty());
-    chain.at(request.made + DEFAULT_WAIT + 1, 0);
+    chain.at(request.made + anthropic::WAIT + 1, 0);
     assert!(
         assigned(chain, SERVICE).is_empty(),
         "an expired call is not repeated"
     );
     let told = notices(chain, thread);
-    let expired = format!("request {} expired after {DEFAULT_WAIT} blocks", request.id);
+    let expired = format!(
+        "request {} expired after {} blocks",
+        request.id,
+        anthropic::WAIT
+    );
     assert_eq!(told.len(), 1);
     assert!(told[0].contains(&expired), "{}", told[0]);
     let late = egress::Op::Answer {
