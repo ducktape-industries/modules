@@ -155,7 +155,12 @@ impl Explorer {
             _ => return,
         };
         self.pulling = true;
-        let ask = cx.host().ask::<ChainBlocks>(BlockPage { before, limit });
+        let page = BlockPage {
+            before,
+            limit,
+            most: 0,
+        };
+        let ask = cx.host().ask::<ChainBlocks>(page);
         cx.land(ask, move |view, page, cx| {
             view.pulling = false;
             match page {

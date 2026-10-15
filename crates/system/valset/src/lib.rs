@@ -159,5 +159,8 @@ describe::export!(Op, describe);
 /// enum only grows at its end. Append a new variant here; never reorder.
 #[test]
 fn op_variants_only_append() {
-    assert_eq!(describe::variants::<Op>(), ["Enroll", "Leave", "Vote", "SetHalo"]);
+    assert_eq!(
+        describe::variants::<Op>(),
+        ["Enroll", "Leave", "Vote", "SetHalo"]
+    );
 }

@@ -610,7 +610,7 @@ fn tx_row(
 ) -> Stateful<Div> {
     let id = SharedString::from(format!("explorer-tx-{}-{}", tx.height, tx.index));
     let now = view.chain.now();
-    view.describe(tx, cx);
+    view.open(tx, cx);
     // empty until the host answers: the program column already says whose
     let title = clip(&tx.title());
     let (word, mark) = match &tx.receipt {

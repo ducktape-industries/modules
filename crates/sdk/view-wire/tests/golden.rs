@@ -282,6 +282,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             BlockPage {
                 before: Some(10),
                 limit: 2,
+                most: 1,
             },
             BlockList {
                 blocks: vec![Block {
@@ -320,9 +321,18 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 listed_from: Some(3),
             },
         ),
-        exchange::<ChainBlock>(BlockRef::Id([4; 32]), None),
         exchange::<ChainBlock>(
-            BlockRef::Height(9),
+            BlockAsk {
+                by: BlockRef::Id([4; 32]),
+                most: 0,
+            },
+            None,
+        ),
+        exchange::<ChainBlock>(
+            BlockAsk {
+                by: BlockRef::Height(9),
+                most: u32::MAX,
+            },
             Some(Block {
                 height: 9,
                 id: [4; 32],

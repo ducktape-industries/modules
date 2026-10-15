@@ -39,7 +39,8 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
         cx.host().requests::<ChainBlocks>(),
         vec![BlockPage {
             before: None,
-            limit: u32::MAX
+            limit: u32::MAX,
+            most: 0,
         }],
         "13 blocks is the whole archive: one page"
     );
@@ -379,8 +380,7 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
     };
     let mut blocks = chain(12);
     blocks[12].txs = vec![push(0xd4), push(0xe5)];
-    cx.host()
-        .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
+    serve(&cx, move || blocks.clone());
     cx.open::<Explorer>();
     cx.run_until_parked();
     let name = |id: &str| match cx.find(id) {
@@ -417,8 +417,7 @@ fn a_frame_landed_again_is_a_row_of_its_own() {
     let again = blocks[12].txs[0].clone();
     blocks[11].txs.push(again.clone());
     blocks[12].txs.push(again);
-    cx.host()
-        .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
+    serve(&cx, move || blocks.clone());
     cx.open::<Explorer>();
     cx.run_until_parked();
     for id in ["explorer-tx-12-0", "explorer-tx-11-2", "explorer-tx-12-1"] {

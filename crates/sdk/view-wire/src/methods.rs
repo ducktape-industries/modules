@@ -277,8 +277,6 @@ pub struct Invite {
     pub invite: String,
     pub notes: Vec<crate::Error>,
 }
-/// A page of finalized blocks, newest first: those below `before` (from the
-/// tip when `None`), at most `limit` (the node caps a page at 100).
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
@@ -286,6 +284,7 @@ pub struct Invite {
 pub struct BlockPage {
     pub before: Option<u64>,
     pub limit: u32,
+    pub most: u32,
 }
 /// One finalized block, by height or by its id (the block digest).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -293,6 +292,12 @@ pub struct BlockPage {
 pub enum BlockRef {
     Height(u64),
     Id([u8; 32]),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct BlockAsk {
+    pub by: BlockRef,
+    pub most: u32,
 }
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
@@ -511,7 +516,7 @@ methods! {
     ChainBlocks, "chain.blocks", BlockPage, BlockList;
     /// `chain.block`: one finalized block; `None` where the node has none by
     /// that name.
-    ChainBlock, "chain.block", BlockRef, Option<Block>;
+    ChainBlock, "chain.block", BlockAsk, Option<Block>;
     ChainTx, "chain.tx", TxAsk, Option<Located>;
     /// `blob.get`: a blob by `sha256:<hex>` or `sha1:<hex>` id, unframed;
     /// `None` where the node holds no blob by that id.
@@ -693,13 +698,6 @@ pub mod refusal {
     /// The payload does not decode as the method's request, or says nothing
     /// the method can act on.
     pub const MALFORMED_REQUEST: &str = "malformed_request";
-    /// The payload, or what it would pull into the view, is over the host's
-    /// limit.
-    pub const TOO_LARGE: &str = "too_large";
-    /// More requests waiting on the host at once than it takes.
-    pub const IN_FLIGHT_LIMIT: &str = "in_flight_limit";
-    /// More subscriptions of one kind than the host takes.
-    pub const SUBSCRIPTION_LIMIT: &str = "subscription_limit";
     /// No node is connected.
     pub const NOT_CONNECTED: &str = "not_connected";
     /// The node connection changed while the request waited.
@@ -722,8 +720,6 @@ pub mod refusal {
     /// The method needs a person's input (a press or a key) in the view, and
     /// there was none, or it was spent on an earlier request.
     pub const NEEDS_GESTURE: &str = "needs_gesture";
-    /// More links opened by the view in the last minute than the host takes.
-    pub const LINK_LIMIT: &str = "link_limit";
     pub const INVITE_UNSUPPORTED: &str = "invite_unsupported";
     /// The host closed the request with no answer; written on the view's
     /// side, by the SDK.
@@ -819,9 +815,6 @@ mod tests {
             (UNDECLARED_TARGET, "undeclared_target"),
             (CONSENT_REFUSED, "consent_refused"),
             (MALFORMED_REQUEST, "malformed_request"),
-            (TOO_LARGE, "too_large"),
-            (IN_FLIGHT_LIMIT, "in_flight_limit"),
-            (SUBSCRIPTION_LIMIT, "subscription_limit"),
             (NOT_CONNECTED, "not_connected"),
             (STALE_CONNECTION, "stale_connection"),
             (SESSION_LOCKED, "session_locked"),
@@ -832,7 +825,6 @@ mod tests {
             (WIDGET_COMMAND_FAILED, "widget_command_failed"),
             (WIDGET_UNMOUNTED, "widget_unmounted"),
             (NEEDS_GESTURE, "needs_gesture"),
-            (LINK_LIMIT, "link_limit"),
             (INVITE_UNSUPPORTED, "invite_unsupported"),
             (REQUEST_CLOSED, "request_closed"),
         ];

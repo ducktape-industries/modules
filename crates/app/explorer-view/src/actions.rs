@@ -18,7 +18,10 @@ impl Explorer {
             let opened =
                 matches!(self.opened.ready(), Some(Some((row, _))) if row.height == height);
             if !held && !opened {
-                let ask = cx.host().ask::<ChainBlock>(BlockRef::Height(height));
+                let ask = cx.host().ask::<ChainBlock>(BlockAsk {
+                    by: BlockRef::Height(height),
+                    most: 0,
+                });
                 // another block: the one opened before is not shown under it
                 self.opened = Loadable::Idle;
                 cx.load(
@@ -90,7 +93,11 @@ impl Explorer {
         }
         let host = cx.host();
         let found = async move {
-            if let Some(block) = host.ask::<ChainBlock>(BlockRef::Id(hash)).await? {
+            let by_id = BlockAsk {
+                by: BlockRef::Id(hash),
+                most: 0,
+            };
+            if let Some(block) = host.ask::<ChainBlock>(by_id).await? {
                 return Ok::<_, Error>(Some((block, Found::Block)));
             }
             let by_hash = TxAsk {
@@ -100,9 +107,11 @@ impl Explorer {
             let Some(located) = host.ask::<ChainTx>(by_hash).await? else {
                 return Ok(None);
             };
-            let block = host
-                .ask::<ChainBlock>(BlockRef::Height(located.height))
-                .await?;
+            let carrying = BlockAsk {
+                by: BlockRef::Height(located.height),
+                most: 0,
+            };
+            let block = host.ask::<ChainBlock>(carrying).await?;
             Ok(block.map(|block| (block, Found::Tx)))
         };
         let listed_from = self.chain.listed_from;

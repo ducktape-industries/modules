@@ -338,6 +338,7 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
             let page = methods::encode(&methods::BlockPage {
                 before: page.before,
                 limit: page.limit,
+                most: page.most,
             });
             match net.answer("chain.blocks", None, &page) {
                 Ok(bytes) => {
@@ -351,15 +352,16 @@ fn respond(net: &Network, method: &str, path: &str, body: Vec<u8>) -> Response {
             }
         }
         ("POST", route::BLOCK) => {
-            let by: wire::BlockRef = match abi::decode(&body) {
-                Ok(by) => by,
+            let ask: wire::BlockAsk = match abi::decode(&body) {
+                Ok(ask) => ask,
                 Err(error) => return malformed(error.sentence),
             };
-            let by = methods::encode(&match by {
+            let by = match ask.by {
                 wire::BlockRef::Height(height) => methods::BlockRef::Height(height),
                 wire::BlockRef::Id(id) => methods::BlockRef::Id(id),
-            });
-            match net.answer("chain.block", None, &by) {
+            };
+            let ask = methods::encode(&methods::BlockAsk { by, most: ask.most });
+            match net.answer("chain.block", None, &ask) {
                 Ok(bytes) => {
                     let block: Option<methods::Block> = methods::decode(&bytes).expect("own bytes");
                     Response::borsh(&block.as_ref().map(wire::finalized))

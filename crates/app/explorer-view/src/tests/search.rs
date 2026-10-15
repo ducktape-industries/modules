@@ -28,8 +28,14 @@ fn search_finds_heights_hashes_accounts_and_programs() {
         "{:?}",
         cx.texts()
     );
+    let by_hash: Vec<_> = cx
+        .host()
+        .requests::<ChainTx>()
+        .into_iter()
+        .filter(|ask| matches!(ask.tx, TxRef::Hash(_)))
+        .collect();
     assert_eq!(
-        cx.host().requests::<ChainTx>(),
+        by_hash,
         [TxAsk {
             tx: TxRef::Hash([0xee; 32]),
             most: 0
@@ -39,7 +45,7 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     assert!(cx.has_text("No block 1,000"), "{:?}", cx.texts());
     assert_eq!(
         cx.host().requests::<ChainBlock>(),
-        vec![BlockRef::Id([0xee; 32]), BlockRef::Height(1000)]
+        [BlockRef::Id([0xee; 32]), BlockRef::Height(1000)].map(summary)
     );
     search(&mut cx, "nobody");
     assert!(cx.has_text("Nothing here is called “nobody”."));
@@ -81,6 +87,7 @@ fn a_transaction_past_the_window_is_found_by_its_hash() {
             BlockRef::Id([0xb2; 32]),
             BlockRef::Height(12)
         ]
+        .map(summary)
     );
 }
 
@@ -240,4 +247,8 @@ fn every_route_reads_back_from_its_path() {
     ] {
         assert_eq!(Route::from_path(nothing), None, "{nothing}");
     }
+}
+
+fn summary(by: BlockRef) -> BlockAsk {
+    BlockAsk { by, most: 0 }
 }
