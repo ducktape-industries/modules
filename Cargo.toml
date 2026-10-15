@@ -21,6 +21,8 @@
 #                   program crate with the feature off) and the system views
 #   crates/lib/     libraries a program links: gitcore (git objects, packs,
 #                   walks, diffs, the wire's server side)
+#   crates/bin/     services an operator runs beside a node: provide (answers
+#                   the provider requests the chain elects the node for)
 #
 # A view links its program by path and reads its types; a view is a cdylib for
 # wasm32-unknown-unknown on `view`. The host that runs the programs
@@ -67,6 +69,7 @@ members = [
     "crates/app/attribution",
     "crates/app/harness",
     "crates/lib/gitcore",
+    "crates/bin/provide",
 ]
 
 [workspace.package]
@@ -108,6 +111,11 @@ files = { path = "crates/app/files" }
 host = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
 blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
 keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
+# ---- the node's client, its frames and its workspace: what the `provide` service, run beside a
+# node, signs and submits with
+node = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
+noded = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
+ducktape-home = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 

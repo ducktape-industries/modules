@@ -1,0 +1,29 @@
+[package]
+name = "provide"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "provide"
+path = "src/main.rs"
+
+[dependencies]
+abi = { workspace = true }
+clap = { version = "4.6", features = ["derive"] }
+commonware-cryptography = { workspace = true }
+ducktape-home = { workspace = true }
+futures = { workspace = true }
+host = { workspace = true }
+node = { workspace = true }
+noded = { workspace = true }
+provider = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { workspace = true }
+store = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+axum = "0.8"
