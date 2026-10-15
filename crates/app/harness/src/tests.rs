@@ -703,6 +703,31 @@ fn beta(head: &http::Head) -> Option<&str> {
         .map(|(_, value)| value.as_str())
 }
 
+fn too_long() -> Vec<u8> {
+    let error = json!({
+        "type": "error",
+        "error": { "type": "invalid_request_error", "message": "prompt is too long: 1000002 tokens > 1000000 maximum" },
+    });
+    abi::encode(&http::Response {
+        status: 400,
+        headers: Vec::new(),
+        body: error.to_string().into_bytes(),
+    })
+}
+
+fn refused_as_too_long(chain: &MockChain) {
+    let (request, _) = open_request(chain);
+    answer(chain, request.id, Answer::Output(too_long()));
+}
+
+fn sent_messages(chain: &MockChain) -> Vec<Value> {
+    let (request, _) = open_request(chain);
+    body(chain, &request)["messages"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
 fn summarized(chain: &MockChain, summary: &str) {
     let (request, head) = open_request(chain);
     assert_eq!(beta(&head), Some(anthropic::COMPACTION_BETA));
@@ -826,11 +851,7 @@ fn a_request_the_model_finds_too_long_is_summarized_even_with_no_window_known() 
         "no window, no early summary"
     );
     chain.at(4, 0);
-    let too_long = json!({
-        "type": "error",
-        "error": { "type": "invalid_request_error", "message": "prompt is too long: 1000002 tokens > 1000000 maximum" },
-    });
-    answer(chain, request.id, Answer::Output(response(400, too_long)));
+    answer(chain, request.id, Answer::Output(too_long()));
     assert_eq!(thread_row(chain, thread).context, Context::Overflowed);
     let (request, _) = open_request(chain);
     assert_eq!(
@@ -851,18 +872,152 @@ fn a_request_the_model_finds_too_long_is_summarized_even_with_no_window_known() 
     });
     answer(chain, request.id, Answer::Output(response(200, cut_short)));
     assert!(
-        assigned(chain, MODEL_SERVICE).is_empty(),
-        "with nothing new to summarize, the thread gives up"
-    );
-    let told = notices(chain, thread);
-    assert!(told.last().unwrap().contains("does not fit"), "{told:?}");
-    assert!(
         !frames(chain, thread)
             .iter()
             .any(|body| matches!(body, Body::Turn { said, .. } if said.contains(&Said::Text("I was say".into())))),
         "a turn cut short by the window is not kept"
     );
-    assert_eq!(thread_row(chain, thread).asking, Asking::Idle);
+    let messages = sent_messages(chain);
+    let last = &messages[messages.len() - 1];
+    assert!(
+        last["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("(left out: "),
+        "with nothing new to summarize, the newest input is left out: {last}"
+    );
+    chain.at(7, 0);
+    refused_as_too_long(chain);
+    assert!(
+        assigned(chain, MODEL_SERVICE).is_empty(),
+        "with everything new left out and still too long, the thread gives up"
+    );
+    let told = notices(chain, thread);
+    assert!(
+        told.last().unwrap().contains("everything new left out"),
+        "{told:?}"
+    );
+    let row = thread_row(chain, thread);
+    assert_eq!(row.asking, Asking::Idle);
+    assert_eq!(
+        row.context,
+        Context::Measured(0),
+        "the next input is asked plainly"
+    );
+    world.mention("m3", "third");
+    let (_, head) = open_request(chain);
+    assert_eq!(head.path, "/v1/messages");
+    let messages = sent_messages(chain);
+    let last = &messages[messages.len() - 1];
+    assert!(
+        last["content"][1]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("third"),
+        "{last}"
+    );
+}
+
+#[test]
+fn a_result_that_alone_overflows_the_window_is_left_out_and_the_model_asks_for_less() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "read it", Some(WINDOW));
+    chain.at(3, 0);
+    let call = tool_use("toolu_l", "files_list", json!({ "path": "/" }));
+    model_says(chain, json!([call]), "tool_use");
+    chain.at(4, 0);
+    relay_back(chain, "toolu_l");
+    chain.at(5, 0);
+    refused_as_too_long(chain);
+    chain.at(6, 0);
+    summarized(chain, "Ada asked to read it.");
+    chain.at(7, 0);
+    refused_as_too_long(chain);
+    let messages = sent_messages(chain);
+    let result = &messages[messages.len() - 1]["content"][0];
+    assert_eq!(result["type"], "tool_result");
+    assert_eq!(result["tool_use_id"], "toolu_l");
+    assert_eq!(result["is_error"], true);
+    assert!(
+        result["content"]
+            .as_str()
+            .unwrap()
+            .ends_with("call again for less of it"),
+        "{result}"
+    );
+    let (text, failed) = result_of(chain, thread, "toolu_l");
+    assert!(
+        !failed && !text.starts_with("left out"),
+        "the transcript keeps the result as it came"
+    );
+    let told = notices(chain, thread);
+    assert!(
+        told.last()
+            .unwrap()
+            .starts_with("the result of files_list call toolu_l alone does not fit"),
+        "{told:?}"
+    );
+    chain.at(8, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "I will read less." }]),
+        "end_turn",
+    );
+    let row = thread_row(chain, thread);
+    assert_eq!(row.context, Context::Measured(18));
+    assert_eq!(row.asking, Asking::Idle);
+}
+
+#[test]
+fn a_summary_refused_as_too_long_covers_less_and_never_ends_on_the_models_turn() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "one", Some(WINDOW));
+    chain.at(3, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "Ok one." }]),
+        "end_turn",
+    );
+    world.mention("m2", "two");
+    chain.at(4, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "Ok two." }]),
+        "end_turn",
+    );
+    world.mention("m3", "three");
+    chain.at(5, 0);
+    refused_as_too_long(chain);
+    assert_eq!(
+        sent_messages(chain).len(),
+        3,
+        "the summary covers what the model answered"
+    );
+    chain.at(6, 0);
+    refused_as_too_long(chain);
+    assert_eq!(thread_row(chain, thread).compact_before, Some(3));
+    let messages = sent_messages(chain);
+    assert_eq!(
+        messages.len(),
+        1,
+        "one message fewer would end on the model's turn, so the summary covers the first input alone"
+    );
+    assert_eq!(messages[0]["role"], "user");
+    chain.at(7, 0);
+    summarized(chain, "Ada said one.");
+    assert_eq!(thread_row(chain, thread).compact_before, None);
+    let messages = sent_messages(chain);
+    let roles: Vec<&str> = messages
+        .iter()
+        .map(|message| message["role"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        roles,
+        ["assistant", "assistant", "user", "assistant", "user"]
+    );
+    assert_eq!(messages[0]["content"][0]["type"], "compaction");
 }
 
 #[test]

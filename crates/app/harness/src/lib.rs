@@ -91,7 +91,7 @@ pub enum Body {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Role {
     User,
     Assistant,
@@ -173,6 +173,14 @@ pub struct ThreadRow {
     pub tail_from: u64,
     pub summary: Option<u64>,
     pub context: Context,
+    pub compact_before: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Sealed {
+    pub end: u64,
+    pub role: Role,
+    pub part: BlobId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
