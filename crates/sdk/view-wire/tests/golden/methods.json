@@ -954,6 +954,47 @@
     "reply": true
   },
   {
+    "kind": "host.float",
+    "request": {
+      "width": 320,
+      "height": 200,
+      "min_width": 240,
+      "min_height": 150,
+      "on_top": true
+    },
+    "reply": {
+      "floating": true,
+      "on_top": true
+    }
+  },
+  {
+    "kind": "host.float",
+    "request": {
+      "width": 320,
+      "height": 200,
+      "min_width": 240,
+      "min_height": 150,
+      "on_top": false
+    },
+    "reply": {
+      "floating": true,
+      "on_top": false
+    }
+  },
+  {
+    "kind": "host.unfloat",
+    "request": null,
+    "reply": null
+  },
+  {
+    "kind": "host.placement",
+    "request": null,
+    "reply": {
+      "floating": false,
+      "on_top": false
+    }
+  },
+  {
     "kind": "host.badge",
     "request": 3,
     "reply": null

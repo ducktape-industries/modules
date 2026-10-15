@@ -416,6 +416,40 @@ pub struct Session {
     pub account: Option<u64>,
     pub endpoint: String,
 }
+/// `host.float`'s request: this view's pane in a window of its own, the
+/// view laid out `width` by `height` (the window's body, under its title
+/// bar) and never under `min_width` by `min_height`, kept above other
+/// windows when `on_top`.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Float {
+    pub width: u32,
+    pub height: u32,
+    pub min_width: u32,
+    pub min_height: u32,
+    pub on_top: bool,
+}
+/// Where this view's pane is: `floating` in a window `host.float` made for
+/// it, and whether that window is kept above other windows.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Placement {
+    pub floating: bool,
+    pub on_top: bool,
+}
 /// `host.widget`: a command on the mounted tree. The one method on the TREE
 /// side of the codec rule — a [`WidgetCommand`] names typed element ids the
 /// tree is drawn with — so it is the one method in the tree's MessagePack.
@@ -522,6 +556,22 @@ methods! {
     HostSession, "host.session", (), Session;
     /// `host.visible`: whether the view is on screen, an item per change.
     HostVisible, "host.visible", (), bool;
+    /// `host.float`: this view's pane in a window of its own, laid out at
+    /// the request's size and never under its minimum, kept above other
+    /// windows where the platform can. Floating already: only `on_top` is
+    /// applied. Honoured at a press or key in the view, as `link.open` is,
+    /// else refused [`refusal::NEEDS_GESTURE`]. The reply says what the
+    /// host could do: `on_top` is false where it keeps no window on top
+    /// (Wayland, always).
+    HostFloat, "host.float", Float, Placement;
+    /// `host.unfloat`: the pane back onto the desk it left (the main
+    /// window's when that one is gone). Nothing while not floating.
+    HostUnfloat, "host.unfloat", (), ();
+    /// `host.placement`: a subscription, an item per change of where this
+    /// view's pane is ([`Placement`]); the first item is the state at
+    /// subscribe. `host.float` itself, the Window menu's Keep on Top, a
+    /// pop-in and the floated window's close each move it.
+    HostPlacement, "host.placement", (), Placement;
     /// `host.badge`: the count of things unread in the view, shown on its
     /// tab (the app words it "N unread").
     HostBadge, "host.badge", i64, ();
