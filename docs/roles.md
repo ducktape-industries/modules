@@ -1,13 +1,13 @@
 # Roles, accounts and updates
 
-The kernel knows five programs by what they do, never by their ids. Genesis
+The kernel knows six programs by what they do, never by their ids. Genesis
 binds each role to a founding program; every call the kernel makes goes to the
 program bound to that role, speaking the role's interface in
-`crates/sdk/abi` (`abi::role::{programs, validators, identity, awaits}`) or, for
+`crates/sdk/abi` (`abi::role::{programs, validators, identity, awaits, halo}`) or, for
 blobs, ducktape's `blob::contract`. The programs in `crates/system/` are one
 implementation of each.
 
-## The five roles
+## The six roles
 
 | Role | Bound here to | What the kernel does with it |
 |---|---|---|
@@ -16,6 +16,7 @@ implementation of each.
 | `identity` | `identity` | as it admits a program (at founding, and later off the programs role), executes `RegisterProgram { program }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfProgram(sender)`, and for a message a program sends as another account asks `Runs { program, account }` |
 | `awaits` | `awaits` | when a frame parks waiting on calls, sends `Park { frame, program, calls }` with the `System` origin, and `Close { frame }` when the frame finishes or the programs role changes its code; the role opens a ticket per call, and a `Resolve { ticket, answer }` from the called program, or an `Expire { ticket }` from anyone once the ticket is `EXPIRY_BLOCKS` old, makes it hand the frame its answer through the host's `Resume`. A refusal of `Park` fails the frame |
 | `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
+| `halo` | `halo` | at founding, writes its params (`role::halo::Genesis`: the founding lanes, given ids in order from 0); at boot and after any block that writes the role's state, the node asks `Lanes` and serves halo's lanes by that table: a lane's name to its wire id, the class its streams are served at most, and whether it is served. Only the validators' vote (`Motion::Halo`) changes it: `Open` lists a name at the next id, `Set` changes its cap or pauses it, `Close` unlists it, and no id is handed out twice |
 
 The founding file binds them (ducktape's `[roles]` table; qa's
 `founding.toml` is a working one):
@@ -27,9 +28,10 @@ validators = "valset"
 identity = "identity"
 blobs = "blobs"
 awaits = "awaits"
+halo = "halo"
 ```
 
-All five are required. Founding refuses a role bound to a program the
+All six are required. Founding refuses a role bound to a program the
 founding does not list, and a node refuses a network that records no roles.
 Every frame's `Env` carries the bindings (`env.roles`), so a program that asks
 a role asks `ctx.env().roles.identity`, not a name it assumes; chat's roster

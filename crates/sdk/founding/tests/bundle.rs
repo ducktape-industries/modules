@@ -122,6 +122,11 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         abi::decode::<forge::Bounds>(&params).unwrap(),
         founding::forge_bounds()
     );
+    let params = fs::read(out.path().join("halo.params")).unwrap();
+    assert_eq!(
+        abi::decode::<abi::role::halo::Genesis>(&params).unwrap(),
+        founding::halo_lanes()
+    );
 
     let text = fs::read_to_string(out.path().join("founding.toml")).unwrap();
     let file: toml::Table = toml::from_str(&text).unwrap();

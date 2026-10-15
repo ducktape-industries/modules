@@ -8,6 +8,7 @@
 //! ([`Voting::confirming`]). The words for a motion are here, pure, so
 //! each is a unit test.
 use abi::hex;
+use abi::role::halo;
 use programs::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
 use view::prelude::*;
@@ -221,7 +222,7 @@ pub(crate) fn named(names: &Names, account: u64) -> String {
         .unwrap_or_else(|| format!("account {account}"))
 }
 
-/// What a motion does, in words; a `Programs` one decoded, never as bytes.
+/// What a motion does, in words; a `Programs` or `Halo` one decoded, never as bytes.
 pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String {
     match motion {
         Motion::Promote { key } => format!("Promote {} to validator", key_words(key)),
@@ -244,6 +245,21 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
                 format!("Revoke {} {}", named(names, grant.account), grant.scope)
             }
             Err(_) => "A program change this screen can't read".into(),
+        },
+        Motion::Halo { op } => match abi::decode::<halo::Op>(op) {
+            Ok(halo::Op::Open { name, cap }) => format!("Open lane {name} at class {cap:?}"),
+            Ok(halo::Op::Set {
+                name,
+                cap,
+                enabled: true,
+            }) => format!("Serve lane {name} at class {cap:?}"),
+            Ok(halo::Op::Set {
+                name,
+                enabled: false,
+                ..
+            }) => format!("Pause lane {name}"),
+            Ok(halo::Op::Close { name }) => format!("Close lane {name}"),
+            Err(_) => "A lane change this screen can't read".into(),
         },
     }
 }

@@ -174,6 +174,7 @@ impl Net {
                 identity: identity::PROGRAM.into(),
                 blobs: blobs::PROGRAM.into(),
                 awaits: awaits::PROGRAM.into(),
+                halo: halo::PROGRAM.into(),
             },
             validators: FOUNDERS.iter().map(|seed| member(*seed)).collect(),
             programs: vec![
@@ -185,7 +186,13 @@ impl Net {
             ]
             .into_iter()
             .chain(apps)
-            .chain([founding(awaits::PROGRAM, &program("awaits"))])
+            .chain([
+                founding(awaits::PROGRAM, &program("awaits")),
+                Founding {
+                    params: abi::encode(&halo::Genesis { lanes: Vec::new() }),
+                    ..founding(halo::PROGRAM, &program("halo"))
+                },
+            ])
             .collect(),
             views: vec![FoundingView {
                 name: "lens".into(),

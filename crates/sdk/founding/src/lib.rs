@@ -1,10 +1,11 @@
 //! Packs what `make wasm-modules` builds into a founding: each program with its describe module
-//! and any view embedded, forge's params, and a founding file `ducktape init` reads.
+//! and any view embedded, forge's and halo's params, and a founding file `ducktape init` reads.
 
 use std::borrow::Cow;
 use std::fs;
 use std::path::Path;
 
+use abi::role::halo::{Class, Genesis};
 use wasm_encoder::{CustomSection, Encode, Section};
 use wasmparser::{Encoding, Parser, Payload, Validator};
 
@@ -21,9 +22,10 @@ pub const PROGRAMS: [(&str, &str); 5] = [
     ("chat", "chat_view"),
     ("forge", "forge_view"),
 ];
-pub const UNVIEWED: [&str; 7] = [
+pub const UNVIEWED: [&str; 8] = [
     "blobs",
     "awaits",
+    "halo",
     "activity",
     "files",
     "provider",
@@ -49,6 +51,19 @@ pub fn forge_bounds() -> forge::Bounds {
     }
 }
 
+/// The lanes halo serves from the first block, given ids in order from 0. blobs' lane is
+/// `Critical`: a node that lags fetches the blobs a block names at that class before it can
+/// apply the block. The live relay's lane carries clients' tracks, so it is served no higher
+/// than `Client`.
+pub fn halo_lanes() -> Genesis {
+    Genesis {
+        lanes: vec![
+            ("ducktape/blobs".into(), Class::Critical),
+            ("ducktape/live".into(), Class::Client),
+        ],
+    }
+}
+
 pub fn bundle(release: &Path, out: &Path) -> Result<()> {
     fs::create_dir_all(out)?;
     let read = |name: &str| {
@@ -70,6 +85,7 @@ pub fn bundle(release: &Path, out: &Path) -> Result<()> {
         fs::write(out.join(format!("{view}.wasm")), bytes)?;
     }
     fs::write(out.join("forge.params"), abi::encode(&forge_bounds()))?;
+    fs::write(out.join("halo.params"), abi::encode(&halo_lanes()))?;
     fs::write(out.join("founding.toml"), FOUNDING)?;
     Ok(())
 }

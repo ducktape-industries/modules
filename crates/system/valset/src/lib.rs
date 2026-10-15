@@ -146,6 +146,14 @@ pub fn describe(op: &Op) -> describe::Description {
                     }
                     Err(_) => ("programs".into(), vec![field("op", Value::bytes(op))]),
                 },
+                // in the halo role's own words
+                Motion::Halo { op } => match abi::decode(op) {
+                    Ok(op) => {
+                        let described = halo::describe(&op);
+                        (described.title, described.fields)
+                    }
+                    Err(_) => ("halo".into(), vec![field("op", Value::bytes(op))]),
+                },
             };
             (format!("Vote · {verb}"), fields)
         }
@@ -159,5 +167,8 @@ describe::export!(Op, describe);
 /// enum only grows at its end. Append a new variant here; never reorder.
 #[test]
 fn op_variants_only_append() {
-    assert_eq!(describe::variants::<Op>(), ["Enroll", "Leave", "Vote", "SetHalo"]);
+    assert_eq!(
+        describe::variants::<Op>(),
+        ["Enroll", "Leave", "Vote", "SetHalo"]
+    );
 }

@@ -7,11 +7,12 @@ use provider::{RELAY, http};
 use serde_json::Value;
 
 use crate::agents::thread;
-use crate::anthropic::{self, Answered, Summary};
-use crate::state::{AGENTS, CALLS, FRAMES, HELD, SEALED, THREADS, WINDOWS};
+use crate::anthropic::{self, Answered, Summarized, Summary};
+use crate::state::{AGENTS, CALLS, FRAMES, HELD, SEALED, THREADS, WINDOWS, WITHHELD};
 use crate::tools::{self, Run, Seat};
 use crate::{
-    Asking, Body, CallRow, CallState, Context, Frame, MODEL_SERVICE, PART, Role, Said, ThreadRow,
+    Asking, Body, CallRow, CallState, Context, Frame, MODEL_SERVICE, PART, Role, Said, Sealed,
+    ThreadRow,
 };
 
 pub(crate) fn append(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
@@ -135,17 +136,68 @@ fn opens(thread: &ThreadRow) -> bool {
     thread.sealed == 0 && thread.summary.is_none()
 }
 
-fn seal(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<(Role, Vec<Frame>)>, Error> {
+fn withheld(body: Body) -> Body {
+    let left_out = |bytes: usize| {
+        format!("left out: these {bytes} bytes alone do not fit the model's context window")
+    };
+    match body {
+        Body::Result {
+            call, tool, text, ..
+        } => Body::Result {
+            call,
+            tool,
+            text: format!("{}; call again for less of it", left_out(text.len())),
+            failed: true,
+        },
+        Body::Refused {
+            call,
+            tool,
+            problem,
+        } => Body::Refused {
+            call,
+            tool,
+            problem: left_out(problem.len()),
+        },
+        Body::Post { author, text } => Body::Post {
+            author,
+            text: format!("({})", left_out(text.len())),
+        },
+        Body::Turn { .. } | Body::Notice { .. } | Body::Compaction { .. } => body,
+    }
+}
+
+fn shown(ctx: &ExecCtx, thread: u64, frame: Frame) -> Frame {
+    match WITHHELD.has(ctx, &(thread, frame.seq)) {
+        true => Frame {
+            body: withheld(frame.body),
+            ..frame
+        },
+        false => frame,
+    }
+}
+
+fn tail(ctx: &ExecCtx, thread: &ThreadRow) -> Result<Vec<Frame>, Error> {
     let whole = FRAMES.prefix_of(&thread.id);
-    let tail = Range::new(FRAMES.key(&(thread.id, thread.tail_from)), whole.end);
-    let mut groups = grouped(FRAMES.scan(ctx, tail)?.into_iter().map(|(_, frame)| frame));
+    let range = Range::new(FRAMES.key(&(thread.id, thread.tail_from)), whole.end);
+    let frames = FRAMES.scan(ctx, range)?.into_iter();
+    Ok(frames
+        .map(|(_, frame)| shown(ctx, thread.id, frame))
+        .collect())
+}
+
+fn seal(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<(Role, Vec<Frame>)>, Error> {
+    let mut groups = grouped(tail(ctx, thread)?);
     let Some(last) = groups.pop() else {
         return Ok(None);
     };
     for (role, frames) in groups {
         let end = frames[frames.len() - 1].seq;
         let part = put_part(ctx, anthropic::message(role, &frames, opens(thread), false))?;
-        SEALED.put(ctx, &(thread.id, thread.sealed), &(end, part));
+        SEALED.put(
+            ctx,
+            &(thread.id, thread.sealed),
+            &Sealed { end, role, part },
+        );
         thread.sealed += 1;
     }
     thread.tail_from = last.1[0].seq;
@@ -158,7 +210,7 @@ fn opening(ctx: &ExecCtx, thread: &ThreadRow) -> Result<Vec<BlobId>, Error> {
     Ok(parts)
 }
 
-fn sealed_parts(ctx: &ExecCtx, thread: u64) -> Result<Vec<(u64, BlobId)>, Error> {
+fn sealed_parts(ctx: &ExecCtx, thread: u64) -> Result<Vec<Sealed>, Error> {
     let sealed = SEALED.scan(ctx, SEALED.prefix_of(&thread))?;
     Ok(sealed.into_iter().map(|(_, sealed)| sealed).collect())
 }
@@ -170,8 +222,8 @@ fn turn_parts(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Vec<BlobId>, Erro
     let mut parts = opening(ctx, thread)?;
     parts.extend(
         sealed_parts(ctx, thread.id)?
-            .into_iter()
-            .map(|(_, part)| part),
+            .iter()
+            .map(|sealed| sealed.part),
     );
     let last = anthropic::message(role, &frames, opens(thread), true);
     parts.push(put_part(ctx, last)?);
@@ -184,16 +236,24 @@ fn summarize_parts(
     thread: &mut ThreadRow,
 ) -> Result<Option<(u64, Vec<BlobId>)>, Error> {
     seal(ctx, thread)?;
-    let seen = thread.seen;
-    let covered: Vec<(u64, BlobId)> = sealed_parts(ctx, thread.id)?
+    let answered = |sealed: &Sealed| {
+        let seen = sealed.end <= thread.seen;
+        let allowed = thread
+            .compact_before
+            .is_none_or(|before| sealed.end < before);
+        seen && allowed
+    };
+    let mut covered: Vec<Sealed> = sealed_parts(ctx, thread.id)?
         .into_iter()
-        .take_while(|(end, _)| *end <= seen)
+        .take_while(answered)
         .collect();
-    let Some(&(through, _)) = covered.last() else {
+    let cut = covered.iter().rposition(|sealed| sealed.role == Role::User);
+    covered.truncate(cut.map_or(0, |index| index + 1));
+    let Some(through) = covered.last().map(|sealed| sealed.end) else {
         return Ok(None);
     };
     let mut parts = opening(ctx, thread)?;
-    parts.extend(covered.into_iter().map(|(_, part)| part));
+    parts.extend(covered.iter().map(|sealed| sealed.part));
     parts.push(put_part(ctx, anthropic::SUMMARIZE.into())?);
     Ok(Some((through, parts)))
 }
@@ -204,6 +264,7 @@ fn forget_sealed(ctx: &ExecCtx, thread: &mut ThreadRow, through: u64) -> Result<
     }
     thread.sealed = 0;
     thread.tail_from = through + 1;
+    thread.compact_before = None;
     Ok(())
 }
 
@@ -290,15 +351,57 @@ fn plan_turn(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<Step>, Erro
 
 fn plan_summary(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<Step>, Error> {
     let Some((through, parts)) = summarize_parts(ctx, thread)? else {
-        let text = format!(
-            "the conversation does not fit {}'s context window, even summarized",
-            thread.model
-        );
-        give_up(ctx, thread, text);
-        return Ok(None);
+        return match thread.context {
+            Context::Measured(_) => plan_turn(ctx, thread),
+            Context::Overflowed => plan_without_largest(ctx, thread),
+        };
     };
     thread.asking = Asking::Compacting { through };
     Ok(Some(Step::Compact { through, parts }))
+}
+
+fn plan_without_largest(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<Step>, Error> {
+    let Some(frame) = largest_unseen(ctx, thread)? else {
+        let text = format!(
+            "the conversation does not fit {}'s context window, even summarized and with everything new left out",
+            thread.model
+        );
+        give_up(ctx, thread, text);
+        thread.context = Context::Measured(0);
+        thread.compact_before = None;
+        return Ok(None);
+    };
+    WITHHELD.insert(ctx, &(thread.id, frame.seq));
+    let what = match &frame.body {
+        Body::Result { call, tool, .. } | Body::Refused { call, tool, .. } => {
+            format!("the result of {tool} call {call}")
+        }
+        Body::Post { .. } | Body::Turn { .. } | Body::Notice { .. } | Body::Compaction { .. } => {
+            format!("message {}", frame.seq)
+        }
+    };
+    let text = format!(
+        "{what} alone does not fit {}'s context window, so the model is told it was left out",
+        thread.model
+    );
+    append(ctx, thread, Body::Notice { text });
+    plan_turn(ctx, thread)
+}
+
+fn largest_unseen(ctx: &ExecCtx, thread: &ThreadRow) -> Result<Option<Frame>, Error> {
+    let unseen = tail(ctx, thread)?.into_iter().filter(|frame| {
+        let new = frame.seq > thread.seen;
+        let input = frame.body.role() == Some(Role::User);
+        let kept = !WITHHELD.has(ctx, &(thread.id, frame.seq));
+        new && input && kept
+    });
+    let sized = unseen.map(|frame| {
+        (
+            anthropic::message(Role::User, std::slice::from_ref(&frame), true, false).len(),
+            frame,
+        )
+    });
+    Ok(sized.max_by_key(|(size, _)| *size).map(|(_, frame)| frame))
 }
 
 fn crowded(thread: &ThreadRow, window: Option<u64>) -> bool {
@@ -326,9 +429,10 @@ async fn learn(ctx: &Ctx, id: u64, model: String) -> Result<(), Error> {
 async fn compact(ctx: &Ctx, id: u64, through: u64, parts: Vec<BlobId>) -> Result<(), Error> {
     let answer = call_model(ctx, anthropic::head(true), parts).await;
     let mut thread = thread(ctx, id)?;
-    match answer.and_then(|response| anthropic::summary(&response)) {
-        Ok(summary) => summarize(ctx, &mut thread, through, summary)?,
-        Err(text) => give_up(ctx, &mut thread, text),
+    match answer.map(|response| anthropic::summarized(&response)) {
+        Ok(Summarized::Summary(summary)) => summarize(ctx, &mut thread, through, summary)?,
+        Ok(Summarized::Overflow) => thread.compact_before = Some(through),
+        Ok(Summarized::Failed(text)) | Err(text) => give_up(ctx, &mut thread, text),
     }
     settle(ctx, &mut thread)?;
     THREADS.put(ctx, &id, &thread);

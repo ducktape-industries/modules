@@ -28,13 +28,17 @@ fn founding_seats_the_validators_and_every_program_answers() {
                 roles.programs,
                 roles.validators,
                 roles.identity,
-                roles.blobs
+                roles.blobs,
+                roles.awaits,
+                roles.halo
             ],
             [
                 programs::PROGRAM,
                 valset::PROGRAM,
                 identity::PROGRAM,
-                blobs::PROGRAM
+                blobs::PROGRAM,
+                awaits::PROGRAM,
+                halo::PROGRAM
             ]
         );
         assert_eq!(
@@ -82,6 +86,7 @@ fn founding_seats_the_validators_and_every_program_answers() {
                 program(blobs::PROGRAM),
                 program("probe"),
                 program(awaits::PROGRAM),
+                program(halo::PROGRAM),
             ]
         );
     });
