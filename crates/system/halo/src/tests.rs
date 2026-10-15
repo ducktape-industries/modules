@@ -267,6 +267,65 @@ fn an_op_halo_would_refuse_is_refused_at_the_first_vote() {
     assert_eq!(refused.code, code::INVALID_INPUT);
 }
 
+/// The halo motions valset lists as waiting for votes, in no order of theirs.
+fn waiting(chain: &MockChain) -> Vec<Op> {
+    let asked = valset::Query::Motions {
+        page: store::PageRequest::first(16),
+    };
+    let valset::Reply::Motions { page, .. } = chain.query(valset::PROGRAM, &asked).unwrap() else {
+        panic!("valset answers Motions with Motions");
+    };
+    page.items
+        .into_iter()
+        .map(|pending| match pending.motion {
+            Motion::Halo { op } => abi::decode(&op).unwrap(),
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+/// `ops` in one order, so two lists compare as sets.
+fn sorted(mut ops: Vec<Op>) -> Vec<Op> {
+    ops.sort_by_key(abi::encode);
+    ops
+}
+
+#[test]
+fn a_motion_an_enacted_one_overtakes_is_cleared_with_it() {
+    let chain = chain();
+    let set = |name: &str, cap, enabled| Op::Set {
+        name: name.into(),
+        cap,
+        enabled,
+    };
+    let close = Op::Close {
+        name: "live".into(),
+    };
+    // another lane's change: no vote below overtakes it
+    let kept = set("blobs", Class::Member, true);
+    for op in [
+        open("chat", Class::Member),
+        set("live", Class::Member, true),
+        set("live", Class::Critical, false),
+        kept.clone(),
+    ] {
+        vote(&chain, 1, &op).unwrap();
+    }
+    pass(&chain, &open("chat", Class::Client));
+    // chat at Member can never pass now that chat is listed
+    assert_eq!(
+        sorted(waiting(&chain)),
+        sorted(vec![
+            set("live", Class::Member, true),
+            set("live", Class::Critical, false),
+            kept.clone()
+        ])
+    );
+    pass(&chain, &close);
+    // nor can a change to live once it is closed
+    assert_eq!(waiting(&chain), [kept]);
+}
+
 #[test]
 fn an_op_is_described_by_its_lane() {
     let titles: Vec<String> = [

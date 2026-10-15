@@ -199,11 +199,13 @@ key (`env.signer()`); every other origin is refused.
 - `Vote(motion)`: a validator votes for `Promote` (a resident),
   `Demote` (a validator), `Remove` (a member), `Door { open }` (the other
   state), `Programs { op }` or `Halo { op }` (each enacted by emitting
-  `op` to the program bound to that role). A motion passes at `n - (n-1)/3` of the
-  current validators; a voter no longer a validator is dropped at the
-  tally. The output is `Voted::Counted { votes, needed }` or
-  `Voted::Enacted`. Removing a member clears the open motions that name
-  it, and the last validator is neither demoted nor removed.
+  `op` to the program bound to that role). A motion passes at
+  `n - (n-1)/3` of the current validators; a voter no longer a validator
+  is dropped at the tally. The output is `Voted::Counted { votes, needed }`
+  or `Voted::Enacted`. Removing a member clears the open motions that name
+  it, enacting a `Halo` op clears the halo motions it leaves no vote able
+  to pass (an `Open` of a name now listed, a `Set` or `Close` of one now
+  closed), and the last validator is neither demoted nor removed.
 
 ## Filling a role with another program
 
