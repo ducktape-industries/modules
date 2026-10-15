@@ -1,9 +1,10 @@
 //! The loop consensus runs for a thread: learn the model's context window, summarize the thread
 //! when its next answer would not fit, ask the model, run each tool call a block later, ask again.
 use ::program::{
-    BlobId, Ctx, Error, ExecCtx, HashKind, QueryCtx, Range, all, unexpected_reply, wrong_state,
+    BlobId, Ctx, Error, ExecCtx, HashKind, ProgramId, QueryCtx, Range, all, unexpected_reply,
+    wrong_state,
 };
-use provider::{RELAY, http};
+use abi::role::egress::{self, RELAY, http};
 use serde_json::Value;
 
 use crate::agents::thread;
@@ -11,8 +12,7 @@ use crate::anthropic::{self, Answered, Summarized, Summary};
 use crate::state::{AGENTS, CALLS, FRAMES, HELD, SEALED, THREADS, WINDOWS, WITHHELD};
 use crate::tools::{self, Run, Seat};
 use crate::{
-    Asking, Body, CallRow, CallState, Context, Frame, MODEL_SERVICE, PART, Role, Said, Sealed,
-    ThreadRow,
+    Asking, Body, CallRow, CallState, Context, Frame, PART, Role, Said, Sealed, ThreadRow,
 };
 
 pub(crate) fn append(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
@@ -59,40 +59,47 @@ fn give_up(ctx: &ExecCtx, thread: &mut ThreadRow, text: String) {
     thread.last_stop = None;
 }
 
+fn bound(ctx: &QueryCtx) -> Result<ProgramId, Error> {
+    let Some(program) = ctx.env().roles.egress.clone() else {
+        return Err(wrong_state(
+            "this network binds no program to the egress role",
+        ));
+    };
+    Ok(program)
+}
+
 fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
-    let asked = provider::Query::Serving {
+    let program = bound(ctx)?;
+    let asked = egress::Query::Serving {
         service: service.into(),
     };
-    match ctx.query(provider::PROGRAM, &asked)? {
-        provider::Reply::Serving(keys) => Ok(!keys.is_empty()),
-        other => Err(unexpected_reply(provider::PROGRAM, "Serving", &other)),
+    match ctx.query(program.clone(), &asked)? {
+        egress::Reply::Serving(keys) => Ok(!keys.is_empty()),
+        other => Err(unexpected_reply(&program, "Serving", &other)),
     }
 }
 
-async fn request(
-    ctx: &Ctx,
-    service: &str,
-    input: Vec<u8>,
-    parts: Vec<BlobId>,
-) -> Result<Vec<u8>, Error> {
-    let request = provider::Request {
-        service: service.into(),
-        input,
-        parts,
-    };
-    let op = provider::Op::Request(request);
-    ctx.call_raw(provider::PROGRAM, abi::encode(&op)).await
+async fn request(ctx: &Ctx, request: egress::Request) -> Result<Vec<u8>, Error> {
+    let op = egress::Op::Request(request);
+    ctx.call_raw(bound(ctx)?, abi::encode(&op)).await
 }
 
 async fn call_model(
     ctx: &Ctx,
+    id: u64,
     head: http::Head,
     parts: Vec<BlobId>,
 ) -> Result<http::Response, String> {
-    let answer = request(ctx, MODEL_SERVICE, abi::encode(&head), parts).await;
+    let service = thread(ctx, id).map_err(|error| refusal(&error))?.service;
+    let asked = egress::Request::Http {
+        service,
+        head,
+        body: parts,
+    };
+    let answer = request(ctx, asked).await;
     let bytes =
         answer.map_err(|error| format!("the model was not reached: {}", refusal(&error)))?;
-    abi::decode(&bytes).map_err(|_| "the provider's answer is not an HTTP response".to_owned())
+    abi::decode(&bytes).map_err(|_| "the egress answer is not an HTTP response".to_owned())
 }
 
 fn put_part(ctx: &ExecCtx, text: String) -> Result<BlobId, Error> {
@@ -321,8 +328,11 @@ fn claim(ctx: &ExecCtx, id: u64) -> Result<Option<Step>, Error> {
 }
 
 fn plan(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<Step>, Error> {
-    if !serves(ctx, MODEL_SERVICE)? {
-        let text = format!("no member node serves {MODEL_SERVICE}: the model was not asked");
+    if !serves(ctx, &thread.service)? {
+        let text = format!(
+            "no member node serves {}: the model was not asked",
+            thread.service
+        );
         give_up(ctx, thread, text);
         return Ok(None);
     }
@@ -415,7 +425,7 @@ fn crowded(thread: &ThreadRow, window: Option<u64>) -> bool {
 }
 
 async fn learn(ctx: &Ctx, id: u64, model: String) -> Result<(), Error> {
-    let answer = call_model(ctx, anthropic::model(&model), Vec::new()).await;
+    let answer = call_model(ctx, id, anthropic::model(&model), Vec::new()).await;
     let mut thread = thread(ctx, id)?;
     match answer.and_then(|response| anthropic::window(&response)) {
         Ok(window) => WINDOWS.put(ctx, &model, &window),
@@ -427,7 +437,7 @@ async fn learn(ctx: &Ctx, id: u64, model: String) -> Result<(), Error> {
 }
 
 async fn compact(ctx: &Ctx, id: u64, through: u64, parts: Vec<BlobId>) -> Result<(), Error> {
-    let answer = call_model(ctx, anthropic::head(true), parts).await;
+    let answer = call_model(ctx, id, anthropic::head(true), parts).await;
     let mut thread = thread(ctx, id)?;
     match answer.map(|response| anthropic::summarized(&response)) {
         Ok(Summarized::Summary(summary)) => summarize(ctx, &mut thread, through, summary)?,
@@ -464,7 +474,7 @@ async fn ask(
     summarized: bool,
     parts: Vec<BlobId>,
 ) -> Result<(), Error> {
-    let answer = call_model(ctx, anthropic::head(summarized), parts).await;
+    let answer = call_model(ctx, id, anthropic::head(summarized), parts).await;
     let calls = turned(ctx, id, upto, answer)?;
     let runs = calls.into_iter().map(|call| run_call(ctx, id, call));
     for ran in all(runs).await {
@@ -625,7 +635,8 @@ fn mark(ctx: &ExecCtx, id: u64, call: &str, state: CallState) -> Result<(), Erro
 }
 
 async fn run_call(ctx: &Ctx, id: u64, call: String) -> Result<(), Error> {
-    let relayed = request(ctx, RELAY, call.as_bytes().to_vec(), Vec::new()).await;
+    let note = call.as_bytes().to_vec();
+    let relayed = request(ctx, egress::Request::Relay { note }).await;
     let (text, failed) = match relayed {
         Ok(_) => perform(ctx, id, &call).await?,
         Err(error) => (format!("the relay failed: {}", refusal(&error)), true),

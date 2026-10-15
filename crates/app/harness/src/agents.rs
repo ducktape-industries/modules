@@ -67,7 +67,7 @@ pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<ThreadRow, Error> {
         .ok_or_else(|| not_found(format!("no thread {id}")))
 }
 
-fn checked(model: &str, max_tokens: u32) -> Result<(), Error> {
+fn checked(model: &str, service: &str, max_tokens: u32) -> Result<(), Error> {
     let model_named = !model.is_empty()
         && model
             .bytes()
@@ -75,6 +75,12 @@ fn checked(model: &str, max_tokens: u32) -> Result<(), Error> {
     if !model_named {
         return Err(invalid(
             "a model is a model id: letters, digits, -, ., _, @ and :",
+        ));
+    }
+    let reserved = abi::role::egress::RESERVED.contains(&service);
+    if service.is_empty() || reserved {
+        return Err(invalid(
+            "the model is reached through a registered egress service, not http or relay",
         ));
     }
     if max_tokens == 0 {
@@ -88,10 +94,11 @@ pub(crate) fn hire(
     agent: AccountNumber,
     system: String,
     model: String,
+    service: String,
     max_tokens: u32,
 ) -> Result<(), Error> {
     let manager = acting(ctx)?;
-    checked(&model, max_tokens)?;
+    checked(&model, &service, max_tokens)?;
     let profile = profile(ctx, agent)?.ok_or_else(|| not_found(format!("no account {agent}")))?;
     let Kind::Managed {
         manager: managing, ..
@@ -115,6 +122,7 @@ pub(crate) fn hire(
         name: profile.name,
         system,
         model,
+        service,
         max_tokens,
         hired: ctx.env().height,
     };
@@ -191,6 +199,7 @@ fn opened(
         title,
         system,
         model: agent.model.clone(),
+        service: agent.service.clone(),
         max_tokens: agent.max_tokens,
         opened: ctx.env().height,
         closed: false,

@@ -7,7 +7,7 @@ thing; nothing here is generated. The crate is what a reader follows: plain
 types, plain functions, one host call per context method.
 
 Read [README.md](../README.md) for the map of the repository and
-[roles.md](roles.md) for the five roles and the account model first.
+[roles.md](roles.md) for the roles and the account model first.
 
 ## 1. The crate
 
@@ -388,10 +388,11 @@ resumes your frame as its own answer comes. On a `MockChain`, seat
 the awaits program (`chain.seat::<awaits::Awaits>("awaits")`) and the
 awaiting program with `chain.seat_awaiting`.
 
-provider is called this way: `ctx.call(provider::PROGRAM,
-&provider::Op::Request(request))` answers the elected node's output, in a
-later block, or a refusal when the node reports a failure or the request
-expires.
+The program bound to the egress role is called this way:
+`ctx.call_raw(egress, abi::encode(&abi::role::egress::Op::Request(request)))`,
+with `egress` read from `ctx.env().roles.egress`, answers the elected node's
+output, in a later block, or a refusal when the node reports a failure or
+the request expires.
 
 ## 7. Describe
 

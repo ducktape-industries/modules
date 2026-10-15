@@ -412,6 +412,7 @@ pub(crate) fn programs_granting(
                 identity: identity::PROGRAM.into(),
                 blobs: "blobs".into(),
                 awaits: "awaits".into(),
+                egress: Some("egress".into()),
             }),
             other => panic!("unexpected query: {other:?}"),
         })
