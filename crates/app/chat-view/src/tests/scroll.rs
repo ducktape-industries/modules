@@ -168,9 +168,9 @@ fn a_list_is_edited_by_its_keys() {
 }
 
 #[test]
-fn a_list_changed_all_through_is_one_edit() {
+fn a_list_changed_all_through_is_edited_to_its_new_keys() {
     let old: Vec<String> = (0..40).map(|at| at.to_string()).collect();
-    let new: Vec<String> = old
+    let alternating: Vec<String> = old
         .iter()
         .enumerate()
         .map(|(at, key)| match at % 2 {
@@ -178,14 +178,18 @@ fn a_list_changed_all_through_is_one_edit() {
             _ => key.clone(),
         })
         .collect();
-    assert_eq!(splices(&old, &new), [(0..39, 39)]);
     let reversed: Vec<String> = old.iter().rev().cloned().collect();
-    let edits = splices(&old, &reversed);
-    let rows = edits
-        .iter()
-        .rev()
-        .fold(old.len(), |rows, (gone, count)| rows - gone.len() + count);
-    assert_eq!(rows, reversed.len(), "{edits:?}");
+    for new in [alternating, reversed] {
+        let edits = splices(&old, &new);
+        let mut rows = old.clone();
+        let mut shift = 0isize;
+        for (gone, count) in &edits {
+            let at = gone.start.checked_add_signed(shift).unwrap();
+            rows.splice(at..at + gone.len(), new[at..at + count].iter().cloned());
+            shift += *count as isize - gone.len() as isize;
+        }
+        assert_eq!(rows, new, "{edits:?}");
+    }
 }
 
 #[test]

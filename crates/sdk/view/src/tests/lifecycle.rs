@@ -89,7 +89,7 @@ fn a_stream_task_awaiting_other_work_is_not_safe_to_snapshot() {
 }
 
 #[test]
-fn a_hot_stream_yields_to_the_tick_budget_and_preserves_item_order() {
+fn a_hot_stream_delivers_every_queued_item_in_order_in_one_tick() {
     let (mut cx, streams) = opened();
     let id = cx.last_frame().requests[0].id;
     let host = cx.app_mut().host();
@@ -100,16 +100,7 @@ fn a_hot_stream_yields_to_the_tick_budget_and_preserves_item_order() {
         });
         host.fulfill(id, Ok(crate::methods::encode(&block)), false);
     }
-    assert!(cx.tick(vec![]).busy);
-    streams.read(|view| assert!(view.values.len() < 1000));
-    let mut parked = false;
-    for _ in 0..20 {
-        if !cx.tick(vec![]).busy {
-            parked = true;
-            break;
-        }
-    }
-    assert!(parked, "hot stream eventually parks");
+    assert!(!cx.tick(vec![]).busy);
     streams.read(|view| assert_eq!(view.values, (0..1000).collect::<Vec<_>>()));
     assert!(cx.snapshot().is_ok());
     host.close_stream(id);

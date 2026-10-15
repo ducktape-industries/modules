@@ -53,8 +53,6 @@ impl TxRow {
     }
 }
 
-pub(crate) const ROW_PAYLOAD: u32 = 4 << 10;
-
 #[derive(Serialize, Deserialize)]
 struct StoredTx<'a> {
     hash: [u8; 32],
@@ -72,13 +70,9 @@ struct StoredTx<'a> {
 
 impl Serialize for TxRow {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let short = self
-            .payload
-            .as_deref()
-            .filter(|payload| payload.len() <= ROW_PAYLOAD as usize);
         let (op, payload) = match self.op.get() {
             Some(op) => (Some(op.clone()), None),
-            None => (None, short.map(Cow::Borrowed)),
+            None => (None, self.payload.as_deref().map(Cow::Borrowed)),
         };
         StoredTx {
             hash: self.hash,

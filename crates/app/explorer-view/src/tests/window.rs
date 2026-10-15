@@ -4,11 +4,7 @@ use super::*;
 fn the_window_follows_the_head_and_stops_where_the_archive_does() {
     let mut window = Chain::default();
     let blocks = chain(30);
-    assert_eq!(PAGE, 20, "the sizes below assume a page of 20");
-    let ask = |before| BlockPage {
-        before,
-        limit: PAGE,
-    };
+    let ask = |before| BlockPage { before, limit: 20 };
     window.land(None, page(&blocks, &ask(None)));
     assert_eq!((window.top(), window.blocks.len()), (Some(30), 20));
     assert!(!window.complete, "a full page may have more below it");
@@ -37,10 +33,7 @@ fn the_window_follows_the_head_and_stops_where_the_archive_does() {
 fn a_page_cut_short_reads_on_until_the_lowest_listed_block() {
     let mut window = Chain::default();
     let blocks = chain(30);
-    let ask = |before| BlockPage {
-        before,
-        limit: PAGE,
-    };
+    let ask = |before| BlockPage { before, limit: 20 };
     let mut short = page(&blocks, &ask(None));
     short.blocks.truncate(5);
     window.land(None, short);

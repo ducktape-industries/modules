@@ -17,6 +17,12 @@ use common::{PLAIN, plain, sanitize};
 mod hostile {
     use super::*;
 
+    const NODES: usize = 8_192;
+    const LONG_STRING: usize = 64 << 10;
+    const BIG_PICTURE: usize = 1 << 20;
+    const LONG_URL: usize = 2048;
+    const WEB_COMMANDS: usize = 16;
+
     mod rng;
     use rng::*;
     mod table;

@@ -135,14 +135,11 @@ const _: () = assert!(wire::manifest::LINES.len() == 8);
 /// The manifest text (`view_wire::manifest`: header, [`View::NAME`],
 /// [`View::DESCRIPTION`], [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`],
 /// [`wire::WIRE_ID`], [`View::TARGETS`], [`View::ICON`]), at compile time: a
-/// width outside `1..=8192`, a target that is not a program name, no target
+/// target that is not a program name, no target
 /// where the capabilities could address a program, or an icon that is not
 /// an asset path ([`wire::manifest::is_icon`]), fails the build.
 pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
-    assert!(
-        V::MIN_WINDOW_WIDTH >= 1 && V::MIN_WINDOW_WIDTH <= wire::MAX_PIXELS as u32,
-        "MIN_WINDOW_WIDTH is 1..=8192"
-    );
+    assert!(V::MIN_WINDOW_WIDTH >= 1, "MIN_WINDOW_WIDTH is at least 1");
     assert!(
         !V::TARGETS.is_empty() || !wire::manifest::needs_targets(V::CAPABILITIES),
         "a view with the op or program capability names its TARGETS"
@@ -157,7 +154,7 @@ pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
     }
     assert!(
         wire::manifest::is_icon(V::ICON),
-        "ICON is empty or the path of an asset the app bundles (icons/hammer.svg), at most 64 bytes"
+        "ICON is empty or the path of an asset the app bundles (icons/hammer.svg)"
     );
     let mut out = [0u8; N];
     let mut at = put(&mut out, 0, MANIFEST_HEADER.as_bytes());
@@ -277,26 +274,6 @@ pub mod exports {
         fn panicked(ptr: u32, len: u32);
     }
 
-    /// The most a panic message may carry across the `panicked` import. A host
-    /// shows one line of it, and every byte over that is one the host lifts out
-    /// of view memory before it can refuse anything — so the message is cut
-    /// here, where the view still owns it, on a char boundary.
-    const MAX_PANIC_BYTES: usize = 1024;
-
-    /// The line the panic hook hands the host: the payload and where it came
-    /// from, cut to [`MAX_PANIC_BYTES`].
-    fn panic_line(message: &str, at: &str) -> String {
-        let mut line = format!("{message} at {at}");
-        if line.len() > MAX_PANIC_BYTES {
-            let cut = (0..=MAX_PANIC_BYTES)
-                .rev()
-                .find(|at| line.is_char_boundary(*at))
-                .unwrap_or(0);
-            line.truncate(cut);
-        }
-        line
-    }
-
     thread_local! {
         // The last answer, kept until the next export is entered: the host
         // copies it out before it calls again.
@@ -384,7 +361,7 @@ pub mod exports {
                 .location()
                 .map(|location| format!("{}:{}", location.file(), location.line()))
                 .unwrap_or_else(|| "unknown".into());
-            let line = panic_line(message, &at);
+            let line = format!("{message} at {at}");
             unsafe { panicked(line.as_ptr() as u32, line.len() as u32) };
         }));
     }

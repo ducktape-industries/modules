@@ -439,9 +439,6 @@ fn the_files_tab_marks_comments_and_viewed_files_and_can_show_one() {
     );
 }
 
-/// A change the size of a release opens: its files list, the first file's
-/// lines on screen, and a list the host draws whole, closed by a row that
-/// names the files past the host's ceiling (each opens from the list).
 #[test]
 fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
     let (mut cx, _view) = change_screen("release", ChangeTab::Files);
@@ -451,18 +448,17 @@ fn a_release_sized_diff_opens_with_its_files_and_first_lines() {
     let Some(wire::Node::UniformList { count, .. }) = cx.find("forge-diff") else {
         panic!("the diff list");
     };
-    // 64 files of 1002 rows and the closing row fit under the host's
-    // ceiling with the room kept for comments
     let count = *count;
-    assert_eq!(count, 64 * 1002 + 1);
+    assert_eq!(count, 100 * 1002);
     cx.simulate_range("forge-diff", count - 20..count);
     cx.run_until_parked();
     assert!(
-        cx.has_text("36 more files not drawn here: open one from the file list"),
+        cx.texts()
+            .iter()
+            .any(|text| text.starts_with("pub fn f99_")),
         "{:?}",
         cx.texts()
     );
-    // a file past the ceiling opens alone from the list, scrolled to it
     cx.simulate_range("forge-file-tree-rows", 90..100);
     cx.run_until_parked();
     cx.simulate_click("forge-file-src/gen/file_099.rs-open");
@@ -584,15 +580,10 @@ fn a_file_picked_elsewhere_is_scrolled_into_the_list() {
     });
 }
 
-/// A diff that fills the host's list still has room for what readers
-/// write: the composer opens on any line, comments are drawn while they
-/// fit, and the ones past that are counted at the list's end, never
-/// silently gone; the list stays under the host's ceiling.
 #[test]
-fn comments_past_the_lists_room_are_counted_at_its_end() {
+fn every_comment_on_a_release_sized_diff_is_laid_out() {
     let (mut cx, view) = change_screen("release", ChangeTab::Files);
     let path = b"src/gen/file_000.rs".to_vec();
-    // 64 long comments, 30 rows a box: more than the room the diff leaves
     let body = "word ".repeat(400);
     cx.update(&view, |forge, _, cx| {
         forge.start_review(cx);
@@ -606,7 +597,6 @@ fn comments_past_the_lists_room_are_counted_at_its_end() {
             });
         }
     });
-    // the composer on the last of them, past where the comments run out
     cx.update(&view, |forge, window, cx| {
         forge.open_comment(path.clone(), true, 64, window, cx)
     });
@@ -616,17 +606,7 @@ fn comments_past_the_lists_room_are_counted_at_its_end() {
         "the composer opens"
     );
     let (count, _) = diff_rows(&cx);
-    assert!(count <= wire::MAX_UNIFORM_LIST_COUNT, "{count}");
-    cx.simulate_range("forge-diff", count - 3..count);
-    cx.run_until_parked();
-    // however many fit, the rest are named at the end
-    assert!(
-        cx.texts()
-            .iter()
-            .any(|text| text.ends_with(" more comments not drawn here")),
-        "{:?}",
-        cx.texts()
-    );
+    assert!(count > 100 * 1002 + 64, "{count}");
 }
 
 #[test]

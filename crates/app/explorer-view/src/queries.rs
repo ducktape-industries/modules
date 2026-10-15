@@ -3,9 +3,8 @@
 //! (activity). The window's blocks are the host's (`load.rs`).
 use view::prelude::*;
 
-use crate::chain::{ROW_PAYLOAD, TxRow, located};
+use crate::chain::{TxRow, located};
 use crate::state::{Accounts, Acted, Network, Used};
-use crate::ui::LIST_ROWS;
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
@@ -62,7 +61,10 @@ pub(crate) async fn used(host: Host) -> Result<Used, Error> {
 pub(crate) async fn acted(host: Host, account: u64, known: Vec<TxRow>) -> Result<Acted, Error> {
     let asked = activity::ask::Acted {
         account,
-        page: activity::PageRequest::first(LIST_ROWS as u64),
+        page: activity::PageRequest {
+            after: None,
+            limit: None,
+        },
     };
     let frames = host.query(asked).await?.items;
     let mut acted = Vec::with_capacity(frames.len());
@@ -77,7 +79,7 @@ pub(crate) async fn acted(host: Host, account: u64, known: Vec<TxRow>) -> Result
                 height: frame.height,
                 position: frame.position,
             },
-            most: ROW_PAYLOAD,
+            most: u32::MAX,
         };
         acted.extend(host.ask::<ChainTx>(ask).await?.map(located));
     }

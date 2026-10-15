@@ -117,7 +117,7 @@ impl ListState {
         } else {
             held.start.min(old_range.start)..shifted(held.end.max(old_range.end))
         };
-        inner.requested = bounded_window(edited.start, edited.end, inner.item_count);
+        inner.requested = bounded_range(edited, inner.item_count);
         inner.push(wire::ListCommand::Splice {
             start: old_range.start,
             end: old_range.end,
@@ -158,20 +158,13 @@ impl ListState {
         };
         inner.push(wire::ListCommand::ScrollToEnd);
     }
-    /// Scrolls row `ix` into view. The window grows to hold it, so the
-    /// frame that carries the scroll carries the row and keeps the rows
-    /// on screen; a row far outside it takes the window's end nearest it.
     pub fn scroll_to_reveal_item(&self, ix: usize) {
         let mut inner = self.0.inner.borrow_mut();
         let ix = ix.min(inner.item_count.saturating_sub(1));
         let held = inner.requested.clone();
         let end = held.end.max(ix.saturating_add(1)).min(inner.item_count);
         let start = held.start.min(ix);
-        inner.requested = match end - start <= wire::MAX_LIST_ROWS {
-            true => start..end,
-            false if ix < held.start => bounded_window(start, end, inner.item_count),
-            false => end - wire::MAX_LIST_ROWS..end,
-        };
+        inner.requested = start..end;
         inner.push(wire::ListCommand::ScrollToRevealItem(ix));
     }
     pub fn set_follow_mode(&self, mode: FollowMode) {
@@ -212,9 +205,6 @@ impl ListState {
             let mut inner = self.0.inner.borrow_mut();
             inner.logical_scroll_top = from_wire_offset(event.offset);
             inner.following_tail = event.is_following_tail;
-            // Rows well off screen leave the window, so scrolling through a
-            // long list keeps its tick near a screenful rather than growing
-            // to the cap. The margin outreaches the host's overdraw.
             let margin = margin_rows(inner.overdraw);
             let keep = event.visible_start.saturating_sub(margin)
                 ..event.visible_end.saturating_add(margin);
@@ -247,18 +237,14 @@ impl Inner {
         let held = self.requested.clone();
         let touches = asked.start <= held.end && held.start <= asked.end;
         let (start, end) = (held.start.min(asked.start), held.end.max(asked.end));
-        self.requested = match (touches, end - start <= wire::MAX_LIST_ROWS) {
-            (false, _) => bounded_window(asked.start, asked.end, count),
-            (true, true) => start..end,
-            (true, false) if asked.start < held.start => bounded_window(start, end, count),
-            (true, false) => end - wire::MAX_LIST_ROWS..end,
+        self.requested = match touches {
+            true => start..end,
+            false => asked,
         };
     }
     fn push(&mut self, command: wire::ListCommand) {
         self.revision = self.revision.wrapping_add(1);
-        if self.commands.len() < wire::MAX_LIST_COMMANDS {
-            self.commands.push(command);
-        }
+        self.commands.push(command);
     }
 }
 
@@ -379,8 +365,8 @@ impl Element for List {
                 inner.requested.clone(),
             )
         };
-        let mut children = Vec::with_capacity(range.len().min(wire::MAX_LIST_ROWS));
-        for index in range.clone().take(wire::MAX_LIST_ROWS) {
+        let mut children = Vec::with_capacity(range.len());
+        for index in range.clone() {
             let (window, app) = lowering.parts();
             let row = render_item(index, window, app);
             children.push(lowering.lower_row(index, row));
@@ -440,13 +426,6 @@ fn initial_range(count: usize, alignment: ListAlignment) -> Range<usize> {
 fn bounded_range(range: Range<usize>, count: usize) -> Range<usize> {
     let start = range.start.min(count);
     start..range.end.clamp(start, count)
-}
-fn bounded_window(start: usize, end: usize, count: usize) -> Range<usize> {
-    let start = start.min(count);
-    start
-        ..end
-            .clamp(start, count)
-            .min(start.saturating_add(wire::MAX_LIST_ROWS))
 }
 fn wire_alignment(v: ListAlignment) -> wire::ListAlignment {
     match v {
@@ -629,11 +608,11 @@ mod tests {
                 ..
             } => {
                 assert_eq!(*range_start, 0);
-                assert_eq!(children.len(), wire::MAX_LIST_ROWS);
+                assert_eq!(children.len(), 2_000);
             }
             other => panic!("expected list, got {other:?}"),
         }
-        view.read(|view| assert_eq!(view.rendered.len(), INITIAL_ROWS + wire::MAX_LIST_ROWS));
+        view.read(|view| assert_eq!(view.rendered.len(), INITIAL_ROWS + 2_000));
 
         cx.tick(vec![wire::Event::ListScroll {
             handler: scroll_handler,
@@ -656,9 +635,6 @@ mod tests {
         });
     }
 
-    /// A row revealed beside the window joins it: the rows on screen stay
-    /// in the frame that carries the scroll (↑ from the first row shown, ↓
-    /// past the last). A row far away takes the window's end nearest it.
     #[test]
     fn revealing_a_row_grows_the_window_and_keeps_the_rows_on_screen() {
         let (mut cx, view) = opened();
@@ -679,7 +655,7 @@ mod tests {
         state.scroll_to_reveal_item(100);
         cx.app_mut().notify();
         cx.tick(vec![]);
-        assert_eq!(window(&cx), 100..100 + wire::MAX_LIST_ROWS);
+        assert_eq!(window(&cx), 100..2_000);
     }
 
     #[test]
@@ -864,7 +840,7 @@ mod tests {
             request: wire::ListRequest { start: 0, end: 12 },
         }]);
         assert_eq!(window(&cx), 0..12);
-        state.splice(0..0, wire::MAX_LIST_ROWS);
+        state.splice(0..0, 64);
         cx.app_mut().notify();
         cx.tick(vec![]);
         assert_eq!(
@@ -896,7 +872,7 @@ mod tests {
             } => {
                 assert_eq!(*item_count, 2_020);
                 assert_eq!(commands.len(), 3);
-                assert!(children.len() <= wire::MAX_LIST_ROWS);
+                assert!(!children.is_empty());
             }
             other => panic!("expected list, got {other:?}"),
         }

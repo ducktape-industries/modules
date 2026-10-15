@@ -18,10 +18,7 @@ pub async fn roster<F: Future<Output = Result<PageResponse<Profile>, Error>>>(
     let mut after = None;
     loop {
         let page = ask(ask::Accounts {
-            page: PageRequest {
-                after,
-                limit: Some(PageRequest::MAX_LIMIT),
-            },
+            page: PageRequest { after, limit: None },
         })
         .await?;
         rows.extend(page.items);

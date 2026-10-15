@@ -32,9 +32,6 @@ pub use state::{Accounts, Explorer, Network, Note, Route};
 use view::prelude::*;
 
 pub const WINDOW: usize = 1_000;
-/// Blocks per `chain.blocks` page (the node caps a page at 100). Small, so
-/// one reply's decoding stays well inside a tick's fuel.
-const PAGE: u32 = 20;
 
 impl View for Explorer {
     const NAME: &'static str = "Explorer";

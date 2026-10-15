@@ -10,9 +10,6 @@ use view::store;
 use crate::Chat;
 
 const EMOJI: &str = "emoji";
-/// How many times the kept cursors are asked for before chat gives up on
-/// them.
-const READ_ATTEMPTS: u32 = 3;
 
 impl Chat {
     /// The key the reader's cursors are kept under; none with no key seated.
@@ -43,13 +40,10 @@ impl Chat {
             chat.recent_emoji.truncate(crate::emoji::RECENT);
         })
         .detach();
-        self.load_reads(key, 1, cx);
+        self.load_reads(key, cx);
     }
 
-    /// The kept cursors, asked again on a refusal. After [`READ_ATTEMPTS`]
-    /// the reader starts from what this session sees, so their reads still
-    /// save; what the device held for rooms not seen yet is lost.
-    fn load_reads(&mut self, key: String, attempt: u32, cx: &mut Context<Self>) {
+    fn load_reads(&mut self, key: String, cx: &mut Context<Self>) {
         let reads = store::get::<BTreeMap<String, u64>>(&cx.host(), &key);
         cx.land(reads, move |chat, reads, cx| {
             cx.notify();
@@ -57,11 +51,6 @@ impl Chat {
                 Ok(reads) => chat.reads_landed(key, reads.unwrap_or_default(), cx),
                 // the reader changed meanwhile: their own load is under way
                 Err(_) if chat.reads_key().as_ref() != Some(&key) => {}
-                Err(refusal) if attempt < READ_ATTEMPTS => {
-                    cx.host()
-                        .log(format!("read cursors not loaded, asking again: {refusal}"));
-                    chat.load_reads(key, attempt + 1, cx);
-                }
                 Err(refusal) => {
                     cx.host().log(format!(
                         "read cursors not loaded, starting from this session: {refusal}"

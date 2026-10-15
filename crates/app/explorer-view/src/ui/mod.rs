@@ -9,8 +9,6 @@ use crate::decode::{ago, clip, date, grouped, plural, short};
 use crate::{BlockRow, Explorer, Note, Route, TxRow};
 use design::{empty_state, mono};
 
-/// The most rows one list draws; the rest is reached by search.
-pub(crate) const LIST_ROWS: usize = 50;
 /// The rows each Overview panel draws.
 const LATEST: usize = 12;
 
@@ -90,13 +88,9 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
                 .child(note),
         );
     }
-    // A page scrolls, and the SDK keeps its right edge for the bar. The
-    // Transactions page is a heading over a list that scrolls for it
-    // ([`Rows::shown`]): the page is no scroller there, so the list reaches
-    // the pane's edge and the host draws its bar where the other pages' is.
     let scroller = div().id("explorer-page").flex_1().flex().flex_col();
     let scroller = match view.route {
-        Route::Transactions(_) => scroller.min_h(px(0.)),
+        Route::Transactions(_) | Route::Blocks | Route::Accounts => scroller.min_h(px(0.)),
         _ => scroller.overflow_y_scroll(),
     };
     root.child(scroller.child(page(view, cx, &theme)))
@@ -365,10 +359,6 @@ impl Rows {
         self.children.push(option(row, active, theme));
         self
     }
-    fn note(mut self, note: impl IntoElement) -> Self {
-        self.children.push(note.into_any_element());
-        self
-    }
     /// `routes.len()` rows the host asks for by index, painted as it shows
     /// them. They scroll for their page, which is no scroller then
     /// ([`render`]): the list reaches the pane's edge, where the host keeps
@@ -538,40 +528,49 @@ pub(crate) fn lines(blocks: &[BlockRow], rows: usize) -> Vec<Line<'_>> {
     lines
 }
 
-fn block_lines(
-    list: Rows,
-    blocks: &[BlockRow],
-    rows: usize,
-    now: u64,
-    cx: Cx,
-    theme: &Theme,
-) -> Rows {
-    lines(blocks, rows)
-        .into_iter()
-        .fold(list, |list, line| match line {
-            Line::Block(block) => list.row(
-                Route::Block(block.height),
-                block_row(block, now, cx, theme),
+fn line_route(line: &Line) -> Route {
+    match line {
+        Line::Block(block) => Route::Block(block.height),
+        Line::Empty { newest, .. } => Route::Block(*newest),
+    }
+}
+
+fn line_row(line: &Line, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    match line {
+        Line::Block(block) => block_row(block, now, cx, theme),
+        Line::Empty { newest, oldest } => {
+            let text = format!(
+                "{}–{} · {} empty blocks",
+                grouped(*oldest),
+                grouped(*newest),
+                grouped(newest - oldest + 1)
+            );
+            row(
+                SharedString::from(format!("explorer-empty-{newest}")).into(),
+                text.clone(),
+                Route::Block(*newest),
+                cx,
                 theme,
-            ),
-            Line::Empty { newest, oldest } => list.note(
-                div()
-                    .id(SharedString::from(format!("explorer-empty-{newest}")))
-                    .flex()
-                    .items_center()
-                    .h(ROW_H)
-                    .px_5()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .text_color(theme.faint)
-                    .child(mono(format!(
-                        "{}–{} · {} empty blocks",
-                        grouped(oldest),
-                        grouped(newest),
-                        grouped(newest - oldest + 1)
-                    ))),
-            ),
-        })
+            )
+            .text_color(theme.faint)
+            .child(mono(text))
+        }
+    }
+}
+
+fn block_lines(list: Rows, view: &Explorer, rows: usize) -> Rows {
+    let routes = lines(&view.chain.blocks, rows)
+        .iter()
+        .map(line_route)
+        .collect();
+    list.shown(routes, move |view, range, cx, theme| {
+        let now = view.chain.now();
+        let lines = lines(&view.chain.blocks, rows);
+        range
+            .filter_map(|index| lines.get(index))
+            .map(|line| line_row(line, now, cx, theme))
+            .collect()
+    })
 }
 
 /// `tx_row`s as a [`Rows`] list. `select` picks the transactions, in

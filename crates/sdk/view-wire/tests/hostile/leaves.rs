@@ -33,15 +33,10 @@ pub(super) fn gen_key(rng: &mut Rng) -> String {
     (*rng.choose(&POOL)).to_string()
 }
 
-/// A string built from single-, two-, three- and four-byte UTF-8
-/// characters. Most calls stay small so a tree of thousands of leaves
-/// stays cheap to build; roughly one in three hundred goes hostile and
-/// targets up to `3 * MAX_STRING_BYTES`, which is what actually exercises
-/// `truncate`'s char-boundary walk.
 pub(super) fn gen_string(rng: &mut Rng) -> String {
     const POOL: [char; 6] = ['a', 'Z', 'é', '한', '😀', '\n'];
     let (cap, exponent) = match rng.next_range(300) {
-        0 => (3 * MAX_STRING_BYTES, 8),
+        0 => (3 * LONG_STRING, 8),
         _ => (48, 2),
     };
     let target = rng.skewed(cap, exponent);
@@ -129,12 +124,10 @@ pub(super) fn gen_text(rng: &mut Rng) -> Node {
     })
 }
 
-/// A picture whose bytes cross about half the time, and about one time in
-/// sixteen run past `MAX_PICTURE_BYTES_PER_FRAME` on their own.
 pub(super) fn gen_svg(rng: &mut Rng) -> Node {
     let bytes = rng.next_bool().then(|| {
         let len = match rng.next_range(16) {
-            0 => MAX_PICTURE_BYTES_PER_FRAME + 1 + rng.next_range(64),
+            0 => BIG_PICTURE + 1 + rng.next_range(64),
             _ => rng.skewed(4096, 2),
         };
         vec![b'<'; len]
@@ -205,23 +198,18 @@ pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
     }
 }
 
-/// An address up to twice [`MAX_URL_BYTES`], so about half are past the
-/// bound `sanitize` empties.
 fn gen_url(rng: &mut Rng) -> String {
     let mut url = String::from("https://");
-    let target = rng.next_range(2 * view_wire::MAX_URL_BYTES);
+    let target = rng.next_range(2 * LONG_URL);
     while url.len() < target {
         url.push(*rng.choose(&['a', '/', '한', '%']));
     }
     url
 }
 
-/// A web piece: a hostile address and up to `MAX_WEB_COMMANDS` commands
-/// (the decoder refuses more), each a `Load` of a hostile address or a
-/// plain navigation.
 pub(super) fn gen_web(rng: &mut Rng) -> Node {
     let url = gen_url(rng);
-    let commands = (0..=rng.next_range(view_wire::MAX_WEB_COMMANDS))
+    let commands = (0..=rng.next_range(WEB_COMMANDS))
         .map(|_| match rng.next_range(3) {
             0 => view_wire::WebCommand::Load(gen_url(rng)),
             1 => view_wire::WebCommand::Back,

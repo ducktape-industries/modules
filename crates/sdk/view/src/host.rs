@@ -101,7 +101,6 @@ pub(crate) async fn walk<T, F: Future<Output = Result<Page<T>, Error>>>(
 #[derive(Default)]
 struct Slot {
     stream: bool,
-    yield_next: bool,
     answers: VecDeque<Answer>,
     closed: bool,
     waker: Option<Waker>,
@@ -347,13 +346,8 @@ impl Stream for Subscription {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Answer>> {
         let mut slot = self.slot.borrow_mut();
-        if std::mem::take(&mut slot.yield_next) {
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
-        }
         match slot.answers.pop_front() {
             Some(answer) => {
-                slot.yield_next = true;
                 slot.waker = None;
                 Poll::Ready(Some(answer))
             }
@@ -367,9 +361,6 @@ impl Stream for Subscription {
 }
 
 impl Host {
-    /// What was asked since the last frame, in order, up to the
-    /// [`MAX_REQUESTS`](crate::wire::MAX_REQUESTS) one frame carries; the
-    /// rest wait, in order, for the next.
     pub(crate) fn drain_outbox(&self) -> Vec<Request> {
         let mut registry = self.0.borrow_mut();
         let keep: std::collections::HashSet<_> = registry
@@ -379,23 +370,12 @@ impl Host {
             .chain(registry.outbox.iter().map(|request| request.id))
             .collect();
         registry.diagnostics.retain(|id, _| keep.contains(id));
-        let sent = registry.outbox.len().min(crate::wire::MAX_REQUESTS);
-        registry.outbox.drain(..sent).collect()
+        registry.outbox.drain(..).collect()
     }
 
-    /// What was abandoned since the last frame, up to the
-    /// [`MAX_CANCELS`](crate::wire::MAX_CANCELS) one frame carries; the
-    /// rest wait for the next.
     pub(crate) fn drain_cancels(&self) -> Vec<u64> {
         let mut registry = self.0.borrow_mut();
-        let sent = registry.cancels.len().min(crate::wire::MAX_CANCELS);
-        registry.cancels.drain(..sent).collect()
-    }
-
-    /// Requests or cancels left for a later frame.
-    pub(crate) fn outbox_waiting(&self) -> bool {
-        let registry = self.0.borrow();
-        !registry.outbox.is_empty() || !registry.cancels.is_empty()
+        registry.cancels.drain(..).collect()
     }
 
     /// Ends a stream: its subscriber reads `None` next; an id nobody waits

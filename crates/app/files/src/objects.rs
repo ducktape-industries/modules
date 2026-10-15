@@ -2,12 +2,10 @@
 //! their chunks, trees of named nodes, and snapshots naming a root tree.
 use std::collections::BTreeMap;
 
-use ::program::{
-    BlobId, Error, ExecCtx, HashKind, Principal, QueryCtx, capacity, corrupt, invalid,
-};
+use ::program::{BlobId, Error, ExecCtx, HashKind, Principal, QueryCtx, corrupt, invalid};
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{CHUNK_SIZE, MAX_CHUNKS_PER_FILE, MAX_DIR_ENTRIES, Node};
+use crate::{CHUNK_SIZE, Node};
 
 pub const CHUNK: &str = "chunk";
 pub const FILE: &str = "file";
@@ -77,11 +75,6 @@ pub(crate) fn put_file(ctx: &ExecCtx, file: &FileObj) -> Result<BlobId, Error> {
 }
 
 pub(crate) fn put_tree(ctx: &ExecCtx, tree: &Tree) -> Result<BlobId, Error> {
-    if tree.entries.len() > MAX_DIR_ENTRIES {
-        return Err(capacity(format!(
-            "a directory holds at most {MAX_DIR_ENTRIES} entries"
-        )));
-    }
     put(ctx, TREE, tree)
 }
 
@@ -107,11 +100,6 @@ pub(crate) fn chunk_len(size: u64, index: u64) -> u64 {
 }
 
 pub(crate) fn check_chunks(ctx: &QueryCtx, size: u64, chunks: &[BlobId]) -> Result<(), Error> {
-    if chunks.len() > MAX_CHUNKS_PER_FILE {
-        return Err(capacity(format!(
-            "a file is at most {MAX_CHUNKS_PER_FILE} chunks"
-        )));
-    }
     let expected = chunk_count(size);
     if chunks.len() as u64 != expected {
         return Err(invalid(format!(

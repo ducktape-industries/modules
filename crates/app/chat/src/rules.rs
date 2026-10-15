@@ -3,16 +3,11 @@
 use ::program::{Env, Error, Origin, QueryCtx, invalid, unauthorized, wrong_state};
 
 use crate::state::MEMBERS;
-use crate::{
-    ChannelRow, MAX_EMOJI_BYTES, MAX_ID_BYTES, MAX_NAME_BYTES, MsgRow, Principal, dm_peers,
-};
+use crate::{ChannelRow, MsgRow, Principal, dm_peers};
 
-/// A channel or message id: 1..=64 bytes, no `/` (a room link's separator).
 pub(crate) fn id(what: &str, id: &str) -> Result<(), Error> {
-    if id.is_empty() || id.len() > MAX_ID_BYTES || id.contains('/') {
-        return Err(invalid(format!(
-            "{what} is 1..={MAX_ID_BYTES} bytes without '/'"
-        )));
+    if id.is_empty() || id.contains('/') {
+        return Err(invalid(format!("{what} is not empty and has no '/'")));
     }
     Ok(())
 }
@@ -47,14 +42,14 @@ pub(crate) fn channel_id(channel_id: &str, env: &Env) -> Result<(), Error> {
 }
 
 pub(crate) fn name(name: &str) -> Result<(), Error> {
-    if name.trim().is_empty() || name.len() > MAX_NAME_BYTES {
-        return Err(invalid(format!("a name is 1..={MAX_NAME_BYTES} bytes")));
+    if name.trim().is_empty() {
+        return Err(invalid("a name is not blank"));
     }
     Ok(())
 }
 
 pub(crate) fn emoji(emoji: &str) -> Result<(), Error> {
-    if emoji.is_empty() || emoji.len() > MAX_EMOJI_BYTES || emoji.contains('/') {
+    if emoji.is_empty() || emoji.contains('/') {
         return Err(invalid("not an emoji"));
     }
     Ok(())

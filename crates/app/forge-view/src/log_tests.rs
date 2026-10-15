@@ -11,9 +11,8 @@ use view::wire::Node;
 /// The history the tests browse: eight pages of 64.
 const COMMITS: usize = 500;
 
-/// One page of a history of [`COMMITS`] commits, as the program pages it:
-/// `limit` rows from the cursor's offset, and a `next` while more remain.
-/// The rows are the fixture's first commit under their own ids.
+const PAGE_SIZE: u64 = 64;
+
 fn long_log(query: &Query) -> Reply {
     let Query::Log { page, .. } = query else {
         panic!("{query:?} is no log");
@@ -24,7 +23,7 @@ fn long_log(query: &Query) -> Reply {
     let start = page.after.as_ref().map_or(0, |cursor| {
         u64::from_be_bytes(cursor.as_slice().try_into().expect("an offset")) as usize
     });
-    let end = (start + page.limit() as usize).min(COMMITS);
+    let end = (start + page.bounded(PAGE_SIZE).limit() as usize).min(COMMITS);
     let items = (start..end)
         .map(|n| CommitInfo {
             oid: format!("{n:040x}"),

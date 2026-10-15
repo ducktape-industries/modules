@@ -31,10 +31,6 @@ pub struct UniformListScrollRequest {
     pub strict: bool,
 }
 
-pub const MAX_LIST_ITEMS: usize = 100_000;
-pub const MAX_LIST_ROWS: usize = 64;
-pub const MAX_LIST_COMMANDS: usize = 64;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ListAlignment {
     Top,
@@ -92,18 +88,6 @@ pub struct ListScroll {
     pub offset: ListOffset,
 }
 
-pub(super) fn decode_commands<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<ListCommand>, D::Error> {
-    crate::bounded_vec(deserializer, MAX_LIST_COMMANDS, "too many list commands")
-}
-
-pub(super) fn decode_path<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<crate::ElementIdWire>, D::Error> {
-    crate::bounded_vec(deserializer, crate::MAX_DEPTH, "list ancestry is too deep")
-}
-
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ListKey {
     Bool(bool),
@@ -148,21 +132,11 @@ impl PartialEq for ListKey {
     }
 }
 
-pub(super) fn decode_indices<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<u32>, D::Error> {
-    crate::bounded_vec(
-        deserializer,
-        crate::MAX_UNIFORM_LIST_ROWS,
-        "too many uniform-list row indices",
-    )
-}
-
 #[cfg(test)]
 mod variable_tests {
     use super::*;
     use crate::styles::testing::sanitize_plain;
-    use crate::{Frame, Node, StyleId, decode, encode};
+    use crate::{Frame, Node, StyleId};
 
     fn node(commands: Vec<ListCommand>, children: usize) -> Node {
         list("rows", commands, children)
@@ -190,24 +164,19 @@ mod variable_tests {
     }
 
     #[test]
-    fn one_wire_walk_clamps_count_geometry_commands_and_rows() {
+    fn one_wire_walk_makes_geometry_finite() {
         let mut frame = Frame {
             root: Some(node(
-                (0..MAX_LIST_COMMANDS + 5)
-                    .map(|_| {
-                        ListCommand::ScrollTo(ListOffset {
-                            item_ix: usize::MAX,
-                            offset_in_item: f32::INFINITY,
-                        })
-                    })
-                    .collect(),
-                MAX_LIST_ROWS + 20,
+                vec![ListCommand::ScrollTo(ListOffset {
+                    item_ix: usize::MAX,
+                    offset_in_item: f32::INFINITY,
+                })],
+                20,
             )),
             ..Frame::default()
         };
         sanitize_plain(&mut frame).unwrap();
         let Node::List {
-            item_count,
             overdraw,
             commands,
             children,
@@ -216,44 +185,15 @@ mod variable_tests {
         else {
             panic!()
         };
-        assert_eq!(item_count, MAX_LIST_ITEMS);
-        assert_eq!(overdraw, 4096.);
-        assert_eq!(commands.len(), MAX_LIST_COMMANDS);
-        assert!(commands.iter().all(|command| matches!(
-            command,
-            ListCommand::ScrollTo(ListOffset {
-                item_ix: MAX_LIST_ITEMS,
-                offset_in_item: 8192.
-            })
-        )));
-        assert!(children.len() <= MAX_LIST_ROWS);
-    }
-
-    #[test]
-    fn sibling_lists_share_the_native_item_allocation_budget() {
-        let mut frame = Frame {
-            root: Some(Node::Container(crate::ContainerNode {
-                id: None,
-                style: StyleId(0),
-                interactivity: Default::default(),
-                children: vec![list("first", Vec::new(), 0), list("second", Vec::new(), 0)],
-            })),
-            ..Default::default()
-        };
-        sanitize_plain(&mut frame).unwrap();
-        let counts: Vec<_> = frame
-            .root
-            .unwrap()
-            .children()
-            .iter()
-            .map(|child| {
-                let Node::List { item_count, .. } = child else {
-                    unreachable!()
-                };
-                *item_count
-            })
-            .collect();
-        assert_eq!(counts, vec![MAX_LIST_ITEMS, 0]);
+        assert_eq!(overdraw, f32::MAX);
+        assert_eq!(
+            commands,
+            [ListCommand::ScrollTo(ListOffset {
+                item_ix: usize::MAX,
+                offset_in_item: f32::MAX,
+            })]
+        );
+        assert_eq!(children.len(), 20);
     }
 
     #[test]
@@ -314,15 +254,5 @@ mod variable_tests {
             duplicate.to_string(),
             "duplicate typed element identity among siblings: rows twice under page"
         );
-    }
-
-    #[test]
-    fn decoder_refuses_oversized_command_vectors() {
-        let commands = vec![ListCommand::ScrollToEnd; MAX_LIST_COMMANDS + 1];
-        let frame = Frame {
-            root: Some(node(commands, 0)),
-            ..Frame::default()
-        };
-        assert!(decode::<Frame>(&encode(&frame)).is_err());
     }
 }

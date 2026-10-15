@@ -127,7 +127,7 @@ pub(crate) fn closure(
             "a walk names an id that is not an object id of this repository",
         ));
     };
-    let Closed { listed, next } = close(&store, asked, CLOSURE_NAMES).map_err(refusal_of)?;
+    let Closed { listed, next } = close(&store, asked, usize::MAX).map_err(refusal_of)?;
     Ok(Reply::Closure {
         height,
         listed: listed.into_iter().map(Listed::of).collect(),

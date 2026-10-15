@@ -93,10 +93,7 @@ pub struct Interactivity {
     /// Keystrokes in gpui's words (`"escape"`, `"shift-tab"`) this node
     /// takes, with its key-down listeners or its keyboard click: the host
     /// stops each one here once they have heard it.
-    #[serde(
-        skip_serializing_if = "Vec::is_empty",
-        deserialize_with = "crate::interactivity::decode_consumed_keys"
-    )]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub consumes_keys: Vec<SharedString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_hover: Option<u32>,

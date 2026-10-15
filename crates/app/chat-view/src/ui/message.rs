@@ -286,9 +286,8 @@ fn action_strip(
         .absolute()
         .right_2()
         // Half over the card's top edge, as Slack hangs it: the message
-        // under it stays where it is. The wire keeps a negative inset
-        // (`style_sanitize`, signed to ±MAX_PIXELS). The upper half lies
-        // over the row above, whose hover would otherwise take the strip
+        // under it stays where it is. The wire keeps a negative inset. The
+        // upper half lies over the row above, whose hover would otherwise take the strip
         // away as the pointer reached it: the strip occludes, so no row
         // is hovered while the pointer is on it, and says itself that it
         // is (`hovered`), which keeps it drawn.

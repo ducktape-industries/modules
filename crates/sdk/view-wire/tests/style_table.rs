@@ -3,8 +3,8 @@
 //! a struct that mostly says nothing is the fields it sets, with no name.
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::{
-    Aria, ContainerNode, Frame, GroupRefinement, Interactivity, Interner, MAX_STYLES, Node, Patch,
-    Refused, Style, StyleId, Styles, TextNode, Tooltip, TooltipResponse, decode, encode,
+    Aria, ContainerNode, Frame, GroupRefinement, Interactivity, Interner, Node, Patch, Refused,
+    Style, StyleId, Styles, TextNode, Tooltip, TooltipResponse, decode, encode,
 };
 
 mod common;
@@ -314,7 +314,7 @@ fn a_refused_frame_leaves_the_table_the_host_holds() {
     // a frame with no tree: its entries do not stay behind a refusal
     for styles in [
         vec![Style::new(&wide), Style::new(&pattern)],
-        vec![Style::new(&wide); MAX_STYLES],
+        vec![Style::new(&pattern), Style::new(&wide)],
     ] {
         let mut frame = Frame {
             styles,
@@ -360,32 +360,6 @@ fn a_hosts_own_style_is_no_entry_of_the_trees_table() {
     other.extend(plain()).unwrap();
     assert_eq!(other, before);
     assert!(!other.extends(&before));
-}
-
-/// A table is no way around the node bounds: an entry decodes inside the
-/// frame's node budget, and a table holds no more entries than
-/// `MAX_STYLES`.
-#[test]
-fn a_table_is_held_to_the_bounds_a_tree_is() {
-    let frame = |entries: usize| Frame {
-        styles: vec![Style::new(&StyleRefinement::default()); entries],
-        ..Default::default()
-    };
-    assert!(decode::<Frame>(&encode(&frame(MAX_STYLES))).is_ok());
-    let refused = decode::<Frame>(&encode(&frame(MAX_STYLES + 1))).unwrap_err();
-    assert!(
-        refused.contains("more styles than the host holds"),
-        "{refused}"
-    );
-
-    // the entries of patch frames add up: the table the host holds is bounded
-    let mut held = Styles::default();
-    held.extend(frame(MAX_STYLES).styles).unwrap();
-    assert_eq!(
-        held.extend(frame(1).styles),
-        Err("more styles than the host holds")
-    );
-    assert_eq!(held.len(), MAX_STYLES);
 }
 
 /// An entry is bytes the view wrote: one that does not read as a style

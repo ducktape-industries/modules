@@ -1,7 +1,6 @@
 //! Reactions: one per principal and emoji, counted on the message.
 use super::channels::archive;
 use super::*;
-use crate::MAX_EMOJI_BYTES;
 
 #[test]
 fn a_reaction_counts_once_per_principal_and_knows_its_reader() {
@@ -57,8 +56,7 @@ fn a_reaction_needs_an_emoji_a_standing_message_and_a_seat() {
         let mut chat = Chat::with_channel(PostPolicy::MembersOnly);
         chat.post(&ADA, "m1", "members only", None);
         chat.ok(&ADA, react(1, "👍", true));
-        let long = "x".repeat(MAX_EMOJI_BYTES + 1);
-        for bad in ["", "a/b", long.as_str()] {
+        for bad in ["", "a/b"] {
             assert_eq!(chat.refused(&ADA, react(1, bad, on)), code::INVALID_INPUT);
         }
         assert_eq!(chat.refused(&BO, react(1, "👍", on)), code::UNAUTHORIZED);

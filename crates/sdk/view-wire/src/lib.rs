@@ -55,19 +55,15 @@ pub use sanitization::SanitizeReport;
 
 pub mod text;
 pub use text::{
-    Edit, KeyClaim, MAX_FIELD_BYTES, MAX_FIELD_CLAIMS, MAX_FIELD_TOKENS, TextChange, TextRange,
-    TextToken, changed_span, rebase, validate_field,
+    Edit, KeyClaim, TextChange, TextRange, TextToken, changed_span, rebase, validate_field,
 };
 
 mod image;
 pub use image::ImageData;
 
-mod snapshot;
-pub use snapshot::MAX_SNAPSHOT_BYTES;
-
 mod aria;
 pub mod click;
-pub use aria::{Aria, MAX_ARIA_ACTIONS, MAX_ARIA_CUSTOM_ACTIONS, MAX_ARIA_TEXT_BYTES};
+pub use aria::Aria;
 /// gpui's own accessibility vocabulary, the one `Aria` and [`Event::A11yAction`] speak.
 pub use gpui::accesskit::{Action, ActionData, AriaCurrent, HasPopup, Invalid, Live};
 mod element_id;
@@ -76,7 +72,7 @@ mod style;
 mod style_sanitize;
 pub use style::{GroupRefinement, Interactivity};
 mod styles;
-pub use styles::{Interner, MAX_STYLES, Style, StyleId, Styles, entry_fields};
+pub use styles::{Interner, Style, StyleId, Styles, entry_fields};
 
 mod qr;
 pub use qr::{Qr, QrCorrection, QrSize, QrVersion};
@@ -86,16 +82,14 @@ mod canvas;
 pub mod list;
 pub use canvas::{
     CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
-    MAX_CANVAS_PARTS,
 };
 pub use list::{
     ListAlignment, ListCommand, ListKey, ListOffset, ListRequest, ListScroll, ListSizingBehavior,
-    MAX_LIST_COMMANDS, MAX_LIST_ITEMS, MAX_LIST_ROWS,
 };
 mod widget;
 pub use widget::{WidgetCommand, WidgetTarget};
 pub mod web;
-pub use web::{MAX_URL_BYTES, MAX_WEB_COMMANDS, WebCommand, WebState};
+pub use web::{WebCommand, WebState};
 
 mod styled_nodes;
 pub use styled_nodes::{ContainerNode, TextNode};
@@ -107,7 +101,7 @@ pub use node::{
 mod accessibility;
 pub use accessibility::{Fault, FaultKind, audit};
 mod patch;
-pub use patch::{MAX_PATCHES, Patch, apply, diff, diff_taking};
+pub use patch::{Patch, apply, diff, diff_taking};
 
 pub mod interactivity;
 pub mod keyboard;
@@ -115,22 +109,16 @@ pub mod mouse;
 pub use interactivity::{DispatchPhase, HoverListenerMode, Tooltip, TooltipResponse};
 
 mod protocol;
-pub use protocol::{
-    Error, Event, Frame, InputOptions, MAX_CANCELS, MAX_REQUESTS, Request, RichTextHover, code,
-};
+pub use protocol::{Error, Event, Frame, InputOptions, Request, RichTextHover, code};
 
 mod frame_sanitize;
 pub mod identity;
-pub(crate) use frame_sanitize::{Budgets, finite, sanitize_tree, spend_text, truncate_to};
-pub use frame_sanitize::{
-    MAX_DEPTH, MAX_FRAME_BYTES, MAX_NODES, MAX_PICTURE_BYTES_PER_FRAME, MAX_PIXELS,
-    MAX_STRING_BYTES, MAX_TEXT_BYTES_PER_FRAME, MAX_TEXT_PIXELS, MAX_UNIFORM_LIST_COUNT,
-    MAX_UNIFORM_LIST_ROWS, Refused, sanitize, truncate_string,
-};
+pub use frame_sanitize::{MAX_DEPTH, Refused, sanitize};
+pub(crate) use frame_sanitize::{finite, sanitize_tree};
 
 mod codec;
 pub(crate) use codec::bounded_vec;
-pub use codec::{MAX_DECODED_NODES, decode, encode, try_encode};
+pub use codec::{decode, encode, try_encode};
 
 #[cfg(test)]
 mod tests;

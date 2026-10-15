@@ -161,7 +161,6 @@ fn walk(
     };
     let children = node.children();
     for (index, child) in children.iter().enumerate() {
-        // Quadratic in a node's children, which `MAX_NODES` bounds.
         let duplicate = child.key().is_some_and(|key| {
             children[..index]
                 .iter()

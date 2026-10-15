@@ -48,11 +48,7 @@ pub struct TickReport {
     pub patches: usize,
     /// The frame's encoded size: the bytes the host decodes for the tick.
     pub bytes: usize,
-    /// What the tick asked of the host: at most
-    /// [`MAX_REQUESTS`](wire::MAX_REQUESTS), the rest wait for the next.
     pub requests: usize,
-    /// The view asked for another tick: work left, or more requests than
-    /// one frame carries.
     pub busy: bool,
 }
 
@@ -224,14 +220,13 @@ impl TestAppContext {
     /// Ticks until the view parks: no answer owed and nothing left to do.
     fn run(&mut self, mut events: Vec<Event>) {
         self.reports.clear();
-        for _ in 0..10_000 {
+        loop {
             let report = self.step(std::mem::take(&mut events));
             self.reports.push(report);
             if !report.busy && !self.host.owes_events() {
                 return;
             }
         }
-        panic!("view did not park after 10000 ticks");
     }
     /// One tick, taken in as the host takes it: the frame's requests
     /// answered, its tree kept or patched, sanitized and audited, and focus
@@ -1304,7 +1299,6 @@ fn shown(node: &Node, rows: usize) -> Option<std::ops::Range<usize>> {
             scroll_request,
             ..
         } => {
-            let rows = rows.min(wire::MAX_UNIFORM_LIST_ROWS);
             let start = scroll_request.map_or(0, |request| match request.strategy {
                 Strategy::Top => request.index,
                 Strategy::Center => request.index.saturating_sub(rows / 2),
@@ -1320,7 +1314,6 @@ fn shown(node: &Node, rows: usize) -> Option<std::ops::Range<usize>> {
             following_tail,
             ..
         } => {
-            let rows = rows.min(wire::MAX_LIST_ROWS);
             let tail = *alignment == ListAlignment::Bottom || *following_tail;
             (*item_count, rows, if tail { usize::MAX } else { 0 })
         }

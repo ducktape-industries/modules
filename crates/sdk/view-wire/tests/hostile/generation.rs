@@ -1,11 +1,5 @@
 use super::*;
 
-/// Builds one random tree of exactly `depth` levels of nesting with `width`
-/// extra siblings injected at one random level, entirely with an
-/// iterative loop rather than recursion — the wire's own stress test
-/// (`deep_chain_bytes` in `src/tests.rs`) builds a deep chain the same way,
-/// because a recursive builder would blow its own stack before `decode`
-/// ever got a chance to refuse anything.
 fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
     let mut node = gen_leaf(rng);
     let width_level = if depth == 0 { 0 } else { rng.next_range(depth) };
@@ -44,11 +38,6 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
     node
 }
 
-/// One random `Frame` around a tree of exactly `depth`/`width`: the shared
-/// core behind both [`gen_frame`] (which chooses depth/width to stress the
-/// decode-time and sanitize-time ceilings) and [`gen_frame_bounded`] (which
-/// keeps trees small because its callers re-encode and mutate them
-/// hundreds of times each).
 pub(super) fn gen_frame_with(rng: &mut Rng, depth: usize, width: usize) -> Frame {
     start_table();
     let root = gen_tree(rng, depth, width);
@@ -100,12 +89,9 @@ pub(super) fn gen_path(rng: &mut Rng, root: &Node, hostile: bool) -> Vec<u32> {
     path
 }
 
-/// A subtree for a patch to carry: usually small and cheap, occasionally
-/// as hostile as [`gen_tree`] goes, so an inserted subtree can push the
-/// tree past every ceiling on its own.
 pub(super) fn gen_patch_tree(rng: &mut Rng) -> Node {
     let (depth, width) = match rng.next_range(40) {
-        0 => (MAX_DEPTH + 4, MAX_NODES / 4),
+        0 => (MAX_DEPTH + 4, NODES / 4),
         _ => (rng.skewed(4, 2), rng.skewed(6, 2)),
     };
     gen_tree(rng, depth, width)
@@ -206,43 +192,19 @@ pub(super) fn gen_patch(rng: &mut Rng, root: &Node, hostile: bool) -> Patch {
 /// string is generated the same hostile way as everything else.
 pub(super) fn gen_frame(rng: &mut Rng, i: usize) -> Frame {
     let (depth, width) = if i == 0 {
-        // Exactly one tree per run goes just over each budget, not far over
-        // it, and only once. `sanitize` stops at MAX_NODES regardless of
-        // how much wider the input tree claims to be, so repeating the
-        // saturating case only wastes wall clock without adding coverage.
-        (MAX_DEPTH + 8, MAX_NODES + 300)
+        (MAX_DEPTH + 8, NODES + 300)
     } else {
-        // A cap and an exponent chosen so this branch, which runs for
-        // every other tree, essentially never saturates `sanitize`'s
-        // MAX_NODES budget on its own — the forced tree above is what
-        // guarantees a saturating, over-both-ceilings tree is exercised.
-        (rng.skewed(2 * MAX_DEPTH, 6), rng.skewed(MAX_NODES / 4, 6))
+        (rng.skewed(2 * MAX_DEPTH, 6), rng.skewed(NODES / 4, 6))
     };
     gen_frame_with(rng, depth, width)
 }
 
-/// A frame capped well below [`gen_frame`]'s ceiling-stressing sizes: only
-/// [`mutated_bytes_never_panic`] calls this, and it re-encodes and mutates
-/// each frame hundreds of times, so a frame in the hundreds-of-KB range
-/// (which `gen_frame`'s skew occasionally draws) turns a few hundred
-/// `decode` calls into seconds each. The bomb itself — a claimed size with
-/// no data behind it — is what exercises decode's refusal path; a tree
-/// actually built this wide adds nothing that `gen_frame`'s own forced
-/// giants (covered by `random_trees_come_out_of_sanitize_inside_every_bound`)
-/// don't already cover.
 pub(super) fn gen_frame_bounded(rng: &mut Rng) -> Frame {
     let depth = rng.skewed(MAX_DEPTH / 2, 3);
-    let width = rng.skewed(MAX_NODES / 64, 6);
+    let width = rng.skewed(NODES / 64, 6);
     gen_frame_with(rng, depth, width)
 }
 
-/// Runs `f` on a thread with a much larger stack than a test gets by
-/// default, then re-raises whatever it did (return value or panic) on the
-/// caller — a panic keeps its original message, seed included, instead of
-/// being replaced by a generic "thread panicked" one. Building and encoding
-/// a tree recurses once per level of nesting the same way decoding does
-/// (see `deep_chain_bytes` in `src/tests.rs`), so the frames this file builds
-/// up to `2 * MAX_DEPTH` levels deep get the same headroom.
 pub(super) fn on_big_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
     let handle = std::thread::Builder::new()
         .stack_size(64 << 20)

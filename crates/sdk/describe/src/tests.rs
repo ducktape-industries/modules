@@ -85,9 +85,8 @@ fn a_description_nests_lists_only_so_deep() {
         Description::decode(&borsh::to_vec(&nest(MAX_DEPTH + 1)).unwrap()),
         None
     );
-    // a bomb as deep as the answer ceiling allows: refused, not a stack overflow
     let mut bomb = vec![1, 0, 0, 0, b't', 1, 0, 0, 0, 1, 0, 0, 0, b'f'];
-    for _ in 0..host::MAX_ANSWER / 5 {
+    for _ in 0..1 << 16 {
         bomb.extend([8, 1, 0, 0, 0]);
     }
     assert_eq!(Description::decode(&bomb), None);

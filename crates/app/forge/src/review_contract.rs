@@ -3,11 +3,6 @@ use crate::read_contract::Revision;
 use ::program::Principal;
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub const MAX_REVIEW_COMMENTS: usize = 64;
-pub const MAX_REVIEWERS: usize = 64;
-pub const MAX_TITLE_BYTES: usize = 256;
-pub const MAX_PATH_BYTES: usize = 4096;
-
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ChangeState {
     Open,

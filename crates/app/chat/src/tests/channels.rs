@@ -1,6 +1,6 @@
 //! Channels: creating, dm rooms, renaming, archiving, membership.
 use super::*;
-use crate::{ChannelInfo, MAX_ID_BYTES, dm_channel_id};
+use crate::{ChannelInfo, dm_channel_id};
 
 #[test]
 fn a_channel_is_created_once_owned_by_its_creator() {
@@ -16,10 +16,9 @@ fn a_channel_is_created_once_owned_by_its_creator() {
 }
 
 #[test]
-fn a_channel_id_is_bounded_and_a_colon_id_is_its_programs_alone() {
+fn a_channel_id_is_well_formed_and_a_colon_id_is_its_programs_alone() {
     let mut chat = Chat::default();
-    let long = "x".repeat(MAX_ID_BYTES + 1);
-    for bad in ["", "a/b", long.as_str()] {
+    for bad in ["", "a/b"] {
         assert_eq!(
             chat.refused(&ADA, create(bad, PostPolicy::Open)),
             code::INVALID_INPUT

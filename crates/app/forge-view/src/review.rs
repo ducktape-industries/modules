@@ -83,16 +83,6 @@ impl Forge {
         };
         if open.body.is_blank() {
             review.comments.retain(|staged| !staged.anchors(&open));
-        } else if review.comments.len() >= forge::MAX_REVIEW_COMMENTS
-            && review
-                .staged(&open.path, open.new_side, open.line)
-                .is_none()
-        {
-            review.error = format!(
-                "A review carries at most {} line comments",
-                forge::MAX_REVIEW_COMMENTS
-            );
-            review.open = Some(open);
         } else {
             review.stage(open);
         }

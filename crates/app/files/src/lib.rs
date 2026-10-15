@@ -24,26 +24,6 @@ pub use store::{PageRequest, PageResponse};
 pub const PROGRAM: &str = "files";
 
 pub const CHUNK_SIZE: u64 = 1 << 20;
-pub const MAX_NAME_BYTES: usize = 255;
-pub const MAX_PATH_BYTES: usize = 4096;
-pub const MAX_DEPTH: usize = 128;
-pub const MAX_DIR_ENTRIES: usize = 65_536;
-pub const MAX_CHANGES: usize = 4096;
-pub const MAX_INLINE_BYTES: usize = 4 << 20;
-pub const MAX_CHUNKS_PER_FILE: usize = 65_536;
-pub const MAX_MESSAGE_BYTES: usize = 4096;
-pub const MAX_META_ENTRIES: usize = 16;
-pub const MAX_META_KEY_BYTES: usize = 64;
-pub const MAX_META_VALUE_BYTES: usize = 256;
-pub const MAX_SYMLINK_TARGET_BYTES: usize = 4096;
-pub const MAX_PIN_NAME_BYTES: usize = 128;
-pub const MAX_READ_BYTES: u64 = 1 << 20;
-pub const MAX_GREP_SCAN_BYTES: u64 = 8 << 20;
-pub const MAX_GREP_LINE_BYTES: usize = 256;
-pub const MAX_GREP_HITS_PER_FILE: usize = 4096;
-pub const MAX_GREP_PATTERN_BYTES: usize = 256;
-pub const MAX_DIFF_ENTRIES: usize = 4096;
-pub const MAX_HELD_IDS: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
