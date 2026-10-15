@@ -36,8 +36,8 @@ pub use element::{
     UniformList, UniformListScrollHandle, div, uniform_list,
 };
 /// What a field tells a software keyboard, in gpui's words (`Input::autocapitalize`,
-/// `Input::input_action`); `VirtualKeyboard`, the keyboard type the pinned
-/// gpui has no word for, is the wire's.
+/// `Input::input_action`); `VirtualKeyboard` (`Input::virtual_keyboard`) is
+/// the wire's copy of gpui's.
 pub use gpui::{Autocapitalize, TextInputAction};
 pub use interactivity::{
     BackEvent, FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
