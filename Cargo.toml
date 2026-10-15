@@ -63,7 +63,7 @@ members = [
     "crates/app/forge",
     "crates/app/activity",
     "crates/app/files",
-    "crates/app/provider",
+    "crates/app/egress",
     "crates/app/attribution",
     "crates/app/harness",
     "crates/lib/gitcore",
@@ -86,7 +86,7 @@ view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }
 conformance = { path = "crates/sdk/conformance" }
 view = { path = "crates/sdk/view" }
-gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "b38e8b8feec037f15da484f7f703983ae4f8f0de", default-features = false }
+gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "02724886f436f4f5b01ebfc1fb5cd37c09809a79", default-features = false }
 programs = { path = "crates/system/programs" }
 valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
@@ -96,7 +96,7 @@ chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
 attribution = { path = "crates/app/attribution" }
 harness = { path = "crates/app/harness" }
-provider = { path = "crates/app/provider" }
+egress = { path = "crates/app/egress" }
 activity = { path = "crates/app/activity" }
 files = { path = "crates/app/files" }
 
@@ -105,9 +105,9 @@ files = { path = "crates/app/files" }
 # the key schemes it signs with (dev-dependencies only); the probe fixture it seats is a prebuilt wasm binary, `make
 # probe-fixture`, not a Cargo dependency (its `Step` script type is mirrored
 # in the `programs` crate's test, next to the binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
-blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "d57fad49bc62250f93f76b2a289b38dc8958a0f2" }
+blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "d57fad49bc62250f93f76b2a289b38dc8958a0f2" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "d57fad49bc62250f93f76b2a289b38dc8958a0f2" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 
@@ -116,6 +116,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # borsh — the one codec the program abi is written in.
 borsh = { version = "1", default-features = false, features = ["derive", "std"] }
+sha1-checked = { version = "0.10", default-features = false }
 sha2 = "0.10"
 tempfile = "3"
 base64 = "0.22"
@@ -151,7 +152,6 @@ strip = true
 
 # A view's redraw is fuel per instruction, and a view redraws on every
 # event: the views and the SDK crates only they link are built for speed.
-# Programs link none of these, so their bytes are the size profile's.
 [profile.release.package.chat-view]
 opt-level = 3
 [profile.release.package.forge-view]
@@ -168,6 +168,10 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.view-wire]
 opt-level = 3
+[profile.release.package.forge]
+opt-level = 3
+[profile.release.package.gitcore]
+opt-level = 3
 [profile.release.package.gpui-pre]
 opt-level = 3
 
@@ -178,5 +182,5 @@ inherits = "release"
 strip = "debuginfo"
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "b38e8b8feec037f15da484f7f703983ae4f8f0de" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "b38e8b8feec037f15da484f7f703983ae4f8f0de" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "02724886f436f4f5b01ebfc1fb5cd37c09809a79" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "02724886f436f4f5b01ebfc1fb5cd37c09809a79" }

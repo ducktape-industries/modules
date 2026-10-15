@@ -1,7 +1,6 @@
 //! The `harness` program: agents that consensus runs. A manager hires an agent it handed to
-//! harness; a mention or a direct message reaches it through `attribution`, the model is
-//! called through `provider`, a thread is summarized before it outgrows the model's context
-//! window, and every tool call runs in a later block, as the agent.
+//! harness; a mention or a direct message reaches it through `attribution`, and the model is
+//! called through the egress role. Every tool call runs in a later block, as the agent.
 mod agents;
 mod anthropic;
 mod program;
@@ -21,7 +20,6 @@ pub use store::{PageRequest, PageResponse};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 pub const PROGRAM: &str = "harness";
-pub const MODEL_SERVICE: &str = "anthropic";
 pub const PART: &str = "part";
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -30,6 +28,7 @@ pub enum Op {
         agent: AccountNumber,
         system: String,
         model: String,
+        service: String,
         max_tokens: u32,
     },
     Dismiss {
@@ -48,6 +47,7 @@ pub struct AgentRow {
     pub name: String,
     pub system: String,
     pub model: String,
+    pub service: String,
     pub max_tokens: u32,
     pub hired: u64,
 }
@@ -186,6 +186,7 @@ pub struct ThreadRow {
     pub title: String,
     pub system: String,
     pub model: String,
+    pub service: String,
     pub max_tokens: u32,
     pub opened: u64,
     pub closed: bool,
@@ -300,11 +301,17 @@ pub fn attributed_as() -> Vec<u8> {
 pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let (title, fields) = match op {
-        Op::Hire { agent, model, .. } => (
+        Op::Hire {
+            agent,
+            model,
+            service,
+            ..
+        } => (
             "Hire an agent".to_owned(),
             vec![
                 field("agent", Value::Account(*agent)),
                 field("model", Value::text(model)),
+                field("service", Value::text(service)),
             ],
         ),
         Op::Dismiss { agent } => (

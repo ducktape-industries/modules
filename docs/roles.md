@@ -1,13 +1,15 @@
 # Roles, accounts and updates
 
-The kernel knows five programs by what they do, never by their ids. Genesis
-binds each role to a founding program; every call the kernel makes goes to the
-program bound to that role, speaking the role's interface in
-`crates/sdk/abi` (`abi::role::{programs, validators, identity, awaits}`) or, for
-blobs, ducktape's `blob::contract`. The programs in `crates/system/` are one
-implementation of each.
+The kernel knows five programs by what they do, never by their ids, and the
+node knows a sixth. Genesis binds each role to a founding program; every call
+the kernel makes goes to the program bound to that role, speaking the role's
+interface in `crates/sdk/abi` (`abi::role::{programs, validators, identity,
+awaits}`) or, for blobs, ducktape's `blob::contract`. The programs in
+`crates/system/` are one implementation of each. The egress role
+(`abi::role::egress`) is optional and the kernel never calls it: a node reads
+it, and `crates/app/egress` fills it.
 
-## The five roles
+## The roles
 
 | Role | Bound here to | What the kernel does with it |
 |---|---|---|
@@ -15,6 +17,7 @@ implementation of each.
 | `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there. The node (`ducktape join`, `invite`, `vote`, `halo`, `leave`) signs the role's `Op` with its identity key. Each member registers the halo address other members dial it at (`Member.halo`, host:port): `Enroll` and `SetHalo` refuse an unspecified or loopback host as `invalid_input` |
 | `identity` | `identity` | as it admits a program (at founding, and later off the programs role), executes `RegisterProgram { program }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfProgram(sender)`, and for a message a program sends as another account asks `Runs { program, account }` |
 | `awaits` | `awaits` | when a frame parks waiting on calls, sends `Park { frame, program, calls }` with the `System` origin, and `Close { frame }` when the frame finishes or the programs role changes its code; the role opens a ticket per call, and a `Resolve { ticket, answer }` from the called program, or an `Expire { ticket }` from anyone once the ticket is `EXPIRY_BLOCKS` old, makes it hand the frame its answer through the host's `Resume`. A refusal of `Park` fails the frame |
+| `egress` | `egress` | nothing: the node reads it. After each block a member node asks `Assigned { key }` with its own key, `Overdue` and `Node { key }`; it calls each request elected to it, through the services its `egress.toml` names, and signs `Answer { id, answer }`; it signs `Expire { id }` for each overdue one, and `Serve { services }` while the role's record of it differs from its config. A program asks `Serving { service }` for the member nodes that would be elected, and calls the role with `Request` |
 | `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
 
 The founding file binds them (ducktape's `[roles]` table; qa's
@@ -27,9 +30,10 @@ validators = "valset"
 identity = "identity"
 blobs = "blobs"
 awaits = "awaits"
+egress = "egress"
 ```
 
-All five are required. Founding refuses a role bound to a program the
+The first five are required, egress is not. Founding refuses a role bound to a program the
 founding does not list, and a node refuses a network that records no roles.
 Every frame's `Env` carries the bindings (`env.roles`), so a program that asks
 a role asks `ctx.env().roles.identity`, not a name it assumes; chat's roster

@@ -1,5 +1,5 @@
 [package]
-name = "provider"
+name = "egress"
 version.workspace = true
 edition.workspace = true
 
@@ -25,4 +25,5 @@ store = { workspace = true }
 
 [dev-dependencies]
 awaits = { workspace = true }
+identity = { workspace = true }
 valset = { workspace = true }

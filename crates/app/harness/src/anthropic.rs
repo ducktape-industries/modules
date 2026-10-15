@@ -1,7 +1,7 @@
 //! The Anthropic API as JSON: a thread's request in parts (a header, one part per message,
 //! separators, a close) so earlier messages are reused blobs, a reply read back as a turn, an
 //! on-demand compaction's summary, and a model's context window from the models endpoint.
-use provider::http::{Head, Method, Response};
+use abi::role::egress::http::{Head, Method, Response};
 use serde_json::{Map, Value, json};
 
 use crate::{Body, Frame, Role, Said, Stop, ThreadRow, Usage};
@@ -21,7 +21,7 @@ pub(crate) fn head(summarized: bool) -> Head {
     }
     Head {
         method: Method::Post,
-        path: "/v1/messages".into(),
+        target: "/v1/messages".into(),
         headers,
     }
 }
@@ -29,7 +29,7 @@ pub(crate) fn head(summarized: bool) -> Head {
 pub(crate) fn model(model: &str) -> Head {
     Head {
         method: Method::Get,
-        path: format!("/v1/models/{model}"),
+        target: format!("/v1/models/{model}"),
         headers: vec![("anthropic-version".into(), VERSION.into())],
     }
 }

@@ -94,7 +94,7 @@ pub(crate) fn upload(ctx: &QueryCtx, name: &str, request: &[u8]) -> Result<Vec<u
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
     let refs = load_refs(ctx, name, hash)?;
-    let objects = ObjectStore::new(ctx, hash);
+    let objects = ObjectStore::new(ctx);
     let Some(command) = parse_command(request, hash).map_err(refusal_of)? else {
         return Ok(Vec::new());
     };
@@ -121,7 +121,7 @@ pub(crate) fn closure(
     walk: &Walk,
 ) -> Result<Reply, Error> {
     let repo = load_repo(ctx, name)?;
-    let store = ObjectStore::querying(ctx, repo_hash(&repo), bounds, bounds.tree_walk);
+    let store = ObjectStore::querying(ctx, bounds, bounds.tree_walk);
     let Some(asked) = walk.parse(repo.hash) else {
         return Err(invalid(
             "a walk names an id that is not an object id of this repository",

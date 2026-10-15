@@ -460,11 +460,11 @@ dependencies = [
 [[package]]
 name = "blob"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=d57fad49bc62250f93f76b2a289b38dc8958a0f2#d57fad49bc62250f93f76b2a289b38dc8958a0f2"
 dependencies = [
  "abi",
  "borsh",
- "sha1",
+ "sha1-checked",
  "sha2 0.10.9",
  "thiserror 2.0.20",
 ]
@@ -1699,6 +1699,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "egress"
+version = "0.1.0"
+dependencies = [
+ "abi",
+ "awaits",
+ "borsh",
+ "describe",
+ "identity",
+ "program",
+ "store",
+ "valset",
+]
+
+[[package]]
 name = "either"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2377,7 +2391,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre"
 version = "0.3.9"
-source = "git+https://github.com/ducktape-industries/gpui-pre?rev=b38e8b8feec037f15da484f7f703983ae4f8f0de#b38e8b8feec037f15da484f7f703983ae4f8f0de"
+source = "git+https://github.com/ducktape-industries/gpui-pre?rev=02724886f436f4f5b01ebfc1fb5cd37c09809a79#02724886f436f4f5b01ebfc1fb5cd37c09809a79"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2503,7 +2517,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-scheduler"
 version = "0.3.9"
-source = "git+https://github.com/ducktape-industries/gpui-pre?rev=b38e8b8feec037f15da484f7f703983ae4f8f0de#b38e8b8feec037f15da484f7f703983ae4f8f0de"
+source = "git+https://github.com/ducktape-industries/gpui-pre?rev=02724886f436f4f5b01ebfc1fb5cd37c09809a79#02724886f436f4f5b01ebfc1fb5cd37c09809a79"
 dependencies = [
  "async-task",
  "backtrace",
@@ -2608,11 +2622,11 @@ dependencies = [
  "borsh",
  "chat",
  "describe",
+ "egress",
  "files",
  "forge",
  "identity",
  "program",
- "provider",
  "serde",
  "serde_json",
  "store",
@@ -2699,7 +2713,7 @@ dependencies = [
 [[package]]
 name = "host"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=d57fad49bc62250f93f76b2a289b38dc8958a0f2#d57fad49bc62250f93f76b2a289b38dc8958a0f2"
 dependencies = [
  "abi",
  "async-trait",
@@ -3157,7 +3171,7 @@ dependencies = [
 [[package]]
 name = "keyscheme"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=d57fad49bc62250f93f76b2a289b38dc8958a0f2#d57fad49bc62250f93f76b2a289b38dc8958a0f2"
 dependencies = [
  "base64 0.22.1",
  "borsh",
@@ -4151,11 +4165,11 @@ name = "program"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "blob",
  "borsh",
  "error",
  "program-derive",
  "serde",
- "sha1",
  "sha2 0.10.9",
 ]
 
@@ -4183,6 +4197,7 @@ dependencies = [
  "commonware-cryptography",
  "commonware-runtime",
  "describe",
+ "egress",
  "files",
  "forge",
  "gitcore",
@@ -4191,7 +4206,6 @@ dependencies = [
  "identity",
  "keyscheme",
  "program",
- "provider",
  "serde_json",
  "store",
  "tempfile",
@@ -4257,19 +4271,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "provider"
-version = "0.1.0"
-dependencies = [
- "abi",
- "awaits",
- "borsh",
- "describe",
- "program",
- "store",
- "valset",
 ]
 
 [[package]]
@@ -4724,7 +4725,7 @@ dependencies = [
 [[package]]
 name = "rmp-serde"
 version = "1.3.1"
-source = "git+https://github.com/ducktape-industries/gpui-pre?rev=b38e8b8feec037f15da484f7f703983ae4f8f0de#b38e8b8feec037f15da484f7f703983ae4f8f0de"
+source = "git+https://github.com/ducktape-industries/gpui-pre?rev=02724886f436f4f5b01ebfc1fb5cd37c09809a79#02724886f436f4f5b01ebfc1fb5cd37c09809a79"
 dependencies = [
  "rmp",
  "serde",
@@ -4748,7 +4749,7 @@ dependencies = [
 [[package]]
 name = "runtime"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=d57fad49bc62250f93f76b2a289b38dc8958a0f2#d57fad49bc62250f93f76b2a289b38dc8958a0f2"
 dependencies = [
  "abi",
  "async-trait",
@@ -5263,7 +5264,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "state"
 version = "0.1.0"
-source = "git+https://github.com/ducktape-industries/ducktape?rev=c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667#c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667"
+source = "git+https://github.com/ducktape-industries/ducktape?rev=d57fad49bc62250f93f76b2a289b38dc8958a0f2#d57fad49bc62250f93f76b2a289b38dc8958a0f2"
 dependencies = [
  "abi",
  "borsh",
