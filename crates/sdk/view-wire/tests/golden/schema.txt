@@ -1,7 +1,7 @@
 # methods: kind, target, request -> reply; borsh unless named
 blob.get None String -> Option<Vec<u8>>
 blob.manifest None String -> Option<Manifested>
-chain.block None BlockRef -> Option<Block>
+chain.block None BlockAsk -> Option<Block>
 chain.blocks None BlockPage -> BlockList
 chain.heads None () -> Head
 chain.network None () -> NetworkStatus
@@ -34,8 +34,9 @@ store.set None (String, Option<Vec<u8>>) -> ()
 (String, Option<Vec<u8>>) = Tuple { elements: ["String", "Option<Vec<u8>>"] }
 (String, Vec<u8>) = Tuple { elements: ["String", "Vec<u8>"] }
 Block = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]"), ("parent", "[u8; 32]"), ("time", "u64"), ("epoch", "u64"), ("proposer", "Option<Vec<u8>>"), ("txs", "Vec<Tx>")]) }
+BlockAsk = Struct { fields: NamedFields([("by", "BlockRef"), ("most", "u32")]) }
 BlockList = Struct { fields: NamedFields([("blocks", "Vec<Block>"), ("listed_from", "Option<u64>")]) }
-BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "u32")]) }
+BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "u32"), ("most", "u32")]) }
 BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1, "Id", "BlockRef__Id")] }
 BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
 BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }

@@ -34,6 +34,7 @@ impl Recent {
         Some(BlockPage {
             before: Some(high + 1),
             limit: run as u32,
+            most: 0,
         })
     }
 

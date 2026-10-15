@@ -20,9 +20,10 @@ pub(crate) use programs::Programs;
 pub(crate) use valset::Valset;
 pub(crate) use view::host::Error;
 pub(crate) use view::methods::{
-    Block, BlockList, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads, ChainStatus,
-    ChainTx, Changes, ClipboardWrite, Description, Head, HostRoute, HostSession, Located,
-    NodeStatus, Outcome, ProgramDescribe, Query, Receipt, Session, Tip, Tx, TxAsk, TxRef, Value,
+    Block, BlockAsk, BlockList, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads,
+    ChainStatus, ChainTx, Changes, ClipboardWrite, Description, Head, HostRoute, HostSession,
+    Located, NodeStatus, Outcome, ProgramDescribe, Query, Receipt, Session, Tip, Tx, TxAsk, TxRef,
+    Value,
 };
 pub(crate) use view::testing::TestAppContext;
 
@@ -125,8 +126,6 @@ pub(crate) fn chain(tip: u64) -> Vec<Block> {
         .collect()
 }
 
-pub(crate) const LISTED_BYTES: u32 = 4 << 10;
-
 pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> BlockList {
     let top = chain.len() as u64 - 1;
     let start = ask.before.map_or(Some(top), |before| before.checked_sub(1));
@@ -134,7 +133,7 @@ pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> BlockList {
         (0..=start.min(top))
             .rev()
             .take(ask.limit as usize)
-            .map(|height| listed(&chain[height as usize]))
+            .map(|height| listed(&chain[height as usize], ask.most))
             .collect()
     });
     BlockList {
@@ -143,13 +142,9 @@ pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> BlockList {
     }
 }
 
-pub(crate) fn listed(block: &Block) -> Block {
+pub(crate) fn listed(block: &Block, most: u32) -> Block {
     Block {
-        txs: block
-            .txs
-            .iter()
-            .map(|tx| capped(tx, LISTED_BYTES))
-            .collect(),
+        txs: block.txs.iter().map(|tx| capped(tx, most)).collect(),
         ..block.clone()
     }
 }
@@ -183,13 +178,13 @@ pub(crate) fn serve(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + Clone 
     let held = chain.clone();
     host.handle::<ChainBlocks>(move |ask| Ok(page(&held(), &ask)));
     let held = chain.clone();
-    host.handle::<ChainBlock>(move |by| {
+    host.handle::<ChainBlock>(move |ask| {
         let held = held();
-        let found = match by {
+        let found = match ask.by {
             BlockRef::Height(height) => held.get(height as usize),
             BlockRef::Id(id) => held.iter().find(|block| block.id == id),
         };
-        Ok(found.map(listed))
+        Ok(found.map(|block| listed(block, ask.most)))
     });
     host.handle::<ChainTx>(move |ask| Ok(located(&chain(), ask)));
 }

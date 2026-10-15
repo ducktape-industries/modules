@@ -76,7 +76,8 @@ fn the_strip_asks_the_highest_missing_run_then_keeps_its_span() {
         first,
         BlockPage {
             before: Some(101),
-            limit: 64
+            limit: 64,
+            most: 0,
         }
     );
     recent.land(100, led(41, 100, |_| 1));
@@ -84,7 +85,8 @@ fn the_strip_asks_the_highest_missing_run_then_keeps_its_span() {
         recent.next(100),
         Some(BlockPage {
             before: Some(41),
-            limit: 4
+            limit: 4,
+            most: 0,
         })
     );
     recent.land(100, led(37, 40, |_| 2));
@@ -96,7 +98,8 @@ fn the_strip_asks_the_highest_missing_run_then_keeps_its_span() {
         fresh,
         BlockPage {
             before: Some(103),
-            limit: 2
+            limit: 2,
+            most: 0,
         }
     );
     recent.land(102, led(101, 102, |_| 1));
@@ -115,7 +118,8 @@ fn the_lowest_listed_height_ends_the_asking() {
         first,
         BlockPage {
             before: Some(11),
-            limit: 11
+            limit: 11,
+            most: 0,
         }
     );
     let listed = BlockList {
@@ -136,7 +140,8 @@ fn a_node_that_lists_nothing_is_asked_again_at_the_next_head() {
         recent.next(11),
         Some(BlockPage {
             before: Some(12),
-            limit: 1
+            limit: 1,
+            most: 0,
         })
     );
 }
