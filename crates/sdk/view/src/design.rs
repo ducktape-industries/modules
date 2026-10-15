@@ -371,6 +371,11 @@ pub fn sheet_row(
 /// kit's `Icon`), `size` each way, drawn in the text colour it is given or
 /// inherits: the caller names the tone (`.text_color(theme.muted)`). It
 /// says nothing to a screen reader; the control it sits in is named.
+///
+/// `name` is the icon's Lucide 1.x file name (the app registers gpui-kit's
+/// `AllAssets`, Lucide 1.43). An older name is an alias there and has no
+/// file: the Expo app's `Trash2` is `trash`, its `AlertCircle` is
+/// `circle-alert`.
 pub fn icon(name: &str, size: Pixels) -> crate::Svg {
     crate::svg()
         .path(format!("icons/{name}.svg"))
