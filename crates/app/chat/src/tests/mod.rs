@@ -52,18 +52,18 @@ fn roster() -> Vec<crate::Profile> {
         kind,
     };
     let agent = |number, standing| {
-        let kind = Kind::Managed {
-            runner: None,
+        let kind = Kind::Program {
+            script: None,
             manager: 1,
             category: Category::Agent,
             standing,
         };
         profile(number, kind)
     };
-    let people = (1..=7).map(|number| profile(number, Kind::Person));
+    let people = (1..=7).map(|number| profile(number, Kind::User));
     let programs = [900, 901, 902].map(|number| {
         let program = program_of(&Principal::Account(number)).unwrap();
-        profile(number, Kind::Program(program.into()))
+        profile(number, Kind::System(program.into()))
     });
     people
         .chain(programs)

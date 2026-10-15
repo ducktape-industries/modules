@@ -1,5 +1,5 @@
-//! The `harness` program: agents that consensus runs. A manager hires an agent it handed to
-//! harness; a mention or a direct message reaches it through `attribution`, and the model is
+//! The `harness` program: agents that consensus runs. A manager hires an agent whose script
+//! calls harness; a mention or a direct message reaches it through `attribution`, and the model is
 //! called through the egress role. Every tool call runs in a later block, as the agent.
 mod agents;
 mod anthropic;

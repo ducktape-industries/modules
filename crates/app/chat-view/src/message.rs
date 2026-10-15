@@ -115,7 +115,7 @@ pub fn chat_message(row: MsgRow, names: &Names) -> ChatMessage {
 pub fn agent(names: &Names, principal: &chat::Principal) -> bool {
     matches!(
         names.kind(principal),
-        Some(chat::Kind::Managed {
+        Some(chat::Kind::Program {
             category: chat::Category::Agent,
             ..
         })

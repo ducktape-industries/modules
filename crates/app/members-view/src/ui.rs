@@ -310,7 +310,7 @@ fn member_row(
     let name_of = |manager| name(all, manager);
     let kind = match &row.kind {
         // a program named for its program says so once
-        identity::Kind::Program(program) if *program == row.name => "Program".into(),
+        identity::Kind::System(program) if *program == row.name => "Program".into(),
         kind => identity::view::kind(kind, name_of),
     };
     let me = view.me == Some(number);
@@ -457,14 +457,14 @@ fn head(
     // a narrow pane wraps between parts
     let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(format!("account {}", row.number))]];
     match &row.kind {
-        identity::Kind::Person => caption.push(vec![text("Person".into())]),
-        identity::Kind::Program(program) if *program == row.name => {
+        identity::Kind::User => caption.push(vec![text("User".into())]),
+        identity::Kind::System(program) if *program == row.name => {
             caption.push(vec![text("Program".into())])
         }
-        identity::Kind::Program(_) => caption.push(vec![text(
+        identity::Kind::System(_) => caption.push(vec![text(
             row.kind.badge(|_| String::new()).unwrap_or_default(),
         )]),
-        identity::Kind::Managed {
+        identity::Kind::Program {
             manager, standing, ..
         } => {
             // the badge with the manager's name left out, and the name as
@@ -524,7 +524,7 @@ fn head(
     let number = row.number;
     let explorer = format!("duck://explorer/account/{number}");
     let dm = match (view.me, &row.kind) {
-        (Some(me), identity::Kind::Person | identity::Kind::Managed { .. }) if me != number => {
+        (Some(me), identity::Kind::User | identity::Kind::Program { .. }) if me != number => {
             ducklink::mint(
                 &view.chain,
                 chat::PROGRAM,
@@ -778,7 +778,7 @@ fn manages(
     let body = managed
         .iter()
         .filter_map(|agent| {
-            let identity::Kind::Managed {
+            let identity::Kind::Program {
                 category: identity::Category::Agent,
                 standing,
                 ..

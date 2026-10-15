@@ -79,7 +79,7 @@ fn a_dm_seats_both_accounts_opens_once_and_keeps_others_out() {
 }
 
 #[test]
-fn a_dm_opens_only_to_a_person_or_an_agent_that_acts() {
+fn a_dm_opens_only_to_a_user_or_a_program_account_that_acts() {
     let mut chat = Chat::default();
     chat.ok(&ADA, open_dm(2));
     chat.ok(&ADA, open_dm(AGENT));
@@ -105,7 +105,7 @@ fn a_dm_stays_open_once_its_counterpart_is_suspended() {
     // identity suspends the agent after the room opened
     let mut roster = roster();
     for profile in &mut roster {
-        if let crate::Kind::Managed { standing, .. } = &mut profile.kind
+        if let crate::Kind::Program { standing, .. } = &mut profile.kind
             && profile.number == AGENT
         {
             *standing = crate::Standing::Suspended;

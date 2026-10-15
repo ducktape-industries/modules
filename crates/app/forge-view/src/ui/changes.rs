@@ -557,9 +557,10 @@ fn reviewers(
         .into_any_element()
 }
 
-/// The identity picker: the people and agents chat's mentions offer — no
-/// program's account, none suspended ([`chat::view::Names::people`]) — whose
-/// name holds `needle`, each a button `{key}-{number}` that `pick`s it.
+/// The identity picker: the users and program accounts chat's mentions
+/// offer — no system account, none suspended
+/// ([`chat::view::Names::people`]) — whose name holds `needle`, each a
+/// button `{key}-{number}` that `pick`s it.
 /// Nothing while the roster is still being read.
 #[allow(
     clippy::too_many_arguments,

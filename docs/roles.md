@@ -59,14 +59,14 @@ hands it to the program as `Env.sender`:
 - a signed frame acts as the account its key holds (`Account(key)`); a key
   that holds none still runs, as no one (`sender: None`), which is how
   identity's own `Create` works; a key whose account does not act (a
-  suspended agent) is refused, and the host rejects the frame;
+  suspended program account) is refused, and the host rejects the frame;
 - a message or a reply from another program acts as that program's account
   (`OfProgram(program)`);
 - a message a program sends as another account (`ctx.emit_as(account, ..)`,
   `Message.acting`) acts as that account when identity answers
-  `Runs { program, account }` with it: an agent whose manager handed it to
-  that program, while the agent is active. Any other answer, or a refusal,
-  rejects the message, so no key is held anywhere for an agent a program
+  `Runs { program, account }` with it: a program account whose script calls
+  that program, while the account is active. Any other answer, or a refusal,
+  rejects the message, so no key is held anywhere for an account a program
   runs;
 - founding and the kernel's own calls act as the chain (`Root`).
 
@@ -83,33 +83,37 @@ Everything that acts is an account in `identity`:
 `Account { number, card, control }`. The `Card` is what it shows (name,
 avatar, bio); the `Control` is who acts as it:
 
-- `Person { keys }`: a person and the keys they hold.
-- `Managed { manager, category, life, runner }`: an agent. Its manager, a
-  person, gives it keys, hands it to a program to run (`runner`), and
-  decides its `Life`: `Active { keys }`, `Suspended { keys }` (keys kept,
-  frames refused) or `Revoked` (keys dropped, final).
-- `Program { program }`: a program's account, registered by the kernel as it
-  admits the program. It holds no keys; the program alone acts as it.
+- `User { keys }`: a person and the keys they hold.
+- `Program { manager, category, life, script }`: a program account. Its
+  manager, a user, declares its `category` (`Agent`), gives it keys, sets
+  its `script`, and decides its `Life`: `Active { keys }`,
+  `Suspended { keys }` (keys kept, frames refused) or `Revoked` (keys
+  dropped, final). A `Script { calls, config }` names the program that runs
+  the account's actions and hands it `config`, text only that program gives
+  a meaning. Not every program account is an agent; `Agent` is the one
+  category so far.
+- `System { program }`: a program's own account, registered by the kernel
+  as it admits the program. It holds no keys; the program alone acts as it.
 
 Who may do what (the acting account is `ctx.sender()`):
 
 | Op | Who |
 |---|---|
 | `RegisterProgram { program }` | the system (`Root` origin) alone; a program that has an account keeps it |
-| `Create { name, scheme }` | a key that holds no account; it becomes a person's first key |
-| `CreateAgent { name }` | a person; they become its manager |
-| `AddKey` | a person's account: the new key signs the frame and a key already on the account consents. An agent's: its manager signs and the new key consents to itself. Never a program's or a revoked agent's |
-| `RemoveKey` | a person removes their own key or a junior one, never their last. An agent's manager removes any of its keys |
-| `SetName`, `SetProfile` | a person or a program on its own account; an agent's manager on the agent's (not once revoked) |
-| `Suspend`, `Resume`, `Revoke` | the agent's manager |
-| `SetRunner { account, runner }` | the agent's manager, not once revoked. `Some(program)` names a program that has an account; that program then sends messages as the agent (`Runs`). `None` takes it back |
+| `Create { name, scheme }` | a key that holds no account; it becomes a user's first key |
+| `CreateAgent { name }` | a user; they become the manager of a new program account of the `Agent` category, with no key and no script |
+| `AddKey` | a user's account: the new key signs the frame and a key already on the account consents. A program account's: its manager signs and the new key consents to itself. Never a system account's or a revoked program account's |
+| `RemoveKey` | a user removes their own key or a junior one, never their last. A program account's manager removes any of its keys |
+| `SetName`, `SetProfile` | a user or a program on its own account; a program account's manager on that account's (not once revoked) |
+| `Suspend`, `Resume`, `Revoke` | the program account's manager |
+| `SetScript { account, script }` | the program account's manager, not once revoked. `Some(Script { calls, config })` names in `calls` a program that has an account; that program then sends messages as the account (`Runs`) and reads `config`. `None` takes it back |
 | `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and the accounts named) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
 
 The role's queries, which views and other modules ask too, are
-`Account(key)`, `OfModule(module)`, `Profile(number)`,
+`Account(key)`, `OfProgram(program)`, `Profile(number)`,
 `Profiles { after, limit }` and `Runs { program, account }`. A `Profile` is
-`{ number, name, kind }`, where `Kind` is `Person`,
-`Managed { manager, category, standing, runner }` or `Program(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view
+`{ number, name, kind }`, where `Kind` is `User`,
+`Program { manager, category, standing, script }` or `System(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view
 shows beside a name ("Agent · managed by Dev", "Program · chat", "suspended"),
 the one place that happens.
 
@@ -184,8 +188,8 @@ Who may schedule or cancel (putting a blob is open to any account):
   capped hook fuel. Only the vote sets, unsets or removes a hook
   (`SetHook`, `RemoveHook`, `Remove` of a hooked id).
 
-Only the vote grants (`Op::Grant`, to a person or an agent identity
-profiles, never a program's account); `Op::Revoke` is the vote's or the
+Only the vote grants (`Op::Grant`, to a user or a program account identity
+profiles, never a system account); `Op::Revoke` is the vote's or the
 holder's own, and drops every change the account made that it no longer
 covers. The vote wins: its change to an id takes every change a grant
 made to that id with it, and its removal of an id the id's `Program`

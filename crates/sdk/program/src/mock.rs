@@ -30,7 +30,7 @@ pub type Sibling = Box<dyn Fn(Env, &[u8]) -> Result<Vec<u8>, Error>>;
 /// The identity role over a fixed roster, for a native test of a program
 /// that names accounts, answered as identity answers any asker: `Account`
 /// and `OfProgram` from the roster's keys and programs ([`Roster`]; refused
-/// `unauthorized` while a managed account does not act), `Profile` and
+/// `unauthorized` while a program account does not act), `Profile` and
 /// `Profiles` (paged by number) from its profiles.
 pub fn identity_role(roster: &Roster, request: &[u8]) -> Result<Vec<u8>, Error> {
     use abi::role::identity::{Query, Reply};

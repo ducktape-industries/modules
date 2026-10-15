@@ -47,14 +47,14 @@ fn seated() -> (MockHost, BlobId) {
     );
     let blobs = blobs_role(&store);
     store.identity(vec![
-        profile(CAROL, Kind::Person),
-        profile(DAN, Kind::Person),
-        profile(EVE, Kind::Person),
-        profile(FORGE, Kind::Program("forge".into())),
+        profile(CAROL, Kind::User),
+        profile(DAN, Kind::User),
+        profile(EVE, Kind::User),
+        profile(FORGE, Kind::System("forge".into())),
         profile(
             AGENT,
-            Kind::Managed {
-                runner: None,
+            Kind::Program {
+                script: None,
                 manager: CAROL,
                 category: Category::Agent,
                 standing: Standing::Active,
@@ -527,7 +527,7 @@ fn the_votes_change_clears_a_stale_maker() {
 }
 
 #[test]
-fn only_the_vote_grants_and_only_to_a_person_or_an_agent_over_a_name_with_no_role() {
+fn only_the_vote_grants_and_only_to_a_user_or_a_program_account_over_a_name_with_no_role() {
     let (store, _) = seated();
     for env in [by(CAROL), by(EVE).from_program("forge", Some(EVE))] {
         assert_eq!(

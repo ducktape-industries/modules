@@ -11,7 +11,7 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     search(&mut cx, &abi::hex(&[0xb2; 32]));
     assert!(cx.has_text("In block 12"), "{:?}", cx.texts());
     search(&mut cx, "#3");
-    assert!(cx.has_text("account 3   Person   1 device"));
+    assert!(cx.has_text("account 3   User   1 device"));
     search(&mut cx, "chat");
     assert!(
         cx.find("explorer-program").is_some() && cx.has_text("reads and writes the clipboard"),
@@ -173,7 +173,7 @@ fn a_link_opens_the_page_it_names() {
     open(&mut cx, &format!("block/{}", abi::hex(&[105; 32])));
     assert!(cx.has_text(&abi::hex(&[105; 32])), "a block by its hash");
     open(&mut cx, "account/3");
-    assert!(cx.has_text("account 3   Person   1 device"));
+    assert!(cx.has_text("account 3   User   1 device"));
     open(&mut cx, "txs/chat");
     assert!(cx.has_text("Transactions · chat"));
     open(&mut cx, "program/chat");
