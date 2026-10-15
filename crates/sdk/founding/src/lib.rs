@@ -21,9 +21,10 @@ pub const PROGRAMS: [(&str, &str); 5] = [
     ("chat", "chat_view"),
     ("forge", "forge_view"),
 ];
-pub const UNVIEWED: [&str; 7] = [
+pub const UNVIEWED: &[&str] = &[
     "blobs",
     "awaits",
+    "scheduler",
     "activity",
     "files",
     "egress",

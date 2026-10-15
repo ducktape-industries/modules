@@ -1,17 +1,18 @@
 //! What each op checks and writes: an account registering a service and assigning the nodes
 //! that may serve it, a member node serving, a program's call and the chain electing its node,
-//! the node answering it, and an overdue call expiring.
+//! the node answering it, and the request's own scheduled run expiring it.
 use ::program::kernel::error_from;
 use ::program::{
-    BlobId, Cause, Error, ExecCtx, QueryCtx, invalid, not_found, unauthorized, unexpected_reply,
-    wrong_state,
+    BlobId, Cause, Ctx, Error, ExecCtx, Origin, QueryCtx, code, invalid, not_found, unauthorized,
+    unexpected_reply, wrong_state,
 };
-use abi::role::{awaits, validators};
+use abi::role::validators;
 use store::{PageRequest, PageResponse};
 
-use crate::state::{ASSIGNED, COUNT, DEADLINES, NODES, REQUESTS, SERVICES, SERVING, Stored, TURNS};
+use crate::state::{ASSIGNED, COUNT, NODES, REQUESTS, SERVICES, SERVING, Stored, TURNS};
 use crate::{
-    Answer, EXPIRY_BLOCKS, HTTP, NodeRow, RELAY, RESERVED, Request, RequestRow, ServiceRow,
+    Answer, DEFAULT_WAIT, HTTP, NodeRow, Op, PROGRAM, RELAY, RESERVED, Request, RequestRow,
+    ServiceRow,
 };
 
 fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
@@ -187,7 +188,19 @@ fn elect(ctx: &ExecCtx, service: &str) -> Result<Vec<u8>, Error> {
     Ok(eligible[(turn % eligible.len() as u64) as usize].clone())
 }
 
-pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
+fn expiry_height(made: u64, wait: Option<u64>) -> Result<u64, Error> {
+    let wait = wait.unwrap_or(DEFAULT_WAIT);
+    if wait == 0 {
+        return Err(invalid("a request waits at least one block"));
+    }
+    made.checked_add(wait).ok_or_else(|| {
+        invalid(format!(
+            "a wait of {wait} blocks from height {made} passes the last height"
+        ))
+    })
+}
+
+pub(crate) async fn request(ctx: &Ctx, request: Request, wait: Option<u64>) -> Result<(), Error> {
     let requester = ctx.env().sending_program()?;
     let called = matches!(ctx.env().cause, Cause::Call { .. });
     if !called {
@@ -195,22 +208,31 @@ pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
             "a request is a call: the program awaits egress with ctx.call",
         ));
     }
+    let unscheduled = ctx.env().roles.get(abi::role::SCHEDULER).is_none();
+    if unscheduled {
+        return Err(Error::new(
+            code::UNSUPPORTED,
+            "egress expires a request through the scheduler role, and this network binds no \
+             scheduler",
+        ));
+    }
+    let made = ctx.env().height;
+    let expires = expiry_height(made, wait)?;
     check(ctx, &request)?;
     let node = elect(ctx, request.service())?;
-    let ticket = ctx.defer()?;
     let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
-    let made = ctx.env().height;
+    COUNT.put(ctx, &id);
+    let expiry = ctx.schedule(expires, PROGRAM, &Op::Expire { id }).await?;
+    let ticket = ctx.defer()?;
     let row = RequestRow {
         id,
         requester,
         request,
         node,
         made,
-        deadline: made + EXPIRY_BLOCKS,
+        expiry,
     };
-    COUNT.put(ctx, &id);
     ASSIGNED.insert(ctx, &(row.node.clone(), id));
-    DEADLINES.insert(ctx, &(row.deadline, id));
     REQUESTS.put(ctx, &id, &Stored { row, ticket });
     Ok(())
 }
@@ -225,12 +247,11 @@ fn close(ctx: &ExecCtx, stored: Stored, answer: Result<Vec<u8>, Error>) -> Resul
     let row = stored.row;
     REQUESTS.remove(ctx, &row.id);
     ASSIGNED.remove(ctx, &(row.node.clone(), row.id));
-    DEADLINES.remove(ctx, &(row.deadline, row.id));
     ctx.resolve(stored.ticket, answer)?;
     Ok(())
 }
 
-pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error> {
+pub(crate) async fn answer(ctx: &Ctx, id: u64, answer: Answer) -> Result<(), Error> {
     let key = ctx.env().signer()?;
     let stored = open(ctx, id)?;
     if stored.row.node != key {
@@ -244,12 +265,7 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
             "request {id} is answered in a later block than the one that made it"
         )));
     }
-    if ctx.env().height > stored.row.deadline {
-        return Err(wrong_state(format!(
-            "request {id} expired at height {}",
-            stored.row.deadline
-        )));
-    }
+    ctx.cancel(stored.row.expiry).await?;
     let answered = match answer {
         Answer::Output(output) => Ok(output),
         Answer::Failed(reason) => Err(failed(stored.row.request.service(), &reason)),
@@ -262,15 +278,28 @@ fn failed(service: &str, reason: &str) -> Error {
 }
 
 pub(crate) fn expire(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
+    let env = ctx.env();
+    let Cause::Scheduled { entry } = env.cause else {
+        return Err(unauthorized(
+            "a request expires only by its own scheduled run",
+        ));
+    };
+    let from_itself = env.origin == Origin::Program(env.program.clone());
+    if !from_itself {
+        return Err(unauthorized(
+            "a request expires only by the run egress scheduled",
+        ));
+    }
     let stored = open(ctx, id)?;
-    if ctx.env().height <= stored.row.deadline {
-        return Err(wrong_state(format!(
-            "request {id} is open until height {}",
-            stored.row.deadline
+    let its_expiry = stored.row.expiry == entry;
+    if !its_expiry {
+        return Err(unauthorized(format!(
+            "entry {entry} is not request {id}'s expiry"
         )));
     }
-    let expired = awaits::expired(stored.ticket, ctx.env().height);
-    close(ctx, stored, Err(error_from(expired)))
+    let waited = env.height.saturating_sub(stored.row.made);
+    let expired = wrong_state(format!("request {id} expired after {waited} blocks"));
+    close(ctx, stored, Err(expired))
 }
 
 pub(crate) fn assigned(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Vec<RequestRow>, Error> {
@@ -283,16 +312,6 @@ pub(crate) fn assigned(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Vec<RequestRow>,
 
 pub(crate) fn request_row(ctx: &QueryCtx, id: u64) -> Result<Option<RequestRow>, Error> {
     Ok(REQUESTS.get(ctx, &id)?.map(|stored| stored.row))
-}
-
-pub(crate) fn overdue(ctx: &QueryCtx) -> Result<Vec<RequestRow>, Error> {
-    let height = ctx.env().height;
-    DEADLINES
-        .all(ctx)?
-        .into_iter()
-        .take_while(|(deadline, _)| *deadline < height)
-        .map(|(_, id)| Ok(open(ctx, id)?.row))
-        .collect()
 }
 
 pub(crate) fn node(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Option<NodeRow>, Error> {

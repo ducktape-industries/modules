@@ -239,11 +239,20 @@ pub enum Outcome {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Receipt {
+    pub program: ProgramId,
+    pub outcome: Outcome,
+    pub events: Vec<Vec<u8>>,
+    pub nested: Vec<Receipt>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Cause {
     Direct,
     Message(ItemRef),
     Completion { item: ItemRef, outcome: Outcome },
     Call { ticket: role::awaits::Ticket },
+    Scheduled { entry: role::scheduler::EntryId },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -460,6 +469,7 @@ pub mod role {
     pub const BLOBS: &str = "blobs";
     pub const AWAITS: &str = "awaits";
     pub const EGRESS: &str = "egress";
+    pub const SCHEDULER: &str = "scheduler";
     pub const REQUIRED: &[&str] = &[PROGRAMS, VALIDATORS, IDENTITY, BLOBS, AWAITS];
 
     /// Which code runs at a height.
@@ -723,8 +733,6 @@ pub mod role {
         pub type FrameId = u64;
         pub type Answer = Result<Vec<u8>, Refusal>;
 
-        pub const EXPIRY_BLOCKS: u64 = 64;
-
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub struct Call {
             pub ticket: Ticket,
@@ -742,9 +750,6 @@ pub mod role {
                 ticket: Ticket,
                 answer: Answer,
             },
-            Expire {
-                ticket: Ticket,
-            },
             Close {
                 frame: FrameId,
             },
@@ -757,7 +762,6 @@ pub mod role {
             pub caller: ProgramId,
             pub target: ProgramId,
             pub opened: u64,
-            pub deadline: u64,
         }
 
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -770,24 +774,12 @@ pub mod role {
                 after: Option<Ticket>,
                 limit: u32,
             },
-            Overdue {
-                height: u64,
-                after: Option<Ticket>,
-                limit: u32,
-            },
         }
 
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub enum Reply {
             Ticket(Option<TicketRow>),
             Tickets(Vec<TicketRow>),
-        }
-
-        pub fn expired(ticket: Ticket, height: u64) -> Refusal {
-            Refusal::new(
-                reason::WRONG_STATE,
-                format!("call {ticket} expired at height {height}"),
-            )
         }
 
         pub fn cancelled(program: &str) -> Refusal {
@@ -800,7 +792,10 @@ pub mod role {
 
     pub mod egress {
         use crate::role::identity::AccountNumber;
+        use crate::role::scheduler::EntryId;
         use crate::{BlobId, BorshDeserialize, BorshSerialize, ProgramId};
+
+        pub const DEFAULT_WAIT: u64 = 64;
 
         pub const HTTP: &str = "http";
         pub const RELAY: &str = "relay";
@@ -818,7 +813,10 @@ pub mod role {
             Serve {
                 services: Vec<String>,
             },
-            Request(Request),
+            Request {
+                request: Request,
+                wait: Option<u64>,
+            },
             Answer {
                 id: u64,
                 answer: Answer,
@@ -877,7 +875,7 @@ pub mod role {
             pub request: Request,
             pub node: Vec<u8>,
             pub made: u64,
-            pub deadline: u64,
+            pub expiry: EntryId,
         }
 
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -892,9 +890,8 @@ pub mod role {
         #[repr(u8)]
         pub enum Query {
             Assigned { key: Vec<u8> } = 0,
-            Overdue = 1,
-            Node { key: Vec<u8> } = 2,
-            Serving { service: String } = 3,
+            Node { key: Vec<u8> } = 1,
+            Serving { service: String } = 2,
         }
 
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -1021,6 +1018,59 @@ pub mod role {
                 }
                 Ok(())
             }
+        }
+    }
+
+    pub mod scheduler {
+        use crate::{BorshDeserialize, BorshSerialize, ProgramId, Receipt};
+
+        pub type EntryId = u64;
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Op {
+            Schedule {
+                height: u64,
+                target: ProgramId,
+                payload: Vec<u8>,
+            },
+            Cancel {
+                entry: EntryId,
+            },
+            Ran {
+                entry: EntryId,
+                receipt: Receipt,
+            },
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct Entry {
+            pub id: EntryId,
+            pub scheduler: ProgramId,
+            pub height: u64,
+            pub target: ProgramId,
+            pub payload: Vec<u8>,
+            pub receipt: Option<Receipt>,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Query {
+            Due {
+                height: u64,
+                after: Option<EntryId>,
+                limit: Option<u32>,
+            },
+            Entry {
+                id: EntryId,
+            },
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub enum Reply {
+            Due {
+                entries: Vec<Entry>,
+                next: Option<EntryId>,
+            },
+            Entry(Option<Entry>),
         }
     }
 }
@@ -1172,12 +1222,11 @@ mod tests {
     fn the_egress_role_asks_on_fixed_tags_a_program_extends_after() {
         use role::egress::{Query, Reply};
         assert_eq!(encode(&Query::Assigned { key: vec![7] })[0], 0);
-        assert_eq!(encode(&Query::Overdue), [1]);
-        assert_eq!(encode(&Query::Node { key: vec![7] })[0], 2);
+        assert_eq!(encode(&Query::Node { key: vec![7] })[0], 1);
         let serving = Query::Serving {
             service: "s".into(),
         };
-        assert_eq!(encode(&serving)[0], 3);
+        assert_eq!(encode(&serving)[0], 2);
         assert_eq!(encode(&Reply::Requests(Vec::new())), [0, 0, 0, 0, 0]);
         assert_eq!(encode(&Reply::Node(None)), [1, 0]);
         assert_eq!(encode(&Reply::Serving(Vec::new())), [2, 0, 0, 0, 0]);
@@ -1265,6 +1314,45 @@ mod tests {
     }
 
     #[test]
+    fn a_scheduled_run_and_its_entry_round_trip() {
+        use role::scheduler::{Entry, Op, Query, Reply};
+        let receipt = Receipt {
+            program: "t".into(),
+            outcome: Outcome::Rejected(Refusal::new("x", "y")),
+            events: vec![vec![1]],
+            nested: vec![Receipt {
+                program: "n".into(),
+                outcome: Outcome::Applied { output: vec![2] },
+                events: Vec::new(),
+                nested: Vec::new(),
+            }],
+        };
+        let entry = Entry {
+            id: 3,
+            scheduler: "s".into(),
+            height: 9,
+            target: "t".into(),
+            payload: vec![4],
+            receipt: Some(receipt.clone()),
+        };
+        let ran = Op::Ran { entry: 3, receipt };
+        let due = Query::Due {
+            height: 9,
+            after: Some(2),
+            limit: None,
+        };
+        let page = Reply::Due {
+            entries: vec![entry],
+            next: None,
+        };
+        let cause = Cause::Scheduled { entry: 3 };
+        assert_eq!(decode::<Op>(&encode(&ran)).unwrap(), ran);
+        assert_eq!(decode::<Query>(&encode(&due)).unwrap(), due);
+        assert_eq!(decode::<Reply>(&encode(&page)).unwrap(), page);
+        assert_eq!(decode::<Cause>(&encode(&cause)).unwrap(), cause);
+    }
+
+    #[test]
     fn every_envelope_round_trips() {
         let env = Env {
             network: b"n".to_vec(),
@@ -1280,6 +1368,7 @@ mod tests {
                 (role::BLOBS, "b"),
                 (role::AWAITS, "a"),
                 (role::EGRESS, "e"),
+                (role::SCHEDULER, "s"),
             ]),
             cause: Cause::Completion {
                 item: ItemRef {

@@ -1,9 +1,9 @@
-//! The agents on a `MockChain` with identity, attribution, awaits, chat, files, egress and
-//! valset seated: a mention or a direct message reaches a hired agent, the node serving the
+//! The agents on a `MockChain` with identity, attribution, awaits, scheduler, chat, files, egress
+//! and valset seated: a mention or a direct message reaches a hired agent, the node serving the
 //! model's egress service answers as the model would, and every tool call runs once its relay
 //! comes back, as the agent.
 use ::program::{Error, MockChain, Origin, Principal, code};
-use egress::{Answer, Egress, RELAY, Request, RequestRow, http};
+use egress::{Answer, DEFAULT_WAIT, Egress, RELAY, Request, RequestRow, http};
 use serde_json::{Value, json};
 use valset::{Genesis, Member, Valset};
 
@@ -49,7 +49,8 @@ fn world() -> World {
     chain.seat::<identity::Identity>(identity::PROGRAM);
     chain.seat::<Valset>("valset");
     chain.seat::<awaits::Awaits>(awaits::PROGRAM);
-    chain.seat::<Egress>(egress::PROGRAM);
+    chain.seat::<scheduler::Scheduler>(scheduler::PROGRAM);
+    chain.seat_awaiting::<Egress>(egress::PROGRAM);
     chain.seat::<attribution::Attribution>(attribution::PROGRAM);
     chain.seat_awaiting::<Harness>(PROGRAM);
     chain.seat::<files::Files>(files::PROGRAM);
@@ -732,6 +733,37 @@ fn a_failed_model_call_is_noticed_once_and_the_next_input_asks_again() {
         "{}",
         told[0]
     );
+    world.mention("m2", "again");
+    let (_, head) = open_request(chain);
+    assert_eq!(path(&head), "/v1/messages");
+}
+
+#[test]
+fn a_model_call_that_expires_ends_the_turn_with_the_expired_error() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "hello", Some(WINDOW));
+    let (request, head) = open_request(chain);
+    assert_eq!(path(&head), "/v1/messages");
+    chain.at(request.made + DEFAULT_WAIT, 0);
+    assert!(notices(chain, thread).is_empty());
+    chain.at(request.made + DEFAULT_WAIT + 1, 0);
+    assert!(
+        assigned(chain, SERVICE).is_empty(),
+        "an expired call is not repeated"
+    );
+    let told = notices(chain, thread);
+    let expired = format!("request {} expired after {DEFAULT_WAIT} blocks", request.id);
+    assert_eq!(told.len(), 1);
+    assert!(told[0].contains(&expired), "{}", told[0]);
+    let late = egress::Op::Answer {
+        id: request.id,
+        answer: Answer::Output(reply(json!([]), "end_turn", 10)),
+    };
+    let refused = chain
+        .submit(Origin::Signed(NODE.to_vec()), egress::PROGRAM, &late)
+        .unwrap_err();
+    assert_eq!(refused.code, code::NOT_FOUND);
     world.mention("m2", "again");
     let (_, head) = open_request(chain);
     assert_eq!(path(&head), "/v1/messages");

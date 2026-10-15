@@ -379,8 +379,8 @@ impl Awaiting for Feed {
 submission. A target that cannot answer yet calls `ctx.defer()`, keeps the
 ticket, and later sends `ctx.resolve(ticket, answer)`; until then your frame
 is parked, and it resumes in the submission that carries the resolve, with
-`ctx.env()` reading that block. A ticket nobody resolves expires after
-`awaits::EXPIRY_BLOCKS`, and the call answers the awaits role's refusal.
+`ctx.env()` reading that block. A call waits until its target answers; the
+awaits role puts no deadline on it.
 Each run between two awaits is its own transaction: a refusal undoes only
 the run it ends, never what an earlier block kept. `program::all(futures)`
 awaits several calls together and answers their results in order; each
@@ -389,10 +389,22 @@ the awaits program (`chain.seat::<awaits::Awaits>("awaits")`) and the
 awaiting program with `chain.seat_awaiting`.
 
 The program bound to the egress role is called this way:
-`ctx.call_raw(egress, abi::encode(&abi::role::egress::Op::Request(request)))`,
+`ctx.call_raw(egress, abi::encode(&abi::role::egress::Op::Request { request, wait: None }))`,
 with `egress` read from `ctx.env().roles.get(abi::role::EGRESS)`, answers the elected node's
 output, in a later block, or a refusal when the node reports a failure or
-the request expires.
+the request expires, `wait` blocks after it was made (`DEFAULT_WAIT`, 64,
+for `None`).
+
+**A run for a later block.** `ctx.schedule(height, target, &op).await`
+asks the program bound to the scheduler role to run `target` with `op` at
+the end of block `height`, which must be after the current one, and answers
+the entry id; `ctx.cancel(entry).await` withdraws it before it runs. The
+run comes from your program (`Origin::Program`, your account) with
+`cause: Cause::Scheduled { entry }`, so a target that accepts it only from
+you checks both, as egress does for its own `Expire`. The scheduler keeps
+the run's receipt (`Query::Entry`). On a `MockChain`, seat the scheduler
+(`chain.seat::<scheduler::Scheduler>("scheduler")`): moving past a block
+with `chain.at` runs what was due in it.
 
 ## 7. Describe
 
