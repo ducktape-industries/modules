@@ -1,6 +1,7 @@
 //! harness on ducktape's host with the egress role bound: a founder node serves the model's
 //! service and the relay, and a mention in chat, the model's turn and the agent's write each
-//! land in their own block while the thread's loop waits parked.
+//! land in their own block while the thread's loop waits parked. The agent's marks on the
+//! mention and its line saying why it gave up are written in harness's own execution.
 use super::*;
 
 use egress::{Answer, RELAY, Request, RequestRow, http};
@@ -67,6 +68,24 @@ impl Net {
             panic!()
         };
         page.items.into_iter().map(|frame| frame.body).collect()
+    }
+
+    async fn marks(&self, agent: u64, seq: u64) -> Vec<String> {
+        let asked = chat::Query::MessagesAround {
+            channel_id: "general".into(),
+            seq,
+            viewer: vec![program::Principal::Account(agent)],
+            page: PageRequest::default(),
+        };
+        let chat::Reply::Messages(rows) = self.ask(chat::PROGRAM, &asked).await else {
+            panic!()
+        };
+        let row = rows.into_iter().find(|row| row.seq == seq).unwrap();
+        row.reactions
+            .into_iter()
+            .filter(|reaction| reaction.reacted_by_me)
+            .map(|reaction| reaction.emoji)
+            .collect()
     }
 }
 
@@ -140,6 +159,11 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
         net.apply(&public(ADA), chat::PROGRAM, &mention).await;
 
         let [thread] = net.threads(agent).await.try_into().unwrap();
+        assert_eq!(
+            net.marks(agent, 1).await,
+            ["👀"],
+            "taken up in the same block"
+        );
         let [models] = net.assigned(SERVICE).await.try_into().unwrap();
         let Request::Http { head, .. } = &models.request else {
             panic!("the model is asked over http");
@@ -218,5 +242,36 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
         .await;
         assert!(net.assigned(SERVICE).await.is_empty());
         assert_eq!(net.parked(), 0, "the loop finished");
+        assert_eq!(net.marks(agent, 1).await, ["✅"]);
+
+        let relay_only = egress::Op::Serve {
+            services: vec![RELAY.into()],
+        };
+        net.apply(&public(NODE), egress::PROGRAM, &relay_only).await;
+        let again = chat::Op::PostMessage {
+            channel_id: "general".into(),
+            message_id: "m2".into(),
+            blocks: chat::parse_message(&format!("<@{agent}> still up?")),
+            thread: None,
+        };
+        net.apply(&public(ADA), chat::PROGRAM, &again).await;
+        let asked = chat::Query::Thread {
+            channel_id: "general".into(),
+            root_seq: 2,
+            viewer: Vec::new(),
+            page: PageRequest::default(),
+        };
+        let chat::Reply::Thread { replies, .. } = net.ask(chat::PROGRAM, &asked).await else {
+            panic!()
+        };
+        let [line] = replies.items.try_into().unwrap();
+        assert_eq!(line.author, program::Principal::Account(agent));
+        assert_eq!(
+            line.text,
+            format!(
+                "I could not answer: no member node serves {SERVICE}: the model was not asked."
+            )
+        );
+        assert_eq!(net.marks(agent, 2).await, ["👀"]);
     });
 }

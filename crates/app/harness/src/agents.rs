@@ -8,10 +8,12 @@ use ::program::{
 use abi::role::identity::{AccountNumber, Kind, Profile, Standing};
 use attribution::{Actor, Change, Kind as Changed, Reason, Source};
 
+use crate::signals::taken_up;
 use crate::state::{AGENTS, BY_AGENT, COUNT, LAST, PLACES, THREADS, newest_first};
-use crate::turns::{converse, say};
+use crate::turns::{bound, converse, say};
 use crate::{
-    AgentRow, Asking, Body, Context, PART, PROGRAM, ThreadRow, anthropic, attributed_as, tools,
+    AgentRow, Asking, Body, ChatMessage, Context, PART, PROGRAM, ThreadRow, anthropic,
+    attributed_as, tools,
 };
 
 fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
@@ -89,6 +91,20 @@ fn checked(model: &str, service: &str, max_tokens: u32) -> Result<(), Error> {
     Ok(())
 }
 
+fn registered(ctx: &QueryCtx, service: &str) -> Result<(), Error> {
+    let program = bound(ctx)?;
+    let asked = egress::Query::Service {
+        name: service.into(),
+    };
+    match ctx.query(program.clone(), &asked)? {
+        egress::Reply::Service(Some(_)) => Ok(()),
+        egress::Reply::Service(None) => Err(not_found(format!(
+            "{program} has no service named {service}"
+        ))),
+        other => Err(unexpected_reply(&program, "Service", &other)),
+    }
+}
+
 pub(crate) fn hire(
     ctx: &ExecCtx,
     agent: AccountNumber,
@@ -99,6 +115,7 @@ pub(crate) fn hire(
 ) -> Result<(), Error> {
     let manager = acting(ctx)?;
     checked(&model, &service, max_tokens)?;
+    registered(ctx, &service)?;
     let profile = profile(ctx, agent)?.ok_or_else(|| not_found(format!("no account {agent}")))?;
     let Kind::Managed {
         manager: managing, ..
@@ -216,6 +233,8 @@ fn opened(
         summary: None,
         context: Context::Measured(0),
         compact_before: None,
+        signaled: 0,
+        gave_up: None,
     };
     let header = anthropic::header(&row, tools::definitions());
     row.header = ctx.blob_put(HashKind::Sha256, PART, header.into_bytes())?;
@@ -229,6 +248,7 @@ struct Designation {
     place: String,
     title: String,
     text: String,
+    origin: Option<ChatMessage>,
 }
 
 fn name_of(ctx: &QueryCtx, number: AccountNumber) -> String {
@@ -269,6 +289,7 @@ fn designation(
             title: place.clone(),
             place,
             text,
+            origin: None,
         });
     };
     let verb = match &change.reason {
@@ -289,6 +310,11 @@ fn designation(
         place: format!("{}/{}", chat::PROGRAM, row.channel_id),
         title: format!("chat channel {}", row.channel_id),
         text,
+        origin: Some(ChatMessage {
+            channel: row.channel_id,
+            seq: row.seq,
+            root: row.thread,
+        }),
     })
 }
 
@@ -301,14 +327,17 @@ fn designates(reason: &Reason) -> bool {
 }
 
 pub(crate) async fn attributed(ctx: Ctx, change: Change) -> Result<(), Error> {
-    let Some(thread) = heard(&ctx, change)? else {
+    let Some((thread, origin)) = heard(&ctx, change)? else {
         return Ok(());
     };
+    if let Some(origin) = origin {
+        taken_up(&ctx, thread, &origin).await?;
+    }
     converse(&ctx, thread).await;
     Ok(())
 }
 
-fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
+fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<(u64, Option<ChatMessage>)>, Error> {
     ctx.env().sent_by(attribution::PROGRAM)?;
     let Some(agent) = AGENTS.get(ctx, &change.recipient)? else {
         return Ok(None);
@@ -332,10 +361,20 @@ fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
         return Ok(None);
     }
     LAST.put(ctx, &agent.agent, &(change.source.clone(), change.revision));
-    let Designation { place, title, text } = designation(ctx, &change, actor)?;
+    let Designation {
+        place,
+        title,
+        text,
+        origin,
+    } = designation(ctx, &change, actor)?;
     let mut thread = opened(ctx, &agent, place, title)?;
     let author = Principal::Account(actor);
-    say(ctx, &mut thread, Body::Post { author, text });
+    let post = Body::Post {
+        author,
+        text,
+        origin: origin.clone(),
+    };
+    say(ctx, &mut thread, post);
     THREADS.put(ctx, &thread.id, &thread);
-    Ok(Some(thread.id))
+    Ok(Some((thread.id, origin)))
 }

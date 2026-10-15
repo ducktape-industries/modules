@@ -5,6 +5,7 @@ mod agents;
 mod anthropic;
 mod program;
 mod queries;
+mod signals;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -65,6 +66,7 @@ pub enum Body {
     Post {
         author: Principal,
         text: String,
+        origin: Option<ChatMessage>,
     },
     Turn {
         model: String,
@@ -89,6 +91,19 @@ pub enum Body {
     Compaction {
         block: String,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ChatMessage {
+    pub channel: String,
+    pub seq: u64,
+    pub root: Option<u64>,
+}
+
+impl ChatMessage {
+    pub fn reply_to(&self) -> u64 {
+        self.root.unwrap_or(self.seq)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -203,6 +218,8 @@ pub struct ThreadRow {
     pub summary: Option<u64>,
     pub context: Context,
     pub compact_before: Option<u64>,
+    pub signaled: u64,
+    pub gave_up: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -282,6 +299,8 @@ pub enum Query {
     Tools,
 }
 
+/// A reply is decoded once and read in place, so its widest variant (a thread row) is not boxed.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Reply {
     Agent(Option<AgentRow>),

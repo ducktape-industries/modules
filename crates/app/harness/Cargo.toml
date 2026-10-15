@@ -26,12 +26,12 @@ activity = { workspace = true }
 attribution = { workspace = true }
 identity = { workspace = true }
 chat = { workspace = true }
+egress = { workspace = true }
 files = { workspace = true }
 forge = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-egress = { workspace = true }
 awaits = { workspace = true }
 valset = { workspace = true }

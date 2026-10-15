@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::agents::thread;
 use crate::anthropic::{self, Answered, Summarized, Summary};
+use crate::signals::tell;
 use crate::state::{AGENTS, CALLS, FRAMES, HELD, SEALED, THREADS, WINDOWS, WITHHELD};
 use crate::tools::{self, Run, Seat};
 use crate::{
@@ -55,11 +56,12 @@ fn settle(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<(), Error> {
 
 fn give_up(ctx: &ExecCtx, thread: &mut ThreadRow, text: String) {
     append(ctx, thread, Body::Notice { text });
+    thread.gave_up = Some(thread.frames);
     thread.seen = thread.seen.max(thread.last_input);
     thread.last_stop = None;
 }
 
-fn bound(ctx: &QueryCtx) -> Result<ProgramId, Error> {
+pub(crate) fn bound(ctx: &QueryCtx) -> Result<ProgramId, Error> {
     let Some(program) = ctx.env().roles.get(abi::role::EGRESS).cloned() else {
         return Err(wrong_state(
             "this network binds no program to the egress role",
@@ -168,7 +170,11 @@ fn withheld(seq: u64, body: Body) -> Body {
             tool,
             problem: note,
         },
-        Body::Post { author, .. } => Body::Post { author, text: note },
+        Body::Post { author, origin, .. } => Body::Post {
+            author,
+            text: note,
+            origin,
+        },
         Body::Turn { .. } | Body::Notice { .. } | Body::Compaction { .. } => body,
     }
 }
@@ -293,6 +299,7 @@ enum Step {
 pub(crate) async fn converse(ctx: &Ctx, id: u64) {
     if let Err(error) = drive(ctx, id).await {
         stall(ctx, id, &error);
+        let _ = tell(ctx, id).await;
     }
 }
 
@@ -307,8 +314,9 @@ async fn drive(ctx: &Ctx, id: u64) -> Result<(), Error> {
                 parts,
             } => ask(ctx, id, upto, summarized, parts).await?,
         }
+        tell(ctx, id).await?;
     }
-    Ok(())
+    tell(ctx, id).await
 }
 
 fn may_ask(ctx: &ExecCtx, thread: &ThreadRow) -> bool {
@@ -332,6 +340,13 @@ fn plan(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<Step>, Error> {
         let text = format!(
             "no member node serves {}: the model was not asked",
             thread.service
+        );
+        give_up(ctx, thread, text);
+        return Ok(None);
+    }
+    if !serves(ctx, RELAY)? {
+        let text = format!(
+            "no member node serves {RELAY}, so no tool call could run: the model was not asked"
         );
         give_up(ctx, thread, text);
         return Ok(None);
@@ -644,7 +659,7 @@ async fn run_call(ctx: &Ctx, id: u64, call: String) -> Result<(), Error> {
     finish(ctx, id, &call, text, failed)
 }
 
-fn refusal(error: &Error) -> String {
+pub(crate) fn refusal(error: &Error) -> String {
     format!("{}: {}", error.code, error.message)
 }
 

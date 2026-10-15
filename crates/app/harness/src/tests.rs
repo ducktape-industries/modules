@@ -150,6 +150,45 @@ impl World {
         thread
     }
 
+    fn marks(&self, channel: &str, seq: u64) -> Vec<String> {
+        let asked = chat::Query::MessagesAround {
+            channel_id: channel.into(),
+            seq,
+            viewer: vec![Principal::Account(self.agent)],
+            page: PageRequest::default(),
+        };
+        let chat::Reply::Messages(rows) = self.chain.query(chat::PROGRAM, &asked).unwrap() else {
+            panic!()
+        };
+        let row = rows.into_iter().find(|row| row.seq == seq).unwrap();
+        row.reactions
+            .into_iter()
+            .filter(|reaction| reaction.reacted_by_me)
+            .map(|reaction| reaction.emoji)
+            .collect()
+    }
+
+    fn replies(&self, channel: &str, root: u64) -> Vec<chat::MsgRow> {
+        let asked = chat::Query::Thread {
+            channel_id: channel.into(),
+            root_seq: root,
+            viewer: Vec::new(),
+            page: PageRequest::default(),
+        };
+        let chat::Reply::Thread { replies, .. } = self.chain.query(chat::PROGRAM, &asked).unwrap()
+        else {
+            panic!()
+        };
+        replies.items
+    }
+
+    fn line(&self, channel: &str, root: u64) -> String {
+        let replies = self.replies(channel, root);
+        let line = replies.last().expect("the agent said why");
+        assert_eq!(line.author, Principal::Account(self.agent));
+        line.text.clone()
+    }
+
     fn threads(&self) -> Vec<ThreadRow> {
         let asked = Query::Threads {
             agent: self.agent,
@@ -430,7 +469,8 @@ fn only_its_manager_hires_an_agent_handed_to_harness_and_a_dismissed_one_hears_n
     let idle = number(identity_op(chain, ADA, create).unwrap());
     let unhanded = chain.submit(signed(ADA), PROGRAM, &hire(idle));
     assert_eq!(unhanded.unwrap_err().code, code::WRONG_STATE);
-    for service in egress::RESERVED {
+    let reserved = egress::RESERVED.map(|service| (service, code::INVALID_INPUT));
+    for (service, refusal) in reserved.into_iter().chain([("nope", code::NOT_FOUND)]) {
         let Op::Hire {
             agent,
             system,
@@ -449,7 +489,7 @@ fn only_its_manager_hires_an_agent_handed_to_harness_and_a_dismissed_one_hears_n
             max_tokens,
         };
         let refused = chain.submit(signed(ADA), PROGRAM, &reserved).unwrap_err();
-        assert_eq!(refused.code, code::INVALID_INPUT, "{service}");
+        assert_eq!(refused.code, refusal, "{service}");
     }
 
     let dismissed = chain.submit(signed(BO), PROGRAM, &Op::Dismiss { agent: world.agent });
@@ -732,6 +772,11 @@ fn a_failed_model_call_is_noticed_once_and_the_next_input_asks_again() {
         "{}",
         told[0]
     );
+    assert_eq!(
+        world.line("general", 1),
+        format!("I could not answer: {}.", told[0])
+    );
+    assert_eq!(world.marks("general", 1), ["👀"]);
     world.mention("m2", "again");
     let (_, head) = open_request(chain);
     assert_eq!(path(&head), "/v1/messages");
@@ -1216,10 +1261,156 @@ fn with_no_node_serving_the_model_a_mention_says_so() {
         services: Vec::new(),
     };
     chain.submit(signed(&NODE), egress::PROGRAM, &stop).unwrap();
-    let thread = world.mention("m1", "hello");
+    world.post(ADA, "general", "m1", "a plan");
+    let reply = chat::Op::PostMessage {
+        channel_id: "general".into(),
+        message_id: "m2".into(),
+        blocks: chat::parse_message(&format!("<@{}> thoughts?", world.agent)),
+        thread: Some(1),
+    };
+    chain.submit(signed(ADA), chat::PROGRAM, &reply).unwrap();
+    let [thread] = world.threads().try_into().unwrap();
+    let origin = ChatMessage {
+        channel: "general".into(),
+        seq: 2,
+        root: Some(1),
+    };
     assert!(
-        matches!(&frames(chain, thread)[1], Body::Notice { text } if text.contains("no member node serves"))
+        matches!(&frames(chain, thread.id)[..], [Body::Post { origin: Some(posted), .. }, Body::Notice { text }] if *posted == origin && text.contains("no member node serves"))
     );
+    assert_eq!(
+        world.line("general", 1),
+        format!("I could not answer: no member node serves {SERVICE}: the model was not asked."),
+        "the line answers in the input's thread"
+    );
+    let asked = chat::Query::MessageById {
+        message_id: format!("harness:{}:2", thread.id),
+    };
+    let chat::Reply::Message(Some(line)) = chain.query(chat::PROGRAM, &asked).unwrap() else {
+        panic!()
+    };
+    assert_eq!(line.thread, Some(1));
+    assert_eq!(world.marks("general", 2), ["👀"]);
+}
+
+#[test]
+fn with_no_node_serving_relay_a_mention_gives_up_before_the_model_is_asked() {
+    let world = world();
+    let chain = &world.chain;
+    let model_only = egress::Op::Serve {
+        services: vec![SERVICE.into()],
+    };
+    chain
+        .submit(signed(&NODE), egress::PROGRAM, &model_only)
+        .unwrap();
+    let thread = world.mention("m1", "hello");
+    assert!(assigned(chain, SERVICE).is_empty());
+    let told = notices(chain, thread);
+    assert_eq!(
+        told,
+        [format!(
+            "no member node serves {RELAY}, so no tool call could run: the model was not asked"
+        )]
+    );
+    assert_eq!(
+        world.line("general", 1),
+        format!("I could not answer: {}.", told[0])
+    );
+}
+
+#[test]
+fn each_chat_input_taken_up_is_marked_and_the_mark_turns_once_a_finished_turn_answered_it() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "hello", Some(WINDOW));
+    let origin = |seq| ChatMessage {
+        channel: "general".into(),
+        seq,
+        root: None,
+    };
+    assert!(
+        matches!(&frames(chain, thread)[0], Body::Post { origin: Some(posted), .. } if *posted == origin(1))
+    );
+    assert_eq!(world.marks("general", 1), ["👀"]);
+    world.mention("m2", "still there?");
+    assert!(
+        matches!(&held(chain, thread)[..], [Body::Post { origin: Some(posted), .. }] if *posted == origin(2))
+    );
+    assert_eq!(
+        world.marks("general", 2),
+        ["👀"],
+        "a held input is taken up"
+    );
+
+    chain.at(3, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "Hi." }]),
+        "end_turn",
+    );
+    assert_eq!(
+        world.marks("general", 1),
+        ["✅"],
+        "a turn that posts nothing answers too"
+    );
+    assert_eq!(world.marks("general", 2), ["👀"], "asked, not yet answered");
+
+    chain.at(4, 0);
+    let call = tool_use("toolu_l", "files_list", json!({ "path": "/" }));
+    model_says(chain, json!([call]), "tool_use");
+    chain.at(5, 0);
+    relay_back(chain, "toolu_l");
+    assert_eq!(
+        world.marks("general", 2),
+        ["👀"],
+        "a turn that calls a tool has not finished"
+    );
+    chain.at(6, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "Done." }]),
+        "end_turn",
+    );
+    assert_eq!(world.marks("general", 2), ["✅"]);
+    assert_eq!(world.marks("general", 1), ["✅"]);
+    assert!(notices(chain, thread).is_empty());
+}
+
+#[test]
+fn a_mark_chat_refuses_is_noticed_and_the_input_still_reaches_the_model() {
+    let world = world();
+    let chain = &world.chain;
+    let closed = chat::Op::CreateChannel {
+        channel_id: "closed".into(),
+        name: "closed".into(),
+        post_policy: chat::PostPolicy::MembersOnly,
+    };
+    chain.submit(signed(ADA), chat::PROGRAM, &closed).unwrap();
+    world.post(ADA, "closed", "c1", &format!("<@{}> psst", world.agent));
+    let [thread] = world.threads().try_into().unwrap();
+    let told = notices(chain, thread.id);
+    assert!(
+        told[0].starts_with(&format!(
+            "chat refused 👀 on message 1 in closed: {}",
+            code::UNAUTHORIZED
+        )),
+        "{told:?}"
+    );
+    chain.at(2, 0);
+    learn(chain, Some(WINDOW));
+    chain.at(3, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "Hi." }]),
+        "end_turn",
+    );
+    assert!(world.marks("closed", 1).is_empty());
+    let told = notices(chain, thread.id);
+    assert!(
+        told[1].starts_with("chat refused ✅ on message 1 in closed"),
+        "{told:?}"
+    );
+    assert_eq!(thread_row(chain, thread.id).asking, Asking::Idle);
 }
 
 #[test]
