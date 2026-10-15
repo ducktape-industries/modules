@@ -104,7 +104,7 @@ impl Ask {
         match self {
             Ask::Publish(publish, _) => grant.publishes(&publish.track.name, account),
             Ask::Subscribe(subscribe) => grant.subscribes(&subscribe.track.name, account),
-            Ask::Watch(_) => watches(grant),
+            Ask::Watch(_) => grant.watches(),
         }
     }
 
@@ -116,11 +116,6 @@ impl Ask {
             Ask::Watch(_) => item::<LiveTracks>(id, Ok(Watching::Waiting), false),
         }
     }
-}
-
-/// Whether `grant` lets its account watch a room: any subscribe pattern.
-fn watches(grant: &Grant) -> bool {
-    !grant.subscribe.is_empty()
 }
 
 struct Published {
@@ -344,7 +339,7 @@ impl State {
     /// Whether `room`'s rows let `link` watch it.
     fn may_watch(&self, link: usize, room: &str) -> bool {
         self.grant_of(room, Self::account(link))
-            .is_some_and(|grant| watches(&grant))
+            .is_some_and(|grant| grant.watches())
     }
 
     /// `room`'s rows, made explicit: a room a test never changed holds
