@@ -4,8 +4,8 @@ use abi::Scheme;
 use valset::Valset;
 use view::methods::Query;
 use view::methods::{
-    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, Description, Located,
-    ProgramDescribe, Session, Tx, TxRef,
+    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, ProgramDescribe,
+    Session, Tx,
 };
 use view::testing::TestAppContext;
 use view::wire::{ContainerNode, Node};
@@ -88,12 +88,10 @@ fn page<T>(items: Vec<T>) -> programs::PageResponse<T> {
 const EDDY: &[u8] = b"\x01\x02";
 const SCOUT: &[u8] = b"\x09\x09";
 
-fn tx(signer: &[u8], n: u8) -> Tx {
+fn tx(signer: &[u8]) -> Tx {
     Tx {
         signer: signer.to_vec(),
         target: "chat".into(),
-        size: 1,
-        payload: Some(vec![n]),
         ..Tx::default()
     }
 }
@@ -126,24 +124,6 @@ fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
             listed_from: Some(1),
         })
     });
-    let held = blocks.clone();
-    cx.host().handle::<ChainTx>(move |ask| {
-        let TxRef::At { height, position } = ask.tx else {
-            panic!("a frame's transaction is read by its place")
-        };
-        let block = held.iter().find(|block| block.height == height);
-        let found = block.and_then(|block| {
-            let mut tx = block.txs.get(position as usize)?.clone();
-            tx.payload = tx.payload.filter(|_| tx.size <= ask.most);
-            Some(Located {
-                height,
-                position,
-                time: block.time,
-                tx,
-            })
-        });
-        Ok(found)
-    });
     cx.host().handle::<Query<Activity>>(move |query| {
         let ::activity::Query::Acted { account, .. } = query else {
             panic!("{query:?}")
@@ -158,6 +138,7 @@ fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
                         height: block.height,
                         position: position as u32,
                         time: block.time,
+                        signer: tx.signer.clone(),
                         target: tx.target.clone(),
                         applied: true,
                     })
@@ -200,16 +181,10 @@ fn respond(cx: &mut TestAppContext) {
     chain(
         cx,
         vec![
-            block(11, vec![tx(EDDY, 1)]),
-            block(12, vec![tx(EDDY, 2), tx(SCOUT, 5)]),
+            block(11, vec![tx(EDDY)]),
+            block(12, vec![tx(EDDY), tx(SCOUT)]),
         ],
     );
-    cx.host().handle::<ProgramDescribe>(|(target, payload)| {
-        Ok(Some(Description {
-            title: format!("Post {} in {target}", payload[0]),
-            fields: Vec::new(),
-        }))
-    });
 }
 
 /// The view open on [`respond`]'s host, seated as eddy (#7).
@@ -290,16 +265,15 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
         "revoked",
         "Recent activity",
         "newest first",
-        "Post 2 in chat",
-        "Post 1 in chat",
-        "block 12",
-        "block 11",
+        "chat",
+        "block 12 · 0",
+        "block 11 · 0",
         "1m",
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
     // scout's post is scout's, not eddy's
-    assert!(!cx.has_text("Post 5 in chat"));
+    assert!(!cx.has_text("block 12 · 1"));
     assert!(cx.host().requests::<ChainBlock>().is_empty());
     // the reader's own account has no one to DM
     assert!(cx.find("members-open-dm").is_none());
@@ -308,14 +282,13 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
         cx.host().requests::<view::methods::LinkOpen>(),
         vec!["duck://explorer/account/7".to_owned()]
     );
-    // an activity row's block opens Explorer at that block
-    cx.simulate_click("members-block-0");
+    cx.simulate_click("members-tx-0");
     assert_eq!(
         cx.host()
             .requests::<view::methods::LinkOpen>()
             .last()
             .map(String::as_str),
-        Some("duck://explorer/block/12")
+        Some("duck://explorer/tx/12/0")
     );
     // a managed agent is chosen in place
     cx.simulate_click("members-manages-9");
@@ -335,12 +308,12 @@ fn an_agent_names_its_manager_its_standing_and_its_devices() {
         "active",
         "1 device",
         "sandbox",
-        "Post 5 in chat",
+        "block 12 · 1",
         "Suspend, revoke, rename and keys live in Account → Agents, for the manager.",
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
-    assert!(!cx.has_text("Post 1 in chat") && !cx.has_text("Post 2 in chat"));
+    assert!(!cx.has_text("block 12 · 0") && !cx.has_text("block 11 · 0"));
     cx.simulate_click("members-open-dm");
     assert_eq!(
         cx.host().requests::<view::methods::LinkOpen>(),
@@ -534,7 +507,7 @@ fn an_activity_read_anew_that_lands_the_same_draws_nothing() {
     let (mut cx, view) = ready();
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
-    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    assert!(cx.has_text("block 12 · 0"), "{:?}", cx.texts());
     let asked = cx.host().requests::<Query<Activity>>().len();
     let renders = cx.renders();
     cx.update(&view, |members, _, cx| members.read_activity(cx));
@@ -626,14 +599,14 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     let (mut cx, _) = ready();
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
-    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    assert!(cx.has_text("block 12 · 0"), "{:?}", cx.texts());
     // eddy signs again at 13, and the index holds only that
-    chain(&mut cx, vec![block(13, vec![tx(EDDY, 3)])]);
+    chain(&mut cx, vec![block(13, vec![tx(EDDY)])]);
     // ↓ ↑: read anew, the new read shows
     cx.simulate_key_down("members-list", "down");
     cx.simulate_key_down("members-list", "up");
     cx.run_until_parked();
-    assert!(cx.has_text("block 13") && !cx.has_text("block 12"));
+    assert!(cx.has_text("block 13 · 0") && !cx.has_text("block 12 · 0"));
     // the chain stops answering: ↓ ↑ still shows eddy's links at once
     cx.host().never::<ChainBlocks>();
     cx.simulate_key_down("members-list", "down");
@@ -644,9 +617,61 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     assert!(cx.has_text("eddy's bio"));
     assert!(!cx.has_text("Reading its activity…"));
     assert!(
-        cx.has_text("block 13") && cx.find("members-block-0").is_some(),
+        cx.has_text("block 13 · 0") && cx.find("members-tx-0").is_some(),
         "{:?}",
         cx.texts()
+    );
+}
+
+#[test]
+fn recent_activity_lists_frames_and_reads_no_transaction() {
+    let (mut cx, _) = ready();
+    let frame = |height, position, target: &str, applied| ::activity::Frame {
+        height,
+        position,
+        time: height * 60_000,
+        signer: EDDY.to_vec(),
+        target: target.into(),
+        applied,
+    };
+    let frames = vec![frame(12, 0, "chat", true), frame(11, 2, "forge", false)];
+    cx.host()
+        .handle::<Query<Activity>>(move |_| Ok(::activity::Reply::Frames(page(frames.clone()))));
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    let label = |key: &str| {
+        cx.interactivity(key)
+            .aria
+            .label
+            .as_deref()
+            .map(String::from)
+    };
+    assert_eq!(
+        label("members-tx-0").as_deref(),
+        Some("Open chat, Accepted, block 12 · 0 in Explorer")
+    );
+    assert_eq!(
+        label("members-tx-1").as_deref(),
+        Some("Open forge, Rejected, block 11 · 2 in Explorer")
+    );
+    assert!(cx.has_text("forge") && cx.has_text("block 11 · 2"));
+    assert!(
+        cx.host().requests::<ChainTx>().is_empty(),
+        "no transaction is read to list them"
+    );
+    assert!(cx.host().requests::<ProgramDescribe>().is_empty());
+    assert_eq!(
+        cx.host().requests::<ChainBlocks>().len(),
+        1,
+        "the tip, for its time"
+    );
+    cx.simulate_click("members-tx-1");
+    assert_eq!(
+        cx.host()
+            .requests::<view::methods::LinkOpen>()
+            .last()
+            .map(String::as_str),
+        Some("duck://explorer/tx/11/2")
     );
 }
 
