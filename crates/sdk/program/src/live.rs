@@ -1,9 +1,11 @@
 //! Live grants: who may publish and subscribe to a room's live tracks
 //! through a node. The program that owns the room decides in its own code,
 //! where it already decides who is a member, and writes the decision as a
-//! row ([`abi::live`]); the node reads the row and enforces it, and a row
-//! removed ends what it covered on the next block. No row for an account
-//! and no `*` row: the account does nothing in the room.
+//! row ([`abi::live`]); the node reads the row from blocks and enforces it:
+//! a row counts from the block that writes it, not from the op's
+//! preconfirmed answer, and a row removed ends what it covered on the next
+//! block. No row for an account and no `*` row: the account does nothing in
+//! the room.
 //!
 //! ```ignore
 //! // chat's SetMembership: the members of a channel talk live in it

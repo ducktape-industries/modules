@@ -12,6 +12,14 @@
 //! (`program::live::grant`). A view with no program behind it has no one to
 //! write them, and opens no room.
 //!
+//! The node reads those rows from blocks, not from the preconfirmed state a
+//! `Submit<P>` answers with: a row an op writes counts from the block that
+//! carries it, and what the node refused before that block stays refused.
+//! A view that sends the op opening a room asks again on its program's
+//! `Changes<P>` item whose keys hold the row's (`abi::live::key`), never on
+//! the op's answer: the node publishes that item once its state holds the
+//! row.
+//!
 //! A publication and a subscription are tasks: keep them beside the state
 //! they feed and build them in [`View::attach`](crate::View::attach), which
 //! runs again after a restore; dropping one ends the track or the
