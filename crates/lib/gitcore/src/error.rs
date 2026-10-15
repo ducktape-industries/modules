@@ -11,7 +11,6 @@ pub enum Error {
     UnknownObjectKind,
     BadHex,
     BadOidLength,
-    HashMismatch { expected: Oid, actual: Oid },
     WrongHash { expected: Hash, actual: Hash },
     Collision,
     MissingBase(Oid),
@@ -50,9 +49,6 @@ impl fmt::Display for Error {
             Error::UnknownObjectKind => f.write_str("unknown object kind"),
             Error::BadHex => f.write_str("bad hex"),
             Error::BadOidLength => f.write_str("bad object id length"),
-            Error::HashMismatch { expected, actual } => {
-                write!(f, "hash mismatch: expected {expected}, got {actual}")
-            }
             Error::WrongHash { expected, actual } => write!(
                 f,
                 "wrong hash algorithm: expected {}, got {}",
