@@ -163,11 +163,6 @@ impl Explorer {
 
     /// Asks the host what `tx` does, once, the first time it is drawn; a
     /// program that says nothing, or a refusal, leaves its bytes.
-    ///
-    /// ponytail: drawing asks (through `TxRow`'s cells) so only rows on
-    /// screen are described, not every transaction of a 1,000-block
-    /// window; a render that stays pure needs the visible rows computed
-    /// ahead of it.
     pub(crate) fn describe(&self, tx: &TxRow, cx: &mut Context<Self>) {
         let Some(payload) = &tx.payload else {
             return;

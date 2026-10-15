@@ -398,7 +398,7 @@ the request expires.
 
 A program ships, beside its code, a pure wasm module that turns an op's
 bytes into what a person reads: a title and typed fields. Explorer shows
-it on a transaction's page and in a block's list of transactions.
+it on a transaction's page; no list of transactions shows it.
 `lib.rs` has the function and the one export line; `make wasm-describes`
 builds the program (`--features describe`) and qa packs it into the
 program.

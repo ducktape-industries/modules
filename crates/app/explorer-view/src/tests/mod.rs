@@ -190,6 +190,20 @@ pub(crate) fn serve(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + Clone 
     host.handle::<ChainTx>(move |ask| Ok(located(&chain(), ask)));
 }
 
+pub(crate) fn name(cx: &TestAppContext, id: &str) -> Option<String> {
+    match cx.find(id) {
+        Some(view::wire::Node::Container(row)) => row
+            .interactivity
+            .as_ref()
+            .unwrap()
+            .aria
+            .label
+            .clone()
+            .map(String::from),
+        other => panic!("no row {id}: {other:?}"),
+    }
+}
+
 pub(crate) fn status(height: u64) -> NodeStatus {
     NodeStatus {
         chain_id: "test#1".into(),
