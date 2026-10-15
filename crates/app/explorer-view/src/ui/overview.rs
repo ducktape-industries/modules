@@ -187,27 +187,28 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
     .text_size(design::text::SECONDARY)
     .into_any_element();
     let list = rows("explorer-latest-txs-list", "Latest transactions", view);
-    let txs = (!view.chain.txs.is_empty()).then(|| {
-        tx_rows(
-            list,
-            view,
-            |view| view.chain.txs.iter().take(LATEST).collect(),
-            false,
-            true,
-        )
-        .whole(view, cx, theme)
-        .build(cx)
-    });
-    let none = view.chain.txs.is_empty().then(|| {
-        quiet(
-            "explorer-no-txs",
-            format!(
-                "No transactions in the last {}.",
-                plural(view.chain.blocks.len() as u64, "block", "blocks")
-            ),
-            theme,
-        )
-    });
+    let latest = view.recent(None).map(|listing| listing.rows.clone());
+    let (held, state) = match &latest {
+        Some(listing) => listing.read(|paged| {
+            let state = match paged.failed() {
+                Some(refusal) => Err(refusal.clone()),
+                None => Ok(paged.is_loading()),
+            };
+            (paged.rows().len(), state)
+        }),
+        None => (0, Ok(true)),
+    };
+    let body = match (state, latest) {
+        (Err(refusal), _) => failed(&refusal.message, cx, theme),
+        (Ok(true), _) | (_, None) => quiet("explorer-latest-txs-loading", "Reading…", theme),
+        (Ok(false), Some(_)) if held == 0 => {
+            quiet("explorer-no-txs", "No transactions listed yet.", theme)
+        }
+        (Ok(false), Some(listing)) => index_rows(list, listing, Some(LATEST), false, true)
+            .whole(view, cx, theme)
+            .build(cx)
+            .into_any_element(),
+    };
     div()
         .id("explorer-latest-txs")
         .when(side, |panel| panel.flex_1().min_w(TXS_MIN_W))
@@ -217,6 +218,5 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
             Some(all),
             theme,
         ))
-        .children(txs)
-        .children(none)
+        .child(body)
 }

@@ -3,14 +3,14 @@
 use std::ops::Range;
 
 use view::prelude::*;
-use view::{Div, FontWeight, Stateful};
+use view::{Div, FontWeight, Paged, Stateful};
 
 use crate::decode::{ago, clip, date, grouped, plural, short};
-use crate::{BlockRow, Explorer, Note, Route, TxRow};
+use crate::{BlockRow, Explorer, IndexRow, Note, Route, TxRow};
 use design::{empty_state, mono};
 
 /// The rows each Overview panel draws.
-const LATEST: usize = 12;
+pub(crate) const LATEST: usize = 12;
 
 /// The bar's height, each line of it once the search wraps under the tabs, and a section heading's.
 const BAR_H: Pixels = px(44.);
@@ -90,7 +90,9 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
     }
     let scroller = div().id("explorer-page").flex_1().flex().flex_col();
     let scroller = match view.route {
-        Route::Transactions(_) | Route::Blocks | Route::Accounts => scroller.min_h(px(0.)),
+        Route::Transactions(_) | Route::Blocks | Route::Accounts | Route::Account(_) => {
+            scroller.min_h(px(0.))
+        }
         _ => scroller.overflow_y_scroll(),
     };
     root.child(scroller.child(page(view, cx, &theme)))
@@ -219,7 +221,7 @@ fn page(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         Route::Blocks => blocks(view, cx, theme),
         Route::Block(height) => block(view, height, cx, theme),
         Route::Transactions(program) => transactions(view, program, cx, theme),
-        Route::Tx(hash) => tx(view, &hash, cx, theme),
+        Route::Tx { height, position } => tx(view, height, position, cx, theme),
         Route::Accounts => accounts(view, cx, theme),
         Route::Account(number) => account(view, number, cx, theme),
         Route::Programs => programs(view, cx, theme),
@@ -320,13 +322,20 @@ struct Rows {
     active: usize,
     scroll: UniformListScrollHandle,
     routes: Vec<Route>,
+    /// a row past the routed ones, drawn as reading while the listing
+    /// behind the list goes on past what it holds
+    more: bool,
     children: Vec<AnyElement>,
     paint: Option<Painter>,
+    reach: Option<Reach>,
 }
 
 /// Paints a range of a list's rows, each a [`row`], off the view they are
 /// read from: the host asks for a window at a time.
 type Painter = Box<dyn Fn(&Explorer, Range<usize>, Cx, &Theme) -> Vec<Stateful<Div>>>;
+/// What the rows the host asks for mean to the view before they are
+/// painted: the page they reach, the blocks they sit in.
+type Reach = Box<dyn Fn(&mut Explorer, Range<usize>, Cx)>;
 
 fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
     let active = match view.cursor {
@@ -339,8 +348,10 @@ fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
         active,
         scroll: view.scroll.clone(),
         routes: Vec::new(),
+        more: false,
         children: Vec::new(),
         paint: None,
+        reach: None,
     }
 }
 
@@ -373,6 +384,16 @@ impl Rows {
         self.paint = Some(Box::new(paint));
         self
     }
+    /// Runs `reach` on the range the host asks for, ahead of painting it.
+    fn reaching(mut self, reach: impl Fn(&mut Explorer, Range<usize>, Cx) + 'static) -> Self {
+        self.reach = Some(Box::new(reach));
+        self
+    }
+    /// One row more than the routed ones, while `more`: the page on its way.
+    fn more(mut self, more: bool) -> Self {
+        self.more = more;
+        self
+    }
     /// The painted rows built now, drawn whole: for a list in a page that
     /// scrolls (the Overview's panels, a block's transactions, an account's
     /// activity), which is laid out by its rows; a list sized by its box
@@ -396,10 +417,12 @@ impl Rows {
             active,
             scroll,
             routes,
+            more,
             children,
             paint,
+            reach,
         } = self;
-        let count = routes.len();
+        let count = routes.len() + usize::from(more);
         let active = active.min(count.saturating_sub(1));
         let mut list = design::composite(id, Role::ListBox, label).active(active, count);
         if paint.is_some() {
@@ -414,7 +437,9 @@ impl Rows {
             )
             .on_press(
                 cx.processor(move |view: &mut Explorer, index: usize, _, cx| {
-                    view.go(routes[index].clone(), cx)
+                    if let Some(route) = routes.get(index) {
+                        view.go(route.clone(), cx)
+                    }
                 }),
             )
             .build()
@@ -427,6 +452,9 @@ impl Rows {
             SharedString::from(format!("{id}-rows")),
             count,
             cx.processor(move |view: &mut Explorer, range: Range<usize>, _, cx| {
+                if let Some(reach) = &reach {
+                    reach(view, range.clone(), cx);
+                }
                 paint(view, range.clone(), cx, &theme)
                     .into_iter()
                     .zip(range)
@@ -583,13 +611,141 @@ fn tx_rows(
     height: bool,
     who: bool,
 ) -> Rows {
-    let routes = select(view).iter().map(|tx| Route::Tx(tx.hash)).collect();
+    let routes = select(view)
+        .iter()
+        .map(|tx| Route::Tx {
+            height: tx.height,
+            position: tx.index,
+        })
+        .collect();
     list.shown(routes, move |view, range, cx, theme| {
         let txs = select(view);
         range
             .map(|index| tx_row(view, txs[index], height, who, cx, theme))
             .collect()
     })
+}
+
+/// The index's rows as a [`Rows`] list: the first `most` of `listing`, or
+/// all it holds and one more while it goes on. The host's range reaches
+/// the page after the rows held and the blocks the rows sit in; a row
+/// whose block is read draws as the transaction ([`tx_row`]), until then
+/// as the index tells it ([`index_row`]).
+fn index_rows(
+    list: Rows,
+    listing: Entity<Paged<IndexRow>>,
+    most: Option<usize>,
+    height: bool,
+    who: bool,
+) -> Rows {
+    let held = move |listing: &Entity<Paged<IndexRow>>, range: Range<usize>| {
+        listing.read(|paged| {
+            let rows = paged.rows();
+            let end = range.end.min(rows.len()).min(most.unwrap_or(usize::MAX));
+            rows[range.start.min(end)..end].to_vec()
+        })
+    };
+    let (routes, more): (Vec<Route>, bool) = listing.read(|paged| {
+        let routes = paged
+            .rows()
+            .iter()
+            .take(most.unwrap_or(usize::MAX))
+            .map(|row| Route::Tx {
+                height: row.height,
+                position: row.position,
+            })
+            .collect();
+        (routes, most.is_none() && paged.count() > paged.rows().len())
+    });
+    let reaching = listing.clone();
+    let list = list.more(more).reaching(move |view, range, cx| {
+        if most.is_none() {
+            reaching.update(cx, |paged, cx| paged.show(range.clone(), cx));
+        }
+        let heights = held(&reaching, range)
+            .iter()
+            .map(|row| row.height)
+            .collect::<Vec<_>>();
+        view.locate(heights, cx);
+    });
+    list.shown(routes, move |view, range, cx, theme| {
+        let rows = held(&listing, range.clone());
+        let start = range.start;
+        range
+            .map(|index| match rows.get(index - start) {
+                Some(row) => match view.tx_at(row.height, row.position) {
+                    Some(tx) => tx_row(view, tx, height, who, cx, theme),
+                    None => index_row(view, row, height, who, cx, theme),
+                },
+                None => reading_row(theme),
+            })
+            .collect()
+    })
+}
+
+/// The row past the rows held: the page on its way. An option of its
+/// list like the others, so the arrows reach it; a press on it opens
+/// nothing.
+fn reading_row(theme: &Theme) -> Stateful<Div> {
+    div()
+        .id("explorer-reading")
+        .flex()
+        .items_center()
+        .w_full()
+        .h(ROW_H)
+        .px_5()
+        .border_b_1()
+        .border_color(theme.border)
+        .text_color(theme.muted)
+        .aria_label("Reading…".to_owned())
+        .aria_selected(false)
+        .child("Reading…")
+}
+
+/// A transaction as the index lists it, while its block is on its way:
+/// where it sits, to what, who signed it and whether it ran; its hash and
+/// its op come with the block.
+fn index_row(
+    view: &Explorer,
+    row: &IndexRow,
+    height: bool,
+    who: bool,
+    cx: Cx,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let id = SharedString::from(format!("explorer-tx-{}-{}", row.height, row.position));
+    let now = view.chain.now();
+    let (word, color) = match row.applied {
+        true => ("Accepted", theme.success),
+        false => ("Rejected", theme.danger),
+    };
+    let label = format!("{}, {word}, block {}", row.target, grouped(row.height));
+    let route = Route::Tx {
+        height: row.height,
+        position: row.position,
+    };
+    self::row(ElementId::Name(id), label, route, cx, theme)
+        .child(div().size(MARK).flex_shrink_0().bg(color))
+        .child(div().w(HASH_W))
+        .child(
+            div().flex_1().overflow_hidden().child(
+                mono(row.target.clone())
+                    .text_size(design::text::CAPTION)
+                    .text_color(theme.muted),
+            ),
+        )
+        .children(who.then(|| match &row.signer {
+            Some(key) => signer(view, key, theme).into_any_element(),
+            None => div().w(SIGNER_W).flex_shrink_0().into_any_element(),
+        }))
+        .children(height.then(|| mono(grouped(row.height)).text_color(theme.muted)))
+        .child(
+            mono(ago(now, row.time))
+                .w(AGE_W)
+                .flex()
+                .justify_end()
+                .text_color(theme.faint),
+        )
 }
 
 /// Its id is its place on the chain, which a frame the node landed again
@@ -632,7 +788,11 @@ fn tx_row(
             .size_full()
             .bg(color)
     }));
-    row(ElementId::Name(id), label, Route::Tx(tx.hash), cx, theme)
+    let route = Route::Tx {
+        height: tx.height,
+        position: tx.index,
+    };
+    row(ElementId::Name(id), label, route, cx, theme)
         .child(mark)
         .child(mono(hash).w(HASH_W).text_color(theme.muted))
         .child(

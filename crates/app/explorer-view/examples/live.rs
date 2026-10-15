@@ -4,8 +4,11 @@
 //! and, as the one validator, votes; ada maintains chat and has a change
 //! of it waiting, beside the vote's adding trade, which bob maintains.
 //! `READER=none` shows the same network to a reader with no grant and no
-//! vote.
+//! vote. The fake node runs no hook, so the seed tells `activity` of each
+//! frame itself, as the kernel would; a hundred and fifty posts after the
+//! first ones put those well below the newest page of blocks.
 use chat::{Block, Op, PostPolicy};
+use program::{Env, MockHost, hook};
 use programs::{Change, Grant, Scheduled, Scope};
 use valset::{Motion, Valset};
 use view::live;
@@ -15,9 +18,28 @@ fn main() {
     let unprivileged = std::env::var_os("READER").is_some_and(|reader| reader == "none");
     live::run("explorer", |net| {
         net.seat::<chat::Chat>(chat::PROGRAM);
+        let index = net.seat::<activity::Activity>(activity::PROGRAM);
         let ada = net.person("ada");
         let bob = net.person("bob");
-        net.submit(
+        // `op` to `program` by `who`, and activity told of the frame
+        let post = |who, program: &str, op: &Op| -> Result<(), view::host::Error> {
+            net.submit(who, program, op)?;
+            let env = Env {
+                height: net.height(),
+                time: view::live::now_ms(),
+                ..MockHost::env(activity::PROGRAM).root()
+            };
+            let record = hook::Record {
+                height: net.height(),
+                position: 0,
+                signer: net.key_of(who),
+                account: Some(who),
+                target: program.into(),
+                applied: true,
+            };
+            hook::<activity::Activity>(&index.exec(env), record)
+        };
+        post(
             ada,
             chat::PROGRAM,
             &Op::CreateChannel {
@@ -26,17 +48,20 @@ fn main() {
                 post_policy: PostPolicy::Open,
             },
         )?;
-        for (seq, (who, text)) in [(ada, "first"), (bob, "second"), (ada, "third")]
-            .into_iter()
-            .enumerate()
-        {
-            net.submit(
+        let mut posts = vec![
+            (ada, "first".to_owned()),
+            (bob, "second".into()),
+            (ada, "third".into()),
+        ];
+        posts.extend((0..150).map(|n| (if n % 2 == 0 { ada } else { bob }, format!("post {n}"))));
+        for (seq, (who, text)) in posts.into_iter().enumerate() {
+            post(
                 who,
                 chat::PROGRAM,
                 &Op::PostMessage {
                     channel_id: "general".into(),
                     message_id: format!("m{seq}"),
-                    blocks: vec![Block::paragraph(text)],
+                    blocks: vec![Block::paragraph(&text)],
                     thread: None,
                 },
             )?;

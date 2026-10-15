@@ -3,7 +3,7 @@
 use ::program::{Env, MockHost, Program, code, hook};
 use store::PageRequest;
 
-use crate::{Activity, Frame, PROGRAM, Query, Reply, Used};
+use crate::{Activity, Frame, PROGRAM, Query, Reply, Row, Used};
 
 const ADA: &[u8] = &[1; 32];
 const ADA_PHONE: &[u8] = &[2; 32];
@@ -50,6 +50,21 @@ fn tell(host: &MockHost, record: &hook::Record) {
 
 fn ask(host: &MockHost, query: Query) -> Reply {
     Activity::query(&host.query(MockHost::env(PROGRAM)), query).unwrap()
+}
+
+fn row(record: &hook::Record) -> Row {
+    Row {
+        frame: frame(record),
+        signer: record.signer.clone(),
+        account: record.account,
+    }
+}
+
+fn rows(reply: Reply) -> (Vec<Row>, Option<Vec<u8>>) {
+    match reply {
+        Reply::Recent(page) => (page.items, page.next),
+        other => panic!("{other:?}"),
+    }
 }
 
 fn frames(reply: Reply) -> (Vec<Frame>, Option<Vec<u8>>) {
@@ -121,6 +136,48 @@ fn a_page_resumes_where_the_last_one_stopped() {
     let (rest, last) = acted(PageRequest::resume(next, 3));
     assert_eq!(rest, [frame(&records[0])]);
     assert_eq!(last, None);
+}
+
+#[test]
+fn the_chain_lists_every_frame_newest_first_whoever_sent_it() {
+    let (host, records) = told();
+    let recent = |program: Option<&str>, page| {
+        rows(ask(
+            &host,
+            Query::Recent {
+                program: program.map(Into::into),
+                page,
+            },
+        ))
+    };
+    let (all, next) = recent(None, PageRequest::default());
+    let newest_first: Vec<Row> = [4, 3, 2, 1, 0]
+        .iter()
+        .map(|at| row(&records[*at]))
+        .collect();
+    assert_eq!(
+        all, newest_first,
+        "later blocks first, later positions first within one"
+    );
+    assert_eq!(next, None);
+    assert_eq!(
+        all[2].account, None,
+        "a frame whose key holds no account is listed with the rest"
+    );
+    let (first, next) = recent(None, PageRequest::first(2));
+    assert_eq!(first, newest_first[..2]);
+    let (rest, next) = recent(None, PageRequest::resume(next, 2));
+    assert_eq!(
+        rest,
+        newest_first[2..4],
+        "a page resumes where the last one stopped"
+    );
+    let (last, next) = recent(None, PageRequest::resume(next, 2));
+    assert_eq!((last, next), (newest_first[4..].to_vec(), None));
+    let (chat, next) = recent(Some("chat"), PageRequest::default());
+    assert_eq!(chat, [row(&records[4]), row(&records[3]), row(&records[0])]);
+    assert_eq!(next, None);
+    assert_eq!(recent(Some("poll"), PageRequest::default()).0, []);
 }
 
 #[test]

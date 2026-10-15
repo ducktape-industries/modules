@@ -1,11 +1,13 @@
 //! The state Explorer keeps: where it is, and what it read. Rows are the
 //! programs' own types, worded only when drawn (`ui/`).
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use view::borsh_bytes;
 use view::prelude::*;
 
 use crate::acting::Acting;
 use crate::chain::{BlockRow, Chain, TxRow};
+use crate::recent::Listing;
 
 /// Where the explorer is: a list under a tab, or one thing opened from it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,9 +16,13 @@ pub enum Route {
     Overview,
     Blocks,
     Block(u64),
-    /// the recent transactions, of one program when named
+    /// the latest transactions, of one program when named
     Transactions(Option<String>),
-    Tx([u8; 32]),
+    /// one transaction by its place on the chain, which no two share
+    Tx {
+        height: u64,
+        position: u32,
+    },
     Accounts,
     Account(u64),
     Programs,
@@ -32,7 +38,7 @@ impl Route {
             Route::Block(height) => format!("block/{height}"),
             Route::Transactions(None) => "txs".into(),
             Route::Transactions(Some(program)) => format!("program/{program}"),
-            Route::Tx(hash) => format!("tx/{}", abi::hex(hash)),
+            Route::Tx { height, position } => format!("tx/{height}/{position}"),
             Route::Accounts => "accounts".into(),
             Route::Account(number) => format!("account/{number}"),
             Route::Programs => "programs".into(),
@@ -48,7 +54,10 @@ impl Route {
             ["block", height] => Route::Block(ducklink::number(height)?),
             ["txs"] => Route::Transactions(None),
             ["program", name] if !name.is_empty() => Route::Transactions(Some((*name).into())),
-            ["tx", hash] => Route::Tx(hash_of(hash)?),
+            ["tx", height, position] => Route::Tx {
+                height: ducklink::number(height)?,
+                position: ducklink::number(position)?.try_into().ok()?,
+            },
             ["accounts"] => Route::Accounts,
             ["account", number] => Route::Account(ducklink::number(number)?),
             ["programs"] => Route::Programs,
@@ -61,7 +70,7 @@ impl Route {
         match self {
             Route::Overview => 0,
             Route::Blocks | Route::Block(_) => 1,
-            Route::Transactions(_) | Route::Tx(_) => 2,
+            Route::Transactions(_) | Route::Tx { .. } => 2,
             Route::Accounts | Route::Account(_) => 3,
             Route::Programs => 4,
         }
@@ -90,10 +99,15 @@ pub struct Used {
     pub list: Vec<activity::Used>,
 }
 
+/// A block read by height: the block and its transactions, or none there.
+pub(crate) type ReadBlock = Loadable<Option<(BlockRow, Vec<TxRow>)>>;
+
+/// When each of an account's keys last signed, by the key's place in the
+/// account's list: the newest frame `activity` keeps under it.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct Acted {
+pub struct Devices {
     pub account: u64,
-    pub rows: Vec<TxRow>,
+    pub last_used: Vec<Option<u64>>,
 }
 
 /// What the programs role runs, lists and will change, and who may change it,
@@ -150,9 +164,20 @@ pub struct Explorer {
     pub(crate) validators: Loadable<Vec<Vec<u8>>>,
     pub(crate) network: Loadable<Network>,
     pub(crate) used: Loadable<Used>,
-    pub(crate) acted: Loadable<Acted>,
-    /// a block opened outside the window
-    pub(crate) opened: Loadable<Option<(BlockRow, Vec<TxRow>)>>,
+    /// the chain's latest transactions, or one program's: the list the
+    /// route shows, read again when the route names another program
+    #[serde(skip)]
+    pub(crate) recent: Option<(Option<String>, Listing)>,
+    /// what the account on screen did
+    #[serde(skip)]
+    pub(crate) acted: Option<(u64, Listing)>,
+    pub(crate) devices: Loadable<Devices>,
+    /// blocks read outside the ones held: one opened by height or hash,
+    /// and those the transaction rows drawn sit in
+    ///
+    /// ponytail: grows with the rows a reader scrolls to; drop the blocks
+    /// no held row sits in if a reader ever scrolls that far.
+    pub(crate) blocks: BTreeMap<u64, ReadBlock>,
     /// a `chain.blocks` page is in flight
     #[serde(skip)]
     pub(crate) pulling: bool,
@@ -214,10 +239,22 @@ impl Explorer {
         )
     }
 
-    pub(crate) fn acted(&self, number: u64) -> Option<&[TxRow]> {
-        let acted = self.acted.ready()?;
-        let this_account = acted.account == number;
-        this_account.then_some(acted.rows.as_slice())
+    /// The chain's latest transactions, or `program`'s, while that is the
+    /// list held.
+    pub(crate) fn recent(&self, program: Option<&str>) -> Option<&Listing> {
+        let (held, listing) = self.recent.as_ref()?;
+        (held.as_deref() == program).then_some(listing)
+    }
+
+    pub(crate) fn acted(&self, number: u64) -> Option<&Listing> {
+        let (held, listing) = self.acted.as_ref()?;
+        (*held == number).then_some(listing)
+    }
+
+    /// When `number`'s keys last signed, once read.
+    pub(crate) fn last_used(&self, number: u64) -> Option<&[Option<u64>]> {
+        let devices = self.devices.ready()?;
+        (devices.account == number).then_some(devices.last_used.as_slice())
     }
 
     /// Whether the programs role runs `program`.

@@ -2,34 +2,26 @@
 //! explorer, and a page's link copied out of it.
 use view::prelude::*;
 
-use crate::Explorer;
 use crate::chain::rows;
 use crate::state::{Note, Route, hash_of};
+use crate::{Explorer, WINDOW};
 
 enum Found {
     Block,
-    Tx,
+    /// a transaction, at this position of the block found with it
+    Tx(u32),
 }
 
 impl Explorer {
     pub(crate) fn go(&mut self, route: Route, cx: &mut Context<Self>) {
-        if let Route::Block(height) = route {
-            let held = self.chain.block(height).is_some();
-            let opened =
-                matches!(self.opened.ready(), Some(Some((row, _))) if row.height == height);
-            if !held && !opened {
-                let ask = cx.host().ask::<ChainBlock>(BlockRef::Height(height));
-                // another block: the one opened before is not shown under it
-                self.opened = Loadable::Idle;
-                cx.load(
-                    self,
-                    async move { ask.await.map(|block| block.map(rows)) },
-                    |view| &mut view.opened,
-                );
-            }
+        if let Route::Block(height) | Route::Tx { height, .. } = route {
+            self.locate([height], cx);
         }
+        // the Blocks tab's reach down the chain goes with it
+        self.chain.trim(WINDOW);
         self.left[route.tab()] = Some(route.clone());
         self.route = route;
+        self.read_recent(cx);
         self.read_acted(cx);
         self.note = None;
         self.cursor = None;
@@ -79,11 +71,12 @@ impl Explorer {
         cx.notify();
     }
 
-    /// A hash, as search and a link read it: a transaction or a block in the
-    /// window, else a block or a transaction the node finds by it.
+    /// A hash, as search and a link read it: a transaction or a block
+    /// already read, else a block or a transaction the node finds by it.
     fn find_hash(&mut self, hash: [u8; 32], cx: &mut Context<Self>) {
-        if self.tx(&hash).is_some() {
-            return self.go(Route::Tx(hash), cx);
+        if let Some(tx) = self.tx_by_hash(&hash) {
+            let (height, position) = (tx.height, tx.index);
+            return self.go(Route::Tx { height, position }, cx);
         }
         if let Some(block) = self.chain.blocks.iter().find(|block| block.id == hash) {
             return self.go(Route::Block(block.height), cx);
@@ -103,18 +96,20 @@ impl Explorer {
             let block = host
                 .ask::<ChainBlock>(BlockRef::Height(located.height))
                 .await?;
-            Ok(block.map(|block| (block, Found::Tx)))
+            Ok(block.map(|block| (block, Found::Tx(located.position))))
         };
         let listed_from = self.chain.listed_from;
         cx.land(found, move |view, found, cx| {
             match found {
                 Ok(Some((block, found))) => {
                     let (row, txs) = rows(block);
+                    let height = row.height;
                     let route = match found {
-                        Found::Block => Route::Block(row.height),
-                        Found::Tx => Route::Tx(hash),
+                        Found::Block => Route::Block(height),
+                        Found::Tx(position) => Route::Tx { height, position },
                     };
-                    view.opened = Loadable::Ready(Some((row, txs)));
+                    view.blocks
+                        .insert(height, Loadable::Ready(Some((row, txs))));
                     view.go(route, cx);
                 }
                 Ok(None) => view.note = Some(Note::NoSuchHash { listed_from }),
@@ -126,15 +121,17 @@ impl Explorer {
     }
 
     /// A `host.route` item, the path of a `duck://…/explorer/<route>` link:
-    /// a [`Route::path`], or `block/<hash>`, found like a searched hash.
+    /// a [`Route::path`], or `block/<hash>` and `tx/<hash>`, found like a
+    /// searched hash.
     pub(crate) fn open_route(&mut self, route: &str, cx: &mut Context<Self>) {
         if let Some(opened) = Route::from_path(route) {
-            return match opened {
-                Route::Tx(hash) if self.tx(&hash).is_none() => self.find_hash(hash, cx),
-                opened => self.go(opened, cx),
-            };
+            return self.go(opened, cx);
         }
-        if let Some(hash) = route.strip_prefix("block/").and_then(hash_of) {
+        let hashed = route
+            .strip_prefix("block/")
+            .or_else(|| route.strip_prefix("tx/"))
+            .and_then(hash_of);
+        if let Some(hash) = hashed {
             return self.find_hash(hash, cx);
         }
         self.note = Some(Note::Unlinked(route.to_owned()));

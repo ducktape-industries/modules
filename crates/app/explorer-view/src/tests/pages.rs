@@ -379,6 +379,8 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
     };
     let mut blocks = chain(12);
     blocks[12].txs = vec![push(0xd4), push(0xe5)];
+    let indexed = blocks.clone();
+    index(&cx, move || indexed.clone());
     cx.host()
         .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
     cx.open::<Explorer>();
@@ -417,6 +419,8 @@ fn a_frame_landed_again_is_a_row_of_its_own() {
     let again = blocks[12].txs[0].clone();
     blocks[11].txs.push(again.clone());
     blocks[12].txs.push(again);
+    let indexed = blocks.clone();
+    index(&cx, move || indexed.clone());
     cx.host()
         .handle::<ChainBlocks>(move |ask| Ok(page(&blocks, &ask)));
     cx.open::<Explorer>();
@@ -608,7 +612,8 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
         other => panic!("no list of rows: {other:?}"),
     };
     let (count, lowered, _) = list(&cx);
-    assert_eq!(count, WINDOW);
+    let page = PAGE as usize;
+    assert_eq!(count, page + 1, "the first page, and the row on its way");
     assert!(
         (14..count).contains(&lowered),
         "a screenful and a margin, not every row: {lowered}"
@@ -640,6 +645,14 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
     cx.simulate_key_down("explorer-transactions-list", "down");
     assert!(cx.interactivity(&row(2)).aria.active_descendant);
     assert!(cx.find(&row(40)).is_none(), "{:?}", list(&cx));
+
+    // the host reached the end of the page: the next is read, and the rows
+    // it brings sit in the blocks held, so no block is read for them
+    cx.simulate_range("explorer-transactions-list", 55..65);
+    cx.run_until_parked();
+    assert_eq!(list(&cx).0, 2 * page + 1, "{:?}", list(&cx));
+    assert!(cx.find(&row(64)).is_some(), "{:?}", cx.texts());
+    assert!(cx.host().requests::<ChainBlock>().is_empty());
 
     // another page, and back: the list opens at its top, the first row
     // active, the rows the scroll reached let go
@@ -687,8 +700,12 @@ fn the_transactions_list_reaches_the_panes_edge_and_writes_no_gutter() {
     );
 }
 
+/// A block's transactions sit under its fields in a page that scrolls
+/// whole: drawn whole, every row. An account's activity reaches every
+/// frame the index keeps, so it is a window like the Transactions tab's,
+/// read on as it is scrolled.
 #[test]
-fn an_accounts_activity_and_a_blocks_transactions_are_drawn_whole() {
+fn a_blocks_transactions_are_drawn_whole_and_an_accounts_activity_is_a_window() {
     let mut cx = TestAppContext::new();
     heavy(&mut cx);
     cx.open::<Explorer>();
@@ -707,9 +724,17 @@ fn an_accounts_activity_and_a_blocks_transactions_are_drawn_whole() {
     cx.run_until_parked();
     assert!(cx.find("explorer-activity").is_some(), "{:?}", cx.texts());
     assert!(
-        cx.find("explorer-activity-list-rows").is_none(),
-        "an account's activity is no window"
+        cx.find("explorer-activity-list-rows").is_some(),
+        "an account's activity is a window"
     );
     let row = |index: usize| format!("explorer-tx-{}-0", WINDOW - index);
-    assert!(cx.find(&row(0)).is_some() && cx.find(&row(WINDOW - 1)).is_some());
+    assert!(cx.find(&row(0)).is_some() && cx.find(&row(49)).is_none());
+    let page = PAGE as usize;
+    cx.simulate_range("explorer-activity-list", page - 10..page + 1);
+    cx.run_until_parked();
+    assert!(
+        cx.find(&row(page)).is_some(),
+        "the next page: {:?}",
+        cx.texts()
+    );
 }

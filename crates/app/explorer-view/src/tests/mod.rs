@@ -1,10 +1,12 @@
 //! A node the explorer reads, played by the fake host: a short chain, three
 //! accounts, one validator and `programs`, each answered as the program
 //! would. Tests by what they cover: `access` (what a reader changes on the
-//! Programs page), `describe`, `window`, `pages`, `search`.
+//! Programs page), `describe`, `window`, `index` (the transaction lists),
+//! `pages`, `search`.
 mod access;
 mod describe;
 mod follow;
+mod index;
 mod pages;
 mod search;
 mod window;
@@ -127,13 +129,16 @@ pub(crate) fn chain(tip: u64) -> Vec<Block> {
 
 pub(crate) const LISTED_BYTES: u32 = 4 << 10;
 
+/// The most blocks the node answers a page (`noded::wire::MAX_BLOCKS`).
+pub(crate) const NODE_PAGE: u32 = 100;
+
 pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> BlockList {
     let top = chain.len() as u64 - 1;
     let start = ask.before.map_or(Some(top), |before| before.checked_sub(1));
     let blocks = start.map_or_else(Vec::new, |start| {
         (0..=start.min(top))
             .rev()
-            .take(ask.limit as usize)
+            .take(ask.limit.min(NODE_PAGE) as usize)
             .map(|height| listed(&chain[height as usize]))
             .collect()
     });
@@ -257,11 +262,20 @@ pub(crate) fn holder(signer: &[u8]) -> Option<u64> {
     (signer == ADA).then_some(3)
 }
 
-fn whole<T>(items: Vec<T>) -> activity::PageResponse<T> {
+/// One page of `items` as a program answers it: the cursor is the offset
+/// of the page after, and a page with no limit is every row.
+fn paged<T>(items: Vec<T>, asked: &activity::PageRequest) -> activity::PageResponse<T> {
+    let offset = asked
+        .after
+        .as_deref()
+        .map_or(0, |after| usize::from_le_bytes(after.try_into().unwrap()));
+    let limit = usize::try_from(asked.limit()).unwrap_or(usize::MAX);
+    let next = (offset.saturating_add(limit) < items.len())
+        .then(|| (offset + limit).to_le_bytes().to_vec());
     activity::PageResponse {
         height: 1,
-        items,
-        next: None,
+        items: items.into_iter().skip(offset).take(limit).collect(),
+        next,
     }
 }
 
@@ -269,53 +283,63 @@ fn whole<T>(items: Vec<T>) -> activity::PageResponse<T> {
 /// told it of every frame.
 pub(crate) fn index(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + 'static) {
     cx.host().handle::<Query<Activity>>(move |query| {
-        let frames = chain().into_iter().rev().flat_map(|block| {
+        let rows = chain().into_iter().rev().flat_map(|block| {
             let txs = block.txs.into_iter().enumerate().rev();
-            txs.map(move |(position, tx)| {
-                let frame = activity::Frame {
+            txs.map(move |(position, tx)| activity::Row {
+                frame: activity::Frame {
                     height: block.height,
                     position: position as u32,
                     time: block.time,
                     target: tx.target,
                     applied: true,
-                };
-                (holder(&tx.signer), frame)
+                },
+                account: holder(&tx.signer),
+                signer: tx.signer,
             })
         });
         Ok(match query {
-            activity::Query::Acted {
-                account,
-                page: asked,
-            } => {
-                let acted = frames
-                    .filter(|(holder, _)| *holder == Some(account))
-                    .map(|(_, frame)| frame)
-                    .take(asked.limit() as usize)
+            activity::Query::Recent { program, page } => {
+                let recent = rows
+                    .filter(|row| program.as_ref().is_none_or(|p| row.frame.target == *p))
                     .collect();
-                activity::Reply::Frames(whole(acted))
+                activity::Reply::Recent(paged(recent, &page))
             }
-            activity::Query::Used { .. } => {
+            activity::Query::Acted { account, page } => {
+                let acted = rows
+                    .filter(|row| row.account == Some(account))
+                    .map(|row| row.frame)
+                    .collect();
+                activity::Reply::Frames(paged(acted, &page))
+            }
+            activity::Query::Signed { key, page } => {
+                let signed = rows
+                    .filter(|row| row.signer == key)
+                    .map(|row| row.frame)
+                    .collect();
+                activity::Reply::Frames(paged(signed, &page))
+            }
+            activity::Query::Used { page } => {
                 let mut used: Vec<activity::Used> = Vec::new();
-                for (holder, frame) in frames {
-                    let Some(account) = holder else {
+                for row in rows {
+                    let Some(account) = row.account else {
                         continue;
                     };
+                    let program = row.frame.target;
                     let counted = used
                         .iter_mut()
-                        .find(|used| (used.account, &used.program) == (account, &frame.target));
+                        .find(|used| (used.account, &used.program) == (account, &program));
                     match counted {
                         Some(used) => used.frames += 1,
                         None => used.push(activity::Used {
                             account,
-                            program: frame.target,
+                            program,
                             frames: 1,
                         }),
                     }
                 }
                 used.sort_by(|a, b| (a.account, &a.program).cmp(&(b.account, &b.program)));
-                activity::Reply::Used(whole(used))
+                activity::Reply::Used(paged(used, &page))
             }
-            other => panic!("unexpected activity query: {other:?}"),
         })
     });
 }
@@ -328,14 +352,7 @@ pub(crate) fn node(cx: &mut TestAppContext, tip: Rc<RefCell<u64>>) {
     let head = tip.clone();
     index(cx, move || chain(*head.borrow()));
     serve(cx, move || chain(*tip.borrow()));
-    host.handle::<Query<Identity>>(|query| match query {
-        identity::Query::List { .. } => Ok(identity::Reply::Accounts(programs::PageResponse {
-            height: 1,
-            items: vec![ada(), scout(), forge()],
-            next: None,
-        })),
-        other => panic!("unexpected identity query: {other:?}"),
-    });
+    identities(cx, vec![ada(), scout(), forge()]);
     host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
@@ -482,16 +499,29 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
     let indexed = chain.clone();
     index(cx, move || indexed.clone());
     serve(cx, move || chain.clone());
-    host.handle::<Query<Identity>>(|_| {
-        Ok(identity::Reply::Accounts(programs::PageResponse {
-            height: 1,
-            items: vec![ada()],
-            next: None,
-        }))
-    });
+    identities(cx, vec![ada()]);
     host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
+}
+
+/// identity listing `accounts`, and answering each by number.
+pub(crate) fn identities(cx: &TestAppContext, accounts: Vec<identity::Account>) {
+    cx.host()
+        .handle::<Query<Identity>>(move |query| match query {
+            identity::Query::List { .. } => Ok(identity::Reply::Accounts(programs::PageResponse {
+                height: 1,
+                items: accounts.clone(),
+                next: None,
+            })),
+            identity::Query::Get { number } => Ok(identity::Reply::Account(
+                accounts
+                    .iter()
+                    .find(|account| account.number == number)
+                    .cloned(),
+            )),
+            other => panic!("unexpected identity query: {other:?}"),
+        });
 }
 
 /// A restore that must read nothing: every ask left unanswered.

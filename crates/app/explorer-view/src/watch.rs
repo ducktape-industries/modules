@@ -54,10 +54,7 @@ impl Explorer {
         })
         .detach();
         cx.follow::<Changes<Activity>>((), |view, head, cx| match head {
-            Ok(_) => {
-                view.read_used(cx);
-                view.read_acted(cx);
-            }
+            Ok(_) => view.reread_index(cx),
             Err(refusal) => cx.log_refused("activity's live heads", &refusal),
         })
         .detach();

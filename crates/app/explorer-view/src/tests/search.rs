@@ -41,18 +41,28 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     assert!(cx.has_text("Nothing here is called “nobody”."));
 }
 
+/// A hash the view has not read is the node's to find: twelve newer
+/// transactions keep blocks 11 and 12 off the Overview, so neither is read
+/// before the search.
 #[test]
-fn a_transaction_past_the_window_is_found_by_its_hash() {
+fn a_transaction_not_yet_read_is_found_by_its_hash() {
     let mut cx = TestAppContext::new();
     let tip = WINDOW as u64 + 100;
     node(&mut cx, Rc::new(RefCell::new(tip)));
-    serve(&cx, move || {
+    let busy = move || {
         let mut blocks = chain(tip);
         for block in &mut blocks {
             block.id[..8].copy_from_slice(&block.height.to_le_bytes());
         }
+        for height in tip - 11..=tip {
+            let mut post = tx(0xd0, STRANGER, "chat", post("design", "noise"));
+            post.hash[..8].copy_from_slice(&height.to_le_bytes());
+            blocks[height as usize].txs = vec![post];
+        }
         blocks
-    });
+    };
+    index(&cx, busy);
+    serve(&cx, busy);
     let routes = cx.host().stream::<HostRoute>();
     cx.open::<Explorer>();
     cx.run_until_parked();
@@ -207,7 +217,10 @@ fn every_route_reads_back_from_its_path() {
         Route::Block(6230),
         Route::Transactions(None),
         Route::Transactions(Some("chat".into())),
-        Route::Tx([0xa1; 32]),
+        Route::Tx {
+            height: 11,
+            position: 0,
+        },
         Route::Accounts,
         Route::Account(3),
         Route::Programs,
@@ -222,6 +235,8 @@ fn every_route_reads_back_from_its_path() {
         "block/07",
         "block/x",
         "tx/zz",
+        "tx/11",
+        "tx/11/x",
         "program/",
         "account/-1",
         "blocks/1",
