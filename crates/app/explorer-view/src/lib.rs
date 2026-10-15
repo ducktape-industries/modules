@@ -1,15 +1,16 @@
 //! Explorer: the chain as this node lists it. Finalized blocks and the
-//! transactions they carry come from `chain.blocks` and `chain.block`, a
-//! transaction's whole payload from `chain.tx`; who signed them from
-//! `identity`; the validators from `valset`; the programs from
-//! `programs`; what each account did from `activity`, whose frames
-//! are read by their place (`chain.tx`).
+//! transactions each carries come from `chain.blocks` and `chain.block`;
+//! every transaction, newest first, from `activity`, and what each
+//! account did, its frames read by their place (`chain.tx`); one
+//! transaction opened by its place, and its whole payload, from
+//! `chain.tx`; who signed them from `identity`; the validators from
+//! `valset`; the programs from `programs`.
 //!
-//! What the node does not keep is not shown: there are no receipts, so a
-//! transaction is "in block N", never applied or rejected; and there is no
-//! per-block state root or write set. The block and transaction lists are
-//! the last [`WINDOW`] blocks, read a page at a time and then followed at
-//! the head as `chain.heads` pushes it.
+//! What the node does not keep is not shown: there is no per-block state
+//! root or write set. The block list is the last [`WINDOW`] blocks, read a
+//! page at a time and then followed at the head as `chain.heads` pushes
+//! it; the transaction list is every frame `activity` recorded, read again
+//! on each of its writes.
 //!
 //! The state is one struct (`state.rs`) and the window (`chain.rs`). Reads
 //! are typed (`queries.rs`) and loaded in `load.rs`, re-read on the live

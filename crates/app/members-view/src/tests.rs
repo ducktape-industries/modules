@@ -158,6 +158,7 @@ fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
                         height: block.height,
                         position: position as u32,
                         time: block.time,
+                        signer: tx.signer.clone(),
                         target: tx.target.clone(),
                         applied: true,
                     })

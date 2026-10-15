@@ -1,10 +1,10 @@
 //! Typed reads of the system programs: accounts (identity), validators
-//! (valset), programs (programs) and what each account did
-//! (activity). The window's blocks are the host's (`load.rs`).
+//! (valset), programs (programs), and every transaction and what each
+//! account did (activity). The window's blocks are the host's (`load.rs`).
 use view::prelude::*;
 
 use crate::chain::{TxRow, located};
-use crate::state::{Accounts, Acted, Network, Used};
+use crate::state::{Accounts, Acted, Frames, Network, Used};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
@@ -56,6 +56,15 @@ pub(crate) async fn used(host: Host) -> Result<Used, Error> {
         })
         .await?;
     Ok(Used { list })
+}
+
+pub(crate) async fn frames(host: Host) -> Result<Frames, Error> {
+    let list = host
+        .query_all(|after| activity::ask::Frames {
+            page: activity::PageRequest { after, limit: None },
+        })
+        .await?;
+    Ok(Frames { list })
 }
 
 pub(crate) async fn acted(host: Host, account: u64, known: Vec<TxRow>) -> Result<Acted, Error> {

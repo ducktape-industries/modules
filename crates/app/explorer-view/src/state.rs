@@ -14,9 +14,11 @@ pub enum Route {
     Overview,
     Blocks,
     Block(u64),
-    /// the recent transactions, of one program when named
     Transactions(Option<String>),
-    Tx([u8; 32]),
+    Tx {
+        height: u64,
+        position: u32,
+    },
     Accounts,
     Account(u64),
     Programs,
@@ -32,7 +34,7 @@ impl Route {
             Route::Block(height) => format!("block/{height}"),
             Route::Transactions(None) => "txs".into(),
             Route::Transactions(Some(program)) => format!("program/{program}"),
-            Route::Tx(hash) => format!("tx/{}", abi::hex(hash)),
+            Route::Tx { height, position } => format!("tx/{height}/{position}"),
             Route::Accounts => "accounts".into(),
             Route::Account(number) => format!("account/{number}"),
             Route::Programs => "programs".into(),
@@ -48,7 +50,10 @@ impl Route {
             ["block", height] => Route::Block(ducklink::number(height)?),
             ["txs"] => Route::Transactions(None),
             ["program", name] if !name.is_empty() => Route::Transactions(Some((*name).into())),
-            ["tx", hash] => Route::Tx(hash_of(hash)?),
+            ["tx", height, position] => Route::Tx {
+                height: ducklink::number(height)?,
+                position: ducklink::number(position)?.try_into().ok()?,
+            },
             ["accounts"] => Route::Accounts,
             ["account", number] => Route::Account(ducklink::number(number)?),
             ["programs"] => Route::Programs,
@@ -61,7 +66,7 @@ impl Route {
         match self {
             Route::Overview => 0,
             Route::Blocks | Route::Block(_) => 1,
-            Route::Transactions(_) | Route::Tx(_) => 2,
+            Route::Transactions(_) | Route::Tx { .. } => 2,
             Route::Accounts | Route::Account(_) => 3,
             Route::Programs => 4,
         }
@@ -88,6 +93,12 @@ pub struct Accounts {
 pub struct Used {
     #[serde(with = "borsh_bytes")]
     pub list: Vec<activity::Used>,
+}
+
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Frames {
+    #[serde(with = "borsh_bytes")]
+    pub list: Vec<activity::Frame>,
 }
 
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -150,9 +161,11 @@ pub struct Explorer {
     pub(crate) validators: Loadable<Vec<Vec<u8>>>,
     pub(crate) network: Loadable<Network>,
     pub(crate) used: Loadable<Used>,
+    pub(crate) frames: Loadable<Frames>,
     pub(crate) acted: Loadable<Acted>,
     /// a block opened outside the window
     pub(crate) opened: Loadable<Option<(BlockRow, Vec<TxRow>)>>,
+    pub(crate) located: Loadable<Option<TxRow>>,
     /// a `chain.blocks` page is in flight
     #[serde(skip)]
     pub(crate) pulling: bool,
@@ -202,6 +215,12 @@ impl Explorer {
             let at = account.keys().iter().position(|held| held.key == key)?;
             Some((account, at))
         })
+    }
+
+    pub(crate) fn frame_list(&self) -> &[activity::Frame] {
+        self.frames
+            .ready()
+            .map_or(&[][..], |frames| frames.list.as_slice())
     }
 
     pub(crate) fn used_by(&self, number: u64) -> Option<Vec<&activity::Used>> {

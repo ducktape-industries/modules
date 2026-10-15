@@ -5,6 +5,8 @@ use store::PageRequest;
 
 use crate::{Activity, Frame, PROGRAM, Query, Reply, Used};
 
+mod frames;
+
 const ADA: &[u8] = &[1; 32];
 const ADA_PHONE: &[u8] = &[2; 32];
 const STRANGER: &[u8] = &[3; 32];
@@ -39,6 +41,7 @@ fn frame(record: &hook::Record) -> Frame {
         height: record.height,
         position: record.position,
         time: record.height * 1000,
+        signer: record.signer.clone(),
         target: record.target.clone(),
         applied: record.applied,
     }

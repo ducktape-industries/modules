@@ -12,8 +12,12 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
     assert!(cx.has_text("Validators") && cx.has_text("Accounts"));
     assert!(!cx.has_text("Transactions ") && !texts.iter().any(|t| t.contains("tx count")));
     assert!(cx.has_text("Latest activity") && cx.has_text("Latest transactions"));
-    assert!(cx.has_text("Post in #design") && cx.has_text("Ada") && cx.has_text("#3"));
-    assert!(cx.has_text("mystery · 4 bytes") && cx.has_text("02020202…0202"));
+    assert!(cx.has_text("chat") && cx.has_text("Ada") && cx.has_text("#3"));
+    assert!(cx.has_text("mystery") && cx.has_text("02020202…0202"));
+    assert!(
+        cx.host().requests::<ChainTx>().is_empty(),
+        "the latest transactions are activity's frames"
+    );
     // the page tabs sit in a named tab list
     let Some(view::wire::Node::Container(bar)) = cx.find("explorer-tabs") else {
         panic!("a tab list");
@@ -325,9 +329,8 @@ fn a_transaction_shows_its_block_anchor_signer_and_operation() {
 #[test]
 fn a_rejected_transaction_says_so_and_why() {
     let (mut cx, _) = ready();
-    let hash = abi::hex(&[0xb2; 32]);
     assert!(
-        cx.find(&format!("explorer-tx-mark-{hash}")).is_some(),
+        cx.find("explorer-tx-mark-12-0").is_some(),
         "its row marks it"
     );
     cx.simulate_click("explorer-tx-12-0");
@@ -346,8 +349,14 @@ fn a_rejected_transaction_says_so_and_why() {
 #[test]
 fn a_transaction_without_a_receipt_shows_no_outcome() {
     let (mut cx, _) = ready();
+    cx.simulate_click("explorer-block-11");
+    cx.run_until_parked();
     let hash = abi::hex(&[0xc3; 32]);
     assert!(cx.find(&format!("explorer-tx-mark-{hash}")).is_none());
+    assert!(
+        cx.find(&format!("explorer-tx-mark-{}", abi::hex(&[0xa1; 32])))
+            .is_some()
+    );
     cx.simulate_click("explorer-tx-11-1");
     cx.run_until_parked();
     let texts = cx.texts();
@@ -383,23 +392,27 @@ fn two_like_transactions_are_named_apart_by_their_short_hash() {
     serve(&cx, move || blocks.clone());
     cx.open::<Explorer>();
     cx.run_until_parked();
-    let name = |id: &str| match cx.find(id) {
+    let name = |cx: &TestAppContext, id: &str| match cx.find(id) {
         Some(view::wire::Node::Container(row)) => {
             row.interactivity.as_ref().unwrap().aria.label.clone()
         }
         _ => panic!("no row {id}"),
     };
+    cx.simulate_click("explorer-block-12");
+    cx.run_until_parked();
     assert_eq!(
-        name("explorer-tx-12-0").as_deref(),
+        name(&cx, "explorer-tx-12-0").as_deref(),
         Some("Push · big-history, Accepted, d4d4d4d4…d4d4")
     );
     assert_eq!(
-        name("explorer-tx-12-1").as_deref(),
+        name(&cx, "explorer-tx-12-1").as_deref(),
         Some("Push · big-history, Accepted, e5e5e5e5…e5e5")
     );
+    cx.simulate_click("explorer-previous");
+    cx.run_until_parked();
     // no receipt, no outcome word, and no empty part in its place
     assert_eq!(
-        name("explorer-tx-11-1").as_deref(),
+        name(&cx, "explorer-tx-11-1").as_deref(),
         Some("Direct message, c3c3c3c3…c3c3")
     );
 }
@@ -417,18 +430,26 @@ fn a_frame_landed_again_is_a_row_of_its_own() {
     let again = blocks[12].txs[0].clone();
     blocks[11].txs.push(again.clone());
     blocks[12].txs.push(again);
+    let indexed = blocks.clone();
+    index(&cx, move || indexed.clone());
     serve(&cx, move || blocks.clone());
     cx.open::<Explorer>();
     cx.run_until_parked();
     for id in ["explorer-tx-12-0", "explorer-tx-11-2", "explorer-tx-12-1"] {
         assert!(cx.find(id).is_some(), "{id}: {:?}", cx.texts());
     }
-    let described = cx
-        .texts()
-        .iter()
-        .filter(|text| *text == "mystery · 4 bytes")
-        .count();
-    assert_eq!(described, 3, "{:?}", cx.texts());
+    let described = |cx: &TestAppContext| {
+        cx.texts()
+            .iter()
+            .filter(|text| *text == "mystery · 4 bytes")
+            .count()
+    };
+    cx.simulate_click("explorer-block-12");
+    cx.run_until_parked();
+    assert_eq!(described(&cx), 2, "{:?}", cx.texts());
+    cx.simulate_click("explorer-previous");
+    cx.run_until_parked();
+    assert_eq!(described(&cx), 1, "{:?}", cx.texts());
 }
 
 #[test]
@@ -607,7 +628,7 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
         other => panic!("no list of rows: {other:?}"),
     };
     let (count, lowered, _) = list(&cx);
-    assert_eq!(count, WINDOW);
+    assert_eq!(count, WINDOW + 1, "every frame, past the window too");
     assert!(
         (14..count).contains(&lowered),
         "a screenful and a margin, not every row: {lowered}"

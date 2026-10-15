@@ -13,8 +13,8 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     search(&mut cx, "#3");
     assert!(cx.has_text("account 3   Person   1 device"));
     search(&mut cx, "chat");
-    assert!(cx.has_text("Transactions · chat") && cx.has_text("Post in #design"));
-    assert!(!cx.has_text("mystery · 4 bytes"));
+    assert!(cx.has_text("Transactions · chat") && cx.has_text("2 transactions"));
+    assert!(!cx.has_text("mystery"), "{:?}", cx.texts());
     // a block hash in the window opens it; one outside is asked of the node
     search(&mut cx, &abi::hex(&[105; 32]));
     assert!(cx.has_text(&abi::hex(&[105; 32])), "{:?}", cx.texts());
@@ -169,6 +169,8 @@ fn a_link_opens_the_page_it_names() {
     assert!(cx.has_text("account 3   Person   1 device"));
     open(&mut cx, "program/chat");
     assert!(cx.has_text("Transactions · chat"));
+    open(&mut cx, "tx/12/0");
+    assert!(cx.has_text("In block 12") && cx.has_text("not a member"));
     open(&mut cx, &format!("tx/{}", abi::hex(&[0xee; 32])));
     assert!(cx.has_text("No block or transaction has this hash."));
     open(&mut cx, "nowhere/1");
@@ -214,7 +216,14 @@ fn every_route_reads_back_from_its_path() {
         Route::Block(6230),
         Route::Transactions(None),
         Route::Transactions(Some("chat".into())),
-        Route::Tx([0xa1; 32]),
+        Route::Tx {
+            height: 11,
+            position: 0,
+        },
+        Route::Tx {
+            height: 0,
+            position: u32::MAX,
+        },
         Route::Accounts,
         Route::Account(3),
         Route::Programs,
@@ -229,6 +238,9 @@ fn every_route_reads_back_from_its_path() {
         "block/07",
         "block/x",
         "tx/zz",
+        "tx/11",
+        "tx/11/01",
+        "tx/11/4294967296",
         "program/",
         "account/-1",
         "blocks/1",

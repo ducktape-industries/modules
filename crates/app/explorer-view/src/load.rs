@@ -5,7 +5,7 @@
 //! changed.
 use view::prelude::*;
 
-use crate::chain::{BlockRow, TxRow};
+use crate::chain::{self, BlockRow, TxRow};
 use crate::state::Route;
 use crate::{Explorer, WINDOW, decode, queries};
 
@@ -16,6 +16,7 @@ impl Explorer {
         self.read_accounts(cx);
         self.read_validators(cx);
         self.read_network(cx);
+        self.read_frames(cx);
         self.read_used(cx);
         self.read_acted(cx);
         self.pull(cx);
@@ -84,6 +85,11 @@ impl Explorer {
     pub(crate) fn read_network(&mut self, cx: &mut Context<Self>) {
         let work = queries::network(cx.host());
         cx.load(self, work, |view| &mut view.network);
+    }
+
+    pub(crate) fn read_frames(&mut self, cx: &mut Context<Self>) {
+        let work = queries::frames(cx.host());
+        cx.load(self, work, |view| &mut view.frames);
     }
 
     pub(crate) fn read_used(&mut self, cx: &mut Context<Self>) {
@@ -231,40 +237,52 @@ impl Explorer {
     fn described(&mut self, hash: [u8; 32], op: Description, cx: &mut Context<Self>) {
         // every row of the hash: a frame the node landed again is
         // the same op, drawn once per landing
-        let rows = self
-            .chain
-            .txs
-            .iter()
-            .chain(self.opened_txs())
-            .chain(self.acted_txs());
-        for tx in rows.filter(|tx| tx.hash == hash) {
+        for tx in self.held().filter(|tx| tx.hash == hash) {
             let _ = tx.op.set(op.clone());
         }
         cx.notify();
     }
 
-    pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
+    fn held(&self) -> impl Iterator<Item = &TxRow> {
+        let opened = match self.opened.ready() {
+            Some(Some((_, txs))) => txs.as_slice(),
+            _ => &[],
+        };
+        let acted = self.acted.ready().map_or(&[][..], |acted| &acted.rows);
+        let located = self.located.ready().and_then(Option::as_ref);
         self.chain
             .txs
             .iter()
-            .find(|tx| &tx.hash == hash)
-            .or_else(|| self.opened_tx(hash))
-            .or_else(|| self.acted_txs().iter().find(|tx| &tx.hash == hash))
+            .chain(opened)
+            .chain(acted)
+            .chain(located)
     }
 
-    fn acted_txs(&self) -> &[TxRow] {
-        self.acted.ready().map_or(&[], |acted| &acted.rows)
+    pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
+        self.held().find(|tx| &tx.hash == hash)
     }
 
-    pub(crate) fn opened_tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
-        self.opened_txs().iter().find(|tx| &tx.hash == hash)
+    pub(crate) fn tx_at(&self, height: u64, position: u32) -> Option<&TxRow> {
+        self.held()
+            .find(|tx| (tx.height, tx.index) == (height, position))
     }
 
-    fn opened_txs(&self) -> &[TxRow] {
-        match self.opened.ready() {
-            Some(Some((_, txs))) => txs,
-            _ => &[],
+    pub(crate) fn locate(&mut self, height: u64, position: u32, cx: &mut Context<Self>) {
+        let held = self.tx_at(height, position).is_some();
+        if held {
+            return;
         }
+        let whole = TxAsk {
+            tx: TxRef::At { height, position },
+            most: u32::MAX,
+        };
+        let ask = cx.host().ask::<ChainTx>(whole);
+        self.located = Loadable::Idle;
+        cx.load(
+            self,
+            async move { ask.await.map(|found| found.map(chain::located)) },
+            |view| &mut view.located,
+        );
     }
 
     /// A block and its transactions, in the window or opened outside it.

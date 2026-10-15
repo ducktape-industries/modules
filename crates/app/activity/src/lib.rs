@@ -1,5 +1,6 @@
-//! The `activity` program: where each frame a block carried sits on the chain, kept under the key
-//! that signed it and the account it acted as, as the kernel tells its hooks. Views list what an account did and read each frame by its place (`chain.tx`).
+//! The `activity` program: where each frame a block carried sits on the chain and who signed it,
+//! kept newest first network-wide, under the key that signed it and under the account it acted as,
+//! as the kernel tells its hooks. Views list the network's transactions and what an account did from it.
 mod program;
 mod rules;
 #[cfg(test)]
@@ -20,6 +21,7 @@ pub struct Frame {
     pub height: u64,
     pub position: u32,
     pub time: u64,
+    pub signer: Vec<u8>,
     pub target: ProgramId,
     pub applied: bool,
 }
@@ -43,6 +45,8 @@ pub enum Query {
     Signed { key: Vec<u8>, page: PageRequest },
     #[ask(Reply::Used(PageResponse<Used>))]
     Used { page: PageRequest },
+    #[ask(Reply::Frames(PageResponse<Frame>))]
+    Frames { page: PageRequest },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

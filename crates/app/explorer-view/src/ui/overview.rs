@@ -187,27 +187,15 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
     .text_size(design::text::SECONDARY)
     .into_any_element();
     let list = rows("explorer-latest-txs-list", "Latest transactions", view);
-    let txs = (!view.chain.txs.is_empty()).then(|| {
-        tx_rows(
-            list,
-            view,
-            |view| view.chain.txs.iter().take(LATEST).collect(),
-            false,
-            true,
-        )
-        .whole(view, cx, theme)
-        .build(cx)
-    });
-    let none = view.chain.txs.is_empty().then(|| {
-        quiet(
-            "explorer-no-txs",
-            format!(
-                "No transactions in the last {}.",
-                plural(view.chain.blocks.len() as u64, "block", "blocks")
-            ),
-            theme,
-        )
-    });
+    let txs = match &view.frames {
+        Loadable::Ready(frames) | Loadable::Reloading(frames, _) => {
+            latest(view, &frames.list, list, cx, theme)
+        }
+        Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+        Loadable::Idle | Loadable::Loading(_) => {
+            quiet("explorer-txs-loading", "Reading transactions…", theme)
+        }
+    };
     div()
         .id("explorer-latest-txs")
         .when(side, |panel| panel.flex_1().min_w(TXS_MIN_W))
@@ -217,6 +205,24 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
             Some(all),
             theme,
         ))
-        .children(txs)
-        .children(none)
+        .child(txs)
+}
+
+fn latest(
+    view: &Explorer,
+    frames: &[activity::Frame],
+    list: Rows,
+    cx: Cx,
+    theme: &Theme,
+) -> AnyElement {
+    let none = frames.is_empty();
+    if none {
+        return quiet("explorer-no-txs", "No transactions recorded.", theme);
+    }
+    frame_rows(list, view, |view| {
+        view.frame_list().iter().take(LATEST).collect()
+    })
+    .whole(view, cx, theme)
+    .build(cx)
+    .into_any_element()
 }

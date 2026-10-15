@@ -33,6 +33,16 @@ impl Net {
             .collect()
     }
 
+    async fn recorded(&self) -> Vec<activity::Frame> {
+        let asked = activity::Query::Frames {
+            page: PageRequest::default(),
+        };
+        let activity::Reply::Frames(page) = self.ask(activity::PROGRAM, &asked).await else {
+            panic!()
+        };
+        page.items
+    }
+
     async fn rename(&mut self, name: &str) {
         let op = identity::Op::SetName {
             account: ALICE,
@@ -88,6 +98,21 @@ fn a_founding_hook_is_told_of_every_frame_and_answers_by_account_and_key() {
             "the create ran before the key held an account"
         );
         assert_eq!(acted[1].target, identity::PROGRAM);
+        let frames = net.recorded().await;
+        let places: Vec<(u64, u32)> = frames
+            .iter()
+            .map(|frame| (frame.height, frame.position))
+            .collect();
+        assert!(
+            places.windows(2).all(|pair| pair[0] > pair[1]),
+            "every frame once, newest first: {places:?}"
+        );
+        let alices: Vec<(u64, u32, bool)> = frames
+            .iter()
+            .filter(|frame| frame.signer == public(ALICE_KEY))
+            .map(|frame| (frame.height, frame.position, frame.applied))
+            .collect();
+        assert_eq!(alices, net.signed(&public(ALICE_KEY)).await);
         assert_eq!(acted[1].time, TIME + 2000);
         let asked = activity::Query::Used {
             page: PageRequest::default(),
