@@ -1,0 +1,30 @@
+[package]
+name = "push"
+version.workspace = true
+edition.workspace = true
+
+# The types are always built; a sending program links them with `program`
+# off. `program` adds its wasm exports (`program::export_awaiting!`), which
+# only its own wasm build turns on.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+program = []
+# `describe` makes this crate's wasm build the `ducktape.describe` module:
+# the `describe` export alone, no program, no imports.
+describe = []
+
+[dependencies]
+abi = { workspace = true }
+borsh = { workspace = true }
+describe = { workspace = true }
+program = { workspace = true }
+identity = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+awaits = { workspace = true }
+egress = { workspace = true }
+scheduler = { workspace = true }
+valset = { workspace = true }

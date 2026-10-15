@@ -71,6 +71,10 @@ code = "attribution.wasm"
 id = "harness"
 code = "harness.wasm"
 
+[[programs]]
+id = "push"
+code = "push.wasm"
+
 [[views]]
 name = "explorer"
 code = "explorer_view.wasm"

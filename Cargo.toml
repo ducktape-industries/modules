@@ -68,6 +68,7 @@ members = [
     "crates/app/attribution",
     "crates/app/harness",
     "crates/app/harness-view",
+    "crates/app/push",
     "crates/lib/gitcore",
 ]
 
@@ -97,6 +98,7 @@ awaits = { path = "crates/system/awaits" }
 scheduler = { path = "crates/system/scheduler" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
+push = { path = "crates/app/push" }
 attribution = { path = "crates/app/attribution" }
 harness = { path = "crates/app/harness" }
 egress = { path = "crates/app/egress" }

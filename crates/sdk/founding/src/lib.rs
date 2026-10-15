@@ -30,6 +30,7 @@ pub const UNVIEWED: &[&str] = &[
     "files",
     "egress",
     "attribution",
+    "push",
 ];
 pub const VIEWS: [&str; 1] = ["explorer_view"];
 
