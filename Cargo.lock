@@ -2637,6 +2637,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-view"
+version = "0.1.0"
+dependencies = [
+ "chat",
+ "ducklink",
+ "egress",
+ "harness",
+ "identity",
+ "serde",
+ "serde_json",
+ "view",
+]
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

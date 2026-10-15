@@ -67,6 +67,7 @@ members = [
     "crates/app/egress",
     "crates/app/attribution",
     "crates/app/harness",
+    "crates/app/harness-view",
     "crates/lib/gitcore",
 ]
 
