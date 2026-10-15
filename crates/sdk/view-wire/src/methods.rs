@@ -526,7 +526,7 @@ pub enum Publishing {
     /// node holds the ask and takes it on the block that writes the grant,
     /// and what the view sends onto the track meanwhile goes out then. Told
     /// each time the ask starts to wait: when first asked, and when a
-    /// reconnect asks again after the grant was taken meanwhile.
+    /// reconnect asks again while no row covers it.
     Waiting,
     /// How many are listening (every node counted), told each time it
     /// moves: a track no one subscribes to hears none. 0: stop producing
@@ -568,8 +568,9 @@ pub enum LiveStart {
     /// The group the node holds first (a late joiner's state), then
     /// everything new.
     Latest,
-    /// Only groups that start after it: the group in hand is passed over,
-    /// and each later one is heard from its first object.
+    /// Only what is published from now on. In stream mode the group in
+    /// flight is passed over, and each later one is heard from its first
+    /// object; in datagram mode every datagram from now on.
     Next,
 }
 
@@ -713,7 +714,8 @@ methods! {
     /// granted the track, the subscriber count as it moves. An object the
     /// host or the node refused (`too_large`, `in_flight_limit`) is an
     /// `Err` item that does not end it. It ends with a refusal
-    /// (`not_granted`: the grant taken back; `duplicate_track`,
+    /// (`not_granted`: the grant taken back; `publisher_gone`: the same
+    /// account published the track again elsewhere; `duplicate_track`,
     /// `malformed_request`, `bad_proof`, `live_unavailable`). A reconnect
     /// publishes the track again on the new connection.
     LivePublishTrack, "live.publish", LivePublish, Publishing;
@@ -727,16 +729,18 @@ methods! {
     /// `Waiting` while the room's program has not granted it, then
     /// [`LiveItem::Opened`] and what the track carries. Ends with a refusal
     /// (`track_ended`, `publisher_gone`, `unknown_track`; `not_granted`:
-    /// the grant taken back, this account's or the publisher's;
-    /// `malformed_request`, `bad_proof`, `live_unavailable`). A reconnect
-    /// subscribes again from [`LiveStart::Latest`], and the next item is a
-    /// fresh [`LiveItem::Opened`].
+    /// this account's grant taken back; `malformed_request`, `bad_proof`,
+    /// `live_unavailable`). A reconnect subscribes again from
+    /// [`LiveStart::Latest`], and the next item is a fresh
+    /// [`LiveItem::Opened`].
     LiveSubscribeTrack, "live.subscribe", LiveSubscribe, LiveItem;
     /// `live.tracks`: a subscription to a room's track list; items
     /// [`Watching`]: `Waiting` while the room's program has not granted
     /// watching the room, then an `Announce` per track up at subscribe
     /// (`up: true`) and one per track that comes or goes after, each a
-    /// track this account's grant lets it subscribe to. It ends with a
+    /// track this account's grant lets it subscribe to: a grant that moves
+    /// announces the tracks it adds (`up: true`) and drops (`up: false`),
+    /// so the list holds what a fresh `live.tracks` would. It ends with a
     /// refusal (`not_granted`: the grant taken back; `malformed_request`,
     /// `bad_proof`, `live_unavailable`).
     LiveTracks, "live.tracks", String, Watching;
@@ -895,7 +899,9 @@ pub mod refusal {
     pub const UNKNOWN_TRACK: &str = "unknown_track";
     /// The publisher ended the track.
     pub const TRACK_ENDED: &str = "track_ended";
-    /// The publisher's connection went away with the track up.
+    /// The track has no publisher any more: its connection went away with
+    /// the track up, the same account published it again elsewhere, or the
+    /// room's program took the publisher's grant back.
     pub const PUBLISHER_GONE: &str = "publisher_gone";
 }
 

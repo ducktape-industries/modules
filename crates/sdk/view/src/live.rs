@@ -20,9 +20,12 @@
 //! ([`Publishing::Waiting`], [`Received::Waiting`],
 //! [`Watching::Waiting`](crate::methods::Watching::Waiting)), and the node
 //! answers it on the block that writes the row, as if just asked. A view
-//! that opens a room sends the op writing its rows on that item, once;
-//! what it sends onto a waiting track goes out once the track is up.
-//! `not_granted` is the grant taken back: the request's last item.
+//! that opens a room sends the op writing its rows on each `Waiting` (a
+//! reconnect that still waits tells it again); what it sends onto a
+//! waiting track goes out once the track is up.
+//! `not_granted` is this account's grant taken back: the request's last
+//! item; a subscription whose publisher lost its grant ends
+//! `publisher_gone`.
 //!
 //! A publication and a subscription are tasks: keep them beside the state
 //! they feed and build them in [`View::attach`](crate::View::attach), which

@@ -287,7 +287,8 @@ The node lets an account into a room only as the view's program granted
 it, in rows the program writes (`program::live::grant`) and the node reads
 from blocks. An ask the rows do not cover yet hears `Waiting` and stays
 open; the node answers it on the block that writes the row. A view that
-opens a room submits the op writing the row on that item, once:
+opens a room submits the op writing the row on each `Waiting` (a
+reconnect that still waits tells it again):
 
 ```rust
 let mine = LivePublish { track, mode: LiveMode::Stream, priority: DEFAULT_PRIORITY };
@@ -299,7 +300,8 @@ self.mine = Some(Track::publish(cx, mine, |view, item, cx| match item {
 }));
 ```
 
-`not_granted` is the grant taken back: the request's last item. The codes
+`not_granted` is this account's grant taken back: the request's last item;
+a subscription whose publisher lost its grant ends `publisher_gone`. The codes
 each method ends with are in its doc in `methods.rs`.
 
 ## When a view renders, and who decides
@@ -443,10 +445,12 @@ Views that talk live are tested together over `testing::Relay`
 `TestAppContext` each, and it answers their `live.*` requests as one node
 would, the n-th view linked acting as account n. Its grants are the rows a
 program writes, decided as the node decides them: every room starts with
-`*` = `Grant::all()`, `hold(room)` takes every row away (each ask hears
-`Waiting`), and `grant(room, who, grant)` and `revoke(room, who)` are the
-block that writes or removes one: what waited and is covered now is
-answered, and what the rows no longer cover ends `not_granted`.
+`*` = `Grant::all()`, and `hold(room)`, `grant(room, who, grant)` and
+`revoke(room, who)` are the block that takes every row away (each ask hears
+`Waiting`), writes one or removes one: a room list hears the tracks its row
+adds and drops, what the rows no longer cover ends `not_granted` (the
+subscribers of a publication it ends hear `publisher_gone`), and what waited
+and is covered now is answered.
 `testing::lower(build)` is the one path that is not: it lowers a single
 element with no host, sanitizer or audit, for a test of what that element
 carries (`testing::assert_accessible(&tree)` audits it when the test wants).
