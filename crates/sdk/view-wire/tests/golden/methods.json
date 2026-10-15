@@ -1343,6 +1343,22 @@
     }
   },
   {
+    "kind": "live.publish",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "mode": "Stream",
+      "priority": 128
+    },
+    "reply": {
+      "Cut": {
+        "group": 4
+      }
+    }
+  },
+  {
     "kind": "live.send",
     "request": {
       "track": {

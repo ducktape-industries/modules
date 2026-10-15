@@ -490,6 +490,14 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             },
             Publishing::Subscribers(2),
         ),
+        exchange::<LivePublishTrack>(
+            LivePublish {
+                track: live_track("doc"),
+                mode: LiveMode::Stream,
+                priority: 128,
+            },
+            Publishing::Cut { group: 4 },
+        ),
         exchange::<LiveSendObject>(
             LiveSend {
                 track: live_track("doc"),

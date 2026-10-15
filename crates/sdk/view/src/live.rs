@@ -62,8 +62,11 @@ pub struct Track<M: BorshSerialize> {
 impl<M: BorshSerialize> Track<M> {
     /// `live.publish` of `request`, with `on` hearing [`Publishing`]
     /// (`Waiting` while the room's program has not granted the track, then
-    /// the subscriber count), a refused object (an `Err` that does not end
-    /// the track) and the refusal that ends it. `priority` 0 is the
+    /// the subscriber count, and in stream mode `Cut { group }` when the
+    /// host abandoned a group it could not queue: call
+    /// [`next_group`](Track::next_group) and send a full state), a refused
+    /// object (an `Err` that does not end the track) and the refusal that
+    /// ends it. `priority` 0 is the
     /// highest: the node sends a subscriber this track's objects ahead of
     /// those of its tracks at a larger number ([`DEFAULT_PRIORITY`] unless
     /// the track says otherwise).

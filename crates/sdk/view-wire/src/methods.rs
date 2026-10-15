@@ -533,6 +533,15 @@ pub enum Publishing {
     /// what costs; a rise in stream mode: start a new group (a keyframe, a
     /// full state), so the newcomer has one to start from.
     Subscribers(u32),
+    /// Stream mode: the host could not take an object of `group` (the
+    /// track's queue to the node is full) and abandoned the group, never a
+    /// single object: the node ends it short for every subscriber
+    /// (`GroupEnd { complete: false }`), and what the view sends onto
+    /// `group` from now on is dropped. Told once per group. Start a newer
+    /// group with a full state (a keyframe); it starts clean. In datagram
+    /// mode a full queue drops its oldest datagram, the newest wins, and
+    /// nothing is told.
+    Cut { group: u64 },
 }
 
 /// `live.send`'s request: one object. `group` must not decrease per track,
@@ -711,9 +720,10 @@ methods! {
     HostTitle, "host.title", String, ();
     /// `live.publish`: a subscription that IS the published track; its
     /// items are [`Publishing`]: `Waiting` while the room's program has not
-    /// granted the track, the subscriber count as it moves. An object the
-    /// host or the node refused (`too_large`, `in_flight_limit`) is an
-    /// `Err` item that does not end it. It ends with a refusal
+    /// granted the track, the subscriber count as it moves, and `Cut` when
+    /// the host abandoned a stream group it could not queue. An object the
+    /// host refused as `too_large` is an `Err` item that does not end it.
+    /// It ends with a refusal
     /// (`not_granted`: the grant taken back; `publisher_gone`: the same
     /// account published the track again elsewhere; `duplicate_track`,
     /// `malformed_request`, `bad_proof`, `live_unavailable`). A reconnect
@@ -844,9 +854,7 @@ pub mod refusal {
     /// The payload, or what it would pull into the view, is over the host's
     /// limit.
     pub const TOO_LARGE: &str = "too_large";
-    /// More requests waiting on the host at once than it takes; on a
-    /// `live.publish`, more of the track's objects waiting to go out than
-    /// its queue holds (the object is dropped, the track goes on).
+    /// More requests waiting on the host at once than it takes.
     pub const IN_FLIGHT_LIMIT: &str = "in_flight_limit";
     /// More subscriptions of one kind than the host takes.
     pub const SUBSCRIPTION_LIMIT: &str = "subscription_limit";
