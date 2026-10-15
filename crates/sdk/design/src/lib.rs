@@ -63,15 +63,37 @@ pub mod type_scale {
     /// identifiers in the data face
     pub const MONO: f64 = 12.;
 
-    /// The scale under a finger (`window.touch()`): the body is 15px and a
-    /// page title is louder, since the reader is further from a phone than
-    /// from a desk. The values are the design canvas's (views board 0).
+    /// The scale under a finger (`window.touch()`): the Expo app's text
+    /// roles (mobile `src/design/theme.ts` `type`), each a size and its line
+    /// height (`*_LINE`), since the reader is further from a phone than from
+    /// a desk. The body is 15.
     pub mod touch {
+        /// a view's first page's title
+        pub const BIG_TITLE: f64 = 22.;
+        pub const BIG_TITLE_LINE: f64 = 27.;
+        /// a detail head's name, a fact's value
+        pub const HEADING: f64 = 20.;
+        pub const HEADING_LINE: f64 = 24.;
         /// a page title in a view's own title row
-        pub const TITLE: f64 = 20.;
+        pub const TITLE: f64 = 17.;
+        pub const TITLE_LINE: f64 = 21.;
         pub const BODY: f64 = 15.;
-        /// a caption, a timestamp, a badge
+        pub const BODY_LINE: f64 = 21.;
+        /// strip items, key/value rows, dialog bodies
+        pub const SMALL: f64 = 14.;
+        pub const SMALL_LINE: f64 = 19.;
+        /// secondary copy; a mono run at this size
+        pub const SECONDARY: f64 = 13.;
+        pub const SECONDARY_LINE: f64 = 18.;
+        /// a caption, a timestamp, a count
         pub const CAPTION: f64 = 12.;
+        pub const CAPTION_LINE: f64 = 16.;
+        /// a badge, a chip's count, a tab label
+        pub const TINY: f64 = 11.;
+        pub const TINY_LINE: f64 = 14.;
+        /// code, in the data face
+        pub const CODE: f64 = 12.;
+        pub const CODE_LINE: f64 = 20.;
     }
 }
 
@@ -135,17 +157,49 @@ pub mod height {
     /// the smallest box a pointer presses, each way (the AX door's AX-017)
     pub const HIT: f64 = 24.;
 
+    /// an icon on an icon button or in a title row: the desktop shell's own
+    /// (the app's chrome draws its bell and settings icons at 16)
+    pub const ICON: f64 = 16.;
+
     /// The heights under a finger (`window.touch()`): Apple's 44pt, Android's
-    /// 48dp, the Expo app's `theme.ts`, the design canvas's views board 0.
+    /// 48dp, the Expo app's `src/design/theme.ts` `size`.
     pub mod touch {
+        /// a page's title row
+        pub const HEADER: f64 = 56.;
         /// a list row
         pub const ROW: f64 = 48.;
+        /// a list row with a caption under its title
+        pub const ROW_TALL: f64 = 56.;
         /// a control on one line
         pub const CONTROL: f64 = 44.;
+        /// the one action a screen leads with
+        pub const PRIMARY: f64 = 48.;
         /// the smallest box a finger presses, each way
         pub const HIT: f64 = 44.;
-        /// a person's initial in a list row
+        /// a state word on a tag
+        pub const BADGE: f64 = 20.;
+        /// a row of a sheet
+        pub const SHEET_ROW: f64 = 52.;
+        /// a person's initial in a list row or beside a message, and the
+        /// initial's size (the Expo kit's `Avatar` sizes its initials by a
+        /// table, not one ratio)
         pub const AVATAR: f64 = 32.;
+        pub const AVATAR_TEXT: f64 = 13.;
+        /// a person's initial inline: a title row, a mention
+        pub const AVATAR_INLINE: f64 = 24.;
+        pub const AVATAR_INLINE_TEXT: f64 = 11.;
+        /// a person's initial heading a sheet
+        pub const AVATAR_SHEET: f64 = 40.;
+        pub const AVATAR_SHEET_TEXT: f64 = 16.;
+        /// a person's initial heading their own page
+        pub const AVATAR_DETAIL: f64 = 56.;
+        pub const AVATAR_DETAIL_TEXT: f64 = 22.;
+        /// an icon on an icon button or in a title row
+        pub const ICON: f64 = 22.;
+        /// an icon leading a list row
+        pub const ICON_ROW: f64 = 18.;
+        /// an icon leading a sheet row
+        pub const ICON_SHEET: f64 = 20.;
     }
 }
 

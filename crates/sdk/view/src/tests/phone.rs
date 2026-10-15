@@ -37,7 +37,7 @@ impl Render for Phone {
             (depth > 0).then(|| cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx)));
         let page = design::page("rooms", self.pages.top().clone(), back, &ladder, &theme)
             .caption(format!("{} deep", depth))
-            .leading(div().id("avatar").size(ladder.avatar).rounded_full())
+            .leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
             .trailing(design::button(
                 "new",
                 "New",
@@ -164,7 +164,7 @@ fn page_draws_back_by_the_ladder_and_clears_the_capsule_under_touch() {
     let renders = cx.renders();
     cx.simulate_touch(true);
     assert_eq!(cx.renders(), renders + 1);
-    assert_eq!(height(&cx), Some(design::TOUCH.row.into()));
+    assert_eq!(height(&cx), Some(design::TOUCH.header.into()));
     assert!(cx.find("rooms-back").is_some());
     assert_eq!(
         cx.style("rooms-title").padding.right,
@@ -174,7 +174,41 @@ fn page_draws_back_by_the_ladder_and_clears_the_capsule_under_touch() {
     assert_eq!(cx.renders(), renders + 1, "the same device is no render");
     cx.open::<Phone>();
     cx.simulate_click("Open");
-    assert_eq!(height(&cx), Some(design::TOUCH.row.into()));
+    assert_eq!(height(&cx), Some(design::TOUCH.header.into()));
+}
+
+/// Under a finger the title row is the Expo kit's `Header`: a first page's
+/// title is the big one with no hairline under the row; a page with Back
+/// has the 17 medium title, the hairline, and the Lucide arrow in a 44 box.
+#[test]
+fn under_touch_a_page_is_the_expo_header() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Phone>();
+    cx.simulate_touch(true);
+    let text = |cx: &TestAppContext, key: &str| cx.style(key).text.clone();
+    let root = text(&cx, "rooms-heading");
+    assert_eq!(root.font_size, Some(px(22.).into()));
+    assert_eq!(root.line_height, Some(px(27.).into()));
+    assert_eq!(root.font_weight, Some(gpui::FontWeight::MEDIUM));
+    assert_eq!(cx.style("rooms-title").border_widths.bottom, None);
+    cx.simulate_click("Open");
+    let detail = text(&cx, "rooms-heading");
+    assert_eq!(detail.font_size, Some(px(17.).into()));
+    assert_eq!(detail.line_height, Some(px(21.).into()));
+    let row = cx.style("rooms-title");
+    assert_eq!(row.border_widths.bottom, Some(px(1.).into()));
+    assert_eq!(row.min_size.height, Some(px(56.).into()));
+    let back = cx.style("rooms-back");
+    assert_eq!(
+        (back.size.width, back.size.height),
+        (Some(px(44.).into()), Some(px(44.).into()))
+    );
+    let arrow = &cx.node("rooms-back").children()[0];
+    assert!(
+        matches!(arrow, wire::Node::Svg { source: wire::SvgSource::Asset(path), .. }
+            if path == "icons/arrow-left.svg"),
+        "{arrow:?}"
+    );
 }
 
 #[derive(Default, Serialize, Deserialize)]

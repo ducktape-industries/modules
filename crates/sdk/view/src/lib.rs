@@ -63,6 +63,7 @@ pub use wire::VirtualKeyboard;
 /// from the program's crate; an explicit import of a name wins over this
 /// glob (`use forge::Query;`).
 pub mod prelude {
+    pub use crate::design::TextType;
     pub use crate::host::Error;
     pub use crate::methods::*;
     pub use crate::{
