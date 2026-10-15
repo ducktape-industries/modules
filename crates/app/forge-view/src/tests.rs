@@ -289,8 +289,10 @@ pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
         .handle::<Ask>(move |query| Ok(answer(&query, mode)));
     cx.host()
         .handle::<ProgramQuery<::chat::Chat>>(|query| Ok(chat_answer(query)));
-    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
-    cx.host().handle::<SubmitForge>(|_| Ok(Vec::new()));
+    cx.host()
+        .handle::<Submit<::chat::Chat>>(|_| Ok(view::testing::applied(Vec::new())));
+    cx.host()
+        .handle::<SubmitForge>(|_| Ok(view::testing::applied(Vec::new())));
     cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
 }
 

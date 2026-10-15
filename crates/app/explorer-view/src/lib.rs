@@ -76,7 +76,7 @@ impl Render for Explorer {
         // a program page asks what its code declares once the roster
         // names the code, whichever lands first
         self.read_manifest(cx);
-        ui::render(self, cx)
+        ui::render(self, window.touch(), cx)
     }
 }
 

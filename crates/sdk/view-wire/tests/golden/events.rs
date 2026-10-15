@@ -218,6 +218,7 @@ pub fn every_event() -> Vec<Event> {
             },
         },
         Event::Theme { dark: true },
+        Event::Pointer { touch: true },
         Event::Viewport {
             width: 900.0,
             height: 501.0,
@@ -351,6 +352,7 @@ pub fn every_event() -> Vec<Event> {
                 },
             })),
         },
+        Event::Back { handler: 81 },
         Event::Web {
             handler: 17,
             state: WebState {
@@ -430,6 +432,7 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::TooltipRequest { .. } => "TooltipRequest",
         Event::Text { .. } => "Text",
         Event::Theme { .. } => "Theme",
+        Event::Pointer { .. } => "Pointer",
         Event::Viewport { .. } => "Viewport",
         Event::Offset { .. } => "Offset",
         Event::Select { .. } => "Select",
@@ -444,6 +447,7 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::Response { .. } => "Response",
         Event::Resync => "Resync",
         Event::A11yAction { .. } => "A11yAction",
+        Event::Back { .. } => "Back",
         Event::Web { .. } => "Web",
     }
 }

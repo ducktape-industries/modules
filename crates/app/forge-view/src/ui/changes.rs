@@ -12,18 +12,25 @@ use crate::ui::components::{badge, button, empty_state, heading, id, quiet, ref_
 use crate::ui::diff::Route;
 use crate::ui::{pending, staged};
 use forge::{ChangeState, ChangeSummary, Judgment, Reply, ReviewCounts};
+use view::design::Ladder;
 
-pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn render(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let ladder = *ladder;
     let mut column = div()
         .id(id("forge-changes"))
         .flex()
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(filters(forge, cx, theme))
+        .child(filters(forge, cx, theme, &ladder))
         .child(pending(forge, "changes", theme));
     if let Some(form) = forge.change_form() {
-        column = column.child(self::form(form, forge, cx, theme));
+        column = column.child(self::form(form, forge, cx, theme, &ladder));
     }
     let Some(query) = forge.changes_query(&forge.repo_name()) else {
         return column
@@ -42,6 +49,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         "Reading the changes…",
         cx,
         theme,
+        &ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
@@ -126,7 +134,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         Some(&forge.changes_scroll),
         move |index| match shown.get(index).and_then(|at| summary_at(&shared, *at)) {
             Some((summary, judgment)) => {
-                change_row(summary, judgment, index, &marks, &open, &theme)
+                change_row(summary, judgment, index, &marks, &open, &theme, &ladder)
             }
             None => div().into_any_element(),
         },
@@ -179,6 +187,7 @@ fn change_row(
     marks: &Marks,
     open: &Route<u64>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let n = summary.n;
     let open = {
@@ -258,6 +267,7 @@ fn change_row(
             line = line.child(badge(
                 id(format!("forge-change-requested-{n}")),
                 "review requested",
+                ladder,
                 theme.accent_foreground,
                 theme.accent_soft,
             ));
@@ -266,6 +276,7 @@ fn change_row(
             line = line.child(badge(
                 id(format!("forge-change-unread-{n}")),
                 "new reply",
+                ladder,
                 theme.warning,
                 theme.warning_soft,
             ));
@@ -295,7 +306,7 @@ pub(crate) fn revision_name(revision: &forge::Revision) -> Vec<u8> {
     }
 }
 
-pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme) -> AnyElement {
+pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let (foreground, background) = match state {
         ChangeState::Open => (theme.success, theme.success_soft),
         ChangeState::Merged => (theme.agent, theme.agent_soft),
@@ -304,6 +315,7 @@ pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme) -> AnyElemen
     badge(
         id(format!("forge-change-state-{n}")),
         state_label(state),
+        ladder,
         foreground,
         background,
     )
@@ -328,11 +340,12 @@ fn verdicts(counts: &ReviewCounts, n: u64, theme: &Theme) -> AnyElement {
 
 /// The state as one segmented choice (Open with its count), the lists
 /// about me as quiet buttons, and the title search on the right.
-fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     const STATES: [Filter; 3] = [Filter::Open, Filter::Merged, Filter::Closed];
     let states = design::segmented(
         id("forge-filter-states"),
         "Change state",
+        ladder,
         theme,
         STATES.iter().position(|state| *state == forge.filter),
         STATES.map(|filter| {
@@ -362,6 +375,7 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
             button(
                 id(format!("forge-filter-{}", filter.slug())),
                 filter.label(),
+                ladder,
                 theme,
                 pick,
             )
@@ -397,6 +411,7 @@ pub(crate) fn form(
     forge: &Forge,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let submit = cx.listener(|forge, _: &ClickEvent, _, cx| forge.submit_change(cx));
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.cancel_change(cx));
@@ -424,7 +439,7 @@ pub(crate) fn form(
             theme,
         ))
         .child(form_fields(form, forge, cx, theme))
-        .child(reviewers(form, forge, cx, theme));
+        .child(reviewers(form, forge, cx, theme, ladder));
     if !form.error.is_empty() {
         card = card.child(
             div()
@@ -439,11 +454,18 @@ pub(crate) fn form(
             .flex()
             .gap_2()
             .child(div().flex_1())
-            .child(button(id("forge-change-cancel"), "Cancel", theme, cancel))
+            .child(button(
+                id("forge-change-cancel"),
+                "Cancel",
+                ladder,
+                theme,
+                cancel,
+            ))
             .child(
                 button(
                     id("forge-change-submit"),
                     if form.edit.is_some() { "Save" } else { "Open" },
+                    ladder,
                     theme,
                     submit,
                 )
@@ -501,6 +523,7 @@ fn reviewers(
     forge: &Forge,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     if forge.names.ready().is_none() {
         return quiet("Reading the roster…", theme);
@@ -529,6 +552,7 @@ fn reviewers(
             toggle,
             cx,
             theme,
+            ladder,
         ))
         .into_any_element()
 }
@@ -537,6 +561,10 @@ fn reviewers(
 /// program's account, none suspended ([`chat::view::Names::people`]) — whose
 /// name holds `needle`, each a button `{key}-{number}` that `pick`s it.
 /// Nothing while the roster is still being read.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the ladder rides beside the theme into every sized helper; the phone rework of this view reshapes the row"
+)]
 pub(crate) fn people_picker(
     forge: &Forge,
     key: &str,
@@ -545,6 +573,7 @@ pub(crate) fn people_picker(
     pick: impl Fn(&mut Forge, forge::Principal) + Clone + 'static,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Vec<AnyElement> {
     let Some(names) = forge.names.ready() else {
         return Vec::new();
@@ -568,7 +597,7 @@ pub(crate) fn people_picker(
                     cx.notify();
                 }
             });
-            button(id(format!("{key}-{number}")), label, theme, click)
+            button(id(format!("{key}-{number}")), label, ladder, theme, click)
                 .selected(chosen)
                 .into_any_element()
         })

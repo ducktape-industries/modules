@@ -9,8 +9,14 @@ use crate::composer::Target;
 use crate::session::Gate;
 use crate::ui::{badge, button, empty_state, quiet};
 use crate::{Chat, Hits, Pane, Room};
+use view::design::Ladder;
 
-pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+pub fn render(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let pane = div()
         .id("chat-room")
         .flex_1()
@@ -21,21 +27,26 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
         .bg(theme.background)
         .text_color(theme.foreground);
     let Some(room) = &chat.room else {
-        return pane.child(no_room(chat, cx, theme));
+        return pane.child(no_room(chat, cx, theme, ladder));
     };
     let body = match chat.search.query.is_empty() {
-        true => timeline::list(chat, Pane::Timeline, cx, theme).into_any_element(),
-        false => search_results(chat, cx, theme).into_any_element(),
+        true => timeline::list(chat, Pane::Timeline, cx, theme, ladder).into_any_element(),
+        false => search_results(chat, cx, theme, ladder).into_any_element(),
     };
-    pane.child(header(chat, room, cx, theme))
-        .children(notice(chat, cx, theme))
-        .children(confirmation(chat, cx, theme))
+    pane.child(header(chat, room, cx, theme, ladder))
+        .children(notice(chat, cx, theme, ladder))
+        .children(confirmation(chat, cx, theme, ladder))
         .child(body)
-        .child(compose(chat, room, cx, theme))
+        .child(compose(chat, room, cx, theme, ladder))
 }
 
 /// A refused write, until dismissed.
-fn notice(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<impl IntoElement> {
+fn notice(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<impl IntoElement> {
     if chat.notice.is_empty() {
         return None;
     }
@@ -58,6 +69,7 @@ fn notice(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<impl Int
             .child(button(
                 "chat-room-notice-dismiss",
                 "Dismiss",
+                ladder,
                 theme,
                 dismiss,
             )),
@@ -65,7 +77,12 @@ fn notice(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<impl Int
 }
 
 /// A write that landed, said once, until dismissed.
-fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<impl IntoElement> {
+fn confirmation(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<impl IntoElement> {
     if chat.confirmation.is_empty() {
         return None;
     }
@@ -93,6 +110,7 @@ fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<im
                 "chat-room-confirmation-dismiss",
                 "✕",
                 "Dismiss",
+                ladder,
                 theme,
                 dismiss,
             )),
@@ -100,9 +118,15 @@ fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<im
 }
 
 /// The composer, or why the reader may not write here.
-fn compose(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn compose(
+    chat: &Chat,
+    room: &Room,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     if let Some(gate) = chat.write_gate() {
-        return write_gate(gate, cx, theme).into_any_element();
+        return write_gate(gate, cx, theme, ladder).into_any_element();
     }
     let target = Target::Post {
         channel: room.id.clone(),
@@ -131,7 +155,13 @@ fn hint(chat: &Chat, room: &Room) -> String {
     }
 }
 
-fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn header(
+    chat: &Chat,
+    room: &Room,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let info = chat.info(&room.id);
     let name = info.map_or_else(
         || view::design::short_hex(&room.id),
@@ -173,6 +203,7 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
         title = title.child(badge(
             "chat-room-archived",
             "Archived",
+            ladder,
             theme.warning,
             theme.warning_soft,
         ));
@@ -181,6 +212,7 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
         title = title.child(badge(
             "chat-room-members-only",
             "Members only",
+            ladder,
             theme.muted,
             theme.surface_raised,
         ));
@@ -201,12 +233,13 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
             } else {
                 "Channel details"
             },
+            ladder,
             theme,
             details,
         ))
 }
 
-fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     match &chat.channels {
         Loadable::Idle | Loadable::Loading(_) => empty_state(
             "chat-no-room-loading",
@@ -250,6 +283,7 @@ fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
                 .child(button(
                     "chat-no-room-create",
                     "Create a channel",
+                    ladder,
                     theme,
                     open,
                 ))
@@ -259,7 +293,12 @@ fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
     .into_any_element()
 }
 
-fn search_results(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn search_results(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let found = match &chat.search.hits {
         Loadable::Idle | Loadable::Loading(_) => {
             vec![quiet("Searching…", theme).into_any_element()]
@@ -274,7 +313,9 @@ fn search_results(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl In
             )
             .into_any_element(),
         ],
-        Loadable::Ready(hits) | Loadable::Reloading(hits, _) => hit_list(chat, hits, cx, theme),
+        Loadable::Ready(hits) | Loadable::Reloading(hits, _) => {
+            hit_list(chat, hits, cx, theme, ladder)
+        }
     };
     let clear = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.search_clear();
@@ -292,13 +333,20 @@ fn search_results(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl In
         .child(button(
             "chat-search-clear",
             "Clear message search",
+            ladder,
             theme,
             clear,
         ))
 }
 
 /// How many hits, a row per hit, and the way to more.
-fn hit_list(chat: &Chat, hits: &Hits, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
+fn hit_list(
+    chat: &Chat,
+    hits: &Hits,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Vec<AnyElement> {
     let count = design::plural(hits.rows.len() as u64, "result", "results");
     let mut list = vec![
         div()
@@ -313,7 +361,9 @@ fn hit_list(chat: &Chat, hits: &Hits, cx: &mut Context<Chat>, theme: &Theme) -> 
             cx.notify();
             chat.search_more(cx)
         });
-        list.push(button("chat-search-more", "More results", theme, more).into_any_element());
+        list.push(
+            button("chat-search-more", "More results", ladder, theme, more).into_any_element(),
+        );
     }
     list
 }
@@ -372,7 +422,7 @@ fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyE
 }
 
 /// Where the composer would be, why the reader may not write here.
-fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let why = match gate {
         Gate::Archived => {
             "This channel is archived. It keeps its history and takes no new messages."
@@ -403,7 +453,13 @@ fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
             cx.notify();
             chat.set_archived(false, cx);
         });
-        notice = notice.child(button("chat-room-unarchive", "Unarchive", theme, reopen));
+        notice = notice.child(button(
+            "chat-room-unarchive",
+            "Unarchive",
+            ladder,
+            theme,
+            reopen,
+        ));
     }
     notice.into_any_element()
 }
@@ -456,7 +512,12 @@ pub fn composer(
     )
 }
 
-pub fn selection_bar(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+pub fn selection_bar(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let count = chat.copy_count();
     if count == 0 {
         return div().into_any_element();
@@ -479,6 +540,6 @@ pub fn selection_bar(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl
             "{} selected",
             design::plural(count as u64, "message", "messages")
         )))
-        .child(button("chat-selection-copy", "Copy", theme, copy))
+        .child(button("chat-selection-copy", "Copy", ladder, theme, copy))
         .into_any_element()
 }

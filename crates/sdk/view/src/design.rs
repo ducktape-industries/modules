@@ -4,12 +4,18 @@
 //! screen, quiet line, heading and mono run views used to copy between
 //! them, and the controls: buttons, tabs, the segmented choice, the switch
 //! and the row it sits in, the pane divider and the link. The number and
-//! time formatters (`format.rs`) sit beside them for the same reason.
+//! time formatters (`format.rs`) sit beside them for the same reason. The
+//! phone's shapes sit here too: the width class a view lays out by
+//! ([`width_class`]), the size ladder it picks by the session's pointer
+//! ([`ladder`]), the page stack ([`Pages`]) and the page frame ([`page`])
+//! a Compact layout is made of, and the sheet ([`sheet`]).
 pub use ::design::*;
 
 mod format;
+mod pages;
 pub(crate) use format::set_utc_offset;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural};
+pub use pages::{CAPSULE_CLEARANCE, Page, Pages, page};
 
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
@@ -56,6 +62,99 @@ pub mod space {
     pub const XL: Pixels = px(::design::spacing::XL as f32);
 }
 
+/// How wide the body a view is laid out in is, for the one-pane question
+/// ([`width::COMPACT_BELOW`], [`width::WIDE_FROM`]): a Compact body shows
+/// one page of the view's [`Pages`] at a time; Medium and Wide dock panes,
+/// by the view's own [`docks`] arithmetic. Read once per render from the
+/// viewport (`design::width_class(window.viewport_size().width.into())`)
+/// and matched visibly, never a view-private threshold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WidthClass {
+    Compact,
+    Medium,
+    Wide,
+}
+
+/// The [`WidthClass`] of a body `width` logical px wide.
+pub fn width_class(width: f32) -> WidthClass {
+    if width < width::COMPACT_BELOW as f32 {
+        WidthClass::Compact
+    } else if width < width::WIDE_FROM as f32 {
+        WidthClass::Medium
+    } else {
+        WidthClass::Wide
+    }
+}
+
+/// The sizes a view draws its controls, rows and text at: one set under a
+/// pointer ([`height`], [`type_scale`]), one under a finger (their `touch`
+/// modules; every pressable thing at least [`Ladder::hit`] each way). Two
+/// constant sets, nothing computed. Picked once per render from the
+/// device (`design::ladder(window.touch())`) and passed down to every
+/// helper that sizes something, so the choice is visible where it is made.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ladder {
+    /// The session's pointer is a finger: the set this is.
+    pub touch: bool,
+    /// a list row
+    pub row: Pixels,
+    /// a control on one line
+    pub control: Pixels,
+    /// the smallest box a press lands in, each way
+    pub hit: Pixels,
+    /// a person's initial in a row
+    pub avatar: Pixels,
+    /// a page title
+    pub title: Pixels,
+    /// body text
+    pub body: Pixels,
+    /// a control's label
+    pub label: Pixels,
+    /// a caption, a timestamp, a badge
+    pub caption: Pixels,
+}
+
+/// The pointer's ladder: today's desktop numbers, unchanged.
+pub const POINTER: Ladder = Ladder {
+    touch: false,
+    row: size::ROW,
+    control: size::CONTROL,
+    hit: px(::design::height::HIT as f32),
+    avatar: size::AVATAR,
+    title: text::TITLE,
+    body: text::BODY,
+    label: text::SECONDARY,
+    caption: text::CAPTION,
+};
+
+/// The finger's ladder: the design canvas's numbers (views board 0).
+pub const TOUCH: Ladder = Ladder {
+    touch: true,
+    row: px(::design::height::touch::ROW as f32),
+    control: px(::design::height::touch::CONTROL as f32),
+    hit: px(::design::height::touch::HIT as f32),
+    avatar: px(::design::height::touch::AVATAR as f32),
+    title: px(::design::type_scale::touch::TITLE as f32),
+    body: px(::design::type_scale::touch::BODY as f32),
+    label: px(::design::type_scale::touch::BODY as f32),
+    caption: px(::design::type_scale::touch::CAPTION as f32),
+};
+
+/// The [`Ladder`] for a device: [`TOUCH`] when its primary pointer is a
+/// finger (`window.touch()`), else [`POINTER`].
+pub const fn ladder(touch: bool) -> Ladder {
+    if touch { TOUCH } else { POINTER }
+}
+
+/// A [`Sheet`](crate::Sheet) in the view's colours: its panel on the
+/// window's ground, padded like a card. `design::sheet("actions",
+/// "Message actions", theme).detents([0.6, 1.0]).on_dismiss(..).child(..)`;
+/// the host draws the scrim and docks or centres it by the body's width
+/// class.
+pub fn sheet(id: impl Into<ElementId>, label: impl Into<String>, theme: &Theme) -> crate::Sheet {
+    crate::sheet(id, label).bg(theme.background).p(space::BLOCK)
+}
+
 /// Nothing to show yet: what is missing, then what would fill it.
 pub fn empty_state(
     id: impl Into<ElementId>,
@@ -89,6 +188,7 @@ pub fn empty_state(
 pub fn refused(
     name: &str,
     sentence: impl Into<SharedString>,
+    ladder: &Ladder,
     theme: &Theme,
     retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
@@ -110,6 +210,7 @@ pub fn refused(
                 .px_2()
                 .py_1()
                 .w(px(64.))
+                .min_h(ladder.hit)
                 .bg(theme.surface)
                 .hover(move |style| style.bg(theme.surface_raised))
                 .role(Role::Button)
@@ -200,8 +301,8 @@ pub fn focus_shown<E: InteractiveElement>(
     })
 }
 
-/// The focus ring on an ink-filled control (a primary button, a switch that
-/// is on): the ink's foreground, since ink on ink shows nothing.
+/// The focus ring on an ink-filled control (a primary button): the ink's
+/// foreground, since ink on ink shows nothing.
 pub fn focus_shown_on_ink<E: InteractiveElement>(element: E, theme: &Theme) -> E {
     element.focus_visible(|_| focus_ring(theme.primary_foreground))
 }
@@ -232,6 +333,7 @@ where
 {
     id: ElementId,
     label: SharedString,
+    ladder: Ladder,
     theme: Theme,
     enabled: bool,
     kind: Kind,
@@ -244,6 +346,7 @@ where
 pub fn button<F>(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
+    ladder: &Ladder,
     theme: &Theme,
     click: F,
 ) -> Button<F>
@@ -253,6 +356,7 @@ where
     Button {
         id: id.into(),
         label: label.into(),
+        ladder: *ladder,
         theme: *theme,
         enabled: true,
         kind: Kind::Plain,
@@ -297,7 +401,10 @@ where
             .id(self.id)
             .px_2()
             .py_1()
-            .text_size(text::SECONDARY)
+            .min_h(self.ladder.hit)
+            .flex()
+            .items_center()
+            .text_size(self.ladder.label)
             .role(Role::Button)
             .child(self.label);
         // The chosen one is the ink one: fg text on the window, an fg edge
@@ -368,19 +475,20 @@ where
 /// A control drawn as a glyph alone (a cross, a plus): muted until the
 /// pointer is on it. `name` is what it does, in words, since the glyph
 /// says nothing to a screen reader. The box is no smaller than
-/// [`PRESS_TARGET`] each way, the glyph centred in it.
+/// [`Ladder::hit`] each way, the glyph centred in it.
 pub fn icon_button(
     id: impl Into<ElementId>,
     glyph: impl IntoElement,
     name: impl Into<SharedString>,
+    ladder: &Ladder,
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let theme = *theme;
     div()
         .id(id)
-        .min_w(PRESS_TARGET)
-        .min_h(PRESS_TARGET)
+        .min_w(ladder.hit)
+        .min_h(ladder.hit)
         .flex()
         .items_center()
         .justify_center()
@@ -403,6 +511,7 @@ pub fn tab(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     selected: bool,
+    ladder: &Ladder,
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
@@ -413,7 +522,8 @@ pub fn tab(
         .items_center()
         .px_2()
         .py_1()
-        .text_size(text::SECONDARY)
+        .min_h(ladder.hit)
+        .text_size(ladder.label)
         .text_color(if selected {
             theme.foreground
         } else {
@@ -686,6 +796,7 @@ pub fn item(mut element: Stateful<Div>, role: Role, active: bool) -> Stateful<Di
 pub fn segmented(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
+    ladder: &Ladder,
     theme: &Theme,
     picked: Option<usize>,
     choices: impl IntoIterator<Item = (ElementId, SharedString)>,
@@ -701,7 +812,7 @@ pub fn segmented(
         let click =
             move |_: &ClickEvent, window: &mut Window, app: &mut App| pick(index, window, app);
         item(
-            segment(id, label, picked == Some(index), theme, click),
+            segment(id, label, picked == Some(index), ladder, theme, click),
             Role::RadioButton,
             index == active,
         )
@@ -727,19 +838,20 @@ fn segment(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     selected: bool,
+    ladder: &Ladder,
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let theme = *theme;
     div()
         .id(id)
-        .h(size::ROW)
+        .h(ladder.row)
         .px(space::MD)
         .flex()
         .items_center()
         .border_l_1()
         .border_color(theme.border_strong)
-        .text_size(text::SECONDARY)
+        .text_size(ladder.label)
         .whitespace_nowrap()
         .map(|segment| match selected {
             true => segment
@@ -755,18 +867,19 @@ fn segment(
         .child(label.into())
 }
 
-/// An on/off switch: a pill with its knob at the on or the off end.
+/// An on/off switch: a pill with its knob at the on or the off end, in a
+/// box no smaller than [`Ladder::hit`] each way.
 pub fn switch(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     on: bool,
     enabled: bool,
+    ladder: &Ladder,
     theme: &Theme,
     toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let knob = div().size(px(12.)).rounded_full().bg(theme.background);
-    let element = div()
-        .id(id)
+    let pill = div()
         .w(px(28.))
         .h(px(16.))
         .flex_none()
@@ -780,16 +893,28 @@ pub fn switch(
             theme.border_strong
         })
         .when(on, |pill| pill.justify_end())
+        .child(knob);
+    let element = div()
+        .id(id)
+        .min_w(ladder.hit)
+        .min_h(ladder.hit)
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
         .role(Role::Switch)
         .aria_label(label.into())
         .aria_toggled(on.into())
-        .child(knob);
+        .child(pill);
     match enabled {
-        true => element
-            .cursor_pointer()
-            .focusable()
-            .on_click(toggle)
-            .when(on, |pill| focus_shown_on_ink(pill, theme)),
+        // the hit box around the pill sits on the window's ground, so the
+        // ring is the plain one whether the pill is ink or not
+        true => focus_shown(
+            element.cursor_pointer().focusable().on_click(toggle),
+            theme,
+            |style| style,
+        ),
         false => element.opacity(0.5).aria_disabled(true),
     }
 }
@@ -801,11 +926,13 @@ pub fn setting_row(
     title: impl Into<SharedString>,
     description: impl Into<SharedString>,
     control: impl IntoElement,
+    ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
     div()
         .id(id)
         .w_full()
+        .min_h(ladder.row)
         // wrapped, it grows; a column around it must not squeeze it
         .flex_none()
         .flex()
@@ -824,7 +951,7 @@ pub fn setting_row(
                 .gap(space::HAIR)
                 .child(
                     div()
-                        .text_size(text::BODY)
+                        .text_size(ladder.body)
                         .font_weight(FontWeight::MEDIUM)
                         .child(title.into()),
                 )
@@ -937,6 +1064,7 @@ pub fn over(
 pub fn badge(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
+    ladder: &Ladder,
     foreground: Hsla,
     background: Hsla,
 ) -> Stateful<Div> {
@@ -946,15 +1074,12 @@ pub fn badge(
         .py_0p5()
         .bg(background)
         .text_color(foreground)
-        .text_size(text::CAPTION)
+        .text_size(ladder.caption)
         .child(label.into())
 }
 
-/// The smallest box a pointer presses, each way (the door's AX-017).
-const PRESS_TARGET: Pixels = px(24.);
-
 /// A link: subdued mono text that underlines under the pointer and opens
-/// `href` through `link.open`, in a box no smaller than [`PRESS_TARGET`]
+/// `href` through `link.open`, in a box no smaller than [`Ladder::hit`]
 /// with the text centred down it. Its text is its name; a caller that
 /// says more adds `.aria_label(..)`. Its click consumes the press: a
 /// clickable card under it does not hear it.
@@ -962,17 +1087,18 @@ pub fn link(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     href: impl Into<String>,
+    ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
     let theme = *theme;
     let href = href.into();
     div()
         .id(id)
-        .min_w(PRESS_TARGET)
-        .min_h(PRESS_TARGET)
+        .min_w(ladder.hit)
+        .min_h(ladder.hit)
         .flex()
         .items_center()
-        .text_size(text::CAPTION)
+        .text_size(ladder.caption)
         .text_color(theme.muted)
         .font_family(fonts::FAMILY_MONO)
         .whitespace_nowrap()
@@ -1018,14 +1144,21 @@ mod tests {
     #[test]
     fn an_icon_button_is_a_focusable_button_named_in_words_and_a_press_target() {
         let theme = Theme::light();
-        let (node, styles) = lower_styled(icon_button("close", "✕", "Close", &theme, |_, _, _| {}));
+        let (node, styles) = lower_styled(icon_button(
+            "close",
+            "✕",
+            "Close",
+            &POINTER,
+            &theme,
+            |_, _, _| {},
+        ));
         let control = interactivity(&node);
         assert_eq!(control.role, Some(Role::Button));
         assert_eq!(control.aria.label.as_deref(), Some("Close"));
         assert!(control.focusable && control.on_click.is_some());
         assert_eq!(faults(&node), []);
         let style = &styles[node.style().expect("a styled container")];
-        let floor = Some(PRESS_TARGET.into());
+        let floor = Some(POINTER.hit.into());
         assert_eq!(
             (style.min_size.width, style.min_size.height),
             (floor, floor)
@@ -1038,6 +1171,7 @@ mod tests {
         let node = lower(segmented(
             "format",
             "Object format",
+            &POINTER,
             &theme,
             Some(0),
             [("sha1".into(), "SHA-1".into())],
@@ -1060,12 +1194,12 @@ mod tests {
                 .and_then(|interactivity| interactivity.focus_visible)
                 .map(|style| styles[style].clone())
         };
-        let plain = button("save", "Save", &theme, |_, _, _| {});
+        let plain = button("save", "Save", &POINTER, &theme, |_, _, _| {});
         assert_eq!(
             shown(plain.into_any_element()),
             Some(focus_ring(theme.accent))
         );
-        let ink = button("send", "Send", &theme, |_, _, _| {}).kind(Kind::Primary);
+        let ink = button("send", "Send", &POINTER, &theme, |_, _, _| {}).kind(Kind::Primary);
         assert_eq!(
             shown(ink.into_any_element()),
             Some(focus_ring(theme.primary_foreground))
@@ -1095,7 +1229,15 @@ mod tests {
     fn a_switch_that_is_on_reports_toggled_true() {
         let theme = Theme::light();
         for (on, toggled) in [(true, Toggled::True), (false, Toggled::False)] {
-            let node = lower(switch("dark", "Dark", on, true, &theme, |_, _, _| {}));
+            let node = lower(switch(
+                "dark",
+                "Dark",
+                on,
+                true,
+                &POINTER,
+                &theme,
+                |_, _, _| {},
+            ));
             let control = interactivity(&node);
             assert_eq!(control.role, Some(Role::Switch));
             assert_eq!(control.aria.toggled, Some(toggled));
@@ -1107,7 +1249,14 @@ mod tests {
     #[test]
     fn the_picked_segment_reports_toggled_true_and_is_the_active_one() {
         let theme = Theme::light();
-        let node = lower(segment("sha1", "SHA-1", true, &theme, |_, _, _| {}));
+        let node = lower(segment(
+            "sha1",
+            "SHA-1",
+            true,
+            &POINTER,
+            &theme,
+            |_, _, _| {},
+        ));
         let control = interactivity(&node);
         assert_eq!(control.role, Some(Role::RadioButton));
         assert_eq!(control.aria.toggled, Some(Toggled::True));
@@ -1116,6 +1265,7 @@ mod tests {
         let group = lower(segmented(
             "format",
             "Object format",
+            &POINTER,
             &theme,
             Some(1),
             [
@@ -1135,10 +1285,11 @@ mod tests {
     #[test]
     fn a_button_is_a_toggle_only_once_told_it_is_selected() {
         let theme = Theme::light();
-        let plain = lower(button("save", "Save", &theme, |_, _, _| {}));
+        let plain = lower(button("save", "Save", &POINTER, &theme, |_, _, _| {}));
         assert_eq!(interactivity(&plain).aria.toggled, None);
         for (selected, toggled) in [(true, Toggled::True), (false, Toggled::False)] {
-            let node = lower(button("tree", "Tree", &theme, |_, _, _| {}).selected(selected));
+            let node =
+                lower(button("tree", "Tree", &POINTER, &theme, |_, _, _| {}).selected(selected));
             let control = interactivity(&node);
             assert_eq!(control.role, Some(Role::Button));
             assert_eq!(control.aria.toggled, Some(toggled));
@@ -1207,6 +1358,7 @@ mod tests {
             segmented(
                 "format",
                 "Object format",
+                &POINTER,
                 &Theme::light(),
                 Some(self.picked),
                 [
@@ -1351,6 +1503,7 @@ mod tests {
                         "inside",
                         "block 12",
                         "duck://a/b",
+                        &POINTER,
                         &Theme::light(),
                     ))
                 })
@@ -1458,12 +1611,12 @@ mod tests {
         let theme = Theme::light();
         let cells = [
             (
-                lower(button("compare", "Compare", &theme, |_, _, _| {}).item(true)),
+                lower(button("compare", "Compare", &POINTER, &theme, |_, _, _| {}).item(true)),
                 Role::Button,
             ),
             (
                 lower(item(
-                    link("activity", "block 12", "duck://a/b", &theme),
+                    link("activity", "block 12", "duck://a/b", &POINTER, &theme),
                     Role::Link,
                     true,
                 )),

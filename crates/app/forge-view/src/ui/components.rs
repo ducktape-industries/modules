@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use crate::Forge;
 use crate::state::Menu;
+use view::design::Ladder;
 pub(crate) use view::design::{badge, button, empty_state, heading, short_hex};
 use view::prelude::*;
 use view::wire::{
@@ -481,6 +482,7 @@ pub(crate) fn menu(
     forge: &Forge,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let key = menu.key();
     let refs = forge.menu_list(menu);
@@ -553,6 +555,7 @@ pub(crate) fn menu(
             design::segmented(
                 id(format!("{key}-kind")),
                 "Branches or tags",
+                ladder,
                 theme,
                 Some(usize::from(forge.menu_tags)),
                 choices,
@@ -749,6 +752,10 @@ fn menu_item(
 /// A tab with its count beside the label, faint: `Changes 3`. Tabs sit
 /// on a bar's hairline, full height, in a manual tab list: `selected` is
 /// the open one, `active` the one the arrows are on, which Enter opens.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the ladder rides beside the theme into every sized helper; the phone rework of this view reshapes the row"
+)]
 pub(crate) fn tab(
     element_id: ElementId,
     label: &str,
@@ -756,9 +763,10 @@ pub(crate) fn tab(
     selected: bool,
     active: bool,
     theme: &Theme,
+    ladder: &Ladder,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let tab = design::tab(element_id, label.to_owned(), selected, theme, click)
+    let tab = design::tab(element_id, label.to_owned(), selected, ladder, theme, click)
         .h_full()
         .px_0()
         .gap(design::space::XS)

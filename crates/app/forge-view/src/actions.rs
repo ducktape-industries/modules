@@ -4,6 +4,7 @@
 //! straight away, keeps saying so while the block that carries it is on its
 //! way, and a refusal replaces it with the reason inline. Nothing is guessed
 //! into the lists — the next query reconciles them.
+use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::api::SubmitForge;
@@ -61,7 +62,7 @@ impl Forge {
                 return;
             };
             match result {
-                Ok(_) => {
+                Ok(Submitted::Applied { .. }) => {
                     // a block heard since the op went out carries it: the
                     // receipt can land after the block on a fast node, and
                     // no later block would retire the row
@@ -75,7 +76,15 @@ impl Forge {
                     }
                     forge.refresh(cx);
                 }
-                Err(refusal) => op.progress = Progress::Refused(refusal.message),
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
+                    op.progress = Progress::Refused(refusal.message)
+                }
+                // until `Writes` settles it by the chain, a doubt reads as
+                // a refusal the person may retry
+                Ok(Submitted::InDoubt { .. }) => {
+                    op.progress =
+                        Progress::Refused("No answer came back: it may have gone through.".into())
+                }
             }
         })
         .detach();
@@ -359,9 +368,12 @@ impl Forge {
         cx.land(post, |forge, result, cx| {
             cx.notify();
             match result {
-                Ok(_) => forge.refresh(cx),
-                Err(refusal) => {
+                Ok(Submitted::Applied { .. }) => forge.refresh(cx),
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
                     forge.notice = format!("That didn’t go through: {}", refusal.message)
+                }
+                Ok(Submitted::InDoubt { .. }) => {
+                    forge.notice = "No answer came back: it may have gone through.".into()
                 }
             }
         })

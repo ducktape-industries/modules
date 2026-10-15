@@ -20,6 +20,13 @@ impl Window {
     pub fn viewport_size(&self) -> Size<Pixels> {
         self.app.viewport.get()
     }
+    /// The device's primary pointer is a finger (a phone), or not
+    /// ([`Event::Pointer`](wire::Event::Pointer)): in hand on the first
+    /// tick like the viewport, so `design::ladder(window.touch())` is right
+    /// in the first frame it draws.
+    pub fn touch(&self) -> bool {
+        self.app.touch.get()
+    }
     /// Gives the keyboard to the element `id` names in the frame this tick
     /// renders. `id` is the element's own: the SDK, which lowered the ids
     /// above it, sends the host the element's whole path. An id two scopes
