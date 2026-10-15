@@ -892,7 +892,8 @@ pub mod refusal {
     /// The node did not take the proof the host signed with the session's
     /// key, and opened no live session: the request's last item.
     pub const BAD_PROOF: &str = "bad_proof";
-    /// Another account publishes this track already.
+    /// Another account publishes this track, or another window of this app
+    /// does.
     pub const DUPLICATE_TRACK: &str = "duplicate_track";
     /// A subscription to a track no one publishes: subscribe again when
     /// `live.tracks` announces it.
