@@ -27,6 +27,8 @@ pub(crate) fn append(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
         time: ctx.env().time,
         body,
     };
+    thread.last_height = frame.height;
+    thread.last_time = frame.time;
     FRAMES.put(ctx, &(thread.id, seq), &frame);
 }
 

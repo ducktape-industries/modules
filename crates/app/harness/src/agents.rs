@@ -218,6 +218,8 @@ fn opened(
         summary: None,
         context: Context::Measured(0),
         compact_before: None,
+        last_height: 0,
+        last_time: 0,
     };
     let header = anthropic::header(&row, tools::definitions());
     row.header = ctx.blob_put(HashKind::Sha256, PART, header.into_bytes())?;
