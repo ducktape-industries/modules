@@ -70,7 +70,7 @@ pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) {
 }
 
 fn held_code(ctx: &QueryCtx, code: BlobId) -> Result<(), Error> {
-    let role = ctx.env().roles.blobs.clone();
+    let role = ctx.env().role(abi::role::BLOBS)?.clone();
     let holding = match ctx.query(role.clone(), &blob::contract::Query::Held { blob: code })? {
         blob::contract::Reply::Held(holding) => holding,
         other => return Err(unexpected_reply(&role, "Held", &other)),
@@ -327,7 +327,7 @@ pub(crate) fn grant(ctx: &ExecCtx, grant: Grant) -> Result<(), Error> {
 /// identity for its account's profile: the rule's check, and valset's at
 /// the first vote.
 pub fn grantable(ctx: &QueryCtx, grant: &Grant) -> Result<(), Error> {
-    let bound = &ctx.env().roles.identity;
+    let bound = &ctx.env().role(abi::role::IDENTITY)?.clone();
     let asked = identity::Query::Profile(grant.account);
     let profile = match ctx.query(bound, &asked)? {
         identity::Reply::Profile(profile) => profile,

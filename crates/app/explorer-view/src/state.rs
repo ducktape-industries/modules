@@ -14,12 +14,16 @@ pub enum Route {
     Overview,
     Blocks,
     Block(u64),
-    /// the recent transactions, of one program when named
     Transactions(Option<String>),
-    Tx([u8; 32]),
+    Tx {
+        height: u64,
+        position: u32,
+    },
     Accounts,
     Account(u64),
     Programs,
+    /// one program, or one view-only entry, by name
+    Program(String),
 }
 
 impl Route {
@@ -31,11 +35,12 @@ impl Route {
             Route::Blocks => "blocks".into(),
             Route::Block(height) => format!("block/{height}"),
             Route::Transactions(None) => "txs".into(),
-            Route::Transactions(Some(program)) => format!("program/{program}"),
-            Route::Tx(hash) => format!("tx/{}", abi::hex(hash)),
+            Route::Transactions(Some(program)) => format!("txs/{program}"),
+            Route::Tx { height, position } => format!("tx/{height}/{position}"),
             Route::Accounts => "accounts".into(),
             Route::Account(number) => format!("account/{number}"),
             Route::Programs => "programs".into(),
+            Route::Program(name) => format!("program/{name}"),
         }
     }
 
@@ -47,11 +52,15 @@ impl Route {
             ["blocks"] => Route::Blocks,
             ["block", height] => Route::Block(ducklink::number(height)?),
             ["txs"] => Route::Transactions(None),
-            ["program", name] if !name.is_empty() => Route::Transactions(Some((*name).into())),
-            ["tx", hash] => Route::Tx(hash_of(hash)?),
+            ["txs", program] if !program.is_empty() => Route::Transactions(Some((*program).into())),
+            ["tx", height, position] => Route::Tx {
+                height: ducklink::number(height)?,
+                position: ducklink::number(position)?.try_into().ok()?,
+            },
             ["accounts"] => Route::Accounts,
             ["account", number] => Route::Account(ducklink::number(number)?),
             ["programs"] => Route::Programs,
+            ["program", name] if !name.is_empty() => Route::Program((*name).into()),
             _ => return None,
         })
     }
@@ -61,11 +70,20 @@ impl Route {
         match self {
             Route::Overview => 0,
             Route::Blocks | Route::Block(_) => 1,
-            Route::Transactions(_) | Route::Tx(_) => 2,
+            Route::Transactions(_) | Route::Tx { .. } => 2,
             Route::Accounts | Route::Account(_) => 3,
-            Route::Programs => 4,
+            Route::Programs | Route::Program(_) => 4,
         }
     }
+}
+
+/// A blob id as `blob.*` asks spell it: `sha256:<hex>` or `sha1:<hex>`.
+pub(crate) fn blob_ref(id: &abi::BlobId) -> String {
+    let kind = match id {
+        abi::BlobId::Sha256(_) => "sha256",
+        abi::BlobId::Sha1(_) => "sha1",
+    };
+    format!("{kind}:{}", abi::hex(id.digest()))
 }
 
 /// A 32-byte hash as 64 hex digits, `0x` allowed.
@@ -91,9 +109,16 @@ pub struct Used {
 }
 
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Frames {
+    #[serde(with = "borsh_bytes")]
+    pub list: Vec<activity::Frame>,
+}
+
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Acted {
     pub account: u64,
-    pub rows: Vec<TxRow>,
+    #[serde(with = "borsh_bytes")]
+    pub frames: Vec<activity::Frame>,
 }
 
 /// What the programs role runs, lists and will change, and who may change it,
@@ -129,7 +154,8 @@ pub enum Note {
     },
     /// a link whose path names no page
     Unlinked(String),
-    Copied,
+    /// what was copied: "the link", "the code id"
+    Copied(String),
     /// an op the node took, in words
     Sent(String),
     /// a refusal, in the host's words
@@ -150,9 +176,18 @@ pub struct Explorer {
     pub(crate) validators: Loadable<Vec<Vec<u8>>>,
     pub(crate) network: Loadable<Network>,
     pub(crate) used: Loadable<Used>,
+    pub(crate) frames: Loadable<Frames>,
     pub(crate) acted: Loadable<Acted>,
     /// a block opened outside the window
     pub(crate) opened: Loadable<Option<(BlockRow, Vec<TxRow>)>>,
+    /// what the code of the program page on screen declares (`blob.manifest`),
+    /// and the id of the code it was asked of; read again when the page
+    /// names other code (`read_manifest`)
+    #[serde(skip)]
+    pub(crate) manifest: Loadable<Option<Manifested>>,
+    #[serde(skip)]
+    pub(crate) manifest_of: Option<String>,
+    pub(crate) located: Loadable<Option<TxRow>>,
     /// a `chain.blocks` page is in flight
     #[serde(skip)]
     pub(crate) pulling: bool,
@@ -204,6 +239,12 @@ impl Explorer {
         })
     }
 
+    pub(crate) fn frame_list(&self) -> &[activity::Frame] {
+        self.frames
+            .ready()
+            .map_or(&[][..], |frames| frames.list.as_slice())
+    }
+
     pub(crate) fn used_by(&self, number: u64) -> Option<Vec<&activity::Used>> {
         let used = self.used.ready()?;
         Some(
@@ -214,10 +255,10 @@ impl Explorer {
         )
     }
 
-    pub(crate) fn acted(&self, number: u64) -> Option<&[TxRow]> {
+    pub(crate) fn acted(&self, number: u64) -> Option<&[activity::Frame]> {
         let acted = self.acted.ready()?;
         let this_account = acted.account == number;
-        this_account.then_some(acted.rows.as_slice())
+        this_account.then_some(acted.frames.as_slice())
     }
 
     /// Whether the programs role runs `program`.
@@ -227,5 +268,21 @@ impl Explorer {
             .programs
             .iter()
             .find(|entry| entry.program == program)
+    }
+
+    /// Whether the programs role lists `name` as a view with no program.
+    pub(crate) fn lists(&self, name: &str) -> Option<&programs::View> {
+        self.network
+            .ready()?
+            .views
+            .iter()
+            .find(|view| view.name == name)
+    }
+
+    /// The code behind `name`: the program's, or the view-only entry's.
+    pub(crate) fn code_of(&self, name: &str) -> Option<abi::BlobId> {
+        self.runs(name)
+            .map(|entry| entry.code)
+            .or_else(|| self.lists(name).map(|view| view.view))
     }
 }

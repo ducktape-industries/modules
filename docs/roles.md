@@ -1,15 +1,15 @@
 # Roles, accounts and updates
 
-The kernel knows six programs by what they do, never by their ids, and the
-node knows a seventh. Genesis binds each role to a founding program; every
-call the kernel makes goes to the program bound to that role, speaking the
+The kernel knows the programs it calls by the role each fills, never by
+their ids. Genesis binds each role to a founding program; every call the
+kernel makes goes to the program bound to that role, speaking the
 role's interface in `crates/sdk/abi` (`abi::role::{programs, validators,
 identity, awaits, halo}`) or, for blobs, ducktape's `blob::contract`. The
 programs in `crates/system/` are one implementation of each. The egress role
 (`abi::role::egress`) is optional and the kernel never calls it: a node reads
 it, and `crates/app/egress` fills it.
 
-## The seven roles
+## The roles
 
 | Role | Bound here to | What the kernel does with it |
 |---|---|---|
@@ -21,8 +21,9 @@ it, and `crates/app/egress` fills it.
 | `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
 | `halo` | `halo` | at founding, writes its params (`role::halo::Genesis`: the founding lanes, given ids in order from 0, each `Founded { name, cap, pinned }`); at boot and after any block that writes the role's state, the node asks `Lanes` and serves halo's lanes by that table: a lane's name to its wire id, the class its streams are served at most, whether it is served, and whether it is pinned. Only the validators' vote (`Motion::Halo`) changes it: `Open` lists a name at the next id, unpinned, `Set` changes its cap or pauses it, `Close` unlists it, and no id is handed out twice. A pinned lane is never paused or closed (`invalid_input`, refused at the first vote too): this repo's founding pins `ducktape/blobs`, over which a node fetches the blobs it needs to apply a block, so no vote can cut a node off from the block that would undo it |
 
-The founding file binds them (ducktape's `[roles]` table; qa's
-`founding.toml` is a working one):
+The founding file binds them in its `[roles]` table, one row per role: the
+role's name, then the program that fills it (qa's `founding.toml` is a working
+one):
 
 ```toml
 [roles]
@@ -35,11 +36,18 @@ halo = "halo"
 egress = "egress"
 ```
 
-The first six are required, egress is not. Founding refuses a role bound to a program the
-founding does not list, and a node refuses a network that records no roles.
-Every frame's `Env` carries the bindings (`env.roles`), so a program that asks
-a role asks `ctx.env().roles.identity`, not a name it assumes; chat's roster
-does this (`crates/app/chat/src/origin.rs`).
+The roles are a table, not a fixed set of fields: `abi::Roles` maps a role's
+name to its program, and the names are constants in `abi::role` (`PROGRAMS`,
+`VALIDATORS`, `IDENTITY`, `BLOBS`, `AWAITS`, `HALO`, `EGRESS`). A new role is a new
+row. The kernel requires the five in `abi::role::REQUIRED`; this repo's
+founding binds halo too, and egress is optional.
+Founding refuses a table missing a required role, naming it, and a role bound
+to a program the founding does not list; a node refuses a network that records
+no roles. Every frame's `Env` carries the table (`env.roles`), so a program
+asks a role by its name, `ctx.env().role(abi::role::IDENTITY)?`, never by a
+program id it assumes; chat's roster does this
+(`crates/app/chat/src/origin.rs`). `Env::role` refuses a role the network does
+not bind as `unsupported`; `env.roles.get(name)` answers `None` for one.
 
 ## Who a frame acts as
 
@@ -148,7 +156,8 @@ too. The call's origin is the kernel itself (`Origin::Root`, from
 never changes a frame: its receipt stays as it ran, a hook that refuses,
 traps, runs out of fuel or emits a message keeps none of its writes, and
 the block goes on. `activity` (`crates/app/activity`) is the hook this
-repo founds: it indexes who signed what, by key and by account.
+repo founds: it lists every frame newest first, and indexes who signed
+what, by key and by account.
 
 Who may schedule or cancel (putting a blob is open to any account):
 

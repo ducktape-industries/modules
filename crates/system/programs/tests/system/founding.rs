@@ -25,20 +25,19 @@ fn founding_seats_the_validators_and_every_program_answers() {
         };
         assert_eq!(
             [
-                roles.programs,
-                roles.validators,
-                roles.identity,
-                roles.blobs,
-                roles.awaits,
-                roles.halo
-            ],
+                abi::role::PROGRAMS,
+                abi::role::VALIDATORS,
+                abi::role::IDENTITY,
+                abi::role::BLOBS,
+                abi::role::HALO
+            ]
+            .map(|role| roles.get(role).map(String::as_str)),
             [
-                programs::PROGRAM,
-                valset::PROGRAM,
-                identity::PROGRAM,
-                blobs::PROGRAM,
-                awaits::PROGRAM,
-                halo::PROGRAM
+                Some(programs::PROGRAM),
+                Some(valset::PROGRAM),
+                Some(identity::PROGRAM),
+                Some(blobs::PROGRAM),
+                Some(halo::PROGRAM)
             ]
         );
         assert_eq!(

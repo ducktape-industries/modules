@@ -7,7 +7,7 @@ thing; nothing here is generated. The crate is what a reader follows: plain
 types, plain functions, one host call per context method.
 
 Read [README.md](../README.md) for the map of the repository and
-[roles.md](roles.md) for the seven roles and the account model first.
+[roles.md](roles.md) for the roles and the account model first.
 
 ## 1. The crate
 
@@ -253,7 +253,7 @@ The **identity role** answers who an account is. `ctx.require_person_or_agent(n)
 asks it (`Profile(n)`) and refuses an absent account, a program's, or an
 agent that is suspended or revoked: poll's voters, chat's dm counterpart,
 forge's reviewers. Ask a role at the program genesis bound to it,
-`ctx.env().roles.identity`, never by a name you assume. The profiles
+`ctx.env().role(abi::role::IDENTITY)?`, never by a name you assume. The profiles
 themselves (`abi::role::identity::{Profile, Kind, Standing}`) are what a
 view shows beside a name.
 
@@ -393,7 +393,7 @@ awaiting program with `chain.seat_awaiting`.
 
 The program bound to the egress role is called this way:
 `ctx.call_raw(egress, abi::encode(&abi::role::egress::Op::Request(request)))`,
-with `egress` read from `ctx.env().roles.egress`, answers the elected node's
+with `egress` read from `ctx.env().roles.get(abi::role::EGRESS)`, answers the elected node's
 output, in a later block, or a refusal when the node reports a failure or
 the request expires.
 
@@ -401,9 +401,10 @@ the request expires.
 
 A program ships, beside its code, a pure wasm module that turns an op's
 bytes into what a person reads: a title and typed fields. Explorer shows
-it for every transaction. `lib.rs` has the function and the one export
-line; `make wasm-describes` builds the program (`--features describe`) and
-qa packs it into the program.
+it on a transaction's page; no list of transactions shows it.
+`lib.rs` has the function and the one export line; `make wasm-describes`
+builds the program (`--features describe`) and qa packs it into the
+program.
 
 ```rust
 pub fn describe(op: &Op) -> describe::Description {

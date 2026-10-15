@@ -69,7 +69,7 @@ impl Program for Teller {
             }
             Tell::Refuse(sentence) => return Err(Error::new(code::INVALID_INPUT, sentence)),
             Tell::Answer { ticket, bytes } => {
-                ctx.resolve(ticket, Ok(bytes));
+                ctx.resolve(ticket, Ok(bytes))?;
             }
         }
         Ok(())

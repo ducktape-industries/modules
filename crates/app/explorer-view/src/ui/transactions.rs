@@ -8,31 +8,28 @@ pub(super) fn transactions(
     cx: Cx,
     theme: &Theme,
 ) -> AnyElement {
-    let window = plural(view.chain.blocks.len() as u64, "block", "blocks");
-    let matching = sent_to(view, program.as_deref()).count();
+    let frames = match &view.frames {
+        Loadable::Ready(frames) | Loadable::Reloading(frames, _) => frames,
+        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
+        Loadable::Idle | Loadable::Loading(_) => {
+            return quiet("explorer-txs-loading", "Reading transactions…", theme);
+        }
+    };
+    let matching = sent_to(&frames.list, program.as_deref()).count();
     let list = rows("explorer-transactions-list", "Transactions", view);
     let rows = (matching > 0).then(|| {
         let program = program.clone();
-        tx_rows(
-            list,
-            view,
-            move |view| sent_to(view, program.as_deref()).collect(),
-            true,
-            true,
-        )
+        frame_rows(list, view, move |view| {
+            sent_to(view.frame_list(), program.as_deref()).collect()
+        })
         .build(cx)
     });
     let title = match &program {
         Some(program) => format!("Transactions · {program}"),
         None => "Transactions".into(),
     };
-    let empty = (matching == 0).then(|| {
-        quiet(
-            "explorer-no-txs",
-            format!("No transactions in the last {window}."),
-            theme,
-        )
-    });
+    let empty =
+        (matching == 0).then(|| quiet("explorer-no-txs", "No transactions recorded.", theme));
     div()
         .id("explorer-transactions")
         .flex_1()
@@ -46,10 +43,7 @@ pub(super) fn transactions(
                 "explorer-transactions-heading",
                 &title,
                 Some(caption(
-                    format!(
-                        "{} in the last {window}",
-                        plural(matching as u64, "transaction", "transactions")
-                    ),
+                    plural(matching as u64, "transaction", "transactions"),
                     theme,
                 )),
                 theme,
@@ -61,29 +55,36 @@ pub(super) fn transactions(
         .into_any_element()
 }
 
-/// The window's transactions, newest first; `program`'s alone when named.
 fn sent_to<'a, 'p>(
-    view: &'a Explorer,
+    frames: &'a [activity::Frame],
     program: Option<&'p str>,
-) -> impl Iterator<Item = &'a TxRow> + use<'a, 'p> {
-    view.chain
-        .txs
+) -> impl Iterator<Item = &'a activity::Frame> + use<'a, 'p> {
+    frames
         .iter()
-        .filter(move |tx| program.is_none_or(|program| tx.target == program))
+        .filter(move |frame| program.is_none_or(|program| frame.target == program))
 }
 
-pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> AnyElement {
-    let Some(tx) = view.tx(hash) else {
-        return empty_state(
-            "explorer-no-tx",
-            "Transaction not found",
-            format!(
-                "It is not in the last {} this explorer reads.",
-                plural(view.chain.blocks.len() as u64, "block", "blocks")
-            ),
-            theme,
-        )
-        .into_any_element();
+pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, theme: &Theme) -> AnyElement {
+    let Some(tx) = view.tx_at(height, position) else {
+        return match &view.located {
+            Loadable::Ready(None) | Loadable::Reloading(None, _) => empty_state(
+                "explorer-no-tx",
+                "Transaction not found",
+                format!(
+                    "This node keeps no transaction at position {position} of block {}.",
+                    grouped(height)
+                ),
+                theme,
+            )
+            .into_any_element(),
+            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+            Loadable::Idle
+            | Loadable::Loading(_)
+            | Loadable::Ready(Some(_))
+            | Loadable::Reloading(Some(_), _) => {
+                quiet("explorer-tx-loading", "Reading the transaction…", theme)
+            }
+        };
     };
     view.open(tx, cx);
     let now = view.chain.now();
@@ -96,7 +97,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
         .child(mono(tx.target.clone()))
         .children(code.map(|code| mono(format!("code {code}")).text_color(theme.faint)));
     let title = clip(&tx.title());
-    let copy = copy_button(view, &Route::Tx(*hash), cx, theme);
+    let copy = copy_button(view, &Route::Tx { height, position }, cx, theme);
     div()
         .id("explorer-tx")
         .child(
@@ -331,7 +332,7 @@ fn value(view: &Explorer, shown: &Value, at: &str, cx: Cx, theme: &Theme) -> Any
             Some(_) => link(
                 format!("explorer-value-{at}"),
                 name.clone(),
-                Route::Transactions(Some(name.clone())),
+                Route::Program(name.clone()),
                 cx,
                 theme,
             )

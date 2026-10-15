@@ -10,7 +10,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use abi::role::identity::Profile;
+use abi::role::{self, identity::Profile};
 use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, HostOp, HostReply, Message,
     Scheme,
@@ -111,14 +111,22 @@ impl MockHost {
     /// The roles as the suite's genesis binds them, for a native test's
     /// env: a sibling registered under `identity` answers the identity role.
     pub fn roles() -> Roles {
-        Roles {
-            programs: "programs".into(),
-            validators: "valset".into(),
-            identity: "identity".into(),
-            blobs: "blobs".into(),
-            awaits: "awaits".into(),
-            halo: "halo".into(),
-            egress: Some("egress".into()),
+        Roles::from_iter([
+            (role::PROGRAMS, "programs"),
+            (role::VALIDATORS, "valset"),
+            (role::IDENTITY, "identity"),
+            (role::BLOBS, "blobs"),
+            (role::AWAITS, "awaits"),
+            (role::EGRESS, "egress"),
+            (role::HALO, "halo"),
+        ])
+    }
+
+    #[track_caller]
+    pub fn role(role: &str) -> ProgramId {
+        match MockHost::roles().get(role) {
+            Some(program) => program.clone(),
+            None => panic!("the suite binds no program to the {role} role"),
         }
     }
 
@@ -142,15 +150,12 @@ impl MockHost {
         }
     }
 
-    /// Seats the identity role over a fixed roster ([`identity_role`]), as
-    /// the sibling at [`roles`](MockHost::roles)`().identity`: profiles
-    /// alone (`Vec<Profile>`), or a [`Roster`] that holds keys too.
     pub fn identity(&self, roster: impl Into<Roster>) {
         let roster = roster.into();
         let answer: Sibling = Box::new(move |_, request| identity_role(&roster, request));
         self.borrow_mut()
             .siblings
-            .insert(MockHost::roles().identity, answer);
+            .insert(MockHost::role(role::IDENTITY), answer);
     }
 
     /// Seats `M`, over `host` (its own state), as the program `program`
@@ -380,7 +385,7 @@ impl MockHost {
                 ticket,
                 answer,
             } => {
-                let from_the_role = env.program == env.roles.awaits;
+                let from_the_role = env.roles.get(role::AWAITS) == Some(&env.program);
                 if !from_the_role {
                     return HostReply::Refused(abi::Refusal::new(
                         code::UNAUTHORIZED,

@@ -8,7 +8,7 @@ use crate::state::{Note, Route, hash_of};
 
 enum Found {
     Block,
-    Tx,
+    Tx { position: u32 },
 }
 
 impl Explorer {
@@ -18,7 +18,10 @@ impl Explorer {
             let opened =
                 matches!(self.opened.ready(), Some(Some((row, _))) if row.height == height);
             if !held && !opened {
-                let ask = cx.host().ask::<ChainBlock>(BlockRef::Height(height));
+                let ask = cx.host().ask::<ChainBlock>(BlockAsk {
+                    by: BlockRef::Height(height),
+                    most: 0,
+                });
                 // another block: the one opened before is not shown under it
                 self.opened = Loadable::Idle;
                 cx.load(
@@ -27,6 +30,9 @@ impl Explorer {
                     |view| &mut view.opened,
                 );
             }
+        }
+        if let Route::Tx { height, position } = route {
+            self.locate(height, position, cx);
         }
         self.left[route.tab()] = Some(route.clone());
         self.route = route;
@@ -72,8 +78,8 @@ impl Explorer {
         if let Some(account) = account {
             return self.go(Route::Account(account.number), cx);
         }
-        if let Some(entry) = self.runs(&lower) {
-            return self.go(Route::Transactions(Some(entry.program.clone())), cx);
+        if self.code_of(&lower).is_some() {
+            return self.go(Route::Program(lower), cx);
         }
         self.note = Some(Note::NotFound(query));
         cx.notify();
@@ -82,15 +88,23 @@ impl Explorer {
     /// A hash, as search and a link read it: a transaction or a block in the
     /// window, else a block or a transaction the node finds by it.
     fn find_hash(&mut self, hash: [u8; 32], cx: &mut Context<Self>) {
-        if self.tx(&hash).is_some() {
-            return self.go(Route::Tx(hash), cx);
+        if let Some(tx) = self.tx(&hash) {
+            let at = Route::Tx {
+                height: tx.height,
+                position: tx.index,
+            };
+            return self.go(at, cx);
         }
         if let Some(block) = self.chain.blocks.iter().find(|block| block.id == hash) {
             return self.go(Route::Block(block.height), cx);
         }
         let host = cx.host();
         let found = async move {
-            if let Some(block) = host.ask::<ChainBlock>(BlockRef::Id(hash)).await? {
+            let by_id = BlockAsk {
+                by: BlockRef::Id(hash),
+                most: 0,
+            };
+            if let Some(block) = host.ask::<ChainBlock>(by_id).await? {
                 return Ok::<_, Error>(Some((block, Found::Block)));
             }
             let by_hash = TxAsk {
@@ -100,10 +114,15 @@ impl Explorer {
             let Some(located) = host.ask::<ChainTx>(by_hash).await? else {
                 return Ok(None);
             };
-            let block = host
-                .ask::<ChainBlock>(BlockRef::Height(located.height))
-                .await?;
-            Ok(block.map(|block| (block, Found::Tx)))
+            let carrying = BlockAsk {
+                by: BlockRef::Height(located.height),
+                most: 0,
+            };
+            let block = host.ask::<ChainBlock>(carrying).await?;
+            let found = Found::Tx {
+                position: located.position,
+            };
+            Ok(block.map(|block| (block, found)))
         };
         let listed_from = self.chain.listed_from;
         cx.land(found, move |view, found, cx| {
@@ -112,7 +131,10 @@ impl Explorer {
                     let (row, txs) = rows(block);
                     let route = match found {
                         Found::Block => Route::Block(row.height),
-                        Found::Tx => Route::Tx(hash),
+                        Found::Tx { position } => Route::Tx {
+                            height: row.height,
+                            position,
+                        },
                     };
                     view.opened = Loadable::Ready(Some((row, txs)));
                     view.go(route, cx);
@@ -125,16 +147,15 @@ impl Explorer {
         .detach();
     }
 
-    /// A `host.route` item, the path of a `duck://…/explorer/<route>` link:
-    /// a [`Route::path`], or `block/<hash>`, found like a searched hash.
     pub(crate) fn open_route(&mut self, route: &str, cx: &mut Context<Self>) {
         if let Some(opened) = Route::from_path(route) {
-            return match opened {
-                Route::Tx(hash) if self.tx(&hash).is_none() => self.find_hash(hash, cx),
-                opened => self.go(opened, cx),
-            };
+            return self.go(opened, cx);
         }
-        if let Some(hash) = route.strip_prefix("block/").and_then(hash_of) {
+        let hashed = route
+            .strip_prefix("block/")
+            .or_else(|| route.strip_prefix("tx/"))
+            .and_then(hash_of);
+        if let Some(hash) = hashed {
             return self.find_hash(hash, cx);
         }
         self.note = Some(Note::Unlinked(route.to_owned()));
@@ -151,11 +172,12 @@ impl Explorer {
         ducklink::mint(&self.session_chain, "explorer", &tail)
     }
 
-    pub(crate) fn copy_link(&mut self, link: String, cx: &mut Context<Self>) {
-        let ask = cx.host().ask::<ClipboardWrite>(link);
+    /// `text` onto the clipboard; the note says `what` was copied.
+    pub(crate) fn copy(&mut self, text: String, what: &'static str, cx: &mut Context<Self>) {
+        let ask = cx.host().ask::<ClipboardWrite>(text);
         cx.land(ask, move |view, copied, cx| {
             view.note = Some(match copied {
-                Ok(()) => Note::Copied,
+                Ok(()) => Note::Copied(what.to_owned()),
                 Err(refusal) => Note::Refused(refusal.message),
             });
             cx.notify();

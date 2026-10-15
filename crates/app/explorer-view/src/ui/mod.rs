@@ -5,7 +5,7 @@ use std::ops::Range;
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use crate::decode::{ago, clip, date, grouped, plural, short};
+use crate::decode::{ago, date, grouped, plural, short};
 use crate::{BlockRow, Explorer, Note, Route, TxRow};
 use design::{empty_state, mono};
 
@@ -33,7 +33,6 @@ const MARK: Pixels = px(6.);
 /// Each level a nested run steps in.
 const NEST_W: Pixels = px(20.);
 /// A transaction row's short hash.
-const HASH_W: Pixels = px(100.);
 /// A detail page's field labels.
 const LABEL_W: Pixels = px(110.);
 /// An operation's field labels.
@@ -59,7 +58,7 @@ mod transactions;
 use accounts::{account, accounts};
 use blocks::{block, blocks};
 use overview::overview;
-use programs::programs;
+use programs::{program, programs};
 use transactions::{transactions, tx};
 
 pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
@@ -120,7 +119,7 @@ fn worded(note: &Note) -> String {
             }
         }
         Note::Unlinked(route) => format!("This link names nothing the Explorer shows: {route}"),
-        Note::Copied => "Copied the link.".into(),
+        Note::Copied(what) => format!("Copied {what}."),
         Note::Sent(words) | Note::Refused(words) => words.clone(),
     }
 }
@@ -208,7 +207,11 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
 }
 
 fn page(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
-    if view.chain.blocks.is_empty() && !matches!(view.route, Route::Programs | Route::Accounts) {
+    let without_chain = matches!(
+        view.route,
+        Route::Programs | Route::Program(_) | Route::Accounts
+    );
+    if view.chain.blocks.is_empty() && !without_chain {
         return match &view.chain.failed {
             Some(sentence) => failed(sentence, cx, theme),
             None => quiet("explorer-loading", "Reading the chain…", theme),
@@ -219,10 +222,11 @@ fn page(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         Route::Blocks => blocks(view, cx, theme),
         Route::Block(height) => block(view, height, cx, theme),
         Route::Transactions(program) => transactions(view, program, cx, theme),
-        Route::Tx(hash) => tx(view, &hash, cx, theme),
+        Route::Tx { height, position } => tx(view, height, position, cx, theme),
         Route::Accounts => accounts(view, cx, theme),
         Route::Account(number) => account(view, number, cx, theme),
         Route::Programs => programs(view, cx, theme),
+        Route::Program(name) => program(view, &name, cx, theme),
     }
 }
 
@@ -580,79 +584,100 @@ fn tx_rows(
     list: Rows,
     view: &Explorer,
     select: impl Fn(&Explorer) -> Vec<&TxRow> + 'static,
-    height: bool,
-    who: bool,
 ) -> Rows {
-    let routes = select(view).iter().map(|tx| Route::Tx(tx.hash)).collect();
+    let routes = select(view).iter().map(|tx| tx_route(tx)).collect();
     list.shown(routes, move |view, range, cx, theme| {
         let txs = select(view);
         range
-            .map(|index| tx_row(view, txs[index], height, who, cx, theme))
+            .map(|index| tx_row(view, txs[index], cx, theme))
             .collect()
     })
 }
 
 /// Its id is its place on the chain, which a frame the node landed again
-/// (the same hash) does not share; `height` adds the block column; `who` the signer column, which an account's own activity leaves
-/// out.
-fn tx_row(
-    view: &Explorer,
-    tx: &TxRow,
-    height: bool,
-    who: bool,
-    cx: Cx,
-    theme: &Theme,
-) -> Stateful<Div> {
-    let id = SharedString::from(format!("explorer-tx-{}-{}", tx.height, tx.index));
-    let now = view.chain.now();
-    view.describe(tx, cx);
-    // empty until the host answers: the program column already says whose
-    let title = clip(&tx.title());
-    let (word, mark) = match &tx.receipt {
-        Some(run) => {
-            let (word, color, _) = outcome(run, theme);
-            (word, Some(color))
-        }
-        None => ("", None),
+/// (the same hash) does not share.
+fn tx_row(view: &Explorer, tx: &TxRow, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let (height, position) = (tx.height, tx.index);
+    let id = SharedString::from(format!("explorer-tx-{height}-{position}"));
+    let place = format!("{} · {position}", grouped(height));
+    let applied = tx
+        .receipt
+        .as_ref()
+        .map(|run| matches!(run.outcome, Outcome::Applied { .. }));
+    let label = match applied {
+        Some(applied) => activity::view::label(&tx.target, applied, &grouped(height), position),
+        None => format!("{}, block {place}", tx.target),
     };
-    // what, where, how it ran, then the short hash drawn first on the row:
-    // the one part two like transactions never share
-    let hash = short(&tx.hash);
-    let label = [title.as_str(), word, &hash]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mark = div().size(MARK).flex_shrink_0().children(mark.map(|color| {
-        div()
-            .id(SharedString::from(format!(
-                "explorer-tx-mark-{}",
-                abi::hex(&tx.hash)
-            )))
-            .size_full()
-            .bg(color)
-    }));
-    row(ElementId::Name(id), label, Route::Tx(tx.hash), cx, theme)
-        .child(mark)
-        .child(mono(hash).w(HASH_W).text_color(theme.muted))
-        .child(
+    let color = applied.map(|applied| verdict(applied, theme).1);
+    let mark = div()
+        .size(MARK)
+        .flex_shrink_0()
+        .children(color.map(|color| {
             div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .gap_2()
-                .overflow_hidden()
-                .child(
-                    mono(tx.target.clone())
-                        .text_size(design::text::CAPTION)
-                        .text_color(theme.muted),
-                )
-                .child(div().truncate().child(title)),
-        )
-        .children(who.then(|| signer(view, &tx.signer, theme)))
-        .children(height.then(|| mono(grouped(tx.height)).text_color(theme.muted)))
+                .id(SharedString::from(format!(
+                    "explorer-tx-mark-{height}-{position}"
+                )))
+                .size_full()
+                .bg(color)
+        }));
+    row(ElementId::Name(id), label, tx_route(tx), cx, theme)
+        .child(mark)
+        .child(div().flex_1().truncate().child(tx.target.clone()))
+        .child(signer(view, &tx.signer, theme))
+        .child(mono(place).text_color(theme.muted))
+}
+
+fn tx_route(tx: &TxRow) -> Route {
+    Route::Tx {
+        height: tx.height,
+        position: tx.index,
+    }
+}
+
+fn frame_rows(
+    list: Rows,
+    view: &Explorer,
+    select: impl Fn(&Explorer) -> Vec<&activity::Frame> + 'static,
+) -> Rows {
+    let routes = select(view)
+        .iter()
+        .map(|frame| frame_route(frame))
+        .collect();
+    list.shown(routes, move |view, range, cx, theme| {
+        let frames = select(view);
+        range
+            .map(|index| frame_row(view, frames[index], cx, theme))
+            .collect()
+    })
+}
+
+fn frame_route(frame: &activity::Frame) -> Route {
+    Route::Tx {
+        height: frame.height,
+        position: frame.position,
+    }
+}
+
+fn frame_row(view: &Explorer, frame: &activity::Frame, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let (height, position) = (frame.height, frame.position);
+    let id = SharedString::from(format!("explorer-tx-{height}-{position}"));
+    let now = view.chain.now();
+    let (_, color, _) = verdict(frame.applied, theme);
+    let label = activity::view::label(&frame.target, frame.applied, &grouped(height), position);
+    let mark = div()
+        .id(SharedString::from(format!(
+            "explorer-tx-mark-{height}-{position}"
+        )))
+        .size(MARK)
+        .flex_shrink_0()
+        .bg(color);
+    row(ElementId::Name(id), label, frame_route(frame), cx, theme)
+        .child(mark)
+        .child(div().flex_1().truncate().child(frame.target.clone()))
+        .child(signer(view, &frame.signer, theme))
+        .child(mono(grouped(height)).text_color(theme.muted))
         .child(
-            mono(ago(now, tx.time))
+            mono(ago(now, frame.time))
                 .w(AGE_W)
                 .flex()
                 .justify_end()
@@ -662,9 +687,15 @@ fn tx_row(
 
 /// A run's outcome in a word, its colour and its soft background.
 fn outcome(run: &Receipt, theme: &Theme) -> (&'static str, Hsla, Hsla) {
-    match run.outcome {
-        Outcome::Applied { .. } => ("Accepted", theme.success, theme.success_soft),
-        Outcome::Rejected(_) => ("Rejected", theme.danger, theme.danger_soft),
+    let applied = matches!(run.outcome, Outcome::Applied { .. });
+    verdict(applied, theme)
+}
+
+fn verdict(applied: bool, theme: &Theme) -> (&'static str, Hsla, Hsla) {
+    let word = activity::view::verdict(applied);
+    match applied {
+        true => (word, theme.success, theme.success_soft),
+        false => (word, theme.danger, theme.danger_soft),
     }
 }
 
@@ -746,7 +777,7 @@ fn press(
 fn copy_button(view: &Explorer, route: &Route, cx: Cx, theme: &Theme) -> Option<AnyElement> {
     let link = view.link(route)?;
     let copy = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-        view.copy_link(link.clone(), cx)
+        view.copy(link.clone(), "the link", cx)
     });
     Some(
         div()

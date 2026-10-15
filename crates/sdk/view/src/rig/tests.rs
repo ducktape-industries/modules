@@ -82,26 +82,27 @@ fn a_submission_is_a_block_with_its_changes() {
     assert_eq!(net.person("ada"), ada, "a name is one account");
     let status = net.status();
     assert_eq!(status.height, height + 1);
-    let listed: methods::BlockList = methods::decode(
-        &net.answer(
-            "chain.blocks",
-            None,
-            &methods::encode(&methods::BlockPage {
-                before: None,
-                limit: 10,
-            }),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let blocks = &listed.blocks;
+    let listed = |most| -> methods::BlockList {
+        let page = methods::BlockPage {
+            before: None,
+            limit: 10,
+            most,
+        };
+        let answer = net.answer("chain.blocks", None, &methods::encode(&page));
+        methods::decode(&answer.unwrap()).unwrap()
+    };
+    let blocks = listed(0).blocks;
     assert_eq!(blocks[0].height, height + 1);
     assert_eq!(blocks[0].txs.len(), 1);
     assert_eq!(blocks[0].txs[0].target, "identity");
+    assert_eq!(blocks[0].txs[0].payload, None);
     assert_eq!(blocks.last().unwrap().height, 1);
-    assert_eq!(listed.listed_from, Some(1));
+    assert_eq!(listed(0).listed_from, Some(1));
     let size = blocks[0].txs[0].size;
     assert!(size > 0);
+    let carried = &listed(size).blocks[0].txs[0];
+    assert_eq!(carried.payload.as_ref().map(Vec::len), Some(size as usize));
+    assert_eq!(listed(size - 1).blocks[0].txs[0].payload, None);
     let read = |most| {
         let ask = methods::TxAsk {
             tx: methods::TxRef::At {
@@ -226,6 +227,53 @@ fn a_held_blob_is_put_receipted_by_the_dev_validator_and_served() {
     };
     assert_eq!(holding.kind, "pack");
     assert_eq!(net.blob(&id), Some(wire::framed("pack", b"PACK")));
+}
+
+/// `blob.manifest` answers off the roster's code as the app does: a
+/// program's view out of its `ducktape.view` section with the manifest it
+/// carries, a view-only blob as the view itself, a program with no view
+/// as none, and a blob the chain does not name as `None`.
+#[test]
+fn blob_manifest_answers_what_the_rosters_code_declares() {
+    let net = Network::new();
+    let text = "ducktape.view.manifest\nChat\nRooms.\nchain,clipboard,\n480\n0123abcd\n\n";
+    let view = pack::wrapper(&[("ducktape.view.manifest", text.as_bytes())]);
+    net.code("chat", &pack::wrapper(&[("ducktape.view", &view)]));
+    net.code("quiet", &pack::wrapper(&[("ducktape.describe", b"d")]));
+    net.code_bare("explorer", &view);
+    let ask = |program: &str| -> Option<methods::Manifested> {
+        let id = match program {
+            "explorer" => net.0.borrow().bare.as_ref().unwrap().1,
+            _ => net.0.borrow().codes[program].0,
+        };
+        let name = format!("sha256:{}", abi::hex(id.digest()));
+        let answer = net
+            .answer("blob.manifest", None, &methods::encode(&name))
+            .unwrap();
+        methods::decode(&answer).unwrap()
+    };
+    let manifest = view_wire::manifest::Manifest::parse(text).unwrap();
+    let carried = |size: usize| {
+        Some(methods::CarriedView {
+            size: size as u64,
+            manifest: Some(manifest.clone()),
+        })
+    };
+    let chat = ask("chat").unwrap();
+    assert!(chat.size > view.len() as u64);
+    assert_eq!(chat.view, carried(view.len()));
+    let explorer = ask("explorer").unwrap();
+    assert_eq!(explorer.size, view.len() as u64);
+    assert_eq!(explorer.view, carried(view.len()));
+    assert_eq!(ask("quiet").unwrap().view, None);
+    let unnamed = format!("sha256:{}", "00".repeat(32));
+    let answer = net
+        .answer("blob.manifest", None, &methods::encode(&unnamed))
+        .unwrap();
+    assert_eq!(
+        methods::decode::<Option<methods::Manifested>>(&answer).unwrap(),
+        None
+    );
 }
 
 #[test]

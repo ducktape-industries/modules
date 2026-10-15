@@ -227,10 +227,14 @@ pub struct Env {
     /// Who the frame acts as: `None` for a query, and for a frame whose
     /// key or program holds no account.
     pub sender: Option<Principal>,
-    /// The program genesis bound to each role: ask identity at
-    /// `roles.identity`, never by a name assumed.
     pub roles: Roles,
     pub cause: Cause,
+}
+
+impl Env {
+    pub fn role(&self, role: &str) -> Result<&ProgramId, Error> {
+        self.roles.bound(role).map_err(error_from)
+    }
 }
 
 impl From<abi::Env> for Env {

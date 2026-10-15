@@ -55,6 +55,7 @@ impl Explorer {
         .detach();
         cx.follow::<Changes<Activity>>((), |view, head, cx| match head {
             Ok(_) => {
+                view.read_frames(cx);
                 view.read_used(cx);
                 view.read_acted(cx);
             }

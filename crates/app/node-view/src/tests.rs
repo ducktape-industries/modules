@@ -300,7 +300,8 @@ fn a_new_head_reads_one_block() {
         pages.last(),
         Some(&BlockPage {
             before: Some(4202),
-            limit: 1
+            limit: 1,
+            most: 0,
         })
     );
     assert!(cx.has_text("Proposed · last 64 blocks · 4,138 → 4,201"));
@@ -409,11 +410,13 @@ fn a_page_that_fills_nothing_is_not_asked_again() {
         [
             BlockPage {
                 before: Some(4202),
-                limit: 1
+                limit: 1,
+                most: 0,
             },
             BlockPage {
                 before: Some(4203),
-                limit: 1
+                limit: 1,
+                most: 0,
             }
         ]
     );

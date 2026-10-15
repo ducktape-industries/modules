@@ -1,15 +1,19 @@
 //! Explorer: the chain as this node lists it. Finalized blocks and the
-//! transactions they carry come from `chain.blocks` and `chain.block`, a
-//! transaction's whole payload from `chain.tx`; who signed them from
-//! `identity`; the validators from `valset`; the programs from
-//! `programs`; what each account did from `activity`, whose frames
-//! are read by their place (`chain.tx`).
+//! transactions each carries come from `chain.blocks` and `chain.block`,
+//! read with no payload; every transaction, newest first, and what each
+//! account did, from `activity`; one transaction opened by its place, its
+//! whole payload from `chain.tx` and its op's title from
+//! `program.describe`; who signed them from `identity`; the validators
+//! from `valset`; the programs from `programs`.
 //!
-//! What the node does not keep is not shown: there are no receipts, so a
-//! transaction is "in block N", never applied or rejected; and there is no
-//! per-block state root or write set. The block and transaction lists are
-//! the last [`WINDOW`] blocks, read a page at a time and then followed at
-//! the head as `chain.heads` pushes it.
+//! What the node does not keep is not shown: there is no per-block state
+//! root or write set. The block list is the last [`WINDOW`] blocks, read a
+//! page at a time and then followed at the head as `chain.heads` pushes
+//! it; the transaction list is every frame `activity` recorded, read again
+//! on each of its writes. A row in any transaction list, a block's own
+//! included, shows only what its read carries: how the transaction ran,
+//! its program, its signer's account and its place. An op's title shows
+//! only on that transaction's page.
 //!
 //! The state is one struct (`state.rs`) and the window (`chain.rs`). Reads
 //! are typed (`queries.rs`) and loaded in `load.rs`, re-read on the live
@@ -43,6 +47,8 @@ impl View for Explorer {
         Capability::Program,
         // the programs role changed by grant, or by a motion to valset
         Capability::Op,
+        // what a program's code declares, on its page (`blob.manifest`)
+        Capability::Blob,
         Capability::Host,
         Capability::Clock,
         Capability::Clipboard,
@@ -67,6 +73,9 @@ impl Render for Explorer {
         // the pane's width, as the host lays the frame out: the Overview
         // lays its panels out to it in the frame that shows them
         self.width = window.viewport_size().width.into();
+        // a program page asks what its code declares once the roster
+        // names the code, whichever lands first
+        self.read_manifest(cx);
         ui::render(self, cx)
     }
 }

@@ -1,10 +1,14 @@
 //! The Programs tab: what the programs role runs, lists and will change, who
 //! maintains each name, and the presses the reader's grants or voices
 //! allow (`acting.rs`). A form opens under the list it changes, outside
-//! it: a list takes the arrows and Enter, a form's fields need them.
+//! it: a list takes the arrows and Enter, a form's fields need them. One
+//! program, or one view-only entry, opens as a page ([`program`]): what its
+//! code declares first, then the code, who changes it and what is coming.
 use super::*;
 use crate::Network;
 use crate::acting::{self, Edit, Form, Path};
+use crate::decode::{preview, size};
+use crate::state::blob_ref;
 use ::programs::{Grant, NOTICE, Pending, Scope};
 
 pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
@@ -38,7 +42,7 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         theme,
     );
     let running = running(view, network, cx, theme);
-    let listed = listed(view, network, cx, theme);
+    let views = listed(view, network, cx, theme);
     let scheduled: Vec<_> = network
         .changes
         .iter()
@@ -69,14 +73,17 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         ))
         .child(running)
         .children(running_form)
-        .when(!listed.is_empty(), |list| {
+        .when_some(views, |list, views| {
             list.child(heading(
                 "explorer-views-header",
                 "Views",
-                Some(caption(plural(listed.len() as u64, "view", "views"), theme)),
+                Some(caption(
+                    plural(network.views.len() as u64, "view", "views"),
+                    theme,
+                )),
                 theme,
             ))
-            .children(listed)
+            .child(views)
             .children(views_form)
         })
         .child(heading(
@@ -108,15 +115,15 @@ fn beside(parts: impl IntoIterator<Item = Option<AnyElement>>) -> AnyElement {
         .into_any_element()
 }
 
-/// Each running program, a row that opens its transactions, with who
-/// maintains it and the reader's presses.
+/// Each running program, a row that opens its page, with who maintains it
+/// and the reader's presses.
 fn running(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Stateful<Div> {
     let list = rows("explorer-programs-list", "Programs", view);
     network
         .programs
         .iter()
         .fold(list, |list, entry| {
-            let route = Route::Transactions(Some(entry.program.clone()));
+            let route = Route::Program(entry.program.clone());
             let row = row(
                 SharedString::from(format!("explorer-program-{}", entry.program)).into(),
                 entry.program.clone(),
@@ -142,55 +149,34 @@ fn running(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Statefu
         .build(cx)
 }
 
-/// The view-only entries. One sends nothing, so it has no transactions to
-/// open.
-fn listed(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Vec<AnyElement> {
-    network
-        .views
-        .iter()
-        .map(|listed| {
-            line(
-                SharedString::from(format!("explorer-view-{}", listed.name)).into(),
-                theme,
-            )
-            .child(named(view, network, &listed.name, theme))
-            .child(
-                div()
-                    .text_size(design::text::SECONDARY)
-                    .text_color(theme.muted)
-                    .child("view only"),
-            )
-            .child(mono(short(listed.view.digest())).text_color(theme.muted))
-            .children(presses(view, network, &listed.name, true, cx, theme))
-            .into_any_element()
-        })
-        .collect()
+/// The view-only entries, each a row that opens its page; `None` where the
+/// programs role lists none.
+fn listed(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Option<Stateful<Div>> {
+    if network.views.is_empty() {
+        return None;
+    }
+    let list = rows("explorer-views-list", "Views", view);
+    let list = network.views.iter().fold(list, |list, listed| {
+        let route = Route::Program(listed.name.clone());
+        let row = row(
+            SharedString::from(format!("explorer-view-{}", listed.name)).into(),
+            listed.name.clone(),
+            route.clone(),
+            cx,
+            theme,
+        )
+        .child(named(view, network, &listed.name, theme))
+        .child(muted("view only", theme))
+        .child(mono(short(listed.view.digest())).text_color(theme.muted))
+        .children(presses(view, network, &listed.name, true, cx, theme));
+        list.row(route, row, theme)
+    });
+    Some(list.build(cx))
 }
 
-/// A name and who changes it: the validators' vote for a role's program,
-/// else its maintainers (an agent marked so) and, when any account holds
-/// every program, those too; a hook marked so.
+/// A name and who changes it ([`changers`]); a hook marked so.
 fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Div {
-    let bound = network
-        .roles
-        .as_ref()
-        .is_some_and(|roles| ::programs::role_bound(roles, name));
     let hook = network.hooks.iter().any(|hook| hook == name);
-    let maintainers: Vec<u64> = network
-        .grants
-        .iter()
-        .filter(|grant| grant.scope == Scope::Program(name.to_owned()))
-        .map(|grant| grant.account)
-        .collect();
-    let every = network.grants.iter().any(|grant| grant.scope == Scope::All);
-    let who: Vec<AnyElement> = match bound {
-        true => vec![muted("validators' vote", theme)],
-        false => maintainers
-            .iter()
-            .map(|number| holder(view, *number, theme))
-            .chain(every.then(|| muted("every-program maintainers", theme)))
-            .collect(),
-    };
     div()
         .flex_1()
         .min_w(px(0.))
@@ -200,7 +186,349 @@ fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Div {
         .overflow_hidden()
         .child(mono(name.to_owned()))
         .children(hook.then(|| chip(format!("explorer-hook-{name}"), "hook", theme)))
-        .children(who)
+        .children(changers(view, network, name, theme))
+}
+
+/// Who changes `name`: the validators' vote for a role's program, else its
+/// maintainers (an agent marked so) and, when any account holds every
+/// program, those too. Empty: no one but the vote, which holds every name.
+fn changers(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Vec<AnyElement> {
+    let bound = network
+        .roles
+        .as_ref()
+        .is_some_and(|roles| ::programs::role_bound(roles, name));
+    if bound {
+        return vec![muted("validators' vote", theme)];
+    }
+    let every = network.grants.iter().any(|grant| grant.scope == Scope::All);
+    network
+        .grants
+        .iter()
+        .filter(|grant| grant.scope == Scope::Program(name.to_owned()))
+        .map(|grant| holder(view, grant.account, theme))
+        .chain(every.then(|| muted("every-program maintainers", theme)))
+        .collect()
+}
+
+/// The role `name` fills for the kernel, in the kernel's word for it: the
+/// roles are the chain's own table, so a role it gains is named here as is.
+fn role_of<'a>(roles: &'a abi::Roles, name: &str) -> Option<&'a str> {
+    roles
+        .iter()
+        .find(|(_, program)| program.as_str() == name)
+        .map(|(role, _)| role)
+}
+
+/// What a capability lets a view do, in a line a person reads: the phone's
+/// "uses camera" for a view. Every capability is worded here, so a new one
+/// is worded before it ships.
+fn allows(capability: Capability) -> &'static str {
+    match capability {
+        Capability::Chain => "reads the chain: blocks, transactions and the node's status",
+        Capability::Program => "asks programs questions and follows what they change",
+        Capability::Op => "sends operations to the chain in your name",
+        Capability::Invite => "mints invites with the node's key",
+        Capability::Link => "opens links: another view, or the browser",
+        Capability::Blob => "reads blobs the node holds",
+        Capability::Host => "knows the session: who you are, which chain, when it is on screen",
+        Capability::Clock => "wakes on a timer",
+        Capability::Clipboard => "reads and writes the clipboard",
+        Capability::Notify => "posts notifications",
+        Capability::Store => "keeps its own data on this device",
+        Capability::Web => "shows web pages, and takes the web links the app opens",
+        Capability::Live => {
+            "sends and hears live streams in its program's rooms, as the program grants"
+        }
+    }
+}
+
+/// One program, or one view-only entry: what its code declares first (the
+/// capabilities its view asks the host for, as a phone's app page says
+/// "uses camera"), then the code and its size, the params, who maintains
+/// it, the role and hook it fills, what is scheduled for it, and the way to
+/// its transactions. The reader's presses sit beside the title, their form
+/// under it.
+pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> AnyElement {
+    let network = match &view.network {
+        Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
+        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
+        Loadable::Idle | Loadable::Loading(_) => {
+            return quiet(
+                "explorer-program-loading",
+                "Reading the programs role…",
+                theme,
+            );
+        }
+    };
+    let entry = view.runs(name);
+    let Some(code) = view.code_of(name) else {
+        return empty_state(
+            "explorer-no-program",
+            format!("Nothing called {name}"),
+            "The programs role runs and lists nothing by this name.",
+            theme,
+        )
+        .into_any_element();
+    };
+    let listed = entry.is_none();
+    let hook = network.hooks.iter().any(|hook| hook == name);
+    let role = network
+        .roles
+        .as_ref()
+        .and_then(|roles| role_of(roles, name));
+    let blob = view.manifest.ready().and_then(|blob| blob.as_ref());
+    let manifest = blob
+        .and_then(|blob| blob.view.as_ref())
+        .and_then(|view| view.manifest.as_ref());
+    let title = div()
+        .flex()
+        .items_center()
+        .gap_3()
+        .pr_5()
+        .child(titled(
+            if listed { "view only" } else { "program" },
+            name.to_owned(),
+            theme,
+        ))
+        .children(hook.then(|| chip("explorer-program-hook".into(), "hook", theme)))
+        .children(role.map(|role| chip("explorer-program-role".into(), role, theme)))
+        .child(div().flex_1())
+        .children(copy_button(
+            view,
+            &Route::Program(name.to_owned()),
+            cx,
+            theme,
+        ))
+        .children(presses(view, network, name, listed, cx, theme));
+    let page_form = form(
+        view,
+        |edit| match edit {
+            Edit::Upgrade { name: edited, .. } | Edit::Remove { name: edited, .. } => {
+                edited == name
+            }
+            Edit::Add | Edit::Grant => false,
+        },
+        cx,
+        theme,
+    );
+    let count = manifest.map(|manifest| {
+        caption(
+            plural(
+                manifest.capabilities.len() as u64,
+                "capability",
+                "capabilities",
+            ),
+            theme,
+        )
+    });
+    let id = blob_ref(&code);
+    let copy = {
+        let id = id.clone();
+        press("explorer-copy-code", "Copy", cx, theme, move |view, cx| {
+            view.copy(id.clone(), "the code id", cx)
+        })
+    };
+    let code_field = div()
+        .flex_1()
+        .flex()
+        .items_center()
+        .gap_3()
+        .min_w(px(0.))
+        .child(
+            mono(id)
+                .id("explorer-code-id")
+                .text_size(design::text::SECONDARY)
+                .overflow_hidden(),
+        )
+        .child(copy);
+    let sizes = blob.map(|blob| match &blob.view {
+        Some(carried) if !listed => format!(
+            "{} of code, {} of it the view",
+            size(blob.size),
+            size(carried.size)
+        ),
+        _ => size(blob.size),
+    });
+    let params = entry.map(|entry| match entry.params.is_empty() {
+        true => muted("none", theme),
+        false => mono(preview(
+            entry.params.len() as u64,
+            &entry.params[..entry.params.len().min(32)],
+        ))
+        .into_any_element(),
+    });
+    let mut who = changers(view, network, name, theme);
+    if who.is_empty() {
+        who.push(muted("no account: the validators' vote only", theme));
+    }
+    let about = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_2()
+        .children(who);
+    let declares = manifest.map(|manifest| {
+        let mut words = manifest.name.clone();
+        if !manifest.description.is_empty() {
+            words = format!("{words} · {}", manifest.description);
+        }
+        words
+    });
+    let talks_to = manifest
+        .filter(|manifest| !manifest.targets.is_empty())
+        .map(|manifest| manifest.targets.join(", "));
+    let blocks = view.chain.blocks.len() as u64;
+    let sent = view.chain.txs.iter().filter(|tx| tx.target == name).count() as u64;
+    // no window yet: the way to its transactions, without a count of nothing
+    let transactions = (!listed).then(|| {
+        line("explorer-program-transactions".into(), theme).child(link(
+            "explorer-program-txs".into(),
+            match blocks {
+                0 => "Transactions →".to_owned(),
+                _ => format!(
+                    "{} in the last {} →",
+                    plural(sent, "transaction", "transactions"),
+                    plural(blocks, "block", "blocks")
+                ),
+            },
+            Route::Transactions(Some(name.to_owned())),
+            cx,
+            theme,
+        ))
+    });
+    let scheduled: Vec<AnyElement> = network
+        .changes
+        .iter()
+        .enumerate()
+        .filter(|(_, pending)| pending.change.program() == name)
+        .map(|(index, pending)| scheduled(view, index, pending, cx, theme))
+        .collect();
+    let nothing_scheduled = scheduled.is_empty().then(|| {
+        quiet(
+            "explorer-program-no-changes",
+            "Nothing is scheduled for it.",
+            theme,
+        )
+    });
+    div()
+        .id("explorer-program")
+        .flex()
+        .flex_col()
+        .child(title)
+        .children(page_form)
+        .child(heading(
+            "explorer-capabilities-header",
+            "Capabilities",
+            count,
+            theme,
+        ))
+        .children(capabilities(view, listed, cx, theme))
+        .child(heading("explorer-about-header", "About", None, theme))
+        .child(field("Code", code_field, theme))
+        .children(sizes.map(|sizes| field("Size", muted(&sizes, theme), theme)))
+        .children(params.map(|params| field("Params", params, theme)))
+        .child(field("Maintained by", about, theme))
+        .children(declares.map(|words| field("Declares", muted(&words, theme), theme)))
+        .children(manifest.map(|manifest| {
+            field(
+                "Min width",
+                muted(&format!("{} px", manifest.min_width), theme),
+                theme,
+            )
+        }))
+        .children(talks_to.map(|targets| field("Talks to", mono(targets), theme)))
+        .children(manifest.map(|manifest| {
+            field(
+                "Wire",
+                mono(manifest.wire_id.clone()).text_color(theme.muted),
+                theme,
+            )
+        }))
+        .child(heading(
+            "explorer-program-scheduled-header",
+            "Scheduled",
+            None,
+            theme,
+        ))
+        .children(scheduled)
+        .children(nothing_scheduled)
+        .children(transactions)
+        .into_any_element()
+}
+
+/// The capabilities the code's view declares, a line each, or why none are
+/// shown: unread yet, refused (with a retry), code the node does not hold,
+/// a program that draws nothing, a manifest this app cannot read.
+fn capabilities(view: &Explorer, listed: bool, cx: Cx, theme: &Theme) -> Vec<AnyElement> {
+    let blob = match &view.manifest {
+        Loadable::Idle | Loadable::Loading(_) => {
+            return vec![quiet(
+                "explorer-manifest-loading",
+                "Reading the code…",
+                theme,
+            )];
+        }
+        Loadable::Failed(refusal) => return vec![failed(&refusal.message, cx, theme)],
+        Loadable::Ready(blob) | Loadable::Reloading(blob, _) => blob,
+    };
+    let Some(blob) = blob else {
+        return vec![quiet(
+            "explorer-no-code",
+            "The node does not hold this code yet.",
+            theme,
+        )];
+    };
+    let manifest = match &blob.view {
+        None if listed => {
+            return vec![quiet(
+                "explorer-unread-view",
+                "This app cannot read this view's manifest.",
+                theme,
+            )];
+        }
+        None => {
+            return vec![quiet(
+                "explorer-no-view",
+                "This program draws nothing: no view, so nothing is asked of the host.",
+                theme,
+            )];
+        }
+        Some(CarriedView { manifest: None, .. }) => {
+            return vec![quiet(
+                "explorer-unread-view",
+                "Its view carries a manifest this app cannot read: built for another wire, or asking a capability this app does not have.",
+                theme,
+            )];
+        }
+        Some(CarriedView {
+            manifest: Some(manifest),
+            ..
+        }) => manifest,
+    };
+    if manifest.capabilities.is_empty() {
+        return vec![quiet(
+            "explorer-no-capabilities",
+            "Its view asks nothing of the host.",
+            theme,
+        )];
+    }
+    manifest
+        .capabilities
+        .iter()
+        .map(|capability| {
+            line(
+                SharedString::from(format!("explorer-capability-{}", capability.as_str())).into(),
+                theme,
+            )
+            .child(
+                mono(capability.as_str().to_owned())
+                    .w(LABEL_W)
+                    .flex_shrink_0(),
+            )
+            .child(div().child(allows(*capability)))
+            .into_any_element()
+        })
+        .collect()
 }
 
 fn muted(text: &str, theme: &Theme) -> AnyElement {

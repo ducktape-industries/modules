@@ -25,7 +25,7 @@ pub fn run(fixture: &impl Fixture) {
 const HEIGHT: u64 = 10;
 
 fn program() -> String {
-    MockHost::roles().halo
+    MockHost::role(abi::role::HALO)
 }
 
 /// The founding lanes: `blobs` at 0, pinned, and `live` at 1.
@@ -83,7 +83,7 @@ fn send<F: Fixture>(host: &MockHost, origin: Origin, height: u64, op: &Op) -> Re
 
 /// `op` as the validators' vote enacts it: sent by the program bound to the validators role.
 fn voted<F: Fixture>(host: &MockHost, height: u64, op: &Op) -> Result<(), Error> {
-    let validators = Origin::Program(MockHost::roles().validators);
+    let validators = Origin::Program(MockHost::role(abi::role::VALIDATORS));
     send::<F>(host, validators, height, op)
 }
 

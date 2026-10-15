@@ -1,6 +1,6 @@
 //! What an account did lately, as the `activity` program indexes it: the newest frames the
-//! account acted in, each titled by its own program (`program.describe`) from its payload.
-use ::activity::PageRequest;
+//! account acted in, each the program it went to, whether it applied and its place on the chain.
+use ::activity::{Frame, PageRequest};
 use serde::{Deserialize, Serialize};
 use view::prelude::*;
 
@@ -14,9 +14,23 @@ pub struct Recent {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Signed {
-    pub title: String,
+    pub target: String,
+    pub applied: bool,
     pub height: u64,
+    pub position: u32,
     pub time: u64,
+}
+
+impl From<Frame> for Signed {
+    fn from(frame: Frame) -> Self {
+        Signed {
+            target: frame.target,
+            applied: frame.applied,
+            height: frame.height,
+            position: frame.position,
+            time: frame.time,
+        }
+    }
 }
 
 pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
@@ -24,6 +38,7 @@ pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
         .ask::<ChainBlocks>(BlockPage {
             before: None,
             limit: 1,
+            most: 0,
         })
         .await?;
     let acted = ::activity::ask::Acted {
@@ -31,42 +46,8 @@ pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
         page: PageRequest::first(SHOWN as u64),
     };
     let frames = host.query(acted).await?.items;
-    let mut items = Vec::with_capacity(frames.len());
-    for frame in frames {
-        let at = TxRef::At {
-            height: frame.height,
-            position: frame.position,
-        };
-        let ask = TxAsk {
-            tx: at,
-            most: u32::MAX,
-        };
-        let tx = host.ask::<ChainTx>(ask).await.ok().flatten();
-        items.push(Signed {
-            title: title(&host, &frame.target, tx.map(|located| located.tx)).await,
-            height: frame.height,
-            time: frame.time,
-        });
-    }
     Ok(Recent {
         now: tip.blocks.first().map_or(0, |block| block.time),
-        items,
+        items: frames.into_iter().map(Signed::from).collect(),
     })
-}
-
-async fn title(host: &Host, target: &str, tx: Option<Tx>) -> String {
-    let Some(tx) = tx else {
-        return target.to_owned();
-    };
-    let size = design::plural(u64::from(tx.size), "byte", "bytes");
-    let Some(payload) = tx.payload else {
-        return format!("{target} · {size}");
-    };
-    match host
-        .ask::<ProgramDescribe>((target.to_owned(), payload))
-        .await
-    {
-        Ok(Some(op)) => op.title,
-        Ok(None) | Err(_) => format!("{target} · {size}"),
-    }
 }

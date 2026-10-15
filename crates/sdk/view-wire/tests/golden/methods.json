@@ -263,7 +263,8 @@
     "kind": "chain.blocks",
     "request": {
       "before": 10,
-      "limit": 2
+      "limit": 2,
+      "most": 1
     },
     "reply": {
       "blocks": [
@@ -523,47 +524,53 @@
   {
     "kind": "chain.block",
     "request": {
-      "Id": [
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4,
-        4
-      ]
+      "by": {
+        "Id": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      },
+      "most": 0
     },
     "reply": null
   },
   {
     "kind": "chain.block",
     "request": {
-      "Height": 9
+      "by": {
+        "Height": 9
+      },
+      "most": 4294967295
     },
     "reply": {
       "height": 9,
@@ -936,6 +943,65 @@
       111,
       98
     ]
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:01",
+    "reply": {
+      "size": 512,
+      "view": {
+        "size": 256,
+        "manifest": null
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:02",
+    "reply": {
+      "size": 128,
+      "view": null
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha1:03",
+    "reply": null
   },
   {
     "kind": "host.session",

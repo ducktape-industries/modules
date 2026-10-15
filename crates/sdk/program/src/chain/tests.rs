@@ -517,7 +517,7 @@ fn a_message_acts_as_an_agent_only_through_the_program_that_runs_it() {
     }
     assert_eq!(logged(&chain, "c").len(), 1);
     let mut seated = chain;
-    seated.seat::<Ident>(&MockHost::roles().identity);
+    seated.seat::<Ident>(MockHost::role(abi::role::IDENTITY));
     seated
         .submit(Origin::Signed(vec![7]), "a", &vec![as_agent(40)])
         .unwrap();
@@ -574,7 +574,7 @@ fn the_roster_answers_programs_as_the_identity_role_does() {
 #[test]
 fn a_seated_identity_program_is_asked_as_the_kernel_asks_it() {
     let mut chain = chain();
-    chain.seat::<Ident>(&MockHost::roles().identity);
+    chain.seat::<Ident>(MockHost::role(abi::role::IDENTITY));
     chain.seat::<Bot>("bad");
     let script = vec![emit("b", vec![], false)];
     chain.submit(Origin::Signed(vec![7]), "a", &script).unwrap();
@@ -613,7 +613,7 @@ fn a_seated_identity_program_is_asked_as_the_kernel_asks_it() {
     // identity answering anything but Account is an unexpected reply
     let mut wrong = MockChain::default();
     wrong.seat::<Bot>("a");
-    wrong.seat::<Wrong>(&MockHost::roles().identity);
+    wrong.seat::<Wrong>(MockHost::role(abi::role::IDENTITY));
     let refused = wrong.submit(ada(), "a", &script).unwrap_err();
     assert_eq!(refused.code, code::UNEXPECTED_REPLY);
 }
@@ -622,10 +622,8 @@ fn a_seated_identity_program_is_asked_as_the_kernel_asks_it() {
 /// whatever id it runs, and every frame carries that binding.
 #[test]
 fn the_chain_asks_the_roles_it_was_founded_with() {
-    let roles = Roles {
-        identity: "people".into(),
-        ..MockHost::roles()
-    };
+    let mut roles = MockHost::roles();
+    roles.bind(abi::role::IDENTITY, "people");
     let mut chain = MockChain::founded(roles.clone());
     chain.seat::<Bot>("a");
     chain.seat::<Ident>("people");

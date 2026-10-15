@@ -221,7 +221,7 @@ impl Programs {
         )
         .unwrap();
         let blobs = MockHost::default();
-        blobs.sibling::<valset::Valset>(MockHost::roles().validators, &valset);
+        blobs.sibling::<valset::Valset>(MockHost::role(abi::role::VALIDATORS), &valset);
         Programs { blobs }
     }
 
@@ -237,7 +237,7 @@ impl Programs {
     }
 
     fn run(host: &MockHost, height: u64, op: programs::Op) -> Result<(), Error> {
-        let validators = Origin::Program(MockHost::roles().validators);
+        let validators = Origin::Program(MockHost::role(abi::role::VALIDATORS));
         let env = env("programs", height, validators, None);
         programs::Programs::execute(&host.exec(env), op)
     }
@@ -257,7 +257,7 @@ impl conformance::programs::Fixture for Programs {
     type Program = programs::Programs;
 
     fn hold(&self, host: &MockHost, body: &[u8]) -> Result<BlobId, Error> {
-        host.sibling::<blobs::Blobs>(MockHost::roles().blobs, &self.blobs);
+        host.sibling::<blobs::Blobs>(MockHost::role(abi::role::BLOBS), &self.blobs);
         let framed = blob::frame(programs::CODE_KIND, body).unwrap();
         let entry = blobs::Entry::of(&framed).unwrap();
         let code = entry.id;

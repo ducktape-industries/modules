@@ -277,8 +277,6 @@ pub struct Invite {
     pub invite: String,
     pub notes: Vec<crate::Error>,
 }
-/// A page of finalized blocks, newest first: those below `before` (from the
-/// tip when `None`), at most `limit` (the node caps a page at 100).
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
@@ -286,6 +284,7 @@ pub struct Invite {
 pub struct BlockPage {
     pub before: Option<u64>,
     pub limit: u32,
+    pub most: u32,
 }
 /// One finalized block, by height or by its id (the block digest).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -293,6 +292,12 @@ pub struct BlockPage {
 pub enum BlockRef {
     Height(u64),
     Id([u8; 32]),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct BlockAsk {
+    pub by: BlockRef,
+    pub most: u32,
 }
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
@@ -636,6 +641,28 @@ pub struct LiveAnnounce {
     pub up: bool,
 }
 
+/// What a code blob says of its view: `blob.manifest`'s answer. A program's
+/// code carries its view in the `ducktape.view` section; a view-only
+/// entry's blob is the view itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Manifested {
+    /// the blob's body, in bytes
+    pub size: u64,
+    /// `None` for a program whose code carries no view
+    pub view: Option<CarriedView>,
+}
+/// The view a blob carries, by size, and what its manifest declares.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct CarriedView {
+    /// the view's bytes (the section's, or the whole blob's for a view-only
+    /// entry)
+    pub size: u64,
+    /// `None` where this host cannot read it: no manifest section, a shape
+    /// it does not know, or a capability it does not know.
+    pub manifest: Option<crate::manifest::Manifest>,
+}
 methods! {
     also: ["program.query", "op.submit", "program.changes", HostWidget::KIND];
     /// `chain.status`: the connected node's status.
@@ -648,11 +675,19 @@ methods! {
     ChainBlocks, "chain.blocks", BlockPage, BlockList;
     /// `chain.block`: one finalized block; `None` where the node has none by
     /// that name.
-    ChainBlock, "chain.block", BlockRef, Option<Block>;
+    ChainBlock, "chain.block", BlockAsk, Option<Block>;
     ChainTx, "chain.tx", TxAsk, Option<Located>;
     /// `blob.get`: a blob by `sha256:<hex>` or `sha1:<hex>` id, unframed;
     /// `None` where the node holds no blob by that id.
     BlobGet, "blob.get", String, Option<Vec<u8>>;
+    /// `blob.manifest`: what the view in a code blob declares, by the
+    /// blob's `sha256:<hex>` or `sha1:<hex>` id: the host reads the manifest
+    /// as it would to seat the view, without fetching the bytes into the
+    /// view. Only code the programs role names is read (a listed program's,
+    /// a view-only entry's, or one a scheduled change brings); any other id
+    /// is refused `undeclared_target`. `None` where the node holds no blob
+    /// by that id.
+    BlobManifest, "blob.manifest", String, Option<Manifested>;
     /// `host.session`: a subscription to [`Session`], an item per change.
     HostSession, "host.session", (), Session;
     /// `host.visible`: whether the view is on screen, an item per change.
@@ -760,7 +795,19 @@ methods! {
 /// declares, and the only names it may. A method is reached only through the
 /// capability its kind starts with. One capability gates a node, not a
 /// method: [`Capability::Web`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub enum Capability {
     Chain,
     Program,
@@ -843,7 +890,8 @@ pub mod refusal {
     /// The kind's capability is not in the view's manifest.
     pub const UNDECLARED_CAPABILITY: &str = "undeclared_capability";
     /// The node method names a program the view's manifest does not list
-    /// among its targets.
+    /// among its targets, or `blob.manifest` names code the programs role
+    /// does not.
     pub const UNDECLARED_TARGET: &str = "undeclared_target";
     /// The op needed the person's confirmation on the host and did not get
     /// it: cancelled, or another confirmation for this view still waits.
@@ -851,11 +899,9 @@ pub mod refusal {
     /// The payload does not decode as the method's request, or says nothing
     /// the method can act on.
     pub const MALFORMED_REQUEST: &str = "malformed_request";
-    /// The payload, or what it would pull into the view, is over the host's
-    /// limit.
+    /// A live object over the most its track's mode carries in one object
+    /// on the node's wire; the track goes on.
     pub const TOO_LARGE: &str = "too_large";
-    /// More subscriptions of one kind than the host takes.
-    pub const SUBSCRIPTION_LIMIT: &str = "subscription_limit";
     /// No node is connected.
     pub const NOT_CONNECTED: &str = "not_connected";
     /// The node connection changed while the request waited.
@@ -878,8 +924,6 @@ pub mod refusal {
     /// The method needs a person's input (a press or a key) in the view, and
     /// there was none, or it was spent on an earlier request.
     pub const NEEDS_GESTURE: &str = "needs_gesture";
-    /// More links opened by the view in the last minute than the host takes.
-    pub const LINK_LIMIT: &str = "link_limit";
     pub const INVITE_UNSUPPORTED: &str = "invite_unsupported";
     /// The host closed the request with no answer; written on the view's
     /// side, by the SDK.
@@ -1002,7 +1046,6 @@ mod tests {
             (CONSENT_REFUSED, "consent_refused"),
             (MALFORMED_REQUEST, "malformed_request"),
             (TOO_LARGE, "too_large"),
-            (SUBSCRIPTION_LIMIT, "subscription_limit"),
             (NOT_CONNECTED, "not_connected"),
             (STALE_CONNECTION, "stale_connection"),
             (SESSION_LOCKED, "session_locked"),
@@ -1013,7 +1056,6 @@ mod tests {
             (WIDGET_COMMAND_FAILED, "widget_command_failed"),
             (WIDGET_UNMOUNTED, "widget_unmounted"),
             (NEEDS_GESTURE, "needs_gesture"),
-            (LINK_LIMIT, "link_limit"),
             (INVITE_UNSUPPORTED, "invite_unsupported"),
             (REQUEST_CLOSED, "request_closed"),
             (LIVE_UNAVAILABLE, "live_unavailable"),

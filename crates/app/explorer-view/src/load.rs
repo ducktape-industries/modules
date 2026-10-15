@@ -5,8 +5,8 @@
 //! changed.
 use view::prelude::*;
 
-use crate::chain::{BlockRow, TxRow};
-use crate::state::Route;
+use crate::chain::{self, BlockRow, TxRow};
+use crate::state::{Route, blob_ref};
 use crate::{Explorer, WINDOW, decode, queries};
 
 impl Explorer {
@@ -16,9 +16,34 @@ impl Explorer {
         self.read_accounts(cx);
         self.read_validators(cx);
         self.read_network(cx);
+        self.read_frames(cx);
         self.read_used(cx);
         self.read_acted(cx);
+        self.manifest_of = None;
+        self.read_manifest(cx);
         self.pull(cx);
+    }
+
+    /// What the code behind the program page on screen declares, asked once
+    /// per code id (`blob.manifest`): on every draw, so a page opened before
+    /// the roster landed asks when it does, and a page that names other
+    /// code blanks the one shown. Nothing to ask while no program page is
+    /// open or the roster does not name it.
+    pub(crate) fn read_manifest(&mut self, cx: &mut Context<Self>) {
+        let Route::Program(name) = &self.route else {
+            return;
+        };
+        let Some(code) = self.code_of(name) else {
+            return;
+        };
+        let id = blob_ref(&code);
+        if self.manifest_of.as_deref() == Some(id.as_str()) {
+            return;
+        }
+        self.manifest_of = Some(id.clone());
+        self.manifest = Loadable::Idle;
+        let ask = cx.host().ask::<BlobManifest>(id);
+        cx.load(self, ask, |view| &mut view.manifest);
     }
 
     /// A head `chain.heads` pushed: the window follows it without a read,
@@ -86,6 +111,11 @@ impl Explorer {
         cx.load(self, work, |view| &mut view.network);
     }
 
+    pub(crate) fn read_frames(&mut self, cx: &mut Context<Self>) {
+        let work = queries::frames(cx.host());
+        cx.load(self, work, |view| &mut view.frames);
+    }
+
     pub(crate) fn read_used(&mut self, cx: &mut Context<Self>) {
         let work = queries::used(cx.host());
         cx.load(self, work, |view| &mut view.used);
@@ -95,20 +125,11 @@ impl Explorer {
         let Route::Account(number) = self.route else {
             return;
         };
-        let mut known = match self.acted(number) {
-            Some(rows) => rows.to_vec(),
-            None => {
-                self.acted = Loadable::Idle;
-                Vec::new()
-            }
-        };
-        let keys = self
-            .account(number)
-            .map_or(&[][..], |account| account.keys());
-        let signed = |tx: &&TxRow| keys.iter().any(|key| key.key == tx.signer);
-        let windowed = self.chain.txs.iter().filter(signed);
-        known.extend(windowed.cloned());
-        let work = queries::acted(cx.host(), number, known);
+        let unheld = self.acted(number).is_none();
+        if unheld {
+            self.acted = Loadable::Idle;
+        }
+        let work = queries::acted(cx.host(), number);
         cx.load(self, work, |view| &mut view.acted);
     }
 
@@ -131,7 +152,12 @@ impl Explorer {
             _ => return,
         };
         self.pulling = true;
-        let ask = cx.host().ask::<ChainBlocks>(BlockPage { before, limit });
+        let page = BlockPage {
+            before,
+            limit,
+            most: 0,
+        };
+        let ask = cx.host().ask::<ChainBlocks>(page);
         cx.land(ask, move |view, page, cx| {
             view.pulling = false;
             match page {
@@ -161,11 +187,6 @@ impl Explorer {
 
     /// Asks the host what `tx` does, once, the first time it is drawn; a
     /// program that says nothing, or a refusal, leaves its bytes.
-    ///
-    /// ponytail: drawing asks (through `TxRow`'s cells) so only rows on
-    /// screen are described, not every transaction of a 1,000-block
-    /// window; a render that stays pure needs the visible rows computed
-    /// ahead of it.
     pub(crate) fn describe(&self, tx: &TxRow, cx: &mut Context<Self>) {
         let Some(payload) = &tx.payload else {
             return;
@@ -226,40 +247,46 @@ impl Explorer {
     fn described(&mut self, hash: [u8; 32], op: Description, cx: &mut Context<Self>) {
         // every row of the hash: a frame the node landed again is
         // the same op, drawn once per landing
-        let rows = self
-            .chain
-            .txs
-            .iter()
-            .chain(self.opened_txs())
-            .chain(self.acted_txs());
-        for tx in rows.filter(|tx| tx.hash == hash) {
+        for tx in self.held().filter(|tx| tx.hash == hash) {
             let _ = tx.op.set(op.clone());
         }
         cx.notify();
     }
 
-    pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
-        self.chain
-            .txs
-            .iter()
-            .find(|tx| &tx.hash == hash)
-            .or_else(|| self.opened_tx(hash))
-            .or_else(|| self.acted_txs().iter().find(|tx| &tx.hash == hash))
-    }
-
-    fn acted_txs(&self) -> &[TxRow] {
-        self.acted.ready().map_or(&[], |acted| &acted.rows)
-    }
-
-    pub(crate) fn opened_tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
-        self.opened_txs().iter().find(|tx| &tx.hash == hash)
-    }
-
-    fn opened_txs(&self) -> &[TxRow] {
-        match self.opened.ready() {
-            Some(Some((_, txs))) => txs,
+    fn held(&self) -> impl Iterator<Item = &TxRow> {
+        let opened = match self.opened.ready() {
+            Some(Some((_, txs))) => txs.as_slice(),
             _ => &[],
+        };
+        let located = self.located.ready().and_then(Option::as_ref);
+        self.chain.txs.iter().chain(opened).chain(located)
+    }
+
+    pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
+        self.held().find(|tx| &tx.hash == hash)
+    }
+
+    pub(crate) fn tx_at(&self, height: u64, position: u32) -> Option<&TxRow> {
+        self.held()
+            .find(|tx| (tx.height, tx.index) == (height, position))
+    }
+
+    pub(crate) fn locate(&mut self, height: u64, position: u32, cx: &mut Context<Self>) {
+        let held = self.tx_at(height, position).is_some();
+        if held {
+            return;
         }
+        let whole = TxAsk {
+            tx: TxRef::At { height, position },
+            most: u32::MAX,
+        };
+        let ask = cx.host().ask::<ChainTx>(whole);
+        self.located = Loadable::Idle;
+        cx.load(
+            self,
+            async move { ask.await.map(|found| found.map(chain::located)) },
+            |view| &mut view.located,
+        );
     }
 
     /// A block and its transactions, in the window or opened outside it.

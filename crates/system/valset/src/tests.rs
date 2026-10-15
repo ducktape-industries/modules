@@ -434,7 +434,7 @@ fn a_programs_motion_emits_its_op_to_the_programs_once_enacted() {
     assert_eq!(vote(&store, 2, motion).unwrap(), Voted::Enacted);
     let sent = store.take_emissions();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].target, MockHost::roles().programs);
+    assert_eq!(sent[0].target, MockHost::role(abi::role::PROGRAMS));
     assert_eq!(sent[0].payload, op);
     assert!(!sent[0].reply);
 }
@@ -449,7 +449,7 @@ fn a_halo_motion_emits_its_op_to_the_halo_once_enacted() {
         &abi::encode(&founding),
     )
     .unwrap();
-    store.sibling::<halo::Halo>(MockHost::roles().halo, &lanes);
+    store.sibling::<halo::Halo>(MockHost::role(abi::role::HALO), &lanes);
     let op = abi::encode(&halo::Op::Open {
         name: "chat".into(),
         cap: halo::Class::Member,
@@ -460,7 +460,7 @@ fn a_halo_motion_emits_its_op_to_the_halo_once_enacted() {
     assert_eq!(vote(&store, 2, motion).unwrap(), Voted::Enacted);
     let sent = store.take_emissions();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].target, MockHost::roles().halo);
+    assert_eq!(sent[0].target, MockHost::role(abi::role::HALO));
     assert_eq!(sent[0].payload, op);
     assert!(!sent[0].reply);
 }
@@ -540,10 +540,9 @@ fn role_asks_the_program_bound_to_the_validators_role() {
     let store = founded();
     store.sibling::<Valset>("third-party-valset", &store);
     let mut bound = env(Origin::Root);
-    bound.roles = ::program::Roles {
-        validators: "third-party-valset".into(),
-        ..MockHost::roles()
-    };
+    bound
+        .roles
+        .bind(abi::role::VALIDATORS, "third-party-valset");
     assert_eq!(
         crate::role(&store.query(bound), &key(1)).unwrap(),
         Some(Role::Validator)
@@ -686,7 +685,7 @@ fn a_suspended_agent_adds_no_voice_and_any_other_refusal_fails_the_vote() {
     assert_eq!(voices(&store, 20), [key(1)]);
     // an identity that refuses for any other reason fails the vote
     store.borrow_mut().siblings.insert(
-        MockHost::roles().identity,
+        MockHost::role(abi::role::IDENTITY),
         Box::new(|_, _| Err(Error::new(code::UNSUPPORTED, "not answered here"))),
     );
     let misbound = device(&store, 20, ADA, open).unwrap_err();
@@ -771,7 +770,7 @@ fn an_identity_that_answers_the_account_but_refuses_its_profile_fails_the_vote()
     let store = found(&[1, 2, 3, 4], 8).unwrap();
     let roster = roster(&[(1, 11)], vec![agent(11, Standing::Active)]);
     store.borrow_mut().siblings.insert(
-        MockHost::roles().identity,
+        MockHost::role(abi::role::IDENTITY),
         Box::new(move |_, request| match abi::decode(request) {
             Ok(abi::role::identity::Query::Profile(_)) => {
                 Err(Error::new(code::UNSUPPORTED, "no profiles here"))

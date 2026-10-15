@@ -36,8 +36,8 @@ fn blobs_role(store: &MockHost) -> MockHost {
     )
     .unwrap();
     let blobs = MockHost::default();
-    blobs.sibling::<valset::Valset>(MockHost::roles().validators, &valset);
-    store.sibling::<blobs::Blobs>(MockHost::roles().blobs, &blobs);
+    blobs.sibling::<valset::Valset>(MockHost::role(abi::role::VALIDATORS), &valset);
+    store.sibling::<blobs::Blobs>(MockHost::role(abi::role::BLOBS), &blobs);
     blobs
 }
 
@@ -65,7 +65,10 @@ fn fold_to(store: &MockHost, height: u64) {
 }
 
 fn authority(height: u64) -> Env {
-    env(height, Origin::Program(MockHost::roles().validators))
+    env(
+        height,
+        Origin::Program(MockHost::role(abi::role::VALIDATORS)),
+    )
 }
 
 fn entry(program: &str, code: BlobId) -> Entry {
@@ -140,7 +143,7 @@ fn only_the_validators_vote_schedules_or_cancels() {
         Origin::Signed(vec![9]),
         Origin::Root,
         Origin::Program("probe".into()),
-        Origin::Program(MockHost::roles().programs),
+        Origin::Program(MockHost::role(abi::role::PROGRAMS)),
     ] {
         for op in [Op::Schedule(scheduled.clone()), cancel.clone()] {
             let refused =
@@ -245,7 +248,8 @@ fn the_roster_is_answered_at_the_querys_own_height() {
 #[test]
 fn a_program_bound_to_a_role_is_never_removed() {
     let (store, code) = founded();
-    for (role, program) in MockHost::roles().named() {
+    for role in abi::role::REQUIRED {
+        let program = MockHost::role(role);
         let removed = schedule(&store, 5, Change::Remove(program.clone())).unwrap_err();
         assert_eq!(removed.code, code::INVALID_INPUT, "{role}: {program}");
     }
@@ -454,15 +458,16 @@ fn scheduled_heights(store: &MockHost) -> Vec<u64> {
 fn the_roles_are_answered_as_the_kernel_binds_them() {
     let (store, _) = founded();
     // not the suite's defaults: the answer is the env's, never a name assumed
-    let roles = ::program::Roles {
-        programs: "programs-b".into(),
-        validators: "validators-b".into(),
-        identity: "identity-b".into(),
-        blobs: "blobs-b".into(),
-        awaits: "awaits-b".into(),
-        halo: "halo-b".into(),
-        egress: Some("egress-b".into()),
-    };
+    let roles = ::program::Roles::from_iter([
+        (abi::role::PROGRAMS, "programs-b"),
+        (abi::role::VALIDATORS, "validators-b"),
+        (abi::role::IDENTITY, "identity-b"),
+        (abi::role::BLOBS, "blobs-b"),
+        (abi::role::AWAITS, "awaits-b"),
+        (abi::role::EGRESS, "egress-b"),
+        (abi::role::HALO, "halo-b"),
+        ("later", "later-b"),
+    ]);
     let asked = Env {
         roles: roles.clone(),
         ..env(1, Origin::Root)

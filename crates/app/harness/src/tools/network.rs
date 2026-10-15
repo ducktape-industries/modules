@@ -36,7 +36,7 @@ fn profile(profile: &Profile) -> Value {
 }
 
 fn ask(ctx: &ExecCtx, query: role::Query) -> Result<role::Reply, Error> {
-    ctx.query(ctx.env().roles.identity.clone(), &query)
+    ctx.query(ctx.env().role(abi::role::IDENTITY)?.clone(), &query)
 }
 
 #[derive(Deserialize)]

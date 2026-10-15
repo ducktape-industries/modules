@@ -1,6 +1,7 @@
 # methods: kind, target, request -> reply; borsh unless named
 blob.get None String -> Option<Vec<u8>>
-chain.block None BlockRef -> Option<Block>
+blob.manifest None String -> Option<Manifested>
+chain.block None BlockAsk -> Option<Block>
 chain.blocks None BlockPage -> BlockList
 chain.heads None () -> Head
 chain.network None () -> NetworkStatus
@@ -37,11 +38,27 @@ store.set None (String, Option<Vec<u8>>) -> ()
 (String, Option<Vec<u8>>) = Tuple { elements: ["String", "Option<Vec<u8>>"] }
 (String, Vec<u8>) = Tuple { elements: ["String", "Vec<u8>"] }
 Block = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]"), ("parent", "[u8; 32]"), ("time", "u64"), ("epoch", "u64"), ("proposer", "Option<Vec<u8>>"), ("txs", "Vec<Tx>")]) }
+BlockAsk = Struct { fields: NamedFields([("by", "BlockRef"), ("most", "u32")]) }
 BlockList = Struct { fields: NamedFields([("blocks", "Vec<Block>"), ("listed_from", "Option<u64>")]) }
-BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "u32")]) }
+BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "u32"), ("most", "u32")]) }
 BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1, "Id", "BlockRef__Id")] }
 BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
 BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }
+Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web"), (12, "Live", "Capability__Live")] }
+Capability__Blob = Struct { fields: Empty }
+Capability__Chain = Struct { fields: Empty }
+Capability__Clipboard = Struct { fields: Empty }
+Capability__Clock = Struct { fields: Empty }
+Capability__Host = Struct { fields: Empty }
+Capability__Invite = Struct { fields: Empty }
+Capability__Link = Struct { fields: Empty }
+Capability__Live = Struct { fields: Empty }
+Capability__Notify = Struct { fields: Empty }
+Capability__Op = Struct { fields: Empty }
+Capability__Program = Struct { fields: Empty }
+Capability__Store = Struct { fields: Empty }
+Capability__Web = Struct { fields: Empty }
+CarriedView = Struct { fields: NamedFields([("size", "u64"), ("manifest", "Option<Manifest>")]) }
 Change = Struct { fields: NamedFields([("height", "u64"), ("keys", "Vec<Vec<u8>>")]) }
 Clipboard = Struct { fields: NamedFields([("text", "String")]) }
 CreateInvite = Struct { fields: NamedFields([("ttl_days", "u64")]) }
@@ -71,13 +88,18 @@ LiveStart__Next = Struct { fields: Empty }
 LiveSubscribe = Struct { fields: NamedFields([("track", "LiveTrack"), ("from", "LiveStart")]) }
 LiveTrack = Struct { fields: NamedFields([("room", "String"), ("name", "String")]) }
 Located = Struct { fields: NamedFields([("height", "u64"), ("position", "u32"), ("time", "u64"), ("tx", "Tx")]) }
+Manifest = Struct { fields: NamedFields([("wire_id", "String"), ("name", "String"), ("description", "String"), ("capabilities", "Vec<Capability>"), ("min_width", "u32"), ("targets", "Vec<String>"), ("icon", "String")]) }
+Manifested = Struct { fields: NamedFields([("size", "u64"), ("view", "Option<CarriedView>")]) }
 NetworkStatus = Struct { fields: NamedFields([("height", "u64"), ("members", "Vec<Peer>")]) }
 NodeStatus = Struct { fields: NamedFields([("chain_id", "String"), ("time", "u64"), ("block_time_ms", "u64"), ("epoch_length", "u64"), ("height", "u64"), ("tip", "[u8; 32]"), ("root", "[u8; 32]"), ("epoch", "u64"), ("identity", "Vec<u8>"), ("contract", "u32")]) }
 Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String")]) }
 Option<Block> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Block")] }
+Option<CarriedView> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "CarriedView")] }
 Option<Change> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Change")] }
 Option<Description> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Description")] }
 Option<Located> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Located")] }
+Option<Manifest> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Manifest")] }
+Option<Manifested> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Manifested")] }
 Option<Receipt> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Receipt")] }
 Option<Vec<u8>> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Vec<u8>")] }
 Option<u64> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "u64")] }
@@ -112,10 +134,12 @@ Value__Program = Struct { fields: UnnamedFields(["String"]) }
 Value__Text = Struct { fields: UnnamedFields(["String"]) }
 Value__Time = Struct { fields: UnnamedFields(["u64"]) }
 Vec<Block> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Block" }
+Vec<Capability> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Capability" }
 Vec<Error> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Error" }
 Vec<Field> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Field" }
 Vec<Peer> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Peer" }
 Vec<Receipt> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Receipt" }
+Vec<String> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "String" }
 Vec<Tx> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Tx" }
 Vec<Value> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Value" }
 Vec<Vec<u8>> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Vec<u8>" }

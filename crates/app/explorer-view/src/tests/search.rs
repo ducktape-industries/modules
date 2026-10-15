@@ -13,8 +13,12 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     search(&mut cx, "#3");
     assert!(cx.has_text("account 3   Person   1 device"));
     search(&mut cx, "chat");
-    assert!(cx.has_text("Transactions · chat") && cx.has_text("Post in #design"));
-    assert!(!cx.has_text("mystery · 4 bytes"));
+    assert!(
+        cx.find("explorer-program").is_some() && cx.has_text("reads and writes the clipboard"),
+        "a program name opens its page: {:?}",
+        cx.texts()
+    );
+    assert!(!cx.has_text("mystery"), "{:?}", cx.texts());
     // a block hash in the window opens it; one outside is asked of the node
     search(&mut cx, &abi::hex(&[105; 32]));
     assert!(cx.has_text(&abi::hex(&[105; 32])), "{:?}", cx.texts());
@@ -24,8 +28,14 @@ fn search_finds_heights_hashes_accounts_and_programs() {
         "{:?}",
         cx.texts()
     );
+    let by_hash: Vec<_> = cx
+        .host()
+        .requests::<ChainTx>()
+        .into_iter()
+        .filter(|ask| matches!(ask.tx, TxRef::Hash(_)))
+        .collect();
     assert_eq!(
-        cx.host().requests::<ChainTx>(),
+        by_hash,
         [TxAsk {
             tx: TxRef::Hash([0xee; 32]),
             most: 0
@@ -35,7 +45,7 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     assert!(cx.has_text("No block 1,000"), "{:?}", cx.texts());
     assert_eq!(
         cx.host().requests::<ChainBlock>(),
-        vec![BlockRef::Id([0xee; 32]), BlockRef::Height(1000)]
+        [BlockRef::Id([0xee; 32]), BlockRef::Height(1000)].map(summary)
     );
     search(&mut cx, "nobody");
     assert!(cx.has_text("Nothing here is called “nobody”."));
@@ -77,6 +87,7 @@ fn a_transaction_past_the_window_is_found_by_its_hash() {
             BlockRef::Id([0xb2; 32]),
             BlockRef::Height(12)
         ]
+        .map(summary)
     );
 }
 
@@ -125,7 +136,10 @@ fn the_search_field_holds_only_what_is_being_typed() {
     cx.simulate_input("explorer-search", "11");
     cx.simulate_submit("explorer-search");
     cx.run_until_parked();
-    assert!(cx.has_text("Post in #design"), "block 11 opened");
+    assert!(
+        cx.find("explorer-block-txs-heading").is_some(),
+        "block 11 opened"
+    );
     assert_eq!(field(&cx), "", "a search that lands clears the field");
     cx.simulate_input("explorer-search", "half typed");
     cx.simulate_click("explorer-next");
@@ -160,8 +174,16 @@ fn a_link_opens_the_page_it_names() {
     assert!(cx.has_text(&abi::hex(&[105; 32])), "a block by its hash");
     open(&mut cx, "account/3");
     assert!(cx.has_text("account 3   Person   1 device"));
-    open(&mut cx, "program/chat");
+    open(&mut cx, "txs/chat");
     assert!(cx.has_text("Transactions · chat"));
+    open(&mut cx, "program/chat");
+    assert!(
+        cx.find("explorer-program").is_some() && cx.has_text("reads and writes the clipboard"),
+        "{:?}",
+        cx.texts()
+    );
+    open(&mut cx, "tx/12/0");
+    assert!(cx.has_text("In block 12") && cx.has_text("not a member"));
     open(&mut cx, &format!("tx/{}", abi::hex(&[0xee; 32])));
     assert!(cx.has_text("No block or transaction has this hash."));
     open(&mut cx, "nowhere/1");
@@ -207,10 +229,18 @@ fn every_route_reads_back_from_its_path() {
         Route::Block(6230),
         Route::Transactions(None),
         Route::Transactions(Some("chat".into())),
-        Route::Tx([0xa1; 32]),
+        Route::Tx {
+            height: 11,
+            position: 0,
+        },
+        Route::Tx {
+            height: 0,
+            position: u32::MAX,
+        },
         Route::Accounts,
         Route::Account(3),
         Route::Programs,
+        Route::Program("chat".into()),
     ] {
         assert_eq!(
             Route::from_path(&route.path()),
@@ -222,10 +252,18 @@ fn every_route_reads_back_from_its_path() {
         "block/07",
         "block/x",
         "tx/zz",
+        "tx/11",
+        "tx/11/01",
+        "tx/11/4294967296",
         "program/",
+        "txs/",
         "account/-1",
         "blocks/1",
     ] {
         assert_eq!(Route::from_path(nothing), None, "{nothing}");
     }
+}
+
+fn summary(by: BlockRef) -> BlockAsk {
+    BlockAsk { by, most: 0 }
 }

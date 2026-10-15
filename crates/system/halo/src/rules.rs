@@ -135,7 +135,7 @@ fn unpinned(lane: &Lane, done: &str) -> Result<(), Error> {
 }
 
 fn lane_by_role(ctx: &QueryCtx, name: &str) -> Result<Option<Lane>, Error> {
-    let role = ctx.env().roles.halo.clone();
+    let role = ctx.env().role(abi::role::HALO)?.clone();
     let asked = Query::Lane {
         name: name.to_owned(),
     };

@@ -1,12 +1,15 @@
 //! A node the explorer reads, played by the fake host: a short chain, three
 //! accounts, one validator and `programs`, each answered as the program
 //! would. Tests by what they cover: `access` (what a reader changes on the
-//! Programs page), `describe`, `window`, `pages`, `search`.
+//! Programs page), `describe`, `window`, `pages`, `detail` (one program's
+//! page), `search`, `transactions`.
 mod access;
 mod describe;
+mod detail;
 mod follow;
 mod pages;
 mod search;
+mod transactions;
 mod window;
 
 pub(crate) use std::cell::RefCell;
@@ -20,9 +23,10 @@ pub(crate) use programs::Programs;
 pub(crate) use valset::Valset;
 pub(crate) use view::host::Error;
 pub(crate) use view::methods::{
-    Block, BlockList, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads, ChainStatus,
-    ChainTx, Changes, ClipboardWrite, Description, Head, HostRoute, HostSession, Located,
-    NodeStatus, Outcome, ProgramDescribe, Query, Receipt, Session, Tip, Tx, TxAsk, TxRef, Value,
+    BlobManifest, Block, BlockAsk, BlockList, BlockPage, BlockRef, Capability, CarriedView,
+    ChainBlock, ChainBlocks, ChainHeads, ChainStatus, ChainTx, Changes, ClipboardWrite,
+    Description, Head, HostRoute, HostSession, Located, Manifested, NodeStatus, Outcome,
+    ProgramDescribe, Query, Receipt, Session, Tip, Tx, TxAsk, TxRef, Value,
 };
 pub(crate) use view::testing::TestAppContext;
 
@@ -125,8 +129,6 @@ pub(crate) fn chain(tip: u64) -> Vec<Block> {
         .collect()
 }
 
-pub(crate) const LISTED_BYTES: u32 = 4 << 10;
-
 pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> BlockList {
     let top = chain.len() as u64 - 1;
     let start = ask.before.map_or(Some(top), |before| before.checked_sub(1));
@@ -134,7 +136,7 @@ pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> BlockList {
         (0..=start.min(top))
             .rev()
             .take(ask.limit as usize)
-            .map(|height| listed(&chain[height as usize]))
+            .map(|height| listed(&chain[height as usize], ask.most))
             .collect()
     });
     BlockList {
@@ -143,13 +145,9 @@ pub(crate) fn page(chain: &[Block], ask: &BlockPage) -> BlockList {
     }
 }
 
-pub(crate) fn listed(block: &Block) -> Block {
+pub(crate) fn listed(block: &Block, most: u32) -> Block {
     Block {
-        txs: block
-            .txs
-            .iter()
-            .map(|tx| capped(tx, LISTED_BYTES))
-            .collect(),
+        txs: block.txs.iter().map(|tx| capped(tx, most)).collect(),
         ..block.clone()
     }
 }
@@ -183,15 +181,29 @@ pub(crate) fn serve(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + Clone 
     let held = chain.clone();
     host.handle::<ChainBlocks>(move |ask| Ok(page(&held(), &ask)));
     let held = chain.clone();
-    host.handle::<ChainBlock>(move |by| {
+    host.handle::<ChainBlock>(move |ask| {
         let held = held();
-        let found = match by {
+        let found = match ask.by {
             BlockRef::Height(height) => held.get(height as usize),
             BlockRef::Id(id) => held.iter().find(|block| block.id == id),
         };
-        Ok(found.map(listed))
+        Ok(found.map(|block| listed(block, ask.most)))
     });
     host.handle::<ChainTx>(move |ask| Ok(located(&chain(), ask)));
+}
+
+pub(crate) fn name(cx: &TestAppContext, id: &str) -> Option<String> {
+    match cx.find(id) {
+        Some(view::wire::Node::Container(row)) => row
+            .interactivity
+            .as_ref()
+            .unwrap()
+            .aria
+            .label
+            .clone()
+            .map(String::from),
+        other => panic!("no row {id}: {other:?}"),
+    }
 }
 
 pub(crate) fn status(height: u64) -> NodeStatus {
@@ -276,13 +288,24 @@ pub(crate) fn index(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + 'stati
                     height: block.height,
                     position: position as u32,
                     time: block.time,
+                    signer: tx.signer.clone(),
                     target: tx.target,
-                    applied: true,
+                    applied: tx
+                        .receipt
+                        .as_ref()
+                        .is_none_or(|run| matches!(run.outcome, Outcome::Applied { .. })),
                 };
                 (holder(&tx.signer), frame)
             })
         });
         Ok(match query {
+            activity::Query::Frames { page: asked } => {
+                let every = frames
+                    .map(|(_, frame)| frame)
+                    .take(asked.limit() as usize)
+                    .collect();
+                activity::Reply::Frames(whole(every))
+            }
             activity::Query::Acted {
                 account,
                 page: asked,
@@ -339,7 +362,67 @@ pub(crate) fn node(cx: &mut TestAppContext, tip: Rc<RefCell<u64>>) {
     host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
+    manifests(cx);
 }
+
+/// The host's `blob.manifest` over the suite's code: chat's code carries a
+/// view that declares six capabilities, identity's carries no view, the
+/// explorer's blob is a view itself; any other id is code the node does
+/// not hold.
+pub(crate) fn manifests(cx: &TestAppContext) {
+    cx.host().handle::<BlobManifest>(|id| {
+        let manifest = |name: &str, capabilities: Vec<Capability>| view::wire::manifest::Manifest {
+            wire_id: "0123abcd".into(),
+            name: name.into(),
+            description: format!("{name}, as the suite plays it."),
+            capabilities,
+            min_width: 480,
+            targets: vec!["chat".into()],
+            icon: "icons/chat.svg".into(),
+        };
+        Ok(match id.as_str() {
+            CHAT_CODE => Some(Manifested {
+                size: 2_400_000,
+                view: Some(CarriedView {
+                    size: 1_900_000,
+                    manifest: Some(manifest(
+                        "Chat",
+                        vec![
+                            Capability::Chain,
+                            Capability::Program,
+                            Capability::Op,
+                            Capability::Clipboard,
+                            Capability::Notify,
+                            Capability::Store,
+                        ],
+                    )),
+                }),
+            }),
+            IDENTITY_CODE => Some(Manifested {
+                size: 130_000,
+                view: None,
+            }),
+            EXPLORER_CODE => Some(Manifested {
+                size: 1_200_000,
+                view: Some(CarriedView {
+                    size: 1_200_000,
+                    manifest: Some(manifest(
+                        "Explorer",
+                        vec![Capability::Chain, Capability::Clock],
+                    )),
+                }),
+            }),
+            _ => None,
+        })
+    });
+}
+
+pub(crate) const CHAT_CODE: &str =
+    "sha256:abababababababababababababababababababababababababababababababab";
+pub(crate) const IDENTITY_CODE: &str =
+    "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+pub(crate) const EXPLORER_CODE: &str =
+    "sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef";
 
 pub(crate) fn entry(program: &str, code: u8) -> programs::Entry {
     programs::Entry {
@@ -406,15 +489,15 @@ pub(crate) fn programs_granting(
             }
             programs::Query::Hooks(_) => programs::Reply::Hooks(hooks.clone()),
             programs::Query::Grants { .. } => programs::Reply::Grants(whole(grants.clone())),
-            programs::Query::Roles => programs::Reply::Roles(abi::Roles {
-                programs: programs::PROGRAM.into(),
-                validators: valset::PROGRAM.into(),
-                identity: identity::PROGRAM.into(),
-                blobs: "blobs".into(),
-                awaits: "awaits".into(),
-                halo: "halo".into(),
-                egress: Some("egress".into()),
-            }),
+            programs::Query::Roles => programs::Reply::Roles(abi::Roles::from_iter([
+                (abi::role::PROGRAMS, programs::PROGRAM),
+                (abi::role::VALIDATORS, valset::PROGRAM),
+                (abi::role::IDENTITY, identity::PROGRAM),
+                (abi::role::BLOBS, "blobs"),
+                (abi::role::AWAITS, "awaits"),
+                (abi::role::EGRESS, "egress"),
+                (abi::role::HALO, "halo"),
+            ])),
             other => panic!("unexpected query: {other:?}"),
         })
     });
@@ -494,6 +577,7 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
     host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
+    manifests(cx);
 }
 
 /// A restore that must read nothing: every ask left unanswered.
@@ -507,4 +591,5 @@ pub(crate) fn quiet_host(cx: &TestAppContext) {
     host.never::<Query<Programs>>();
     host.never::<Query<Activity>>();
     host.never::<ProgramDescribe>();
+    host.never::<BlobManifest>();
 }
