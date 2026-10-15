@@ -20,6 +20,15 @@ pub fn program_link(chain: &str, channel: &str) -> Option<String> {
     ducklink::mint(chain, program, &path)
 }
 
+/// `duck://<chain>/<runner>/<agent>/chat/<channel>`: where the program
+/// that runs an agent shows its work in a room, by the place it keeps it
+/// under (`chat/<channel>`), the channel percent-encoded like any segment.
+/// None without a chain.
+pub fn work_record(chain: &str, runner: &str, agent: u64, channel: &str) -> Option<String> {
+    let agent = agent.to_string();
+    ducklink::mint(chain, runner, &[&agent, ::chat::PROGRAM, channel])
+}
+
 /// `duck://explorer/block/<height>`: the host's short link to a view on
 /// this connection, Explorer at that block.
 pub fn block_link(height: u64) -> String {
@@ -66,6 +75,20 @@ mod tests {
             Some("duck://testnet-0a1b2c3d/forge/web/3")
         );
         assert_eq!(program_link("testnet#0a1b2c3d", "general"), None);
+        assert_eq!(
+            work_record("testnet#0a1b2c3d", "harness", 12, "general").as_deref(),
+            Some("duck://testnet-0a1b2c3d/harness/12/chat/general")
+        );
+        let link = work_record("testnet#0a1b2c3d", "harness", 12, "forge:web:3").unwrap();
+        assert_eq!(
+            link,
+            "duck://testnet-0a1b2c3d/harness/12/chat/forge%3Aweb%3A3"
+        );
+        assert_eq!(
+            ducklink::Link::parse(&link).unwrap().tail,
+            ["12", "chat", "forge:web:3"]
+        );
+        assert_eq!(work_record("", "harness", 12, "general"), None);
     }
 
     /// Any room lands, a forge room's `:` included: the link spells the id

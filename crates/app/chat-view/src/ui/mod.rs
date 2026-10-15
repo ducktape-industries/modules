@@ -83,6 +83,7 @@ fn with_menu(
     // audit knows is modal; its frame inside carries no dialog of its own
     let label = match mode {
         Some(crate::Mode::Reactions) => "Add reaction",
+        Some(crate::Mode::Profile) => "Agent profile",
         _ => "Message menu",
     };
     let overlay = modal_overlay(

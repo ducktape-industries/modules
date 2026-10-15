@@ -12,6 +12,7 @@ use view::methods::Change;
 use view::methods::Query as Ask;
 use view::methods::{Changes, HostId, HostSession, HostVisible, Session, Submit};
 
+mod agents;
 mod menus;
 mod message;
 mod notices;
@@ -97,62 +98,76 @@ fn quiet_methods(cx: &mut TestAppContext) {
 
 fn configure(cx: &mut TestAppContext) {
     quiet_methods(cx);
-    cx.host().handle::<Ask<::chat::Chat>>(|query| {
+    cx.host()
+        .handle::<Ask<::chat::Chat>>(|query| Ok(chat_reply(query)));
+    // the one agent, eddy's own, answers only him
+    cx.host().handle::<Ask<Identity>>(|query| {
         Ok(match query {
-            Query::Accounts { .. } => Reply::Accounts(page(vec![
-                person(7, "eddy"),
-                // an agent eddy manages
-                chat::Profile {
-                    kind: chat::Kind::Program {
-                        script: None,
-                        manager: 7,
-                        category: chat::Category::Agent,
-                        standing: chat::Standing::Active,
-                    },
-                    ..person(8, "reviewer")
-                },
-                // forge's own account
-                chat::Profile {
-                    kind: chat::Kind::System("forge".into()),
-                    ..person(9, "forge")
-                },
-                // a person eddy has no room with yet
-                person(10, "ada"),
-            ])),
-            Query::Channels { .. } => Reply::Channels(page(vec![
-                channel("general", "General", 3),
-                channel("dm-7-8", "dm", 1),
-                channel("forge:web:3", "Review web#3", 2),
-            ])),
-            Query::Roots { channel_id, .. } => Reply::Roots(page(if channel_id == "general" {
-                vec![row(1, 7, "hello"), row(2, 8, "**hi** there")]
-            } else {
-                Vec::new()
-            })),
-            Query::Members { .. } => Reply::Members(page(Vec::new())),
-            Query::Thread { .. } => Reply::Thread {
-                root: None,
-                replies: page(Vec::new()),
-            },
-            Query::Search { text, .. } => {
-                assert_eq!(text, "hello");
-                Reply::Hits(MessageHits {
-                    // two channels, one seq: the dm's first line says it too
-                    hits: vec![
-                        row(1, 7, "hello"),
-                        MsgRow {
-                            channel_id: "dm-7-8".into(),
-                            ..row(1, 8, "hello")
-                        },
-                    ],
-                    capped: false,
-                })
+            identity::Query::Audience { number: 8 } => {
+                identity::Reply::Audience(identity::Audience::Manager)
             }
-            query => panic!("unexpected chat query: {query:?}"),
+            query => panic!("unexpected identity query: {query:?}"),
         })
     });
     cx.host()
         .handle::<Submit<::chat::Chat>>(|_| Ok(view::testing::applied(Vec::new())));
+}
+
+/// What the fake chat program answers: three rooms, two rows in `general`
+/// and a roster of eddy, his agent, forge and ada.
+fn chat_reply(query: Query) -> Reply {
+    match query {
+        Query::Accounts { .. } => Reply::Accounts(page(vec![
+            person(7, "eddy"),
+            // an agent eddy manages
+            chat::Profile {
+                kind: chat::Kind::Program {
+                    script: None,
+                    manager: 7,
+                    category: chat::Category::Agent,
+                    standing: chat::Standing::Active,
+                },
+                ..person(8, "reviewer")
+            },
+            // forge's own account
+            chat::Profile {
+                kind: chat::Kind::System("forge".into()),
+                ..person(9, "forge")
+            },
+            // a person eddy has no room with yet
+            person(10, "ada"),
+        ])),
+        Query::Channels { .. } => Reply::Channels(page(vec![
+            channel("general", "General", 3),
+            channel("dm-7-8", "dm", 1),
+            channel("forge:web:3", "Review web#3", 2),
+        ])),
+        Query::Roots { channel_id, .. } => Reply::Roots(page(if channel_id == "general" {
+            vec![row(1, 7, "hello"), row(2, 8, "**hi** there")]
+        } else {
+            Vec::new()
+        })),
+        Query::Members { .. } => Reply::Members(page(Vec::new())),
+        Query::Thread { .. } => Reply::Thread {
+            root: None,
+            replies: page(Vec::new()),
+        },
+        Query::Search { text, .. } => {
+            assert_eq!(text, "hello");
+            Reply::Hits(MessageHits {
+                // two channels, one seq: the dm's first line says it too
+                hits: vec![
+                    row(1, 7, "hello"),
+                    MsgRow {
+                        channel_id: "dm-7-8".into(),
+                        ..row(1, 8, "hello")
+                    },
+                ],
+                capped: false,
+            })
+        }
+        query => panic!("unexpected chat query: {query:?}"),
+    }
 }
 
 /// The reader the host seats: key `0102`, account 7, on testnet.
