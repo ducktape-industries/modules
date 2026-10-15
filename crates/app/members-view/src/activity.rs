@@ -24,6 +24,7 @@ pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
         .ask::<ChainBlocks>(BlockPage {
             before: None,
             limit: 1,
+            most: 0,
         })
         .await?;
     let acted = ::activity::ask::Acted {

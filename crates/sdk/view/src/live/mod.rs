@@ -545,8 +545,8 @@ impl Network {
                     .iter()
                     .rev()
                     .filter(|block| block.height < before)
-                    .take(page.limit.min(100) as usize)
-                    .map(listed)
+                    .take(page.limit as usize)
+                    .map(|block| listed(block, page.most))
                     .collect();
                 let listed_from = state.blocks.first().map(|block| block.height);
                 Ok(methods::encode(&methods::BlockList {
@@ -555,14 +555,14 @@ impl Network {
                 }))
             }
             "chain.block" => {
-                let by: methods::BlockRef =
+                let ask: methods::BlockAsk =
                     methods::decode(payload).map_err(|error| malformed(&error))?;
                 let state = self.0.borrow();
-                let block = state.blocks.iter().find(|block| match &by {
+                let block = state.blocks.iter().find(|block| match &ask.by {
                     methods::BlockRef::Height(height) => block.height == *height,
                     methods::BlockRef::Id(id) => block.id == *id,
                 });
-                Ok(methods::encode(&block.map(listed)))
+                Ok(methods::encode(&block.map(|block| listed(block, ask.most))))
             }
             "chain.tx" => {
                 let ask: methods::TxAsk =
@@ -888,13 +888,9 @@ impl Network {
     }
 }
 
-fn listed(block: &methods::Block) -> methods::Block {
+fn listed(block: &methods::Block, most: u32) -> methods::Block {
     methods::Block {
-        txs: block
-            .txs
-            .iter()
-            .map(|tx| capped(tx, wire::PREVIEW_BYTES))
-            .collect(),
+        txs: block.txs.iter().map(|tx| capped(tx, most)).collect(),
         ..block.clone()
     }
 }

@@ -4,7 +4,11 @@ use super::*;
 fn the_window_follows_the_head_and_stops_where_the_archive_does() {
     let mut window = Chain::default();
     let blocks = chain(30);
-    let ask = |before| BlockPage { before, limit: 20 };
+    let ask = |before| BlockPage {
+        before,
+        limit: 20,
+        most: 0,
+    };
     window.land(None, page(&blocks, &ask(None)));
     assert_eq!((window.top(), window.blocks.len()), (Some(30), 20));
     assert!(!window.complete, "a full page may have more below it");
@@ -33,7 +37,11 @@ fn the_window_follows_the_head_and_stops_where_the_archive_does() {
 fn a_page_cut_short_reads_on_until_the_lowest_listed_block() {
     let mut window = Chain::default();
     let blocks = chain(30);
-    let ask = |before| BlockPage { before, limit: 20 };
+    let ask = |before| BlockPage {
+        before,
+        limit: 20,
+        most: 0,
+    };
     let mut short = page(&blocks, &ask(None));
     short.blocks.truncate(5);
     window.land(None, short);
@@ -159,23 +167,25 @@ fn a_full_window_renders_inside_the_frame_budget() {
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
     assert!(
-        cx.has_text("forge · 1,048,589 bytes"),
-        "the push is listed by its size: {:?}",
+        cx.has_text("Push · app"),
+        "the push is listed by its op: {:?}",
         cx.texts()
     );
     cx.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
     cx.run_until_parked();
     assert!(cx.has_text("1048576 bytes · 50505050…5050"));
+    let push = TxAsk {
+        tx: TxRef::At {
+            height: WINDOW as u64,
+            position: 0,
+        },
+        most: u32::MAX,
+    };
+    let asked = cx.host().requests::<ChainTx>();
     assert_eq!(
-        cx.host().requests::<ChainTx>(),
-        [TxAsk {
-            tx: TxRef::At {
-                height: WINDOW as u64,
-                position: 0
-            },
-            most: u32::MAX
-        }],
-        "only the opened push reads its payload"
+        asked.iter().filter(|ask| **ask == push).count(),
+        1,
+        "the push's payload is read once, for its row and its page"
     );
     sizes.push(("a 1 MB push", cx.frame_bytes()));
     // A regression guard, not a host limit: about 1.5x what each page drew

@@ -1,5 +1,5 @@
 //! The node daemon's `/v1` wire, mirrored field for field from the app's
-//! copy (`src/backend/noded.rs` in the app, itself a copy of
+//! copy (`crates/noded-client/src/wire.rs` in the app, itself a copy of
 //! `crates/noded/src/wire.rs` and `crates/kernel/node/src/frame.rs` in
 //! ducktape): borsh in and out, and the signed frame every write and query
 //! carries. A field that moves there moves here.
@@ -8,8 +8,7 @@ use abi::{BlobId, ProgramId, Roles, Root};
 use borsh::{BorshDeserialize, BorshSerialize};
 use program::abi;
 
-pub const NODE_CONTRACT: u32 = 4;
-pub const PREVIEW_BYTES: u32 = 4 << 10;
+pub const NODE_CONTRACT: u32 = 8;
 pub const FRAME_NAMESPACE: &[u8] = b"ducktape:frame";
 
 pub mod route {
@@ -132,12 +131,19 @@ pub struct Change {
 pub struct Blocks {
     pub before: Option<u64>,
     pub limit: u32,
+    pub most: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum BlockRef {
     Height(u64),
     Id([u8; 32]),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct BlockAsk {
+    pub by: BlockRef,
+    pub most: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

@@ -82,26 +82,27 @@ fn a_submission_is_a_block_with_its_changes() {
     assert_eq!(net.person("ada"), ada, "a name is one account");
     let status = net.status();
     assert_eq!(status.height, height + 1);
-    let listed: methods::BlockList = methods::decode(
-        &net.answer(
-            "chain.blocks",
-            None,
-            &methods::encode(&methods::BlockPage {
-                before: None,
-                limit: 10,
-            }),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let blocks = &listed.blocks;
+    let listed = |most| -> methods::BlockList {
+        let page = methods::BlockPage {
+            before: None,
+            limit: 10,
+            most,
+        };
+        let answer = net.answer("chain.blocks", None, &methods::encode(&page));
+        methods::decode(&answer.unwrap()).unwrap()
+    };
+    let blocks = listed(0).blocks;
     assert_eq!(blocks[0].height, height + 1);
     assert_eq!(blocks[0].txs.len(), 1);
     assert_eq!(blocks[0].txs[0].target, "identity");
+    assert_eq!(blocks[0].txs[0].payload, None);
     assert_eq!(blocks.last().unwrap().height, 1);
-    assert_eq!(listed.listed_from, Some(1));
+    assert_eq!(listed(0).listed_from, Some(1));
     let size = blocks[0].txs[0].size;
     assert!(size > 0);
+    let carried = &listed(size).blocks[0].txs[0];
+    assert_eq!(carried.payload.as_ref().map(Vec::len), Some(size as usize));
+    assert_eq!(listed(size - 1).blocks[0].txs[0].payload, None);
     let read = |most| {
         let ask = methods::TxAsk {
             tx: methods::TxRef::At {
