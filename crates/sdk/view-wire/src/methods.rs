@@ -492,9 +492,11 @@ pub struct Manifested {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct CarriedView {
+    /// the view's bytes (the section's, or the whole blob's for a view-only
+    /// entry)
     pub size: u64,
     /// `None` where this host cannot read it: no manifest section, a shape
-    /// it does not know, or a capability it does not have.
+    /// it does not know, or a capability it does not know.
     pub manifest: Option<crate::manifest::Manifest>,
 }
 methods! {
@@ -514,10 +516,13 @@ methods! {
     /// `blob.get`: a blob by `sha256:<hex>` or `sha1:<hex>` id, unframed;
     /// `None` where the node holds no blob by that id.
     BlobGet, "blob.get", String, Option<Vec<u8>>;
-    /// `blob.manifest`: what the view in a blob declares, by the blob's
-    /// `sha256:<hex>` or `sha1:<hex>` id: the host reads the manifest as it
-    /// would to seat the view, without fetching the bytes into the view.
-    /// `None` where the node holds no blob by that id.
+    /// `blob.manifest`: what the view in a code blob declares, by the
+    /// blob's `sha256:<hex>` or `sha1:<hex>` id: the host reads the manifest
+    /// as it would to seat the view, without fetching the bytes into the
+    /// view. Only code the programs role names is read (a listed program's,
+    /// a view-only entry's, or one a scheduled change brings); any other id
+    /// is refused `undeclared_target`. `None` where the node holds no blob
+    /// by that id.
     BlobManifest, "blob.manifest", String, Option<Manifested>;
     /// `host.session`: a subscription to [`Session`], an item per change.
     HostSession, "host.session", (), Session;
@@ -679,7 +684,8 @@ pub mod refusal {
     /// The kind's capability is not in the view's manifest.
     pub const UNDECLARED_CAPABILITY: &str = "undeclared_capability";
     /// The node method names a program the view's manifest does not list
-    /// among its targets.
+    /// among its targets, or `blob.manifest` names code the programs role
+    /// does not.
     pub const UNDECLARED_TARGET: &str = "undeclared_target";
     /// The op needed the person's confirmation on the host and did not get
     /// it: cancelled, or another confirmation for this view still waits.
